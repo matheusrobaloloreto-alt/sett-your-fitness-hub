@@ -1,0 +1,2 @@
+DELETE FROM public.whatsapp_messages WHERE chat_id IN (SELECT id FROM public.whatsapp_chats WHERE remote_jid = '5511999999999@s.whatsapp.net');
+DELETE FROM public.whatsapp_chats WHERE remote_jid = '5511999999999@s.whatsapp.net';

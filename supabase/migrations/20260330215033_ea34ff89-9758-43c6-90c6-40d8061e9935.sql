@@ -1,0 +1,1 @@
+ALTER TABLE public.workouts DROP CONSTRAINT IF EXISTS workouts_created_by_fkey;

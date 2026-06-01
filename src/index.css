@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Set Training App — Paper-first brand system */
+    --background: 60 19% 98%;          /* Paper #FAFAF7 */
+    --foreground: 0 0% 4%;             /* Ink #0A0A0A */
+
+    --card: 47 21% 93%;                /* Paper Warm */
+    --card-foreground: 0 0% 4%;
+
+    --popover: 60 19% 98%;
+    --popover-foreground: 0 0% 4%;
+
+    --primary: 223 53% 27%;            /* Set Navy #1D2D5C */
+    --primary-foreground: 60 19% 98%;
+
+    --secondary: 47 21% 93%;           /* Paper Warm */
+    --secondary-foreground: 0 0% 4%;
+
+    --muted: 47 21% 93%;
+    --muted-foreground: 45 2% 41%;     /* Muted #6B6A66 */
+
+    --accent: 223 53% 27%;
+    --accent-foreground: 60 19% 98%;
+
+    --destructive: 0 65% 42%;
+    --destructive-foreground: 60 19% 98%;
+
+    --border: 45 12% 83%;              /* Line #D8D6CE */
+    --input: 45 12% 83%;
+    --ring: 223 53% 27%;
+
+    --radius: 0.25rem;
+
+    /* Extra semantic tokens */
+    --paper: 60 19% 98%;
+    --paper-warm: 47 21% 93%;
+    --line: 45 12% 83%;
+    --ink: 0 0% 4%;
+    --ink-soft: 0 0% 10%;
+    --navy: 223 53% 27%;
+
+    --sidebar-background: 47 21% 93%;
+    --sidebar-foreground: 0 0% 10%;
+    --sidebar-primary: 223 53% 27%;
+    --sidebar-primary-foreground: 60 19% 98%;
+    --sidebar-accent: 60 19% 98%;
+    --sidebar-accent-foreground: 223 53% 27%;
+    --sidebar-border: 45 12% 83%;
+    --sidebar-ring: 223 53% 27%;
+
+    --chart-1: 223 53% 27%;
+    --chart-2: 223 40% 45%;
+    --chart-3: 0 0% 10%;
+    --chart-4: 45 2% 41%;
+    --chart-5: 45 12% 70%;
+
+    --success: 142 50% 32%;
+    --success-foreground: 60 19% 98%;
+    --warning: 32 80% 42%;
+    --warning-foreground: 60 19% 98%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', system-ui, sans-serif;
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: 'Fraunces', Georgia, serif;
+    font-feature-settings: "ss01", "ss02";
+  }
+  .font-mono-data {
+    font-family: 'JetBrains Mono', Consolas, monospace;
+    font-feature-settings: "ss01";
+  }
+  .text-eyebrow {
+    font-family: 'JetBrains Mono', Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Scrollbar — Paper system */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(var(--paper));
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--line));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}

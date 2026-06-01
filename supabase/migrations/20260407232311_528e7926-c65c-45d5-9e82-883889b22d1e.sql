@@ -1,0 +1,1 @@
+INSERT INTO enrollments (student_id, plan_id, company_id, start_date, end_date, payment_status, payment_date, status) VALUES ('559d6fb8-a517-4b29-b422-261c13f45fe6', '88faf03c-c488-421f-af1d-d406fb4bb70f', 'c051e80e-c10c-4522-a88a-e5da26a74d82', '2026-04-07', '2026-10-04', 'paid', '2026-04-07', 'active')

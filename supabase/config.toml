@@ -1,0 +1,10 @@
+project_id = "cxesecxyrndveookvlzz"
+
+[functions.public-registration]
+verify_jwt = false
+
+[functions.public-anamnesis]
+verify_jwt = false
+
+[functions.public-payment-context]
+verify_jwt = false

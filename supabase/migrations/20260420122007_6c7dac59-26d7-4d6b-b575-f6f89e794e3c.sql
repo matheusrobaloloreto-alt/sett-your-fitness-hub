@@ -1,0 +1,1 @@
+ALTER TABLE public.workout_sessions ALTER COLUMN workout_id DROP NOT NULL;
