@@ -64,14 +64,14 @@ The Vite dev server defaults to `http://localhost:8080`.
 ### Repositório & Acesso (para o Codex)
 
 - **🔄 CANÔNICO (ordem do Matheus, 2026-07-17): remote `origin` → `https://github.com/syervibecoding/sett-your-fitness-hub.git`.** É AQUI que sincronizamos daqui em diante (`main` + `codex/claude-compat`). Histórias do fork e do original foram unidas no merge `e3cd99b` (estratégia ours — árvore do fork preservada; commits Lovable do original ficam no histórico p/ porte seletivo).
-- **Remote `bn` → `matheusrobaloloreto-alt/bn-performance-app` está CONGELADO** — não fazemos mais push nele (histórico preservado).
+- **Remote único autorizado:** `origin` → `https://github.com/syervibecoding/sett-your-fitness-hub.git`. O remote antigo `bn` foi removido localmente; não fazer push em forks antigos.
 - **Codex em máquina/ambiente SEPARADO** — clonar e usar a branch de colab:
   ```bash
   git clone https://github.com/syervibecoding/sett-your-fitness-hub.git
   cd sett-your-fitness-hub && git checkout codex/claude-compat
   ```
   Antes de editar: `git pull --ff-only origin codex/claude-compat`. Ao soltar: `git push origin codex/claude-compat` (commits prefixados `claude:` / `codex:`).
-- **⚠️ Backend/dados SEGUEM no Supabase Bn-app `zshrcgbyhzxpnlccssyz`** (alunos reais, 917 exercícios, 24+ edges, secrets). A publishable key do Supabase do Lovable (`okMxda…`) existe mas NÃO está em uso — migração de backend só com ordem explícita do Matheus.
+- **⚠️ Backend/dados SEGUEM no Supabase Bn-app `zshrcgbyhzxpnlccssyz`** (alunos reais, 917 exercícios, 24+ edges, secrets). Não apontar o app para nenhum outro projeto Supabase sem ordem explícita do Matheus.
 - **Codex na MESMA máquina:** acessa direto em `~/Documents/Marquito/sett-your-fitness-hub` (não precisa clonar).
 - **Backend Supabase:** projeto **`zshrcgbyhzxpnlccssyz`** (Bn-app) — Postgres + Edge Functions. Deploy de edge: `supabase functions deploy <fn> --project-ref zshrcgbyhzxpnlccssyz --use-api`.
 - **Frontend (prod):** Netlify `bn-performance-webapp-matheus.netlify.app` (deploy manual `netlify deploy --prod --dir=dist`).

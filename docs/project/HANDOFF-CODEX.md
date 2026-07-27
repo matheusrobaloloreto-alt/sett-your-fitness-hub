@@ -12,7 +12,7 @@ Leia inteiro antes de mexer.
 | O quê | Valor |
 |---|---|
 | **Repo CANÔNICO (novo)** | `origin` → `github.com/syervibecoding/sett-your-fitness-hub` |
-| **Repo `bn` (CONGELADO)** | `matheusrobaloloreto-alt/bn-performance-app` — não fazer mais push |
+| **Remotes autorizados** | apenas `origin` → `github.com/syervibecoding/sett-your-fitness-hub` |
 | **Branch de trabalho** | `codex/claude-compat` (main recebe fast-forward quando alinhado) |
 | **Supabase (backend REAL)** | projeto **`zshrcgbyhzxpnlccssyz`** (Bn-app) — dados reais, 917 exercícios, 24+ edges, secrets |
 | **Frontend (prod)** | Netlify `bn-performance-webapp-matheus.netlify.app` (site id `9a061d2e-ee2c-444b-aa69-fe262caf0246`) |
@@ -25,7 +25,7 @@ Fluxo git: `git pull --ff-only origin codex/claude-compat` antes de editar; `git
 
 ## 1. ⚠️ AVISOS CRÍTICOS (ler antes de tudo)
 
-1. **O Lovable commita sozinho no `origin/main`.** O bot `gpt-engineer-app[bot]` (conta syervibecoding) publica commits estilo "Changes" / "Set Master user credentials" no `main`. **Ele REINTRODUZ o Supabase morto** `cxesecxyrndveookvlzz` no `VITE_SUPABASE_URL` do `.env`. Depois de QUALQUER edição do Lovable, conferir o `.env` e re-fixar para `zshrcgbyhzxpnlccssyz`. **Regra dura:** antes de todo `netlify deploy`, grepar o `dist/` por `cxese` (deve ser 0), `your-project-ref` (0) e `zshrcgbyhzxpnlccssyz` (>0).
+1. **Não usar Lovable neste projeto.** O acoplamento local foi removido e o repo deve ser editado apenas via GitHub canônico/Codex/Claude. **Regra dura:** antes de todo `netlify deploy`, rodar `npm run verify:backend` e grepar o `dist/` para confirmar que só o Supabase canônico `zshrcgbyhzxpnlccssyz` aparece.
 2. **O motor de prescrição é lei.** NÃO enfraquecer: biblioteca-only, RIR 2-4, dor/EVA linha vermelha (EVA>5 → handoff professor), sem pliometria no 1º bloco, teto de volume, blocos de 6 semanas (1-2 técnica / 3-4 progressão / 5-6 intensificação), regra mais conservadora vence, progressão/deload rastreáveis por regra.
 3. **Flags ficam OFF por padrão** (fallback-first): `PRESCRIPTION_AI_FIRST ?? "off"`, `PRESCRIPTION_ENGINE_V1 ?? "off"`, `company_ai_config.ai_text_refinement_enabled=false`, `bnito_whatsapp_enabled=false`. Não ligar sem ordem do Matheus.
 4. **Backend continua no Bn-app** (`zshrcgbyhzxpnlccssyz`). A publishable key do Supabase do Lovable (`okMxda…`) existe mas NÃO está em uso; migração de backend só com ordem explícita.
@@ -141,7 +141,7 @@ node scripts/prescription/test-curation-review-pipeline.mjs      # 15/15
 node scripts/prescription/test-curation-review-return-guard.mjs  # 12/12
 npx -y deno check supabase/functions/<edge>/index.ts             # sem erros (deno via npx; rm -f deno.lock depois)
 ```
-Pré-flight de deploy frontend: `grep -rl cxesecxyrndveookvlzz dist` (0), `grep -rl your-project-ref dist` (0), `grep -rl zshrcgbyhzxpnlccssyz dist/assets` (>0).
+Pré-flight de deploy frontend: `npm run verify:backend`; após o build, confirmar que `dist/` contém o Supabase canônico `zshrcgbyhzxpnlccssyz`.
 
 ---
 

@@ -31,6 +31,10 @@ npm run replica:export
 
 O arquivo gerado é `replica/non-personal-config.json`.
 
+Não existe snapshot versionado por padrão. Gere um export novo a partir do backend
+canônico antes de importar em outro ambiente, para evitar reaproveitar referências
+antigas de Supabase.
+
 ## Importar em outro Supabase
 
 Antes do import, o projeto Supabase novo precisa estar com as migrations deste repo
