@@ -34,30 +34,44 @@ as $$
     m.last_inbound_at,
     round(extract(epoch from (now() - m.last_inbound_at)) / 3600.0, 1) as hours_since
   from whatsapp_chats c
-  left join students s on s.id = c.student_id
+  left join students s on s.id = c.student_id and s.company_id = c.company_id
   join lateral (
     select max(wm.timestamp) as last_inbound_at
     from whatsapp_messages wm
-    where wm.chat_id = c.id and wm.is_from_me = false
+    where wm.chat_id = c.id
+      and wm.company_id = c.company_id
+      and wm.is_from_me = false
   ) m on true
   where c.company_id = _company_id
+    and (
+      has_role(auth.uid(), 'master'::app_role)
+      or exists (
+        select 1
+        from public.company_members membership
+        where membership.user_id = auth.uid()
+          and membership.company_id = _company_id
+      )
+    )
     and coalesce(c.cadence_muted, false) = false
     and c.remote_jid not like '%@g.us'
     and m.last_inbound_at is not null
     and (s.id is null or s.status in ('active', 'pending', 'awaiting_renewal'))
   order by m.last_inbound_at asc;
 $$;
+revoke all on function public.contact_cadence(uuid) from public, anon;
 grant execute on function public.contact_cadence(uuid) to authenticated;
 
 -- 3) Presença de colaboradores (entrada = insert; heartbeat = last_seen_at; saída = ended_at)
 create table if not exists public.staff_sessions (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
-  company_id uuid,
-  role text,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  company_id uuid not null references public.companies(id) on delete cascade,
+  role app_role not null check (role in ('coordinator'::app_role, 'trainer'::app_role)),
   started_at timestamptz not null default now(),
   last_seen_at timestamptz not null default now(),
-  ended_at timestamptz
+  ended_at timestamptz,
+  constraint staff_sessions_last_seen_after_start check (last_seen_at >= started_at),
+  constraint staff_sessions_end_after_start check (ended_at is null or ended_at >= started_at)
 );
 create index if not exists idx_staff_sessions_user on public.staff_sessions(user_id, started_at desc);
 create index if not exists idx_staff_sessions_company on public.staff_sessions(company_id, started_at desc);
@@ -66,11 +80,31 @@ alter table public.staff_sessions enable row level security;
 
 drop policy if exists staff_sessions_own_insert on public.staff_sessions;
 create policy staff_sessions_own_insert on public.staff_sessions
-  for insert with check (user_id = auth.uid());
+  for insert with check (
+    user_id = auth.uid()
+    and exists (
+      select 1
+      from public.company_members membership
+      where membership.user_id = auth.uid()
+        and membership.company_id = staff_sessions.company_id
+    )
+    and has_role(auth.uid(), staff_sessions.role)
+  );
 
 drop policy if exists staff_sessions_own_update on public.staff_sessions;
 create policy staff_sessions_own_update on public.staff_sessions
-  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+  for update
+  using (user_id = auth.uid())
+  with check (
+    user_id = auth.uid()
+    and exists (
+      select 1
+      from public.company_members membership
+      where membership.user_id = auth.uid()
+        and membership.company_id = staff_sessions.company_id
+    )
+    and has_role(auth.uid(), staff_sessions.role)
+  );
 
 -- Leitura: o próprio colaborador, master, ou ADMIN da mesma empresa.
 drop policy if exists staff_sessions_read on public.staff_sessions;
@@ -87,3 +121,7 @@ create policy staff_sessions_read on public.staff_sessions
         and r.role = 'admin'::app_role
     )
   );
+
+revoke all on table public.staff_sessions from anon;
+grant select, insert, update on table public.staff_sessions to authenticated;
+grant all on table public.staff_sessions to service_role;

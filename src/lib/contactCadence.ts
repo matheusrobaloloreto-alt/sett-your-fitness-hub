@@ -4,7 +4,7 @@
 export type CadenceTone = "ok" | "warn" | "late";
 
 export function formatCadence(hoursSince: number): string {
-  const h = Math.max(0, Math.floor(hoursSince));
+  const h = Math.max(0, Math.floor(Number.isFinite(hoursSince) ? hoursSince : 0));
   if (h < 1) return "<1h";
   if (h < 24) return `${h}h`;
   const days = Math.floor(h / 24);
@@ -13,8 +13,9 @@ export function formatCadence(hoursSince: number): string {
 
 /** Tom do alerta: verde <24h · âmbar 1–3 dias · vermelho >3 dias. */
 export function cadenceTone(hoursSince: number): CadenceTone {
-  if (hoursSince < 24) return "ok";
-  if (hoursSince < 72) return "warn";
+  const safeHours = Math.max(0, Number.isFinite(hoursSince) ? hoursSince : 0);
+  if (safeHours < 24) return "ok";
+  if (safeHours < 72) return "warn";
   return "late";
 }
 

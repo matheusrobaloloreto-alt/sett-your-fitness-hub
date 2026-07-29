@@ -9,31 +9,63 @@ const HEARTBEAT_MS = 60_000;
 
 export function useStaffPresence(role: string | null | undefined, companyId: string | null) {
   const sessionIdRef = useRef<string | null>(null);
+  const accessTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!role || !TRACKED_ROLES.has(role)) return;
+    if (!role || !companyId || !TRACKED_ROLES.has(role)) return;
     let cancelled = false;
     let heartbeat: number | undefined;
 
+    const patchSession = (sid: string, token: string, patch: Record<string, string>) =>
+      fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/staff_sessions?id=eq.${sid}`, {
+        method: "PATCH",
+        keepalive: true,
+        headers: {
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify(patch),
+      }).catch(() => {});
+
+    const createSession = async (uid: string, token: string) => {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/staff_sessions`, {
+        method: "POST",
+        headers: {
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify({ user_id: uid, company_id: companyId, role }),
+      });
+      if (!response.ok) return null;
+      const rows: unknown = await response.json();
+      if (!Array.isArray(rows) || typeof rows[0]?.id !== "string") return null;
+      return rows[0].id;
+    };
+
     (async () => {
       try {
-        const { data: u } = await supabase.auth.getUser();
-        const uid = u?.user?.id;
-        if (!uid || cancelled) return;
-        const { data } = await (supabase as any)
-          .from("staff_sessions")
-          .insert({ user_id: uid, company_id: companyId, role })
-          .select("id")
-          .single();
-        if (!data?.id || cancelled) return;
-        sessionIdRef.current = data.id;
+        const { data: auth } = await supabase.auth.getSession();
+        const uid = auth.session?.user.id;
+        const token = auth.session?.access_token;
+        if (!uid || !token || cancelled) return;
+        accessTokenRef.current = token || null;
+        const sessionId = await createSession(uid, token);
+        if (!sessionId) return;
+        if (cancelled) {
+          const now = new Date().toISOString();
+          void patchSession(sessionId, token, { ended_at: now, last_seen_at: now });
+          return;
+        }
+        sessionIdRef.current = sessionId;
         heartbeat = window.setInterval(() => {
           const sid = sessionIdRef.current;
-          if (!sid) return;
-          (supabase as any).from("staff_sessions")
-            .update({ last_seen_at: new Date().toISOString() })
-            .eq("id", sid)
-            .then(() => {}, () => {});
+          const accessToken = accessTokenRef.current;
+          if (!sid || !accessToken) return;
+          void patchSession(sid, accessToken, { last_seen_at: new Date().toISOString() });
         }, HEARTBEAT_MS);
       } catch { /* tabela pode ainda não existir — presença é opcional */ }
     })();
@@ -43,22 +75,10 @@ export function useStaffPresence(role: string | null | undefined, companyId: str
       const sid = sessionIdRef.current;
       if (!sid) return;
       sessionIdRef.current = null;
-      supabase.auth.getSession().then(({ data }) => {
-        const token = data.session?.access_token;
-        if (!token) return;
-        const now = new Date().toISOString();
-        fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/staff_sessions?id=eq.${sid}`, {
-          method: "PATCH",
-          keepalive: true,
-          headers: {
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-            Prefer: "return=minimal",
-          },
-          body: JSON.stringify({ ended_at: now, last_seen_at: now }),
-        }).catch(() => {});
-      }).catch(() => {});
+      const token = accessTokenRef.current;
+      if (!token) return;
+      const now = new Date().toISOString();
+      void patchSession(sid, token, { ended_at: now, last_seen_at: now });
     };
 
     window.addEventListener("pagehide", endSession);
@@ -67,6 +87,7 @@ export function useStaffPresence(role: string | null | undefined, companyId: str
       if (heartbeat) clearInterval(heartbeat);
       window.removeEventListener("pagehide", endSession);
       endSession(); // logout/troca de rota-mãe também conta como saída
+      accessTokenRef.current = null;
     };
   }, [role, companyId]);
 }
