@@ -12,21 +12,16 @@ create table if not exists public.public_payment_links (
   created_at timestamptz not null default now(),
   constraint public_payment_links_expiry_after_creation check (expires_at > created_at)
 );
-
 create index if not exists idx_public_payment_links_student_active
   on public.public_payment_links (student_id, created_at desc)
   where revoked_at is null;
-
 create index if not exists idx_public_payment_links_company
   on public.public_payment_links (company_id, created_at desc);
-
 alter table public.public_payment_links enable row level security;
-
 -- Checkout tokens are resolved exclusively inside service-role edge functions.
 -- Keeping the table unavailable through PostgREST also prevents token inventory leaks.
 revoke all on table public.public_payment_links from public, anon, authenticated;
 grant all on table public.public_payment_links to service_role;
-
 -- This SECURITY DEFINER function previously allowed an anonymous caller to insert
 -- recovery events for any known student UUID. Only trusted backend code may call it.
 revoke all on function public.record_payment_recovery_event(uuid, text, uuid, uuid, uuid, jsonb, text)

@@ -34,10 +34,8 @@ as $$
       )
     );
 $$;
-
 revoke all on function public.is_company_staff(uuid, uuid) from public;
 grant execute on function public.is_company_staff(uuid, uuid) to authenticated, service_role;
-
 create or replace function public.is_student_company_staff(_user_id uuid, _student_id uuid)
 returns boolean
 language sql
@@ -52,10 +50,8 @@ as $$
       and public.is_company_staff(_user_id, s.company_id)
   );
 $$;
-
 revoke all on function public.is_student_company_staff(uuid, uuid) from public;
 grant execute on function public.is_student_company_staff(uuid, uuid) to authenticated, service_role;
-
 -- Core student, enrollment, billing and workout data.
 drop policy if exists "Admin read students" on public.students;
 drop policy if exists "company_members_read_students" on public.students;
@@ -66,7 +62,6 @@ create policy "Company staff manage students" on public.students
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.enrollments;
 drop policy if exists "Admin company update" on public.enrollments;
 drop policy if exists "Admin company delete" on public.enrollments;
@@ -75,7 +70,6 @@ create policy "Company staff manage enrollments" on public.enrollments
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.payments;
 drop policy if exists "Admin company update" on public.payments;
 drop policy if exists "Company scoped select" on public.payments;
@@ -92,7 +86,6 @@ using (
     where s.id = payments.student_id and s.user_id = auth.uid()
   )
 );
-
 drop policy if exists "Admin company insert" on public.training_cycles;
 drop policy if exists "Admin company update" on public.training_cycles;
 drop policy if exists "Admin company delete" on public.training_cycles;
@@ -101,7 +94,6 @@ create policy "Company staff manage training cycles" on public.training_cycles
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.workouts;
 drop policy if exists "Admin company update" on public.workouts;
 drop policy if exists "Admin company delete" on public.workouts;
@@ -110,7 +102,6 @@ create policy "Company staff manage workouts" on public.workouts
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.workout_sessions;
 drop policy if exists "Admin company update" on public.workout_sessions;
 drop policy if exists "Company scoped select" on public.workout_sessions;
@@ -118,7 +109,6 @@ create policy "Company staff manage workout sessions" on public.workout_sessions
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.workout_logs;
 drop policy if exists "Admin company update" on public.workout_logs;
 drop policy if exists "Company scoped select" on public.workout_logs;
@@ -138,7 +128,6 @@ with check (
       and public.is_company_staff(auth.uid(), s.company_id)
   )
 );
-
 -- Anamnesis, assessments and student-owned health/progress records.
 drop policy if exists "Admin company insert" on public.anamnesis;
 drop policy if exists "Company scoped select" on public.anamnesis;
@@ -155,7 +144,6 @@ using (
     where s.id = anamnesis.student_id and s.user_id = auth.uid()
   )
 );
-
 drop policy if exists "anamneses_company_access" on public.student_anamneses;
 create policy "Company staff manage student anamneses" on public.student_anamneses
 for all to authenticated
@@ -164,7 +152,6 @@ with check (public.is_company_staff(auth.uid(), company_id));
 -- Public submissions are handled by public-anamnesis with service_role after token validation.
 drop policy if exists "anamneses_public_invite_insert" on public.student_anamneses;
 drop policy if exists "anamneses_public_invite_update" on public.student_anamneses;
-
 drop policy if exists "anamnesis_history_company_read" on public.student_anamnesis_history;
 create policy "Company staff read anamnesis history" on public.student_anamnesis_history
 for select to authenticated
@@ -178,7 +165,6 @@ using (
     where s.id = student_anamnesis_history.student_id and s.user_id = auth.uid()
   )
 );
-
 drop policy if exists "invites_company_access" on public.anamnese_invites;
 drop policy if exists "invites_public_complete" on public.anamnese_invites;
 drop policy if exists "invites_public_pending_read" on public.anamnese_invites;
@@ -187,7 +173,6 @@ for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
 drop policy if exists "students_public_invite_update" on public.students;
-
 drop policy if exists "functional_assessments_company_access" on public.functional_assessments;
 create policy "Company staff manage functional assessments" on public.functional_assessments
 for all to authenticated
@@ -202,7 +187,6 @@ using (
     where s.id = functional_assessments.student_id and s.user_id = auth.uid()
   )
 );
-
 drop policy if exists "assessment_frames_company_access" on public.assessment_frames;
 create policy "Company staff manage assessment frames" on public.assessment_frames
 for all to authenticated
@@ -219,7 +203,6 @@ using (
     where fa.id = assessment_frames.assessment_id and s.user_id = auth.uid()
   )
 );
-
 drop policy if exists "Admin company insert" on public.student_evaluations;
 drop policy if exists "Admin company update" on public.student_evaluations;
 drop policy if exists "Admin company delete" on public.student_evaluations;
@@ -237,35 +220,29 @@ using (
     where s.id = student_evaluations.student_id and s.user_id = auth.uid()
   )
 );
-
 drop policy if exists "body measurements company staff" on public.body_measurements;
 create policy "Company staff manage body measurements" on public.body_measurements
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Company staff manage body limitations" on public.student_body_limitations;
 create policy "Company staff manage body limitations" on public.student_body_limitations
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Company scoped select progress photos" on public.progress_photos;
 create policy "Company staff read progress photos" on public.progress_photos
 for select to authenticated
 using (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "company staff manage student files" on public.student_files;
 create policy "Company staff manage student files" on public.student_files
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "checkins_company_read" on public.student_checkins;
 create policy "Company staff read checkins" on public.student_checkins
 for select to authenticated
 using (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "workout feedback company staff" on public.workout_feedback;
 drop policy if exists "workout feedback company update" on public.workout_feedback;
 create policy "Company staff read workout feedback" on public.workout_feedback
@@ -275,13 +252,11 @@ create policy "Company staff update workout feedback" on public.workout_feedback
 for update to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "external activities company staff" on public.external_activities;
 create policy "Company staff manage external activities" on public.external_activities
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 -- Deterministic/AI plans and the integrated prescription bundle.
 drop policy if exists "ai_strength_plans_company_access" on public.ai_strength_plans;
 create policy "Company staff manage strength plans" on public.ai_strength_plans
@@ -297,7 +272,6 @@ using (
     where s.id = ai_strength_plans.student_id and s.user_id = auth.uid()
   )
 );
-
 drop policy if exists "plan_versions_company_access" on public.ai_plan_versions;
 create policy "Company staff manage plan versions" on public.ai_plan_versions
 for all to authenticated
@@ -312,20 +286,17 @@ using (
     where s.id = ai_plan_versions.student_id and s.user_id = auth.uid()
   )
 );
-
 drop policy if exists "Admin read nutrition_plans" on public.nutrition_plans;
 drop policy if exists "staff_nutrition_plans" on public.nutrition_plans;
 create policy "Company staff manage nutrition plans" on public.nutrition_plans
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "staff_running_plans" on public.running_plans;
 create policy "Company staff manage running plans" on public.running_plans
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "bundles_company_access" on public.prescription_bundles;
 create policy "Company staff manage prescription bundles" on public.prescription_bundles
 for all to authenticated
@@ -340,7 +311,6 @@ using (
     where s.id = prescription_bundles.student_id and s.user_id = auth.uid()
   )
 );
-
 drop policy if exists "bundle items company staff" on public.prescription_bundle_items;
 create policy "Company staff manage prescription bundle items" on public.prescription_bundle_items
 for all to authenticated
@@ -354,13 +324,11 @@ with check (
       and b.student_id = prescription_bundle_items.student_id
   )
 );
-
 drop policy if exists "company members manage ai config" on public.company_ai_config;
 create policy "Company staff manage ai config" on public.company_ai_config
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Company members insert ai decision logs" on public.ai_decision_logs;
 drop policy if exists "Company members read ai decision logs" on public.ai_decision_logs;
 create policy "Company staff insert ai decision logs" on public.ai_decision_logs
@@ -369,7 +337,6 @@ with check (public.is_company_staff(auth.uid(), company_id));
 create policy "Company staff read ai decision logs" on public.ai_decision_logs
 for select to authenticated
 using (public.is_company_staff(auth.uid(), company_id));
-
 -- Operations and messaging are staff-only. Students must never browse tenant chats.
 drop policy if exists "Admin company insert" on public.whatsapp_chats;
 drop policy if exists "Admin company update" on public.whatsapp_chats;
@@ -378,14 +345,12 @@ create policy "Company staff manage whatsapp chats" on public.whatsapp_chats
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.whatsapp_messages;
 drop policy if exists "Company scoped select" on public.whatsapp_messages;
 create policy "Company staff manage whatsapp messages" on public.whatsapp_messages
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.whatsapp_instances;
 drop policy if exists "Admin company update" on public.whatsapp_instances;
 drop policy if exists "Company scoped select" on public.whatsapp_instances;
@@ -393,7 +358,6 @@ create policy "Company staff manage whatsapp instances" on public.whatsapp_insta
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.whatsapp_labels;
 drop policy if exists "Admin company update" on public.whatsapp_labels;
 drop policy if exists "Admin company delete" on public.whatsapp_labels;
@@ -402,7 +366,6 @@ create policy "Company staff manage whatsapp labels" on public.whatsapp_labels
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.whatsapp_chat_labels;
 drop policy if exists "Admin company delete" on public.whatsapp_chat_labels;
 drop policy if exists "Company scoped select" on public.whatsapp_chat_labels;
@@ -422,7 +385,6 @@ with check (
       and public.is_company_staff(auth.uid(), c.company_id)
   )
 );
-
 drop policy if exists "Admin company insert" on public.message_templates;
 drop policy if exists "Admin company update" on public.message_templates;
 drop policy if exists "Admin company delete" on public.message_templates;
@@ -431,7 +393,6 @@ create policy "Company staff manage message templates" on public.message_templat
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.automation_flows;
 drop policy if exists "Admin company update" on public.automation_flows;
 drop policy if exists "Admin company delete" on public.automation_flows;
@@ -440,7 +401,6 @@ create policy "Company staff manage automation flows" on public.automation_flows
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 do $$
 declare
   target_table text;
@@ -465,12 +425,10 @@ begin
   end loop;
 end
 $$;
-
 drop policy if exists "Company scoped select payment recovery events" on public.payment_recovery_events;
 create policy "Company staff read payment recovery events" on public.payment_recovery_events
 for select to authenticated
 using (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.trainer_assignments_history;
 drop policy if exists "Admin company update" on public.trainer_assignments_history;
 drop policy if exists "Admin company delete" on public.trainer_assignments_history;
@@ -479,7 +437,6 @@ create policy "Company staff manage trainer assignment history" on public.traine
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.student_categories;
 drop policy if exists "Admin company update" on public.student_categories;
 drop policy if exists "Admin company delete" on public.student_categories;
@@ -488,7 +445,6 @@ create policy "Company staff manage student categories" on public.student_catego
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.role_permissions;
 drop policy if exists "Admin company update" on public.role_permissions;
 drop policy if exists "Company scoped select" on public.role_permissions;
@@ -496,7 +452,6 @@ create policy "Company staff manage role permissions" on public.role_permissions
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Company members insert" on public.company_exercise_volumes;
 drop policy if exists "Company members update" on public.company_exercise_volumes;
 drop policy if exists "Company members delete" on public.company_exercise_volumes;
@@ -505,17 +460,14 @@ create policy "Company staff manage exercise volumes" on public.company_exercise
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Company scoped select achievements" on public.student_achievements;
 create policy "Company staff read student achievements" on public.student_achievements
 for select to authenticated
 using (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Company scoped select xp" on public.xp_events;
 create policy "Company staff read xp events" on public.xp_events
 for select to authenticated
 using (public.is_company_staff(auth.uid(), company_id));
-
 -- Shared content remains readable by students, but only staff may mutate it.
 drop policy if exists "Admin company insert own" on public.exercise_library;
 drop policy if exists "Admin company update own" on public.exercise_library;
@@ -532,7 +484,6 @@ with check (not is_global and public.is_company_staff(auth.uid(), company_id));
 create policy "Company staff delete owned exercises" on public.exercise_library
 for delete to authenticated
 using (not is_global and public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Company users insert exercise targets" on public.exercise_muscle_targets;
 drop policy if exists "Company users update exercise targets" on public.exercise_muscle_targets;
 drop policy if exists "Company users delete exercise targets" on public.exercise_muscle_targets;
@@ -574,7 +525,6 @@ using (
       and public.is_company_staff(auth.uid(), el.company_id)
   )
 );
-
 drop policy if exists "Admin company insert own" on public.form_fields;
 drop policy if exists "Admin company update own" on public.form_fields;
 drop policy if exists "Admin company delete own" on public.form_fields;
@@ -588,13 +538,11 @@ with check (company_id is not null and public.is_company_staff(auth.uid(), compa
 create policy "Company staff delete form fields" on public.form_fields
 for delete to authenticated
 using (company_id is not null and public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "announcements company staff" on public.announcements;
 create policy "Company staff manage announcements" on public.announcements
 for all to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "announcement reads company staff" on public.announcement_reads;
 create policy "Company staff read announcement receipts" on public.announcement_reads
 for select to authenticated
@@ -605,7 +553,6 @@ using (
       and public.is_company_staff(auth.uid(), s.company_id)
   )
 );
-
 drop policy if exists "Admin company insert" on public.plans;
 drop policy if exists "Admin company update" on public.plans;
 drop policy if exists "Admin company delete" on public.plans;
@@ -619,7 +566,6 @@ with check (public.is_company_staff(auth.uid(), company_id));
 create policy "Company staff delete plans" on public.plans
 for delete to authenticated
 using (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin company insert" on public.platform_settings;
 drop policy if exists "Admin company update" on public.platform_settings;
 create policy "Company staff insert platform settings" on public.platform_settings
@@ -629,7 +575,6 @@ create policy "Company staff update platform settings" on public.platform_settin
 for update to authenticated
 using (public.is_company_staff(auth.uid(), company_id))
 with check (public.is_company_staff(auth.uid(), company_id));
-
 drop policy if exists "Admin read profiles" on public.profiles;
 drop policy if exists "Company profiles readable" on public.profiles;
 create policy "Company staff read company profiles" on public.profiles
@@ -641,7 +586,6 @@ using (
       and public.is_company_staff(auth.uid(), cm.company_id)
   )
 );
-
 -- Storage writes and private operational media must also be staff-only.
 drop policy if exists "Company staff reads progress photo objects" on storage.objects;
 create policy "Company staff reads progress photo objects" on storage.objects
@@ -654,7 +598,6 @@ using (
       and public.is_company_staff(auth.uid(), pp.company_id)
   )
 );
-
 drop policy if exists "assessment_frames_storage_insert" on storage.objects;
 drop policy if exists "assessment_frames_storage_update" on storage.objects;
 create policy "assessment_frames_storage_insert" on storage.objects
@@ -673,7 +616,6 @@ with check (
   bucket_id = 'assessment-frames'
   and public.is_company_staff(auth.uid(), public.try_uuid(split_part(name, '/', 1)))
 );
-
 drop policy if exists "company staff manage student-files objects" on storage.objects;
 create policy "company staff manage student-files objects" on storage.objects
 for all to authenticated
@@ -685,10 +627,8 @@ with check (
   bucket_id = 'student-files'
   and public.is_company_staff(auth.uid(), public.try_uuid((storage.foldername(name))[1]))
 );
-
 drop policy if exists "auth_upload_exercises_videos" on storage.objects;
 drop policy if exists "auth_update_exercises_videos" on storage.objects;
-
 drop policy if exists "evaluations company read" on storage.objects;
 drop policy if exists "evaluations company insert" on storage.objects;
 drop policy if exists "evaluations company delete" on storage.objects;
@@ -710,7 +650,6 @@ using (
   bucket_id = 'evaluations'
   and public.is_company_staff(auth.uid(), public.try_uuid((storage.foldername(name))[1]))
 );
-
 drop policy if exists "exercises-videos company insert" on storage.objects;
 drop policy if exists "exercises-videos company update" on storage.objects;
 drop policy if exists "exercises-videos company delete" on storage.objects;
@@ -736,7 +675,6 @@ using (
   bucket_id = 'exercises-videos'
   and public.is_company_staff(auth.uid(), public.try_uuid((storage.foldername(name))[1]))
 );
-
 drop policy if exists "platform-assets company insert" on storage.objects;
 drop policy if exists "platform-assets company update" on storage.objects;
 drop policy if exists "platform-assets company delete" on storage.objects;
@@ -762,7 +700,6 @@ using (
   bucket_id = 'platform-assets'
   and public.is_company_staff(auth.uid(), public.try_uuid((storage.foldername(name))[1]))
 );
-
 drop policy if exists "whatsapp-media company read" on storage.objects;
 drop policy if exists "whatsapp-media company insert" on storage.objects;
 drop policy if exists "whatsapp-media company delete" on storage.objects;

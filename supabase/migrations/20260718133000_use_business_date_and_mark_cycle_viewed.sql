@@ -9,10 +9,8 @@ set search_path = public
 as $$
   select (now() at time zone 'America/Sao_Paulo')::date;
 $$;
-
 revoke all on function public.current_business_date() from public, anon;
 grant execute on function public.current_business_date() to authenticated, service_role;
-
 create or replace function public.advance_training_cycles()
 returns void
 language plpgsql
@@ -33,10 +31,8 @@ begin
   where start_date is not null or end_date is not null;
 end;
 $$;
-
 revoke all on function public.advance_training_cycles() from public, anon, authenticated;
 grant execute on function public.advance_training_cycles() to service_role;
-
 -- Keep the existing lifecycle behavior, but evaluate due dates and contract
 -- boundaries in the business timezone.
 create or replace function public.process_enrollment_lifecycle()
@@ -103,10 +99,8 @@ begin
   perform public.process_automation_triggers();
 end;
 $$;
-
 revoke all on function public.process_enrollment_lifecycle() from public, anon, authenticated;
 grant execute on function public.process_enrollment_lifecycle() to service_role;
-
 -- Students may acknowledge only a cycle they own and whose start date has
 -- already arrived. They never receive general UPDATE access to the table.
 create or replace function public.mark_training_cycle_viewed(_cycle_id uuid)
@@ -131,10 +125,8 @@ begin
   return v_cycle_id is not null;
 end;
 $$;
-
 revoke all on function public.mark_training_cycle_viewed(uuid) from public, anon;
 grant execute on function public.mark_training_cycle_viewed(uuid) to authenticated, service_role;
-
 drop policy if exists "Student reads own strength plans" on public.ai_strength_plans;
 create policy "Student reads own strength plans"
 on public.ai_strength_plans for select to authenticated
@@ -152,7 +144,6 @@ using (
     )
   )
 );
-
 drop policy if exists student_read_running_plans on public.running_plans;
 create policy student_read_running_plans
 on public.running_plans for select to authenticated
@@ -163,7 +154,6 @@ using (
   )
   and (start_date is null or start_date <= public.current_business_date())
 );
-
 drop policy if exists student_read_nutrition_plan on public.nutrition_plans;
 create policy student_read_nutrition_plan
 on public.nutrition_plans for select to authenticated
@@ -174,7 +164,6 @@ using (
   )
   and (start_date is null or start_date <= public.current_business_date())
 );
-
 drop policy if exists students_read_own_cycles on public.training_cycles;
 create policy students_read_own_cycles
 on public.training_cycles for select to authenticated
@@ -185,7 +174,6 @@ using (
   )
   and (start_date is null or start_date <= public.current_business_date())
 );
-
 drop policy if exists students_read_own_workouts on public.workouts;
 create policy students_read_own_workouts
 on public.workouts for select to authenticated

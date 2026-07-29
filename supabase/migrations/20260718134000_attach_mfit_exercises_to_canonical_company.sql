@@ -8,4 +8,3 @@ set
   updated_at = now()
 where company_id = '2b844c3a-c12a-4136-b120-011490fb375a'::uuid
   and is_global is not true;
-

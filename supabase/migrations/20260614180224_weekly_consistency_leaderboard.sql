@@ -1,24 +1,6 @@
 -- Gamification: weekly consistency XP + anonymous monthly leaderboard.
 -- Defaults: +40 XP when the student meets weekly_workout_goal; +10 XP per extra day.
 
-ALTER TABLE public.students
-  ADD COLUMN IF NOT EXISTS weekly_workout_goal smallint NOT NULL DEFAULT 3;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conname = 'students_weekly_workout_goal_check'
-      AND conrelid = 'public.students'::regclass
-  ) THEN
-    ALTER TABLE public.students
-      ADD CONSTRAINT students_weekly_workout_goal_check
-      CHECK (weekly_workout_goal BETWEEN 1 AND 7);
-  END IF;
-END;
-$$;
-
 CREATE TABLE IF NOT EXISTS public.xp_settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id uuid NULL REFERENCES public.companies(id) ON DELETE CASCADE,
@@ -28,30 +10,24 @@ CREATE TABLE IF NOT EXISTS public.xp_settings (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE UNIQUE INDEX IF NOT EXISTS xp_settings_one_global
   ON public.xp_settings ((company_id IS NULL))
   WHERE company_id IS NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS xp_settings_company_unique
   ON public.xp_settings(company_id)
   WHERE company_id IS NOT NULL;
-
 ALTER TABLE public.xp_settings ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.xp_settings TO authenticated;
 GRANT ALL ON public.xp_settings TO service_role;
-
 DROP POLICY IF EXISTS "Master full access xp_settings" ON public.xp_settings;
 CREATE POLICY "Master full access xp_settings" ON public.xp_settings
   FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'master'::app_role))
   WITH CHECK (public.has_role(auth.uid(), 'master'::app_role));
-
 DROP POLICY IF EXISTS "Company scoped select xp_settings" ON public.xp_settings;
 CREATE POLICY "Company scoped select xp_settings" ON public.xp_settings
   FOR SELECT TO authenticated
   USING (company_id IS NULL OR company_id = public.get_user_company_id(auth.uid()));
-
 DROP POLICY IF EXISTS "Company admins manage xp_settings" ON public.xp_settings;
 CREATE POLICY "Company admins manage xp_settings" ON public.xp_settings
   FOR ALL TO authenticated
@@ -69,11 +45,9 @@ CREATE POLICY "Company admins manage xp_settings" ON public.xp_settings
       OR public.has_role(auth.uid(), 'coordinator'::app_role)
     )
   );
-
 INSERT INTO public.xp_settings (company_id, weekly_goal_met_xp, weekly_extra_day_xp, is_active)
 VALUES (NULL, 40, 10, true)
 ON CONFLICT DO NOTHING;
-
 CREATE OR REPLACE FUNCTION public.weekly_consistency_source_id(_student_id uuid, _week_start date)
 RETURNS uuid
 LANGUAGE sql
@@ -87,7 +61,6 @@ AS $$
     substr(md5(_student_id::text || ':weekly_consistency:' || _week_start::text), 21, 12)
   )::uuid;
 $$;
-
 CREATE OR REPLACE FUNCTION public.award_weekly_consistency(_week_start date DEFAULT (date_trunc('week', now())::date - 7))
 RETURNS TABLE (
   student_id uuid,
@@ -168,10 +141,8 @@ BEGIN
   END LOOP;
 END;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.weekly_consistency_source_id(uuid, date) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.award_weekly_consistency(date) TO authenticated, service_role;
-
 CREATE OR REPLACE FUNCTION public.private_display_name(_full_name text)
 RETURNS text
 LANGUAGE sql
@@ -186,9 +157,7 @@ AS $$
   END
   FROM parts;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.private_display_name(text) TO authenticated, service_role;
-
 CREATE OR REPLACE FUNCTION public.get_monthly_leaderboard(_company_id uuid, _month date DEFAULT current_date)
 RETURNS TABLE (top3 jsonb, caller jsonb)
 LANGUAGE plpgsql
@@ -207,10 +176,7 @@ BEGIN
     RAISE EXCEPTION 'company_id obrigatório';
   END IF;
 
-  SELECT COALESCE(
-    public.get_user_company_id(v_user_id),
-    (SELECT s.company_id FROM public.students s WHERE s.user_id = v_user_id LIMIT 1)
-  ) INTO v_user_company;
+  SELECT public.get_user_company_id(v_user_id) INTO v_user_company;
   SELECT public.has_role(v_user_id, 'master'::app_role) INTO v_is_master;
 
   IF NOT COALESCE(v_is_master, false) AND v_user_company IS DISTINCT FROM _company_id THEN
@@ -283,11 +249,8 @@ BEGIN
     ) AS caller;
 END;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.get_monthly_leaderboard(uuid, date) TO authenticated, service_role;
-
 CREATE EXTENSION IF NOT EXISTS pg_cron;
-
 DO $cron$
 BEGIN
   IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'award-weekly-consistency') THEN

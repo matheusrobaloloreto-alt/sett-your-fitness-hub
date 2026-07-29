@@ -130,10 +130,8 @@ begin
   where tc.enrollment_id = new.id
     and tc.cycle_number >= v_cycle_number;
 
-  perform public.advance_training_cycles();
   return new;
 end;
 $$;
-
 revoke execute on function public.generate_training_cycles() from public, anon, authenticated;
 grant execute on function public.generate_training_cycles() to service_role;

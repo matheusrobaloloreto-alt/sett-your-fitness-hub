@@ -6,42 +6,33 @@ alter table public.ai_strength_plans
   add column if not exists previous_plan_id uuid references public.ai_strength_plans(id) on delete set null,
   add column if not exists sequence_number integer,
   add column if not exists sequence_phase text;
-
 alter table public.running_plans
   add column if not exists training_cycle_id uuid references public.training_cycles(id) on delete set null,
   add column if not exists previous_plan_id uuid references public.running_plans(id) on delete set null,
   add column if not exists sequence_number integer,
   add column if not exists sequence_phase text;
-
 alter table public.nutrition_plans
   add column if not exists training_cycle_id uuid references public.training_cycles(id) on delete set null,
   add column if not exists previous_plan_id uuid references public.nutrition_plans(id) on delete set null,
   add column if not exists end_date date,
   add column if not exists sequence_number integer,
   add column if not exists sequence_phase text;
-
 create unique index if not exists training_cycles_enrollment_number_uidx
   on public.training_cycles(enrollment_id, cycle_number)
   where enrollment_id is not null;
-
 create unique index if not exists ai_strength_plans_cycle_uidx
   on public.ai_strength_plans(training_cycle_id)
   where training_cycle_id is not null;
-
 create unique index if not exists running_plans_cycle_sport_uidx
   on public.running_plans(training_cycle_id, coalesce(sport, 'corrida'))
   where training_cycle_id is not null;
-
 create unique index if not exists nutrition_plans_cycle_uidx
   on public.nutrition_plans(training_cycle_id)
   where training_cycle_id is not null;
-
 create index if not exists running_plans_student_dates_idx
   on public.running_plans(student_id, start_date, end_date);
-
 create index if not exists nutrition_plans_student_dates_idx
   on public.nutrition_plans(student_id, start_date, end_date);
-
 -- Date is the source of truth. This also repairs stale statuses without
 -- prematurely activating a future block.
 create or replace function public.advance_training_cycles()
@@ -62,10 +53,8 @@ begin
   where start_date is not null or end_date is not null;
 end;
 $$;
-
 revoke all on function public.advance_training_cycles() from public, anon, authenticated;
 grant execute on function public.advance_training_cycles() to service_role;
-
 -- Creates only missing cycles. Existing cycles/workouts are never deleted or
 -- shifted, which keeps published history intact.
 create or replace function public.sync_prescription_cycles(
@@ -152,8 +141,7 @@ begin
       duration_weeks,
       status,
       name
-    )
-    select
+    ) values (
       v_enrollment.id,
       _student_id,
       v_company_id,
@@ -167,18 +155,11 @@ begin
         else 'pending'
       end,
       format('Ciclo %s', v_cycle_number)
-    where not exists (
-      select 1
-      from public.training_cycles existing_cycle
-      where existing_cycle.enrollment_id = v_enrollment.id
-        and existing_cycle.cycle_number = v_cycle_number
-    );
-
-    update public.training_cycles existing_cycle
-    set student_id = _student_id,
-        company_id = v_company_id
-    where existing_cycle.enrollment_id = v_enrollment.id
-      and existing_cycle.cycle_number = v_cycle_number;
+    )
+    on conflict (enrollment_id, cycle_number) where enrollment_id is not null
+    do update set
+      student_id = excluded.student_id,
+      company_id = excluded.company_id;
 
     v_cycle_number := v_cycle_number + 1;
     v_cycle_start := v_cycle_end + 1;
@@ -201,6 +182,5 @@ begin
   order by tc.cycle_number;
 end;
 $$;
-
 revoke all on function public.sync_prescription_cycles(uuid, date) from public, anon;
 grant execute on function public.sync_prescription_cycles(uuid, date) to authenticated, service_role;

@@ -37,13 +37,10 @@ BEGIN
   SELECT * FROM claimed;
 END;
 $function$;
-
 REVOKE ALL ON FUNCTION public.claim_automation_sessions(integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_automation_sessions(integer) TO service_role;
-
 -- These global maintenance functions are service jobs, not user-facing RPCs.
 REVOKE EXECUTE ON FUNCTION public.process_automation_triggers() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.process_automation_triggers() TO service_role;
-
 REVOKE EXECUTE ON FUNCTION public.process_enrollment_lifecycle() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.process_enrollment_lifecycle() TO service_role;

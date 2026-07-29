@@ -21,7 +21,6 @@ using (
     )
   )
 );
-
 drop policy if exists student_read_running_plans on public.running_plans;
 create policy student_read_running_plans
 on public.running_plans
@@ -35,7 +34,6 @@ using (
   )
   and (start_date is null or start_date <= current_date)
 );
-
 drop policy if exists student_read_nutrition_plan on public.nutrition_plans;
 create policy student_read_nutrition_plan
 on public.nutrition_plans
@@ -49,7 +47,6 @@ using (
   )
   and (start_date is null or start_date <= current_date)
 );
-
 drop policy if exists students_read_own_cycles on public.training_cycles;
 create policy students_read_own_cycles
 on public.training_cycles
@@ -63,7 +60,6 @@ using (
   )
   and (start_date is null or start_date <= current_date)
 );
-
 drop policy if exists students_read_own_workouts on public.workouts;
 create policy students_read_own_workouts
 on public.workouts

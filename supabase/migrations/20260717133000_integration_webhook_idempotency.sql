@@ -9,10 +9,8 @@ create table if not exists public.integration_webhook_events (
   processed_at timestamptz,
   unique (provider, event_id)
 );
-
 create index if not exists idx_integration_webhook_events_received
   on public.integration_webhook_events(provider, received_at desc);
-
 alter table public.integration_webhook_events enable row level security;
 revoke all on public.integration_webhook_events from anon, authenticated;
 grant all on public.integration_webhook_events to service_role;
