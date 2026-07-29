@@ -10,6 +10,7 @@ import { Dumbbell, Play, Clock, RotateCcw, ChevronDown, ChevronUp, Timer, CheckC
 import { format, parseISO, differenceInDays, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { businessDateYmd } from "@/lib/businessDate";
 
 interface WorkoutExercise {
   exercise_id: string;
@@ -167,7 +168,6 @@ export default function StudentWorkout() {
             }));
           return { ...c, workouts: cycleWorkouts };
         });
-        setCycles(enriched);
 
         const today = new Date();
         const inRange = (cycle: Cycle) => {
@@ -175,19 +175,50 @@ export default function StudentWorkout() {
             return isWithinInterval(today, { start: parseISO(cycle.start_date), end: parseISO(cycle.end_date) });
           } catch { return false; }
         };
-        const todayYmd = format(today, "yyyy-MM-dd");
+        const todayYmd = businessDateYmd(today);
+        const isFuture = (cycle: Cycle) => Boolean(cycle.start_date && cycle.start_date > todayYmd);
         const hasStarted = (cycle: Cycle) => !cycle.start_date || cycle.start_date <= todayYmd;
-        const newest = [...enriched].sort((left, right) =>
-          (right.start_date || "").localeCompare(left.start_date || "") || right.cycle_number - left.cycle_number
-        );
+
+        const currentCandidates = enriched
+          .filter((cycle) => inRange(cycle) && cycle.workouts.length > 0)
+          .sort((left, right) =>
+            left.cycle_number - right.cycle_number ||
+            (left.start_date || "").localeCompare(right.start_date || "")
+          );
+        const startedWithWorkout = enriched
+          .filter((cycle) => hasStarted(cycle) && cycle.workouts.length > 0)
+          .sort((left, right) =>
+            (right.start_date || "").localeCompare(left.start_date || "") ||
+            right.cycle_number - left.cycle_number
+          );
+        const currentWithoutWorkout = enriched
+          .filter((cycle) => inRange(cycle))
+          .sort((left, right) => left.cycle_number - right.cycle_number);
+
         const chosen =
-          newest.find((cycle) => cycle.status === "active" && cycle.workouts.length > 0) ||
-          newest.find((cycle) => cycle.status !== "completed" && inRange(cycle) && cycle.workouts.length > 0) ||
-          newest.find((cycle) => hasStarted(cycle) && cycle.workouts.length > 0) ||
-          newest.find((cycle) => cycle.status === "active") ||
-          newest[0];
-        setSelectedCycle(chosen);
-        if (chosen.workouts.length > 0) setSelectedWorkoutId(chosen.workouts[0].id);
+          currentCandidates[0] ||
+          startedWithWorkout[0] ||
+          currentWithoutWorkout[0] ||
+          null;
+
+        const visibleCycles = enriched
+          .filter((cycle) => {
+            if (chosen?.id === cycle.id) return true;
+            if (cycle.status === "completed") return true;
+            if (isFuture(cycle)) return true;
+            return false;
+          })
+          .map((cycle) => isFuture(cycle) ? { ...cycle, workouts: [] } : cycle)
+          .sort((left, right) =>
+            (left.start_date || "").localeCompare(right.start_date || "") ||
+            left.cycle_number - right.cycle_number
+        );
+
+        setCycles(visibleCycles);
+        const visibleChosen = visibleCycles.find((cycle) => cycle.id === chosen?.id) || visibleCycles[0] || null;
+        setSelectedCycle(visibleChosen);
+        if (visibleChosen?.workouts.length) setSelectedWorkoutId(visibleChosen.workouts[0].id);
+        else setSelectedWorkoutId(null);
       }
     }
     } catch (error) {
@@ -314,9 +345,10 @@ export default function StudentWorkout() {
             {cycles.map((cycle) => {
               const isActive = selectedCycle?.id === cycle.id;
               const hasPrescription = cycle.workouts.length > 0;
+              const isFutureCycle = Boolean(cycle.start_date && cycle.start_date > businessDateYmd());
               const isCurrent = (() => {
                 try {
-                  return cycle.status === "active" && isWithinInterval(new Date(), { start: parseISO(cycle.start_date), end: parseISO(cycle.end_date) });
+                  return !isFutureCycle && cycle.status === "active" && isWithinInterval(new Date(), { start: parseISO(cycle.start_date), end: parseISO(cycle.end_date) });
                 } catch { return false; }
               })();
 
@@ -350,7 +382,7 @@ export default function StudentWorkout() {
                       Concluído
                     </Badge>
                   )}
-                  {!isCurrent && cycle.status === "pending" && (
+                  {!isCurrent && (cycle.status === "pending" || isFutureCycle) && (
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
                       Próximo
                     </Badge>

@@ -93,6 +93,98 @@ Deno.serve(async (req) => {
       return !!m;
     };
 
+    if (action === "list-members") {
+      const { company_id: requestCompanyId } = body;
+      const targetCompanyId = resolveTargetCompanyId(requestCompanyId);
+
+      if (!targetCompanyId) {
+        return new Response(JSON.stringify({ error: "Não foi possível determinar a empresa de destino" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: companyMembers, error: membersError } = await adminClient
+        .from("company_members")
+        .select("user_id")
+        .eq("company_id", targetCompanyId);
+
+      if (membersError) {
+        return new Response(JSON.stringify({ error: membersError.message }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const companyUserIds = [...new Set((companyMembers ?? []).map((member: any) => member.user_id).filter(Boolean))];
+      if (companyUserIds.length === 0) {
+        return new Response(JSON.stringify({ members: [], available_users: [] }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const [{ data: memberRoles, error: rolesError }, { data: profiles, error: profilesError }] = await Promise.all([
+        adminClient
+          .from("user_roles")
+          .select("user_id, role")
+          .in("user_id", companyUserIds),
+        adminClient
+          .from("profiles")
+          .select("user_id, full_name")
+          .in("user_id", companyUserIds),
+      ]);
+
+      if (rolesError || profilesError) {
+        return new Response(JSON.stringify({ error: rolesError?.message || profilesError?.message }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const profileMap = new Map((profiles ?? []).map((profile: any) => [profile.user_id, profile.full_name]));
+      const rolesByUser = new Map<string, string[]>();
+      for (const roleRow of memberRoles ?? []) {
+        if (!rolesByUser.has(roleRow.user_id)) rolesByUser.set(roleRow.user_id, []);
+        rolesByUser.get(roleRow.user_id)!.push(roleRow.role);
+      }
+
+      const teamMembers = [];
+      for (const uid of companyUserIds) {
+        const userRoles = rolesByUser.get(uid) ?? [];
+        if (userRoles.includes("master")) continue;
+        if (userRoles.length === 0 || (userRoles.length === 1 && userRoles[0] === "student")) continue;
+
+        const visibleRoles = userRoles.filter((roleName) => roleName !== "student");
+        if (visibleRoles.length === 0) continue;
+
+        const { data: accountData, error: accountError } = await adminClient.auth.admin.getUserById(uid);
+        const authUser = accountError ? null : accountData?.user ?? null;
+
+        teamMembers.push({
+          user_id: uid,
+          full_name: profileMap.get(uid) || "Sem nome",
+          email: authUser?.email ?? null,
+          auth_exists: !!authUser,
+          email_confirmed: !!authUser?.email_confirmed_at,
+          banned: !!authUser?.banned_until && new Date(authUser.banned_until).getTime() > Date.now(),
+          last_sign_in_at: authUser?.last_sign_in_at ?? null,
+          roles: visibleRoles,
+        });
+      }
+
+      const availableUsers = companyUserIds.map((uid) => ({
+        user_id: uid,
+        full_name: profileMap.get(uid) || null,
+      }));
+
+      return new Response(JSON.stringify({
+        members: teamMembers.sort((a, b) => String(a.full_name).localeCompare(String(b.full_name), "pt-BR")),
+        available_users: availableUsers.sort((a, b) => String(a.full_name || "").localeCompare(String(b.full_name || ""), "pt-BR")),
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "create") {
       const { full_name, email, password, role, company_id: requestCompanyId } = body;
 

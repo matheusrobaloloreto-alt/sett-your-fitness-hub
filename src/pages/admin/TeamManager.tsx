@@ -134,6 +134,20 @@ export default function TeamManager() {
   const loadTeam = async () => {
     if (!effectiveCompanyId) return;
 
+    const { data: teamData, error: teamError } = await supabase.functions.invoke("manage-team-member", {
+      body: { action: "list-members", company_id: effectiveCompanyId },
+    });
+
+    if (!teamError && teamData && Array.isArray(teamData.members)) {
+      setMembers(teamData.members);
+      setAvailableUsers(Array.isArray(teamData.available_users) ? teamData.available_users : []);
+      return;
+    }
+
+    if (teamError) {
+      console.warn("Falling back to client-side team load", teamError.message);
+    }
+
     // Get company members first for isolation
     const { data: companyMembers } = await supabase
       .from("company_members")
