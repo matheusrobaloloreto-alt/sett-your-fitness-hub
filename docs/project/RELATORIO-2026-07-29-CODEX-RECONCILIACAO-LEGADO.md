@@ -99,8 +99,11 @@ auditoria, foi preservada e já estava aplicada no remoto.
 - Hostinger:
   - nenhum segredo, DNS ou credencial da Hostinger existe em qualquer um dos
     Supabases;
-  - a sessão do hPanel está deslogada, portanto o ajuste de DNS ainda depende
-    de login manual na Hostinger.
+  - a sessão do hPanel está deslogada;
+  - o domínio responde 200 por Hostinger/Cloudflare e o bundle público contém
+    o backend canônico, com zero referências ao projeto legado;
+  - não trocar o DNS para Netlify sem uma decisão explícita de hospedagem, pois
+    a produção atual está operacional.
 
 ## QA executado
 
@@ -123,8 +126,9 @@ reconciliação de dados/backend.
 
 ## Próximos passos
 
-1. Autenticar no hPanel da Hostinger e concluir o DNS do domínio.
-2. Fazer o deploy do frontend somente após integrar/commitar os diffs
+1. Recuperar o acesso ao hPanel apenas para administração futura do domínio;
+   não há correção urgente de DNS.
+2. Fazer um novo deploy do frontend somente após integrar/commitar os diffs
    concorrentes de WhatsApp atualmente no worktree.
 3. Tratar o baseline de ESLint por módulos, com tipagem e sem desligar regras
    globalmente.
