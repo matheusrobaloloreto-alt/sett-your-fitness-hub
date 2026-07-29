@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Dumbbell, Play, Clock, RotateCcw, ChevronDown, ChevronUp, Timer, CheckCircle2, Circle, ExternalLink, Loader2 } from "lucide-react";
 import { format, parseISO, differenceInDays, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 interface WorkoutExercise {
   exercise_id: string;
@@ -123,9 +124,11 @@ export default function StudentWorkout() {
           .in("cycle_id", cyclesData.map((c) => c.id));
         if (workoutsError) throw workoutsError;
 
+        const materializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
+
         // Collect exercise_ids for video enrichment
         const exerciseIds = new Set<string>();
-        (workoutsData || []).forEach(w => {
+        materializedWorkouts.forEach(w => {
           const exs = (w.exercises as unknown as WorkoutExercise[]) || [];
           exs.forEach(ex => { if (ex.exercise_id) exerciseIds.add(ex.exercise_id); });
         });
@@ -149,7 +152,7 @@ export default function StudentWorkout() {
         }
 
         const enriched: Cycle[] = cyclesData.map((c) => {
-          const cycleWorkouts = (workoutsData || [])
+          const cycleWorkouts = materializedWorkouts
             .filter((w) => w.cycle_id === c.id)
             .map((w) => ({
               id: w.id,
@@ -172,14 +175,16 @@ export default function StudentWorkout() {
             return isWithinInterval(today, { start: parseISO(cycle.start_date), end: parseISO(cycle.end_date) });
           } catch { return false; }
         };
+        const todayYmd = format(today, "yyyy-MM-dd");
+        const hasStarted = (cycle: Cycle) => !cycle.start_date || cycle.start_date <= todayYmd;
         const newest = [...enriched].sort((left, right) =>
           (right.start_date || "").localeCompare(left.start_date || "") || right.cycle_number - left.cycle_number
         );
         const chosen =
           newest.find((cycle) => cycle.status === "active" && cycle.workouts.length > 0) ||
-          newest.find((cycle) => cycle.status === "active") ||
           newest.find((cycle) => cycle.status !== "completed" && inRange(cycle) && cycle.workouts.length > 0) ||
-          newest.find((cycle) => cycle.workouts.length > 0) ||
+          newest.find((cycle) => hasStarted(cycle) && cycle.workouts.length > 0) ||
+          newest.find((cycle) => cycle.status === "active") ||
           newest[0];
         setSelectedCycle(chosen);
         if (chosen.workouts.length > 0) setSelectedWorkoutId(chosen.workouts[0].id);

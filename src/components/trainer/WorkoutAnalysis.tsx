@@ -8,6 +8,7 @@ import { BarChart3, AlertTriangle, CheckCircle, TrendingUp, Activity } from "luc
 import { MuscleRadar } from "@/components/student/MuscleRadar";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { businessDateYmd } from "@/lib/businessDate";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 interface Props {
   studentId: string;
@@ -86,7 +87,8 @@ export function WorkoutAnalysis({ studentId }: Props) {
       .select("id, exercises")
       .in("cycle_id", cycleIds);
 
-    const workoutIds = (workouts || []).map(w => w.id);
+    const materializedWorkouts = filterMaterializedWorkouts(workouts || []);
+    const workoutIds = materializedWorkouts.map(w => w.id);
 
     // Load workout logs for this period - use session_date for filtering
     const { data: logs } = await supabase
@@ -102,7 +104,7 @@ export function WorkoutAnalysis({ studentId }: Props) {
     const exerciseIds = new Set<string>();
     const prescribedByExercise: Record<string, number> = {};
 
-    (workouts || []).forEach(w => {
+    materializedWorkouts.forEach(w => {
       const exercises = (w.exercises as any[]) || [];
       exercises.forEach(ex => {
         const exId = ex.exercise_id || ex.exerciseId;
@@ -116,7 +118,7 @@ export function WorkoutAnalysis({ studentId }: Props) {
 
     // Map workout_id + exercise_index to exerciseId
     const workoutExerciseMap: Record<string, string> = {};
-    (workouts || []).forEach(w => {
+    materializedWorkouts.forEach(w => {
       const exercises = (w.exercises as any[]) || [];
       exercises.forEach((ex, idx) => {
         const exId = ex.exercise_id || ex.exerciseId;

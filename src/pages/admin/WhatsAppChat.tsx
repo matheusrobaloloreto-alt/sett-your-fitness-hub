@@ -22,6 +22,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { useLocation, useNavigate } from "react-router-dom";
 import { interpolateTemplate } from "@/lib/templateVars";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 type Chat = {
   id: string;
@@ -229,12 +230,12 @@ export default function WhatsAppChat() {
 
     const enrollmentIds = (enrollments || []).map((e) => e.id);
     const { data: cycles } = enrollmentIds.length > 0
-      ? await supabase.from("training_cycles").select("id, enrollment_id, cycle_number, start_date, end_date, status").in("enrollment_id", enrollmentIds).eq("status", "active")
+      ? await supabase.from("training_cycles").select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at").in("enrollment_id", enrollmentIds).eq("status", "active")
       : { data: [] };
 
     const cycleIds = (cycles || []).map((c) => c.id);
     const { data: workouts } = cycleIds.length > 0
-      ? await supabase.from("workouts").select("id, cycle_id").in("cycle_id", cycleIds)
+      ? await supabase.from("workouts").select("id, cycle_id, exercises").in("cycle_id", cycleIds)
       : { data: [] };
 
     const { data: payments } = await supabase
@@ -245,7 +246,7 @@ export default function WhatsAppChat() {
 
     const contexts: Record<string, StudentContext> = {};
     const labels: Record<string, string[]> = {};
-    const workoutsByCycle = new Set((workouts || []).map((w) => w.cycle_id));
+    const workoutsByCycle = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
     const pendingPaymentsByStudent = new Set((payments || []).map((p) => p.student_id));
     // Vencimento pendente mais próximo por aluno (para a variável {{vencimento}}).
     const dueByStudent: Record<string, string> = {};
@@ -266,7 +267,7 @@ export default function WhatsAppChat() {
 
       if (cycle) {
         const daysRemaining = Math.max(0, differenceInDays(new Date(cycle.end_date), new Date()));
-        const hasWorkout = workoutsByCycle.has(cycle.id);
+        const hasWorkout = workoutsByCycle.has(cycle.id) || Boolean((cycle as { prescribed_offline_at?: string | null }).prescribed_offline_at);
         contexts[chat.id] = { cycleNumber: cycle.cycle_number, cycleStartDate: cycle.start_date, daysRemaining, paymentStatus: pendingPaymentsByStudent.has(studentId) ? "pendente" : "em dia", hasActiveWorkout: hasWorkout, studentName: chat.student?.full_name || "", ...planExtras };
         if (!hasWorkout) chatLabelsArr.push("Aguardando Treino");
       } else if (enrollment) {

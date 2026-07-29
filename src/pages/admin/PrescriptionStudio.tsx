@@ -34,6 +34,7 @@ import { businessDateYmd } from "@/lib/businessDate";
 import { PeriodizationRoadmap } from "@/components/admin/PeriodizationRoadmap";
 import { openStudentChat } from "@/lib/studentChat";
 import { toast } from "sonner";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import {
   describeLongitudinalPhase,
   isCycleCurrent,
@@ -391,9 +392,9 @@ export default function PrescriptionStudio() {
     const [{ data: feedback }, { data: workouts }] = await Promise.all([
       db.from("cycle_feedback").select("effort_score, goals_aligned, wants_adjustment, adjustment_notes, answers")
         .eq("cycle_id", previousCycle.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-      db.from("workouts").select("id").eq("cycle_id", previousCycle.id),
+      db.from("workouts").select("id, exercises").eq("cycle_id", previousCycle.id),
     ]);
-    const workoutIds = (workouts || []).map((workout: any) => workout.id);
+    const workoutIds = filterMaterializedWorkouts(workouts || []).map((workout) => workout.id);
     let completedDays = 0;
     if (workoutIds.length) {
       const { data: sessions } = await db.from("workout_sessions").select("session_date")

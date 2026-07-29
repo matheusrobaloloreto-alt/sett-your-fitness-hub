@@ -10,6 +10,7 @@ import { format, differenceInDays } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { DashboardAlerts } from "@/components/DashboardAlerts";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 interface Enrollment {
   id: string;
@@ -27,6 +28,7 @@ interface Cycle {
   start_date: string;
   end_date: string;
   status: string;
+  prescribed_offline_at?: string | null;
 }
 
 export default function TrainerDashboard() {
@@ -85,10 +87,13 @@ export default function TrainerDashboard() {
       if (allCycleIds.length > 0) {
         const { data: workouts } = await supabase
           .from("workouts")
-          .select("cycle_id")
+          .select("cycle_id, exercises")
           .in("cycle_id", allCycleIds);
         const map: Record<string, boolean> = {};
-        (workouts || []).forEach(w => { map[w.cycle_id] = true; });
+        filterMaterializedWorkouts(workouts || []).forEach(w => { map[w.cycle_id] = true; });
+        (cycleData as Cycle[] || []).forEach((cycle) => {
+          if (cycle.prescribed_offline_at) map[cycle.id] = true;
+        });
         setCycleWorkoutMap(map);
       }
     }

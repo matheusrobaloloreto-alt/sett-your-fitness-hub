@@ -13,6 +13,7 @@ import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+import { filterMaterializedWorkouts, getWorkoutExerciseCount } from "@/lib/workoutPresence";
 
 interface WorkoutSummary {
   id: string;
@@ -26,6 +27,7 @@ interface CycleSummary {
   start_date: string;
   end_date: string;
   status: string;
+  prescribed_offline_at?: string | null;
   workouts: WorkoutSummary[];
 }
 
@@ -85,7 +87,7 @@ export default function WorkoutPrescriptions() {
     if (enrollmentIds.length > 0) {
       const { data } = await supabase
         .from("training_cycles")
-        .select("id, enrollment_id, cycle_number, start_date, end_date, status")
+        .select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at")
         .in("enrollment_id", enrollmentIds)
         .order("cycle_number");
       cyclesData = data || [];
@@ -108,12 +110,12 @@ export default function WorkoutPrescriptions() {
       const studentCycles = cyclesData
         .filter(c => c.enrollment_id === enrollment?.id)
         .map(c => {
-          const cycleWorkouts = workoutsData
+          const cycleWorkouts = filterMaterializedWorkouts(workoutsData)
             .filter(w => w.cycle_id === c.id)
             .map(w => ({
               id: w.id,
               title: w.title,
-              exerciseCount: Array.isArray(w.exercises) ? w.exercises.length : 0,
+              exerciseCount: getWorkoutExerciseCount(w),
             }));
           return {
             id: c.id,
@@ -121,6 +123,7 @@ export default function WorkoutPrescriptions() {
             start_date: c.start_date,
             end_date: c.end_date,
             status: c.status,
+            prescribed_offline_at: c.prescribed_offline_at,
             workouts: cycleWorkouts,
           };
         });
@@ -284,8 +287,17 @@ export default function WorkoutPrescriptions() {
                             </div>
                           ) : (
                             <div className="flex items-center gap-2 text-muted-foreground">
-                              <Clock className="h-4 w-4" />
-                              <span className="text-sm font-sans">Nenhum treino prescrito</span>
+                              {cycle.prescribed_offline_at ? (
+                                <>
+                                  <CheckCircle2 className="h-4 w-4 text-primary" />
+                                  <span className="text-sm font-sans">Prescrito fora do app</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="h-4 w-4" />
+                                  <span className="text-sm font-sans">Nenhum treino prescrito</span>
+                                </>
+                              )}
                             </div>
                           )}
 

@@ -9,6 +9,7 @@ import { Cake, Dumbbell, UserCheck, CalendarDays, AlertTriangle, Bell, Check, Me
 import { toast } from "sonner";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { buildStudentChatMap, openStudentChat, birthdayMessage } from "@/lib/studentChat";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 interface Birthday { full_name: string; birth_date: string; student_id: string; isToday: boolean; day: number; }
 interface MissingWorkout { student_name: string; student_id: string; cycle_number: number; cycle_id: string; start_date: string; end_date: string; trainer_name?: string; }
@@ -137,40 +138,23 @@ async function fetchAlerts(
 
     if (allCycles && allCycles.length > 0) {
       const allCycleIds = allCycles.map((c: any) => c.id);
-      const { data: workouts } = await supabase.from("workouts").select("cycle_id").in("cycle_id", allCycleIds);
-      const cyclesWithWorkout = new Set((workouts || []).map((w: any) => w.cycle_id));
+      const { data: workouts } = await supabase.from("workouts").select("cycle_id, exercises").in("cycle_id", allCycleIds);
+      const cyclesWithWorkout = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
 
-      // Conjunto de alunos que possuem PELO MENOS UM treino em qualquer ciclo
-      const studentsWithAnyWorkout = new Set<string>();
-      allCycles.forEach((c: any) => {
-        if (cyclesWithWorkout.has(c.id)) {
-          const info = enrollMap[c.enrollment_id];
-          if (info?.student_id) studentsWithAnyWorkout.add(info.student_id);
-        }
-      });
-
-      // Para alunos sem nenhum treino, escolher o ciclo de referência (ativo, senão o de menor número)
-      const refPerStudent = new Map<string, MissingWorkout>();
+      // Ciclos ativos sem treino real nem marcação "fora do app" são pendência operacional.
       allCycles.forEach((c: any) => {
         const info = enrollMap[c.enrollment_id];
-        if (!info?.student_id || studentsWithAnyWorkout.has(info.student_id)) return;
-        const candidate: MissingWorkout = {
+        if (!info?.student_id) return;
+        if (c.status !== "active") return;
+        if (cyclesWithWorkout.has(c.id) || c.prescribed_offline_at) return;
+        missingWorkouts.push({
           student_name: info.name || "—", student_id: info.student_id, cycle_number: c.cycle_number,
           cycle_id: c.id, start_date: c.start_date, end_date: c.end_date, trainer_name: info.trainer_name,
-        };
-        const existing = refPerStudent.get(info.student_id);
-        if (!existing) {
-          refPerStudent.set(info.student_id, candidate);
-        } else if (c.status === "active") {
-          refPerStudent.set(info.student_id, candidate);
-        } else if (candidate.cycle_number < existing.cycle_number) {
-          refPerStudent.set(info.student_id, candidate);
-        }
+        });
       });
 
 
-      missingWorkouts = Array.from(refPerStudent.values())
-        .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+      missingWorkouts = missingWorkouts.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
     }
   }
 

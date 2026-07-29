@@ -7,6 +7,7 @@
 //   3) materializa os `workouts` preservando IDs e histórico quando o ciclo já começou.
 import { supabase } from "@/integrations/supabase/client";
 import { businessDateYmd } from "@/lib/businessDate";
+import { filterMaterializedWorkouts, hasWorkoutExercises } from "@/lib/workoutPresence";
 
 // Formato que o app do aluno (StudentPortal/StudentWorkout) consome em workouts.exercises[].
 export interface StudentWorkoutExercise {
@@ -41,6 +42,14 @@ export interface PublishResult {
   workoutsCreated: number;
   createdEnrollment: boolean;
 }
+
+type PreviousWorkoutRow = {
+  id: string;
+  sort_order?: number | null;
+  title?: string | null;
+  name?: string | null;
+  exercises?: unknown;
+};
 
 // Converte um exercício do plano da IA -> formato do app do aluno (tudo string, como o app espera).
 export function mapStrengthExercise(e: any): StudentWorkoutExercise {
@@ -233,11 +242,20 @@ export async function publishStrengthPlanToStudent(opts: {
   const rows = buildWorkoutRows(plan, cycle.id, companyId).map((r) =>
     createdBy ? { ...r, created_by: createdBy } : r,
   );
-  const { data: previousWorkouts, error: previousWorkoutsError } = await db.from("workouts")
-    .select("id, sort_order")
+  const { data: previousWorkoutRows, error: previousWorkoutsError } = await db.from("workouts")
+    .select("id, sort_order, title, name, exercises")
     .eq("cycle_id", cycle.id)
     .order("sort_order");
   if (previousWorkoutsError) throw new Error(`Falha ao consultar treinos do ciclo: ${previousWorkoutsError.message}`);
+  const previousWorkoutList = (previousWorkoutRows || []) as PreviousWorkoutRow[];
+  const staleMarkerIds = previousWorkoutList
+    .filter((workout) => !hasWorkoutExercises(workout) && String(workout.title || workout.name || "").startsWith("Treino Ciclo "))
+    .map((workout) => workout.id);
+  if (staleMarkerIds.length > 0) {
+    const { error: deleteMarkersError } = await db.from("workouts").delete().in("id", staleMarkerIds);
+    if (deleteMarkersError) throw new Error(`Falha ao remover marcador antigo do ciclo: ${deleteMarkersError.message}`);
+  }
+  const previousWorkouts = filterMaterializedWorkouts(previousWorkoutList);
   if (previousWorkouts?.length && opts.replaceTargetCycle === false) {
     throw new Error("Este ciclo já tem treinos. Confirme a substituição para publicar novamente.");
   }

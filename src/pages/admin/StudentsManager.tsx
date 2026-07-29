@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { UserPlus, Search, Pencil, Trash2, Phone, Mail, Eye, Play, Copy } from "lucide-react";
+import { UserPlus, Search, Pencil, Trash2, Phone, Mail, Eye, Play, Copy, KeyRound, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMaster } from "@/contexts/MasterContext";
@@ -35,6 +35,7 @@ interface Student {
   city: string | null;
   state: string | null;
   whatsapp: string | null;
+  user_id: string | null;
   selected_plan_id: string | null;
   assigned_trainer_id: string | null;
   created_at: string;
@@ -62,8 +63,20 @@ const statusColors: Record<string, string> = {
 
 const emptyForm = { full_name: "", email: "", phone: "", status: "pending", notes: "", birth_date: "", cpf: "", cep: "", address: "", address_number: "", neighborhood: "", city: "", state: "", whatsapp: "" };
 
+type StudentCredentialsResponse = {
+  email?: unknown;
+  password?: unknown;
+  error?: unknown;
+};
+
 const normalizeEmail = (value: string | null | undefined) => (value || "").trim().toLowerCase();
 const onlyDigits = (value: string | null | undefined) => (value || "").replace(/\D/g, "");
+
+const errorMessage = (value: unknown, fallback: string) => {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string" && value.trim()) return value;
+  return fallback;
+};
 
 function findDuplicateStudent(students: Student[], payload: { email: string | null; cpf: string | null; phone: string | null; whatsapp: string | null }, currentId?: string) {
   const email = normalizeEmail(payload.email);
@@ -91,6 +104,8 @@ export default function StudentsManager() {
   const [editing, setEditing] = useState<Student | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [accessLoadingId, setAccessLoadingId] = useState<string | null>(null);
+  const [batchAccessLoading, setBatchAccessLoading] = useState(false);
 
   // CEP ↔ endereço automático no Novo Aluno
   const fillFromCepNew = async (cepValue: string) => {
@@ -185,6 +200,9 @@ export default function StudentsManager() {
     }
     return true;
   });
+  const activeWithoutAccess = students.filter(s => s.status === "active" && !s.user_id);
+  const activeWithoutAccessWithEmail = activeWithoutAccess.filter(s => !!s.email);
+  const activeWithoutAccessNoEmail = activeWithoutAccess.length - activeWithoutAccessWithEmail.length;
 
   const openCreate = () => { setEditing(null); setForm(emptyForm); setOpen(true); };
 
@@ -307,7 +325,7 @@ export default function StudentsManager() {
     setSaving(true);
     const startDate = new Date();
     const endDate = addWeeks(startDate, plan.duration_weeks);
-    const { error } = await supabase.from("enrollments" as any).insert({
+    const { error } = await supabase.from("enrollments").insert({
       student_id: s.id, plan_id: s.selected_plan_id, trainer_id: s.assigned_trainer_id,
       start_date: format(startDate, "yyyy-MM-dd"), end_date: format(endDate, "yyyy-MM-dd"),
       created_by: session.user.id, status: "awaiting_training", company_id: effectiveCompanyId,
@@ -319,10 +337,115 @@ export default function StudentsManager() {
     loadData();
   };
 
+  const studentLoginUrl = `${window.location.origin}/auth?as=student`;
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+  };
+
+  const buildLoginMessage = (student: Student, creds: { email: string; password: string }) => {
+    const first = student.full_name.trim().split(/\s+/)[0] || "";
+    return (
+      `Olá${first ? ", " + first : ""}! Seu acesso ao app de treino está pronto.\n\n` +
+      `Acesse: ${studentLoginUrl}\n` +
+      `Email: ${creds.email}\n` +
+      `Senha: ${creds.password}\n\n` +
+      `É só entrar e começar. Qualquer dúvida, me chama por aqui!`
+    );
+  };
+
+  const requestStudentCredentials = async (student: Student): Promise<{ email: string; password: string } | null> => {
+    if (!student.email) {
+      toast({ title: "Sem e-mail", description: "Cadastre um e-mail no aluno para gerar o acesso.", variant: "destructive" });
+      return null;
+    }
+
+    const { data, error } = await supabase.functions.invoke<StudentCredentialsResponse>("student-login-credentials", {
+      body: { student_id: student.id },
+    });
+    if (error || data?.error) {
+      throw new Error(errorMessage(data?.error || error, "Falha ao gerar acesso"));
+    }
+    if (typeof data?.email !== "string" || typeof data?.password !== "string") {
+      throw new Error("Resposta inválida ao gerar acesso");
+    }
+    return { email: data.email, password: data.password };
+  };
+
+  const handleGenerateStudentAccess = async (student: Student) => {
+    setAccessLoadingId(student.id);
+    try {
+      const creds = await requestStudentCredentials(student);
+      if (!creds) return;
+      await copyText(buildLoginMessage(student, creds));
+      toast({ title: "Login copiado!", description: "Email, senha e link prontos pra colar no chat do aluno." });
+      await loadData();
+    } catch (err: unknown) {
+      toast({ title: "Erro ao gerar acesso", description: errorMessage(err, "Tente novamente."), variant: "destructive" });
+    } finally {
+      setAccessLoadingId(null);
+    }
+  };
+
+  const handleGenerateBatchAccess = async () => {
+    const targets = activeWithoutAccessWithEmail;
+    if (targets.length === 0) {
+      toast({ title: "Nenhum aluno elegível", description: "Os ativos sem acesso precisam ter e-mail cadastrado." });
+      return;
+    }
+
+    const proceed = window.confirm(
+      `Gerar/redefinir senha temporária para ${targets.length} aluno(s) ativo(s) sem acesso?\n\n` +
+      `As mensagens serão copiadas para você enviar. ${activeWithoutAccessNoEmail > 0 ? `${activeWithoutAccessNoEmail} aluno(s) sem e-mail serão ignorados.` : ""}`
+    );
+    if (!proceed) return;
+
+    setBatchAccessLoading(true);
+    const messages: string[] = [];
+    const failures: string[] = [];
+    for (const student of targets) {
+      setAccessLoadingId(student.id);
+      try {
+        const creds = await requestStudentCredentials(student);
+        if (creds) messages.push(buildLoginMessage(student, creds));
+      } catch (err: unknown) {
+        failures.push(`${student.full_name}: ${errorMessage(err, "falha ao gerar acesso")}`);
+      }
+    }
+    setAccessLoadingId(null);
+
+    if (messages.length > 0) {
+      await copyText(messages.join("\n\n---\n\n"));
+    }
+    if (failures.length > 0) {
+      toast({
+        title: `${messages.length} acesso(s) gerado(s), ${failures.length} falha(s)`,
+        description: failures.slice(0, 2).join(" | "),
+        variant: "destructive",
+      });
+    } else {
+      toast({ title: "Acessos gerados!", description: `${messages.length} mensagem(ns) copiadas para envio.` });
+    }
+    setBatchAccessLoading(false);
+    await loadData();
+  };
+
   return (
     <>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-4xl text-primary">ALUNOS</h1>
@@ -334,7 +457,18 @@ export default function StudentsManager() {
             </div>
             <p className="text-muted-foreground font-sans">Gerencie alunos, atribua treinadores e inicie matrículas</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
+            {activeWithoutAccess.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={handleGenerateBatchAccess}
+                disabled={batchAccessLoading || activeWithoutAccessWithEmail.length === 0}
+                title={activeWithoutAccessNoEmail > 0 ? `${activeWithoutAccessNoEmail} ativo(s) sem e-mail serão ignorados` : "Gerar acessos dos alunos ativos sem login"}
+              >
+                {batchAccessLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <KeyRound className="h-4 w-4 mr-2" />}
+                Gerar {activeWithoutAccessWithEmail.length} acessos
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={async () => {
@@ -386,6 +520,7 @@ export default function StudentsManager() {
                       <p className="text-foreground font-sans font-medium truncate">{s.full_name}</p>
                       <Badge variant="outline" className={`text-xs ${statusColors[s.status]}`}>{statusLabels[s.status] || s.status}</Badge>
                       {s.plan_name && <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">{s.plan_name}</Badge>}
+                      {s.status === "active" && !s.user_id && <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">Sem acesso</Badge>}
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground font-sans">
                       {s.email && <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{s.email}</span>}
@@ -399,6 +534,18 @@ export default function StudentsManager() {
                       context={`Aluno na lista. Status: ${statusLabels[s.status] || s.status}. Plano: ${s.plan_name || "sem plano"}. Treinador atribuido: ${s.assigned_trainer_id ? "sim" : "nao"}.`}
                       question="Qual o proximo passo operacional e tecnico para este aluno?"
                     />
+                    {s.status === "active" && !s.user_id && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Gerar login de ${s.full_name}`}
+                        title={s.email ? `Gerar login de ${s.full_name}` : "Cadastre e-mail para gerar login"}
+                        disabled={batchAccessLoading || accessLoadingId === s.id || !s.email}
+                        onClick={() => handleGenerateStudentAccess(s)}
+                      >
+                        {accessLoadingId === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                      </Button>
+                    )}
                     <Button variant="ghost" size="icon" aria-label={`Ver perfil de ${s.full_name}`} title={`Ver perfil de ${s.full_name}`} onClick={() => navigate(`${rolePrefix}/students/${s.id}`)}><Eye className="h-4 w-4" /></Button>
                     <Button variant="ghost" size="icon" aria-label={`Editar ${s.full_name}`} title={`Editar ${s.full_name}`} onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
                     <Button variant="ghost" size="icon" aria-label={`Excluir ${s.full_name}`} title={`Excluir ${s.full_name}`} onClick={() => handleDelete(s.id)} className="text-destructive hover:text-destructive"><Trash2 className="h-4 w-4" /></Button>

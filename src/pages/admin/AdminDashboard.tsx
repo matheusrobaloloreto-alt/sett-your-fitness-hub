@@ -17,6 +17,7 @@ import { useNavigate } from "react-router-dom";
 import { buildStudentChatMap, createPlansLink, openStudentChat, renewalMessage } from "@/lib/studentChat";
 import { businessDateYmd } from "@/lib/businessDate";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 const LazyChart = lazy(() => import("recharts").then(mod => ({
   default: ({ data, colors }: { data: { name: string; count: number }[]; colors: string[] }) => (
@@ -147,7 +148,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
       };
     });
     const { data: cycleRows, error: cycleRowsError } = await supabase.from("training_cycles")
-      .select("id, enrollment_id, cycle_number, start_date, end_date, status")
+      .select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at")
       .in("enrollment_id", enrollIds)
       .order("cycle_number");
     if (cycleRowsError) throw new Error(`Falha ao carregar trocas de treino: ${cycleRowsError.message}`);
@@ -159,15 +160,16 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     const nextCycleIds = nextCycles.map((cycle: any) => cycle.id);
     const [{ data: nextWorkouts, error: nextWorkoutsError }, { data: nextBundles, error: nextBundlesError }] = nextCycleIds.length > 0
       ? await Promise.all([
-          supabase.from("workouts").select("cycle_id").in("cycle_id", nextCycleIds),
+          supabase.from("workouts").select("cycle_id, exercises").in("cycle_id", nextCycleIds),
           (supabase as any).from("prescription_bundles").select("training_cycle_id").in("training_cycle_id", nextCycleIds).neq("status", "failed"),
         ])
       : [{ data: [] as any[], error: null }, { data: [] as any[], error: null }];
     if (nextWorkoutsError) throw new Error(`Falha ao conferir treinos futuros: ${nextWorkoutsError.message}`);
     if (nextBundlesError) throw new Error(`Falha ao conferir prescrições futuras: ${nextBundlesError.message}`);
     const preparedNextCycles = new Set([
-      ...(nextWorkouts || []).map((row: any) => row.cycle_id),
+      ...filterMaterializedWorkouts(nextWorkouts || []).map((row) => row.cycle_id),
       ...(nextBundles || []).map((row: any) => row.training_cycle_id),
+      ...nextCycles.filter((cycle) => cycle.prescribed_offline_at).map((cycle) => cycle.id),
     ]);
     activeCycles.forEach((c: any) => {
       const info = enrollInfoMap[c.enrollment_id];

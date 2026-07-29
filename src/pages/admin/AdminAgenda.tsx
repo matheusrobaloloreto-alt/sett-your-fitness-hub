@@ -10,6 +10,7 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMont
 import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 interface AgendaEvent {
   id: string;
@@ -79,7 +80,7 @@ export default function AdminAgenda() {
     // Training cycles — filter by start_date in month, include completed status
     let cyclesQuery = supabase
       .from("training_cycles")
-      .select("id, start_date, end_date, cycle_number, enrollment_id, status, enrollments(student_id, students(full_name, assigned_trainer_id))")
+      .select("id, start_date, end_date, cycle_number, enrollment_id, status, prescribed_offline_at, enrollments(student_id, students(full_name, assigned_trainer_id))")
       .in("status", ["active", "pending", "completed"])
       .gte("start_date", monthStart)
       .lte("start_date", monthEnd);
@@ -90,10 +91,10 @@ export default function AdminAgenda() {
       const cycleIds = cycles.map((c: any) => c.id);
       const { data: workouts } = await supabase
         .from("workouts")
-        .select("cycle_id")
+        .select("cycle_id, exercises")
         .in("cycle_id", cycleIds);
 
-      const cyclesWithWorkout = new Set((workouts || []).map((w: any) => w.cycle_id));
+      const cyclesWithWorkout = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
 
       // Collect unique assigned_trainer_ids from students to fetch names
       const trainerIds = [...new Set(cycles.map((c: any) => (c as any).enrollments?.students?.assigned_trainer_id).filter(Boolean))];
@@ -109,7 +110,7 @@ export default function AdminAgenda() {
       }
 
       cycles.forEach((c: any) => {
-        const hasWorkout = cyclesWithWorkout.has(c.id);
+        const hasWorkout = cyclesWithWorkout.has(c.id) || Boolean(c.prescribed_offline_at);
         const trainerId = (c as any).enrollments?.students?.assigned_trainer_id;
         collected.push({
           id: `cyc-${c.id}`,

@@ -19,6 +19,7 @@ import { format, subMonths, startOfMonth, endOfMonth, parse, addMonths, isAfter,
 import { ptBR } from "date-fns/locale";
 import { Textarea } from "@/components/ui/textarea";
 import { businessDateYmd } from "@/lib/businessDate";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 interface TeamMember {
   user_id: string;
@@ -360,7 +361,7 @@ export default function TeamManager() {
       if (enrollmentIds.length > 0) {
         const { data: cycles } = await supabase
           .from("training_cycles")
-          .select("id, enrollment_id, start_date")
+          .select("id, enrollment_id, start_date, prescribed_offline_at")
           .in("enrollment_id", enrollmentIds)
           .gte("start_date", rangeStart.slice(0, 10))
           .lte("start_date", rangeEnd.slice(0, 10));
@@ -369,11 +370,11 @@ export default function TeamManager() {
         if (cycleIds.length > 0) {
           const { data: workouts } = await supabase
             .from("workouts")
-            .select("cycle_id")
+            .select("cycle_id, exercises")
             .in("cycle_id", cycleIds);
-          const cyclesWithWorkout = new Set((workouts || []).map((w) => w.cycle_id));
+          const cyclesWithWorkout = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
           prescribedCycles = (cycles || [])
-            .filter((c) => cyclesWithWorkout.has(c.id))
+            .filter((c) => cyclesWithWorkout.has(c.id) || c.prescribed_offline_at)
             .map((c) => ({
               cycle_id: c.id,
               student_id: enrollStudent.get(c.enrollment_id) as string,

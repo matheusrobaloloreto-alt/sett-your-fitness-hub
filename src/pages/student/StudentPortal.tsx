@@ -48,6 +48,7 @@ import { BodyMeasurements } from "@/components/student/BodyMeasurements";
 import type { Gender } from "@/components/student/BodyMeasurements";
 import { Megaphone, Activity } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 
 type ActiveView = "home" | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo";
@@ -235,8 +236,10 @@ export default function StudentPortal() {
           .select("id, name, title, description, exercises, cycle_id, day_of_week")
           .in("cycle_id", cyclesData.map(c => c.id));
 
+        const materializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
+
         const exerciseIds = new Set<string>();
-        (workoutsData || []).forEach(w => {
+        materializedWorkouts.forEach(w => {
           const exs = (w.exercises as unknown as WorkoutExercise[]) || [];
           exs.forEach(ex => { if (ex.exercise_id) exerciseIds.add(ex.exercise_id); });
         });
@@ -255,7 +258,7 @@ export default function StudentPortal() {
         }
 
         const enriched: Cycle[] = cyclesData.map(c => {
-          const cycleWorkouts = (workoutsData || [])
+          const cycleWorkouts = materializedWorkouts
             .filter(w => w.cycle_id === c.id)
             .map(w => ({
               id: w.id,
@@ -279,15 +282,16 @@ export default function StudentPortal() {
           try { return isWithinInterval(today, { start: parseISO(c.start_date), end: parseISO(c.end_date) }); }
           catch { return false; }
         };
-        // Vários ciclos podem ter períodos sobrepostos (re-publicações). Prioriza: ciclo ATIVO com treinos
-        // > ativo > no período com treinos > no período > com treinos > mais recente (maior cycle_number).
+        const hasStarted = (c: Cycle) => !c.start_date || c.start_date <= todayStr;
+        // Vários ciclos podem ter períodos sobrepostos (re-publicações). Prioriza ciclo vigente com treino real.
         const byNewest = [...enriched].sort((a, b) => (b.cycle_number || 0) - (a.cycle_number || 0));
         // Prescrição futura nunca vaza antes da data. O status ajuda, mas a
         // vigência é a fonte de verdade para o que o aluno enxerga hoje.
         const chosen =
           byNewest.find(c => inRange(c) && c.workouts.length > 0) ||
-          byNewest.find(c => inRange(c)) ||
           byNewest.find(c => c.status === "active" && c.workouts.length > 0 && (!c.start_date || !c.end_date)) ||
+          byNewest.find(c => hasStarted(c) && c.workouts.length > 0) ||
+          byNewest.find(c => inRange(c)) ||
           byNewest.find(c => c.status === "active" && (!c.start_date || !c.end_date)) ||
           null;
         setSelectedCycle(chosen);
@@ -305,7 +309,7 @@ export default function StudentPortal() {
           setSelectedWorkoutId(null);
         }
 
-        const workoutIds = workoutsData?.map(w => w.id) || [];
+        const workoutIds = materializedWorkouts.map(w => w.id);
         if (workoutIds.length > 0) {
           const { data: logsData } = await supabase
             .from("workout_logs")

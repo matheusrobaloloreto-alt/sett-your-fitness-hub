@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { businessDateYmd } from "@/lib/businessDate";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 const DAYS = [
   { label: "Seg", dayOfWeek: 1 },
@@ -53,12 +54,12 @@ export function TrainerWeeklyBar({ studentId }: Props) {
 
     const { data: workouts } = await supabase
       .from("workouts")
-      .select("id, title, day_of_week")
+      .select("id, title, day_of_week, exercises")
       .in("cycle_id", cycles.map(c => c.id));
 
     const scheduled = new Map<number, string>();
     const names = new Map<number, string>();
-    (workouts || []).forEach(w => {
+    filterMaterializedWorkouts(workouts || []).forEach(w => {
       if (w.day_of_week !== null) {
         scheduled.set(w.day_of_week, w.id);
         names.set(w.day_of_week, w.title || "Treino");

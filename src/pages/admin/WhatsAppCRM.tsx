@@ -18,6 +18,7 @@ import { useMaster } from "@/contexts/MasterContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { interpolateTemplate } from "@/lib/templateVars";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 type CRMStudent = {
   id: string;
@@ -119,14 +120,14 @@ export default function WhatsAppCRM() {
     const enrollmentIds = (enrollments || []).map((e) => e.id);
     let cyclesQuery = supabase
       .from("training_cycles")
-      .select("id, enrollment_id")
+      .select("id, enrollment_id, prescribed_offline_at")
       .in("enrollment_id", enrollmentIds)
       .eq("status", "active");
     if (effectiveCompanyId) cyclesQuery = cyclesQuery.eq("company_id", effectiveCompanyId);
     const { data: cycles } = enrollmentIds.length > 0 ? await cyclesQuery : { data: [] };
 
     const cycleIds = (cycles || []).map((c) => c.id);
-    let workoutsQuery = supabase.from("workouts").select("id, cycle_id").in("cycle_id", cycleIds);
+    let workoutsQuery = supabase.from("workouts").select("id, cycle_id, exercises").in("cycle_id", cycleIds);
     if (effectiveCompanyId) workoutsQuery = workoutsQuery.eq("company_id", effectiveCompanyId);
     const { data: workouts } = cycleIds.length > 0 ? await workoutsQuery : { data: [] };
 
@@ -138,13 +139,13 @@ export default function WhatsAppCRM() {
     if (effectiveCompanyId) paymentsQuery = paymentsQuery.eq("company_id", effectiveCompanyId);
     const { data: payments } = await paymentsQuery;
 
-    const workoutCycles = new Set((workouts || []).map((w) => w.cycle_id));
+    const workoutCycles = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
     const pendingPayStudents = new Set((payments || []).map((p) => p.student_id));
 
     const enriched: CRMStudent[] = studentsData.map((s) => {
       const enrollment = (enrollments || []).find((e) => e.student_id === s.id);
       const cycle = enrollment ? (cycles || []).find((c) => c.enrollment_id === enrollment.id) : null;
-      const hasWorkout = cycle ? workoutCycles.has(cycle.id) : false;
+      const hasWorkout = cycle ? workoutCycles.has(cycle.id) || Boolean((cycle as { prescribed_offline_at?: string | null }).prescribed_offline_at) : false;
       const pendingPayment = (payments || []).find((p) => p.student_id === s.id);
       const dueDate = pendingPayment?.due_date || enrollment?.end_date || null;
       const dueTime = dueDate ? new Date(`${dueDate}T00:00:00`).getTime() : NaN;

@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +47,7 @@ function safeFormatDate(value: string | null | undefined, fmt: string, opts?: Pa
 import { formatCPF, formatCEP, formatPhone } from "@/lib/masks";
 import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 // Heavy children loaded only when their tab is opened (chunk size win)
 const WorkoutAnalysis = lazy(() => import("@/components/trainer/WorkoutAnalysis").then(m => ({ default: m.WorkoutAnalysis })));
 const TrainerWeeklyBar = lazy(() => import("@/components/trainer/TrainerWeeklyBar").then(m => ({ default: m.TrainerWeeklyBar })));
@@ -135,7 +137,14 @@ interface TrainingCycle {
   end_date: string;
   status: string;
   has_workout?: boolean;
+  prescribed_offline_at?: string | null;
+  prescribed_offline_by?: string | null;
 }
+
+type TrainingCycleUpdate = Database["public"]["Tables"]["training_cycles"]["Update"] & {
+  prescribed_offline_at?: string | null;
+  prescribed_offline_by?: string | null;
+};
 
 interface Plan {
   id: string;
@@ -218,6 +227,9 @@ const TRAINING_LOCATION_OPTIONS = [
 ];
 
 const SLEEP_OPTIONS = ["4h", "4h - 6h", "6h - 8h", "8h +"];
+
+const isCyclePrescribed = (cycle: TrainingCycle) =>
+  Boolean(cycle.has_workout || cycle.prescribed_offline_at);
 
 const paymentStatusLabels: Record<string, string> = {
   pending: "Pendente",
@@ -512,9 +524,14 @@ export default function StudentDetail() {
     }
 
     const cycleIds = cycleData.map((c) => c.id);
-    const { data: workouts } = await supabase.from("workouts").select("id, cycle_id, name, exercises, sort_order").in("cycle_id", cycleIds);
-    const workoutCycleIds = new Set((workouts || []).map((w) => w.cycle_id));
-    setAllWorkouts(workouts || []);
+    const { data: workouts } = await supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").in("cycle_id", cycleIds);
+    const materializedWorkouts = filterMaterializedWorkouts(workouts || []);
+    const workoutCycleIds = new Set(materializedWorkouts.map((w) => w.cycle_id));
+    const prescribedCycleIds = new Set(workoutCycleIds);
+    cycleData.forEach((cycle) => {
+      if (cycle.prescribed_offline_at) prescribedCycleIds.add(cycle.id);
+    });
+    setAllWorkouts(materializedWorkouts);
 
     setCycles(cycleData.map((c) => ({ ...c, has_workout: workoutCycleIds.has(c.id) })));
 
@@ -522,7 +539,7 @@ export default function StudentDetail() {
     const awaitingEnrollments = enrollmentData.filter((e: any) => e.status === "awaiting_training");
     for (const enrollment of awaitingEnrollments) {
       const enrollmentCycles = cycleData.filter((c) => c.enrollment_id === enrollment.id);
-      const allCyclesHaveWorkouts = enrollmentCycles.length > 0 && enrollmentCycles.every((c) => workoutCycleIds.has(c.id));
+      const allCyclesHaveWorkouts = enrollmentCycles.length > 0 && enrollmentCycles.every((c) => prescribedCycleIds.has(c.id));
       if (allCyclesHaveWorkouts) {
         await supabase.from("enrollments").update({ status: "active" }).eq("id", enrollment.id);
         // Update local state
@@ -904,10 +921,10 @@ export default function StudentDetail() {
       const start = parseISO(cycle.start_date);
       const end = parseISO(cycle.end_date);
       const days = eachDayOfInterval({ start, end });
-      const isExpiredNoWorkout = cycle.status === "completed" && !cycle.has_workout;
+      const isExpiredNoWorkout = cycle.status === "completed" && !isCyclePrescribed(cycle);
 
       if (isExpiredNoWorkout) expiredDays.push(...days);
-      else if (cycle.has_workout) doneDays.push(...days);
+      else if (isCyclePrescribed(cycle)) doneDays.push(...days);
       else prescribeDays.push(...days);
     });
 
@@ -1106,6 +1123,8 @@ export default function StudentDetail() {
                                 <div className="flex items-center gap-1">
                                   {c.has_workout ? (
                                     <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Treino</Badge>
+                                  ) : c.prescribed_offline_at ? (
+                                    <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Fora do app</Badge>
                                   ) : (
                                     <Badge variant="outline" className="text-[10px] bg-destructive/15 text-destructive border-destructive/30">Sem treino</Badge>
                                   )}
@@ -1279,6 +1298,8 @@ export default function StudentDetail() {
                                   <div className="flex items-center gap-1.5 flex-wrap justify-end">
                                     {c.has_workout ? (
                                       <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Treino</Badge>
+                                    ) : c.prescribed_offline_at ? (
+                                      <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Fora do app</Badge>
                                     ) : (
                                       <Badge variant="outline" className="text-[10px] bg-destructive/15 text-destructive border-destructive/30">Sem treino</Badge>
                                     )}
@@ -1300,35 +1321,36 @@ export default function StudentDetail() {
                                           <Dumbbell className="h-3 w-3 mr-1" />
                                           {c.has_workout ? "Editar Treino" : "Prescrever"}
                                         </Button>
-                                        {!c.has_workout && (
+                                        {!isCyclePrescribed(c) && (
                                           <Button
                                             variant="outline"
                                             size="sm"
                                             className="h-5 text-[10px] px-2 text-success border-success/30 hover:bg-success/10"
                                             onClick={async () => {
                                               if (!session?.user?.id) return;
-                                              // Idempotente: se o ciclo já tem treino, apenas recarrega (evita erro/duplicidade)
+                                              // Idempotente: se o ciclo já tem treino materializado, apenas recarrega.
                                               const { data: existing } = await supabase
                                                 .from("workouts")
-                                                .select("id")
+                                                .select("id, exercises")
                                                 .eq("cycle_id", c.id)
-                                                .limit(1);
-                                              if (existing && existing.length > 0) {
+                                                .limit(20);
+                                              if (filterMaterializedWorkouts(existing || []).length > 0) {
                                                 toast({ title: "Esse ciclo já possui treino." });
                                                 if (id) loadData(id);
                                                 return;
                                               }
-                                              const { error } = await supabase.from("workouts").insert({
-                                                cycle_id: c.id,
-                                                company_id: student?.company_id,
-                                                title: `Treino Ciclo ${c.cycle_number}`,
-                                                created_by: session.user.id,
-                                                exercises: [],
-                                              });
+                                              const offlineUpdate: TrainingCycleUpdate = {
+                                                prescribed_offline_at: new Date().toISOString(),
+                                                prescribed_offline_by: session.user.id,
+                                              };
+                                              const { error } = await supabase
+                                                .from("training_cycles")
+                                                .update(offlineUpdate)
+                                                .eq("id", c.id);
                                               if (error) {
                                                 toast({ title: "Erro ao marcar como prescrito", description: error.message, variant: "destructive" });
                                               } else {
-                                                toast({ title: "Ciclo marcado como prescrito!" });
+                                                toast({ title: "Ciclo marcado como prescrito fora do app." });
                                                 if (id) loadData(id);
                                               }
                                             }}
@@ -1476,8 +1498,17 @@ export default function StudentDetail() {
                             </div>
                           ) : (
                             <div className="flex items-center gap-2 text-muted-foreground">
-                              <Clock className="h-4 w-4" />
-                              <span className="text-sm font-sans">Nenhum treino prescrito</span>
+                              {cycle.prescribed_offline_at ? (
+                                <>
+                                  <CheckCircle2 className="h-4 w-4 text-success" />
+                                  <span className="text-sm font-sans">Prescrito fora do app</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="h-4 w-4" />
+                                  <span className="text-sm font-sans">Nenhum treino prescrito</span>
+                                </>
+                              )}
                             </div>
                           )}
 
