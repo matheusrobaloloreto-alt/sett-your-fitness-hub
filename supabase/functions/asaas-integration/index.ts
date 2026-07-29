@@ -28,6 +28,7 @@ async function asaasFetch(path: string, options: RequestInit = {}) {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      "User-Agent": "SETT-BNApp/1.0 (Supabase Edge; production)",
       access_token: ASAAS_API_KEY,
       ...(options.headers || {}),
     },
@@ -45,9 +46,9 @@ async function asaasFetch(path: string, options: RequestInit = {}) {
 }
 
 async function checkConnection() {
-  const account = await asaasFetch("/myAccount/accountNumber");
+  await asaasFetch("/customers?limit=1&offset=0");
   return {
-    connected: Boolean(account?.accountNumber),
+    connected: true,
     environment: "production",
   };
 }
