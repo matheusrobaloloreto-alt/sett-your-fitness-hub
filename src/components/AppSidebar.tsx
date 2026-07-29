@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  Briefcase,
   ClipboardList,
   Users,
   Settings,
@@ -59,6 +60,7 @@ import { Button } from "@/components/ui/button";
 // Map sidebar items to permission modules
 const moduleMap: Record<string, PermissionModule> = {
   "Dashboard": "dashboard",
+  "Carteira": "students",
   "Cadastro": "registration",
   "Anamnese": "anamnesis",
   "Questionários": "registration",
@@ -82,6 +84,7 @@ const baseAdminItems: typeof managementItems = [];
 
 const managementItems = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { title: "Carteira", url: "/admin/carteira", icon: Briefcase },
   { title: "Questionários", url: "/admin/questionarios", icon: FileText },
   { title: "Planos", url: "/admin/plans", icon: ClipboardList },
   { title: "Alunos", url: "/admin/students", icon: Users },
@@ -104,6 +107,7 @@ const whatsappSubItems = [
 
 const coordinatorAllItems = [
   { title: "Dashboard", url: "/coordinator", icon: LayoutDashboard },
+  { title: "Carteira", url: "/coordinator/carteira", icon: Briefcase },
   { title: "Questionários", url: "/coordinator/questionarios", icon: FileText },
   { title: "Planos", url: "/coordinator/plans", icon: ClipboardList },
   { title: "Alunos", url: "/coordinator/students", icon: Users },
@@ -131,6 +135,7 @@ const trainerWhatsappSubItems = [
 
 const trainerAllItems = [
   { title: "Dashboard", url: "/trainer", icon: LayoutDashboard },
+  { title: "Carteira", url: "/trainer/carteira", icon: Briefcase },
   { title: "Questionários", url: "/trainer/questionarios", icon: FileText },
   { title: "Planos", url: "/trainer/plans", icon: ClipboardList },
   { title: "Alunos", url: "/trainer/students", icon: Users },

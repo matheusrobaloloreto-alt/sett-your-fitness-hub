@@ -125,6 +125,41 @@ export default function TeamManager() {
   const { companyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
+  // Aba Atividade: só admin/master enxergam entradas/saídas/tempo online dos colaboradores.
+  const isAdminViewer = role === "admin" || role === "master";
+  const [activityRows, setActivityRows] = useState<Array<{ user_id: string; full_name: string; sessions: number; totalMinutes: number; last_activity: string | null }>>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const loadActivity = async () => {
+    if (!effectiveCompanyId || !isAdminViewer) return;
+    setActivityLoading(true);
+    try {
+      const cutoff = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data: sessions } = await (supabase as any)
+        .from("staff_sessions")
+        .select("user_id, started_at, last_seen_at, ended_at")
+        .eq("company_id", effectiveCompanyId)
+        .gte("started_at", cutoff);
+      const byUser = new Map<string, { sessions: number; totalMinutes: number; last: number }>();
+      (sessions || []).forEach((s: any) => {
+        const start = new Date(s.started_at).getTime();
+        // Sessão sem "saída" registrada: considera encerrada no último heartbeat (evita inflar tempo).
+        const end = new Date(s.ended_at || s.last_seen_at || s.started_at).getTime();
+        const mins = Math.max(0, Math.round((end - start) / 60000));
+        const cur = byUser.get(s.user_id) || { sessions: 0, totalMinutes: 0, last: 0 };
+        byUser.set(s.user_id, { sessions: cur.sessions + 1, totalMinutes: cur.totalMinutes + mins, last: Math.max(cur.last, end) });
+      });
+      const nameMap = new Map(members.map((m) => [m.user_id, m.full_name || m.user_id.slice(0, 8)]));
+      const rows = [...byUser.entries()].map(([uid, v]) => ({
+        user_id: uid,
+        full_name: nameMap.get(uid) || uid.slice(0, 8),
+        sessions: v.sessions,
+        totalMinutes: v.totalMinutes,
+        last_activity: v.last ? new Date(v.last).toISOString() : null,
+      })).sort((a, b) => (b.last_activity || "").localeCompare(a.last_activity || ""));
+      setActivityRows(rows);
+    } catch { setActivityRows([]); } // tabela pode ainda não existir
+    setActivityLoading(false);
+  };
   const { isEnabled, togglePermission, loading: permLoading } = useManageRolePermissions(effectiveCompanyId);
 
   useEffect(() => {
@@ -710,11 +745,12 @@ export default function TeamManager() {
           </div>
         </div>
 
-        <Tabs defaultValue="team" className="w-full" onValueChange={(v) => { if (v === "performance") loadPerformance(); }}>
-          <TabsList className="grid w-full grid-cols-3 max-w-lg">
+        <Tabs defaultValue="team" className="w-full" onValueChange={(v) => { if (v === "performance") loadPerformance(); if (v === "activity") loadActivity(); }}>
+          <TabsList className={`grid w-full ${isAdminViewer ? "grid-cols-4 max-w-2xl" : "grid-cols-3 max-w-lg"}`}>
             <TabsTrigger value="team">Equipe</TabsTrigger>
             <TabsTrigger value="permissions">Permissões</TabsTrigger>
             <TabsTrigger value="performance">Performance</TabsTrigger>
+            {isAdminViewer && <TabsTrigger value="activity">Atividade</TabsTrigger>}
           </TabsList>
 
           {/* ====== TAB: Equipe ====== */}
@@ -1190,6 +1226,43 @@ export default function TeamManager() {
               </div>
             </DialogContent>
           </Dialog>
+          {/* ====== TAB: Atividade (admin/master) — entradas, saídas e tempo online ====== */}
+          {isAdminViewer && (
+            <TabsContent value="activity" className="space-y-4">
+              <Card className="bg-card border-border">
+                <CardHeader>
+                  <CardTitle className="text-primary text-base">Atividade dos colaboradores — últimos 30 dias</CardTitle>
+                  <p className="text-xs text-muted-foreground font-sans">
+                    Entrada registrada ao abrir o sistema; saída ao fechar o site. Tempo online = soma das sessões.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  {activityLoading ? (
+                    <p className="text-sm text-muted-foreground font-sans py-6 text-center">Carregando...</p>
+                  ) : activityRows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground font-sans py-6 text-center">
+                      Sem registros ainda. Os acessos passam a contar a partir de agora, quando um colaborador (coordenador/treinador) abrir o sistema.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {activityRows.map((a) => (
+                        <div key={a.user_id} className="flex flex-wrap items-center gap-3 py-2.5">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-sans font-medium text-foreground truncate">{a.full_name}</p>
+                            <p className="text-xs text-muted-foreground font-sans">
+                              Última atividade: {a.last_activity ? format(new Date(a.last_activity), "dd/MM 'às' HH:mm", { locale: ptBR }) : "—"}
+                            </p>
+                          </div>
+                          <Badge variant="outline" className="font-mono-data">{a.sessions} acesso(s)</Badge>
+                          <Badge variant="outline" className="font-mono-data">{a.totalMinutes >= 60 ? `${Math.floor(a.totalMinutes / 60)}h ${a.totalMinutes % 60}min` : `${a.totalMinutes}min`} online</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </>

@@ -7,6 +7,7 @@ import { RouteTransition } from "@/components/RouteTransition";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { useCompanyAiConfig } from "@/lib/companyAiConfig";
+import { useStaffPresence } from "@/hooks/useStaffPresence";
 
 const ContentLoader = () => (
   <div className="flex items-center justify-center py-24">
@@ -23,6 +24,8 @@ export function AppLayout() {
     role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId;
   const { config } = useCompanyAiConfig(effectiveCompanyId);
   const assistantName = config.assistant_name || "Setty";
+  // Registro de presença de colaboradores (coordinator/trainer): entrada, heartbeat e saída.
+  useStaffPresence(role, effectiveCompanyId ?? null);
   const noPadding =
     location.pathname.includes("/whatsapp-chat") ||
     location.pathname.includes("/whatsapp-automation");
