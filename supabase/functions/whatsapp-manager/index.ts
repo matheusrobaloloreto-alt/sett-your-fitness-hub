@@ -104,14 +104,46 @@ Deno.serve(async (req) => {
     }
 
     // Look up instance_name from whatsapp_instances table
-    const { data: instanceRow } = await adminClient
+    const { data: instanceRow, error: instanceLookupError } = await adminClient
       .from("whatsapp_instances")
       .select("id, instance_name")
       .eq("company_id", resolvedCompanyId)
       .limit(1)
       .maybeSingle();
+    if (instanceLookupError) {
+      throw new Error(`Failed to load WhatsApp instance: ${instanceLookupError.message}`);
+    }
 
     const instanceName = instanceRow?.instance_name || `company-${resolvedCompanyId}`;
+    let persistedInstanceId = instanceRow?.id || null;
+
+    const persistInstance = async (patch: Record<string, unknown>) => {
+      const payload = {
+        instance_name: instanceName,
+        company_id: resolvedCompanyId,
+        ...patch,
+        updated_at: new Date().toISOString(),
+      };
+
+      const query = persistedInstanceId
+        ? adminClient
+          .from("whatsapp_instances")
+          .update(payload)
+          .eq("id", persistedInstanceId)
+          .select("id")
+          .maybeSingle()
+        : adminClient
+          .from("whatsapp_instances")
+          .insert(payload)
+          .select("id")
+          .single();
+
+      const { data, error } = await query;
+      if (error) {
+        throw new Error(`Failed to persist WhatsApp instance: ${error.message}`);
+      }
+      if (data?.id) persistedInstanceId = data.id;
+    };
 
     // ─── Helper: create fresh instance ───
     const createFreshInstance = async () => {
@@ -142,16 +174,10 @@ Deno.serve(async (req) => {
 
       const createData = await createRes.json();
       console.log("[createFreshInstance] Response:", JSON.stringify(createData));
-      await adminClient.from("whatsapp_instances").upsert(
-        {
-          instance_name: instanceName,
-          company_id: resolvedCompanyId,
-          status: "waiting_qr",
-          qrcode: createData?.qrcode?.base64 || null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "instance_name" }
-      );
+      await persistInstance({
+        status: "waiting_qr",
+        qr_code: createData?.qrcode?.base64 || null,
+      });
 
       return json({
         status: "waiting_qr",
@@ -196,15 +222,7 @@ Deno.serve(async (req) => {
 
       // If already connected, just report
       if (evoState === "open") {
-        await adminClient.from("whatsapp_instances").upsert(
-          {
-            instance_name: instanceName,
-            company_id: resolvedCompanyId,
-            status: "connected",
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "instance_name" }
-        );
+        await persistInstance({ status: "connected", qr_code: null });
         return json({ status: "connected" });
       }
 
@@ -235,16 +253,10 @@ Deno.serve(async (req) => {
         return await createFreshInstance();
       }
 
-      await adminClient.from("whatsapp_instances").upsert(
-        {
-          instance_name: instanceName,
-          company_id: resolvedCompanyId,
-          status: state === "open" ? "connected" : "waiting_qr",
-          qrcode: qr,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "instance_name" }
-      );
+      await persistInstance({
+        status: state === "open" ? "connected" : "waiting_qr",
+        qr_code: qr,
+      });
 
       return json({
         status: state === "open" ? "connected" : "waiting_qr",
@@ -257,17 +269,11 @@ Deno.serve(async (req) => {
       console.log("Restarting instance:", instanceName);
       await destroyInstance();
 
-      await adminClient.from("whatsapp_instances").upsert(
-        {
-          instance_name: instanceName,
-          company_id: resolvedCompanyId,
-          status: "disconnected",
-          qrcode: null,
-          connected_phone: null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "instance_name" }
-      );
+      await persistInstance({
+        status: "disconnected",
+        qr_code: null,
+        phone_number: null,
+      });
 
       // Small delay to let Evolution clean up
       await new Promise(r => setTimeout(r, 1000));
@@ -292,13 +298,10 @@ Deno.serve(async (req) => {
           return await createFreshInstance();
         }
 
-        await adminClient.from("whatsapp_instances").upsert({
-          instance_name: instanceName,
-          company_id: resolvedCompanyId,
+        await persistInstance({
           status: state === "open" ? "connected" : "waiting_qr",
-          qrcode: qr,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "instance_name" });
+          qr_code: qr,
+        });
 
         return json({ status: state === "open" ? "connected" : "waiting_qr", qrcode: qr });
       } catch (err) {
@@ -321,19 +324,31 @@ Deno.serve(async (req) => {
       const state = stateData?.instance?.state || "close";
       const mappedStatus = state === "open" ? "connected" : state === "connecting" ? "waiting_qr" : "disconnected";
 
-      await adminClient.from("whatsapp_instances").upsert(
-        {
-          instance_name: instanceName,
-          company_id: resolvedCompanyId,
-          status: mappedStatus,
-          connected_phone: mappedStatus === "connected" ? (stateData?.instance?.owner || null) : null,
-          qrcode: mappedStatus === "connected" ? null : undefined,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "instance_name" }
-      );
+      let connectedPhone: string | null = null;
+      if (mappedStatus === "connected") {
+        try {
+          const detailsRes = await fetch(
+            `${evoUrl}/instance/fetchInstances?instanceName=${encodeURIComponent(instanceName)}`,
+            { headers: evoHeaders },
+          );
+          if (detailsRes.ok) {
+            const detailsData = await detailsRes.json();
+            const details = Array.isArray(detailsData) ? detailsData[0] : detailsData;
+            const owner = details?.ownerJid || details?.instance?.owner || details?.owner || null;
+            connectedPhone = owner ? String(owner).replace(/\D/g, "") : null;
+          }
+        } catch (error) {
+          console.warn("[check-status] Failed to load connected phone:", error);
+        }
+      }
 
-      return json({ status: mappedStatus, phone: stateData?.instance?.owner || null });
+      await persistInstance({
+        status: mappedStatus,
+        phone_number: connectedPhone,
+        ...(mappedStatus === "connected" ? { qr_code: null } : {}),
+      });
+
+      return json({ status: mappedStatus, phone: connectedPhone });
     }
 
     // ─── DISCONNECT ───
@@ -343,17 +358,11 @@ Deno.serve(async (req) => {
         headers: evoHeaders,
       });
 
-      await adminClient.from("whatsapp_instances").upsert(
-        {
-          instance_name: instanceName,
-          company_id: resolvedCompanyId,
-          status: "disconnected",
-          qrcode: null,
-          connected_phone: null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "instance_name" }
-      );
+      await persistInstance({
+        status: "disconnected",
+        qr_code: null,
+        phone_number: null,
+      });
 
       return json({ status: "disconnected" });
     }
@@ -656,15 +665,18 @@ Deno.serve(async (req) => {
 
     // ─── FETCH CONTACTS ───
     if (action === "fetch-contacts") {
-      const contactsRes = await fetch(`${evoUrl}/chat/contacts/${instanceName}`, {
+      const contactsRes = await fetch(`${evoUrl}/chat/findContacts/${instanceName}`, {
         method: "POST",
         headers: evoHeaders,
         body: JSON.stringify({}),
       });
 
       if (!contactsRes.ok) {
+        // Compatibility fallback for older Evolution API releases.
         const altRes = await fetch(`${evoUrl}/chat/contacts/${instanceName}`, {
+          method: "POST",
           headers: evoHeaders,
+          body: JSON.stringify({}),
         });
         if (!altRes.ok) return json({ contacts: [] });
         const altData = await altRes.json();

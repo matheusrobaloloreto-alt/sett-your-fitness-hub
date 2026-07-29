@@ -2544,6 +2544,7 @@ export type Database = {
           is_archived: boolean | null
           last_message: string | null
           last_message_at: string | null
+          last_sender_id: string | null
           remote_jid: string
           student_id: string | null
           unread_count: number | null
@@ -2560,6 +2561,7 @@ export type Database = {
           is_archived?: boolean | null
           last_message?: string | null
           last_message_at?: string | null
+          last_sender_id?: string | null
           remote_jid: string
           student_id?: string | null
           unread_count?: number | null
@@ -2576,6 +2578,7 @@ export type Database = {
           is_archived?: boolean | null
           last_message?: string | null
           last_message_at?: string | null
+          last_sender_id?: string | null
           remote_jid?: string
           student_id?: string | null
           unread_count?: number | null
@@ -2693,6 +2696,7 @@ export type Database = {
           media_url: string | null
           message_id: string | null
           message_id_external: string | null
+          origin: string
           sender_id: string | null
           source: string | null
           status: string | null
@@ -2710,6 +2714,7 @@ export type Database = {
           media_url?: string | null
           message_id?: string | null
           message_id_external?: string | null
+          origin?: string
           sender_id?: string | null
           source?: string | null
           status?: string | null
@@ -2727,6 +2732,7 @@ export type Database = {
           media_url?: string | null
           message_id?: string | null
           message_id_external?: string | null
+          origin?: string
           sender_id?: string | null
           source?: string | null
           status?: string | null

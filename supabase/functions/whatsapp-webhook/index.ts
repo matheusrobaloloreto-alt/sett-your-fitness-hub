@@ -381,14 +381,24 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       };
       if (state === "open") {
-        patch.qrcode = null;
-        if (connectedPhone) patch.connected_phone = connectedPhone;
+        patch.qr_code = null;
+        if (connectedPhone) patch.phone_number = String(connectedPhone).replace(/\D/g, "");
       } else if (state === "close") {
-        patch.qrcode = null;
-        patch.connected_phone = null;
+        patch.qr_code = null;
+        patch.phone_number = null;
       }
 
-      await adminClient.from("whatsapp_instances").upsert(patch, { onConflict: "instance_name" });
+      const { error: updateError } = await adminClient
+        .from("whatsapp_instances")
+        .update(patch)
+        .eq("instance_name", instanceName);
+      if (updateError) {
+        console.error("[webhook] Failed to persist connection update:", updateError.message);
+        return new Response(JSON.stringify({ error: "Failed to persist connection update" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
