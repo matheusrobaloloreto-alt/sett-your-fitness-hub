@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Cake, Dumbbell, UserCheck, CalendarDays, AlertTriangle, Bell, Check, MessageCircle } from "lucide-react";
+import { Cake, Dumbbell, UserCheck, CalendarDays, AlertTriangle, Bell, Check, MessageCircle, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { buildStudentChatMap, openStudentChat, birthdayMessage } from "@/lib/studentChat";
@@ -17,6 +17,7 @@ interface AwaitingTrainingDate { student_name: string; student_id: string; enrol
 interface AwaitingTrainer { student_name: string; student_id: string; }
 interface MissingEnrollment { student_name: string; student_id: string; }
 interface IncompleteBilling { student_name: string; student_id: string; missing: string[]; }
+interface RecentStudent { student_name: string; student_id: string; status: string; created_at: string; }
 
 interface AlertsData {
   birthdays: Birthday[];
@@ -25,6 +26,7 @@ interface AlertsData {
   awaitingTrainingDate: AwaitingTrainingDate[];
   missingEnrollment: MissingEnrollment[];
   incompleteBilling: IncompleteBilling[];
+  recentStudents: RecentStudent[];
 }
 
 interface Props {
@@ -161,6 +163,7 @@ async function fetchAlerts(
 
   // Incomplete billing
   let incompleteBilling: IncompleteBilling[] = [];
+  let recentStudents: RecentStudent[] = [];
   if (!trainerId) {
     let billingQuery = supabase.from("students")
       .select("id, full_name, cpf, cep, phone, whatsapp, address, address_number, neighborhood")
@@ -182,9 +185,24 @@ async function fetchAlerts(
       if (missing.length > 0) flagged.push({ student_name: s.full_name, student_id: s.id, missing });
     });
     incompleteBilling = flagged.sort((a, b) => b.missing.length - a.missing.length);
+
+    let recentQuery = supabase
+      .from("students")
+      .select("id, full_name, status, created_at")
+      .in("status", ["active", "pending"])
+      .gte("created_at", new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString())
+      .order("created_at", { ascending: false });
+    if (effectiveCompanyId) recentQuery = recentQuery.eq("company_id", effectiveCompanyId);
+    const { data: recentRows } = await recentQuery;
+    recentStudents = (recentRows || []).map((student) => ({
+      student_name: student.full_name,
+      student_id: student.id,
+      status: student.status,
+      created_at: student.created_at,
+    }));
   }
 
-  return { birthdays, missingWorkouts, awaitingTrainer, awaitingTrainingDate, missingEnrollment, incompleteBilling };
+  return { birthdays, missingWorkouts, awaitingTrainer, awaitingTrainingDate, missingEnrollment, incompleteBilling, recentStudents };
 }
 
 export function DashboardAlerts({ trainerId, compact = false }: Props) {
@@ -228,6 +246,7 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
   const awaitingTrainingDate = data?.awaitingTrainingDate ?? [];
   const missingEnrollment = data?.missingEnrollment ?? [];
   const incompleteBilling = data?.incompleteBilling ?? [];
+  const recentStudents = data?.recentStudents ?? [];
 
   const goToStudent = (studentId: string) => navigate(`/${routePrefix}/students/${studentId}`);
 
@@ -248,7 +267,7 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
     });
   };
 
-  const hasContent = pendingActions.length > 0 || birthdays.length > 0 || missingWorkouts.length > 0 || awaitingTrainer.length > 0 || awaitingTrainingDate.length > 0 || missingEnrollment.length > 0 || incompleteBilling.length > 0;
+  const hasContent = pendingActions.length > 0 || birthdays.length > 0 || missingWorkouts.length > 0 || awaitingTrainer.length > 0 || awaitingTrainingDate.length > 0 || missingEnrollment.length > 0 || incompleteBilling.length > 0 || recentStudents.length > 0;
   if (!hasContent) return null;
 
   const itemClass = "flex items-center justify-between p-2 rounded-lg cursor-pointer hover:brightness-110 transition-all";
@@ -484,6 +503,38 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
                 <div key={i} className={`${itemClass} bg-warning/5 border border-warning/20`} onClick={() => goToStudent(a.student_id)}>
                   <p className="text-sm font-sans text-foreground">{a.student_name}</p>
                   <span className="text-xs font-sans font-medium px-2 py-0.5 rounded bg-warning/20 text-warning">Sem treinador</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {recentStudents.length > 0 && (
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-primary text-lg flex items-center gap-2">
+              <UserPlus className="h-5 w-5" />NOVOS CADASTROS
+              <span className="ml-auto text-xs font-mono-data text-muted-foreground">30 DIAS</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 max-h-[200px] overflow-auto">
+              {recentStudents.map((student) => (
+                <div
+                  key={student.student_id}
+                  className={`${itemClass} bg-primary/5 border border-primary/15`}
+                  onClick={() => goToStudent(student.student_id)}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-sans text-foreground truncate">{student.student_name}</p>
+                    <p className="text-xs text-muted-foreground font-sans">
+                      {new Date(student.created_at).toLocaleDateString("pt-BR")}
+                    </p>
+                  </div>
+                  <span className="text-xs font-sans font-medium px-2 py-0.5 rounded bg-primary/10 text-primary">
+                    {student.status === "pending" ? "Pendente" : "Ativo"}
+                  </span>
                 </div>
               ))}
             </div>

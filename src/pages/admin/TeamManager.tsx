@@ -220,24 +220,19 @@ export default function TeamManager() {
       .in("user_id", userIds);
 
     const grouped: Record<string, TeamMember> = {};
-    const excludeUserIds = new Set<string>();
-    
     // Build a map of all roles per user
     const rolesByUser = new Map<string, string[]>();
     for (const r of roles) {
       if (!rolesByUser.has(r.user_id)) rolesByUser.set(r.user_id, []);
       rolesByUser.get(r.user_id)!.push(r.role);
     }
-    
-    // Exclude masters and users with ONLY the student role
-    for (const [uid, userRoles] of rolesByUser) {
-      if (userRoles.includes("master")) excludeUserIds.add(uid);
-      if (userRoles.length === 1 && userRoles[0] === "student") excludeUserIds.add(uid);
-    }
 
     for (const r of roles) {
-      if (excludeUserIds.has(r.user_id)) continue;
-      if (r.role === "student") continue; // don't show student badge for team members
+      if (r.role === "student" || r.role === "master") continue;
+      const operationalRoles = (rolesByUser.get(r.user_id) || []).filter((userRole) => (
+        userRole !== "student" && userRole !== "master"
+      ));
+      if (operationalRoles.length === 0) continue;
       if (!grouped[r.user_id]) {
         grouped[r.user_id] = {
           user_id: r.user_id,

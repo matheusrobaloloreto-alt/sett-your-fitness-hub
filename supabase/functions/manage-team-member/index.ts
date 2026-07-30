@@ -151,10 +151,7 @@ Deno.serve(async (req) => {
       const teamMembers = [];
       for (const uid of companyUserIds) {
         const userRoles = rolesByUser.get(uid) ?? [];
-        if (userRoles.includes("master")) continue;
-        if (userRoles.length === 0 || (userRoles.length === 1 && userRoles[0] === "student")) continue;
-
-        const visibleRoles = userRoles.filter((roleName) => roleName !== "student");
+        const visibleRoles = userRoles.filter((roleName) => roleName !== "student" && roleName !== "master");
         if (visibleRoles.length === 0) continue;
 
         const { data: accountData, error: accountError } = await adminClient.auth.admin.getUserById(uid);
