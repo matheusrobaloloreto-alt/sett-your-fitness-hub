@@ -13,6 +13,39 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function extractExternalMessageId(payload: any): string | null {
+  const candidate =
+    payload?.key?.id ||
+    payload?.message?.key?.id ||
+    payload?.data?.key?.id ||
+    payload?.id ||
+    null;
+  return candidate ? String(candidate) : null;
+}
+
+function normalizeArrayPayload(payload: any, keys: string[]): any[] {
+  if (Array.isArray(payload)) return payload;
+  for (const key of keys) {
+    if (Array.isArray(payload?.[key])) return payload[key];
+  }
+  return [];
+}
+
+function truncatePreview(value: unknown): string | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
+
+function buildQuotedMessage(preview: string | null, type?: string | null): Record<string, unknown> {
+  if (type === "image") return { imageMessage: { caption: preview || "" } };
+  if (type === "video") return { videoMessage: { caption: preview || "" } };
+  if (type === "audio") return { audioMessage: {} };
+  if (type === "document") return { documentMessage: { fileName: preview || "arquivo" } };
+  if (type === "sticker") return { stickerMessage: {} };
+  return { conversation: preview || "Mensagem" };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -369,7 +402,18 @@ Deno.serve(async (req) => {
 
     // ─── SEND MESSAGE ───
     if (action === "send-message") {
-      const { remoteJid, content, chatId, quotedMessageId, studentId, contactName } = body;
+      const {
+        remoteJid,
+        content,
+        chatId,
+        quotedMessageDbId,
+        quotedMessageId,
+        quotedFromMe,
+        quotedMessageContent,
+        quotedMessageType,
+        studentId,
+        contactName,
+      } = body;
       if (!remoteJid || !content) return json({ error: "remoteJid and content required" }, 400);
 
       const sendBody: Record<string, unknown> = {
@@ -377,13 +421,55 @@ Deno.serve(async (req) => {
         text: content,
       };
 
-      if (quotedMessageId) {
+      let quotedDbId: string | null = null;
+      let quotedExternalId = quotedMessageId ? String(quotedMessageId) : null;
+      let quotedPreview = truncatePreview(quotedMessageContent);
+      let quotedSource = typeof quotedFromMe === "boolean"
+        ? (quotedFromMe ? "outgoing" : "incoming")
+        : null;
+      let quotedType = typeof quotedMessageType === "string" ? quotedMessageType : null;
+
+      if (quotedMessageDbId && chatId) {
+        const { data: quotedRow, error: quotedError } = await adminClient
+          .from("whatsapp_messages")
+          .select("id, chat_id, content, source, type, media_type, message_id_external")
+          .eq("id", quotedMessageDbId)
+          .eq("chat_id", chatId)
+          .eq("company_id", resolvedCompanyId)
+          .maybeSingle();
+
+        if (quotedError) {
+          console.error("Failed to load quoted WhatsApp message:", quotedError.message);
+        }
+
+        if (quotedRow?.message_id_external) {
+          quotedDbId = quotedRow.id;
+          quotedExternalId = quotedRow.message_id_external;
+          quotedPreview = truncatePreview(quotedRow.content) || (quotedRow.media_type ? "Mídia" : "Mensagem");
+          quotedSource = quotedRow.source || quotedSource;
+          quotedType = quotedRow.type || quotedType;
+        }
+      }
+
+      if (quotedExternalId) {
+        const quoteFromMe = quotedSource === "outgoing" || quotedFromMe === true;
+        const quotedMessage = buildQuotedMessage(quotedPreview, quotedType);
+        const quoteKey = {
+          remoteJid,
+          fromMe: quoteFromMe,
+          id: quotedExternalId,
+        };
+
+        // Evolution v2 accepts `quoted`, but some builds require the quoted message
+        // payload as well as the key for WhatsApp to render the native reply card.
         sendBody.quoted = {
-          key: {
-            remoteJid,
-            fromMe: false,
-            id: quotedMessageId,
-          },
+          key: quoteKey,
+          message: quotedMessage,
+        };
+        sendBody.contextInfo = {
+          stanzaId: quotedExternalId,
+          participant: quoteFromMe ? undefined : remoteJid,
+          quotedMessage,
         };
       }
 
@@ -399,6 +485,8 @@ Deno.serve(async (req) => {
       }
 
       const sendData = await sendRes.json();
+      const externalMessageId = extractExternalMessageId(sendData);
+      let persistenceWarning = false;
 
       let persistedChatId = chatId || null;
       if (!persistedChatId) {
@@ -422,13 +510,15 @@ Deno.serve(async (req) => {
           .single();
         if (chatError) {
           console.error("Failed to persist new WhatsApp chat:", chatError.message);
+          persistenceWarning = true;
         } else {
           persistedChatId = createdChat.id;
         }
       }
 
+      let insertedMessage: Record<string, unknown> | null = null;
       if (persistedChatId) {
-        await adminClient.from("whatsapp_messages").insert({
+        const { data: insertedRow, error: messageInsertError } = await adminClient.from("whatsapp_messages").insert({
           chat_id: persistedChatId,
           company_id: resolvedCompanyId,
           content,
@@ -436,21 +526,40 @@ Deno.serve(async (req) => {
           type: "text",
           is_from_me: true,
           sender_id: userId,
-          message_id_external: sendData?.key?.id || null,
+          message_id_external: externalMessageId,
+          quoted_message_id: quotedDbId,
+          quoted_message_external_id: quotedExternalId,
+          quoted_message_preview: quotedPreview,
+          quoted_message_source: quotedSource,
           origin: "panel_manual",
           timestamp: new Date().toISOString(),
-        });
+        }).select("*").maybeSingle();
+        if (messageInsertError && messageInsertError.code !== "23505") {
+          persistenceWarning = true;
+          console.error("Failed to persist sent WhatsApp message:", messageInsertError.message);
+        }
+        if (insertedRow) insertedMessage = insertedRow;
 
         // Update last_message_at and last_sender_id
-        await adminClient.from("whatsapp_chats").update({
+        const { error: chatUpdateError } = await adminClient.from("whatsapp_chats").update({
           last_message: content,
           last_message_at: new Date().toISOString(),
           unread_count: 0,
           last_sender_id: userId,
         }).eq("id", persistedChatId);
+        if (chatUpdateError) {
+          persistenceWarning = true;
+          console.error("Failed to update WhatsApp chat preview:", chatUpdateError.message);
+        }
       }
 
-      return json({ success: true, messageId: sendData?.key?.id || null, chatId: persistedChatId });
+      return json({
+        success: true,
+        messageId: externalMessageId,
+        chatId: persistedChatId,
+        message: insertedMessage,
+        persistenceWarning,
+      });
     }
 
     // ─── SEND MEDIA ───
@@ -516,14 +625,17 @@ Deno.serve(async (req) => {
       }
 
       sendData = await sendRes.json();
+      const externalMessageId = extractExternalMessageId(sendData);
+      let persistenceWarning = false;
 
       // Determine DB type and media_type
       const dbType = evoMediaType === "image" ? "image" : evoMediaType === "video" ? "video" : evoMediaType === "audio" ? "audio" : "document";
       const dbMediaType = mimeType || (evoMediaType === "image" ? "image/jpeg" : evoMediaType === "video" ? "video/mp4" : evoMediaType === "audio" ? "audio/ogg" : "application/pdf");
       const defaultContent = evoMediaType === "image" ? "📷 Imagem" : evoMediaType === "video" ? "🎬 Vídeo" : evoMediaType === "audio" ? "🎤 Áudio" : `📎 ${fileName || "arquivo.pdf"}`;
 
+      let insertedMediaMessage: Record<string, unknown> | null = null;
       if (chatId) {
-        await adminClient.from("whatsapp_messages").insert({
+        const { data: insertedMediaRow, error: messageInsertError } = await adminClient.from("whatsapp_messages").insert({
           chat_id: chatId,
           company_id: resolvedCompanyId,
           content: caption || defaultContent,
@@ -531,21 +643,31 @@ Deno.serve(async (req) => {
           type: dbType,
           is_from_me: true,
           sender_id: userId,
-          message_id_external: sendData?.key?.id || null,
+          message_id_external: externalMessageId,
           media_url: mediaUrl,
           media_type: dbMediaType,
           origin: "panel_manual",
           timestamp: new Date().toISOString(),
-        });
+        }).select("*").maybeSingle();
+        if (messageInsertError && messageInsertError.code !== "23505") {
+          persistenceWarning = true;
+          console.error("Failed to persist sent WhatsApp media:", messageInsertError.message);
+        }
+        if (insertedMediaRow) insertedMediaMessage = insertedMediaRow;
 
-        await adminClient.from("whatsapp_chats").update({
+        const { error: chatUpdateError } = await adminClient.from("whatsapp_chats").update({
+          last_message: caption || defaultContent,
           last_message_at: new Date().toISOString(),
           unread_count: 0,
           last_sender_id: userId,
         }).eq("id", chatId);
+        if (chatUpdateError) {
+          persistenceWarning = true;
+          console.error("Failed to update WhatsApp media preview:", chatUpdateError.message);
+        }
       }
 
-      return json({ success: true, messageId: sendData?.key?.id || null });
+      return json({ success: true, messageId: externalMessageId, message: insertedMediaMessage, persistenceWarning });
     }
 
     // ─── FETCH MEDIA (base64) ───
@@ -680,11 +802,11 @@ Deno.serve(async (req) => {
         });
         if (!altRes.ok) return json({ contacts: [] });
         const altData = await altRes.json();
-        return json({ contacts: Array.isArray(altData) ? altData : [] });
+        return json({ contacts: normalizeArrayPayload(altData, ["contacts", "data", "result"]) });
       }
 
       const contactsData = await contactsRes.json();
-      return json({ contacts: Array.isArray(contactsData) ? contactsData : [] });
+      return json({ contacts: normalizeArrayPayload(contactsData, ["contacts", "data", "result"]) });
     }
 
     // ─── FETCH GROUPS ───
@@ -697,15 +819,7 @@ Deno.serve(async (req) => {
 
       const groupsData = await groupsRes.json();
 
-      const rawGroups = Array.isArray(groupsData)
-        ? groupsData
-        : Array.isArray(groupsData?.groups)
-          ? groupsData.groups
-          : Array.isArray(groupsData?.data)
-            ? groupsData.data
-            : Array.isArray(groupsData?.result)
-              ? groupsData.result
-              : [];
+      const rawGroups = normalizeArrayPayload(groupsData, ["groups", "data", "result"]);
 
       const groups = rawGroups
         .map((g: any) => {

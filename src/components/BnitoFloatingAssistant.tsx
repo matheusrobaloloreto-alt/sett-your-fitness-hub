@@ -1,4 +1,4 @@
-import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { BrainCircuit, HelpCircle, Loader2, Send, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -86,6 +86,7 @@ const quickPrompts = [
 ];
 
 const WELCOME_ID = "bnito-welcome";
+const POSITION_KEY = "bnito-professor-position-v1";
 // Nome do assistente vem da empresa (Central de IA). Padrão do app = "Setty".
 function makeWelcome(name: string): BnitoMessage {
   return {
@@ -202,6 +203,23 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<BnitoMessage[]>(() => [makeWelcome("Setty")]);
   const [sessionContext, setSessionContext] = useState<BnitoOpenOptions | null>(null);
+  const dragStateRef = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  const [buttonPosition, setButtonPosition] = useState(() => {
+    if (typeof window === "undefined") return { x: 0, y: 0 };
+    const stored = window.localStorage.getItem(POSITION_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as { x?: number; y?: number };
+        if (typeof parsed.x === "number" && typeof parsed.y === "number") return parsed;
+      } catch {
+        // Ignore stale localStorage.
+      }
+    }
+    return {
+      x: Math.max(16, window.innerWidth - 92),
+      y: Math.max(16, window.innerHeight - 92),
+    };
+  });
 
   // Atualiza a saudação quando o nome da empresa carrega (se a conversa ainda não começou).
   useEffect(() => {
@@ -212,6 +230,49 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   const cycleId = useMemo(() => getCycleId(location.pathname), [location.pathname]);
   const pageLabel = useMemo(() => getPageLabel(location.pathname), [location.pathname]);
   const activeLabel = sessionContext?.label || pageLabel;
+
+  const clampButtonPosition = useCallback((x: number, y: number) => {
+    if (typeof window === "undefined") return { x, y };
+    const margin = 12;
+    const size = 72;
+    return {
+      x: Math.min(Math.max(margin, x), Math.max(margin, window.innerWidth - size - margin)),
+      y: Math.min(Math.max(margin, y), Math.max(margin, window.innerHeight - size - margin)),
+    };
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => setButtonPosition((current) => clampButtonPosition(current.x, current.y));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clampButtonPosition]);
+
+  useEffect(() => {
+    window.localStorage.setItem(POSITION_KEY, JSON.stringify(buttonPosition));
+  }, [buttonPosition]);
+
+  const handlePointerMove = useCallback((event: PointerEvent) => {
+    const state = dragStateRef.current;
+    if (!state) return;
+    state.moved = true;
+    setButtonPosition(clampButtonPosition(event.clientX - state.dx, event.clientY - state.dy));
+  }, [clampButtonPosition]);
+
+  const finishDrag = useCallback(() => {
+    window.removeEventListener("pointermove", handlePointerMove);
+    window.removeEventListener("pointerup", finishDrag);
+  }, [handlePointerMove]);
+
+  const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    dragStateRef.current = {
+      dx: event.clientX - rect.left,
+      dy: event.clientY - rect.top,
+      moved: false,
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishDrag);
+  };
 
   const openBnito = useCallback((options?: BnitoOpenOptions) => {
     setSessionContext(options || null);
@@ -298,8 +359,17 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 aria-label={`Abrir ${name}`}
-                onClick={() => openBnito()}
-                className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom,0px))] right-[calc(1.5rem+env(safe-area-inset-right,0px))] z-40 flex h-16 w-16 items-center justify-center rounded-full border border-white/60 bg-navy text-primary-foreground shadow-[0_18px_45px_rgba(29,45,92,0.32)] ring-8 ring-navy/10 transition duration-200 hover:-translate-y-0.5 hover:bg-navy/95 focus:outline-none focus:ring-4 focus:ring-ring focus:ring-offset-2"
+                onPointerDown={startDrag}
+                onClick={() => {
+                  if (dragStateRef.current?.moved) {
+                    dragStateRef.current = null;
+                    return;
+                  }
+                  dragStateRef.current = null;
+                  openBnito();
+                }}
+                style={{ left: buttonPosition.x, top: buttonPosition.y, touchAction: "none" }}
+                className="fixed z-40 flex h-16 w-16 cursor-grab items-center justify-center rounded-full border border-white/60 bg-navy text-primary-foreground shadow-[0_18px_45px_rgba(29,45,92,0.32)] ring-8 ring-navy/10 transition duration-200 active:cursor-grabbing hover:bg-navy/95 focus:outline-none focus:ring-4 focus:ring-ring focus:ring-offset-2"
               >
                 <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/45 bg-white/10">
                   <BrainCircuit className="h-7 w-7" />

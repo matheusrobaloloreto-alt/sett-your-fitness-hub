@@ -46,6 +46,34 @@ function replaceVariables(text: string, context: Record<string, any>): string {
   return result;
 }
 
+function extractMessageText(message: any, fallbackType = "mídia"): string {
+  return message?.conversation
+    || message?.extendedTextMessage?.text
+    || message?.imageMessage?.caption
+    || message?.videoMessage?.caption
+    || message?.documentMessage?.caption
+    || message?.documentMessage?.fileName
+    || (fallbackType ? `[${fallbackType}]` : "[mídia]");
+}
+
+function extractContextInfo(message: any): any {
+  return message?.extendedTextMessage?.contextInfo
+    || message?.imageMessage?.contextInfo
+    || message?.videoMessage?.contextInfo
+    || message?.audioMessage?.contextInfo
+    || message?.documentMessage?.contextInfo
+    || message?.stickerMessage?.contextInfo
+    || null;
+}
+
+function extractQuotedPreview(contextInfo: any): string | null {
+  const quoted = contextInfo?.quotedMessage;
+  if (!quoted) return null;
+  const text = extractMessageText(quoted, "mensagem").trim();
+  if (!text) return null;
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
+
 // ─── SEND TEXT MESSAGE ───
 async function sendText(
   evoUrl: string, instanceName: string, evoHeaders: Record<string, string>,
@@ -446,7 +474,14 @@ Deno.serve(async (req) => {
         const finalMediaType = mediaType || (msgType === "image" ? "image/jpeg" : null) || (msgType === "video" ? "video/mp4" : null) || (msgType === "audio" ? "audio/ogg" : null) || (msgType === "sticker" ? "image/webp" : null) || null;
         if (msgType === "reaction") continue;
 
-        const content = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || msg.message?.videoMessage?.caption || msg.message?.documentMessage?.caption || msg.message?.documentMessage?.fileName || (mediaType || finalMediaType ? `[${msgType}]` : "[mídia]");
+        const content = extractMessageText(msg.message, mediaType || finalMediaType ? msgType : "mídia");
+        const contextInfo = extractContextInfo(msg.message);
+        const quotedExternalId = contextInfo?.stanzaId ? String(contextInfo.stanzaId) : null;
+        const quotedPreview = extractQuotedPreview(contextInfo);
+        const quotedSource = contextInfo?.participant && String(contextInfo.participant) !== remoteJid
+          ? "outgoing"
+          : null;
+        let quotedDbId: string | null = null;
 
         // Check first contact — use phone base to cover JID variants (@lid, @s.whatsapp.net)
         let isFirstContact = false;
@@ -498,8 +533,43 @@ Deno.serve(async (req) => {
 
           if (canonical) {
             console.log("[webhook] Merging @lid chat", chat.id, "into canonical", canonical.id);
-            // Move messages to canonical chat
-            await adminClient.from("whatsapp_messages").update({ chat_id: canonical.id }).eq("chat_id", chat.id);
+            // Remove provider-level duplicates before moving messages. The database
+            // unique index then protects the merge from concurrent webhook delivery.
+            const { data: lidMessages } = await adminClient
+              .from("whatsapp_messages")
+              .select("id, message_id_external")
+              .eq("chat_id", chat.id)
+              .not("message_id_external", "is", null);
+            const externalIds = [...new Set(
+              (lidMessages || [])
+                .map((message: any) => message.message_id_external)
+                .filter(Boolean),
+            )];
+            if (externalIds.length > 0) {
+              const { data: canonicalMessages } = await adminClient
+                .from("whatsapp_messages")
+                .select("message_id_external")
+                .eq("chat_id", canonical.id)
+                .in("message_id_external", externalIds);
+              const canonicalExternalIds = new Set(
+                (canonicalMessages || []).map((message: any) => message.message_id_external),
+              );
+              const duplicateLidIds = (lidMessages || [])
+                .filter((message: any) => canonicalExternalIds.has(message.message_id_external))
+                .map((message: any) => message.id);
+              if (duplicateLidIds.length > 0) {
+                await adminClient.from("whatsapp_messages").delete().in("id", duplicateLidIds);
+              }
+            }
+
+            const { error: messageMoveError } = await adminClient
+              .from("whatsapp_messages")
+              .update({ chat_id: canonical.id })
+              .eq("chat_id", chat.id);
+            if (messageMoveError) {
+              console.error("[webhook] Failed to merge @lid messages:", messageMoveError);
+              continue;
+            }
             // Move labels
             await adminClient.from("whatsapp_chat_labels").update({ chat_id: canonical.id }).eq("chat_id", chat.id);
             // Move flow sessions
@@ -536,15 +606,36 @@ Deno.serve(async (req) => {
           if (existing) continue;
         }
 
+        if (quotedExternalId) {
+          const { data: quotedRow } = await adminClient
+            .from("whatsapp_messages")
+            .select("id")
+            .eq("chat_id", chat.id)
+            .eq("message_id_external", quotedExternalId)
+            .limit(1)
+            .maybeSingle();
+          quotedDbId = quotedRow?.id || null;
+        }
+
         // Insert message
         const { error: msgInsertError } = await adminClient.from("whatsapp_messages").insert({
           chat_id: chat.id, company_id: instance.company_id, message_id_external: msgExtId,
           content, type: msgType, is_from_me: isFromMe,
           source: isFromMe ? "outgoing" : "incoming", sender_id: isFromMe ? null : remoteJid,
           media_url: mediaUrl, media_type: finalMediaType,
+          quoted_message_id: quotedDbId,
+          quoted_message_external_id: quotedExternalId,
+          quoted_message_preview: quotedPreview,
+          quoted_message_source: quotedSource,
           timestamp: new Date().toISOString(),
         });
-        if (msgInsertError) console.error("[webhook] msg insert error:", msgInsertError);
+        if (msgInsertError) {
+          if (msgInsertError.code !== "23505") {
+            console.error("[webhook] msg insert error:", msgInsertError);
+          }
+          // A duplicate webhook must not increment unread counters or resume flows twice.
+          continue;
+        }
         // Update chat last_message preview
         await adminClient.from("whatsapp_chats").update({ last_message: content }).eq("id", chat.id);
 

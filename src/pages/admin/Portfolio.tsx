@@ -9,10 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Briefcase, Loader2, MessageSquare, User, CalendarDays } from "lucide-react";
+import { Briefcase, Loader2, User, CalendarDays } from "lucide-react";
 import { format, parseISO, differenceInDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { cadenceTone, formatCadence } from "@/lib/contactCadence";
+import { StudentChatButton } from "@/components/admin/StudentChatButton";
 
 interface Collaborator { user_id: string; full_name: string; roles: string[] }
 interface PortfolioStudent {
@@ -207,13 +208,13 @@ export default function Portfolio() {
                       className="rounded p-1.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground">
                       <User className="h-4 w-4" />
                     </button>
-                    {s.chat_id && (
-                      <button type="button" title="Abrir conversa"
-                        onClick={() => navigate(`/${routePrefix}/whatsapp-chat`, { state: { chatId: s.chat_id } })}
-                        className="rounded p-1.5 text-primary hover:bg-muted/60">
-                        <MessageSquare className="h-4 w-4" />
-                      </button>
-                    )}
+                    <StudentChatButton
+                      studentId={s.id}
+                      studentName={s.full_name}
+                      phone={s.whatsapp}
+                      chatId={s.chat_id}
+                      className="text-primary hover:bg-muted/60"
+                    />
                   </div>
                 );
               })}

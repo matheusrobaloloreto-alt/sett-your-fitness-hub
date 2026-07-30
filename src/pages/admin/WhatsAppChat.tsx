@@ -9,11 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
   Send, Search, User, MessageSquare, Users,
   Paperclip, Filter, AlertTriangle, DollarSign, Calendar, Clock,
-  Download, MailOpen, Mail, UserPlus, Pencil, Check, X, Image, Mic,
+  Download, MailOpen, Mail, UserPlus, Pencil, X, Image, Mic,
   MessageCircle, ChevronDown, Tag, Trash2, Reply, Activity,
+  ArrowLeft, Loader2, Maximize2, Minimize2,
+  PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, differenceInDays } from "date-fns";
@@ -23,6 +26,7 @@ import { useMaster } from "@/contexts/MasterContext";
 import { useLocation, useNavigate } from "react-router-dom";
 import { interpolateTemplate } from "@/lib/templateVars";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { listStudentFiles, signStudentFile } from "@/lib/studentFiles";
 
 type Chat = {
   id: string;
@@ -33,8 +37,15 @@ type Chat = {
   instance_id: string;
   last_sender_id: string | null;
   contact_name: string | null;
+  contact_photo: string | null;
   category: string | null;
-  student?: { full_name: string; whatsapp: string | null; category_id: string | null } | null;
+  student?: {
+    full_name: string;
+    whatsapp: string | null;
+    category_id: string | null;
+    status?: string | null;
+    assigned_trainer_id?: string | null;
+  } | null;
   lastMessage?: string;
 };
 
@@ -48,6 +59,10 @@ type Message = {
   media_url: string | null;
   media_type: string | null;
   message_id_external: string | null;
+  quoted_message_id?: string | null;
+  quoted_message_external_id?: string | null;
+  quoted_message_preview?: string | null;
+  quoted_message_source?: string | null;
 };
 
 type StudentContext = {
@@ -63,6 +78,14 @@ type StudentContext = {
 };
 
 type FilterType = "all" | "unread" | "groups" | "mine" | "no-workout";
+
+type BulkFilters = {
+  trainerId: string;
+  status: string;
+  categoryId: string;
+  labelId: string;
+  base: "all" | "current";
+};
 
 type TemplateItem = {
   id: string;
@@ -97,6 +120,26 @@ type DraftRecipient = {
   contactName: string;
 };
 
+const MESSAGE_PAGE_SIZE = 100;
+const EMPTY_CATEGORY_VALUE = "__none__";
+const DEFAULT_CATEGORY: CategoryItem = {
+  id: "default-regular",
+  name: "regular",
+  color: "#64748b",
+};
+const ALL_VALUE = "__all__";
+const getErrorMessage = (error: unknown, fallback: string) => (
+  error instanceof Error ? error.message : fallback
+);
+
+const getMessagePreview = (message: Message | null) => {
+  if (!message) return "";
+  const content = (message.content || "").trim();
+  if (content) return content.length > 180 ? `${content.slice(0, 177)}...` : content;
+  if (message.media_type || message.type !== "text") return "Mídia";
+  return "Mensagem";
+};
+
 export default function WhatsAppChat() {
   const { user, role: userRole, companyId } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
@@ -117,9 +160,19 @@ export default function WhatsAppChat() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [draftRecipient, setDraftRecipient] = useState<DraftRecipient | null>(null);
   const [chatsLoaded, setChatsLoaded] = useState(false);
+  const chatsLoadedRef = useRef(false);
+  const [loadingChats, setLoadingChats] = useState(true);
+  const [chatLoadError, setChatLoadError] = useState<string | null>(null);
   const selectedChatIdRef = useRef<string | null>(null);
   useEffect(() => { selectedChatIdRef.current = selectedChatId; }, [selectedChatId]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const messageRequestRef = useRef(0);
+  const suppressMessageAutoScrollRef = useRef(false);
+  const chatRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -131,6 +184,7 @@ export default function WhatsAppChat() {
   const [sendingAttachment, setSendingAttachment] = useState(false);
   const [mediaFallbacks, setMediaFallbacks] = useState<Record<string, string>>({});
   const [failedMediaFetches, setFailedMediaFetches] = useState<Record<string, true>>({});
+  const [failedAvatarUrls, setFailedAvatarUrls] = useState<Record<string, true>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -139,6 +193,9 @@ export default function WhatsAppChat() {
   const [recordingTime, setRecordingTime] = useState(0);
   const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [isChatListCollapsed, setIsChatListCollapsed] = useState(false);
+  const [isConversationCollapsed, setIsConversationCollapsed] = useState(false);
+  const [isContextCollapsed, setIsContextCollapsed] = useState(false);
 
   // Templates state
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
@@ -150,6 +207,18 @@ export default function WhatsAppChat() {
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [availableLabels, setAvailableLabels] = useState<LabelItem[]>([]);
   const [chatCustomLabels, setChatCustomLabels] = useState<Record<string, string[]>>({}); // chatId -> label ids
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState("");
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState("");
+  const [bulkFilters, setBulkFilters] = useState<BulkFilters>({
+    trainerId: ALL_VALUE,
+    status: ALL_VALUE,
+    categoryId: ALL_VALUE,
+    labelId: ALL_VALUE,
+    base: "current",
+  });
+  const [teamMembers, setTeamMembers] = useState<{ user_id: string; full_name: string }[]>([]);
 
   // Edit name state
   const [editingName, setEditingName] = useState(false);
@@ -182,25 +251,52 @@ export default function WhatsAppChat() {
 
   // Load chats - uses last_message column instead of N+1 queries
   const loadChats = useCallback(async () => {
+    if (userRole === "master" && !effectiveCompanyId) {
+      setChats([]);
+      setChatLoadError(null);
+      setLoadingChats(false);
+      chatsLoadedRef.current = true;
+      setChatsLoaded(true);
+      return;
+    }
+
+    if (!chatsLoadedRef.current) setLoadingChats(true);
+    setChatLoadError(null);
     let query = supabase
       .from("whatsapp_chats")
-      .select("*, student:students(full_name, whatsapp, category_id)")
+      .select("*, student:students(full_name, whatsapp, category_id, status, assigned_trainer_id)")
       .order("last_message_at", { ascending: false, nullsFirst: false });
 
     if (effectiveCompanyId) query = query.eq("company_id", effectiveCompanyId);
 
-    const { data: chatData } = await query;
+    const { data: chatData, error } = await query;
 
-    if (chatData) {
-      const chatsWithPreview = chatData.map((chat: any) => ({
+    if (error) {
+      if (!chatsLoadedRef.current) {
+        setChatLoadError("Não foi possível carregar as conversas.");
+      } else {
+        console.error("Error refreshing WhatsApp chats:", error);
+      }
+    } else if (chatData) {
+      const chatsWithPreview = chatData.map((chat) => ({
         ...chat,
         student: Array.isArray(chat.student) ? chat.student[0] : chat.student,
         lastMessage: chat.last_message || "",
       }));
       setChats(chatsWithPreview);
     }
+    setLoadingChats(false);
+    chatsLoadedRef.current = true;
     setChatsLoaded(true);
-  }, [effectiveCompanyId]);
+  }, [effectiveCompanyId, userRole]);
+
+  const scheduleChatsRefresh = useCallback(() => {
+    if (chatRefreshTimerRef.current) return;
+    chatRefreshTimerRef.current = setTimeout(() => {
+      chatRefreshTimerRef.current = null;
+      void loadChats();
+    }, 600);
+  }, [loadChats]);
 
   const loadSenderNames = useCallback(async () => {
     const { data: profiles } = await supabase.from("profiles").select("user_id, full_name");
@@ -215,7 +311,11 @@ export default function WhatsAppChat() {
 
   const loadStudentData = useCallback(async (chatList: Chat[]) => {
     const studentChats = chatList.filter((c) => c.student_id);
-    if (studentChats.length === 0) return;
+    if (studentChats.length === 0) {
+      setStudentContexts({});
+      setChatLabels({});
+      return;
+    }
 
     const studentIds = [...new Set(studentChats.map((c) => c.student_id!))];
 
@@ -284,10 +384,64 @@ export default function WhatsAppChat() {
   }, [effectiveCompanyId]);
 
   const loadMessages = useCallback(async (chatId: string) => {
-    const { data } = await supabase.from("whatsapp_messages").select("*").eq("chat_id", chatId).order("created_at", { ascending: true });
-    if (data) setMessages(data);
-    await supabase.from("whatsapp_chats").update({ unread_count: 0 }).eq("id", chatId);
+    const requestId = ++messageRequestRef.current;
+    setMessagesLoading(true);
+    setMessagesError(null);
+    setHasOlderMessages(false);
+    setMessages([]);
+
+    const { data, error } = await supabase
+      .from("whatsapp_messages")
+      .select("*")
+      .eq("chat_id", chatId)
+      .order("created_at", { ascending: false })
+      .limit(MESSAGE_PAGE_SIZE);
+
+    if (requestId !== messageRequestRef.current || selectedChatIdRef.current !== chatId) return;
+
+    if (error) {
+      setMessagesError("Não foi possível carregar as mensagens.");
+    } else {
+      const page = (data || []) as Message[];
+      setMessages([...page].reverse());
+      setHasOlderMessages(page.length === MESSAGE_PAGE_SIZE);
+
+      const { error: unreadError } = await supabase
+        .from("whatsapp_chats")
+        .update({ unread_count: 0 })
+        .eq("id", chatId);
+      if (!unreadError) {
+        setChats((prev) => prev.map((chat) => (
+          chat.id === chatId ? { ...chat, unread_count: 0 } : chat
+        )));
+      }
+    }
+    setMessagesLoading(false);
   }, []);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!selectedChatId || loadingOlderMessages || !hasOlderMessages || messages.length === 0) return;
+    const oldestCreatedAt = messages[0].created_at;
+    setLoadingOlderMessages(true);
+
+    const { data, error } = await supabase
+      .from("whatsapp_messages")
+      .select("*")
+      .eq("chat_id", selectedChatId)
+      .lt("created_at", oldestCreatedAt)
+      .order("created_at", { ascending: false })
+      .limit(MESSAGE_PAGE_SIZE);
+
+    if (error) {
+      toast.error("Não foi possível carregar mensagens anteriores");
+    } else {
+      const page = (data || []) as Message[];
+      suppressMessageAutoScrollRef.current = true;
+      setMessages((prev) => [...page].reverse().concat(prev));
+      setHasOlderMessages(page.length === MESSAGE_PAGE_SIZE);
+    }
+    setLoadingOlderMessages(false);
+  }, [hasOlderMessages, loadingOlderMessages, messages, selectedChatId]);
 
   const loadContacts = useCallback(async () => {
     try {
@@ -303,19 +457,35 @@ export default function WhatsAppChat() {
       ]);
 
       const nameMap: Record<string, string> = {};
+      const photoMap: Record<string, string> = {};
 
       if (contactsRes.ok) {
         const data = await contactsRes.json();
+        const updates: PromiseLike<unknown>[] = [];
         for (const contact of data.contacts || []) {
           const jid = contact.id || contact.remoteJid || contact.jid || "";
           const name = contact.pushName || contact.name || contact.notify || "";
+          const photo = contact.profilePicUrl || contact.profilePictureUrl || contact.imgUrl || contact.picture || contact.profilePic || "";
           if (jid && name) nameMap[jid] = name;
+          if (jid && photo) {
+            photoMap[jid] = photo;
+            updates.push(
+              supabase
+                .from("whatsapp_chats")
+                .update({ contact_photo: photo })
+                .eq("remote_jid", jid)
+                .then(() => null)
+            );
+          }
+        }
+        if (updates.length > 0) {
+          await Promise.all(updates);
         }
       }
 
       if (groupsRes.ok) {
         const data = await groupsRes.json();
-        const updates: PromiseLike<any>[] = [];
+        const updates: PromiseLike<unknown>[] = [];
 
         for (const group of data.groups || []) {
           if (group.jid && group.subject) {
@@ -336,6 +506,11 @@ export default function WhatsAppChat() {
       }
 
       setContactNames(nameMap);
+      if (Object.keys(photoMap).length > 0) {
+        setChats((prev) => prev.map((chat) => (
+          photoMap[chat.remote_jid] ? { ...chat, contact_photo: photoMap[chat.remote_jid] } : chat
+        )));
+      }
     } catch (err) {
       console.error("Error loading contacts:", err);
     }
@@ -356,16 +531,23 @@ export default function WhatsAppChat() {
 
   const handleLinkStudent = async (studentId: string) => {
     if (!selectedChatId) return;
-    await supabase.from("whatsapp_chats").update({ student_id: studentId }).eq("id", selectedChatId);
+    const { error } = await supabase
+      .from("whatsapp_chats")
+      .update({ student_id: studentId })
+      .eq("id", selectedChatId);
+    if (error) {
+      toast.error("Não foi possível vincular o aluno");
+      return;
+    }
     setLinkDialogOpen(false);
     setLinkSearch("");
     setLinkStudents([]);
-    loadChats();
+    await loadChats();
     toast.success("Aluno vinculado à conversa");
   };
 
   // Media fallback
-  const handleMediaError = async (msg: Message) => {
+  const handleMediaError = useCallback(async (msg: Message) => {
     if (mediaFallbacks[msg.id] || failedMediaFetches[msg.id] || !msg.message_id_external) return;
 
     const chat = chats.find((c) => c.id === selectedChatId);
@@ -401,7 +583,7 @@ export default function WhatsAppChat() {
     } catch {
       setFailedMediaFetches((prev) => ({ ...prev, [msg.id]: true }));
     }
-  };
+  }, [chats, effectiveCompanyId, failedMediaFetches, mediaFallbacks, selectedChatId]);
 
   const getMediaSrc = (msg: Message) => mediaFallbacks[msg.id] || msg.media_url;
 
@@ -427,12 +609,42 @@ export default function WhatsAppChat() {
     if (data) setAvailableLabels(data as LabelItem[]);
   }, [effectiveCompanyId]);
 
+  const loadTeamMembers = useCallback(async () => {
+    if (!effectiveCompanyId) {
+      setTeamMembers([]);
+      return;
+    }
+    const { data: members } = await supabase
+      .from("company_members")
+      .select("user_id")
+      .eq("company_id", effectiveCompanyId);
+    const ids = (members || []).map((member) => member.user_id).filter(Boolean);
+    if (ids.length === 0) {
+      setTeamMembers([]);
+      return;
+    }
+    const [{ data: roles }, { data: profiles }] = await Promise.all([
+      supabase.from("user_roles").select("user_id, role").in("user_id", ids).in("role", ["admin", "coordinator", "trainer"]),
+      supabase.from("profiles").select("user_id, full_name").in("user_id", ids),
+    ]);
+    const allowed = new Set((roles || []).map((row) => row.user_id));
+    setTeamMembers(
+      (profiles || [])
+        .filter((profile) => allowed.has(profile.user_id))
+        .map((profile) => ({ user_id: profile.user_id, full_name: profile.full_name || "Sem nome" }))
+        .sort((a, b) => a.full_name.localeCompare(b.full_name)),
+    );
+  }, [effectiveCompanyId]);
+
   const loadChatLabels = useCallback(async (chatIds: string[]) => {
-    if (chatIds.length === 0) return;
+    if (chatIds.length === 0) {
+      setChatCustomLabels({});
+      return;
+    }
     const { data } = await supabase.from("whatsapp_chat_labels").select("chat_id, label_id").in("chat_id", chatIds);
     if (data) {
       const map: Record<string, string[]> = {};
-      data.forEach((row: any) => {
+      data.forEach((row) => {
         if (!map[row.chat_id]) map[row.chat_id] = [];
         map[row.chat_id].push(row.label_id);
       });
@@ -443,18 +655,45 @@ export default function WhatsAppChat() {
   const toggleChatLabel = async (chatId: string, labelId: string) => {
     const current = chatCustomLabels[chatId] || [];
     if (current.includes(labelId)) {
-      await supabase.from("whatsapp_chat_labels").delete().eq("chat_id", chatId).eq("label_id", labelId);
+      const { error } = await supabase
+        .from("whatsapp_chat_labels")
+        .delete()
+        .eq("chat_id", chatId)
+        .eq("label_id", labelId);
+      if (error) {
+        toast.error("Não foi possível remover a etiqueta");
+        return;
+      }
       setChatCustomLabels(prev => ({ ...prev, [chatId]: current.filter(id => id !== labelId) }));
     } else {
-      await supabase.from("whatsapp_chat_labels").insert({ chat_id: chatId, label_id: labelId } as any);
+      const { error } = await supabase
+        .from("whatsapp_chat_labels")
+        .insert({ chat_id: chatId, label_id: labelId });
+      if (error) {
+        toast.error("Não foi possível adicionar a etiqueta");
+        return;
+      }
       setChatCustomLabels(prev => ({ ...prev, [chatId]: [...current, labelId] }));
     }
   };
 
-  useEffect(() => { loadChats(); loadSenderNames(); loadTemplates(); loadCategories(); loadAvailableLabels(); }, [loadChats, loadSenderNames, loadTemplates, loadCategories, loadAvailableLabels]);
+  useEffect(() => {
+    chatsLoadedRef.current = false;
+    setChatsLoaded(false);
+    setChats([]);
+    setSelectedChatId(null);
+    setDraftRecipient(null);
+  }, [effectiveCompanyId]);
+  useEffect(() => { loadChats(); loadSenderNames(); loadTemplates(); loadCategories(); loadAvailableLabels(); loadTeamMembers(); }, [loadChats, loadSenderNames, loadTemplates, loadCategories, loadAvailableLabels, loadTeamMembers]);
+  useEffect(() => () => {
+    if (chatRefreshTimerRef.current) clearTimeout(chatRefreshTimerRef.current);
+  }, []);
   // Load contacts from Evolution API separately to avoid overwhelming edge function workers
   useEffect(() => { const t = setTimeout(() => loadContacts(), 2000); return () => clearTimeout(t); }, [loadContacts]);
-  useEffect(() => { if (chats.length > 0) { loadStudentData(chats); loadChatLabels(chats.map(c => c.id)); } }, [chats, loadStudentData, loadChatLabels]);
+  useEffect(() => {
+    void loadStudentData(chats);
+    void loadChatLabels(chats.map((chat) => chat.id));
+  }, [chats, loadStudentData, loadChatLabels]);
   // Pré-seleciona uma conversa existente ou prepara uma nova conversa interna.
   useEffect(() => {
     if (!chatsLoaded) return;
@@ -490,8 +729,23 @@ export default function WhatsAppChat() {
     pendingContactNameRef.current = null;
     pendingPrefillRef.current = null;
   }, [chats, chatsLoaded]);
-  useEffect(() => { if (selectedChatId) loadMessages(selectedChatId); }, [selectedChatId, loadMessages]);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => {
+    if (selectedChatId) {
+      void loadMessages(selectedChatId);
+    } else {
+      messageRequestRef.current += 1;
+      setMessages([]);
+      setMessagesError(null);
+      setHasOlderMessages(false);
+    }
+  }, [selectedChatId, loadMessages]);
+  useEffect(() => {
+    if (suppressMessageAutoScrollRef.current) {
+      suppressMessageAutoScrollRef.current = false;
+      return;
+    }
+    messagesEndRef.current?.scrollIntoView({ behavior: messagesLoading ? "auto" : "smooth" });
+  }, [messages, messagesLoading]);
 
   // Auto-fetch media for messages that have media_type but no media_url or fallback
   useEffect(() => {
@@ -504,7 +758,7 @@ export default function WhatsAppChat() {
     for (const msg of toFetch) {
       handleMediaError(msg);
     }
-  }, [messages, mediaFallbacks, failedMediaFetches]);
+  }, [messages, mediaFallbacks, failedMediaFetches, handleMediaError]);
 
   // Realtime - canal privado por empresa (compatível com policy de realtime.messages)
   // Usa selectedChatIdRef para não re-subscrever o canal a cada conversa aberta (evita thrash).
@@ -518,21 +772,48 @@ export default function WhatsAppChat() {
           // Dedupe: o realtime pode reenviar uma mensagem já carregada pelo loadMessages / inserção própria.
           setMessages((prev) => (prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg]));
         }
-        loadChats();
+        scheduleChatsRefresh();
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "whatsapp_chats", filter: `company_id=eq.${effectiveCompanyId}` }, () => { loadChats(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "whatsapp_chats", filter: `company_id=eq.${effectiveCompanyId}` }, () => { scheduleChatsRefresh(); })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [effectiveCompanyId, loadChats]);
+  }, [effectiveCompanyId, scheduleChatsRefresh]);
 
   const handleSend = async () => {
     if (!newMessage.trim()) return;
     const chat = chats.find((c) => c.id === selectedChatId);
     if (!chat && !draftRecipient) return;
+    const content = newMessage.trim();
+    const reply = replyingTo;
+    const tempId = `temp-${Date.now()}`;
+    if (selectedChatId) {
+      setMessages((prev) => [...prev, {
+        id: tempId,
+        content,
+        source: "outgoing",
+        type: "text",
+        created_at: new Date().toISOString(),
+        sender_id: user?.id || null,
+        media_url: null,
+        media_type: null,
+        message_id_external: null,
+        quoted_message_id: reply?.id || null,
+        quoted_message_external_id: reply?.message_id_external || null,
+        quoted_message_preview: reply ? getMessagePreview(reply) : null,
+        quoted_message_source: reply?.source || null,
+      }]);
+      setChats((prev) => prev.map((item) => (
+        item.id === selectedChatId
+          ? { ...item, lastMessage: content, last_message_at: new Date().toISOString(), unread_count: 0, last_sender_id: user?.id || null }
+          : item
+      )));
+    }
+    setNewMessage("");
+    setReplyingTo(null);
     setSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { toast.error("Sessão expirada"); return; }
+      if (!session) throw new Error("Sessão expirada");
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
@@ -540,24 +821,46 @@ export default function WhatsAppChat() {
           action: "send-message",
           companyId: effectiveCompanyId,
           remoteJid: chat?.remote_jid || draftRecipient?.remoteJid,
-          content: newMessage.trim(),
+          content,
           chatId: selectedChatId || undefined,
           studentId: chat?.student_id || draftRecipient?.studentId || undefined,
           contactName: chat ? getContactName(chat) : draftRecipient?.contactName,
-          ...(replyingTo?.message_id_external ? { quotedMessageId: replyingTo.message_id_external } : {}),
+          ...(reply?.message_id_external ? {
+            quotedMessageDbId: reply.id,
+            quotedMessageId: reply.message_id_external,
+            quotedFromMe: reply.source === "outgoing",
+            quotedMessageContent: getMessagePreview(reply),
+            quotedMessageType: reply.type || "text",
+          } : {}),
         }),
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.error || "Erro ao enviar");
-      setNewMessage("");
-      setReplyingTo(null);
-      if (!selectedChatId && payload?.chatId) {
+      if (payload?.message && selectedChatId) {
+        setMessages((prev) => {
+          const hydrated = prev.map((msg) => (msg.id === tempId ? payload.message as Message : msg));
+          return hydrated.filter((msg, index, list) => list.findIndex((item) => item.id === msg.id) === index);
+        });
+      } else if (payload?.messageId && selectedChatId) {
+        setMessages((prev) => prev.map((msg) => (
+          msg.id === tempId ? { ...msg, message_id_external: payload.messageId } : msg
+        )));
+      }
+      if (payload?.persistenceWarning) {
+        toast.warning("Mensagem enviada, mas o histórico pode demorar para sincronizar");
+      }
+      if (selectedChatId) {
+        return;
+      } else if (payload?.chatId) {
         setDraftRecipient(null);
         await loadChats();
         setSelectedChatId(payload.chatId);
       }
-    } catch (err: any) {
-      toast.error(err.message || "Erro ao enviar mensagem");
+    } catch (error: unknown) {
+      if (selectedChatId) setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
+      setNewMessage(content);
+      setReplyingTo(reply);
+      toast.error(getErrorMessage(error, "Erro ao enviar mensagem"));
     } finally { setSending(false); }
   };
 
@@ -579,9 +882,18 @@ export default function WhatsAppChat() {
       if (!res.ok) throw new Error("Erro ao apagar");
       setMessages((prev) => prev.filter((m) => m.id !== msg.id));
       toast.success("Mensagem apagada para todos");
-    } catch (err: any) {
-      toast.error(err.message || "Erro ao apagar mensagem");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Erro ao apagar mensagem"));
     }
+  };
+
+  const appendConfirmedOutgoingMessage = (payload: any) => {
+    if (payload?.message) {
+      setMessages((prev) => (
+        prev.some((msg) => msg.id === payload.message.id) ? prev : [...prev, payload.message as Message]
+      ));
+    }
+    scheduleChatsRefresh();
   };
 
   const handleAttachLastEvaluation = async () => {
@@ -590,31 +902,54 @@ export default function WhatsAppChat() {
     if (!chat?.student_id) { toast.error("Nenhum aluno vinculado a esta conversa"); return; }
     setSendingAttachment(true);
     try {
-      const { data: evaluations } = await supabase.from("student_evaluations").select("id, file_url, type, created_at").eq("student_id", chat.student_id).not("file_url", "is", null).order("created_at", { ascending: false }).limit(1);
-      if (!evaluations || evaluations.length === 0) { toast.error("Nenhum arquivo encontrado"); return; }
-      const fileUrl = evaluations[0].file_url!;
-      let mediaUrl = fileUrl;
-      if (!fileUrl.startsWith("http")) {
-        const { data: signedData } = await supabase.storage.from("evaluations").createSignedUrl(fileUrl, 3600);
-        if (signedData?.signedUrl) mediaUrl = signedData.signedUrl;
+      const studentFiles = await listStudentFiles(chat.student_id);
+      const latestFile = studentFiles.find((file) => file.kind === "assessment_report") || studentFiles[0] || null;
+      let mediaUrl: string | null = null;
+      let fileName = "arquivo.pdf";
+
+      if (latestFile) {
+        mediaUrl = await signStudentFile(latestFile.file_path, 3600);
+        fileName = latestFile.file_name || latestFile.file_path.split("/").pop() || fileName;
       }
+
+      if (!mediaUrl) {
+        const { data: evaluations } = await supabase
+          .from("student_evaluations")
+          .select("id, file_url, type, created_at")
+          .eq("student_id", chat.student_id)
+          .not("file_url", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        const fileUrl = evaluations?.[0]?.file_url || null;
+        if (fileUrl) {
+          fileName = fileUrl.split("/").pop() || fileName;
+          if (fileUrl.startsWith("http")) {
+            mediaUrl = fileUrl;
+          } else {
+            const { data: signedData } = await supabase.storage.from("evaluations").createSignedUrl(fileUrl, 3600);
+            mediaUrl = signedData?.signedUrl || null;
+          }
+        }
+      }
+
+      if (!mediaUrl) { toast.error("Nenhum arquivo encontrado na pasta ou nas avaliações do aluno"); return; }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { toast.error("Sessão expirada"); return; }
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
-        body: JSON.stringify({ action: "send-media", companyId: effectiveCompanyId, remoteJid: chat.remote_jid, mediaUrl, caption: "📋 Último treino/avaliação", chatId: selectedChatId, fileName: fileUrl.split("/").pop() || "avaliacao.pdf" }),
+        body: JSON.stringify({ action: "send-media", companyId: effectiveCompanyId, remoteJid: chat.remote_jid, mediaUrl, caption: "Último treino/avaliação", chatId: selectedChatId, fileName }),
       });
-      if (!res.ok) throw new Error("Erro ao enviar arquivo");
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Erro ao enviar arquivo");
+      appendConfirmedOutgoingMessage(payload);
       toast.success("Arquivo enviado!");
-    } catch (err: any) { toast.error(err.message || "Erro ao enviar arquivo"); }
+    } catch (error: unknown) { toast.error(getErrorMessage(error, "Erro ao enviar arquivo")); }
     finally { setSendingAttachment(false); }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedChatId) return;
-    e.target.value = "";
+  const sendFileAttachment = async (file: File) => {
+    if (!selectedChatId) return;
     const chat = chats.find((c) => c.id === selectedChatId);
     if (!chat) return;
     setSendingAttachment(true);
@@ -638,16 +973,41 @@ export default function WhatsAppChat() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
         body: JSON.stringify({ action: "send-media", companyId: effectiveCompanyId, remoteJid: chat.remote_jid, mediaUrl, chatId: selectedChatId, mediatype, mimeType: file.type, fileName: file.name, caption: "" }),
       });
-      if (!res.ok) throw new Error("Erro ao enviar mídia");
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Erro ao enviar mídia");
+      appendConfirmedOutgoingMessage(payload);
       toast.success("Mídia enviada!");
-    } catch (err: any) { toast.error(err.message || "Erro ao enviar mídia"); }
+    } catch (error: unknown) { toast.error(getErrorMessage(error, "Erro ao enviar mídia")); }
     finally { setSendingAttachment(false); }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    await sendFileAttachment(file);
+  };
+
+  const handleComposerPaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const file = Array.from(event.clipboardData.files || [])[0];
+    if (!file) return;
+    event.preventDefault();
+    await sendFileAttachment(file);
   };
 
   const handleToggleUnread = async (chatId: string, currentUnread: number) => {
     const newCount = currentUnread === 0 ? 1 : 0;
-    await supabase.from("whatsapp_chats").update({ unread_count: newCount }).eq("id", chatId);
-    loadChats();
+    const { error } = await supabase
+      .from("whatsapp_chats")
+      .update({ unread_count: newCount })
+      .eq("id", chatId);
+    if (error) {
+      toast.error("Não foi possível atualizar a conversa");
+      return;
+    }
+    setChats((prev) => prev.map((chat) => (
+      chat.id === chatId ? { ...chat, unread_count: newCount } : chat
+    )));
     toast.success(newCount > 0 ? "Marcado como não lida" : "Marcado como lida");
   };
 
@@ -700,9 +1060,11 @@ export default function WhatsAppChat() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
         body: JSON.stringify({ action: "send-media", companyId: effectiveCompanyId, remoteJid: chat.remote_jid, mediaUrl, chatId: selectedChatId, mediatype: "audio", mimeType: "audio/webm", fileName: `audio-${Date.now()}.webm`, caption: "" }),
       });
-      if (!res.ok) throw new Error("Erro ao enviar áudio");
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Erro ao enviar áudio");
+      appendConfirmedOutgoingMessage(payload);
       toast.success("Áudio enviado!");
-    } catch (err: any) { toast.error(err.message || "Erro ao enviar áudio"); }
+    } catch (error: unknown) { toast.error(getErrorMessage(error, "Erro ao enviar áudio")); }
     finally { setSendingAttachment(false); }
   };
 
@@ -737,13 +1099,55 @@ export default function WhatsAppChat() {
   };
 
   const isGroup = (chat: Chat) => chat.remote_jid.includes("@g.us");
+  const renderAvatar = (chat: Chat, size = "h-10 w-10") => {
+    const photo = chat.contact_photo;
+    return (
+      <div className={cn(size, "shrink-0 overflow-hidden rounded-full bg-muted flex items-center justify-center")}>
+        {photo && !failedAvatarUrls[photo] ? (
+          <img
+            src={photo}
+            alt={getContactName(chat)}
+            className="h-full w-full object-cover"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={() => setFailedAvatarUrls((prev) => ({ ...prev, [photo]: true }))}
+          />
+        ) : isGroup(chat) ? (
+          <Users className="h-5 w-5 text-muted-foreground" />
+        ) : (
+          <User className="h-5 w-5 text-muted-foreground" />
+        )}
+      </div>
+    );
+  };
   const unreadCount = chats.filter(c => (c.unread_count || 0) > 0).length;
 
   const selectedChat = chats.find((c) => c.id === selectedChatId);
+  const selectableCategories = [...categories, DEFAULT_CATEGORY]
+    .concat(
+      selectedChat?.category
+      && !categories.some((category) => category.name.toLowerCase() === selectedChat.category?.toLowerCase())
+        ? [{
+            id: `current-${selectedChat.category}`,
+            name: selectedChat.category,
+            color: DEFAULT_CATEGORY.color,
+          }]
+        : [],
+    )
+    .filter((category, index, items) => (
+      items.findIndex((item) => item.name.toLowerCase() === category.name.toLowerCase()) === index
+    ));
 
   const filteredChats = chats.filter((c) => {
     const name = getContactName(c);
-    if (!name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    const searchableText = [
+      name,
+      formatPhone(c.remote_jid),
+      c.remote_jid.replace(/@.*$/, ""),
+      c.lastMessage,
+    ].filter(Boolean).join(" ").toLowerCase();
+    if (normalizedSearch && !searchableText.includes(normalizedSearch)) return false;
     if (activeFilter === "unread" && (c.unread_count || 0) === 0) return false;
     if (activeFilter === "groups" && !c.remote_jid.includes("@g.us")) return false;
     if (activeFilter === "mine" && c.last_sender_id !== user?.id) return false;
@@ -754,7 +1158,238 @@ export default function WhatsAppChat() {
     return true;
   });
 
+  const bulkRecipients = (bulkFilters.base === "current" ? filteredChats : chats)
+    .filter((chat) => !isGroup(chat))
+    .filter((chat) => {
+      if (bulkFilters.trainerId !== ALL_VALUE && chat.student?.assigned_trainer_id !== bulkFilters.trainerId) return false;
+      if (bulkFilters.status !== ALL_VALUE && chat.student?.status !== bulkFilters.status) return false;
+      if (bulkFilters.categoryId !== ALL_VALUE && chat.student?.category_id !== bulkFilters.categoryId) return false;
+      if (bulkFilters.labelId !== ALL_VALUE && !(chatCustomLabels[chat.id] || []).includes(bulkFilters.labelId)) return false;
+      return true;
+    });
+
+  const personalizeBulkMessage = (message: string, chat: Chat) => {
+    const name = getContactName(chat);
+    const first = name.trim().split(/\s+/)[0] || "tudo bem";
+    const ctx = studentContexts[chat.id] || null;
+    const interpolated = interpolateTemplate(message, {
+      nome: name,
+      primeiro_nome: first,
+      plano: ctx?.planName || "",
+      vencimento: ctx?.dueDate ? format(new Date(ctx.dueDate), "dd/MM/yyyy") : "",
+      valor: ctx?.planValue != null ? ctx.planValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "",
+      dias_restantes: ctx?.daysRemaining ?? "",
+    });
+    if (/\{\{?\s*(nome|primeiro_nome)\s*\}?\}/i.test(message)) return interpolated;
+    return `Oi, ${first}!\n\n${interpolated}`;
+  };
+
+  const handleBulkSend = async () => {
+    const text = bulkMessage.trim();
+    if (!text) { toast.error("Digite uma mensagem para enviar"); return; }
+    if (bulkRecipients.length === 0) { toast.error("Nenhum destinatário encontrado com estes filtros"); return; }
+    setBulkSending(true);
+    setBulkProgress(`0/${bulkRecipients.length}`);
+    let ok = 0;
+    let failed = 0;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Sessão expirada");
+      const headers = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      };
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`;
+      for (const [index, chat] of bulkRecipients.entries()) {
+        const content = personalizeBulkMessage(text, chat);
+        const res = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            action: "send-message",
+            companyId: effectiveCompanyId,
+            remoteJid: chat.remote_jid,
+            content,
+            chatId: chat.id,
+            studentId: chat.student_id || undefined,
+            contactName: getContactName(chat),
+          }),
+        });
+        if (res.ok) {
+          ok += 1;
+          if (chat.id === selectedChatIdRef.current) {
+            setMessages((prev) => [...prev, {
+              id: `bulk-${Date.now()}-${index}`,
+              content,
+              source: "outgoing",
+              type: "text",
+              created_at: new Date().toISOString(),
+              sender_id: user?.id || null,
+              media_url: null,
+              media_type: null,
+              message_id_external: null,
+            }]);
+          }
+        } else {
+          failed += 1;
+        }
+        setBulkProgress(`${index + 1}/${bulkRecipients.length}`);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      toast.success(`Mensagem enviada para ${ok} conversa(s)${failed ? `; ${failed} falharam` : ""}.`);
+      setBulkOpen(false);
+      setBulkMessage("");
+      scheduleChatsRefresh();
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Erro no envio em massa"));
+    } finally {
+      setBulkSending(false);
+      setBulkProgress("");
+    }
+  };
+
   const studentCtx = selectedChat ? studentContexts[selectedChat.id] : null;
+  const renderStudentContext = () => {
+    if (!selectedChat) return null;
+
+    return (
+      <div className="space-y-4 p-4">
+        <div className="space-y-1">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Contato</p>
+          <p className="break-words text-sm font-medium text-foreground">
+            {studentCtx?.studentName || selectedChat.student?.full_name || selectedChat.contact_name || "Contato"}
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Categoria</p>
+          <Select
+            value={selectedChat.category || EMPTY_CATEGORY_VALUE}
+            onValueChange={async (val) => {
+              const previousCategory = selectedChat.category;
+              const nextCategory = val === EMPTY_CATEGORY_VALUE ? null : val;
+              setChats((prev) => prev.map((chat) => (
+                chat.id === selectedChat.id ? { ...chat, category: nextCategory } : chat
+              )));
+              const { error } = await supabase
+                .from("whatsapp_chats")
+                .update({ category: nextCategory })
+                .eq("id", selectedChat.id);
+              if (error) {
+                setChats((prev) => prev.map((chat) => (
+                  chat.id === selectedChat.id ? { ...chat, category: previousCategory } : chat
+                )));
+                toast.error("Não foi possível atualizar a categoria");
+                return;
+              }
+              toast.success("Categoria atualizada");
+            }}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="Sem categoria" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={EMPTY_CATEGORY_VALUE}>
+                Sem categoria
+              </SelectItem>
+              {selectableCategories.map((category) => (
+                <SelectItem key={category.id} value={category.name}>
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: category.color }} />
+                    <span className="capitalize">{category.name}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <p className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <Tag className="h-3 w-3" /> Etiquetas
+          </p>
+          {availableLabels.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Crie etiquetas no CRM</p>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {availableLabels.map((label) => {
+                const isActive = (chatCustomLabels[selectedChat.id] || []).includes(label.id);
+                return (
+                  <button
+                    key={label.id}
+                    onClick={() => toggleChatLabel(selectedChat.id, label.id)}
+                    className={cn(
+                      "cursor-pointer rounded-full border px-2 py-0.5 text-[10px] transition-colors",
+                      isActive
+                        ? "border-transparent text-white"
+                        : "border-border text-muted-foreground hover:bg-muted/50",
+                    )}
+                    style={isActive ? { backgroundColor: label.color } : {}}
+                  >
+                    {label.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {selectedChat.student_id && studentCtx && (
+          <>
+            <Separator />
+            {studentCtx.cycleNumber > 0 ? (
+              <>
+                <div className="space-y-1">
+                  <p className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    <Calendar className="h-3 w-3" /> Ciclo Atual
+                  </p>
+                  <p className="text-sm text-foreground">Ciclo {studentCtx.cycleNumber}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Início: {format(new Date(studentCtx.cycleStartDate), "dd/MM/yyyy")}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    <Clock className="h-3 w-3" /> Dias Restantes
+                  </p>
+                  <p className={cn("text-lg font-bold", studentCtx.daysRemaining <= 7 ? "text-destructive" : "text-foreground")}>
+                    {studentCtx.daysRemaining} dias
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Prescrição</p>
+                  <Badge variant={studentCtx.hasActiveWorkout ? "secondary" : "destructive"} className="text-xs">
+                    {studentCtx.hasActiveWorkout ? "Treino ativo" : "Sem treino"}
+                  </Badge>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Sem ciclo ativo</p>
+              </div>
+            )}
+            <Separator />
+            <div className="space-y-1">
+              <p className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                <DollarSign className="h-3 w-3" /> Financeiro
+              </p>
+              <Badge
+                className={cn(
+                  "text-xs",
+                  studentCtx.paymentStatus === "pendente"
+                    ? "bg-amber-500/90 text-white hover:bg-amber-500"
+                    : "bg-emerald-500/90 text-white hover:bg-emerald-500",
+                )}
+              >
+                {studentCtx.paymentStatus === "pendente" ? "Pendente" : "Em dia"}
+              </Badge>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -764,15 +1399,125 @@ export default function WhatsAppChat() {
             <p className="text-eyebrow">WhatsApp</p>
             <h1 className="font-display text-2xl text-foreground leading-tight">Conversas</h1>
           </div>
+          <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2">
+                <Users className="h-4 w-4" />
+                Enviar para vários
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Mensagem em massa</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Base</p>
+                    <Select value={bulkFilters.base} onValueChange={(value) => setBulkFilters((prev) => ({ ...prev, base: value === "all" ? "all" : "current" }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="current">Filtro atual da conversa</SelectItem>
+                        <SelectItem value="all">Todas as conversas</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Equipe/carteira</p>
+                    <Select value={bulkFilters.trainerId} onValueChange={(value) => setBulkFilters((prev) => ({ ...prev, trainerId: value }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL_VALUE}>Todos</SelectItem>
+                        {teamMembers.map((member) => (
+                          <SelectItem key={member.user_id} value={member.user_id}>{member.full_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Status do aluno</p>
+                    <Select value={bulkFilters.status} onValueChange={(value) => setBulkFilters((prev) => ({ ...prev, status: value }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL_VALUE}>Todos</SelectItem>
+                        <SelectItem value="active">Ativos</SelectItem>
+                        <SelectItem value="pending">Pendentes</SelectItem>
+                        <SelectItem value="awaiting_renewal">Aguardando renovação</SelectItem>
+                        <SelectItem value="inactive">Inativos</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Categoria</p>
+                    <Select value={bulkFilters.categoryId} onValueChange={(value) => setBulkFilters((prev) => ({ ...prev, categoryId: value }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL_VALUE}>Todas</SelectItem>
+                        {categories.map((category) => (
+                          <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <p className="text-xs font-medium text-muted-foreground">Etiqueta CRM</p>
+                    <Select value={bulkFilters.labelId} onValueChange={(value) => setBulkFilters((prev) => ({ ...prev, labelId: value }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL_VALUE}>Todas</SelectItem>
+                        {availableLabels.map((label) => (
+                          <SelectItem key={label.id} value={label.id}>{label.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                  <span className="font-medium text-foreground">{bulkRecipients.length}</span> conversa(s) serão impactadas. Use <span className="font-mono-data">{"{{primeiro_nome}}"}</span> ou <span className="font-mono-data">{"{{nome}}"}</span>; se você não usar, eu adiciono o primeiro nome automaticamente.
+                </div>
+                <Textarea
+                  value={bulkMessage}
+                  onChange={(event) => setBulkMessage(event.target.value)}
+                  placeholder="Ex: passando para lembrar do treino de hoje. Me avisa se precisar de ajuste."
+                  className="min-h-32"
+                  disabled={bulkSending}
+                />
+                <div className="flex items-center justify-end gap-2">
+                  {bulkProgress && <span className="mr-auto text-xs text-muted-foreground">Enviando {bulkProgress}</span>}
+                  <Button variant="ghost" onClick={() => setBulkOpen(false)} disabled={bulkSending}>Cancelar</Button>
+                  <Button onClick={handleBulkSend} disabled={bulkSending || !bulkMessage.trim() || bulkRecipients.length === 0}>
+                    {bulkSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                    Enviar
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
 
-        <div className="flex flex-1 border border-border rounded-lg overflow-hidden bg-card min-h-0">
+        <div className="flex min-h-0 flex-1 overflow-hidden border-y border-border bg-card md:rounded-lg md:border">
           {/* Chat List */}
-          <div className="w-80 border-r border-border flex flex-col shrink-0">
+          <div className={cn(
+            "w-full shrink-0 flex-col border-r border-border md:w-72 xl:w-80",
+            selectedChat || draftRecipient ? "hidden md:flex" : "flex",
+            isChatListCollapsed && "md:hidden",
+          )}>
             <div className="p-3 border-b border-border space-y-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Buscar conversa..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              <div className="flex items-center gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input placeholder="Buscar conversa..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="hidden shrink-0 md:inline-flex"
+                  onClick={() => setIsChatListCollapsed(true)}
+                  title="Recolher lista de conversas"
+                  aria-label="Recolher lista de conversas"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </Button>
               </div>
               <div className="flex flex-wrap gap-1">
                 <DropdownMenu>
@@ -796,13 +1541,34 @@ export default function WhatsAppChat() {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <Button variant={activeFilter === "mine" ? "default" : "ghost"} size="sm" className="h-7 text-xs" onClick={() => setActiveFilter("mine")}>Minhas</Button>
+                <Button
+                  variant={activeFilter === "mine" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setActiveFilter("mine")}
+                  title="Conversas cuja última mensagem foi enviada por você"
+                >
+                  Enviadas
+                </Button>
                 <Button variant={activeFilter === "no-workout" ? "default" : "ghost"} size="sm" className="h-7 text-xs" onClick={() => setActiveFilter("no-workout")}><AlertTriangle className="h-3 w-3 mr-1" />S/ Treino</Button>
               </div>
             </div>
 
             <ScrollArea className="flex-1">
-              {filteredChats.length === 0 ? (
+              {loadingChats ? (
+                <div className="flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Carregando conversas
+                </div>
+              ) : chatLoadError ? (
+                <div className="space-y-3 p-6 text-center">
+                  <p className="text-sm text-destructive">{chatLoadError}</p>
+                  <Button variant="outline" size="sm" onClick={() => void loadChats()}>
+                    <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                    Tentar novamente
+                  </Button>
+                </div>
+              ) : filteredChats.length === 0 ? (
                 <div className="p-6 text-center text-muted-foreground text-sm">Nenhuma conversa encontrada</div>
               ) : (
                 filteredChats.map((chat) => {
@@ -825,9 +1591,7 @@ export default function WhatsAppChat() {
                         }}
                         className={cn("w-full text-left p-3 border-b border-border hover:bg-muted/50 transition-colors flex items-start gap-3", selectedChatId === chat.id && "bg-primary/10")}
                       >
-                        <div className="h-10 w-10 shrink-0 rounded-full bg-muted flex items-center justify-center">
-                          {isGroup(chat) ? <Users className="h-5 w-5 text-muted-foreground" /> : <User className="h-5 w-5 text-muted-foreground" />}
-                        </div>
+                        {renderAvatar(chat)}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
                             <span className="font-medium text-sm text-foreground truncate min-w-0 flex-1">{getContactName(chat)}</span>
@@ -872,10 +1636,43 @@ export default function WhatsAppChat() {
             </ScrollArea>
           </div>
 
+          {isChatListCollapsed && (
+            <div className="hidden w-12 shrink-0 flex-col items-center border-r border-border bg-muted/20 py-2 md:flex">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsChatListCollapsed(false)}
+                title="Expandir lista de conversas"
+                aria-label="Expandir lista de conversas"
+              >
+                <PanelLeftOpen className="h-4 w-4" />
+              </Button>
+              {unreadCount > 0 && (
+                <Badge className="mt-2 h-5 min-w-5 justify-center px-1 text-[10px]">
+                  {unreadCount}
+                </Badge>
+              )}
+            </div>
+          )}
+
           {/* Messages */}
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <div className={cn(
+            "min-w-0 flex-1 flex-col overflow-hidden",
+            selectedChat || draftRecipient ? "flex" : "hidden md:flex",
+            isConversationCollapsed && "md:hidden",
+          )}>
             {!selectedChat && !draftRecipient ? (
-              <div className="flex-1 flex items-center justify-center text-muted-foreground">
+              <div className="relative flex flex-1 items-center justify-center text-muted-foreground">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-2 hidden md:inline-flex"
+                  onClick={() => setIsConversationCollapsed(true)}
+                  title="Recolher área da conversa"
+                  aria-label="Recolher área da conversa"
+                >
+                  <Minimize2 className="h-4 w-4" />
+                </Button>
                 <div className="text-center space-y-2">
                   <MessageSquare className="h-12 w-12 mx-auto opacity-30" />
                   <p className="text-sm">Selecione uma conversa para começar</p>
@@ -884,6 +1681,15 @@ export default function WhatsAppChat() {
             ) : draftRecipient ? (
               <div className="flex h-full flex-col">
                 <div className="flex items-center gap-3 border-b border-border bg-muted/30 p-3">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0 md:hidden"
+                    onClick={() => setDraftRecipient(null)}
+                    aria-label="Voltar para conversas"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
                   <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
                     <UserPlus className="h-4 w-4 text-muted-foreground" />
                   </div>
@@ -891,6 +1697,16 @@ export default function WhatsAppChat() {
                     <p className="truncate text-sm font-medium text-foreground">{draftRecipient.contactName}</p>
                     <p className="font-mono-data text-xs text-muted-foreground">+{draftRecipient.remoteJid}</p>
                   </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="hidden shrink-0 md:inline-flex"
+                    onClick={() => setIsConversationCollapsed(true)}
+                    title="Recolher área da conversa"
+                    aria-label="Recolher área da conversa"
+                  >
+                    <Minimize2 className="h-4 w-4" />
+                  </Button>
                 </div>
                 <div className="flex flex-1 items-center justify-center p-6 text-center text-muted-foreground">
                   <div className="max-w-sm space-y-2">
@@ -899,8 +1715,8 @@ export default function WhatsAppChat() {
                     <p className="text-xs">A mensagem só será enviada quando você confirmar abaixo.</p>
                   </div>
                 </div>
-                <div className="border-t border-border p-3 pr-20">
-                  <div className="flex items-end gap-2">
+                <div className="border-t border-border bg-card/95 p-2 pr-20 sm:p-3 sm:pr-24 min-[1780px]:pr-3">
+                  <div className="flex min-w-0 items-end gap-2 rounded-lg border border-border bg-background p-1.5 shadow-sm">
                     <Textarea
                       value={newMessage}
                       onChange={(event) => setNewMessage(event.target.value)}
@@ -910,10 +1726,11 @@ export default function WhatsAppChat() {
                           void handleSend();
                         }
                       }}
+                      onPaste={handleComposerPaste}
                       placeholder="Digite a mensagem..."
-                      className="min-h-[44px] max-h-32 resize-none"
+                      className="min-h-10 max-h-32 min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                     />
-                    <Button onClick={handleSend} disabled={sending || !newMessage.trim()} size="icon" title="Enviar mensagem">
+                    <Button onClick={handleSend} disabled={sending || !newMessage.trim()} size="icon" className="h-9 w-9 shrink-0" title="Enviar mensagem">
                       {sending ? <Clock className="h-4 w-4 animate-pulse" /> : <Send className="h-4 w-4" />}
                     </Button>
                   </div>
@@ -922,9 +1739,16 @@ export default function WhatsAppChat() {
             ) : (
               <>
                 <div className="p-3 border-b border-border flex items-center gap-3 bg-muted/30">
-                  <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center">
-                    {isGroup(selectedChat) ? <Users className="h-4 w-4 text-muted-foreground" /> : <User className="h-4 w-4 text-muted-foreground" />}
-                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0 md:hidden"
+                    onClick={() => setSelectedChatId(null)}
+                    aria-label="Voltar para conversas"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                  {renderAvatar(selectedChat, "h-9 w-9")}
                   <div className="flex-1 min-w-0">
                     {editingName ? (
                       <div className="flex items-center gap-1">
@@ -1009,20 +1833,90 @@ export default function WhatsAppChat() {
                         </DialogContent>
                       </Dialog>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="hidden shrink-0 md:inline-flex"
+                      onClick={() => setIsConversationCollapsed(true)}
+                      title="Recolher área da conversa"
+                      aria-label="Recolher área da conversa"
+                    >
+                      <Minimize2 className="h-4 w-4" />
+                    </Button>
+                    <Sheet>
+                      <SheetTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 min-[1780px]:hidden"
+                          aria-label="Abrir contexto da conversa"
+                        >
+                          <PanelRightOpen className="h-4 w-4" />
+                        </Button>
+                      </SheetTrigger>
+                      <SheetContent className="flex w-[min(88vw,22rem)] flex-col gap-0 p-0">
+                        <SheetHeader className="border-b border-border p-4 pr-12 text-left">
+                          <SheetTitle className="flex items-center gap-2 text-base">
+                            <User className="h-4 w-4" />
+                            Contexto
+                          </SheetTitle>
+                        </SheetHeader>
+                        <ScrollArea className="min-h-0 flex-1">
+                          {renderStudentContext()}
+                        </ScrollArea>
+                      </SheetContent>
+                    </Sheet>
                   </div>
                 </div>
 
-                <ScrollArea className="flex-1 p-4">
+                <ScrollArea className="flex-1 p-3 md:p-4">
+                  {messagesLoading ? (
+                    <div className="flex h-full min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Carregando mensagens
+                    </div>
+                  ) : messagesError ? (
+                    <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-center">
+                      <p className="text-sm text-destructive">{messagesError}</p>
+                      <Button variant="outline" size="sm" onClick={() => void loadMessages(selectedChat.id)}>
+                        <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                        Tentar novamente
+                      </Button>
+                    </div>
+                  ) : (
                   <div className="space-y-2">
+                    {hasOlderMessages && (
+                      <div className="flex justify-center pb-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void loadOlderMessages()}
+                          disabled={loadingOlderMessages}
+                        >
+                          {loadingOlderMessages && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                          Carregar mensagens anteriores
+                        </Button>
+                      </div>
+                    )}
+                    {messages.length === 0 && (
+                      <div className="flex min-h-40 items-center justify-center text-sm text-muted-foreground">
+                        Nenhuma mensagem nesta conversa
+                      </div>
+                    )}
                     {messages.map((msg) => {
                       const mediaSrc = getMediaSrc(msg);
                       const isMedia = msg.type !== "text" && (msg.media_type || msg.type === "image" || msg.type === "video" || msg.type === "audio" || msg.type === "document" || msg.type === "sticker");
                       const isImage = msg.media_type?.startsWith("image/") || msg.type === "image" || msg.type === "sticker";
                       const isVideo = msg.media_type?.startsWith("video/") || msg.type === "video";
                       const isAudio = msg.media_type?.startsWith("audio/") || msg.type === "audio";
+                      const quotedPreview = (msg.quoted_message_preview || "").trim();
+                      const quotedLabel = msg.quoted_message_source === "outgoing" ? "Você" : getContactName(selectedChat);
                       return (
-                        <div key={msg.id} className={cn("flex group", msg.source === "outgoing" ? "justify-end" : "justify-start")}>
-                          <div className="relative flex items-center gap-1">
+                        <div key={msg.id} className="group flex w-full">
+                          <div className={cn(
+                            "relative flex w-full min-w-0 items-center gap-1",
+                            msg.source === "outgoing" ? "justify-end" : "justify-start",
+                          )}>
                             {msg.source === "outgoing" && msg.message_id_external && (
                               <button
                                 onClick={() => handleDeleteMessage(msg)}
@@ -1041,9 +1935,32 @@ export default function WhatsAppChat() {
                                 <Reply className="h-3.5 w-3.5" />
                               </button>
                             )}
-                            <div className={cn("max-w-[70%] rounded-lg px-3 py-2 text-sm", msg.source === "outgoing" ? "bg-primary text-primary-foreground rounded-br-none" : "bg-muted text-foreground rounded-bl-none")}>
+                            <div className={cn(
+                              "min-w-0 max-w-[86%] rounded-lg px-3 py-2 text-sm sm:max-w-[78%]",
+                              msg.source === "outgoing"
+                                ? "rounded-br-none bg-primary text-primary-foreground"
+                                : "rounded-bl-none bg-muted text-foreground",
+                            )}>
                             {msg.source === "outgoing" && msg.sender_id && senderNames[msg.sender_id] && (
                               <p className="text-[10px] font-semibold mb-0.5 text-primary-foreground/80">{senderNames[msg.sender_id]}</p>
+                            )}
+                            {quotedPreview && (
+                              <div className={cn(
+                                "mb-2 rounded-md border-l-2 px-2 py-1.5 text-xs",
+                                msg.source === "outgoing"
+                                  ? "border-primary-foreground/50 bg-primary-foreground/10 text-primary-foreground/85"
+                                  : "border-primary/60 bg-background/70 text-muted-foreground",
+                              )}>
+                                <p className={cn(
+                                  "mb-0.5 font-semibold",
+                                  msg.source === "outgoing" ? "text-primary-foreground/90" : "text-foreground",
+                                )}>
+                                  {quotedLabel}
+                                </p>
+                                <p className="line-clamp-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                                  {quotedPreview}
+                                </p>
+                              </div>
                             )}
                             {mediaSrc && isImage ? (
                               <img src={mediaSrc} alt="Imagem" className="rounded max-w-full max-h-64 mb-1 cursor-pointer" onClick={() => window.open(mediaSrc!, "_blank")} onError={() => handleMediaError(msg)} />
@@ -1071,7 +1988,7 @@ export default function WhatsAppChat() {
                             ) : isMedia && !mediaSrc ? (
                               <p className="text-xs text-muted-foreground italic mb-1">Carregando mídia...</p>
                             ) : null}
-                            <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                            <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</p>
                             <p className={cn("text-[10px] mt-1 font-mono-data", msg.source === "outgoing" ? "text-primary-foreground/70" : "text-muted-foreground")}>{format(new Date(msg.created_at), "HH:mm")}</p>
                             </div>
                           </div>
@@ -1080,6 +1997,7 @@ export default function WhatsAppChat() {
                     })}
                     <div ref={messagesEndRef} />
                   </div>
+                  )}
                 </ScrollArea>
 
                 {replyingTo && (
@@ -1099,7 +2017,7 @@ export default function WhatsAppChat() {
                     </div>
                   </div>
                 )}
-                <div className="p-3 pr-20 border-t border-border flex gap-2 items-center">
+                <div className="border-t border-border bg-card/95 p-2 pr-20 sm:p-3 sm:pr-24 min-[1780px]:pr-3">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -1108,32 +2026,32 @@ export default function WhatsAppChat() {
                     onChange={handleFileUpload}
                   />
                   {isRecording ? (
-                    <>
-                      <div className="flex items-center gap-2 flex-1">
+                    <div className="flex min-w-0 items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-1.5">
+                      <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
                         <span className="h-3 w-3 rounded-full bg-destructive animate-pulse" />
-                        <span className="text-sm text-destructive font-medium">Gravando... {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, "0")}</span>
+                        <span className="truncate text-sm font-medium text-destructive">Gravando... {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, "0")}</span>
                       </div>
-                      <Button variant="ghost" size="icon" className="shrink-0" title="Cancelar" onClick={cancelRecording}>
+                      <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Cancelar" onClick={cancelRecording}>
                         <X className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" className="shrink-0 bg-destructive hover:bg-destructive/90" title="Parar e enviar" onClick={stopAndSendRecording}>
+                      <Button size="icon" className="h-9 w-9 shrink-0 bg-destructive hover:bg-destructive/90" title="Parar e enviar" onClick={stopAndSendRecording}>
                         <Send className="h-4 w-4" />
                       </Button>
-                    </>
+                    </div>
                   ) : (
-                    <>
-                      <Button variant="ghost" size="icon" className="shrink-0" title="Enviar imagem ou arquivo" onClick={() => fileInputRef.current?.click()} disabled={sendingAttachment}>
+                    <div className="flex min-w-0 items-end gap-1.5 rounded-lg border border-border bg-background p-1.5 shadow-sm sm:gap-2">
+                      <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Enviar imagem ou arquivo" onClick={() => fileInputRef.current?.click()} disabled={sendingAttachment}>
                         <Image className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="shrink-0" title="Gravar áudio" onClick={startRecording} disabled={sendingAttachment}>
+                      <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Gravar áudio" onClick={startRecording} disabled={sendingAttachment}>
                         <Mic className="h-4 w-4" />
                       </Button>
                       {selectedChat.student_id && (
-                        <Button variant="ghost" size="icon" className="shrink-0" title="Anexar último treino/avaliação" onClick={handleAttachLastEvaluation} disabled={sendingAttachment}>
+                        <Button variant="ghost" size="icon" className="hidden h-9 w-9 shrink-0 sm:inline-flex" title="Anexar último treino/avaliação" onClick={handleAttachLastEvaluation} disabled={sendingAttachment}>
                           <Paperclip className="h-4 w-4" />
                         </Button>
                       )}
-                      <div className="relative flex-1">
+                      <div className="relative min-w-0 flex-1">
                         <Textarea
                           placeholder="Digite / para templates..."
                           value={newMessage}
@@ -1154,8 +2072,9 @@ export default function WhatsAppChat() {
                             if (e.key === "Enter" && !e.shiftKey && !showTemplates) { e.preventDefault(); handleSend(); }
                             if (e.key === "Escape") setShowTemplates(false);
                           }}
+                          onPaste={handleComposerPaste}
                           disabled={sending}
-                          className="min-h-[40px] max-h-[200px] resize-none overflow-y-auto py-2"
+                          className="min-h-10 max-h-32 min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                           rows={1}
                         />
                         {showTemplates && (
@@ -1196,113 +2115,67 @@ export default function WhatsAppChat() {
                           </div>
                         )}
                       </div>
-                      <Button onClick={handleSend} disabled={sending || !newMessage.trim()} size="icon"><Send className="h-4 w-4" /></Button>
-                    </>
+                      <Button onClick={handleSend} disabled={sending || !newMessage.trim()} size="icon" className="h-9 w-9 shrink-0" title="Enviar mensagem">
+                        {sending ? <Clock className="h-4 w-4 animate-pulse" /> : <Send className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   )}
                 </div>
               </>
             )}
           </div>
 
+          {isConversationCollapsed && (
+            <div className="hidden w-12 shrink-0 flex-col items-center border-r border-border bg-card py-2 md:flex">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsConversationCollapsed(false)}
+                title="Expandir área da conversa"
+                aria-label="Expandir área da conversa"
+              >
+                <Maximize2 className="h-4 w-4" />
+              </Button>
+              <MessageSquare className="mt-3 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            </div>
+          )}
+
           {/* Student Context Panel */}
-          {selectedChat && (
-            <div className="w-64 border-l border-border flex flex-col bg-muted/20 shrink-0 overflow-hidden">
-              <div className="p-4 border-b border-border">
-                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2"><User className="h-4 w-4" />Contexto</h3>
+          {selectedChat && !isContextCollapsed && (
+            <div className="hidden w-64 shrink-0 flex-col overflow-hidden border-l border-border bg-muted/20 min-[1780px]:flex">
+              <div className="flex items-center gap-2 border-b border-border p-3">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <User className="h-4 w-4" />
+                  Contexto
+                </h3>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-auto shrink-0"
+                  onClick={() => setIsContextCollapsed(true)}
+                  title="Recolher contexto"
+                  aria-label="Recolher contexto"
+                >
+                  <PanelRightClose className="h-4 w-4" />
+                </Button>
               </div>
               <ScrollArea className="flex-1">
-              <div className="p-4 space-y-4">
-                <div className="space-y-1">
-                  <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Contato</p>
-                  <p className="text-sm font-medium text-foreground">{studentCtx?.studentName || selectedChat.student?.full_name || selectedChat.contact_name || "Contato"}</p>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Categoria</p>
-                  <Select
-                    value={selectedChat.category || "regular"}
-                    onValueChange={async (val) => {
-                      await supabase.from("whatsapp_chats").update({ category: val }).eq("id", selectedChat.id);
-                      setChats((prev) =>
-                        prev.map((c) => c.id === selectedChat.id ? { ...c, category: val } : c)
-                      );
-                      toast.success("Categoria atualizada");
-                    }}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map(cat => (
-                        <SelectItem key={cat.id} value={cat.name}>
-                          <div className="flex items-center gap-2">
-                            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
-                            <span className="capitalize">{cat.name}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1"><Tag className="h-3 w-3" /> Etiquetas</p>
-                  {availableLabels.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">Crie etiquetas no CRM</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1">
-                      {availableLabels.map(label => {
-                        const isActive = (chatCustomLabels[selectedChat.id] || []).includes(label.id);
-                        return (
-                          <button
-                            key={label.id}
-                            onClick={() => toggleChatLabel(selectedChat.id, label.id)}
-                            className={cn(
-                              "text-[10px] px-2 py-0.5 rounded-full border transition-colors cursor-pointer",
-                              isActive
-                                ? "border-transparent text-white"
-                                : "border-border text-muted-foreground hover:bg-muted/50"
-                            )}
-                            style={isActive ? { backgroundColor: label.color } : {}}
-                          >
-                            {label.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-                {selectedChat.student_id && studentCtx && (
-                  <>
-                    <Separator />
-                    {studentCtx.cycleNumber > 0 ? (
-                      <>
-                        <div className="space-y-1">
-                          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1"><Calendar className="h-3 w-3" /> Ciclo Atual</p>
-                          <p className="text-sm text-foreground">Ciclo {studentCtx.cycleNumber}</p>
-                          <p className="text-xs text-muted-foreground">Início: {format(new Date(studentCtx.cycleStartDate), "dd/MM/yyyy")}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1"><Clock className="h-3 w-3" /> Dias Restantes</p>
-                          <p className={cn("text-lg font-bold", studentCtx.daysRemaining <= 7 ? "text-destructive" : "text-foreground")}>{studentCtx.daysRemaining} dias</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Prescrição</p>
-                          <Badge variant={studentCtx.hasActiveWorkout ? "secondary" : "destructive"} className="text-xs">{studentCtx.hasActiveWorkout ? "✓ Treino Ativo" : "✗ Sem Treino"}</Badge>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="space-y-1"><p className="text-xs text-muted-foreground">Sem ciclo ativo</p></div>
-                    )}
-                    <Separator />
-                    <div className="space-y-1">
-                      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1"><DollarSign className="h-3 w-3" /> Financeiro</p>
-                      <Badge className={cn("text-xs", studentCtx.paymentStatus === "pendente" ? "bg-amber-500/90 text-white hover:bg-amber-500" : "bg-emerald-500/90 text-white hover:bg-emerald-500")}>{studentCtx.paymentStatus === "pendente" ? "Pendente" : "Em dia"}</Badge>
-                    </div>
-                  </>
-                )}
-              </div>
+                {renderStudentContext()}
               </ScrollArea>
+            </div>
+          )}
+          {selectedChat && isContextCollapsed && (
+            <div className="hidden w-12 shrink-0 flex-col items-center border-l border-border bg-muted/20 py-2 min-[1780px]:flex">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsContextCollapsed(false)}
+                title="Expandir contexto"
+                aria-label="Expandir contexto"
+              >
+                <PanelRightOpen className="h-4 w-4" />
+              </Button>
+              <User className="mt-3 h-4 w-4 text-muted-foreground" aria-hidden="true" />
             </div>
           )}
         </div>

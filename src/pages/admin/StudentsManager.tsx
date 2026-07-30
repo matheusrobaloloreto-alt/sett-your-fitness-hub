@@ -18,6 +18,7 @@ import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { format, addWeeks } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+import { StudentChatButton } from "@/components/admin/StudentChatButton";
 
 interface Student {
   id: string;
@@ -534,6 +535,7 @@ export default function StudentsManager() {
                       context={`Aluno na lista. Status: ${statusLabels[s.status] || s.status}. Plano: ${s.plan_name || "sem plano"}. Treinador atribuido: ${s.assigned_trainer_id ? "sim" : "nao"}.`}
                       question="Qual o proximo passo operacional e tecnico para este aluno?"
                     />
+                    <StudentChatButton studentId={s.id} studentName={s.full_name} phone={s.whatsapp || s.phone} />
                     {s.status === "active" && !s.user_id && (
                       <Button
                         variant="ghost"
