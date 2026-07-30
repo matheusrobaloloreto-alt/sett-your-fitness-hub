@@ -24,7 +24,8 @@ type CRMStudent = {
   id: string;
   full_name: string;
   status: string;
-  category: string;
+  categoryId: string | null;
+  categoryName: string | null;
   whatsapp: string | null;
   chatId?: string;
   hasWorkout?: boolean;
@@ -48,16 +49,14 @@ type Label = {
   color: string;
 };
 
+const EMPTY_CATEGORY_VALUE = "__none__";
+
 export default function WhatsAppCRM() {
   const navigate = useNavigate();
   const { role, companyId } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
 
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
-  const applyCompanyFilter = useCallback((query: any) => {
-    if (effectiveCompanyId) return query.eq("company_id", effectiveCompanyId);
-    return query;
-  }, [effectiveCompanyId]);
 
   const [students, setStudents] = useState<CRMStudent[]>([]);
   const [search, setSearch] = useState("");
@@ -78,21 +77,23 @@ export default function WhatsAppCRM() {
 
   const loadCategories = useCallback(async () => {
     let query = supabase.from("student_categories").select("*");
-    query = applyCompanyFilter(query);
+    if (effectiveCompanyId) query = query.eq("company_id", effectiveCompanyId);
     const { data } = await query.order("sort_order");
     if (data) setCategories(data as Category[]);
-  }, [applyCompanyFilter]);
+  }, [effectiveCompanyId]);
 
   const loadLabels = useCallback(async () => {
     let query = supabase.from("whatsapp_labels").select("*");
-    query = applyCompanyFilter(query);
+    if (effectiveCompanyId) query = query.eq("company_id", effectiveCompanyId);
     const { data } = await query.order("name");
     if (data) setLabels(data as Label[]);
-  }, [applyCompanyFilter]);
+  }, [effectiveCompanyId]);
 
   const loadStudents = useCallback(async () => {
-    let studentsQuery = supabase.from("students").select("*");
-    studentsQuery = applyCompanyFilter(studentsQuery);
+    let studentsQuery = supabase
+      .from("students")
+      .select("*, student_category:student_categories!students_category_id_fkey(id, name, color)");
+    if (effectiveCompanyId) studentsQuery = studentsQuery.eq("company_id", effectiveCompanyId);
     const { data: studentsData } = await studentsQuery.order("full_name");
     if (!studentsData) return;
 
@@ -100,7 +101,7 @@ export default function WhatsAppCRM() {
       .from("whatsapp_chats")
       .select("id, student_id")
       .not("student_id", "is", null);
-    chatsQuery = applyCompanyFilter(chatsQuery);
+    if (effectiveCompanyId) chatsQuery = chatsQuery.eq("company_id", effectiveCompanyId);
     const { data: chats } = await chatsQuery;
 
     const studentChatMap: Record<string, string> = {};
@@ -156,20 +157,21 @@ export default function WhatsAppCRM() {
         id: s.id,
         full_name: s.full_name,
         status: s.status,
-        category: (s as any).category || "regular",
+        categoryId: s.category_id || null,
+        categoryName: s.student_category?.name || null,
         whatsapp: s.whatsapp,
         chatId: studentChatMap[s.id],
         hasWorkout,
         hasPendingPayment: pendingPayStudents.has(s.id),
-        planName: (enrollment?.plans as any)?.name || "",
+        planName: enrollment?.plans?.name || "",
         dueDate,
-        planValue: Number(pendingPayment?.value ?? (enrollment?.plans as any)?.price ?? 0) || null,
+        planValue: Number(pendingPayment?.value ?? enrollment?.plans?.price ?? 0) || null,
         daysRemaining,
       };
     });
 
     setStudents(enriched);
-  }, [applyCompanyFilter, effectiveCompanyId]);
+  }, [effectiveCompanyId]);
 
   useEffect(() => { loadStudents(); loadCategories(); loadLabels(); }, [loadStudents, loadCategories, loadLabels]);
 
@@ -183,15 +185,20 @@ export default function WhatsAppCRM() {
     })();
   }, [effectiveCompanyId]);
 
-  const getCategoryColor = (catName: string) => {
-    const cat = categories.find(c => c.name === catName);
+  const getCategoryColor = (categoryId: string | null) => {
+    const cat = categories.find(c => c.id === categoryId);
     return cat?.color || "#6b7280";
   };
 
-  const handleUpdateCategory = async (studentId: string, category: string) => {
-    let query = supabase.from("students").update({ category } as any).eq("id", studentId);
+  const handleUpdateCategory = async (studentId: string, categoryId: string) => {
+    const nextCategoryId = categoryId === EMPTY_CATEGORY_VALUE ? null : categoryId;
+    let query = supabase.from("students").update({ category_id: nextCategoryId }).eq("id", studentId);
     if (effectiveCompanyId) query = query.eq("company_id", effectiveCompanyId);
-    await query;
+    const { error } = await query;
+    if (error) {
+      toast.error("Não foi possível atualizar a categoria");
+      return;
+    }
     loadStudents();
     toast.success("Categoria atualizada");
   };
@@ -205,7 +212,7 @@ export default function WhatsAppCRM() {
       name: newCatName.trim().toLowerCase(),
       color: newCatColor,
       sort_order: nextOrder,
-    } as any);
+    });
     if (error) { toast.error("Erro ao criar categoria"); return; }
     toast.success("Categoria criada");
     setNewCatName("");
@@ -228,7 +235,7 @@ export default function WhatsAppCRM() {
       company_id: effectiveCompanyId,
       name: newLabelName.trim(),
       color: newLabelColor,
-    } as any);
+    });
     if (error) { toast.error("Erro ao criar etiqueta"); return; }
     toast.success("Etiqueta criada");
     setNewLabelName("");
@@ -246,7 +253,7 @@ export default function WhatsAppCRM() {
 
   const filtered = students.filter((s) => {
     if (!s.full_name.toLowerCase().includes(search.toLowerCase())) return false;
-    if (categoryFilter !== "all" && s.category !== categoryFilter) return false;
+    if (categoryFilter !== "all" && s.categoryId !== categoryFilter) return false;
     if (segmentFilter === "no-workout" && !(s.status === "active" && !s.hasWorkout)) return false;
     if (segmentFilter === "pending" && !s.hasPendingPayment) return false;
     return true;
@@ -326,7 +333,7 @@ export default function WhatsAppCRM() {
                   <SelectContent>
                     <SelectItem value="all">Todas</SelectItem>
                     {categories.map(cat => (
-                      <SelectItem key={cat.id} value={cat.name}>
+                      <SelectItem key={cat.id} value={cat.id}>
                         <div className="flex items-center gap-2">
                           <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
                           <span className="capitalize">{cat.name}</span>
@@ -376,17 +383,18 @@ export default function WhatsAppCRM() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-foreground truncate">{student.full_name}</p>
                           <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                            <Select value={student.category} onValueChange={(val) => handleUpdateCategory(student.id, val)}>
+                            <Select value={student.categoryId || EMPTY_CATEGORY_VALUE} onValueChange={(val) => handleUpdateCategory(student.id, val)}>
                               <SelectTrigger
                                 className="w-[85px] h-5 text-[10px] px-1.5 border-0"
-                                style={{ backgroundColor: `${getCategoryColor(student.category)}20`, color: getCategoryColor(student.category) }}
+                                style={{ backgroundColor: `${getCategoryColor(student.categoryId)}20`, color: getCategoryColor(student.categoryId) }}
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                <SelectValue />
+                                <SelectValue placeholder="Sem categoria" />
                               </SelectTrigger>
                               <SelectContent>
+                                <SelectItem value={EMPTY_CATEGORY_VALUE}>Sem categoria</SelectItem>
                                 {categories.map(cat => (
-                                  <SelectItem key={cat.id} value={cat.name}>
+                                  <SelectItem key={cat.id} value={cat.id}>
                                     <div className="flex items-center gap-1.5">
                                       <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
                                       <span className="capitalize">{cat.name}</span>
@@ -435,7 +443,7 @@ export default function WhatsAppCRM() {
                         type="color"
                         value={cat.color}
                         onChange={async (e) => {
-                          let query = supabase.from("student_categories").update({ color: e.target.value } as any).eq("id", cat.id);
+                          let query = supabase.from("student_categories").update({ color: e.target.value }).eq("id", cat.id);
                           if (effectiveCompanyId) query = query.eq("company_id", effectiveCompanyId);
                           await query;
                           loadCategories();
@@ -475,7 +483,7 @@ export default function WhatsAppCRM() {
                         type="color"
                         value={label.color}
                         onChange={async (e) => {
-                          let query = supabase.from("whatsapp_labels").update({ color: e.target.value } as any).eq("id", label.id);
+                          let query = supabase.from("whatsapp_labels").update({ color: e.target.value }).eq("id", label.id);
                           if (effectiveCompanyId) query = query.eq("company_id", effectiveCompanyId);
                           await query;
                           loadLabels();
