@@ -36,6 +36,36 @@ export function daysUntilCycleEnd(cycle: PrescriptionScheduleCycle, today = new 
   return Math.ceil((utcDay(cycle.end_date) - utcDay(today)) / DAY_MS);
 }
 
+/**
+ * Re-publicações antigas podem deixar períodos sobrepostos. Para cada matrícula,
+ * prioriza o ciclo marcado como ativo, depois o vigente materializado e, em
+ * empate, o ciclo de maior número.
+ */
+export function selectCurrentCyclePerEnrollment(
+  cycles: PrescriptionScheduleCycle[],
+  today = new Date(),
+): PrescriptionScheduleCycle[] {
+  const grouped = new Map<string, PrescriptionScheduleCycle[]>();
+
+  cycles.filter((cycle) => isCycleCurrent(cycle, today)).forEach((cycle) => {
+    const key = cycle.enrollment_id || cycle.id;
+    const group = grouped.get(key) || [];
+    group.push(cycle);
+    grouped.set(key, group);
+  });
+
+  return Array.from(grouped.values()).map((group) => [...group].sort((a, b) => {
+    const aActive = a.status === "active";
+    const bActive = b.status === "active";
+    if (aActive !== bActive) return Number(bActive) - Number(aActive);
+    const aPrepared = Boolean(a.has_workouts || a.has_bundle);
+    const bPrepared = Boolean(b.has_workouts || b.has_bundle);
+    if (aPrepared !== bPrepared) return Number(bPrepared) - Number(aPrepared);
+    if (a.cycle_number !== b.cycle_number) return b.cycle_number - a.cycle_number;
+    return utcDay(b.start_date) - utcDay(a.start_date);
+  })[0]);
+}
+
 export function longitudinalPhase(cycleNumber: number): LongitudinalPhase {
   const index = ((Math.max(1, cycleNumber) - 1) % 4) + 1;
   if (index === 1) return "base";
@@ -72,4 +102,3 @@ export function describeLongitudinalPhase(phase: LongitudinalPhase): string {
   if (phase === "intensificacao") return "Intensificação controlada sem perder a técnica";
   return "Consolidação, redução de fadiga e preparação da próxima evolução";
 }
-

@@ -1123,6 +1123,40 @@ export default function WhatsAppChat() {
   const unreadCount = chats.filter(c => (c.unread_count || 0) > 0).length;
 
   const selectedChat = chats.find((c) => c.id === selectedChatId);
+  useEffect(() => {
+    if (!selectedChat?.id || selectedChat.contact_photo) return;
+    let cancelled = false;
+
+    const fetchSelectedChatPhoto = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({
+          action: "fetch-profile-picture",
+          companyId: effectiveCompanyId,
+          chatId: selectedChat.id,
+        }),
+      });
+      if (!response.ok || cancelled) return;
+
+      const payload = await response.json();
+      if (!payload.photo || cancelled) return;
+      setChats((previous) => previous.map((chat) => (
+        chat.id === selectedChat.id ? { ...chat, contact_photo: payload.photo } : chat
+      )));
+    };
+
+    void fetchSelectedChatPhoto();
+    return () => { cancelled = true; };
+  }, [effectiveCompanyId, selectedChat?.contact_photo, selectedChat?.id]);
+
   const selectableCategories = [...categories, DEFAULT_CATEGORY]
     .concat(
       selectedChat?.category

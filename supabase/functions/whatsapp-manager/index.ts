@@ -670,6 +670,49 @@ Deno.serve(async (req) => {
       return json({ success: true, messageId: externalMessageId, message: insertedMediaMessage, persistenceWarning });
     }
 
+    // ─── FETCH PROFILE PICTURE ───
+    // Evolution's contacts endpoint does not consistently include profilePicUrl.
+    // Resolve one visible conversation on demand to keep chat loading fast.
+    if (action === "fetch-profile-picture") {
+      if (!body.chatId) return json({ error: "chatId required" }, 400);
+
+      const { data: chat, error: chatError } = await adminClient
+        .from("whatsapp_chats")
+        .select("id, remote_jid")
+        .eq("id", body.chatId)
+        .eq("company_id", resolvedCompanyId)
+        .maybeSingle();
+      if (chatError) throw new Error(`Failed to load chat profile: ${chatError.message}`);
+      if (!chat?.remote_jid) return json({ photo: null });
+
+      const profileRes = await fetch(`${evoUrl}/chat/fetchProfilePictureUrl/${instanceName}`, {
+        method: "POST",
+        headers: evoHeaders,
+        body: JSON.stringify({ number: chat.remote_jid }),
+      });
+      if (!profileRes.ok) return json({ photo: null });
+
+      const profileData = await profileRes.json().catch(() => ({}));
+      const photo = String(
+        profileData?.profilePictureUrl ||
+        profileData?.profilePicUrl ||
+        profileData?.pictureUrl ||
+        profileData?.picture ||
+        "",
+      ).trim();
+
+      if (photo) {
+        const { error: photoError } = await adminClient
+          .from("whatsapp_chats")
+          .update({ contact_photo: photo })
+          .eq("id", chat.id)
+          .eq("company_id", resolvedCompanyId);
+        if (photoError) console.error("profile picture persistence failed", photoError.message);
+      }
+
+      return json({ photo: photo || null });
+    }
+
     // ─── FETCH MEDIA (base64) ───
     if (action === "fetch-media") {
       const { messageId, remoteJid: mediaJid, fromMe } = body;

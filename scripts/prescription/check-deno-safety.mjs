@@ -59,7 +59,15 @@ checks.push(check("supabase/functions/ai-prescribe-workout/index.ts", "no_limit_
 checks.push(check("supabase/functions/ai-prescribe-workout/index.ts", "fallback_preserved", /function\s+buildEmergencyFallbackPlan/.test(edge), "buildEmergencyFallbackPlan preservado."));
 checks.push(check("supabase/functions/ai-prescribe-workout/index.ts", "anthropic_preserved", /ANTHROPIC_API_KEY/.test(edge), "Anthropic preservado."));
 checks.push(check("supabase/functions/ai-prescribe-workout/index.ts", "response_contract_id_plan", /JSON\.stringify\(\s*\{\s*id:\s*planId,\s*plan:\s*planJson\s*\}/.test(edge), "Resposta padrão { id, plan }."));
-checks.push(check("supabase/functions/ai-prescribe-workout/index.ts", "no_engine_cutover_assignment", !/planJson\s*=\s*(program|output|engine|enginePlan)/.test(edge), "Sem assignment de cutover para planJson."));
+checks.push(check(
+  "supabase/functions/ai-prescribe-workout/index.ts",
+  "deterministic_primary_with_legacy_fallback",
+  /const\s+program\s*=\s*generateTrainingProgram\(input\)/.test(edge) &&
+    /planJson\s*=\s*engineOutput\.plan/.test(edge) &&
+    /catch\s*\(engineError\)/.test(edge) &&
+    /planJson\s*=\s*buildEmergencyFallbackPlan/.test(edge),
+  "Engine v1 é o caminho principal e o fallback legado permanece protegido por catch.",
+));
 
 const passCount = checks.filter((c) => c.pass).length;
 const failCount = checks.length - passCount;

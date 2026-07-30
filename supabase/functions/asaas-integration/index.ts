@@ -239,16 +239,20 @@ async function resolvePlanPrice(student: any, planId?: string): Promise<number> 
   }
   const { data: plan } = await supabaseAdmin
     .from("plans")
-    .select("price, company_id")
+    .select("price, company_id, is_active")
     .eq("id", effectivePlanId)
     .maybeSingle();
-  if (!plan || plan.price == null) {
-    throw new Error("Plano inválido ou sem preço definido.");
+  if (!plan || plan.price == null || !plan.is_active) {
+    throw new Error("Plano inválido, inativo ou sem preço definido.");
   }
   if (plan.company_id && student?.company_id && plan.company_id !== student.company_id) {
     throw new Error("Plano não pertence à empresa do aluno.");
   }
-  return Number(plan.price);
+  const price = Number(plan.price);
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error("Plano sem valor de cobrança válido.");
+  }
+  return price;
 }
 
 async function createPayment(body: any) {

@@ -182,8 +182,9 @@ export default function StudentWorkout() {
         const currentCandidates = enriched
           .filter((cycle) => inRange(cycle) && cycle.workouts.length > 0)
           .sort((left, right) =>
-            left.cycle_number - right.cycle_number ||
-            (left.start_date || "").localeCompare(right.start_date || "")
+            Number(right.status === "active") - Number(left.status === "active") ||
+            right.cycle_number - left.cycle_number ||
+            (right.start_date || "").localeCompare(left.start_date || "")
           );
         const startedWithWorkout = enriched
           .filter((cycle) => hasStarted(cycle) && cycle.workouts.length > 0)

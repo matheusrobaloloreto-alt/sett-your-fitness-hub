@@ -3,6 +3,7 @@ import {
   daysUntilCycleEnd,
   isCycleCurrent,
   longitudinalPhase,
+  selectCurrentCyclePerEnrollment,
   selectPrescriptionTargets,
   type PrescriptionScheduleCycle,
 } from "./prescriptionSchedule";
@@ -58,5 +59,18 @@ describe("prescriptionSchedule", () => {
       "base", "acumulacao", "intensificacao", "consolidacao",
       "base", "acumulacao", "intensificacao", "consolidacao",
     ]);
+  });
+
+  it("deduplica ciclos vigentes sobrepostos e prioriza o ciclo ativo materializado", () => {
+    const overlapping = [
+      cycle(4, "2026-06-22", "2026-08-02", { status: "completed", has_workouts: true }),
+      cycle(5, "2026-06-22", "2026-08-02", { status: "completed" }),
+      cycle(6, "2026-06-22", "2026-08-02", { status: "active", has_bundle: true }),
+      cycle(7, "2026-07-02", "2026-08-12", { status: "completed", has_workouts: true }),
+      cycle(1, "2026-07-01", "2026-08-01", { enrollment_id: "enrollment-2", has_workouts: true }),
+    ];
+
+    expect(selectCurrentCyclePerEnrollment(overlapping, today).map((item) => item.id))
+      .toEqual(["cycle-6", "cycle-1"]);
   });
 });

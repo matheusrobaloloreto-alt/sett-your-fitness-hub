@@ -19,6 +19,7 @@ import { buildStudentChatMap, createPlansLink, openStudentChat, renewalMessage }
 import { businessDateYmd } from "@/lib/businessDate";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { selectCurrentCyclePerEnrollment } from "@/lib/prescriptionSchedule";
 
 const LazyChart = lazy(() => import("recharts").then(mod => ({
   default: ({ data, colors }: { data: { name: string; count: number }[]; colors: string[] }) => (
@@ -154,7 +155,29 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
       .order("cycle_number");
     if (cycleRowsError) throw new Error(`Falha ao carregar trocas de treino: ${cycleRowsError.message}`);
     const allCycles = cycleRows || [];
-    const activeCycles = allCycles.filter((cycle: any) => cycle.start_date <= today && cycle.end_date >= today);
+    const currentCycleCandidates = allCycles.filter((cycle: any) => cycle.start_date <= today && cycle.end_date >= today);
+    const currentCycleIds = currentCycleCandidates.map((cycle: any) => cycle.id);
+    const [{ data: currentWorkouts, error: currentWorkoutsError }, { data: currentBundles, error: currentBundlesError }] = currentCycleIds.length > 0
+      ? await Promise.all([
+          supabase.from("workouts").select("cycle_id, exercises").in("cycle_id", currentCycleIds),
+          (supabase as any).from("prescription_bundles").select("training_cycle_id").in("training_cycle_id", currentCycleIds).neq("status", "failed"),
+        ])
+      : [{ data: [] as any[], error: null }, { data: [] as any[], error: null }];
+    if (currentWorkoutsError) throw new Error(`Falha ao conferir treinos vigentes: ${currentWorkoutsError.message}`);
+    if (currentBundlesError) throw new Error(`Falha ao conferir prescrições vigentes: ${currentBundlesError.message}`);
+    const preparedCurrentCycles = new Set([
+      ...filterMaterializedWorkouts(currentWorkouts || []).map((row) => row.cycle_id),
+      ...(currentBundles || []).map((row: any) => row.training_cycle_id),
+      ...currentCycleCandidates.filter((cycle: any) => cycle.prescribed_offline_at).map((cycle: any) => cycle.id),
+    ]);
+    const activeCycles = selectCurrentCyclePerEnrollment(
+      currentCycleCandidates.map((cycle: any) => ({
+        ...cycle,
+        has_workouts: preparedCurrentCycles.has(cycle.id),
+        has_bundle: preparedCurrentCycles.has(cycle.id),
+      })),
+      businessToday,
+    );
     const nextCycles = activeCycles.map((cycle: any) => allCycles.find((candidate: any) =>
       candidate.enrollment_id === cycle.enrollment_id && candidate.cycle_number === cycle.cycle_number + 1,
     )).filter(Boolean);

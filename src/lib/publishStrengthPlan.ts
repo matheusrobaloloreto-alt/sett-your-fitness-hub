@@ -312,6 +312,14 @@ export async function publishStrengthPlanToStudent(opts: {
 
   const cycleIsCurrent = cycle.start_date <= todayYmd && cycle.end_date >= todayYmd;
   const cycleStatus = cycle.end_date < todayYmd ? "completed" : cycleIsCurrent ? "active" : "pending";
+  if (cycleStatus === "active") {
+    const { error: closeOldCyclesError } = await db.from("training_cycles")
+      .update({ status: "completed" })
+      .eq("enrollment_id", enrollmentId)
+      .eq("status", "active")
+      .neq("id", cycle.id);
+    if (closeOldCyclesError) throw new Error(`Falha ao encerrar o ciclo anterior: ${closeOldCyclesError.message}`);
+  }
   const { error: activateCycleError } = await db.from("training_cycles")
     .update({
       status: cycleStatus,
@@ -323,15 +331,6 @@ export async function publishStrengthPlanToStudent(opts: {
     })
     .eq("id", cycle.id);
   if (activateCycleError) throw new Error(`Falha ao atualizar o ciclo: ${activateCycleError.message}`);
-
-  if (!targetCycle && cycleIsCurrent) {
-    const { error: closeOldCyclesError } = await db.from("training_cycles")
-      .update({ status: "completed" })
-      .eq("enrollment_id", enrollmentId)
-      .eq("status", "active")
-      .neq("id", cycle.id);
-    if (closeOldCyclesError) throw new Error(`Novo ciclo criado, mas falhou ao encerrar o anterior: ${closeOldCyclesError.message}`);
-  }
 
   const { error: bundleFinalizeError } = await db.from("prescription_bundles")
     .update({ status: cycleIsCurrent ? "active" : "scheduled", generation_error: null })

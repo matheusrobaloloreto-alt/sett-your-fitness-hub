@@ -288,6 +288,7 @@ export default function StudentPortal() {
         // Prescrição futura nunca vaza antes da data. O status ajuda, mas a
         // vigência é a fonte de verdade para o que o aluno enxerga hoje.
         const chosen =
+          byNewest.find(c => c.status === "active" && inRange(c) && c.workouts.length > 0) ||
           byNewest.find(c => inRange(c) && c.workouts.length > 0) ||
           byNewest.find(c => c.status === "active" && c.workouts.length > 0 && (!c.start_date || !c.end_date)) ||
           byNewest.find(c => hasStarted(c) && c.workouts.length > 0) ||

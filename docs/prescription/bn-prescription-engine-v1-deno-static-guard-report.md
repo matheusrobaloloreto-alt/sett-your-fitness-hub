@@ -1,6 +1,6 @@
 # BN Prescription Engine v1 — Deno Static Guard Report
 
-Generated at: 2026-06-30T07:37:43.763Z
+Generated at: 2026-07-30T01:37:26.920Z
 
 Status: PASS
 
@@ -43,6 +43,6 @@ Checks: 36/36 pass
 | `supabase/functions/ai-prescribe-workout/index.ts` | `fallback_preserved` | PASS | buildEmergencyFallbackPlan preservado. |
 | `supabase/functions/ai-prescribe-workout/index.ts` | `anthropic_preserved` | PASS | Anthropic preservado. |
 | `supabase/functions/ai-prescribe-workout/index.ts` | `response_contract_id_plan` | PASS | Resposta padrão { id, plan }. |
-| `supabase/functions/ai-prescribe-workout/index.ts` | `no_engine_cutover_assignment` | PASS | Sem assignment de cutover para planJson. |
+| `supabase/functions/ai-prescribe-workout/index.ts` | `deterministic_primary_with_legacy_fallback` | PASS | Engine v1 é o caminho principal e o fallback legado permanece protegido por catch. |
 
 > Static guard only. It does not run Deno typechecking.
