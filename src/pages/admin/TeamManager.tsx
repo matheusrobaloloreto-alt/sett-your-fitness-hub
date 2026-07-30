@@ -149,13 +149,22 @@ export default function TeamManager() {
         byUser.set(s.user_id, { sessions: cur.sessions + 1, totalMinutes: cur.totalMinutes + mins, last: Math.max(cur.last, end) });
       });
       const nameMap = new Map(members.map((m) => [m.user_id, m.full_name || m.user_id.slice(0, 8)]));
-      const rows = [...byUser.entries()].map(([uid, v]) => ({
-        user_id: uid,
-        full_name: nameMap.get(uid) || uid.slice(0, 8),
-        sessions: v.sessions,
-        totalMinutes: v.totalMinutes,
-        last_activity: v.last ? new Date(v.last).toISOString() : null,
-      })).sort((a, b) => (b.last_activity || "").localeCompare(a.last_activity || ""));
+      const staffMembers = members.filter((member) => (
+        member.roles.some((memberRole) => ALL_ROLES.includes(memberRole as Role))
+      ));
+      const rows = staffMembers.map((member) => {
+        const activity = byUser.get(member.user_id);
+        return {
+          user_id: member.user_id,
+          full_name: nameMap.get(member.user_id) || member.user_id.slice(0, 8),
+          sessions: activity?.sessions || 0,
+          totalMinutes: activity?.totalMinutes || 0,
+          last_activity: activity?.last ? new Date(activity.last).toISOString() : null,
+        };
+      }).sort((a, b) => (
+        (b.last_activity || "").localeCompare(a.last_activity || "")
+        || a.full_name.localeCompare(b.full_name, "pt-BR")
+      ));
       setActivityRows(rows);
     } catch { setActivityRows([]); } // tabela pode ainda não existir
     setActivityLoading(false);
@@ -1241,7 +1250,7 @@ export default function TeamManager() {
                     <p className="text-sm text-muted-foreground font-sans py-6 text-center">Carregando...</p>
                   ) : activityRows.length === 0 ? (
                     <p className="text-sm text-muted-foreground font-sans py-6 text-center">
-                      Sem registros ainda. Os acessos passam a contar a partir de agora, quando um colaborador (coordenador/treinador) abrir o sistema.
+                      Nenhum colaborador cadastrado nesta empresa.
                     </p>
                   ) : (
                     <div className="divide-y divide-border">

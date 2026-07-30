@@ -86,6 +86,7 @@ Deno.serve(async (req) => {
     const adminOnlyActions = new Set([
       "init-connection", "restart-connection", "disconnect", "check-status",
       "refresh-qr", "disable-external-bot", "fetch-bot-settings",
+      "configure-history-sync",
     ]);
     if (adminOnlyActions.has(action) && !isPrivileged) {
       return json({ error: "Forbidden" }, 403);
@@ -190,12 +191,13 @@ Deno.serve(async (req) => {
           instanceName,
           integration: "WHATSAPP-BAILEYS",
           qrcode: true,
+          syncFullHistory: true,
           webhook: {
             url: webhookUrl.toString(),
             headers: { "x-webhook-secret": webhookSecret },
             byEvents: false,
             base64: false,
-            events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE"],
+            events: ["MESSAGES_UPSERT", "MESSAGES_SET", "CONNECTION_UPDATE"],
           },
         }),
       });
@@ -398,6 +400,56 @@ Deno.serve(async (req) => {
       });
 
       return json({ status: "disconnected" });
+    }
+
+    // ─── CONFIGURE HISTORY SYNC ───
+    // Keeps future reconnects capable of restoring WhatsApp history without
+    // resetting the currently connected instance.
+    if (action === "configure-history-sync") {
+      const settingsResponse = await fetch(`${evoUrl}/settings/find/${instanceName}`, {
+        headers: evoHeaders,
+      });
+      const settingsPayload = settingsResponse.ok
+        ? await settingsResponse.json().catch(() => ({}))
+        : {};
+      const currentSettings = settingsPayload?.settings || settingsPayload || {};
+      const settingsUpdate = await fetch(`${evoUrl}/settings/set/${instanceName}`, {
+        method: "POST",
+        headers: evoHeaders,
+        body: JSON.stringify({
+          rejectCall: currentSettings.rejectCall === true,
+          msgCall: currentSettings.msgCall || "",
+          groupsIgnore: currentSettings.groupsIgnore === true,
+          alwaysOnline: currentSettings.alwaysOnline === true,
+          readMessages: currentSettings.readMessages === true,
+          readStatus: currentSettings.readStatus === true,
+          syncFullHistory: true,
+        }),
+      });
+      if (!settingsUpdate.ok) {
+        return json({ error: "Failed to enable WhatsApp history", details: await settingsUpdate.text() }, 502);
+      }
+
+      const webhookUrl = new URL(`${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-webhook`);
+      webhookUrl.searchParams.set("token", webhookSecret);
+      const webhookUpdate = await fetch(`${evoUrl}/webhook/set/${instanceName}`, {
+        method: "POST",
+        headers: evoHeaders,
+        body: JSON.stringify({
+          webhook: {
+            enabled: true,
+            url: webhookUrl.toString(),
+            headers: { "x-webhook-secret": webhookSecret },
+            byEvents: false,
+            base64: false,
+            events: ["MESSAGES_UPSERT", "MESSAGES_SET", "CONNECTION_UPDATE"],
+          },
+        }),
+      });
+      if (!webhookUpdate.ok) {
+        return json({ error: "Failed to configure WhatsApp history webhook", details: await webhookUpdate.text() }, 502);
+      }
+      return json({ success: true, syncFullHistory: true });
     }
 
     // ─── SEND MESSAGE ───

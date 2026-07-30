@@ -23,7 +23,7 @@ async function callAsaas(checkoutToken: string, action: string, body: Record<str
     },
     body: JSON.stringify({ action, checkoutToken, ...body }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({ error: "Resposta inválida do servidor de pagamentos." }));
   if (!res.ok || data.error) throw new Error(data.error || "Erro na operação");
   return data;
 }
@@ -236,7 +236,7 @@ export default function PublicPayment() {
     setLoading(true);
     try {
       if (!token) throw new Error("Link de pagamento inválido.");
-      const { paymentId } = await callAsaas(token, "create-payment", {
+      const { paymentId, status } = await callAsaas(token, "create-payment", {
         billingType: "PIX",
         planId: selectedPlanOptionId,
       });
@@ -248,6 +248,19 @@ export default function PublicPayment() {
         amount: planValue,
         asaas_payment_id: paymentId,
       }, selectedPlanOptionId);
+
+      if (status === "RECEIVED" || status === "CONFIRMED") {
+        abandonedRecordedRef.current = true;
+        await recordRecoveryEvent(token, "payment_completed", {
+          method: "PIX",
+          status,
+          plan_name: planName,
+          amount: planValue,
+          asaas_payment_id: paymentId,
+        }, selectedPlanOptionId, paymentId);
+        setStep("success");
+        return;
+      }
 
       const { encodedImage, payload } = await callAsaas(token, "get-pix-qrcode", { paymentId });
       setPixImage(encodedImage);
@@ -520,7 +533,7 @@ export default function PublicPayment() {
                 disabled={loading}
               >
                 {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <QrCode className="h-5 w-5" />}
-                Pagar com Pix
+                Pagar com Pix via Asaas
               </Button>
               <Button
                 variant="outline"
@@ -541,7 +554,7 @@ export default function PublicPayment() {
         {step === "pix" && (
           <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle className="text-primary text-xl text-center">PIX</CardTitle>
+              <CardTitle className="text-primary text-xl text-center">PIX VIA ASAAS</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-center">
               {pixImage && (
@@ -564,6 +577,9 @@ export default function PublicPayment() {
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Aguardando confirmação do pagamento...
               </div>
+              <p className="text-xs text-muted-foreground">
+                QR Code dinâmico e cobrança identificada emitidos pelo Asaas.
+              </p>
               <Button variant="ghost" size="sm" onClick={() => { if (pollingRef.current) clearInterval(pollingRef.current); setStep("choose"); }}>
                 ← Voltar
               </Button>

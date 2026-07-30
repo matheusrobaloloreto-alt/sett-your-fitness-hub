@@ -1,10 +1,10 @@
-// Presença de colaboradores (roles abaixo de admin): registra ENTRADA ao abrir o app,
+// Presença de colaboradores: registra ENTRADA ao abrir o app,
 // heartbeat a cada 60s e SAÍDA ao fechar o site (pagehide + fetch keepalive).
 // Sessões sem ended_at com last_seen antigo são tratadas como encerradas no last_seen (painel).
 import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-const TRACKED_ROLES = new Set(["coordinator", "trainer"]);
+const TRACKED_ROLES = new Set(["admin", "coordinator", "trainer"]);
 const HEARTBEAT_MS = 60_000;
 
 export function useStaffPresence(role: string | null | undefined, companyId: string | null) {

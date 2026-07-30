@@ -260,6 +260,12 @@ async function createPayment(body: any) {
   if (!studentId || !billingType) {
     throw new Error("studentId e billingType são obrigatórios");
   }
+  if (body.checkoutToken && billingType !== "PIX") {
+    throw new HttpError(400, "O link público aceita somente Pix nesta operação.");
+  }
+  if (!["PIX", "BOLETO", "UNDEFINED"].includes(billingType)) {
+    throw new HttpError(400, "Forma de pagamento inválida.");
+  }
 
   // Get customer id
   const { data: student } = await supabaseAdmin
@@ -274,6 +280,46 @@ async function createPayment(body: any) {
 
   // SECURITY: amount comes from the plan in the DB, never from the client body.
   const value = await resolvePlanPrice(student, planId);
+  const paymentDueDate = dueDate || businessDateYmd();
+  const checkoutRequestKey = body.checkoutToken && planId
+    ? `checkout:${body.checkoutToken}:plan:${planId}:${billingType}`
+    : null;
+
+  // A retry in the same checkout/day must not create another Pix charge.
+  if (checkoutRequestKey) {
+    const { data: existingPayment, error: existingError } = await supabaseAdmin
+      .from("payments")
+      .select("asaas_payment_id, status, invoice_url")
+      .eq("student_id", studentId)
+      .eq("company_id", student.company_id)
+      .eq("billing_type", billingType)
+      .eq("due_date", paymentDueDate)
+      .eq("notes", checkoutRequestKey)
+      .in("status", ["PENDING", "RECEIVED", "CONFIRMED"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingError) throw new HttpError(500, `Falha ao verificar cobrança pendente: ${existingError.message}`);
+    if (existingPayment?.asaas_payment_id) {
+      const providerPayment = await asaasFetch(`/payments/${existingPayment.asaas_payment_id}`);
+      await supabaseAdmin
+        .from("payments")
+        .update({
+          status: providerPayment.status || existingPayment.status,
+          invoice_url: providerPayment.invoiceUrl || existingPayment.invoice_url,
+          asaas_invoice_url: providerPayment.invoiceUrl || existingPayment.invoice_url,
+        })
+        .eq("asaas_payment_id", existingPayment.asaas_payment_id);
+      if (["PENDING", "RECEIVED", "CONFIRMED"].includes(providerPayment.status)) {
+        return {
+          paymentId: existingPayment.asaas_payment_id,
+          status: providerPayment.status,
+          invoiceUrl: providerPayment.invoiceUrl || existingPayment.invoice_url,
+          reused: true,
+        };
+      }
+    }
+  }
 
   // Auto-create Asaas customer if missing
   if (!student.asaas_customer_id) {
@@ -300,7 +346,7 @@ async function createPayment(body: any) {
       customer: student.asaas_customer_id,
       billingType,
       value: Number(value),
-      dueDate: dueDate || businessDateYmd(),
+      dueDate: paymentDueDate,
       description: description || "Plano BN Performance Training",
       externalReference: studentId,
     }),
@@ -313,11 +359,15 @@ async function createPayment(body: any) {
     asaas_customer_id: student.asaas_customer_id,
     asaas_payment_id: payment.id,
     billing_type: billingType,
+    payment_method: billingType,
+    amount: Number(value),
     value: Number(value),
     status: payment.status || "PENDING",
     due_date: payment.dueDate || null,
+    asaas_invoice_url: payment.invoiceUrl || null,
     invoice_url: payment.invoiceUrl || null,
     installment_count: 1,
+    notes: checkoutRequestKey,
   });
   if (insertError) throw new HttpError(500, `Falha ao persistir pagamento: ${insertError.message}`);
 
@@ -338,6 +388,17 @@ async function getPixQrCode(body: any) {
   if (!paymentId) throw new Error("paymentId é obrigatório");
 
   const data = await asaasFetch(`/payments/${paymentId}/pixQrCode`);
+  if (!data?.encodedImage || !data?.payload) {
+    throw new HttpError(502, "O Asaas não retornou um QR Code Pix válido.");
+  }
+  const { error: updateError } = await supabaseAdmin
+    .from("payments")
+    .update({
+      asaas_pix_qr_code: data.encodedImage,
+      asaas_pix_payload: data.payload,
+    })
+    .eq("asaas_payment_id", paymentId);
+  if (updateError) console.error("Falha ao persistir QR Code Pix:", updateError.message);
   return {
     encodedImage: data.encodedImage,
     payload: data.payload,
@@ -435,9 +496,12 @@ async function createCardPayment(body: any) {
     asaas_customer_id: student.asaas_customer_id,
     asaas_payment_id: payment.id,
     billing_type: "CREDIT_CARD",
+    payment_method: "CREDIT_CARD",
+    amount: Number(value),
     value: Number(value),
     status: payment.status || "PENDING",
     due_date: payment.dueDate || null,
+    asaas_invoice_url: payment.invoiceUrl || null,
     invoice_url: payment.invoiceUrl || null,
     installment_count: installmentCount && installmentCount > 1 ? installmentCount : 1,
   });

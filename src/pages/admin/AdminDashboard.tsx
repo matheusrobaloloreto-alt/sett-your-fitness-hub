@@ -357,7 +357,12 @@ export default function AdminDashboard() {
           </Card>
         </div>
 
-        <DashboardAlerts compact />
+        <DashboardAlerts />
+
+        <ContactCadenceCard
+          companyId={effectiveCompanyId}
+          routePrefix={(routePrefix as string) || "admin"}
+        />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="bg-card border-border">
@@ -487,7 +492,6 @@ export default function AdminDashboard() {
                 <MonthlyPrescriptionsCard companyId={effectiveCompanyId} routePrefix={(routePrefix as string) || "admin"} />
                 <PendingFeedbackCard companyId={effectiveCompanyId} routePrefix={(routePrefix as string) || "admin"} />
                 <CohortInsightsCard companyId={effectiveCompanyId} />
-        <ContactCadenceCard companyId={effectiveCompanyId} routePrefix={(routePrefix as string) || "admin"} />
               </CardContent>
             </CollapsibleContent>
           </Card>

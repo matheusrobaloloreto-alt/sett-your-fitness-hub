@@ -168,6 +168,7 @@ export default function WhatsAppChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [updatingUnreadChatId, setUpdatingUnreadChatId] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const messageRequestRef = useRef(0);
@@ -390,6 +391,18 @@ export default function WhatsAppChat() {
     setHasOlderMessages(false);
     setMessages([]);
 
+    let markReadQuery = supabase
+      .from("whatsapp_chats")
+      .update({ unread_count: 0 })
+      .eq("id", chatId);
+    if (effectiveCompanyId) markReadQuery = markReadQuery.eq("company_id", effectiveCompanyId);
+    const { error: unreadError } = await markReadQuery;
+    if (!unreadError) {
+      setChats((prev) => prev.map((chat) => (
+        chat.id === chatId ? { ...chat, unread_count: 0 } : chat
+      )));
+    }
+
     const { data, error } = await supabase
       .from("whatsapp_messages")
       .select("*")
@@ -405,19 +418,9 @@ export default function WhatsAppChat() {
       const page = (data || []) as Message[];
       setMessages([...page].reverse());
       setHasOlderMessages(page.length === MESSAGE_PAGE_SIZE);
-
-      const { error: unreadError } = await supabase
-        .from("whatsapp_chats")
-        .update({ unread_count: 0 })
-        .eq("id", chatId);
-      if (!unreadError) {
-        setChats((prev) => prev.map((chat) => (
-          chat.id === chatId ? { ...chat, unread_count: 0 } : chat
-        )));
-      }
     }
     setMessagesLoading(false);
-  }, []);
+  }, [effectiveCompanyId]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!selectedChatId || loadingOlderMessages || !hasOlderMessages || messages.length === 0) return;
@@ -996,17 +999,23 @@ export default function WhatsAppChat() {
   };
 
   const handleToggleUnread = async (chatId: string, currentUnread: number) => {
-    const newCount = currentUnread === 0 ? 1 : 0;
-    const { error } = await supabase
+    const newCount = Number(currentUnread || 0) > 0 ? 0 : 1;
+    setUpdatingUnreadChatId(chatId);
+    let updateQuery = supabase
       .from("whatsapp_chats")
       .update({ unread_count: newCount })
       .eq("id", chatId);
-    if (error) {
+    if (effectiveCompanyId) updateQuery = updateQuery.eq("company_id", effectiveCompanyId);
+    const { data, error } = await updateQuery
+      .select("id, unread_count")
+      .maybeSingle();
+    setUpdatingUnreadChatId(null);
+    if (error || !data) {
       toast.error("Não foi possível atualizar a conversa");
       return;
     }
     setChats((prev) => prev.map((chat) => (
-      chat.id === chatId ? { ...chat, unread_count: newCount } : chat
+      chat.id === chatId ? { ...chat, unread_count: Number(data.unread_count || 0) } : chat
     )));
     toast.success(newCount > 0 ? "Marcado como não lida" : "Marcado como lida");
   };
@@ -1529,7 +1538,7 @@ export default function WhatsAppChat() {
           </Dialog>
         </div>
 
-        <div className="flex min-h-0 flex-1 overflow-hidden border-y border-border bg-card md:rounded-lg md:border">
+        <div className="flex min-h-0 flex-1 overflow-hidden border-y border-border bg-white md:rounded-lg md:border">
           {/* Chat List */}
           <div className={cn(
             "w-full shrink-0 flex-col border-r border-border md:w-72 xl:w-80",
@@ -1654,10 +1663,17 @@ export default function WhatsAppChat() {
                               {chat.last_message_at && <p className="text-[10px] text-muted-foreground">{format(new Date(chat.last_message_at), "dd/MM HH:mm")}</p>}
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleToggleUnread(chat.id, chat.unread_count); }}
-                                className="p-0.5 rounded hover:bg-muted/80 transition-colors"
+                                disabled={updatingUnreadChatId === chat.id}
+                                className={cn(
+                                  "rounded p-1 transition-all disabled:cursor-wait disabled:opacity-40",
+                                  chat.unread_count > 0
+                                    ? "text-slate-400 opacity-55 hover:bg-slate-100 hover:opacity-100"
+                                    : "text-blue-600 drop-shadow-[0_0_4px_rgba(37,99,235,0.65)] hover:bg-blue-50",
+                                )}
                                 title={chat.unread_count > 0 ? "Marcar como lida" : "Marcar como não lida"}
+                                aria-label={chat.unread_count > 0 ? "Marcar como lida" : "Marcar como não lida"}
                               >
-                                {chat.unread_count > 0 ? <Mail className="h-3.5 w-3.5 text-primary" /> : <MailOpen className="h-3.5 w-3.5 text-muted-foreground" />}
+                                {chat.unread_count > 0 ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
                               </button>
                             </div>
                           </div>
@@ -1714,7 +1730,7 @@ export default function WhatsAppChat() {
               </div>
             ) : draftRecipient ? (
               <div className="flex h-full flex-col">
-                <div className="flex items-center gap-3 border-b border-border bg-muted/30 p-3">
+                <div className="flex items-center gap-3 border-b border-border bg-white p-3">
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1749,7 +1765,7 @@ export default function WhatsAppChat() {
                     <p className="text-xs">A mensagem só será enviada quando você confirmar abaixo.</p>
                   </div>
                 </div>
-                <div className="border-t border-border bg-card/95 p-2 pr-20 sm:p-3 sm:pr-24 min-[1780px]:pr-3">
+                <div className="border-t border-border bg-white p-2 pr-20 sm:p-3 sm:pr-24 min-[1780px]:pr-3">
                   <div className="flex min-w-0 items-end gap-2 rounded-lg border border-border bg-background p-1.5 shadow-sm">
                     <Textarea
                       value={newMessage}
@@ -1772,7 +1788,7 @@ export default function WhatsAppChat() {
               </div>
             ) : (
               <>
-                <div className="p-3 border-b border-border flex items-center gap-3 bg-muted/30">
+                <div className="flex items-center gap-3 border-b border-border bg-white p-3">
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1903,7 +1919,7 @@ export default function WhatsAppChat() {
                   </div>
                 </div>
 
-                <ScrollArea className="flex-1 p-3 md:p-4">
+                <ScrollArea className="flex-1 bg-white p-3 md:p-4">
                   {messagesLoading ? (
                     <div className="flex h-full min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -1972,8 +1988,8 @@ export default function WhatsAppChat() {
                             <div className={cn(
                               "min-w-0 max-w-[86%] rounded-lg px-3 py-2 text-sm sm:max-w-[78%]",
                               msg.source === "outgoing"
-                                ? "rounded-br-none bg-primary text-primary-foreground"
-                                : "rounded-bl-none bg-muted text-foreground",
+                                ? "rounded-br-none bg-[#203b78] text-white shadow-sm"
+                                : "rounded-bl-none border border-sky-200 bg-sky-50 text-slate-900 shadow-sm",
                             )}>
                             {msg.source === "outgoing" && msg.sender_id && senderNames[msg.sender_id] && (
                               <p className="text-[10px] font-semibold mb-0.5 text-primary-foreground/80">{senderNames[msg.sender_id]}</p>
@@ -2035,8 +2051,8 @@ export default function WhatsAppChat() {
                 </ScrollArea>
 
                 {replyingTo && (
-                  <div className="px-3 pt-2 border-t border-border">
-                    <div className="flex items-center gap-2 bg-muted/50 rounded-md p-2 border-l-4 border-primary">
+                  <div className="border-t border-border bg-white px-3 pt-2">
+                    <div className="flex items-center gap-2 rounded-md border-l-4 border-primary bg-sky-50 p-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-[10px] font-semibold text-primary">
                           {replyingTo.source === "outgoing" ? "Você" : getContactName(selectedChat!)}
@@ -2051,7 +2067,7 @@ export default function WhatsAppChat() {
                     </div>
                   </div>
                 )}
-                <div className="border-t border-border bg-card/95 p-2 pr-20 sm:p-3 sm:pr-24 min-[1780px]:pr-3">
+                <div className="border-t border-border bg-white p-2 pr-20 sm:p-3 sm:pr-24 min-[1780px]:pr-3">
                   <input
                     ref={fileInputRef}
                     type="file"

@@ -74,6 +74,20 @@ function extractQuotedPreview(contextInfo: any): string | null {
   return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 }
 
+function messageDate(value: unknown): Date {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    const milliseconds = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+    const parsed = new Date(milliseconds);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return new Date();
+}
+
 // ─── SEND TEXT MESSAGE ───
 async function sendText(
   evoUrl: string, instanceName: string, evoHeaders: Record<string, string>,
@@ -432,8 +446,20 @@ Deno.serve(async (req) => {
     }
 
     // ─── MESSAGES UPSERT ───
-    if (event === "MESSAGES_UPSERT" || event === "messages.upsert") {
-      const messages = body.data || [];
+    if (
+      event === "MESSAGES_UPSERT"
+      || event === "messages.upsert"
+      || event === "MESSAGES_SET"
+      || event === "messages.set"
+    ) {
+      const messages = Array.isArray(body.data)
+        ? body.data
+        : Array.isArray(body.data?.messages)
+          ? body.data.messages
+          : body.data?.message
+            ? [body.data.message]
+            : [];
+      const isHistoryEvent = event === "MESSAGES_SET" || event === "messages.set";
       const instanceName = body.instance;
       if (!instanceName) {
         console.error("[webhook] MESSAGES_UPSERT missing instance, body:", JSON.stringify(body));
@@ -454,6 +480,8 @@ Deno.serve(async (req) => {
         const key = msg.key || {};
         const remoteJid = key.remoteJid || "";
         if (!remoteJid) continue;
+        const providerMessageDate = messageDate(msg.messageTimestamp ?? msg.timestamp);
+        const providerMessageAt = providerMessageDate.toISOString();
 
         const contactName = remoteJid.includes("@g.us") ? (msg.groupMetadata?.subject || null) : (msg.pushName || null);
         const isFromMe = key.fromMe === true;
@@ -486,7 +514,7 @@ Deno.serve(async (req) => {
         // Check first contact — use phone base to cover JID variants (@lid, @s.whatsapp.net)
         let isFirstContact = false;
         const isDirectContact = !remoteJid.includes("@g.us");
-        if (!isFromMe && isDirectContact) {
+        if (!isHistoryEvent && !isFromMe && isDirectContact) {
           const phoneBase = remoteJid.replace(/@.*$/, "");
           const { data: existingChats } = await adminClient.from("whatsapp_chats")
             .select("id").eq("instance_id", instance.id)
@@ -507,11 +535,43 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Upsert chat
-        const { data: chat } = await adminClient.from("whatsapp_chats").upsert(
-          { instance_id: instance.id, company_id: instance.company_id, remote_jid: remoteJid, last_message_at: new Date().toISOString(), ...(!isFromMe && contactName ? { contact_name: contactName } : {}) },
-          { onConflict: "instance_id,remote_jid" }
-        ).select("id, student_id, contact_name").single();
+        // Avoid moving a current chat backwards when old history arrives.
+        let { data: chat } = await adminClient
+          .from("whatsapp_chats")
+          .select("id, student_id, contact_name, last_message_at")
+          .eq("instance_id", instance.id)
+          .eq("remote_jid", remoteJid)
+          .maybeSingle();
+        if (!chat) {
+          const { data: insertedChat, error: chatInsertError } = await adminClient
+            .from("whatsapp_chats")
+            .insert({
+              instance_id: instance.id,
+              company_id: instance.company_id,
+              remote_jid: remoteJid,
+              last_message_at: providerMessageAt,
+              ...(!isFromMe && contactName ? { contact_name: contactName } : {}),
+            })
+            .select("id, student_id, contact_name, last_message_at")
+            .maybeSingle();
+          if (chatInsertError?.code === "23505") {
+            const { data: racedChat } = await adminClient
+              .from("whatsapp_chats")
+              .select("id, student_id, contact_name, last_message_at")
+              .eq("instance_id", instance.id)
+              .eq("remote_jid", remoteJid)
+              .maybeSingle();
+            chat = racedChat;
+          } else {
+            chat = insertedChat;
+          }
+        } else if (!isFromMe && contactName && contactName !== chat.contact_name) {
+          await adminClient
+            .from("whatsapp_chats")
+            .update({ contact_name: contactName })
+            .eq("id", chat.id);
+          chat.contact_name = contactName;
+        }
         if (!chat) continue;
 
         // ─── DEDUP @lid vs @s.whatsapp.net ───
@@ -627,7 +687,7 @@ Deno.serve(async (req) => {
           quoted_message_external_id: quotedExternalId,
           quoted_message_preview: quotedPreview,
           quoted_message_source: quotedSource,
-          timestamp: new Date().toISOString(),
+          timestamp: providerMessageAt,
         });
         if (msgInsertError) {
           if (msgInsertError.code !== "23505") {
@@ -636,17 +696,22 @@ Deno.serve(async (req) => {
           // A duplicate webhook must not increment unread counters or resume flows twice.
           continue;
         }
-        // Update chat last_message preview
-        await adminClient.from("whatsapp_chats").update({ last_message: content }).eq("id", chat.id);
+        // Update preview only when this is the newest provider message.
+        if (!chat.last_message_at || new Date(chat.last_message_at).getTime() <= providerMessageDate.getTime()) {
+          await adminClient
+            .from("whatsapp_chats")
+            .update({ last_message: content, last_message_at: providerMessageAt })
+            .eq("id", chat.id);
+        }
 
         // Increment unread
-        if (!isFromMe) {
+        if (!isHistoryEvent && !isFromMe) {
           const { data: currentChat } = await adminClient.from("whatsapp_chats").select("unread_count").eq("id", chat.id).single();
           if (currentChat) await adminClient.from("whatsapp_chats").update({ unread_count: (currentChat.unread_count || 0) + 1 }).eq("id", chat.id);
         }
 
         // ─── CHECK FOR ACTIVE FLOW SESSION (resume) ───
-        if (!isFromMe && isDirectContact) {
+        if (!isHistoryEvent && !isFromMe && isDirectContact) {
           const { data: activeSession } = await adminClient.from("flow_sessions")
             .select("*").eq("chat_id", chat.id).eq("status", "waiting_response")
             .order("created_at", { ascending: false }).limit(1).maybeSingle();
