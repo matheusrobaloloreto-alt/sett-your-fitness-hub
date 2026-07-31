@@ -94,6 +94,37 @@ export function selectPrescriptionEnrollment<T extends PrescriptionEnrollment>(
     })[0] ?? null;
 }
 
+/**
+ * Ciclos legados podem ter sido recriados com números maiores e datas
+ * sobrepostas. Mantém a sequência numerada mais antiga e ignora qualquer bloco
+ * que recomece antes do término do bloco anterior.
+ */
+export function selectSequentialScheduleCycles(
+  cycles: PrescriptionScheduleCycle[],
+): PrescriptionScheduleCycle[] {
+  const ordered = [...cycles].sort((a, b) => {
+    if (a.cycle_number !== b.cycle_number) return a.cycle_number - b.cycle_number;
+    return utcDay(a.start_date) - utcDay(b.start_date);
+  });
+  const selected: PrescriptionScheduleCycle[] = [];
+
+  for (const cycle of ordered) {
+    const previous = selected[selected.length - 1];
+    if (!previous || utcDay(cycle.start_date) > utcDay(previous.end_date)) {
+      selected.push(cycle);
+    }
+  }
+
+  return selected;
+}
+
+export function scheduleSpanWeeks(cycles: PrescriptionScheduleCycle[]): number {
+  if (!cycles.length) return 0;
+  const start = Math.min(...cycles.map((cycle) => utcDay(cycle.start_date)));
+  const end = Math.max(...cycles.map((cycle) => utcDay(cycle.end_date)));
+  return Math.max(1, Math.ceil((end - start + DAY_MS) / (7 * DAY_MS)));
+}
+
 export function longitudinalPhase(cycleNumber: number): LongitudinalPhase {
   const index = ((Math.max(1, cycleNumber) - 1) % 4) + 1;
   if (index === 1) return "base";

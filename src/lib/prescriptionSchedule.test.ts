@@ -3,9 +3,11 @@ import {
   daysUntilCycleEnd,
   isCycleCurrent,
   longitudinalPhase,
+  scheduleSpanWeeks,
   selectCurrentCyclePerEnrollment,
   selectPrescriptionEnrollment,
   selectPrescriptionTargets,
+  selectSequentialScheduleCycles,
   type PrescriptionScheduleCycle,
 } from "./prescriptionSchedule";
 
@@ -82,5 +84,20 @@ describe("prescriptionSchedule", () => {
       { id: "active-old", status: "active", created_at: "2026-06-01" },
       { id: "active-new", status: "active", created_at: "2026-07-01" },
     ])?.id).toBe("active-new");
+  });
+
+  it("remove ciclos legados sobrepostos sem apagar a sequência válida", () => {
+    const corrupted = [
+      cycle(1, "2026-06-22", "2026-07-21"),
+      cycle(2, "2026-07-22", "2026-08-20"),
+      cycle(3, "2026-08-21", "2026-09-19"),
+      cycle(4, "2026-06-22", "2026-08-02"),
+      cycle(5, "2026-07-02", "2026-08-12"),
+      cycle(6, "2026-09-25", "2026-11-05"),
+    ];
+
+    const selected = selectSequentialScheduleCycles(corrupted);
+    expect(selected.map((item) => item.cycle_number)).toEqual([1, 2, 3, 6]);
+    expect(scheduleSpanWeeks(selected)).toBe(20);
   });
 });

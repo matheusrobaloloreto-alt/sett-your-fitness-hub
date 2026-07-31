@@ -40,8 +40,10 @@ import {
   describeLongitudinalPhase,
   isCycleCurrent,
   longitudinalPhase,
+  scheduleSpanWeeks,
   selectPrescriptionEnrollment,
   selectPrescriptionTargets,
+  selectSequentialScheduleCycles,
   type PrescriptionScheduleCycle,
   type PrescriptionScheduleMode,
 } from "@/lib/prescriptionSchedule";
@@ -260,6 +262,7 @@ export default function PrescriptionStudio() {
         rows = ((data || []) as PrescriptionScheduleCycle[])
           .filter((cycle) => cycle.enrollment_id === currentEnrollment.id);
       }
+      rows = selectSequentialScheduleCycles(rows);
       setScheduleCycles(rows);
       const preferred = rows.find((cycle) => isCycleCurrent(cycle) && !cycle.has_workouts && !cycle.has_bundle)
         || rows.find((cycle) => !cycle.has_workouts && !cycle.has_bundle && cycle.start_date >= businessDateYmd())
@@ -1185,7 +1188,7 @@ export default function PrescriptionStudio() {
                   <CalendarRange className="h-5 w-5 text-[#8B7355]" />
                   Vigência e agendamento
                   <span className="ml-auto font-mono-data text-xs font-normal text-slate-500">
-                    {scheduleCycles.length > 0 ? `${scheduleCycles.length} ciclos · ${scheduleCycles.length * 6} semanas` : "Sem vigência"}
+                    {scheduleCycles.length > 0 ? `${scheduleCycles.length} ciclos · ${scheduleSpanWeeks(scheduleCycles)} semanas` : "Sem vigência"}
                   </span>
                 </CardTitle>
               </CardHeader>
