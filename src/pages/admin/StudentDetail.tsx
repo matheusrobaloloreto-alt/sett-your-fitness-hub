@@ -26,7 +26,7 @@ import { StudentTimeline } from "@/components/admin/StudentTimeline";
 import { StudentFilesPanel } from "@/components/admin/StudentFilesPanel";
 import { WeeklyContactToggle } from "@/components/admin/WeeklyContactToggle";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Mail, Phone, Cake, CalendarDays, Dumbbell, Plus, CalendarIcon, MapPin, CreditCard, MessageCircle, Pencil, DollarSign, Upload, Image, Mic, FileText, Download, Square, MicOff, RefreshCw, ExternalLink, Copy, Link, Check, Trash2, UserPlus, BarChart3, Clock, CheckCircle2, Edit, KeyRound } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Cake, CalendarDays, Dumbbell, Plus, CalendarIcon, MapPin, CreditCard, MessageCircle, Pencil, DollarSign, Upload, Image, Mic, FileText, Download, Square, MicOff, RefreshCw, ExternalLink, Copy, Link, Check, Trash2, UserPlus, BarChart3, Clock, CheckCircle2, Edit, KeyRound, ChevronDown } from "lucide-react";
 import { format, parseISO, eachDayOfInterval, addWeeks, addDays, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -233,13 +233,10 @@ const SLEEP_OPTIONS = ["4h", "4h - 6h", "6h - 8h", "8h +"];
 const STUDENT_TABS = [
   ["overview", "Visão Geral"],
   ["program", "Programa"],
-  ["workouts", "Treinos"],
-  ["analytics", "Análises"],
   ["anamnesis", "Anamnese"],
   ["evaluations", "Avaliações"],
-  ["progress", "Progresso"],
   ["financial", "Financeiro"],
-  ["hub", "Acompanhamento"],
+  ["analytics", "Análises"],
 ] as const;
 
 const isCyclePrescribed = (cycle: TrainingCycle) =>
@@ -940,6 +937,133 @@ export default function StudentDetail() {
 
   const { prescribeDays, doneDays, expiredDays } = buildCalendarDays();
 
+  const renderWorkoutCycles = () => {
+    const activeEnroll = enrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal");
+    if (!activeEnroll) return <p className="text-muted-foreground font-sans text-sm text-center py-8">Nenhuma matrícula ativa.</p>;
+    const enrollCycles = cycles.filter(c => c.enrollment_id === activeEnroll.id);
+    if (enrollCycles.length === 0) {
+      return (
+        <Card className="bg-card border-border border-dashed">
+          <CardContent className="p-8 text-center">
+            <CalendarDays className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-muted-foreground font-sans">Nenhum ciclo de treino criado.</p>
+            <p className="text-xs text-muted-foreground/60 font-sans mt-1">Defina a data de início do treino na matrícula do aluno.</p>
+          </CardContent>
+        </Card>
+      );
+    }
+    const prefix = role === "master" ? "/admin" : role ? `/${role}` : "/admin";
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-primary text-lg font-display">TREINOS DO PROGRAMA</h2>
+          <BnitoContextButton
+            label="treinos do programa"
+            context={`Treinos e ciclos materializados do aluno ${student?.full_name || "selecionado"}.`}
+            question="Como posso revisar a continuidade entre estes ciclos de treino?"
+          />
+        </div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          {enrollCycles.map(cycle => {
+            const cycleWorkouts = (allWorkouts || []).filter((w: any) => w.cycle_id === cycle.id);
+            return (
+              <Card key={cycle.id} className="bg-card border-border">
+                <CardContent className="p-3 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <h3 className="text-primary font-mono-data font-semibold text-xs">
+                        CICLO {cycle.cycle_number}
+                      </h3>
+                      <Badge
+                        variant={cycle.status === "active" ? "default" : "outline"}
+                        className="text-[10px] shrink-0"
+                      >
+                        {cycle.status === "active" ? "Ativo" : cycle.status === "completed" ? "Concluído" : "Futuro"}
+                      </Badge>
+                    </div>
+                    <span className="text-[11px] text-muted-foreground font-sans shrink-0">
+                      {safeFormatDate(cycle.start_date, "dd/MM", { locale: ptBR })} — {safeFormatDate(cycle.end_date, "dd/MM", { locale: ptBR })}
+                    </span>
+                  </div>
+
+                  {cycleWorkouts.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {cycleWorkouts.map((w: any) => {
+                        const exercises = (w.exercises as any[]) || [];
+                        return (
+                          <div key={w.id} className="flex items-center justify-between gap-2 bg-secondary/30 rounded-xl px-2.5 py-1.5">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                              <span className="text-xs font-sans text-foreground truncate">{w.title || `Treino ${w.name}`}</span>
+                            </div>
+                            <Badge variant="outline" className="text-[10px] shrink-0">{exercises.length} ex.</Badge>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      {cycle.prescribed_offline_at ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 text-success" />
+                          <span className="text-xs font-sans">Prescrito fora do app</span>
+                        </>
+                      ) : (
+                        <>
+                          <Clock className="h-4 w-4" />
+                          <span className="text-xs font-sans">Nenhum treino prescrito</span>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant={cycleWorkouts.length > 0 ? "outline" : "default"}
+                      className="h-7 text-xs"
+                      onClick={() => navigate(`${prefix}/workout/${cycle.id}`)}
+                    >
+                      {cycleWorkouts.length > 0 ? (
+                        <><Edit className="h-3.5 w-3.5 mr-1" />Editar</>
+                      ) : (
+                        <><Plus className="h-3.5 w-3.5 mr-1" />Prescrever</>
+                      )}
+                    </Button>
+                  </div>
+
+                  {cycleWorkouts.length > 0 && (
+                    <Suspense fallback={<InlineFallback />}>
+                      <div className="grid grid-cols-1 gap-3 pt-2 border-t border-border/50">
+                        {cycleWorkouts.map((w: any) => {
+                          const exercises = (w.exercises as any[]) || [];
+                          const muscleVolumes = exercises.reduce((acc: any[], ex: any) => {
+                            const mg = ex.muscle_group || "Outro";
+                            const sets = parseInt(ex.sets) || 0;
+                            const existing = acc.find((a: any) => a.muscleGroup === mg);
+                            if (existing) existing.volume += sets;
+                            else acc.push({ muscleGroup: mg, volume: sets });
+                            return acc;
+                          }, []);
+                          return (
+                            <div key={w.id} className="space-y-2">
+                              <p className="text-xs font-sans font-medium text-muted-foreground truncate">{w.title || `Treino ${w.name}`}</p>
+                              <MuscleRadar muscleVolumes={muscleVolumes} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </Suspense>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <>
@@ -1033,21 +1157,11 @@ export default function StudentDetail() {
             ))}
           </TabsList>
 
-          {/* ===== VISÃO 360 (linha do tempo + pasta + contato semanal) ===== */}
-          <TabsContent value="hub" className="space-y-5">
-            {id && student?.company_id && (
-              <>
-                <WeeklyContactToggle studentId={id} initial={(student as { weekly_contact_enabled?: boolean })?.weekly_contact_enabled} />
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                  <StudentTimeline studentId={id} />
-                  <StudentFilesPanel studentId={id} companyId={student.company_id} />
-                </div>
-              </>
-            )}
-          </TabsContent>
-
           {/* ===== VISÃO GERAL ===== */}
-          <TabsContent value="overview">
+          <TabsContent value="overview" className="space-y-4">
+            {id && student?.company_id && (
+              <WeeklyContactToggle studentId={id} initial={(student as { weekly_contact_enabled?: boolean })?.weekly_contact_enabled} />
+            )}
             {/* Acesso do app: copiar login (email+senha+link) ou enviar no WhatsApp */}
             <CollapsibleCard title="ACESSO DO APP" icon={<KeyRound className="h-4 w-4" />} className="mb-4" contentClassName="space-y-3">
                 <p className="text-xs text-muted-foreground font-sans">
@@ -1076,6 +1190,20 @@ export default function StudentDetail() {
                   </Button>
                 </div>
             </CollapsibleCard>
+            {id && student?.company_id && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <details className="rounded-2xl border border-border bg-card p-4 group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-eyebrow">
+                    Linha do tempo
+                    <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="mt-3">
+                    <StudentTimeline studentId={id} />
+                  </div>
+                </details>
+                <StudentFilesPanel studentId={id} companyId={student.company_id} />
+              </div>
+            )}
             {id && <StudentCycleFeedbackCard studentId={id} />}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Left: Active enrollment + cycles + notes */}
@@ -1110,9 +1238,10 @@ export default function StudentDetail() {
                         {cycles.filter(c => c.enrollment_id === active.id).length > 0 && (
                           <div className="mt-2 space-y-1">
                             <p className="text-xs font-medium text-foreground">Ciclos:</p>
-                            {cycles.filter(c => c.enrollment_id === active.id).map(c => (
-                              <div key={c.id} className="flex items-center justify-between text-xs p-1.5 rounded bg-secondary/50 border border-border">
-                                <span>Ciclo {c.cycle_number} — {safeFormatDate(c.start_date, "dd/MM")} a {safeFormatDate(c.end_date, "dd/MM/yy")}</span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              {cycles.filter(c => c.enrollment_id === active.id).map(c => (
+                              <div key={c.id} className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-xl bg-secondary/40 border border-border">
+                                <span className="truncate">C{c.cycle_number} · {safeFormatDate(c.start_date, "dd/MM")} a {safeFormatDate(c.end_date, "dd/MM/yy")}</span>
                                 <div className="flex items-center gap-1">
                                   {c.has_workout ? (
                                     <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Treino</Badge>
@@ -1123,7 +1252,8 @@ export default function StudentDetail() {
                                   )}
                                 </div>
                               </div>
-                            ))}
+                              ))}
+                            </div>
                           </div>
                         )}
                       </CardContent>
@@ -1229,7 +1359,7 @@ export default function StudentDetail() {
                 ) : (
                   <div className="space-y-4">
                     {enrollments.map((e) => (
-                      <div key={e.id} className="p-4 rounded-lg bg-secondary/50 border border-border space-y-2">
+                      <div key={e.id} className="p-3 rounded-2xl bg-secondary/50 border border-border space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="font-sans font-medium text-foreground">{e.plan_name}</span>
                           <Badge variant="outline" className={`text-xs ${statusColors[e.status]}`}>
@@ -1284,10 +1414,10 @@ export default function StudentDetail() {
                         {cycles.filter((c) => c.enrollment_id === e.id).length > 0 && (
                           <div className="mt-3 space-y-1">
                             <p className="text-xs font-sans font-medium text-foreground">Ciclos de treino:</p>
-                            <div className="grid grid-cols-1 gap-2">
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-1.5">
                               {cycles.filter((c) => c.enrollment_id === e.id).map((c) => (
-                                <div key={c.id} className="flex flex-wrap items-center justify-between p-2 rounded bg-background border border-border text-xs font-sans gap-2">
-                                  <span className="shrink-0 text-[11px] sm:text-xs">Ciclo {c.cycle_number} — {safeFormatDate(c.start_date, "dd/MM")} a {safeFormatDate(c.end_date, "dd/MM/yy")}</span>
+                                <div key={c.id} className="flex flex-wrap items-center justify-between px-2 py-1.5 rounded-xl bg-background border border-border text-xs font-sans gap-1.5">
+                                  <span className="min-w-0 truncate text-[11px] sm:text-xs">C{c.cycle_number} · {safeFormatDate(c.start_date, "dd/MM")} a {safeFormatDate(c.end_date, "dd/MM/yy")}</span>
                                   <div className="flex items-center gap-1.5 flex-wrap justify-end">
                                     {c.has_workout ? (
                                       <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Treino</Badge>
@@ -1397,6 +1527,8 @@ export default function StudentDetail() {
               </CardContent>
             </Card>
 
+            {renderWorkoutCycles()}
+
             {/* Calendar */}
             <Card className="bg-card border-border">
               <CardHeader>
@@ -1432,126 +1564,6 @@ export default function StudentDetail() {
             </Card>
           </TabsContent>
 
-          {/* ===== TREINOS ===== */}
-          <TabsContent value="workouts" className="space-y-4">
-            {(() => {
-              const activeEnroll = enrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal");
-              if (!activeEnroll) return <p className="text-muted-foreground font-sans text-sm text-center py-8">Nenhuma matrícula ativa.</p>;
-              const enrollCycles = cycles.filter(c => c.enrollment_id === activeEnroll.id);
-              if (enrollCycles.length === 0) {
-                return (
-                  <Card className="bg-card border-border border-dashed">
-                    <CardContent className="p-8 text-center">
-                      <CalendarDays className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-                      <p className="text-muted-foreground font-sans">Nenhum ciclo de treino criado.</p>
-                      <p className="text-xs text-muted-foreground/60 font-sans mt-1">Defina a data de início do treino na matrícula do aluno.</p>
-                    </CardContent>
-                  </Card>
-                );
-              }
-              const prefix = role === "master" ? "/admin" : `/${role}`;
-              return (
-                <div className="space-y-4">
-                  {enrollCycles.map(cycle => {
-                    const cycleWorkouts = (allWorkouts || []).filter((w: any) => w.cycle_id === cycle.id);
-                    return (
-                      <Card key={cycle.id} className="bg-card border-border">
-                        <CardContent className="p-4 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <h3 className="text-primary font-mono-data font-semibold text-sm">
-                                CICLO {cycle.cycle_number}
-                              </h3>
-                              <Badge
-                                variant={cycle.status === "active" ? "default" : "outline"}
-                                className="text-[10px]"
-                              >
-                                {cycle.status === "active" ? "Ativo" : cycle.status === "completed" ? "Concluído" : "Futuro"}
-                              </Badge>
-                            </div>
-                            <span className="text-xs text-muted-foreground font-sans">
-                              {safeFormatDate(cycle.start_date, "dd/MM", { locale: ptBR })} — {safeFormatDate(cycle.end_date, "dd/MM", { locale: ptBR })}
-                            </span>
-                          </div>
-
-                          {cycleWorkouts.length > 0 ? (
-                            <div className="space-y-2">
-                              {cycleWorkouts.map((w: any) => {
-                                const exercises = (w.exercises as any[]) || [];
-                                return (
-                                  <div key={w.id} className="flex items-center justify-between bg-secondary/30 rounded-md px-3 py-2">
-                                    <div className="flex items-center gap-2">
-                                      <CheckCircle2 className="h-4 w-4 text-primary" />
-                                      <span className="text-sm font-sans text-foreground">{w.title || `Treino ${w.name}`}</span>
-                                      <Badge variant="outline" className="text-[10px]">{exercises.length} ex.</Badge>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 text-muted-foreground">
-                              {cycle.prescribed_offline_at ? (
-                                <>
-                                  <CheckCircle2 className="h-4 w-4 text-success" />
-                                  <span className="text-sm font-sans">Prescrito fora do app</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Clock className="h-4 w-4" />
-                                  <span className="text-sm font-sans">Nenhum treino prescrito</span>
-                                </>
-                              )}
-                            </div>
-                          )}
-
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant={cycleWorkouts.length > 0 ? "outline" : "default"}
-                              onClick={() => navigate(`${prefix}/workout/${cycle.id}`)}
-                            >
-                              {cycleWorkouts.length > 0 ? (
-                                <><Edit className="h-3.5 w-3.5 mr-1" />Editar Treinos</>
-                              ) : (
-                                <><Plus className="h-3.5 w-3.5 mr-1" />Prescrever Treino</>
-                              )}
-                            </Button>
-                          </div>
-
-                          {/* BodyMap por treino */}
-                          {cycleWorkouts.length > 0 && (
-                            <Suspense fallback={<InlineFallback />}>
-                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t border-border/50">
-                                {cycleWorkouts.map((w: any) => {
-                                  const exercises = (w.exercises as any[]) || [];
-                                  const muscleVolumes = exercises.reduce((acc: any[], ex: any) => {
-                                    const mg = ex.muscle_group || "Outro";
-                                    const sets = parseInt(ex.sets) || 0;
-                                    const existing = acc.find((a: any) => a.muscleGroup === mg);
-                                    if (existing) existing.volume += sets;
-                                    else acc.push({ muscleGroup: mg, volume: sets });
-                                    return acc;
-                                  }, []);
-                                  return (
-                                    <div key={w.id} className="space-y-2">
-                                      <p className="text-xs font-sans font-medium text-muted-foreground">{w.title || `Treino ${w.name}`}</p>
-                                      <MuscleRadar muscleVolumes={muscleVolumes} />
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </Suspense>
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-          </TabsContent>
-
           {/* ===== ANÁLISES ===== */}
           <TabsContent value="analytics" className="space-y-4">
             <Suspense fallback={<TabFallback />}>
@@ -1559,6 +1571,7 @@ export default function StudentDetail() {
               <WorkoutAnalysis studentId={id!} />
               <StudentVolumePanel studentId={id!} />
             </Suspense>
+            <ProgressPhotosPanel studentId={id!} />
           </TabsContent>
 
           {/* ===== ANAMNESE ===== */}
@@ -1794,10 +1807,6 @@ export default function StudentDetail() {
             </Card>
           </TabsContent>
 
-          {/* ===== PROGRESSO ===== */}
-          <TabsContent value="progress">
-            <ProgressPhotosPanel studentId={id!} />
-          </TabsContent>
         </Tabs>
 
         {/* Enrollment Dialog */}

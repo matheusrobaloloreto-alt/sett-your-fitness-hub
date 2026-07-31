@@ -85,7 +85,8 @@ type StudentContext = {
   dueDate?: string | null;
 };
 
-type FilterType = "all" | "unread" | "groups" | "mine" | "no-workout" | "active" | "leads" | "renewal" | "pending" | "assessment";
+type ChatScopeFilter = "all" | "unread" | "groups";
+type ChatStatusFilter = "all" | "active" | "leads" | "renewal" | "pending" | "assessment";
 
 type BulkFilters = {
   trainerId: string;
@@ -136,7 +137,7 @@ const DEFAULT_CATEGORY: CategoryItem = {
   color: "#64748b",
 };
 const ALL_VALUE = "__all__";
-const STATUS_FILTER_LABELS: Partial<Record<FilterType, string>> = {
+const STATUS_FILTER_LABELS: Partial<Record<ChatStatusFilter, string>> = {
   active: "Ativos",
   leads: "Leads",
   renewal: "Renovação",
@@ -215,7 +216,10 @@ export default function WhatsAppChat() {
   const [senderNames, setSenderNames] = useState<Record<string, string>>({});
   const [studentContexts, setStudentContexts] = useState<Record<string, StudentContext>>({});
   const [chatLabels, setChatLabels] = useState<Record<string, string[]>>({});
-  const [activeFilter, setActiveFilter] = useState<FilterType>("all");
+  const [scopeFilter, setScopeFilter] = useState<ChatScopeFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<ChatStatusFilter>("all");
+  const [mineOnly, setMineOnly] = useState(false);
+  const [noWorkoutOnly, setNoWorkoutOnly] = useState(false);
   const [sendingAttachment, setSendingAttachment] = useState(false);
   const [mediaFallbacks, setMediaFallbacks] = useState<Record<string, string>>({});
   const [failedMediaFetches, setFailedMediaFetches] = useState<Record<string, true>>({});
@@ -1217,7 +1221,14 @@ export default function WhatsAppChat() {
     ));
 
   const canFilterByTrainer = isAdministrativeRole(userRole);
-  const currentStatusFilterLabel = STATUS_FILTER_LABELS[activeFilter] || "Status";
+  const currentStatusFilterLabel = statusFilter === "all" ? "Status" : STATUS_FILTER_LABELS[statusFilter] || "Status";
+  const hasActiveChatFilters = (
+    scopeFilter !== "all"
+    || statusFilter !== "all"
+    || mineOnly
+    || noWorkoutOnly
+    || (canFilterByTrainer && trainerFilterId !== ALL_VALUE)
+  );
 
   const filteredChats = chats.filter((c) => {
     const name = getContactName(c);
@@ -1230,22 +1241,22 @@ export default function WhatsAppChat() {
     ].filter(Boolean).join(" ").toLowerCase();
     if (normalizedSearch && !searchableText.includes(normalizedSearch)) return false;
     if (canFilterByTrainer && trainerFilterId !== ALL_VALUE && c.student?.assigned_trainer_id !== trainerFilterId) return false;
-    if (activeFilter === "unread" && (c.unread_count || 0) === 0) return false;
-    if (activeFilter === "groups" && !c.remote_jid.includes("@g.us")) return false;
-    if (activeFilter === "mine" && c.student?.assigned_trainer_id !== user?.id) return false;
-    if (activeFilter === "no-workout") {
+    if (scopeFilter === "unread" && (c.unread_count || 0) === 0) return false;
+    if (scopeFilter === "groups" && !c.remote_jid.includes("@g.us")) return false;
+    if (mineOnly && c.student?.assigned_trainer_id !== user?.id) return false;
+    if (noWorkoutOnly) {
       const labels = chatLabels[c.id] || [];
       if (!labels.includes("Aguardando Treino")) return false;
     }
-    if (["active", "leads", "renewal", "pending", "assessment"].includes(activeFilter)) {
+    if (statusFilter !== "all") {
       if (!c.student) return false;
       const stage = chatStudentStage(c);
       const status = c.student.status || "";
-      if (activeFilter === "active" && !(stage === "active" && status !== "awaiting_renewal")) return false;
-      if (activeFilter === "leads" && !(stage === "interested" || status === "interested")) return false;
-      if (activeFilter === "renewal" && status !== "awaiting_renewal") return false;
-      if (activeFilter === "pending" && !(status === "pending" || stage === "fiscal_registration_pending" || stage === "payment_pending")) return false;
-      if (activeFilter === "assessment" && stage !== "active_onboarding") return false;
+      if (statusFilter === "active" && !(stage === "active" && status !== "awaiting_renewal")) return false;
+      if (statusFilter === "leads" && !(stage === "interested" || status === "interested")) return false;
+      if (statusFilter === "renewal" && status !== "awaiting_renewal") return false;
+      if (statusFilter === "pending" && !(status === "pending" || stage === "fiscal_registration_pending" || stage === "payment_pending")) return false;
+      if (statusFilter === "assessment" && stage !== "active_onboarding") return false;
     }
     return true;
   });
@@ -1627,61 +1638,87 @@ export default function WhatsAppChat() {
                 )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant={["all", "unread", "groups"].includes(activeFilter) ? "default" : "ghost"} size="sm" className="h-7 text-xs">
+                    <Button variant={scopeFilter !== "all" ? "default" : "ghost"} size="sm" className="h-7 text-xs">
                       <Filter className="h-3 w-3 mr-1" />
-                      {activeFilter === "unread" ? `Não Lidas (${unreadCount})` : activeFilter === "groups" ? "Grupos" : "Todas"}
+                      {scopeFilter === "unread" ? `Não lidas (${unreadCount})` : scopeFilter === "groups" ? "Grupos" : "Todas"}
                       <ChevronDown className="h-3 w-3 ml-1" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start">
-                    <DropdownMenuItem onClick={() => setActiveFilter("all")} className={cn(activeFilter === "all" && "bg-accent")}>
+                    <DropdownMenuItem onClick={() => setScopeFilter("all")} className={cn(scopeFilter === "all" && "bg-accent")}>
                       <Filter className="h-3 w-3 mr-2" />Todas
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setActiveFilter("unread")} className={cn(activeFilter === "unread" && "bg-accent")}>
-                      <MessageCircle className="h-3 w-3 mr-2" />Não Lidas
+                    <DropdownMenuItem onClick={() => setScopeFilter("unread")} className={cn(scopeFilter === "unread" && "bg-accent")}>
+                      <MessageCircle className="h-3 w-3 mr-2" />Não lidas
                       {unreadCount > 0 && <Badge variant="destructive" className="ml-auto h-5 min-w-5 text-[10px] flex items-center justify-center">{unreadCount}</Badge>}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setActiveFilter("groups")} className={cn(activeFilter === "groups" && "bg-accent")}>
+                    <DropdownMenuItem onClick={() => setScopeFilter("groups")} className={cn(scopeFilter === "groups" && "bg-accent")}>
                       <Users className="h-3 w-3 mr-2" />Grupos
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant={STATUS_FILTER_LABELS[activeFilter] ? "default" : "ghost"} size="sm" className="h-7 text-xs">
+                    <Button variant={statusFilter !== "all" ? "default" : "ghost"} size="sm" className="h-7 text-xs">
                       <Tag className="h-3 w-3 mr-1" />
                       {currentStatusFilterLabel}
                       <ChevronDown className="h-3 w-3 ml-1" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start">
-                    <DropdownMenuItem onClick={() => setActiveFilter("active")} className={cn(activeFilter === "active" && "bg-accent")}>
+                    <DropdownMenuItem onClick={() => setStatusFilter("all")} className={cn(statusFilter === "all" && "bg-accent")}>
+                      <Tag className="h-3 w-3 mr-2" />Todos status
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setStatusFilter("active")} className={cn(statusFilter === "active" && "bg-accent")}>
                       <User className="h-3 w-3 mr-2" />Ativos
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setActiveFilter("leads")} className={cn(activeFilter === "leads" && "bg-accent")}>
+                    <DropdownMenuItem onClick={() => setStatusFilter("leads")} className={cn(statusFilter === "leads" && "bg-accent")}>
                       <UserPlus className="h-3 w-3 mr-2" />Leads
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setActiveFilter("renewal")} className={cn(activeFilter === "renewal" && "bg-accent")}>
+                    <DropdownMenuItem onClick={() => setStatusFilter("renewal")} className={cn(statusFilter === "renewal" && "bg-accent")}>
                       <RefreshCw className="h-3 w-3 mr-2" />Renovação
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setActiveFilter("pending")} className={cn(activeFilter === "pending" && "bg-accent")}>
+                    <DropdownMenuItem onClick={() => setStatusFilter("pending")} className={cn(statusFilter === "pending" && "bg-accent")}>
                       <Clock className="h-3 w-3 mr-2" />Pendentes
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setActiveFilter("assessment")} className={cn(activeFilter === "assessment" && "bg-accent")}>
+                    <DropdownMenuItem onClick={() => setStatusFilter("assessment")} className={cn(statusFilter === "assessment" && "bg-accent")}>
                       <Activity className="h-3 w-3 mr-2" />Avaliação
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Button
-                  variant={activeFilter === "mine" ? "default" : "ghost"}
+                  variant={mineOnly ? "default" : "ghost"}
                   size="sm"
                   className="h-7 text-xs"
-                  onClick={() => setActiveFilter("mine")}
+                  onClick={() => setMineOnly((value) => !value)}
                   title="Alunos atribuídos a mim"
                 >
                   Meus
                 </Button>
-                <Button variant={activeFilter === "no-workout" ? "default" : "ghost"} size="sm" className="h-7 text-xs" onClick={() => setActiveFilter("no-workout")}><AlertTriangle className="h-3 w-3 mr-1" />S/ Treino</Button>
+                <Button
+                  variant={noWorkoutOnly ? "default" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setNoWorkoutOnly((value) => !value)}
+                >
+                  <AlertTriangle className="h-3 w-3 mr-1" />S/ Treino
+                </Button>
+                {hasActiveChatFilters && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-muted-foreground"
+                    onClick={() => {
+                      setScopeFilter("all");
+                      setStatusFilter("all");
+                      setMineOnly(false);
+                      setNoWorkoutOnly(false);
+                      setTrainerFilterId(ALL_VALUE);
+                    }}
+                  >
+                    <X className="h-3 w-3 mr-1" />Limpar
+                  </Button>
+                )}
               </div>
             </div>
 
