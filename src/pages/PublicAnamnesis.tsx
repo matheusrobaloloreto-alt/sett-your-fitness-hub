@@ -13,7 +13,7 @@ import { CheckCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { applyTheme } from "@/contexts/ThemeContext";
 import { formatPhone } from "@/lib/masks";
-import { SUPPORTED_TRAINING_MODALITIES } from "@/lib/anamnesisOptions";
+import { PRESCRIPTION_SERVICE_OPTIONS, resolvePrescriptionInterests, SUPPORTED_TRAINING_MODALITIES } from "@/lib/anamnesisOptions";
 
 const EQUIPMENT_OPTIONS = [
   "Mini Bands (elástico curto fechado)", "Thera Bands (elástico grande aberto)",
@@ -53,7 +53,7 @@ const OBJECTIVE_OPTIONS = [
 const ANAMNESIS_STEPS = [
   { title: "Dados e rotina", kicker: "Etapa 01 / Prescrição", description: "Base de treino, agenda e equipamentos." },
   { title: "Saúde e objetivos", kicker: "Etapa 02 / Triagem", description: "Metas, dores, lesões e sinais clínicos." },
-  { title: "Nutrição e recuperação", kicker: "Etapa 03 / Rotina", description: "Alimentação, sono e contexto do dia a dia." },
+  { title: "Rotina e recuperação", kicker: "Etapa 03 / Rotina", description: "Sono, contexto e alimentação quando solicitada." },
   { title: "Compromisso", kicker: "Etapa 04 / Fechamento", description: "Expectativa, obstáculos e autorizações." },
 ];
 
@@ -89,6 +89,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [activityLevel, setActivityLevel] = useState("");
   const [experienceMonths, setExperienceMonths] = useState("");
   const [modalities, setModalities] = useState<string[]>([]);
+  const [desiredServices, setDesiredServices] = useState<string[]>([]);
   const [modalityOther, setModalityOther] = useState("");
   const [trainingDays, setTrainingDays] = useState("");
   const [availableDays, setAvailableDays] = useState("");
@@ -114,6 +115,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [commitsCommunication, setCommitsCommunication] = useState("");
   const [sportGoal, setSportGoal] = useState("");
   const [currentVolumeWeekly, setCurrentVolumeWeekly] = useState("");
+  const [currentVolumeUnit, setCurrentVolumeUnit] = useState("km_week");
   const [fcmax, setFcmax] = useState("");
   const [fcrep, setFcrep] = useState("");
   const [perceivedRecovery, setPerceivedRecovery] = useState("");
@@ -211,8 +213,21 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
     const next = current.includes(value) ? current.filter(item => item !== value) : [...current, value];
     setter(next.join(", "));
   };
-  const hasEndurance = modalities.some(m => ["Corrida", "Natação", "Bike", "Triathlon"].includes(m));
-  const doesStrength = modalities.some(m => /muscula|funcional|crossfit/i.test(m));
+  const { wantsStrength, wantsRunning, wantsSwimming, wantsCycling, wantsNutrition } =
+    resolvePrescriptionInterests(desiredServices);
+  const hasEndurance = wantsRunning || wantsSwimming || wantsCycling;
+  const doesStrength = wantsStrength;
+
+  const toggleCurrentModality = (item: string) => {
+    if (item === "Nenhum") {
+      setModalities(modalities.includes(item) ? [] : [item]);
+      return;
+    }
+    const withoutNone = modalities.filter(current => current !== "Nenhum");
+    setModalities(withoutNone.includes(item)
+      ? withoutNone.filter(current => current !== item)
+      : [...withoutNone, item]);
+  };
 
   const getMissingFields = (targetStep: number) => {
     if (targetStep === 1) {
@@ -222,6 +237,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
           [whatsapp.replace(/\D/g, "").length >= 10 ? whatsapp : "", "WhatsApp"],
           [objective, "objetivo principal"],
         ] : []),
+        [modalities.length > 0 ? "ok" : "", "modalidades praticadas atualmente"],
+        [desiredServices.length > 0 ? "ok" : "", "o que deseja receber"],
         [sessionDuration, "tempo livre para as sessões"],
         [trainingLocation, "local de treino"],
       ].filter(([value]) => !value).map(([, label]) => label);
@@ -236,7 +253,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
     }
     if (targetStep === 3) {
       return [
-        [nutrition, "alimentação"],
+        ...(wantsNutrition ? [[nutrition, "alimentação"]] : []),
         [profession, "profissão e rotina"],
         [sleepHours, "horas de sono"],
         [restorativeSleep, "sono reparador"],
@@ -293,6 +310,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         activity_level: activityLevel,
         experience_months: experienceMonths ? Number(experienceMonths) : null,
         modalities: allModalities,
+        requested_services: desiredServices,
         training_days: trainingDays,
         available_days: availableDays ? parseInt(availableDays) : null,
         session_duration: sessionDuration,
@@ -315,13 +333,14 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         extra_comments: extraComments || null,
         authorizes_plan: authorizesPlan === "sim",
         commits_communication: commitsCommunication === "sim",
-        interest_strength: allModalities.some(m => /muscula|funcional|crossfit/i.test(m)),
-        interest_running: allModalities.some(m => /corrida|triathlon/i.test(m)),
-        interest_swimming: allModalities.some(m => /nata|triathlon/i.test(m)),
-        interest_cycling: allModalities.some(m => /bike|ciclismo|triathlon/i.test(m)),
-        interest_nutrition: true,
+        interest_strength: wantsStrength,
+        interest_running: wantsRunning,
+        interest_swimming: wantsSwimming,
+        interest_cycling: wantsCycling,
+        interest_nutrition: wantsNutrition,
         sport_goal: sportGoal,
         current_volume_weekly: currentVolumeWeekly ? Number(currentVolumeWeekly) : null,
+        current_volume_unit: currentVolumeUnit,
         fcmax: fcmax ? Number(fcmax) : null,
         fcrep: fcrep ? Number(fcrep) : null,
         perceived_recovery: perceivedRecovery,
@@ -515,11 +534,11 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label className="font-sans font-medium">Nome completo *</Label>
-                    <Input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Como podemos chamar você?" />
+                    <Input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Ex: Ana Silva" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans font-medium">WhatsApp *</Label>
-                    <Input value={whatsapp} onChange={e => setWhatsapp(formatPhone(e.target.value))} placeholder="(00) 00000-0000" inputMode="tel" />
+                    <Input value={whatsapp} onChange={e => setWhatsapp(formatPhone(e.target.value))} placeholder="Ex: (48) 99999-1234" inputMode="tel" />
                   </div>
                 </div>
               </div>
@@ -529,7 +548,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Idade</Label>
-                  <Input type="number" value={age} onChange={e => setAge(e.target.value)} />
+                  <Input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="Ex: 28" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Sexo</Label>
@@ -540,19 +559,19 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Peso atual (kg)</Label>
-                  <Input type="number" step="0.1" value={weightKg} onChange={e => setWeightKg(e.target.value)} />
+                  <Input type="number" step="0.1" value={weightKg} onChange={e => setWeightKg(e.target.value)} placeholder="Ex: 70" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Altura (cm)</Label>
-                  <Input type="number" value={heightCm} onChange={e => setHeightCm(e.target.value)} />
+                  <Input type="number" value={heightCm} onChange={e => setHeightCm(e.target.value)} placeholder="Ex: 175" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">% gordura, se souber</Label>
-                  <Input type="number" step="0.1" value={bodyFatPercent} onChange={e => setBodyFatPercent(e.target.value)} placeholder="opcional" />
+                  <Input type="number" step="0.1" value={bodyFatPercent} onChange={e => setBodyFatPercent(e.target.value)} placeholder="Ex: 22 (opcional)" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Tempo de treino (meses)</Label>
-                  <Input type="number" value={experienceMonths} onChange={e => setExperienceMonths(e.target.value)} />
+                  <Input type="number" value={experienceMonths} onChange={e => setExperienceMonths(e.target.value)} placeholder="Ex: 12" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Objetivo principal</Label>
@@ -577,22 +596,38 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
               <div className="grid grid-cols-2 gap-2">
                 {SUPPORTED_TRAINING_MODALITIES.map(m => (
                   <label key={m} className="flex items-center gap-2 text-sm font-sans cursor-pointer">
-                    <Checkbox checked={modalities.includes(m)} onCheckedChange={() => toggleArrayItem(modalities, m, setModalities)} />
+                    <Checkbox checked={modalities.includes(m)} onCheckedChange={() => toggleCurrentModality(m)} />
                     {m}
                   </label>
                 ))}
               </div>
-              <Input placeholder="Outro..." value={modalityOther} onChange={e => setModalityOther(e.target.value)} className="mt-1" />
+              <Input placeholder="Ex: pilates" value={modalityOther} onChange={e => setModalityOther(e.target.value)} className="mt-1" />
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-4">
+              <Label className="font-sans font-medium">O que você gostaria de receber de nós? *</Label>
+              <p className="text-sm text-muted-foreground">Mostraremos somente as perguntas necessárias para montar as opções escolhidas.</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {PRESCRIPTION_SERVICE_OPTIONS.map(service => (
+                  <label key={service.value} className="flex cursor-pointer items-center gap-2 text-sm font-sans">
+                    <Checkbox
+                      checked={desiredServices.includes(service.value)}
+                      onCheckedChange={() => toggleArrayItem(desiredServices, service.value, setDesiredServices)}
+                    />
+                    {service.label}
+                  </label>
+                ))}
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label className="font-sans font-medium">Quais dias da semana você pratica cada uma delas? *</Label>
-              <Textarea value={trainingDays} onChange={e => setTrainingDays(e.target.value)} />
+              <Textarea value={trainingDays} onChange={e => setTrainingDays(e.target.value)} placeholder="Ex: musculação seg/qua/sex; corrida ter/sáb" />
             </div>
 
             <div className="space-y-2">
               <Label className="font-sans font-medium">Quantos dias na semana você tem para treinar? *</Label>
-              <Input type="number" min={0} max={7} value={availableDays} onChange={e => setAvailableDays(e.target.value)} />
+              <Input type="number" min={0} max={7} value={availableDays} onChange={e => setAvailableDays(e.target.value)} placeholder="Ex: 4" />
             </div>
 
             {doesStrength && hasEndurance && (
@@ -602,11 +637,11 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Dias de musculação / força</Label>
-                  <Input type="number" min={0} max={7} value={daysStrength} onChange={e => setDaysStrength(e.target.value)} placeholder="ex: 3" />
+                  <Input type="number" min={0} max={7} value={daysStrength} onChange={e => setDaysStrength(e.target.value)} placeholder="Ex: 3" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Dias de cardio (corrida/natação/pedal)</Label>
-                  <Input type="number" min={0} max={7} value={daysCardio} onChange={e => setDaysCardio(e.target.value)} placeholder="ex: 3" />
+                  <Input type="number" min={0} max={7} value={daysCardio} onChange={e => setDaysCardio(e.target.value)} placeholder="Ex: 2" />
                 </div>
               </div>
             )}
@@ -645,7 +680,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                   </label>
                 ))}
               </div>
-              <Input placeholder="Outro..." value={equipmentOther} onChange={e => setEquipmentOther(e.target.value)} className="mt-1" />
+              <Input placeholder="Ex: corda de pular" value={equipmentOther} onChange={e => setEquipmentOther(e.target.value)} className="mt-1" />
             </div>
 
             {hasEndurance && (
@@ -657,22 +692,28 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                     <Input value={sportGoal} onChange={e => setSportGoal(e.target.value)} placeholder="Ex: meia maratona, 5km, triathlon sprint..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="font-sans font-medium">Volume atual (km ou h/sem)</Label>
-                    <Input type="number" value={currentVolumeWeekly} onChange={e => setCurrentVolumeWeekly(e.target.value)} />
+                    <Label className="font-sans font-medium">Volume atual</Label>
+                    <div className="grid grid-cols-[minmax(0,1fr)_8.5rem] gap-2">
+                      <Input type="number" min={0} step="0.1" value={currentVolumeWeekly} onChange={e => setCurrentVolumeWeekly(e.target.value)} placeholder="Ex: 25" />
+                      <select value={currentVolumeUnit} onChange={e => setCurrentVolumeUnit(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+                        <option value="km_week">km/sem</option>
+                        <option value="hours_week">h/sem</option>
+                      </select>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans font-medium">Recuperação percebida hoje (0-10)</Label>
-                    <Input type="number" min={0} max={10} value={perceivedRecovery} onChange={e => setPerceivedRecovery(e.target.value)} />
+                    <Input type="number" min={0} max={10} value={perceivedRecovery} onChange={e => setPerceivedRecovery(e.target.value)} placeholder="Ex: 7" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans font-medium">FC máxima, se souber</Label>
-                    <Input type="number" value={fcmax} onChange={e => setFcmax(e.target.value)} />
+                    <Input type="number" value={fcmax} onChange={e => setFcmax(e.target.value)} placeholder="Ex: 190" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans font-medium">FC repouso, se souber</Label>
-                    <Input type="number" value={fcrep} onChange={e => setFcrep(e.target.value)} />
+                    <Input type="number" value={fcrep} onChange={e => setFcrep(e.target.value)} placeholder="Ex: 60" />
                   </div>
-                  {(modalities.includes("Corrida") || modalities.includes("Triathlon")) && (
+                  {wantsRunning && (
                     <>
                       <div className="space-y-2">
                         <Label className="font-sans font-medium">Onde corre?</Label>
@@ -690,7 +731,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                       </div>
                     </>
                   )}
-                  {(modalities.includes("Natação") || modalities.includes("Triathlon")) && (
+                  {wantsSwimming && (
                     <>
                       <div className="space-y-2">
                         <Label className="font-sans font-medium">Piscina</Label>
@@ -720,7 +761,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                       </div>
                     </>
                   )}
-                  {(modalities.includes("Bike") || modalities.includes("Triathlon")) && (
+                  {wantsCycling && (
                     <>
                       <div className="space-y-2">
                         <Label className="font-sans font-medium">Tipo de bike</Label>
@@ -759,22 +800,22 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             <>
             <div className="space-y-2">
               <Label className="font-sans font-medium">Quais as suas metas com o treino? *</Label>
-              <Textarea value={goals} onChange={e => setGoals(e.target.value)} />
+              <Textarea value={goals} onChange={e => setGoals(e.target.value)} placeholder="Ex: ganhar massa, reduzir dores e correr 5 km" />
             </div>
 
             <div className="space-y-2">
               <Label className="font-sans font-medium">Possui alguma doença e/ou toma algum remédio contínuo? *</Label>
-              <Textarea value={diseases} onChange={e => setDiseases(e.target.value)} />
+              <Textarea value={diseases} onChange={e => setDiseases(e.target.value)} placeholder="Ex: não possuo; ou hipertensão controlada" />
             </div>
 
             <div className="space-y-2">
               <Label className="font-sans font-medium">Histórico de lesões (se tiver): *</Label>
-              <Textarea value={injuries} onChange={e => setInjuries(e.target.value)} />
+              <Textarea value={injuries} onChange={e => setInjuries(e.target.value)} placeholder="Ex: entorse no tornozelo em 2024; ou nenhuma" />
             </div>
 
             <div className="space-y-2">
               <Label className="font-sans font-medium">Possui alguma dor atualmente? *</Label>
-              <Textarea value={currentPain} onChange={e => setCurrentPain(e.target.value)} />
+              <Textarea value={currentPain} onChange={e => setCurrentPain(e.target.value)} placeholder="Ex: dor no joelho ao agachar, intensidade 4/10; ou nenhuma" />
             </div>
 
             <div className="space-y-4 rounded-lg border border-border p-4">
@@ -786,15 +827,15 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 </div>
                 <div className="space-y-2 sm:col-span-2">
                   <Label className="font-sans font-medium">Medicamentos</Label>
-                  <Input value={medications} onChange={e => setMedications(e.target.value)} placeholder="opcional" />
+                  <Input value={medications} onChange={e => setMedications(e.target.value)} placeholder="Ex: losartana 50 mg; ou nenhum" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Estresse atual (0-10)</Label>
-                  <Input type="number" min={0} max={10} value={stressScore} onChange={e => setStressScore(e.target.value)} />
+                  <Input type="number" min={0} max={10} value={stressScore} onChange={e => setStressScore(e.target.value)} placeholder="Ex: 6" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Qualidade do sono (0-10)</Label>
-                  <Input type="number" min={0} max={10} value={sleepQuality} onChange={e => setSleepQuality(e.target.value)} />
+                  <Input type="number" min={0} max={10} value={sleepQuality} onChange={e => setSleepQuality(e.target.value)} placeholder="Ex: 7" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Problema cardíaco / pressão alta?</Label>
@@ -820,7 +861,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 {clinSurgery === "sim" && (
                   <div className="space-y-2">
                     <Label className="font-sans font-medium">Qual / quando?</Label>
-                    <Input value={clinSurgeryDetail} onChange={e => setClinSurgeryDetail(e.target.value)} />
+                    <Input value={clinSurgeryDetail} onChange={e => setClinSurgeryDetail(e.target.value)} placeholder="Ex: cirurgia no joelho em janeiro de 2026" />
                   </div>
                 )}
                 {gender === "F" && (
@@ -836,7 +877,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                     {clinPregnant !== "na" && (
                       <div className="space-y-2">
                         <Label className="font-sans font-medium">Semanas / meses</Label>
-                        <Input value={clinPregnantDetail} onChange={e => setClinPregnantDetail(e.target.value)} placeholder="ex: 20 semanas" />
+                        <Input value={clinPregnantDetail} onChange={e => setClinPregnantDetail(e.target.value)} placeholder="Ex: 20 semanas; ou 3 meses pós-parto" />
                       </div>
                     )}
                   </>
@@ -857,7 +898,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 </div>
                 <div className="space-y-2 sm:col-span-2">
                   <Label className="font-sans font-medium">Outra condição de saúde relevante?</Label>
-                  <Textarea value={clinOther} onChange={e => setClinOther(e.target.value)} placeholder="opcional" />
+                  <Textarea value={clinOther} onChange={e => setClinOther(e.target.value)} placeholder="Ex: enxaqueca recorrente; ou nenhuma" />
                 </div>
               </div>
               <div className="space-y-2">
@@ -872,7 +913,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                   ].map(([label, value, setter]: any) => (
                     <div key={label}>
                       <Label className="block text-center text-[10px] text-muted-foreground">{label}</Label>
-                      <Input type="number" min={0} max={10} value={value} onChange={e => setter(e.target.value)} className="px-1 text-center" />
+                      <Input type="number" min={0} max={10} value={value} onChange={e => setter(e.target.value)} className="px-1 text-center" placeholder="Ex: 0" />
                     </div>
                   ))}
                 </div>
@@ -883,9 +924,11 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
 
             {step === 3 && (
             <>
+            {wantsNutrition && (
+            <>
             <div className="space-y-2">
               <Label className="font-sans font-medium">Como é a sua alimentação? Faz acompanhamento com Nutricionista? *</Label>
-              <Textarea value={nutrition} onChange={e => setNutrition(e.target.value)} />
+              <Textarea value={nutrition} onChange={e => setNutrition(e.target.value)} placeholder="Ex: faço 4 refeições, como bem durante a semana e tenho mais dificuldade à noite" />
             </div>
 
             <div className="space-y-4 rounded-lg border border-border p-4">
@@ -978,7 +1021,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                     </button>
                   ))}
                 </div>
-                <Input value={foodLikes} onChange={e => setFoodLikes(e.target.value)} placeholder="adicione outros, separados por vírgula" />
+                <Input value={foodLikes} onChange={e => setFoodLikes(e.target.value)} placeholder="Ex: banana, arroz, frango" />
               </div>
               <div className="space-y-2">
                 <Label className="font-sans font-medium">Alimentos que NÃO gosta / não come</Label>
@@ -996,24 +1039,24 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                     </button>
                   ))}
                 </div>
-                <Input value={foodDislikes} onChange={e => setFoodDislikes(e.target.value)} placeholder="adicione outros, separados por vírgula" />
+                <Input value={foodDislikes} onChange={e => setFoodDislikes(e.target.value)} placeholder="Ex: peixe, abacate" />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2 sm:col-span-2">
                   <Label className="font-sans font-medium">Restrições / alergias / dieta</Label>
-                  <Textarea value={foodRestrictions} onChange={e => setFoodRestrictions(e.target.value)} placeholder="Ex: intolerância à lactose, vegetariano, alergia..." />
+                  <Textarea value={foodRestrictions} onChange={e => setFoodRestrictions(e.target.value)} placeholder="Ex: intolerância à lactose; ou nenhuma" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Água por dia (litros)</Label>
-                  <Input value={hydration} onChange={e => setHydration(e.target.value)} placeholder="ex: 2,5L" />
+                  <Input value={hydration} onChange={e => setHydration(e.target.value)} placeholder="Ex: 2,5 L por dia" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Desconfortos digestivos (opcional)</Label>
-                  <Input value={giSensitivities} onChange={e => setGiSensitivities(e.target.value)} placeholder="ex: empachamento, gases, refluxo" />
+                  <Input value={giSensitivities} onChange={e => setGiSensitivities(e.target.value)} placeholder="Ex: refluxo após o jantar; ou nenhum" />
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Suplementos que usa</Label>
-                  <Input value={supplements} onChange={e => setSupplements(e.target.value)} placeholder="opcional" />
+                  <Input value={supplements} onChange={e => setSupplements(e.target.value)} placeholder="Ex: whey e creatina; ou nenhum" />
                 </div>
                 <label className="flex items-center gap-2 text-sm font-sans cursor-pointer self-end">
                   <Checkbox checked={hasKitchen} onCheckedChange={v => setHasKitchen(!!v)} />
@@ -1021,10 +1064,12 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 </label>
               </div>
             </div>
+            </>
+            )}
 
             <div className="space-y-2">
               <Label className="font-sans font-medium">Qual a sua profissão e rotina de trabalho? *</Label>
-              <Textarea value={profession} onChange={e => setProfession(e.target.value)} />
+              <Textarea value={profession} onChange={e => setProfession(e.target.value)} placeholder="Ex: trabalho em escritório, sentado das 9h às 18h" />
             </div>
 
             <div className="space-y-2">
@@ -1069,7 +1114,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 </div>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label className="font-sans font-medium">Faixa de investimento mensal *</Label>
+                    <Label className="font-sans font-medium">Quanto você está disposto(a) a investir na sua saúde? *</Label>
                     <select value={budgetRange} onChange={e => setBudgetRange(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                       <option value="">Selecione...</option>
                       <option value="200_300">R$ 200 a R$ 300</option>
@@ -1091,17 +1136,17 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             )}
             <div className="space-y-2">
               <Label className="font-sans font-medium">Como você quer se sentir em 3 meses? *</Label>
-              <Textarea value={feelIn3Months} onChange={e => setFeelIn3Months(e.target.value)} />
+              <Textarea value={feelIn3Months} onChange={e => setFeelIn3Months(e.target.value)} placeholder="Ex: mais forte, disposto e sem medo de correr" />
             </div>
 
             <div className="space-y-2">
               <Label className="font-sans font-medium">O que mais atrapalha a sua rotina de treino? *</Label>
-              <Textarea value={biggestObstacle} onChange={e => setBiggestObstacle(e.target.value)} />
+              <Textarea value={biggestObstacle} onChange={e => setBiggestObstacle(e.target.value)} placeholder="Ex: falta de tempo e dificuldade para manter constância" />
             </div>
 
             <div className="space-y-2">
               <Label className="font-sans font-medium">Comentários extras</Label>
-              <Textarea value={extraComments} onChange={e => setExtraComments(e.target.value)} />
+              <Textarea value={extraComments} onChange={e => setExtraComments(e.target.value)} placeholder="Ex: prefiro treinos pela manhã e tenho uma prova em outubro" />
             </div>
 
             <div className="space-y-2">

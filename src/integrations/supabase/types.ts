@@ -1917,6 +1917,7 @@ export type Database = {
           company_id: string
           created_at: string
           current_volume_weekly: number | null
+          current_volume_unit: string | null
           days_per_week_cardio: number | null
           days_per_week_strength: number | null
           equipment: string | null
@@ -1949,6 +1950,7 @@ export type Database = {
           company_id: string
           created_at?: string
           current_volume_weekly?: number | null
+          current_volume_unit?: string | null
           days_per_week_cardio?: number | null
           days_per_week_strength?: number | null
           equipment?: string | null
@@ -1981,6 +1983,7 @@ export type Database = {
           company_id?: string
           created_at?: string
           current_volume_weekly?: number | null
+          current_volume_unit?: string | null
           days_per_week_cardio?: number | null
           days_per_week_strength?: number | null
           equipment?: string | null

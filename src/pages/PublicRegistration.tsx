@@ -115,6 +115,7 @@ export default function PublicRegistration() {
   const [currentPain, setCurrentPain] = useState("");
   const [sportGoal, setSportGoal] = useState("");
   const [currentVolumeWeekly, setCurrentVolumeWeekly] = useState("");
+  const [currentVolumeUnit, setCurrentVolumeUnit] = useState("km_week");
   const [fcmax, setFcmax] = useState("");
   const [fcrep, setFcrep] = useState("");
   const [perceivedRecovery, setPerceivedRecovery] = useState("");
@@ -315,6 +316,7 @@ export default function PublicRegistration() {
             interest_nutrition: true,
             sport_goal: sportGoal,
             current_volume_weekly: currentVolumeWeekly ? Number(currentVolumeWeekly) : null,
+            current_volume_unit: currentVolumeUnit,
             fcmax: fcmax ? Number(fcmax) : null,
             fcrep: fcrep ? Number(fcrep) : null,
             perceived_recovery: perceivedRecovery,
@@ -541,7 +543,7 @@ export default function PublicRegistration() {
               <Input
                 value={fullName}
                 onChange={e => setFullName(e.target.value)}
-                placeholder="Seu nome completo"
+                placeholder="Ex: Ana Silva"
                 readOnly={fiscalMode}
                 className={fiscalMode ? "bg-muted/50" : undefined}
               />
@@ -553,7 +555,7 @@ export default function PublicRegistration() {
               <>
                 <div className="space-y-2">
                   <Label className="font-sans">WhatsApp *</Label>
-                  <Input value={whatsapp} onChange={e => setWhatsapp(formatPhone(e.target.value))} placeholder="(00) 00000-0000" inputMode="tel" />
+                  <Input value={whatsapp} onChange={e => setWhatsapp(formatPhone(e.target.value))} placeholder="Ex: (48) 99999-1234" inputMode="tel" />
                 </div>
 
                 <section className="space-y-4 rounded-2xl border border-border bg-background/60 p-4">
@@ -564,7 +566,7 @@ export default function PublicRegistration() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="font-sans">Idade</Label>
-                      <Input type="number" value={age} onChange={e => setAge(e.target.value)} />
+                      <Input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="Ex: 28" />
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">Sexo</Label>
@@ -575,19 +577,19 @@ export default function PublicRegistration() {
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">Peso atual (kg)</Label>
-                      <Input type="number" step="0.1" value={weightKg} onChange={e => setWeightKg(e.target.value)} />
+                      <Input type="number" step="0.1" value={weightKg} onChange={e => setWeightKg(e.target.value)} placeholder="Ex: 70" />
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">Altura (cm)</Label>
-                      <Input type="number" value={heightCm} onChange={e => setHeightCm(e.target.value)} />
+                      <Input type="number" value={heightCm} onChange={e => setHeightCm(e.target.value)} placeholder="Ex: 175" />
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">% gordura, se souber</Label>
-                      <Input type="number" step="0.1" value={bodyFatPercent} onChange={e => setBodyFatPercent(e.target.value)} placeholder="opcional" />
+                      <Input type="number" step="0.1" value={bodyFatPercent} onChange={e => setBodyFatPercent(e.target.value)} placeholder="Ex: 22 (opcional)" />
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">Tempo de treino (meses)</Label>
-                      <Input type="number" value={experienceMonths} onChange={e => setExperienceMonths(e.target.value)} />
+                      <Input type="number" value={experienceMonths} onChange={e => setExperienceMonths(e.target.value)} placeholder="Ex: 12" />
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">Objetivo principal *</Label>
@@ -625,7 +627,7 @@ export default function PublicRegistration() {
                         </label>
                       ))}
                     </div>
-                    <Input value={modalityOther} onChange={e => setModalityOther(e.target.value)} placeholder="Outro esporte ou modalidade..." className="rounded-xl" />
+                    <Input value={modalityOther} onChange={e => setModalityOther(e.target.value)} placeholder="Ex: pilates" className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Quais dias da semana você pratica cada modalidade?</Label>
@@ -634,7 +636,7 @@ export default function PublicRegistration() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="font-sans">Quantos dias por semana você tem para treinar?</Label>
-                      <Input type="number" min={0} max={7} value={availableDays} onChange={e => setAvailableDays(e.target.value)} />
+                      <Input type="number" min={0} max={7} value={availableDays} onChange={e => setAvailableDays(e.target.value)} placeholder="Ex: 4" />
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">Quanto tempo livre para as sessões? *</Label>
@@ -647,11 +649,11 @@ export default function PublicRegistration() {
                       <>
                         <div className="space-y-2">
                           <Label className="font-sans">Dias de musculação / força</Label>
-                          <Input type="number" min={0} max={7} value={daysStrength} onChange={e => setDaysStrength(e.target.value)} placeholder="ex: 3" />
+                          <Input type="number" min={0} max={7} value={daysStrength} onChange={e => setDaysStrength(e.target.value)} placeholder="Ex: 3" />
                         </div>
                         <div className="space-y-2">
                           <Label className="font-sans">Dias de cardio</Label>
-                          <Input type="number" min={0} max={7} value={daysCardio} onChange={e => setDaysCardio(e.target.value)} placeholder="ex: 3" />
+                          <Input type="number" min={0} max={7} value={daysCardio} onChange={e => setDaysCardio(e.target.value)} placeholder="Ex: 2" />
                         </div>
                       </>
                     )}
@@ -673,7 +675,7 @@ export default function PublicRegistration() {
                         </label>
                       ))}
                     </div>
-                    <Input value={equipmentOther} onChange={e => setEquipmentOther(e.target.value)} placeholder="Outro material..." className="rounded-xl" />
+                    <Input value={equipmentOther} onChange={e => setEquipmentOther(e.target.value)} placeholder="Ex: corda de pular" className="rounded-xl" />
                   </div>
                 </section>
 
@@ -689,20 +691,29 @@ export default function PublicRegistration() {
                         <Input value={sportGoal} onChange={e => setSportGoal(e.target.value)} placeholder="Ex: meia maratona, 5km, triathlon sprint..." />
                       </div>
                       <div className="space-y-2">
-                        <Label className="font-sans">Volume atual (km ou h/sem)</Label>
-                        <Input type="number" value={currentVolumeWeekly} onChange={e => setCurrentVolumeWeekly(e.target.value)} />
+                        <Label className="font-sans">Volume atual</Label>
+                        <div className="grid grid-cols-[minmax(0,1fr)_8.5rem] gap-2">
+                          <Input type="number" min={0} step="0.1" value={currentVolumeWeekly} onChange={e => setCurrentVolumeWeekly(e.target.value)} placeholder="Ex: 25" />
+                          <Select value={currentVolumeUnit} onValueChange={setCurrentVolumeUnit}>
+                            <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="km_week">km/sem</SelectItem>
+                              <SelectItem value="hours_week">h/sem</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                       <div className="space-y-2">
                         <Label className="font-sans">Recuperação percebida hoje (0-10)</Label>
-                        <Input type="number" min={0} max={10} value={perceivedRecovery} onChange={e => setPerceivedRecovery(e.target.value)} />
+                        <Input type="number" min={0} max={10} value={perceivedRecovery} onChange={e => setPerceivedRecovery(e.target.value)} placeholder="Ex: 7" />
                       </div>
                       <div className="space-y-2">
                         <Label className="font-sans">FC máxima, se souber</Label>
-                        <Input type="number" value={fcmax} onChange={e => setFcmax(e.target.value)} />
+                        <Input type="number" value={fcmax} onChange={e => setFcmax(e.target.value)} placeholder="Ex: 190" />
                       </div>
                       <div className="space-y-2">
                         <Label className="font-sans">FC repouso, se souber</Label>
-                        <Input type="number" value={fcrep} onChange={e => setFcrep(e.target.value)} />
+                        <Input type="number" value={fcrep} onChange={e => setFcrep(e.target.value)} placeholder="Ex: 60" />
                       </div>
                       <div className="space-y-2">
                         <Label className="font-sans">Onde corre?</Label>
@@ -771,36 +782,36 @@ export default function PublicRegistration() {
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Quais são suas metas com o treino? *</Label>
-                    <Textarea value={goals} onChange={e => setGoals(e.target.value)} className="rounded-xl" />
+                    <Textarea value={goals} onChange={e => setGoals(e.target.value)} className="rounded-xl" placeholder="Ex: ganhar massa, reduzir dores e correr 5 km" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Possui alguma doença e/ou toma algum remédio contínuo? *</Label>
-                    <Textarea value={diseases} onChange={e => setDiseases(e.target.value)} className="rounded-xl" />
+                    <Textarea value={diseases} onChange={e => setDiseases(e.target.value)} className="rounded-xl" placeholder="Ex: não possuo; ou hipertensão controlada" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Histórico de lesões *</Label>
-                    <Textarea value={injuries} onChange={e => setInjuries(e.target.value)} className="rounded-xl" />
+                    <Textarea value={injuries} onChange={e => setInjuries(e.target.value)} className="rounded-xl" placeholder="Ex: entorse no tornozelo em 2024; ou nenhuma" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Possui alguma dor atualmente? *</Label>
-                    <Textarea value={currentPain} onChange={e => setCurrentPain(e.target.value)} className="rounded-xl" />
+                    <Textarea value={currentPain} onChange={e => setCurrentPain(e.target.value)} className="rounded-xl" placeholder="Ex: dor no joelho ao agachar, intensidade 4/10; ou nenhuma" />
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2 sm:col-span-2">
                       <Label className="font-sans">Condições médicas relevantes</Label>
-                      <Textarea value={medicalConditions} onChange={e => setMedicalConditions(e.target.value)} className="rounded-xl" placeholder="opcional" />
+                      <Textarea value={medicalConditions} onChange={e => setMedicalConditions(e.target.value)} className="rounded-xl" placeholder="Ex: asma controlada; ou nenhuma" />
                     </div>
                     <div className="space-y-2 sm:col-span-2">
                       <Label className="font-sans">Medicamentos</Label>
-                      <Input value={medications} onChange={e => setMedications(e.target.value)} placeholder="opcional" />
+                      <Input value={medications} onChange={e => setMedications(e.target.value)} placeholder="Ex: losartana 50 mg; ou nenhum" />
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">Estresse (0-10)</Label>
-                      <Input type="number" min={0} max={10} value={stressScore} onChange={e => setStressScore(e.target.value)} />
+                      <Input type="number" min={0} max={10} value={stressScore} onChange={e => setStressScore(e.target.value)} placeholder="Ex: 6" />
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">Qualidade do sono (0-10)</Label>
-                      <Input type="number" min={0} max={10} value={sleepQuality} onChange={e => setSleepQuality(e.target.value)} />
+                      <Input type="number" min={0} max={10} value={sleepQuality} onChange={e => setSleepQuality(e.target.value)} placeholder="Ex: 7" />
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">Horas de sono *</Label>
@@ -833,7 +844,7 @@ export default function PublicRegistration() {
                     {clinSurgery === "sim" && (
                       <div className="space-y-2">
                         <Label className="font-sans">Qual / quando?</Label>
-                        <Input value={clinSurgeryDetail} onChange={e => setClinSurgeryDetail(e.target.value)} />
+                        <Input value={clinSurgeryDetail} onChange={e => setClinSurgeryDetail(e.target.value)} placeholder="Ex: cirurgia no joelho em janeiro de 2026" />
                       </div>
                     )}
                     {gender === "F" && (
@@ -845,7 +856,7 @@ export default function PublicRegistration() {
                     {gender === "F" && clinPregnant !== "na" && (
                       <div className="space-y-2">
                         <Label className="font-sans">Semanas gestação / meses pós-parto</Label>
-                        <Input value={clinPregnantDetail} onChange={e => setClinPregnantDetail(e.target.value)} />
+                        <Input value={clinPregnantDetail} onChange={e => setClinPregnantDetail(e.target.value)} placeholder="Ex: 20 semanas; ou 3 meses pós-parto" />
                       </div>
                     )}
                     <div className="space-y-2">
@@ -867,13 +878,13 @@ export default function PublicRegistration() {
                     ].map(([label, value, setter]) => (
                       <div className="space-y-1" key={label as string}>
                         <Label className="text-xs">{label} EVA</Label>
-                        <Input type="number" min={0} max={10} value={value as string} onChange={e => (setter as (next: string) => void)(e.target.value)} />
+                        <Input type="number" min={0} max={10} value={value as string} onChange={e => (setter as (next: string) => void)(e.target.value)} placeholder="Ex: 0" />
                       </div>
                     ))}
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Outra condição de saúde relevante?</Label>
-                    <Textarea value={clinOther} onChange={e => setClinOther(e.target.value)} className="rounded-xl" placeholder="opcional" />
+                    <Textarea value={clinOther} onChange={e => setClinOther(e.target.value)} className="rounded-xl" placeholder="Ex: enxaqueca recorrente; ou nenhuma" />
                   </div>
                 </section>
 
@@ -884,11 +895,11 @@ export default function PublicRegistration() {
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Como está sua alimentação hoje? *</Label>
-                    <Textarea value={nutrition} onChange={e => setNutrition(e.target.value)} className="rounded-xl" />
+                    <Textarea value={nutrition} onChange={e => setNutrition(e.target.value)} className="rounded-xl" placeholder="Ex: faço 4 refeições, como bem durante a semana e tenho mais dificuldade à noite" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Profissão e rotina de trabalho/estudo *</Label>
-                    <Textarea value={profession} onChange={e => setProfession(e.target.value)} className="rounded-xl" />
+                    <Textarea value={profession} onChange={e => setProfession(e.target.value)} className="rounded-xl" placeholder="Ex: trabalho em escritório, sentado das 9h às 18h" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Você tem consciência que resultado depende de alimentação, treino e sono? *</Label>
@@ -946,7 +957,7 @@ export default function PublicRegistration() {
                         </Button>
                       ))}
                     </div>
-                    <Input value={foodLikes} onChange={e => setFoodLikes(e.target.value)} placeholder="adicione outros, separados por vírgula" className="rounded-xl" />
+                    <Input value={foodLikes} onChange={e => setFoodLikes(e.target.value)} placeholder="Ex: banana, arroz, frango" className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Alimentos que NÃO gosta / não come</Label>
@@ -957,11 +968,11 @@ export default function PublicRegistration() {
                         </Button>
                       ))}
                     </div>
-                    <Input value={foodDislikes} onChange={e => setFoodDislikes(e.target.value)} placeholder="adicione outros, separados por vírgula" className="rounded-xl" />
+                    <Input value={foodDislikes} onChange={e => setFoodDislikes(e.target.value)} placeholder="Ex: peixe, abacate" className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Restrições / alergias / dieta</Label>
-                    <Textarea value={foodRestrictions} onChange={e => setFoodRestrictions(e.target.value)} className="rounded-xl" />
+                    <Textarea value={foodRestrictions} onChange={e => setFoodRestrictions(e.target.value)} className="rounded-xl" placeholder="Ex: intolerância à lactose; ou nenhuma" />
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
@@ -970,7 +981,7 @@ export default function PublicRegistration() {
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">Suplementos</Label>
-                      <Input value={supplements} onChange={e => setSupplements(e.target.value)} placeholder="opcional" />
+                      <Input value={supplements} onChange={e => setSupplements(e.target.value)} placeholder="Ex: whey e creatina; ou nenhum" />
                     </div>
                   </div>
                   <label className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm">
@@ -980,11 +991,11 @@ export default function PublicRegistration() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="font-sans">Hidratação atual</Label>
-                      <Input value={hydration} onChange={e => setHydration(e.target.value)} placeholder="ex: 2L/dia" />
+                      <Input value={hydration} onChange={e => setHydration(e.target.value)} placeholder="Ex: 2,5 L por dia" />
                     </div>
                     <div className="space-y-2">
                       <Label className="font-sans">Desconfortos digestivos</Label>
-                      <Input value={giSensitivities} onChange={e => setGiSensitivities(e.target.value)} placeholder="opcional" />
+                      <Input value={giSensitivities} onChange={e => setGiSensitivities(e.target.value)} placeholder="Ex: refluxo após o jantar; ou nenhum" />
                     </div>
                   </div>
                 </section>
@@ -996,11 +1007,11 @@ export default function PublicRegistration() {
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Como você quer se sentir daqui 3 meses? *</Label>
-                    <Textarea value={feelIn3Months} onChange={e => setFeelIn3Months(e.target.value)} className="rounded-xl" />
+                    <Textarea value={feelIn3Months} onChange={e => setFeelIn3Months(e.target.value)} className="rounded-xl" placeholder="Ex: mais forte, disposto e sem medo de correr" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Qual é o maior obstáculo hoje? *</Label>
-                    <Textarea value={biggestObstacle} onChange={e => setBiggestObstacle(e.target.value)} className="rounded-xl" />
+                    <Textarea value={biggestObstacle} onChange={e => setBiggestObstacle(e.target.value)} className="rounded-xl" placeholder="Ex: falta de tempo e dificuldade para manter constância" />
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
@@ -1012,7 +1023,7 @@ export default function PublicRegistration() {
                       <Select value={commitsCommunication} onValueChange={setCommitsCommunication}><SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent><SelectItem value="sim">Sim</SelectItem><SelectItem value="nao">Não</SelectItem></SelectContent></Select>
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-sans">Faixa de investimento mensal *</Label>
+                      <Label className="font-sans">Quanto você está disposto(a) a investir na sua saúde? *</Label>
                       <Select value={budgetRange} onValueChange={setBudgetRange}>
                         <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione" /></SelectTrigger>
                         <SelectContent><SelectItem value="200_300">R$ 200 a R$ 300</SelectItem><SelectItem value="300_400">R$ 300 a R$ 400</SelectItem><SelectItem value="400_500">R$ 400 a R$ 500</SelectItem></SelectContent>
@@ -1028,7 +1039,7 @@ export default function PublicRegistration() {
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Algo mais que devemos saber?</Label>
-                    <Textarea value={extraComments} onChange={e => setExtraComments(e.target.value)} placeholder="Opcional" className="rounded-xl" />
+                    <Textarea value={extraComments} onChange={e => setExtraComments(e.target.value)} placeholder="Ex: prefiro treinos pela manhã e tenho uma prova em outubro" className="rounded-xl" />
                   </div>
                 </section>
 
@@ -1052,26 +1063,26 @@ export default function PublicRegistration() {
             </div>
             <div className="space-y-2">
               <Label className="font-sans">Rua *</Label>
-              <Input value={address} onChange={e => setAddress(e.target.value)} onBlur={fillCepFromAddress} placeholder="Nome da rua" />
+              <Input value={address} onChange={e => setAddress(e.target.value)} onBlur={fillCepFromAddress} placeholder="Ex: Rua das Flores" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="font-sans">Número *</Label>
-                <Input value={addressNumber} onChange={e => setAddressNumber(e.target.value)} placeholder="Nº" />
+                <Input value={addressNumber} onChange={e => setAddressNumber(e.target.value)} placeholder="Ex: 123" />
               </div>
               <div className="space-y-2">
                 <Label className="font-sans">Bairro *</Label>
-                <Input value={neighborhood} onChange={e => setNeighborhood(e.target.value)} placeholder="Bairro" />
+                <Input value={neighborhood} onChange={e => setNeighborhood(e.target.value)} placeholder="Ex: Centro" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="font-sans">Cidade *</Label>
-                <Input value={city} onChange={e => setCity(e.target.value)} onBlur={fillCepFromAddress} placeholder="Cidade" />
+                <Input value={city} onChange={e => setCity(e.target.value)} onBlur={fillCepFromAddress} placeholder="Ex: Florianópolis" />
               </div>
               <div className="space-y-2">
                 <Label className="font-sans">Estado *</Label>
-                <Input value={state} onChange={e => setState(e.target.value)} onBlur={fillCepFromAddress} placeholder="UF" maxLength={2} />
+                <Input value={state} onChange={e => setState(e.target.value)} onBlur={fillCepFromAddress} placeholder="Ex: SC" maxLength={2} />
               </div>
             </div>
             <div className="space-y-2">
@@ -1080,7 +1091,7 @@ export default function PublicRegistration() {
             </div>
             <div className="space-y-2">
               <Label className="font-sans">Email *</Label>
-              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" />
+              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Ex: ana@email.com" />
             </div>
             <Button className="w-full" onClick={handleSubmit} disabled={saving}>
               {saving ? "Salvando..." : "Concluir cadastro e seguir para pagamento"}

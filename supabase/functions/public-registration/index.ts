@@ -375,6 +375,10 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
   const cycling = answers.interest_cycling !== undefined
     ? boolValue(answers.interest_cycling)
     : includesAny(modalities, ["bike", "ciclismo", "triathlon"]);
+  const nutrition = answers.interest_nutrition === undefined
+    ? true
+    : boolValue(answers.interest_nutrition);
+  const practicedEndurance = includesAny(modalities, ["corrida", "natacao", "natação", "bike", "ciclismo", "triathlon"]);
   const clinicalText = buildClinicalText(answers);
   const cardioDetail = [
     running && `CORRIDA: ${[
@@ -394,6 +398,7 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
       boolValue(answers.bike_power) && "tem medidor de potência",
     ].filter(Boolean).join(", ") || "detalhes não informados"}`,
     answers.perceived_recovery && `Recuperação percebida hoje: ${answers.perceived_recovery}/10`,
+    answers.current_volume_weekly && `Volume atual: ${answers.current_volume_weekly} ${answers.current_volume_unit === "hours_week" ? "h/sem" : "km/sem"}`,
   ].filter(Boolean);
   const notes = [
     answers.goals && `Metas: ${cleanLongText(answers.goals)}`,
@@ -407,7 +412,7 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
     answers.supplements && `Suplementos: ${cleanLongText(answers.supplements)}`,
     ...cardioDetail,
     answers.extra_comments && `Comentários: ${cleanLongText(answers.extra_comments)}`,
-    `Faixa de investimento mensal: ${cleanText(lead.budget_range) || "não informada"}`,
+    `Investimento mensal em saúde: ${cleanText(lead.budget_range) || "não informado"}`,
     `Melhor horário para contato: ${cleanText(lead.preferred_contact_period) || "não informado"}`,
   ].filter(Boolean).join("\n");
   return {
@@ -417,13 +422,8 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
     body_fat_percent: numberOrNull(answers.body_fat_percent),
     objective: cleanLongText(answers.objective || answers.goals, 300) || null,
     activity_level: cleanLongText(answers.activity_level, 120) || null,
-    is_endurance_athlete: running || swimming || cycling,
-    training_modality: cleanLongText([
-      strength && "musculação",
-      running && "corrida",
-      swimming && "natação",
-      cycling && "ciclismo",
-    ].filter(Boolean).join(" + ") || modalities.join(" + "), 300) || null,
+    is_endurance_athlete: practicedEndurance,
+    training_modality: cleanLongText(modalities.filter((item) => !/^nenhum$/i.test(item.trim())).join(" + ") || "nenhum", 300) || null,
     days_per_week_strength: strength
       ? (numberOrNull(answers.days_strength) ?? numberOrNull(answers.available_days))
       : null,
@@ -437,6 +437,7 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
     fcmax: numberOrNull(answers.fcmax),
     fcrep: numberOrNull(answers.fcrep),
     current_volume_weekly: numberOrNull(answers.current_volume_weekly),
+    current_volume_unit: answers.current_volume_unit === "hours_week" ? "hours_week" : "km_week",
     cardio_goal: cleanLongText(answers.cardio_goal || answers.sport_goal, 300) || null,
     stress_score: numberOrNull(answers.stress_score),
     sleep_quality: numberOrNull(answers.sleep_quality),
@@ -458,7 +459,7 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
     wants_running: running,
     wants_swimming: swimming,
     wants_cycling: cycling,
-    wants_nutrition: true,
+    wants_nutrition: nutrition,
     shown_blocks: [
       "pré-cadastro",
       "dados",
@@ -466,7 +467,7 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
       "treino",
       "saude",
       "clinica",
-      "nutricao",
+      nutrition && "nutricao",
       strength && "musculacao",
       running && "corrida",
       swimming && "natacao",

@@ -150,6 +150,29 @@ describe("progressão longitudinal determinística", () => {
       .toThrow("Modalidade não suportada");
   });
 
+  it("cardio distingue horas semanais de quilômetros semanais", () => {
+    const hoursPlan = buildCardioProgram({
+      sport: "corrida",
+      duration_weeks: 6,
+      days_per_week: 4,
+      session_duration: 30,
+      current_volume: 4,
+      current_volume_unit: "hours_week",
+    });
+    const kilometersPlan = buildCardioProgram({
+      sport: "corrida",
+      duration_weeks: 6,
+      days_per_week: 4,
+      session_duration: 30,
+      current_volume: 4,
+      current_volume_unit: "km_week",
+    });
+
+    expect(hoursPlan.weeks[0].volume_hours).toBeGreaterThan(kilometersPlan.weeks[0].volume_hours);
+    expect(hoursPlan.coach_notes?.join(" ")).toContain("4 h/sem");
+    expect(kilometersPlan.coach_notes?.join(" ")).toContain("4 km/sem");
+  });
+
   it("nutrição acompanha a fase da carga mantendo proteína e continuidade", () => {
     const first = buildNutritionProgram({
       weight_kg: 75,

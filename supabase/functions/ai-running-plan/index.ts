@@ -383,6 +383,7 @@ serve(async (req) => {
       days_per_week,    // dias disponíveis para cardio
       session_duration, // minutos por sessão
       current_volume,   // km/semana atual (corrida) ou horas/semana
+      current_volume_unit, // "km_week" | "hours_week"
       fcmax,            // pode ser null
       fcrep,            // pode ser null
       experience_months,// tempo de prática em meses
@@ -461,7 +462,7 @@ Objetivo: ${clean(goal)}
 Semanas de plano solicitado: ${duration_weeks}
 Dias disponíveis para cardio: ${days_per_week}
 Duração por sessão: ${session_duration || "60-90"} min
-Volume atual: ${current_volume || "não informado"} km/semana ou horas/semana
+Volume atual: ${current_volume || "não informado"} ${current_volume_unit === "hours_week" ? "h/semana" : "km/semana"}
 FCmax: ${fcmax || "não informado (usar estimativa)"} bpm
 FCrep: ${fcrep || "não informado (usar padrão 65)"} bpm
 Experiência: ${experience_months || "não informada"} meses

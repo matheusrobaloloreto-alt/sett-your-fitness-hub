@@ -24,7 +24,7 @@ const STUDIO_ANAMNESE_FIELDS = [
   "age", "body_fat_percent", "objective", "activity_level", "is_endurance_athlete",
   "training_modality", "days_per_week_strength", "days_per_week_cardio",
   "session_duration_min", "equipment", "experience_months", "sport", "fcmax",
-  "fcrep", "current_volume_weekly", "cardio_goal", "stress_score", "sleep_quality",
+  "fcrep", "current_volume_weekly", "current_volume_unit", "cardio_goal", "stress_score", "sleep_quality",
   "injuries", "food_restrictions", "nutrition_context", "budget_food",
   "meals_per_day", "has_kitchen", "notes",
   // Anamnese "viva" / condicional (gates por modalidade):
@@ -144,6 +144,10 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
   const cycling = body.interest_cycling !== undefined
     ? boolValue(body.interest_cycling)
     : includesAny(modalities, ["bike", "ciclismo", "triathlon"]);
+  const nutrition = body.interest_nutrition === undefined
+    ? true
+    : boolValue(body.interest_nutrition);
+  const practicedEndurance = includesAny(modalities, ["corrida", "natacao", "natação", "bike", "ciclismo", "triathlon"]);
   const clinicalText = buildClinicalText(body);
   const cardioDetail = [
     running && `CORRIDA: ${[
@@ -163,6 +167,7 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
       boolValue(body.bike_power) && "tem medidor de potência",
     ].filter(Boolean).join(", ") || "detalhes não informados"}`,
     body.perceived_recovery && `Recuperação percebida hoje: ${body.perceived_recovery}/10`,
+    body.current_volume_weekly && `Volume atual: ${body.current_volume_weekly} ${body.current_volume_unit === "hours_week" ? "h/sem" : "km/sem"}`,
   ].filter(Boolean);
 
   const notes = [
@@ -188,13 +193,8 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
     body_fat_percent: numberOrNull(body.body_fat_percent),
     objective: cleanText(body.objective || body.goals, 300),
     activity_level: cleanText(body.activity_level, 120),
-    is_endurance_athlete: running || swimming || cycling,
-    training_modality: cleanText(body.training_modality || [
-      strength && "musculação",
-      running && "corrida",
-      swimming && "natação",
-      cycling && "ciclismo",
-    ].filter(Boolean).join(" + ") || modalities.join(" + "), 300),
+    is_endurance_athlete: practicedEndurance,
+    training_modality: cleanText(body.training_modality || modalities.filter((item) => !/^nenhum$/i.test(item.trim())).join(" + ") || "nenhum", 300),
     // Split por modalidade quando informado; senão usa o total disponível.
     days_per_week_strength: strength
       ? (numberOrNull(body.days_strength) ?? numberOrNull(body.days_available ?? body.available_days))
@@ -209,6 +209,7 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
     fcmax: numberOrNull(body.fcmax),
     fcrep: numberOrNull(body.fcrep),
     current_volume_weekly: numberOrNull(body.current_volume_weekly),
+    current_volume_unit: body.current_volume_unit === "hours_week" ? "hours_week" : "km_week",
     cardio_goal: cleanText(body.cardio_goal || body.sport_goal, 300),
     stress_score: numberOrNull(body.stress_score),
     sleep_quality: numberOrNull(body.sleep_quality),
@@ -229,14 +230,14 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
     wants_running: running,
     wants_swimming: swimming,
     wants_cycling: cycling,
-    wants_nutrition: body.interest_nutrition === undefined ? true : boolValue(body.interest_nutrition),
+    wants_nutrition: nutrition,
     shown_blocks: [
       "dados",
       "objetivo",
       "treino",
       "saude",
       "clinica",
-      "nutricao",
+      nutrition && "nutricao",
       strength && "musculacao",
       running && "corrida",
       swimming && "natacao",

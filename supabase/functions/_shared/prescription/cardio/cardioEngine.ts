@@ -11,6 +11,7 @@ export interface CardioInput {
   days_per_week?: number | string;
   session_duration?: number | string; // min
   current_volume?: number | string;
+  current_volume_unit?: "km_week" | "hours_week" | string | null;
   block_number?: number | string | null;
   previous_plan_context?: CardioPlan | null;
   program_sequence?: {
@@ -342,12 +343,17 @@ export function buildCardioProgram(input: CardioInput): CardioPlan {
   const { level, assumed } = resolveLevel(input);
 
   // ── Calibração pelo volume ATUAL da anamnese (regra dos ~10%: semana 1 nunca muito acima do que já faz) ──
-  // current_volume: km/semana (corrida/pedal). Estima a semana 1 e escala a duração-base das sessões.
+  // A unidade vem explícita do formulário para horas não serem interpretadas como quilômetros.
   const reportedVolume = num(input.current_volume);
   const inheritedVolume = previousVolume(input, sport);
   const currentVol = Number.isFinite(reportedVolume) && reportedVolume > 0 ? reportedVolume : inheritedVolume;
+  const currentVolumeUnit = input.current_volume_unit === "hours_week" ? "hours_week" : "km_week";
   let volCalibrated = false;
-  if (!isNaN(currentVol) && currentVol > 0 && sport !== "natacao") {
+  if (!isNaN(currentVol) && currentVol > 0 && currentVolumeUnit === "hours_week") {
+    const d0 = clamp(Math.round(num(input.days_per_week)) || 3, 1, 6);
+    sessionMin = clamp(Math.round((currentVol * 60 / d0) * 1.05), 20, 180);
+    volCalibrated = true;
+  } else if (!isNaN(currentVol) && currentVol > 0 && sport !== "natacao") {
     const d0 = clamp(Math.round(num(input.days_per_week)) || 3, 1, 6);
     const paceKmMin = sport === "corrida" ? 1 / RUN_PACE.z2 : BIKE_KMH.z2 / 60; // km por minuto em Z2
     const estWeek1Km = ((d0 - 1) * Math.max(15, sessionMin - 18) + Math.max(15, Math.round(sessionMin * 1.25) - 18)) * paceKmMin;
@@ -356,9 +362,10 @@ export function buildCardioProgram(input: CardioInput): CardioPlan {
       if (Math.abs(scale - 1) > 0.07) { sessionMin = clamp(Math.round(sessionMin * scale), 20, 180); volCalibrated = true; }
     }
   }
-  if (sport === "natacao" && Number.isFinite(currentVol) && currentVol > 0) {
+  if (sport === "natacao" && currentVolumeUnit === "km_week" && Number.isFinite(currentVol) && currentVol > 0) {
     const d0 = clamp(Math.round(num(input.days_per_week)) || 3, 1, 6);
-    sessionMin = clamp(Math.round((currentVol * 60 / d0) * 1.05), 20, 180);
+    const swimKmh = level === "avancado" ? 2.5 : level === "intermediario" ? 2 : 1.5;
+    sessionMin = clamp(Math.round((currentVol / swimKmh * 60 / d0) * 1.05), 20, 180);
     volCalibrated = true;
   }
   if (sequence.phase === "acumulacao") sessionMin = clamp(Math.round(sessionMin * 1.05), 20, 180);
@@ -444,7 +451,7 @@ export function buildCardioProgram(input: CardioInput): CardioPlan {
   if (zones.estimated) coach_notes.push("Zonas de FC estimadas (FCmax/FCrep aproximados). Recomende teste de esforço para maior precisão.");
   if (assumed) coach_notes.push("Nível de experiência não informado — assumido conservador (iniciante). Ajuste se o atleta tiver mais base.");
   if (input.strength_plan_context) coach_notes.push("Sincronizado com a musculação: evite Z4/Z5 no dia e na véspera de MMII pesado; corrida fácil só após a força, ≥6h de intervalo.");
-  if (volCalibrated) coach_notes.push(`Volume inicial calibrado pelo volume atual da anamnese (~${round1(currentVol)} km/sem): semana 1 parte de perto do que o atleta já faz (+~10%).`);
+  if (volCalibrated) coach_notes.push(`Volume inicial calibrado pelo volume atual da anamnese (~${round1(currentVol)} ${currentVolumeUnit === "hours_week" ? "h/sem" : "km/sem"}): semana 1 parte de perto do que o atleta já faz (+~10%).`);
   if (input.previous_plan_context) coach_notes.push(`Continuidade longitudinal aplicada a partir do ciclo anterior; fase atual: ${sequence.phase}.`);
   if (perf) coach_notes.push("Última semana em taper (fator 0,5) para chegar descansado na prova.");
   coach_notes.push("Plano base gerado pela metodologia BN (determinístico). Revise antes de prescrever ao aluno.");

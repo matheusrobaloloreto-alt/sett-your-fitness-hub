@@ -451,7 +451,7 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
         .maybeSingle(),
       supabase
         .from("student_anamneses")
-        .select("age, objective, activity_level, is_endurance_athlete, training_modality, days_per_week_strength, days_per_week_cardio, session_duration_min, equipment, experience_months, sport, current_volume_weekly, cardio_goal, stress_score, sleep_quality, injuries, food_restrictions, notes")
+        .select("age, objective, activity_level, is_endurance_athlete, training_modality, days_per_week_strength, days_per_week_cardio, session_duration_min, equipment, experience_months, sport, current_volume_weekly, current_volume_unit, cardio_goal, stress_score, sleep_quality, injuries, food_restrictions, notes")
         .eq("student_id", student.id)
         .maybeSingle(),
       supabase
