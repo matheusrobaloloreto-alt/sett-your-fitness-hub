@@ -28,7 +28,13 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { interpolateTemplate } from "@/lib/templateVars";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { listStudentFiles, signStudentFile } from "@/lib/studentFiles";
-import { normalizeSalesStage, type FunnelStageStudent } from "@/lib/salesFunnelView";
+import { type FunnelStageStudent } from "@/lib/salesFunnelView";
+import { businessDateYmd } from "@/lib/businessDate";
+import {
+  matchesWhatsAppStatusFilter,
+  selectCurrentCycle,
+  type WhatsAppStatusFilter,
+} from "@/lib/whatsappAudience";
 
 type Chat = {
   id: string;
@@ -83,10 +89,11 @@ type StudentContext = {
   planName?: string;
   planValue?: number | null;
   dueDate?: string | null;
+  enrollmentEndDate?: string | null;
 };
 
 type ChatScopeFilter = "all" | "unread" | "groups";
-type ChatStatusFilter = "all" | "active" | "leads" | "renewal" | "pending" | "assessment";
+type ChatStatusFilter = WhatsAppStatusFilter;
 
 type BulkFilters = {
   trainerId: string;
@@ -165,10 +172,6 @@ const formatMessageDay = (value: string) => {
 
 const formatMessageTimestamp = (value: string) => (
   format(new Date(value), "dd/MM/yyyy HH:mm")
-);
-
-const chatStudentStage = (chat: Chat) => (
-  chat.student ? normalizeSalesStage(chat.student as FunnelStageStudent) : "interested"
 );
 
 const isAdministrativeRole = (role: string | null) => (
@@ -361,16 +364,17 @@ export default function WhatsAppChat() {
 
     let enrollQuery = supabase
       .from("enrollments")
-      .select("id, student_id, status, training_start_date, plan_id, plans(name, price)")
+      .select("id, student_id, status, training_start_date, end_date, plan_id, plans(name, price)")
       .in("student_id", studentIds)
-      .eq("status", "active");
+      .in("status", ["active", "awaiting_training", "awaiting_renewal"])
+      .order("end_date", { ascending: false, nullsFirst: false });
     if (effectiveCompanyId) enrollQuery = enrollQuery.eq("company_id", effectiveCompanyId);
 
     const { data: enrollments } = await enrollQuery;
 
     const enrollmentIds = (enrollments || []).map((e) => e.id);
     const { data: cycles } = enrollmentIds.length > 0
-      ? await supabase.from("training_cycles").select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at").in("enrollment_id", enrollmentIds).eq("status", "active")
+      ? await supabase.from("training_cycles").select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at").in("enrollment_id", enrollmentIds)
       : { data: [] };
 
     const cycleIds = (cycles || []).map((c) => c.id);
@@ -388,6 +392,7 @@ export default function WhatsAppChat() {
     const labels: Record<string, string[]> = {};
     const workoutsByCycle = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
     const pendingPaymentsByStudent = new Set((payments || []).map((p) => p.student_id));
+    const today = businessDateYmd();
     // Vencimento pendente mais próximo por aluno (para a variável {{vencimento}}).
     const dueByStudent: Record<string, string> = {};
     for (const p of payments || []) {
@@ -399,11 +404,18 @@ export default function WhatsAppChat() {
     for (const chat of studentChats) {
       const studentId = chat.student_id!;
       const enrollment = (enrollments || []).find((e) => e.student_id === studentId);
-      const cycle = enrollment ? (cycles || []).find((c) => c.enrollment_id === enrollment.id) : null;
+      const cycle = enrollment
+        ? selectCurrentCycle((cycles || []).filter((c) => c.enrollment_id === enrollment.id), today)
+        : null;
       const chatLabelsArr: string[] = [];
       const planRaw = (enrollment as { plans?: { name?: string; price?: number } | { name?: string; price?: number }[] } | undefined)?.plans;
       const plan = Array.isArray(planRaw) ? planRaw[0] : planRaw;
-      const planExtras = { planName: plan?.name, planValue: plan?.price ?? null, dueDate: dueByStudent[studentId] || null };
+      const planExtras = {
+        planName: plan?.name,
+        planValue: plan?.price ?? null,
+        dueDate: dueByStudent[studentId] || null,
+        enrollmentEndDate: enrollment?.end_date || null,
+      };
 
       if (cycle) {
         const daysRemaining = Math.max(0, differenceInDays(new Date(cycle.end_date), new Date()));
@@ -1261,14 +1273,9 @@ export default function WhatsAppChat() {
       if (!labels.includes("Aguardando Treino")) return false;
     }
     if (statusFilter !== "all") {
-      if (!c.student) return false;
-      const stage = chatStudentStage(c);
-      const status = c.student.status || "";
-      if (statusFilter === "active" && !(stage === "active" && status !== "awaiting_renewal")) return false;
-      if (statusFilter === "leads" && !(stage === "interested" || status === "interested")) return false;
-      if (statusFilter === "renewal" && status !== "awaiting_renewal") return false;
-      if (statusFilter === "pending" && !(status === "pending" || stage === "fiscal_registration_pending" || stage === "payment_pending")) return false;
-      if (statusFilter === "assessment" && stage !== "active_onboarding") return false;
+      if (!matchesWhatsAppStatusFilter(c.student as FunnelStageStudent | null, statusFilter, {
+        enrollmentEndDate: studentContexts[c.id]?.enrollmentEndDate,
+      })) return false;
     }
     return true;
   });

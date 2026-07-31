@@ -48,6 +48,7 @@ type BnitoOpenOptions = {
   context?: string;
   question?: string;
   source?: string;
+  studentId?: string;
 };
 
 type BnitoAssistantContextValue = {
@@ -62,6 +63,7 @@ type BnitoContextButtonProps = {
   question?: string;
   className?: string;
   text?: string;
+  studentId?: string;
 };
 
 const BnitoAssistantContext = createContext<BnitoAssistantContextValue | null>(null);
@@ -106,6 +108,11 @@ function createMessage(role: BnitoMessage["role"], content: string): BnitoMessag
 
 function getCycleId(pathname: string) {
   const match = pathname.match(/\/workout\/([^/]+)/);
+  return match?.[1] || null;
+}
+
+function getStudentId(pathname: string) {
+  const match = pathname.match(/\/students\/([0-9a-f-]{36})(?:\/|$)/i);
   return match?.[1] || null;
 }
 
@@ -158,7 +165,7 @@ export function useBnitoAssistant() {
   return context || { isAvailable: false, openBnito: () => {}, assistantName: "Setty" };
 }
 
-export function BnitoContextButton({ label, context, question, className, text }: BnitoContextButtonProps) {
+export function BnitoContextButton({ label, context, question, className, text, studentId }: BnitoContextButtonProps) {
   const assistant = useBnitoAssistant();
   if (!assistant.isAvailable) return null;
   const name = assistant.assistantName || "Setty";
@@ -177,7 +184,7 @@ export function BnitoContextButton({ label, context, question, className, text }
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            assistant.openBnito({ label, context, question });
+            assistant.openBnito({ label, context, question, studentId });
           }}
           aria-label={`Perguntar ao ${name} sobre ${displayLabel}`}
         >
@@ -228,8 +235,10 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
 
   const shouldShow = role === "admin" || role === "coordinator" || role === "trainer" || role === "master";
   const cycleId = useMemo(() => getCycleId(location.pathname), [location.pathname]);
+  const routeStudentId = useMemo(() => getStudentId(location.pathname), [location.pathname]);
   const pageLabel = useMemo(() => getPageLabel(location.pathname), [location.pathname]);
   const activeLabel = sessionContext?.label || pageLabel;
+  const activeStudentId = sessionContext?.studentId || routeStudentId;
 
   const clampButtonPosition = useCallback((x: number, y: number) => {
     if (typeof window === "undefined") return { x, y };
@@ -294,6 +303,8 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
         body: {
           action: "ask",
           cycle_id: cycleId,
+          student_id: activeStudentId,
+          company_id: effectiveCompanyId,
           question: trimmed,
           profile: {
             role,
@@ -307,6 +318,7 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
             sessionContext?.context ? `Contexto da secao: ${sessionContext.context}.` : "",
             `Rota atual: ${location.pathname}.`,
             cycleId ? `Ciclo aberto: ${cycleId}.` : "",
+            activeStudentId ? `Aluno em contexto: ${activeStudentId}.` : "",
           ].filter(Boolean).join(" "),
           page_context: {
             pathname: location.pathname,
@@ -314,6 +326,8 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
             context_label: sessionContext?.label || null,
             context: sessionContext?.context || null,
             cycle_id: cycleId,
+            student_id: activeStudentId,
+            company_id: effectiveCompanyId,
           },
         },
       });

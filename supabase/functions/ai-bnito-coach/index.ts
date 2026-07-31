@@ -1,16 +1,20 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { assertTenantAccess, HttpError } from "../_shared/tenant-auth.ts";
 
 type BnitoAction = "review" | "ask" | "contextual";
 
 interface AuthContext {
   authHeader: string;
   userId: string;
+  claims: Record<string, unknown>;
 }
 
 interface BnitoRequest {
   action?: BnitoAction;
   cycle_id?: string;
+  student_id?: string;
+  company_id?: string;
   workouts?: unknown;
   volume_summary?: unknown;
   question?: string;
@@ -296,7 +300,7 @@ async function requireUser(req: Request): Promise<AuthContext | null> {
   const token = authHeader.replace("Bearer ", "");
   const { data, error } = await supabase.auth.getClaims(token);
   if (error || !data?.claims || typeof data.claims.sub !== "string") return null;
-  return { authHeader, userId: data.claims.sub };
+  return { authHeader, userId: data.claims.sub, claims: data.claims as Record<string, unknown> };
 }
 
 function userClient(auth: AuthContext) {
@@ -305,57 +309,171 @@ function userClient(auth: AuthContext) {
   });
 }
 
-async function loadCycleContext(auth: AuthContext, cycleId?: string) {
-  if (!cycleId) return { cycle: null, enrollment: null, student: null, anamnese: null, assessment: null };
+function businessDateYmd() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+}
+
+function isDateInside(date: string, start?: string | null, end?: string | null) {
+  return (!start || start <= date) && (!end || end >= date);
+}
+
+async function loadProfessorContext(
+  auth: AuthContext,
+  opts: { cycleId?: string; studentId?: string; companyId?: string },
+) {
   const supabase = userClient(auth);
+  let cycle: Record<string, unknown> | null = null;
+  let enrollment: Record<string, unknown> | null = null;
 
-  const { data: cycle, error: cycleError } = await supabase
-    .from("training_cycles")
-    .select("id, cycle_number, start_date, end_date, status, company_id, enrollment_id")
-    .eq("id", cycleId)
+  if (opts.cycleId) {
+    const { data, error } = await supabase
+      .from("training_cycles")
+      .select("id, cycle_number, start_date, end_date, status, company_id, enrollment_id")
+      .eq("id", opts.cycleId)
+      .maybeSingle();
+
+    if (error) throw new HttpError(403, `Falha ao carregar ciclo: ${error.message}`);
+    if (!data) throw new HttpError(404, "Ciclo nao encontrado ou sem permissao.");
+    cycle = data;
+  }
+
+  if (cycle?.enrollment_id) {
+    const { data } = await supabase
+      .from("enrollments")
+      .select("id, student_id, company_id, status, start_date, end_date, training_start_date, cycle_duration_days, notes, plan_id")
+      .eq("id", String(cycle.enrollment_id))
+      .maybeSingle();
+    enrollment = data;
+  }
+
+  const studentId = opts.studentId || (enrollment?.student_id as string | undefined);
+  if (!studentId) {
+    return {
+      company_id: opts.companyId || (cycle?.company_id as string | undefined) || null,
+      student_id: null,
+      cycle,
+      enrollment,
+      student: null,
+      anamnese: null,
+      assessment: null,
+    };
+  }
+
+  const { data: student, error: studentError } = await supabase
+    .from("students")
+    .select("id, company_id, full_name, gender, birth_date, weekly_workout_goal, notes, status, sales_stage, assigned_trainer_id")
+    .eq("id", studentId)
     .maybeSingle();
+  if (studentError || !student) throw new HttpError(404, "Aluno nao encontrado ou sem permissao.");
 
-  if (cycleError) throw new Error(`Falha ao carregar ciclo: ${cycleError.message}`);
-  if (!cycle) throw new Error("Ciclo nao encontrado ou sem permissao.");
+  if (!enrollment) {
+    const { data } = await supabase
+      .from("enrollments")
+      .select("id, student_id, company_id, status, start_date, end_date, training_start_date, cycle_duration_days, notes, plan_id")
+      .eq("student_id", studentId)
+      .in("status", ["active", "awaiting_training", "awaiting_renewal"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    enrollment = data;
+  }
 
-  const { data: enrollment } = await supabase
-    .from("enrollments")
-    .select("id, student_id, company_id, status, cycle_duration_days, notes")
-    .eq("id", cycle.enrollment_id)
-    .maybeSingle();
+  if (!cycle && enrollment?.id) {
+    const { data: cycles } = await supabase
+      .from("training_cycles")
+      .select("id, cycle_number, start_date, end_date, status, company_id, enrollment_id")
+      .eq("enrollment_id", String(enrollment.id))
+      .order("start_date", { ascending: true });
+    const today = businessDateYmd();
+    cycle = (cycles || []).find((item) => isDateInside(today, item.start_date, item.end_date))
+      || (cycles || []).find((item) => item.status === "active")
+      || null;
+  }
 
-  const studentId = enrollment?.student_id as string | undefined;
-  const [{ data: student }, { data: anamnese }, { data: assessments }] = await Promise.all([
-    studentId
-      ? supabase
-          .from("students")
-          .select("id, full_name, gender, birth_date, weekly_workout_goal, notes, status")
-          .eq("id", studentId)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
-    studentId
-      ? supabase
-          .from("student_anamneses")
-          .select("age, objective, activity_level, is_endurance_athlete, training_modality, days_per_week_strength, days_per_week_cardio, session_duration_min, equipment, experience_months, sport, current_volume_weekly, current_volume_unit, cardio_goal, stress_score, sleep_quality, injuries, food_restrictions, notes")
-          .eq("student_id", studentId)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
-    studentId
-      ? supabase
-          .from("functional_assessments")
-          .select("created_at, modalidade, nivel, historico_lesoes, report_text, assessment_json")
-          .eq("student_id", studentId)
-          .order("created_at", { ascending: false })
-          .limit(1)
-      : Promise.resolve({ data: [] }),
+  const [
+    { data: anamnese },
+    { data: legacyAnamneses },
+    { data: assessments },
+    { data: checkins },
+    { data: feedback },
+    { data: strengthPlans },
+    { data: cardioPlans },
+    { data: nutritionPlans },
+  ] = await Promise.all([
+    supabase
+      .from("student_anamneses")
+      .select("age, objective, activity_level, is_endurance_athlete, training_modality, wants_strength, wants_running, wants_swimming, wants_cycling, wants_nutrition, days_per_week_strength, days_per_week_cardio, session_duration_min, equipment, experience_months, sport, current_volume_weekly, current_volume_unit, cardio_goal, stress_score, sleep_quality, injuries, food_restrictions, notes")
+      .eq("student_id", studentId)
+      .maybeSingle(),
+    supabase
+      .from("anamnesis")
+      .select("created_at, modalities, training_days, available_days, session_duration, goals, health_conditions, injuries, current_pain, pain_areas, restrictions, physical_activity_level, sleep_quality, stress_level, nutrition, food_allergies, available_equipment, experience_level, additional_notes")
+      .eq("student_id", studentId)
+      .order("created_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("functional_assessments")
+      .select("created_at, modalidade, nivel, historico_lesoes, report_text, assessment_json")
+      .eq("student_id", studentId)
+      .order("created_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("student_checkins")
+      .select("checkin_date, sleep_quality, stress, pain")
+      .eq("student_id", studentId)
+      .order("checkin_date", { ascending: false })
+      .limit(7),
+    supabase
+      .from("workout_feedback")
+      .select("created_at, difficulty, energy, pain_areas, notes")
+      .eq("student_id", studentId)
+      .order("created_at", { ascending: false })
+      .limit(6),
+    supabase
+      .from("ai_strength_plans")
+      .select("id, cycle_name, objective, duration_weeks, plan, created_at")
+      .eq("student_id", studentId)
+      .order("created_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("running_plans")
+      .select("id, plan_name, sport, goal, duration_weeks, weeks, created_at")
+      .eq("student_id", studentId)
+      .order("created_at", { ascending: false })
+      .limit(3),
+    supabase
+      .from("nutrition_plans")
+      .select("id, objective, goal, start_date, end_date, plan, created_at")
+      .eq("student_id", studentId)
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
 
+  let workouts: unknown[] = [];
+  if (cycle?.id) {
+    const { data } = await supabase
+      .from("workouts")
+      .select("id, title, name, description, day_of_week, exercises")
+      .eq("cycle_id", String(cycle.id))
+      .order("day_of_week", { ascending: true });
+    workouts = data || [];
+  }
+
   return {
+    company_id: student.company_id,
+    student_id: student.id,
     cycle,
     enrollment,
     student,
-    anamnese,
+    anamnese: anamnese || null,
+    legacy_anamnese: anamnese ? null : (legacyAnamneses?.[0] ?? null),
     assessment: Array.isArray(assessments) ? assessments[0] ?? null : null,
+    current_workouts: workouts,
+    latest_strength_plan: strengthPlans?.[0] ?? null,
+    latest_cardio_plans: cardioPlans || [],
+    latest_nutrition_plan: nutritionPlans?.[0] ?? null,
+    recent_checkins: checkins || [],
+    recent_feedback: feedback || [],
   };
 }
 
@@ -403,11 +521,22 @@ serve(async (req) => {
       return jsonResponse({ result: guard, generated_at: new Date().toISOString(), model_tier: "local_guard" });
     }
 
-    const cycleContext = await loadCycleContext(auth, body.cycle_id);
+    const cycleContext = await loadProfessorContext(auth, {
+      cycleId: body.cycle_id,
+      studentId: body.student_id,
+      companyId: body.company_id,
+    });
+    const companyId = cycleContext.company_id || body.company_id || null;
+    const studentId = cycleContext.student_id || body.student_id || null;
+    if (companyId || studentId) {
+      const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+      await assertTenantAccess(admin, auth.claims, {
+        companyId,
+        studentId,
+        requireStaff: true,
+      });
+    }
     const picked = pickModel(action, question, body.context || "");
-    const companyId = (cycleContext.cycle?.company_id as string | undefined)
-      || (cycleContext.enrollment?.company_id as string | undefined)
-      || null;
     const aiConfig = await loadCompanyAiConfig(companyId);
 
     const prompt = `
@@ -422,8 +551,8 @@ ${compact(body.profile, 3000)}
 CONTEXTO LIVRE:
 ${cleanText(body.context || "", 5000)}
 
-CONTEXTO DO APP:
-${compact(cycleContext, 9000)}
+CONTEXTO E PRONTUARIO DO APP:
+${compact(cycleContext, 18000)}
 
 RASCUNHO DE TREINOS NA TELA:
 ${compact(body.workouts, 12000)}
@@ -482,7 +611,7 @@ ${OUTPUT_SCHEMA}
     };
 
     await writeAiDecisionLog({
-      student_id: (cycleContext.enrollment?.student_id as string | undefined) ?? null,
+      student_id: studentId,
       company_id: companyId,
       source: "bnito",
       summary: cleanText(
@@ -497,8 +626,9 @@ ${OUTPUT_SCHEMA}
         result,
         context_loaded: {
           has_cycle: !!cycleContext.cycle,
-          has_anamnese: !!cycleContext.anamnese,
+          has_anamnese: !!cycleContext.anamnese || !!cycleContext.legacy_anamnese,
           has_assessment: !!cycleContext.assessment,
+          has_prescriptions: !!cycleContext.latest_strength_plan || (cycleContext.latest_cardio_plans?.length || 0) > 0 || !!cycleContext.latest_nutrition_plan,
         },
       },
     });
@@ -510,12 +640,13 @@ ${OUTPUT_SCHEMA}
       generated_at: new Date().toISOString(),
       context_loaded: {
         has_cycle: !!cycleContext.cycle,
-        has_anamnese: !!cycleContext.anamnese,
+        has_anamnese: !!cycleContext.anamnese || !!cycleContext.legacy_anamnese,
         has_assessment: !!cycleContext.assessment,
+        has_prescriptions: !!cycleContext.latest_strength_plan || (cycleContext.latest_cardio_plans?.length || 0) > 0 || !!cycleContext.latest_nutrition_plan,
       },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
-    return jsonResponse({ error: message }, 500);
+    return jsonResponse({ error: message }, error instanceof HttpError ? error.status : 500);
   }
 });

@@ -428,6 +428,9 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
     { data: bodyMeasurements },
     { data: workoutFeedback },
     { data: achievements },
+    { data: checkins },
+    { data: cardioPlans },
+    { data: nutritionPlans },
   ] =
     await Promise.all([
       supabase
@@ -445,7 +448,7 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
         .from("enrollments")
         .select("id, status, start_date, end_date, training_start_date, plan_id, plans(name, price, description, duration_days, duration_weeks, cycle_duration_days)")
         .eq("student_id", student.id)
-        .eq("status", "active")
+        .in("status", ["active", "awaiting_training", "awaiting_renewal"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -503,6 +506,24 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
         .eq("student_id", student.id)
         .order("earned_at", { ascending: false })
         .limit(12),
+      supabase
+        .from("student_checkins")
+        .select("checkin_date, sleep_quality, stress, pain")
+        .eq("student_id", student.id)
+        .order("checkin_date", { ascending: false })
+        .limit(7),
+      supabase
+        .from("running_plans")
+        .select("id, plan_name, sport, goal, duration_weeks, weeks, start_date, end_date, created_at")
+        .eq("student_id", student.id)
+        .order("created_at", { ascending: false })
+        .limit(4),
+      supabase
+        .from("nutrition_plans")
+        .select("id, objective, goal, start_date, end_date, plan, meals, created_at")
+        .eq("student_id", student.id)
+        .order("created_at", { ascending: false })
+        .limit(1),
     ]);
 
   let cycles: any[] = [];
@@ -526,8 +547,8 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
   }
 
   const activeCycle =
-    cycles.find((cycle) => cycle.status === "active") ||
     cycles.find((cycle) => isDateInside(todayIso, cycle.start_date, cycle.end_date)) ||
+    cycles.find((cycle) => cycle.status === "active") ||
     cycles[0] ||
     null;
 
@@ -578,6 +599,9 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
     body_measurements: bodyMeasurements || [],
     recent_feedback: workoutFeedback || [],
     achievements_earned: achievements || [],
+    recent_checkins: checkins || [],
+    cardio_plans: cardioPlans || [],
+    nutrition_plan: nutritionPlans?.[0] || null,
   };
 }
 
