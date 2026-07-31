@@ -1617,6 +1617,7 @@ export default function WhatsAppChat() {
                 filteredChats.map((chat) => {
                   const labels = chatLabels[chat.id] || [];
                   const lastSenderName = chat.last_sender_id ? senderNames[chat.last_sender_id] : null;
+                  const isUnread = Number(chat.unread_count || 0) > 0;
                   return (
                     <div key={chat.id} className="relative group">
                       <div
@@ -1664,16 +1665,18 @@ export default function WhatsAppChat() {
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleToggleUnread(chat.id, chat.unread_count); }}
                                 disabled={updatingUnreadChatId === chat.id}
+                                data-read-state={isUnread ? "unread" : "read"}
                                 className={cn(
                                   "rounded p-1 transition-all disabled:cursor-wait disabled:opacity-40",
-                                  chat.unread_count > 0
+                                  isUnread
                                     ? "text-blue-600 drop-shadow-[0_0_4px_rgba(37,99,235,0.65)] hover:bg-blue-50"
                                     : "text-slate-400 opacity-55 hover:bg-slate-100 hover:opacity-100",
                                 )}
-                                title={chat.unread_count > 0 ? "Marcar como lida" : "Marcar como não lida"}
-                                aria-label={chat.unread_count > 0 ? "Marcar como lida" : "Marcar como não lida"}
+                                style={{ color: isUnread ? "rgb(37, 99, 235)" : "rgb(148, 163, 184)" }}
+                                title={isUnread ? "Não lida: clicar para marcar como lida" : "Lida: clicar para marcar como não lida"}
+                                aria-label={isUnread ? "Conversa não lida" : "Conversa lida"}
                               >
-                                {chat.unread_count > 0 ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
+                                {isUnread ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
                               </button>
                             </div>
                           </div>
