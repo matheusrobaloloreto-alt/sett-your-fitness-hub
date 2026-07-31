@@ -32,7 +32,11 @@ function waDigits(phone?: string | null): string | null {
   return d;
 }
 
-export default function AnamnesisManager() {
+interface AnamnesisManagerProps {
+  embedded?: boolean;
+}
+
+export default function AnamnesisManager({ embedded = false }: AnamnesisManagerProps = {}) {
   const { user, companyId: authCompanyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : authCompanyId ?? null;
@@ -124,14 +128,29 @@ export default function AnamnesisManager() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-3xl text-primary"><ClipboardCheck className="h-7 w-7" /> ANAMNESE</h1>
-          <p className="mt-1 font-sans text-sm text-muted-foreground">
-            Anamnese única do estúdio — gere o link e abra a conversa dentro do app.
-          </p>
+      {!embedded && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="flex items-center gap-2 text-3xl text-primary"><ClipboardCheck className="h-7 w-7" /> ANAMNESE</h1>
+            <p className="mt-1 font-sans text-sm text-muted-foreground">
+              Anamnese única do estúdio — gere o link e abra a conversa dentro do app.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+              <Pencil className="mr-2 h-4 w-4" /> Editar anamnese
+            </Button>
+            <BnitoContextButton
+              label="anamnese do estúdio"
+              context="Anamnese estruturada única (dados, objetivo, modalidades, rotina, saúde, PAR-Q, nutrição condicional) que alimenta todas as prescrições."
+              question="Quais respostas da anamnese mais impactam a qualidade e a segurança da prescrição?"
+              text="BNITO da anamnese"
+            />
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+      )}
+      {embedded && (
+        <div className="flex flex-wrap justify-end gap-2">
           <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
             <Pencil className="mr-2 h-4 w-4" /> Editar anamnese
           </Button>
@@ -139,10 +158,10 @@ export default function AnamnesisManager() {
             label="anamnese do estúdio"
             context="Anamnese estruturada única (dados, objetivo, modalidades, rotina, saúde, PAR-Q, nutrição condicional) que alimenta todas as prescrições."
             question="Quais respostas da anamnese mais impactam a qualidade e a segurança da prescrição?"
-            text="BNITO da anamnese"
+            text="BNITO"
           />
         </div>
-      </div>
+      )}
 
       <Card className="bg-card">
         <CardHeader className="pb-3"><CardTitle className="text-base">Enviar anamnese para um aluno</CardTitle></CardHeader>

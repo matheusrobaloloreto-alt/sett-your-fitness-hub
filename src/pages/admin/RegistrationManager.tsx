@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
@@ -38,6 +38,8 @@ import {
   normalizeSalesStage,
   stageNextAction,
 } from "@/lib/salesFunnelView";
+
+const AnamnesisManager = lazy(() => import("./AnamnesisManager"));
 
 interface Student {
   entityType: "student" | "lead";
@@ -540,6 +542,28 @@ export default function RegistrationManager() {
           </div>
         </CardContent>
       </Card>
+
+      <section className="space-y-4 border-t border-border pt-5">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-eyebrow">Fluxo de interessados</p>
+            <h2 className="font-display text-2xl text-primary">Anamnese dos alunos</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Envie, copie ou edite a anamnese estruturada sem sair da aba de Interessados.
+            </p>
+          </div>
+        </div>
+        <Suspense
+          fallback={(
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-background p-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Carregando anamnese
+            </div>
+          )}
+        >
+          <AnamnesisManager embedded />
+        </Suspense>
+      </section>
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
