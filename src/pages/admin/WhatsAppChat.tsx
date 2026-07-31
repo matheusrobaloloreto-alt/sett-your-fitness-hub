@@ -1667,8 +1667,8 @@ export default function WhatsAppChat() {
                                 className={cn(
                                   "rounded p-1 transition-all disabled:cursor-wait disabled:opacity-40",
                                   chat.unread_count > 0
-                                    ? "text-slate-400 opacity-55 hover:bg-slate-100 hover:opacity-100"
-                                    : "text-blue-600 drop-shadow-[0_0_4px_rgba(37,99,235,0.65)] hover:bg-blue-50",
+                                    ? "text-blue-600 drop-shadow-[0_0_4px_rgba(37,99,235,0.65)] hover:bg-blue-50"
+                                    : "text-slate-400 opacity-55 hover:bg-slate-100 hover:opacity-100",
                                 )}
                                 title={chat.unread_count > 0 ? "Marcar como lida" : "Marcar como não lida"}
                                 aria-label={chat.unread_count > 0 ? "Marcar como lida" : "Marcar como não lida"}

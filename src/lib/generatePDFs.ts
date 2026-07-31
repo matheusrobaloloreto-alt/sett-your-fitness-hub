@@ -43,7 +43,10 @@ function sanitize(s: string): string {
   let out = s.replace(/[←-⇿⌀-➿⬀-⯿✓✔✗★☆≥≤≈]/g,
     (c) => GLYPHS[c] ?? "");
   // remove quaisquer outros codepoints altos não suportados (preserva Latin-1 acentuado, travessões, aspas, bullet)
-  out = out.replace(/[^\u0000-ÿ–—‘’“”•…]/g, "");
+  const supportedPunctuation = "–—‘’“”•…";
+  out = Array.from(out)
+    .filter((character) => (character.codePointAt(0) || 0) <= 0xff || supportedPunctuation.includes(character))
+    .join("");
   return out;
 }
 const asText = (v: any) =>

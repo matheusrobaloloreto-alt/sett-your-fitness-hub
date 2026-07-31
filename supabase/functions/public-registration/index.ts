@@ -1,6 +1,9 @@
-// Public endpoint: lookup company by slug, list active plans, create student.
-// Uses service role to enforce strict scoping; never trusts client company_id.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
+import {
+  buildPaymentLinkMessage,
+  sendFunnelWhatsAppMessage,
+} from "../_shared/sales-funnel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,10 +11,20 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+const APP_URL = (Deno.env.get("PUBLIC_APP_URL") || "https://www.settapp.com.br").replace(/\/+$/, "");
 const supabase = createClient(
-  Deno.env.get("SUPABASE_URL")!,
+  SUPABASE_URL,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
 async function resolveCompany(slug: string | null) {
   if (slug) {
@@ -33,134 +46,357 @@ async function resolveCompany(slug: string | null) {
   return data;
 }
 
+async function getBranding(companyId: string) {
+  const { data, error } = await supabase
+    .from("platform_settings")
+    .select("logo_url, platform_title, primary_color, background_color, card_color, text_color")
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (error) throw new HttpError(500, `Falha ao carregar identidade visual: ${error.message}`);
+  return data ?? null;
+}
+
 const normalizeEmail = (value: unknown) =>
   typeof value === "string" ? value.trim().toLowerCase() : "";
-
 const onlyDigits = (value: unknown) =>
   typeof value === "string" ? value.replace(/\D/g, "") : "";
-
+const cleanText = (value: unknown) =>
+  typeof value === "string" ? value.trim() : "";
 const escapeLikePattern = (value: string) => value.replace(/[\\%_]/g, "\\$&");
+
+function fiscalValidation(student: Record<string, unknown>): string[] {
+  const missing: string[] = [];
+  if (!normalizeEmail(student.email) || !normalizeEmail(student.email).includes("@")) missing.push("e-mail válido");
+  if (![11, 14].includes(onlyDigits(student.cpf).length)) missing.push("CPF/CNPJ");
+  if (onlyDigits(student.cep).length !== 8) missing.push("CEP");
+  if (onlyDigits(student.whatsapp || student.phone).length < 10) missing.push("WhatsApp");
+  if (!cleanText(student.address)) missing.push("rua");
+  if (!cleanText(student.address_number)) missing.push("número");
+  if (!cleanText(student.neighborhood)) missing.push("bairro");
+  if (!cleanText(student.city)) missing.push("cidade");
+  if (cleanText(student.state).length !== 2) missing.push("estado");
+  return missing;
+}
 
 async function findExistingStudent(companyId: string, student: Record<string, unknown>) {
   const email = normalizeEmail(student.email);
   const cpf = onlyDigits(student.cpf);
-
   if (email) {
     const { data } = await supabase
       .from("students")
-      .select("id")
+      .select("id, full_name, status")
       .eq("company_id", companyId)
       .ilike("email", escapeLikePattern(email))
       .maybeSingle();
     if (data?.id) return data;
   }
-
   if (cpf) {
     const { data } = await supabase
       .from("students")
-      .select("id")
+      .select("id, full_name, status")
       .eq("company_id", companyId)
       .eq("cpf", cpf)
       .maybeSingle();
     if (data?.id) return data;
   }
-
   return null;
+}
+
+async function requireStaff(req: Request, studentId: unknown) {
+  if (!isUuid(studentId)) throw new HttpError(400, "studentId inválido.");
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) throw new HttpError(401, "Unauthorized");
+  const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: userData, error: userError } = await authClient.auth.getUser(
+    authHeader.slice("Bearer ".length),
+  );
+  if (userError || !userData?.user?.id) throw new HttpError(401, "Unauthorized");
+  const tenant = await assertTenantAccess(supabase, { sub: userData.user.id }, { studentId });
+  const roles = await Promise.all(
+    ["master", "admin", "coordinator", "trainer"].map((role) =>
+      supabase.rpc("has_role", { _user_id: tenant.userId, _role: role })
+    ),
+  );
+  const roleError = roles.find((result) => result.error)?.error;
+  if (roleError) throw new HttpError(503, `Falha ao validar função: ${roleError.message}`);
+  if (!roles.some((result) => result.data === true)) throw new HttpError(403, "Forbidden");
+  return tenant;
+}
+
+type RegistrationLink = {
+  id: string;
+  student_id: string;
+  company_id: string;
+  expires_at: string;
+  completed_at: string | null;
+};
+
+async function resolveRegistrationToken(token: unknown): Promise<RegistrationLink> {
+  if (!isUuid(token)) throw new HttpError(404, "Link de cadastro inválido.");
+  const { data, error } = await supabase
+    .from("public_registration_links")
+    .select("id, student_id, company_id, expires_at, completed_at, revoked_at")
+    .eq("token", token)
+    .maybeSingle();
+  if (error) throw new HttpError(500, `Falha ao validar link: ${error.message}`);
+  if (!data) throw new HttpError(404, "Link de cadastro inválido.");
+  if (data.revoked_at || new Date(data.expires_at).getTime() <= Date.now()) {
+    throw new HttpError(410, "Este link de cadastro expirou. Solicite um novo link.");
+  }
+  if (data.completed_at) {
+    throw new HttpError(410, "Este cadastro já foi concluído. Solicite um novo link para alterar os dados.");
+  }
+  await supabase.from("public_registration_links")
+    .update({ last_used_at: new Date().toISOString() })
+    .eq("id", data.id);
+  return data;
+}
+
+async function createRegistrationLink(req: Request, studentId: unknown) {
+  const tenant = await requireStaff(req, studentId);
+  const { data: student, error: studentError } = await supabase
+    .from("students")
+    .select("id, full_name, status, sales_stage")
+    .eq("id", studentId)
+    .eq("company_id", tenant.companyId)
+    .maybeSingle();
+  if (studentError) throw new HttpError(500, `Falha ao carregar interessado: ${studentError.message}`);
+  if (!student) throw new HttpError(404, "Interessado não encontrado.");
+
+  const now = new Date().toISOString();
+  const { data: existing, error: existingError } = await supabase
+    .from("public_registration_links")
+    .select("token, expires_at")
+    .eq("student_id", student.id)
+    .eq("company_id", tenant.companyId)
+    .is("revoked_at", null)
+    .is("completed_at", null)
+    .gt("expires_at", now)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existingError) throw new HttpError(500, `Falha ao consultar link: ${existingError.message}`);
+
+  let link = existing;
+  if (!link) {
+    const created = await supabase.from("public_registration_links").insert({
+      student_id: student.id,
+      company_id: tenant.companyId,
+      created_by: tenant.userId,
+    }).select("token, expires_at").single();
+    if (created.error || !created.data) {
+      throw new HttpError(500, `Falha ao criar link: ${created.error?.message || "erro desconhecido"}`);
+    }
+    link = created.data;
+  }
+
+  const update: Record<string, unknown> = { sales_stage: "fiscal_registration_pending" };
+  if (!["active", "awaiting_renewal"].includes(student.status || "")) update.status = "interested";
+  const { error: updateError } = await supabase.from("students")
+    .update(update)
+    .eq("id", student.id)
+    .eq("company_id", tenant.companyId);
+  if (updateError) throw new HttpError(500, `Falha ao atualizar interessado: ${updateError.message}`);
+
+  return { ...link, student: { id: student.id, full_name: student.full_name } };
+}
+
+async function createPaymentLink(studentId: string, companyId: string) {
+  const now = new Date().toISOString();
+  const existing = await supabase.from("public_payment_links")
+    .select("id, token, expires_at")
+    .eq("student_id", studentId)
+    .eq("company_id", companyId)
+    .is("revoked_at", null)
+    .gt("expires_at", now)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing.error) throw new HttpError(500, `Falha ao consultar checkout: ${existing.error.message}`);
+  if (existing.data) return existing.data;
+  const created = await supabase.from("public_payment_links").insert({
+    student_id: studentId,
+    company_id: companyId,
+  }).select("id, token, expires_at").single();
+  if (created.error || !created.data) {
+    throw new HttpError(500, `Falha ao criar checkout: ${created.error?.message || "erro desconhecido"}`);
+  }
+  return created.data;
+}
+
+const allowedStudentFields = [
+  "birth_date", "email", "phone", "cpf", "cep", "address", "address_number",
+  "neighborhood", "city", "state", "whatsapp",
+] as const;
+
+function fiscalPayload(student: Record<string, unknown>) {
+  const payload: Record<string, unknown> = {};
+  for (const key of allowedStudentFields) {
+    if (student[key] !== undefined) payload[key] = student[key];
+  }
+  payload.email = normalizeEmail(student.email);
+  payload.cpf = onlyDigits(student.cpf);
+  payload.cep = onlyDigits(student.cep);
+  payload.whatsapp = onlyDigits(student.whatsapp || student.phone);
+  payload.phone = onlyDigits(student.phone || student.whatsapp);
+  payload.state = cleanText(student.state).toUpperCase();
+  return payload;
+}
+
+async function completeFiscalRegistration(link: RegistrationLink, studentInput: Record<string, unknown>) {
+  const missing = fiscalValidation(studentInput);
+  if (missing.length) throw new HttpError(422, `Complete os dados fiscais: ${missing.join(", ")}.`);
+
+  const { data: currentStudent, error: studentError } = await supabase.from("students")
+    .select("id, full_name, status, whatsapp, phone")
+    .eq("id", link.student_id)
+    .eq("company_id", link.company_id)
+    .maybeSingle();
+  if (studentError) throw new HttpError(500, `Falha ao carregar cadastro: ${studentError.message}`);
+  if (!currentStudent) throw new HttpError(404, "Cadastro não encontrado.");
+
+  const completedAt = new Date().toISOString();
+  const payload: Record<string, unknown> = {
+    ...fiscalPayload(studentInput),
+    status: ["active", "awaiting_renewal"].includes(currentStudent.status || "")
+      ? currentStudent.status
+      : "pending",
+    sales_stage: "payment_pending",
+    fiscal_completed_at: completedAt,
+  };
+  const { error: updateError } = await supabase.from("students")
+    .update(payload)
+    .eq("id", currentStudent.id)
+    .eq("company_id", link.company_id);
+  if (updateError) throw new HttpError(500, `Falha ao salvar cadastro: ${updateError.message}`);
+
+  await supabase.from("public_registration_links")
+    .update({ completed_at: link.completed_at || completedAt })
+    .eq("id", link.id);
+
+  const paymentLink = await createPaymentLink(currentStudent.id, link.company_id);
+  const paymentUrl = `${APP_URL}/pagamento/${paymentLink.token}`;
+  const phone = String(payload.whatsapp || currentStudent.whatsapp || currentStudent.phone || "");
+  const sendResult = await sendFunnelWhatsAppMessage({
+    admin: supabase,
+    studentId: currentStudent.id,
+    companyId: link.company_id,
+    fullName: currentStudent.full_name,
+    phone,
+    text: buildPaymentLinkMessage(currentStudent.full_name, paymentUrl),
+    eventType: "payment_link_sent",
+    eventKey: `payment_link_sent:${paymentLink.id}`,
+    payload: { payment_link_id: paymentLink.id },
+  });
+  if (sendResult.sent) {
+    await supabase.from("students")
+      .update({ payment_link_sent_at: new Date().toISOString() })
+      .eq("id", currentStudent.id);
+  }
+  return {
+    studentId: currentStudent.id,
+    paymentToken: paymentLink.token,
+    paymentUrl,
+    paymentMessageSent: sendResult.sent,
+  };
+}
+
+async function legacyRegistration(companyId: string, student: Record<string, unknown>) {
+  if (!isUuid(companyId) || !cleanText(student.full_name)) {
+    throw new HttpError(400, "Dados obrigatórios ausentes.");
+  }
+  const { data: company } = await supabase.from("companies")
+    .select("id").eq("id", companyId).eq("is_active", true).maybeSingle();
+  if (!company) throw new HttpError(400, "Empresa inválida.");
+  const missing = fiscalValidation(student);
+  if (missing.length) throw new HttpError(422, `Complete os dados fiscais: ${missing.join(", ")}.`);
+
+  const payload = {
+    ...fiscalPayload(student),
+    full_name: cleanText(student.full_name),
+    company_id: companyId,
+    status: "pending",
+    sales_stage: "payment_pending",
+    fiscal_completed_at: new Date().toISOString(),
+  };
+  const existing = await findExistingStudent(companyId, payload);
+  let studentId = existing?.id as string | undefined;
+  if (studentId) {
+    const keepActive = ["active", "awaiting_renewal"].includes(existing?.status || "");
+    const { error } = await supabase.from("students").update({
+      ...payload,
+      status: keepActive ? existing?.status : "pending",
+    }).eq("id", studentId).eq("company_id", companyId);
+    if (error) throw new HttpError(500, `Falha ao atualizar cadastro: ${error.message}`);
+  } else {
+    const created = await supabase.from("students").insert(payload).select("id").single();
+    if (created.error || !created.data) {
+      const status = created.error?.code === "23505" ? 409 : 400;
+      throw new HttpError(status, created.error?.message || "Falha ao cadastrar.");
+    }
+    studentId = created.data.id;
+  }
+  if (!studentId) throw new HttpError(500, "Falha ao identificar o cadastro criado.");
+  const paymentLink = await createPaymentLink(studentId, companyId);
+  return {
+    studentId,
+    existing: !!existing,
+    paymentToken: paymentLink.token,
+    paymentUrl: `${APP_URL}/pagamento/${paymentLink.token}`,
+    paymentMessageSent: false,
+  };
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ error: "Método não permitido" }, 405);
 
   try {
     const body = await req.json();
-    const action = body?.action as string;
+    const action = typeof body?.action === "string" ? body.action : "";
+
+    if (action === "create-link") {
+      return json(await createRegistrationLink(req, body.studentId));
+    }
 
     if (action === "context") {
-      const company = await resolveCompany(body.slug ?? null);
-      if (!company) {
-        return new Response(JSON.stringify({ error: "Empresa não encontrada" }), {
-          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      if (body.token) {
+        const link = await resolveRegistrationToken(body.token);
+        const [{ data: student, error: studentError }, { data: company, error: companyError }, branding] =
+          await Promise.all([
+            supabase.from("students")
+              .select("id, full_name, birth_date, email, phone, cpf, cep, address, address_number, neighborhood, city, state, whatsapp")
+              .eq("id", link.student_id).eq("company_id", link.company_id).maybeSingle(),
+            supabase.from("companies")
+              .select("id, name, slug").eq("id", link.company_id).eq("is_active", true).maybeSingle(),
+            getBranding(link.company_id),
+          ]);
+        if (studentError || companyError) throw new HttpError(500, "Falha ao carregar cadastro.");
+        if (!student || !company) throw new HttpError(404, "Cadastro não encontrado.");
+        return json({ mode: "fiscal", student, company, branding, expiresAt: link.expires_at });
       }
-      const [{ data: settings }, { data: plans }] = await Promise.all([
-        supabase.from("platform_settings")
-          .select("logo_url, platform_title, primary_color, background_color, card_color, text_color")
-          .eq("company_id", company.id).maybeSingle(),
-        supabase.from("plans")
-          .select("id, name, description, duration_weeks, price")
-          .eq("company_id", company.id).eq("is_active", true).order("name"),
-      ]);
-      return new Response(JSON.stringify({ company, branding: settings ?? null, plans: plans ?? [] }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+
+      const company = await resolveCompany(body.slug ?? null);
+      if (!company) throw new HttpError(404, "Empresa não encontrada.");
+      return json({ mode: "public", company, branding: await getBranding(company.id) });
+    }
+
+    if (action === "complete") {
+      const link = await resolveRegistrationToken(body.token);
+      return json(await completeFiscalRegistration(link, body.student || {}));
     }
 
     if (action === "register") {
-      const { companyId, student } = body;
-      if (!companyId || !student?.full_name || !student?.email) {
-        return new Response(JSON.stringify({ error: "Dados obrigatórios ausentes" }), {
-          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      // Validate that companyId is real and active (defense-in-depth).
-      const { data: company } = await supabase
-        .from("companies").select("id").eq("id", companyId).eq("is_active", true).maybeSingle();
-      if (!company) {
-        return new Response(JSON.stringify({ error: "Empresa inválida" }), {
-          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      // Validate plan belongs to this company (if provided).
-      if (student.selected_plan_id) {
-        const { data: plan } = await supabase
-          .from("plans").select("id")
-          .eq("id", student.selected_plan_id)
-          .eq("company_id", companyId)
-          .eq("is_active", true).maybeSingle();
-        if (!plan) {
-          return new Response(JSON.stringify({ error: "Plano inválido para esta empresa" }), {
-            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-      }
-
-      // Whitelist allowed fields — never trust client to set company_id, status, user_id, etc.
-      const allowed = [
-        "full_name", "birth_date", "email", "phone", "cpf", "cep",
-        "address", "address_number", "neighborhood", "city", "state",
-        "whatsapp", "selected_plan_id",
-      ];
-      const insertPayload: Record<string, any> = { company_id: companyId, status: "pending" };
-      for (const k of allowed) if (student[k] !== undefined) insertPayload[k] = student[k];
-
-      const existingStudent = await findExistingStudent(companyId, insertPayload);
-      if (existingStudent?.id) {
-        return new Response(JSON.stringify({ studentId: existingStudent.id, existing: true }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const { data, error } = await supabase
-        .from("students").insert(insertPayload).select("id").single();
-      if (error) {
-        const duplicate = String(error.code || "") === "23505";
-        return new Response(JSON.stringify({ error: error.message }), {
-          status: duplicate ? 409 : 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      return new Response(JSON.stringify({ studentId: data.id }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return json(await legacyRegistration(body.companyId, body.student || {}));
     }
 
-    return new Response(JSON.stringify({ error: "Ação inválida" }), {
-      status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: e?.message ?? "Erro interno" }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: "Ação inválida" }, 400);
+  } catch (error) {
+    console.error("public-registration:", error);
+    const status = error instanceof HttpError ? error.status : 500;
+    const message = error instanceof Error ? error.message : "Erro interno";
+    return json({ error: message }, status);
   }
 });

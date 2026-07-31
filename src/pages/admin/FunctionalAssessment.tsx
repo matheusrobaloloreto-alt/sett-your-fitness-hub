@@ -161,7 +161,7 @@ export default function FunctionalAssessment() {
       generated_at: new Date().toISOString(),
     };
     const blob = new Blob([JSON.stringify(reportPayload, null, 2)], { type: "application/json" });
-    const safeName = (student?.full_name || "aluno").replace(/[^\w.\-]+/g, "_");
+    const safeName = (student?.full_name || "aluno").replace(/[^\w.-]+/g, "_");
     const { error: fileError } = await saveStudentFile({
       studentId,
       companyId,

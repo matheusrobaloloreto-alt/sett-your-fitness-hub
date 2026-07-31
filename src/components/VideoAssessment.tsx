@@ -820,7 +820,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
           imgs,
         );
         const blob = pdf.output("blob") as Blob;
-        const safe = name.replace(/[^\w.\-]+/g, "_");
+        const safe = name.replace(/[^\w.-]+/g, "_");
         await saveStudentFile({
           studentId, companyId, data: blob,
           fileName: `laudo-avaliacao-${safe}.pdf`, kind: "assessment_report",
@@ -840,7 +840,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
   async function sendLaudoWhatsApp() {
     if (!deliverBlob) return;
     setSendingPdf(true);
-    const safe = deliverName.replace(/[^\w.\-]+/g, "_");
+    const safe = deliverName.replace(/[^\w.-]+/g, "_");
     const res = await sendPdfToStudentWhatsApp({
       companyId, studentId, blob: deliverBlob,
       fileName: `laudo-avaliacao-${safe}.pdf`,

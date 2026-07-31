@@ -179,6 +179,7 @@ interface AsaasPayment {
 }
 
 const statusLabels: Record<string, string> = {
+  interested: "Interessado",
   active: "Ativo",
   pending: "Pendente",
   inactive: "Inativo",
@@ -189,6 +190,7 @@ const statusLabels: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
+  interested: "bg-blue-500/10 text-blue-700 border-blue-500/30",
   active: "bg-success/15 text-success border-success/30",
   pending: "bg-warning/15 text-warning border-warning/30",
   inactive: "bg-muted text-muted-foreground border-border",
@@ -1888,6 +1890,7 @@ export default function StudentDetail() {
                 <Select value={studentForm.status} onValueChange={v => setStudentForm({ ...studentForm, status: v })}>
                   <SelectTrigger className="bg-secondary border-border"><SelectValue /></SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="interested">Interessado</SelectItem>
                     <SelectItem value="active">Ativo</SelectItem>
                     <SelectItem value="pending">Pendente</SelectItem>
                     <SelectItem value="inactive">Inativo</SelectItem>

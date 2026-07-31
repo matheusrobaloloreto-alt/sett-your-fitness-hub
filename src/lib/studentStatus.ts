@@ -50,6 +50,7 @@ export interface StudentSignals {
  */
 export function deriveStudentStatus(s: StudentSignals): StudentStatus {
   if (s.baseStatus === "inactive") return "inativo";
+  if (s.baseStatus === "interested") return "lead";
 
   if (!s.hasAnamnesis) return "anamnese_pendente";
   if (!s.hasAssessment) return "avaliacao_pendente";

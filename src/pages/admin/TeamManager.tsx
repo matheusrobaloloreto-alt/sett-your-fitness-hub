@@ -643,7 +643,9 @@ export default function TeamManager() {
         try {
           const parsed = JSON.parse(error.context?.body || "{}");
           errorMsg = parsed.error || errorMsg;
-        } catch {}
+        } catch {
+          // A mensagem original da edge continua sendo exibida quando o corpo não é JSON.
+        }
         toast({ title: "Erro", description: errorMsg, variant: "destructive" });
         return;
       }

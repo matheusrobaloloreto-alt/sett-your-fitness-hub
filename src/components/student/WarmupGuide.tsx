@@ -102,7 +102,12 @@ export function WarmupGuide({ muscleGroups, open, onOpenChange }: {
               <button
                 key={i}
                 type="button"
-                onClick={() => setDone((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; })}
+                onClick={() => setDone((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(i)) next.delete(i);
+                  else next.add(i);
+                  return next;
+                })}
                 className={`flex w-full items-center gap-2 rounded-md border p-2 text-left text-sm transition-colors ${
                   isDone ? "border-green-500/40 bg-green-500/10 text-muted-foreground line-through" : "border-border bg-card hover:border-primary/40"
                 }`}

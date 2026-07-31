@@ -142,7 +142,7 @@ export default function ExerciseLibrary() {
       .in("exercise_id", ids);
 
     // Apply company overrides if scoped to a company
-    let overrides: Record<string, Record<string, number>> = {};
+    const overrides: Record<string, Record<string, number>> = {};
     if (effectiveCompanyId) {
       const { data: ovs } = await (supabase as any)
         .from("company_exercise_volumes")

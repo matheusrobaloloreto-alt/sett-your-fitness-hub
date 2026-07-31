@@ -95,8 +95,9 @@ async function sendText(args: {
 }
 
 async function applyLabel(admin: any, companyId: string, chatId: string, labelName: string) {
-  let { data: label, error } = await admin.from("whatsapp_labels").select("id")
+  const { data: existingLabel, error } = await admin.from("whatsapp_labels").select("id")
     .eq("company_id", companyId).eq("name", labelName).maybeSingle();
+  let label = existingLabel;
   if (error) throw error;
   if (!label) {
     const created = await admin.from("whatsapp_labels")

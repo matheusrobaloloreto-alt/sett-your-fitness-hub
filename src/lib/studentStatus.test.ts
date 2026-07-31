@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import { deriveStudentStatus, riskReasons } from "./studentStatus";
 
 describe("deriveStudentStatus", () => {
+  it("mantém interessado como lead antes do onboarding", () => {
+    expect(deriveStudentStatus({ baseStatus: "interested", hasAnamnesis: false })).toBe("lead");
+  });
+
   it("inativo quando baseStatus é inactive (precede tudo)", () => {
     expect(deriveStudentStatus({ baseStatus: "inactive", hasAnamnesis: true, hasAssessment: true, hasActiveWorkout: true })).toBe("inativo");
   });

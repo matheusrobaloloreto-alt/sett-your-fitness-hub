@@ -1,5 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
+import {
+  addBusinessDays,
+  buildAssessmentOnboardingMessage,
+  claimFunnelEvent,
+  completeFunnelEvent,
+  isoDate,
+  sendFunnelWhatsAppMessage,
+} from "../_shared/sales-funnel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -90,20 +98,13 @@ async function createInvoice(asaasPaymentId: string) {
 }
 
 async function ensureEnrollmentExists(studentId: string) {
-  // Check if active enrollment already exists
   const { data: existing } = await supabaseAdmin
     .from("enrollments")
-    .select("id")
+    .select("id, end_date, plan_id, payment_status, status")
     .eq("student_id", studentId)
-    .in("status", ["active", "awaiting_training"])
+    .in("status", ["active", "awaiting_training", "awaiting_renewal"])
     .maybeSingle();
 
-  if (existing) {
-    console.log(`Enrollment already exists for student ${studentId}`);
-    return existing.id;
-  }
-
-  // Get student's selected plan and company
   const { data: student } = await supabaseAdmin
     .from("students")
     .select("selected_plan_id, assigned_trainer_id, company_id")
@@ -115,7 +116,6 @@ async function ensureEnrollmentExists(studentId: string) {
     return null;
   }
 
-  // Resolve company_id: fallback to plan's company if student has none
   let studentCompanyId = student.company_id;
   if (!studentCompanyId && student.selected_plan_id) {
     const { data: plan } = await supabaseAdmin
@@ -134,10 +134,9 @@ async function ensureEnrollmentExists(studentId: string) {
     }
   }
 
-  // Get plan duration
   const { data: plan } = await supabaseAdmin
     .from("plans")
-    .select("duration_weeks")
+    .select("duration_weeks, duration_days, cycle_duration_days, company_id")
     .eq("id", student.selected_plan_id)
     .single();
 
@@ -146,9 +145,69 @@ async function ensureEnrollmentExists(studentId: string) {
     return null;
   }
 
-  const today = new Date(`${businessDateYmd()}T12:00:00Z`);
+  const planDays = plan.duration_days || (plan.duration_weeks ? plan.duration_weeks * 7 : 90);
+  const todayYmd = businessDateYmd();
+
+  if (existing && existing.payment_status !== "paid") {
+    await supabaseAdmin.from("enrollments").update({
+      plan_id: student.selected_plan_id,
+      status: "active",
+      payment_status: "paid",
+      payment_date: todayYmd,
+    }).eq("id", existing.id);
+    return existing.id;
+  }
+
+  if (existing) {
+    const extensionStartYmd = existing.end_date && existing.end_date > todayYmd
+      ? existing.end_date
+      : todayYmd;
+    const extensionStart = new Date(`${extensionStartYmd}T12:00:00Z`);
+    const newEnd = new Date(extensionStart);
+    newEnd.setUTCDate(newEnd.getUTCDate() + planDays);
+    const newEndStr = businessDateYmd(newEnd);
+    await supabaseAdmin.from("enrollments").update({
+      end_date: newEndStr,
+      plan_id: student.selected_plan_id,
+      status: "active",
+      payment_status: "paid",
+      payment_date: todayYmd,
+    }).eq("id", existing.id);
+
+    const { data: lastCycle } = await supabaseAdmin.from("training_cycles")
+      .select("cycle_number, end_date")
+      .eq("enrollment_id", existing.id)
+      .order("cycle_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const cycleDays = plan.cycle_duration_days || 42;
+    let cycleNumber = (lastCycle?.cycle_number || 0) + 1;
+    let cycleStart = lastCycle?.end_date
+      ? new Date(`${lastCycle.end_date}T12:00:00Z`)
+      : new Date(extensionStart);
+    cycleStart.setUTCDate(cycleStart.getUTCDate() + 1);
+    while (cycleStart <= newEnd) {
+      let cycleEnd = new Date(cycleStart);
+      cycleEnd.setUTCDate(cycleEnd.getUTCDate() + cycleDays - 1);
+      if (cycleEnd > newEnd) cycleEnd = newEnd;
+      await supabaseAdmin.from("training_cycles").insert({
+        enrollment_id: existing.id,
+        cycle_number: cycleNumber,
+        start_date: businessDateYmd(cycleStart),
+        end_date: businessDateYmd(cycleEnd),
+        status: "pending",
+        company_id: studentCompanyId || plan.company_id || null,
+      });
+      cycleNumber += 1;
+      cycleStart = new Date(cycleEnd);
+      cycleStart.setUTCDate(cycleStart.getUTCDate() + 1);
+    }
+    return existing.id;
+  }
+
+  const today = new Date(`${todayYmd}T12:00:00Z`);
   const endDate = new Date(today);
-  endDate.setUTCDate(endDate.getUTCDate() + plan.duration_weeks * 7 - 1);
+  endDate.setUTCDate(endDate.getUTCDate() + planDays - 1);
 
   const { data: enrollment, error } = await supabaseAdmin
     .from("enrollments")
@@ -188,6 +247,7 @@ Deno.serve(async (req) => {
   }
 
   let claimedEventId: string | null = null;
+  let claimedFunnelEvent: { studentId: string; eventKey: string } | null = null;
   try {
     if (!ASAAS_WEBHOOK_TOKEN || !ASAAS_API_KEY) {
       throw new HttpError(503, "Asaas webhook is not configured");
@@ -253,20 +313,59 @@ Deno.serve(async (req) => {
     }
 
     const studentId = localPayment.student_id;
+    const isConfirmed = ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"].includes(newStatus);
+    let shouldApplyPaymentLifecycle = true;
+    if (isConfirmed) {
+      const { data: lifecycleStudent } = await supabaseAdmin
+        .from("students")
+        .select("company_id")
+        .eq("id", studentId)
+        .maybeSingle();
+      if (!lifecycleStudent?.company_id) throw new Error("Aluno sem empresa para aplicar pagamento.");
+      const eventKey = `payment_lifecycle:${asaasPaymentId}`;
+      shouldApplyPaymentLifecycle = await claimFunnelEvent(supabaseAdmin, {
+        studentId,
+        companyId: lifecycleStudent.company_id,
+        eventType: "payment_confirmed",
+        eventKey,
+        payload: { payment_id: asaasPaymentId, status: newStatus },
+      });
+      if (shouldApplyPaymentLifecycle) claimedFunnelEvent = { studentId, eventKey };
+    }
 
     // Handle status transitions
     if (
-      newStatus === "RECEIVED" ||
-      newStatus === "CONFIRMED" ||
-      newStatus === "RECEIVED_IN_CASH"
+      shouldApplyPaymentLifecycle &&
+      ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"].includes(newStatus)
     ) {
+      const [{ data: previousStudent }, { data: previousEnrollment }] = await Promise.all([
+        supabaseAdmin.from("students")
+          .select("status, activated_at, full_name, whatsapp, phone, company_id")
+          .eq("id", studentId)
+          .maybeSingle(),
+        supabaseAdmin.from("enrollments")
+          .select("id")
+          .eq("student_id", studentId)
+          .in("status", ["active", "awaiting_training", "awaiting_renewal"])
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      const isFirstActivation = !previousStudent?.activated_at &&
+        !previousEnrollment &&
+        !["active", "awaiting_renewal"].includes(previousStudent?.status || "");
+      const dueDate = addBusinessDays(new Date(), 5);
       await supabaseAdmin
         .from("students")
-        .update({ status: "active" })
+        .update({
+          status: "active",
+          sales_stage: isFirstActivation ? "active_onboarding" : "active",
+          activated_at: previousStudent?.activated_at || new Date().toISOString(),
+          assessment_due_at: isFirstActivation ? isoDate(dueDate) : undefined,
+        })
         .eq("id", studentId);
 
       // Ensure enrollment exists (auto-create if missing)
-      await ensureEnrollmentExists(studentId);
+      const enrollmentId = await ensureEnrollmentExists(studentId);
 
       // Update existing enrollment payment status
       await supabaseAdmin
@@ -284,6 +383,54 @@ Deno.serve(async (req) => {
 
       // Emitir NFS-e automaticamente
       await createInvoice(asaasPaymentId);
+
+      if (
+        isFirstActivation &&
+        previousStudent?.company_id &&
+        previousStudent.full_name
+      ) {
+        const { data: anamnesis } = await supabaseAdmin
+          .from("student_anamneses")
+          .select("id")
+          .eq("student_id", studentId)
+          .limit(1)
+          .maybeSingle();
+        const formattedDueDate = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(dueDate);
+        const result = await sendFunnelWhatsAppMessage({
+          admin: supabaseAdmin,
+          studentId,
+          companyId: previousStudent.company_id,
+          fullName: previousStudent.full_name,
+          phone: previousStudent.whatsapp || previousStudent.phone,
+          text: buildAssessmentOnboardingMessage({
+            fullName: previousStudent.full_name,
+            dueDate: formattedDueDate,
+            hasAnamnesis: !!anamnesis,
+          }),
+          eventType: "assessment_instructions_sent",
+          eventKey: `assessment_instructions:${asaasPaymentId}`,
+          payload: {
+            payment_id: asaasPaymentId,
+            enrollment_id: enrollmentId,
+            assessment_due_at: isoDate(dueDate),
+            has_anamnesis: !!anamnesis,
+          },
+        });
+        if (result.sent) {
+          await supabaseAdmin.from("students").update({
+            onboarding_instructions_sent_at: new Date().toISOString(),
+          }).eq("id", studentId);
+        }
+      }
+      if (claimedFunnelEvent) {
+        await completeFunnelEvent(
+          supabaseAdmin,
+          claimedFunnelEvent.studentId,
+          claimedFunnelEvent.eventKey,
+          "completed",
+        );
+        claimedFunnelEvent = null;
+      }
     } else if (newStatus === "OVERDUE") {
       await supabaseAdmin
         .from("enrollments")
@@ -322,6 +469,15 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error("Webhook error:", error);
     const message = error instanceof Error ? error.message : "Erro interno";
+    if (claimedFunnelEvent) {
+      await completeFunnelEvent(
+        supabaseAdmin,
+        claimedFunnelEvent.studentId,
+        claimedFunnelEvent.eventKey,
+        "failed",
+        message,
+      );
+    }
     if (claimedEventId) {
       await supabaseAdmin.from("integration_webhook_events").update({
         status: "failed",

@@ -19,7 +19,7 @@ export interface StudentFile {
 const BUCKET = "student-files";
 
 function buildPath(companyId: string, studentId: string, fileName: string, stampMs: number, stableName?: boolean): string {
-  const safe = fileName.replace(/[^\w.\-]+/g, "_");
+  const safe = fileName.replace(/[^\w.-]+/g, "_");
   // stableName: path determinístico por aluno → o upsert sobrescreve (ex.: 1 laudo atual por aluno).
   // Sem ele, prefixa o timestamp → mantém histórico (ex.: mídias do WhatsApp).
   return stableName ? `${companyId}/${studentId}/${safe}` : `${companyId}/${studentId}/${stampMs}-${safe}`;

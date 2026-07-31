@@ -22,14 +22,17 @@ interface CompanyBranding {
 }
 
 export default function PublicRegistration() {
-  const { slug } = useParams<{ slug?: string }>();
+  const { slug, token } = useParams<{ slug?: string; token?: string }>();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
-  const [newStudentId, setNewStudentId] = useState<string | null>(null);
+  const [paymentToken, setPaymentToken] = useState<string | null>(null);
+  const [paymentMessageSent, setPaymentMessageSent] = useState(false);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [branding, setBranding] = useState<CompanyBranding | null>(null);
+  const [fiscalMode, setFiscalMode] = useState(false);
+  const [notFound, setNotFound] = useState(false);
 
   const [fullName, setFullName] = useState("");
   const [birthDate, setBirthDate] = useState("");
@@ -61,22 +64,37 @@ export default function PublicRegistration() {
     }
   };
 
-  // Resolve company + branding via public edge function (no anon RLS).
-  // NOTE: Plano e pagamento foram desacoplados — agora vivem apenas em /pagamento/:studentId.
   useEffect(() => {
     const init = async () => {
       const { data, error } = await supabase.functions.invoke("public-registration", {
-        body: { action: "context", slug: slug ?? null },
+        body: { action: "context", slug: slug ?? null, token: token ?? null },
       });
-      if (error || !data?.company) return;
+      if (error || !data?.company) {
+        setNotFound(true);
+        return;
+      }
       setCompanyId(data.company.id);
+      setFiscalMode(data.mode === "fiscal");
+      if (data.student) {
+        setFullName(data.student.full_name || "");
+        setBirthDate(data.student.birth_date || "");
+        setCpf(formatCPF(data.student.cpf || ""));
+        setCep(formatCEP(data.student.cep || ""));
+        setAddress(data.student.address || "");
+        setAddressNumber(data.student.address_number || "");
+        setNeighborhood(data.student.neighborhood || "");
+        setCity(data.student.city || "");
+        setState(data.student.state || "");
+        setWhatsapp(formatPhone(data.student.whatsapp || data.student.phone || ""));
+        setEmail(data.student.email || "");
+      }
       if (data.branding) {
         setBranding(data.branding);
         applyTheme(data.branding);
       }
     };
     init();
-  }, [slug]);
+  }, [slug, token]);
 
   const logoSrc = branding?.logo_url || null;
   const titleText = branding?.platform_title || "Set Training App";
@@ -104,12 +122,14 @@ export default function PublicRegistration() {
       return;
     }
     setSaving(true);
+    const action = fiscalMode ? "complete" : "register";
     const { data, error } = await supabase.functions.invoke("public-registration", {
       body: {
-        action: "register",
+        action,
+        token: fiscalMode ? token : null,
         companyId,
         student: {
-          full_name: fullName,
+          ...(fiscalMode ? {} : { full_name: fullName }),
           birth_date: birthDate,
           email,
           phone: whatsapp,
@@ -126,16 +146,32 @@ export default function PublicRegistration() {
       },
     });
 
-    if (error || !data?.studentId) {
+    if (error || !data?.studentId || !data?.paymentToken) {
       setSaving(false);
       toast({ title: "Erro ao salvar cadastro", description: error?.message || data?.error || "Falha ao cadastrar", variant: "destructive" });
       return;
     }
 
     setSaving(false);
-    setNewStudentId(data.studentId);
+    setPaymentToken(data.paymentToken);
+    setPaymentMessageSent(data.paymentMessageSent === true);
     setDone(true);
   };
+
+  if (notFound) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="max-w-md w-full bg-card border-border text-center">
+          <CardContent className="pt-8 pb-8 space-y-3">
+            <h2 className="text-2xl text-primary">LINK INDISPONÍVEL</h2>
+            <p className="text-muted-foreground font-sans">
+              Este link de cadastro é inválido ou expirou. Solicite um novo link à equipe.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (done) {
     return (
@@ -145,11 +181,16 @@ export default function PublicRegistration() {
             <CheckCircle className="h-16 w-16 text-primary mx-auto" />
             <h2 className="text-3xl text-primary">CADASTRO RECEBIDO!</h2>
             <p className="text-muted-foreground font-sans">
-              Seus dados foram registrados com sucesso. Você já pode escolher seu plano
-              e garantir sua vaga agora — ou aguardar seu treinador enviar o link.
+              Seus dados fiscais foram registrados. Agora escolha o plano e faça o pagamento
+              com segurança pelo Asaas.
             </p>
-            {newStudentId && (
-              <Button className="w-full" onClick={() => navigate(`/pagamento/${newStudentId}`)}>
+            {paymentMessageSent && (
+              <p className="text-xs text-muted-foreground font-sans">
+                Também enviamos este link na sua conversa do WhatsApp.
+              </p>
+            )}
+            {paymentToken && (
+              <Button className="w-full" onClick={() => navigate(`/pagamento/${paymentToken}`)}>
                 Escolher plano e pagar agora
               </Button>
             )}
@@ -168,8 +209,14 @@ export default function PublicRegistration() {
           ) : (
             <div className="flex justify-center"><Logo size="lg" sublabel="Training App" /></div>
           )}
-          <h1 className="text-4xl text-primary">CADASTRO {titleText}</h1>
-          <p className="text-sm text-muted-foreground font-sans">Dados Pessoais</p>
+          <h1 className="text-4xl text-primary">
+            {fiscalMode ? "CADASTRO FISCAL" : `CADASTRO ${titleText}`}
+          </h1>
+          <p className="text-sm text-muted-foreground font-sans">
+            {fiscalMode
+              ? "Complete os dados necessários para o cadastro no Asaas e emissão da nota fiscal."
+              : "Dados pessoais e de cobrança"}
+          </p>
         </div>
 
         <Card className="bg-card border-border">
@@ -179,7 +226,16 @@ export default function PublicRegistration() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label className="font-sans">Nome Completo *</Label>
-              <Input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Seu nome completo" />
+              <Input
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
+                placeholder="Seu nome completo"
+                readOnly={fiscalMode}
+                className={fiscalMode ? "bg-muted/50" : undefined}
+              />
+              {fiscalMode && (
+                <p className="text-xs text-muted-foreground">Nome já identificado pela equipe.</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label className="font-sans">Data de Nascimento *</Label>
@@ -226,7 +282,7 @@ export default function PublicRegistration() {
               <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" />
             </div>
             <Button className="w-full" onClick={handleSubmit} disabled={saving}>
-              {saving ? "Salvando..." : "Finalizar Cadastro"}
+              {saving ? "Salvando..." : "Concluir cadastro e seguir para pagamento"}
             </Button>
           </CardContent>
         </Card>

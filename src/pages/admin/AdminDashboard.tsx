@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, TrendingUp, RefreshCw, Clock, UserX, Timer, RotateCcw, MessageCircle, CalendarRange, BarChart3, ChevronDown } from "lucide-react";
+import { Users, TrendingUp, RefreshCw, Clock, UserX, Timer, RotateCcw, MessageCircle, CalendarRange, BarChart3, ChevronDown, UserPlus } from "lucide-react";
 import { format, addDays, differenceInCalendarDays, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { DashboardAlerts } from "@/components/DashboardAlerts";
@@ -39,7 +39,7 @@ const LazyChart = lazy(() => import("recharts").then(mod => ({
 })));
 
 interface DashboardData {
-  stats: { totalStudents: number; pendingStudents: number; awaitingRenewalStudents: number; inactiveStudents: number; trainers: number };
+  stats: { totalStudents: number; interestedStudents: number; pendingStudents: number; awaitingRenewalStudents: number; inactiveStudents: number; trainers: number };
   planChart: { name: string; count: number }[];
   expiringContracts: any[];
   cycleCountdowns: any[];
@@ -54,6 +54,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
   const sevenDaysFromNow = format(addDays(businessToday, 7), "yyyy-MM-dd");
 
   let studentQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "active");
+  let interestedQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "interested");
   let pendingQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "pending");
   let awaitingRenewalQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "awaiting_renewal");
   let inactiveQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "inactive");
@@ -64,6 +65,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
 
   if (effectiveCompanyId) {
     studentQuery = studentQuery.eq("company_id", effectiveCompanyId);
+    interestedQuery = interestedQuery.eq("company_id", effectiveCompanyId);
     pendingQuery = pendingQuery.eq("company_id", effectiveCompanyId);
     awaitingRenewalQuery = awaitingRenewalQuery.eq("company_id", effectiveCompanyId);
     inactiveQuery = inactiveQuery.eq("company_id", effectiveCompanyId);
@@ -89,8 +91,9 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     return count || 0;
   })();
 
-  const [studentRes, pendingRes, awaitingRenewalRes, inactiveRes, enrollRes, expiringRes, activeEnrollsRes, trainerCount] = await Promise.all([
+  const [studentRes, interestedRes, pendingRes, awaitingRenewalRes, inactiveRes, enrollRes, expiringRes, activeEnrollsRes, trainerCount] = await Promise.all([
     studentQuery,
+    interestedQuery,
     pendingQuery,
     awaitingRenewalQuery,
     inactiveQuery,
@@ -102,6 +105,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
 
   const failedQuery = [
     ["alunos ativos", studentRes],
+    ["interessados", interestedRes],
     ["alunos pendentes", pendingRes],
     ["renovações", awaitingRenewalRes],
     ["alunos inativos", inactiveRes],
@@ -116,6 +120,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
 
   const stats = {
     totalStudents: studentRes.count || 0,
+    interestedStudents: interestedRes.count || 0,
     pendingStudents: pendingRes.count || 0,
     awaitingRenewalStudents: awaitingRenewalRes.count || 0,
     inactiveStudents: inactiveRes.count || 0,
@@ -283,7 +288,7 @@ export default function AdminDashboard() {
     });
   };
 
-  const stats = data?.stats ?? { totalStudents: 0, pendingStudents: 0, awaitingRenewalStudents: 0, inactiveStudents: 0, trainers: 0 };
+  const stats = data?.stats ?? { totalStudents: 0, interestedStudents: 0, pendingStudents: 0, awaitingRenewalStudents: 0, inactiveStudents: 0, trainers: 0 };
   const planChart = data?.planChart ?? [];
   const expiringContracts = data?.expiringContracts ?? [];
   const cycleCountdowns = data?.cycleCountdowns ?? [];
@@ -309,13 +314,22 @@ export default function AdminDashboard() {
           </Card>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
           <Card className="bg-card border-border cursor-pointer hover:border-primary/50 transition-colors" onClick={() => navigate(`/${routePrefix}/students?status=active`)}>
             <CardContent className="flex items-center gap-4 pt-6">
               <div className="p-3 rounded-lg bg-primary/10"><Users className="h-6 w-6 text-primary" /></div>
               <div>
                 <p className="text-2xl font-bold text-foreground font-sans">{dashboardLoading ? "—" : stats.totalStudents}</p>
                 <p className="text-sm text-muted-foreground font-sans">Alunos Ativos</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-card border-border cursor-pointer hover:border-blue-500/50 transition-colors" onClick={() => navigate(`/${routePrefix}/students?status=interested`)}>
+            <CardContent className="flex items-center gap-4 pt-6">
+              <div className="p-3 rounded-lg bg-blue-500/10"><UserPlus className="h-6 w-6 text-blue-600" /></div>
+              <div>
+                <p className="text-2xl font-bold text-foreground font-sans">{dashboardLoading ? "—" : stats.interestedStudents}</p>
+                <p className="text-sm text-muted-foreground font-sans">Interessados</p>
               </div>
             </CardContent>
           </Card>

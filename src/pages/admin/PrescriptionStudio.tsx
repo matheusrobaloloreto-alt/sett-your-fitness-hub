@@ -97,7 +97,7 @@ export default function PrescriptionStudio() {
     setTemplates((t) => [data, ...t]);
     toast.success(`Template "${name.trim()}" salvo — aparece pra todos os seus alunos.`);
   };
-  const useTemplate = (t: { id: string; name: string; plan: any }) => {
+  const applyCycleTemplate = (t: { id: string; name: string; plan: any }) => {
     const clone = JSON.parse(JSON.stringify(t.plan));
     setResults((r: any) => ({ ...r, musculacao: clone }));
     setStatus((s) => ({ ...s, musculacao: "done" }));
@@ -325,7 +325,8 @@ export default function PrescriptionStudio() {
   );
   const toggleMod = (m: Modality) => setModalities(prev => {
     const next = new Set(prev);
-    next.has(m) ? next.delete(m) : next.add(m);
+    if (next.has(m)) next.delete(m);
+    else next.add(m);
     return next;
   });
 
@@ -1345,7 +1346,7 @@ export default function PrescriptionStudio() {
                     <div className="flex flex-wrap gap-1.5">
                       {templates.map((t) => (
                         <span key={t.id} className="inline-flex items-center rounded-full border border-slate-200 bg-white overflow-hidden">
-                          <button type="button" onClick={() => useTemplate(t)}
+                          <button type="button" onClick={() => applyCycleTemplate(t)}
                             className="px-2.5 py-1 text-xs text-[#1B2B4A] hover:bg-[#F5EDD8]/60">{t.name}</button>
                           <button type="button" title="Excluir template" onClick={() => deleteTemplate(t.id)}
                             className="px-1.5 py-1 text-[10px] text-slate-400 hover:text-red-500 border-l border-slate-100">✕</button>

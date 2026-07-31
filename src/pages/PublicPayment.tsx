@@ -290,7 +290,9 @@ export default function PublicPayment() {
             }, selectedPlanOptionId);
             setStep("success");
           }
-        } catch {}
+        } catch {
+          // A próxima tentativa de polling reconcilia falhas transitórias.
+        }
       }, 10000);
     } catch (err: any) {
       toast({ title: "Erro ao gerar Pix", description: err.message, variant: "destructive" });
@@ -430,11 +432,11 @@ export default function PublicPayment() {
             <p className="text-muted-foreground font-sans">
               {isRenewal
                 ? "Seu plano foi renovado com sucesso! Seus novos treinos já estão disponíveis."
-                : "Recebemos seu pagamento! Em instantes seu treinador entra em contato pelo WhatsApp para liberar seu acesso e os próximos passos."}
+                : "Recebemos seu pagamento e seu plano já está ativo. As instruções da avaliação de movimento serão enviadas na sua conversa."}
             </p>
             {!isRenewal && (
               <p className="text-xs text-muted-foreground font-sans">
-                Você vai acessar seus treinos pelo app assim que seu treinador concluir a configuração.
+                A avaliação e o início do treino serão conduzidos em até 5 dias úteis.
               </p>
             )}
           </CardContent>
@@ -535,15 +537,17 @@ export default function PublicPayment() {
                 {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <QrCode className="h-5 w-5" />}
                 Pagar com Pix via Asaas
               </Button>
-              <Button
-                variant="outline"
-                className="w-full h-14 text-lg gap-3"
-                onClick={() => setStep("card")}
-                disabled={loading}
-              >
-                <CreditCard className="h-5 w-5" />
-                Pagar com Cartão
-              </Button>
+              {isRenewal && (
+                <Button
+                  variant="outline"
+                  className="w-full h-14 text-lg gap-3"
+                  onClick={() => setStep("card")}
+                  disabled={loading}
+                >
+                  <CreditCard className="h-5 w-5" />
+                  Pagar com Cartão
+                </Button>
+              )}
               <Button variant="ghost" size="sm" className="w-full" onClick={() => setStep("select_plan")}>
                 ← Trocar plano
               </Button>

@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
     const { data: userCompanyId } = await adminClient.rpc("get_user_company_id", { _user_id: userId });
 
     // Resolve target company; default to the user's own company when not provided.
-    let resolvedCompanyId = bodyCompanyId || userCompanyId || null;
+    const resolvedCompanyId = bodyCompanyId || userCompanyId || null;
     if (!resolvedCompanyId) return json({ error: "Company not found" }, 400);
 
     // SECURITY (IDOR): only master may operate on a company other than their own; every other
@@ -628,7 +628,6 @@ Deno.serve(async (req) => {
       }
 
       let sendRes: Response;
-      let sendData: any;
 
       if (evoMediaType === "audio") {
         // Use dedicated WhatsApp audio endpoint for PTT voice messages
@@ -676,7 +675,7 @@ Deno.serve(async (req) => {
         return json({ error: "Failed to send media", details: errText }, 502);
       }
 
-      sendData = await sendRes.json();
+      const sendData = await sendRes.json();
       const externalMessageId = extractExternalMessageId(sendData);
       let persistenceWarning = false;
 

@@ -54,15 +54,22 @@ interface Trainer {
   full_name: string;
 }
 
-const statusLabels: Record<string, string> = { active: "Ativo", pending: "Pendente", inactive: "Inativo", awaiting_renewal: "Aguardando Renovação" };
+const statusLabels: Record<string, string> = {
+  interested: "Interessado",
+  active: "Ativo",
+  pending: "Pendente",
+  inactive: "Inativo",
+  awaiting_renewal: "Aguardando Renovação",
+};
 const statusColors: Record<string, string> = {
+  interested: "bg-blue-500/10 text-blue-700 border-blue-500/30",
   active: "bg-success/15 text-success border-success/30",
   pending: "bg-warning/15 text-warning border-warning/30",
   inactive: "bg-muted text-muted-foreground border-border",
   awaiting_renewal: "bg-warning/15 text-warning border-warning/30",
 };
 
-const emptyForm = { full_name: "", email: "", phone: "", status: "pending", notes: "", birth_date: "", cpf: "", cep: "", address: "", address_number: "", neighborhood: "", city: "", state: "", whatsapp: "" };
+const emptyForm = { full_name: "", email: "", phone: "", status: "interested", notes: "", birth_date: "", cpf: "", cep: "", address: "", address_number: "", neighborhood: "", city: "", state: "", whatsapp: "" };
 
 type StudentCredentialsResponse = {
   email?: unknown;
@@ -99,7 +106,7 @@ export default function StudentsManager() {
   const [trainers, setTrainers] = useState<Trainer[]>([]);
   const [searchParams] = useSearchParams();
   const initialStatus = searchParams.get("status");
-  const [filter, setFilter] = useState(initialStatus && ["active", "pending", "inactive", "awaiting_renewal"].includes(initialStatus) ? initialStatus : "all");
+  const [filter, setFilter] = useState(initialStatus && ["interested", "active", "pending", "inactive", "awaiting_renewal"].includes(initialStatus) ? initialStatus : "all");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Student | null>(null);
@@ -503,6 +510,7 @@ export default function StudentsManager() {
             <SelectTrigger className="w-[160px] bg-card border-border"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="interested">Interessados</SelectItem>
               <SelectItem value="active">Ativos</SelectItem>
               <SelectItem value="awaiting_renewal">Aguardando Renovação</SelectItem>
               <SelectItem value="pending">Pendentes</SelectItem>
@@ -617,6 +625,7 @@ export default function StudentsManager() {
                 <Select value={form.status} onValueChange={v => setForm({ ...form, status: v })}>
                   <SelectTrigger className="bg-secondary border-border"><SelectValue /></SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="interested">Interessado</SelectItem>
                     <SelectItem value="active">Ativo</SelectItem>
                     <SelectItem value="pending">Pendente</SelectItem>
                     <SelectItem value="inactive">Inativo</SelectItem>

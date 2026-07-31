@@ -197,7 +197,7 @@ Deno.serve(async (req) => {
     if (action === "context") {
       const { data: student, error: studentError } = await supabase
         .from("students")
-        .select("id, full_name, email, cpf, cep, phone, whatsapp, selected_plan_id, address, address_number, neighborhood")
+        .select("id, full_name, email, cpf, cep, phone, whatsapp, selected_plan_id, address, address_number, neighborhood, fiscal_completed_at, sales_stage")
         .eq("id", link.student_id)
         .eq("company_id", link.company_id)
         .maybeSingle();
@@ -226,9 +226,26 @@ Deno.serve(async (req) => {
 
     if (action === "select-plan") {
       const planId = await validatePlan(body?.planId, link.company_id);
+      const { data: currentStudent, error: currentStudentError } = await supabase
+        .from("students")
+        .select("status")
+        .eq("id", link.student_id)
+        .eq("company_id", link.company_id)
+        .maybeSingle();
+      if (currentStudentError || !currentStudent) {
+        throw new HttpError(500, `Falha ao carregar status do aluno: ${currentStudentError?.message || "aluno não encontrado"}`);
+      }
       const { error } = await supabase
         .from("students")
-        .update({ selected_plan_id: planId })
+        .update({
+          selected_plan_id: planId,
+          status: ["active", "awaiting_renewal"].includes(currentStudent.status || "")
+            ? currentStudent.status
+            : "pending",
+          sales_stage: ["active", "awaiting_renewal"].includes(currentStudent.status || "")
+            ? "active"
+            : "payment_pending",
+        })
         .eq("id", link.student_id)
         .eq("company_id", link.company_id);
       if (error) throw new HttpError(500, `Falha ao selecionar plano: ${error.message}`);

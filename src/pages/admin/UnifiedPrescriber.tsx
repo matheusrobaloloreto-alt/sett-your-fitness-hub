@@ -177,7 +177,8 @@ export default function UnifiedPrescriber() {
   const set = (k: keyof Anamnese, v: any) => setAnamnese(a => ({ ...a, [k]: v }));
   const toggleMod = (m: Modality) => setModalities(prev => {
     const next = new Set(prev);
-    next.has(m) ? next.delete(m) : next.add(m);
+    if (next.has(m)) next.delete(m);
+    else next.add(m);
     return next;
   });
   const student = students.find(s => s.id === studentId);

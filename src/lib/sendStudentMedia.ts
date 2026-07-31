@@ -30,7 +30,7 @@ export async function sendPdfToStudentWhatsApp(opts: {
     }
 
     // 2. Upload no bucket de mídia do WhatsApp + signedUrl (7 dias).
-    const safe = fileName.replace(/[^\w.\-]+/g, "_");
+    const safe = fileName.replace(/[^\w.-]+/g, "_");
     const path = `${companyId}/${studentId}/${Date.now()}-${safe}`;
     const { error: upErr } = await supabase.storage
       .from("whatsapp-media")

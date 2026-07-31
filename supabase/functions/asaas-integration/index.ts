@@ -1,5 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
+import {
+  addBusinessDays,
+  buildAssessmentOnboardingMessage,
+  claimFunnelEvent,
+  completeFunnelEvent,
+  isoDate,
+  sendFunnelWhatsAppMessage,
+} from "../_shared/sales-funnel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -596,9 +604,9 @@ async function createInvoice(body: any) {
 async function ensureEnrollmentExists(studentId: string, planId?: string) {
   const { data: existing } = await supabaseAdmin
     .from("enrollments")
-    .select("id, end_date, plan_id")
+    .select("id, end_date, plan_id, payment_status, status")
     .eq("student_id", studentId)
-    .eq("status", "active")
+    .in("status", ["active", "awaiting_training", "awaiting_renewal"])
     .maybeSingle();
 
   // Get student data
@@ -625,6 +633,18 @@ async function ensureEnrollmentExists(studentId: string, planId?: string) {
 
   const planDays = plan.duration_days || (plan.duration_weeks ? plan.duration_weeks * 7 : 90);
   const companyId = student?.company_id || plan.company_id || null;
+
+  // Enrollment may be provisioned before the first payment. In that case confirm it
+  // without extending the contract; only an already-paid enrollment is a renewal.
+  if (existing && existing.payment_status !== "paid") {
+    await supabaseAdmin.from("enrollments").update({
+      plan_id: effectivePlanId,
+      status: "active",
+      payment_status: "paid",
+      payment_date: businessDateYmd(),
+    }).eq("id", existing.id);
+    return existing.id;
+  }
 
   // --- RENEWAL: active enrollment exists → extend it ---
   if (existing) {
@@ -729,9 +749,49 @@ async function applyPaymentStatusEffects(studentId: string, paymentStatus: strin
     paymentStatus === "CONFIRMED" ||
     paymentStatus === "RECEIVED_IN_CASH"
   ) {
+    const lifecycleEventKey = asaasPaymentId ? `payment_lifecycle:${asaasPaymentId}` : null;
+    if (lifecycleEventKey) {
+      const { data: lifecycleStudent } = await supabaseAdmin
+        .from("students")
+        .select("company_id")
+        .eq("id", studentId)
+        .maybeSingle();
+      if (!lifecycleStudent?.company_id) throw new Error("Aluno sem empresa para aplicar pagamento.");
+      const claimed = await claimFunnelEvent(supabaseAdmin, {
+        studentId,
+        companyId: lifecycleStudent.company_id,
+        eventType: "payment_confirmed",
+        eventKey: lifecycleEventKey,
+        payload: { payment_id: asaasPaymentId, status: paymentStatus, plan_id: planId || null },
+      });
+      if (!claimed) return;
+    }
+    try {
+    const [{ data: previousStudent }, { data: previousEnrollment }] = await Promise.all([
+      supabaseAdmin.from("students")
+        .select("status, activated_at, full_name, whatsapp, phone, company_id")
+        .eq("id", studentId)
+        .maybeSingle(),
+      supabaseAdmin.from("enrollments")
+        .select("id")
+        .eq("student_id", studentId)
+        .in("status", ["active", "awaiting_training", "awaiting_renewal"])
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    const isFirstActivation = !previousStudent?.activated_at &&
+      !previousEnrollment &&
+      !["active", "awaiting_renewal"].includes(previousStudent?.status || "");
+    const dueDate = addBusinessDays(new Date(), 5);
+    const activatedAt = new Date().toISOString();
     const { error: studentError } = await supabaseAdmin
       .from("students")
-      .update({ status: "active" })
+      .update({
+        status: "active",
+        sales_stage: isFirstActivation ? "active_onboarding" : "active",
+        activated_at: previousStudent?.activated_at || activatedAt,
+        assessment_due_at: isFirstActivation ? isoDate(dueDate) : undefined,
+      })
       .eq("id", studentId);
 
     if (studentError) {
@@ -739,7 +799,7 @@ async function applyPaymentStatusEffects(studentId: string, paymentStatus: strin
     }
 
     // Ensure enrollment exists or extend existing one (renewal)
-    await ensureEnrollmentExists(studentId, planId || undefined);
+    const enrollmentId = await ensureEnrollmentExists(studentId, planId || undefined);
 
     const { error: enrollmentError } = await supabaseAdmin
       .from("enrollments")
@@ -762,7 +822,62 @@ async function applyPaymentStatusEffects(studentId: string, paymentStatus: strin
       }
     }
 
-    return;
+    if (
+      isFirstActivation &&
+      asaasPaymentId &&
+      previousStudent?.company_id &&
+      previousStudent.full_name
+    ) {
+      const { data: anamnesis } = await supabaseAdmin
+        .from("student_anamneses")
+        .select("id")
+        .eq("student_id", studentId)
+        .limit(1)
+        .maybeSingle();
+      const formattedDueDate = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(dueDate);
+      const result = await sendFunnelWhatsAppMessage({
+        admin: supabaseAdmin,
+        studentId,
+        companyId: previousStudent.company_id,
+        fullName: previousStudent.full_name,
+        phone: previousStudent.whatsapp || previousStudent.phone,
+        text: buildAssessmentOnboardingMessage({
+          fullName: previousStudent.full_name,
+          dueDate: formattedDueDate,
+          hasAnamnesis: !!anamnesis,
+        }),
+        eventType: "assessment_instructions_sent",
+        eventKey: `assessment_instructions:${asaasPaymentId}`,
+        payload: {
+          payment_id: asaasPaymentId,
+          enrollment_id: enrollmentId,
+          assessment_due_at: isoDate(dueDate),
+          has_anamnesis: !!anamnesis,
+        },
+      });
+      if (result.sent) {
+        await supabaseAdmin.from("students").update({
+          onboarding_instructions_sent_at: new Date().toISOString(),
+        }).eq("id", studentId);
+      }
+    }
+
+      if (lifecycleEventKey) {
+        await completeFunnelEvent(supabaseAdmin, studentId, lifecycleEventKey, "completed");
+      }
+      return;
+    } catch (error) {
+      if (lifecycleEventKey) {
+        await completeFunnelEvent(
+          supabaseAdmin,
+          studentId,
+          lifecycleEventKey,
+          "failed",
+          error instanceof Error ? error.message : "Falha ao aplicar pagamento.",
+        );
+      }
+      throw error;
+    }
   }
 
   if (paymentStatus === "OVERDUE") {
