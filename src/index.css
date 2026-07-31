@@ -33,7 +33,7 @@
     --input: 45 12% 83%;
     --ring: 223 53% 27%;
 
-    --radius: 0.25rem;
+    --radius: 0.85rem;
 
     /* Extra semantic tokens */
     --paper: 60 19% 98%;
@@ -142,7 +142,7 @@
    ============================================================ */
 
 /* MODERNO — cantos bem arredondados, sombras suaves, títulos em sans */
-:root[data-layout="moderno"] { --radius: 0.9rem; }
+:root[data-layout="moderno"] { --radius: 1.1rem; }
 [data-layout="moderno"] h1, [data-layout="moderno"] h2, [data-layout="moderno"] h3,
 [data-layout="moderno"] h4, [data-layout="moderno"] h5, [data-layout="moderno"] h6,
 [data-layout="moderno"] .font-display {
@@ -157,7 +157,7 @@
 }
 
 /* MINIMALISTA — plano, sem sombra nos cards, cantos discretos, títulos sans leves */
-:root[data-layout="minimal"] { --radius: 0.4rem; }
+:root[data-layout="minimal"] { --radius: 0.7rem; }
 [data-layout="minimal"] h1, [data-layout="minimal"] h2, [data-layout="minimal"] h3,
 [data-layout="minimal"] h4, [data-layout="minimal"] h5, [data-layout="minimal"] h6,
 [data-layout="minimal"] .font-display {
@@ -172,7 +172,7 @@
 }
 
 /* FUTURISTA — vidro (glassmorphism), brilho e títulos em mono */
-:root[data-layout="futurista"] { --radius: 0.75rem; }
+:root[data-layout="futurista"] { --radius: 0.95rem; }
 [data-layout="futurista"] h1, [data-layout="futurista"] h2, [data-layout="futurista"] h3,
 [data-layout="futurista"] h4, [data-layout="futurista"] h5, [data-layout="futurista"] h6,
 [data-layout="futurista"] .font-display {
@@ -200,7 +200,7 @@
 }
 
 /* COMPACTO — denso/eficiente: reduz a base rem (encolhe espaçamento e texto juntos) */
-:root[data-layout="compacto"] { font-size: 14px; --radius: 0.35rem; }
+:root[data-layout="compacto"] { font-size: 14px; --radius: 0.65rem; }
 [data-layout="compacto"] h1, [data-layout="compacto"] h2, [data-layout="compacto"] h3,
 [data-layout="compacto"] h4, [data-layout="compacto"] h5, [data-layout="compacto"] h6,
 [data-layout="compacto"] .font-display {
@@ -210,7 +210,7 @@
 }
 
 /* EDITORIAL — espaçoso/leitura confortável: base rem maior, títulos serifados */
-:root[data-layout="editorial"] { font-size: 17px; --radius: 0.5rem; }
+:root[data-layout="editorial"] { font-size: 17px; --radius: 0.85rem; }
 [data-layout="editorial"] h1, [data-layout="editorial"] h2, [data-layout="editorial"] h3,
 [data-layout="editorial"] h4, [data-layout="editorial"] h5, [data-layout="editorial"] h6,
 [data-layout="editorial"] .font-display {

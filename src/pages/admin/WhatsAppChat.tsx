@@ -19,7 +19,8 @@ import {
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { format, differenceInDays } from "date-fns";
+import { format, differenceInDays, isSameDay, isToday, isYesterday } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
@@ -27,6 +28,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { interpolateTemplate } from "@/lib/templateVars";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { listStudentFiles, signStudentFile } from "@/lib/studentFiles";
+import { normalizeSalesStage, type FunnelStageStudent } from "@/lib/salesFunnelView";
 
 type Chat = {
   id: string;
@@ -45,6 +47,12 @@ type Chat = {
     category_id: string | null;
     status?: string | null;
     assigned_trainer_id?: string | null;
+    sales_stage?: string | null;
+    fiscal_completed_at?: string | null;
+    payment_link_sent_at?: string | null;
+    activated_at?: string | null;
+    assessment_due_at?: string | null;
+    onboarding_instructions_sent_at?: string | null;
   } | null;
   lastMessage?: string;
 };
@@ -77,7 +85,7 @@ type StudentContext = {
   dueDate?: string | null;
 };
 
-type FilterType = "all" | "unread" | "groups" | "mine" | "no-workout";
+type FilterType = "all" | "unread" | "groups" | "mine" | "no-workout" | "active" | "leads" | "renewal" | "pending" | "assessment";
 
 type BulkFilters = {
   trainerId: string;
@@ -128,6 +136,13 @@ const DEFAULT_CATEGORY: CategoryItem = {
   color: "#64748b",
 };
 const ALL_VALUE = "__all__";
+const STATUS_FILTER_LABELS: Partial<Record<FilterType, string>> = {
+  active: "Ativos",
+  leads: "Leads",
+  renewal: "Renovação",
+  pending: "Pendentes",
+  assessment: "Avaliação",
+};
 const getErrorMessage = (error: unknown, fallback: string) => (
   error instanceof Error ? error.message : fallback
 );
@@ -139,6 +154,25 @@ const getMessagePreview = (message: Message | null) => {
   if (message.media_type || message.type !== "text") return "Mídia";
   return "Mensagem";
 };
+
+const formatMessageDay = (value: string) => {
+  const date = new Date(value);
+  if (isToday(date)) return "Hoje";
+  if (isYesterday(date)) return "Ontem";
+  return format(date, "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
+};
+
+const formatMessageTimestamp = (value: string) => (
+  format(new Date(value), "dd/MM/yyyy HH:mm")
+);
+
+const chatStudentStage = (chat: Chat) => (
+  chat.student ? normalizeSalesStage(chat.student as FunnelStageStudent) : "interested"
+);
+
+const isAdministrativeRole = (role: string | null) => (
+  role === "admin" || role === "master" || role === "coordinator"
+);
 
 export default function WhatsAppChat() {
   const { user, role: userRole, companyId } = useAuth();
@@ -220,6 +254,7 @@ export default function WhatsAppChat() {
     base: "current",
   });
   const [teamMembers, setTeamMembers] = useState<{ user_id: string; full_name: string }[]>([]);
+  const [trainerFilterId, setTrainerFilterId] = useState(ALL_VALUE);
 
   // Edit name state
   const [editingName, setEditingName] = useState(false);
@@ -265,7 +300,7 @@ export default function WhatsAppChat() {
     setChatLoadError(null);
     let query = supabase
       .from("whatsapp_chats")
-      .select("*, student:students(full_name, whatsapp, category_id, status, assigned_trainer_id)")
+      .select("*, student:students(full_name, whatsapp, category_id, status, assigned_trainer_id, sales_stage, fiscal_completed_at, payment_link_sent_at, activated_at, assessment_due_at, onboarding_instructions_sent_at)")
       .order("last_message_at", { ascending: false, nullsFirst: false });
 
     if (effectiveCompanyId) query = query.eq("company_id", effectiveCompanyId);
@@ -1181,6 +1216,9 @@ export default function WhatsAppChat() {
       items.findIndex((item) => item.name.toLowerCase() === category.name.toLowerCase()) === index
     ));
 
+  const canFilterByTrainer = isAdministrativeRole(userRole);
+  const currentStatusFilterLabel = STATUS_FILTER_LABELS[activeFilter] || "Status";
+
   const filteredChats = chats.filter((c) => {
     const name = getContactName(c);
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -1191,12 +1229,23 @@ export default function WhatsAppChat() {
       c.lastMessage,
     ].filter(Boolean).join(" ").toLowerCase();
     if (normalizedSearch && !searchableText.includes(normalizedSearch)) return false;
+    if (canFilterByTrainer && trainerFilterId !== ALL_VALUE && c.student?.assigned_trainer_id !== trainerFilterId) return false;
     if (activeFilter === "unread" && (c.unread_count || 0) === 0) return false;
     if (activeFilter === "groups" && !c.remote_jid.includes("@g.us")) return false;
-    if (activeFilter === "mine" && c.last_sender_id !== user?.id) return false;
+    if (activeFilter === "mine" && c.student?.assigned_trainer_id !== user?.id) return false;
     if (activeFilter === "no-workout") {
       const labels = chatLabels[c.id] || [];
       if (!labels.includes("Aguardando Treino")) return false;
+    }
+    if (["active", "leads", "renewal", "pending", "assessment"].includes(activeFilter)) {
+      if (!c.student) return false;
+      const stage = chatStudentStage(c);
+      const status = c.student.status || "";
+      if (activeFilter === "active" && !(stage === "active" && status !== "awaiting_renewal")) return false;
+      if (activeFilter === "leads" && !(stage === "interested" || status === "interested")) return false;
+      if (activeFilter === "renewal" && status !== "awaiting_renewal") return false;
+      if (activeFilter === "pending" && !(status === "pending" || stage === "fiscal_registration_pending" || stage === "payment_pending")) return false;
+      if (activeFilter === "assessment" && stage !== "active_onboarding") return false;
     }
     return true;
   });
@@ -1538,7 +1587,7 @@ export default function WhatsAppChat() {
           </Dialog>
         </div>
 
-        <div className="flex min-h-0 flex-1 overflow-hidden border-y border-border bg-white md:rounded-lg md:border">
+        <div className="flex min-h-0 flex-1 overflow-hidden border-y border-border bg-white md:rounded-2xl md:border">
           {/* Chat List */}
           <div className={cn(
             "w-full shrink-0 flex-col border-r border-border md:w-72 xl:w-80",
@@ -1563,6 +1612,19 @@ export default function WhatsAppChat() {
                 </Button>
               </div>
               <div className="flex flex-wrap gap-1">
+                {canFilterByTrainer && (
+                  <Select value={trainerFilterId} onValueChange={setTrainerFilterId}>
+                    <SelectTrigger className="h-7 w-[150px] rounded-full px-3 text-xs">
+                      <SelectValue placeholder="Treinador" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_VALUE}>Todos treinadores</SelectItem>
+                      {teamMembers.map((member) => (
+                        <SelectItem key={member.user_id} value={member.user_id}>{member.full_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant={["all", "unread", "groups"].includes(activeFilter) ? "default" : "ghost"} size="sm" className="h-7 text-xs">
@@ -1584,14 +1646,40 @@ export default function WhatsAppChat() {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant={STATUS_FILTER_LABELS[activeFilter] ? "default" : "ghost"} size="sm" className="h-7 text-xs">
+                      <Tag className="h-3 w-3 mr-1" />
+                      {currentStatusFilterLabel}
+                      <ChevronDown className="h-3 w-3 ml-1" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem onClick={() => setActiveFilter("active")} className={cn(activeFilter === "active" && "bg-accent")}>
+                      <User className="h-3 w-3 mr-2" />Ativos
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveFilter("leads")} className={cn(activeFilter === "leads" && "bg-accent")}>
+                      <UserPlus className="h-3 w-3 mr-2" />Leads
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveFilter("renewal")} className={cn(activeFilter === "renewal" && "bg-accent")}>
+                      <RefreshCw className="h-3 w-3 mr-2" />Renovação
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveFilter("pending")} className={cn(activeFilter === "pending" && "bg-accent")}>
+                      <Clock className="h-3 w-3 mr-2" />Pendentes
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveFilter("assessment")} className={cn(activeFilter === "assessment" && "bg-accent")}>
+                      <Activity className="h-3 w-3 mr-2" />Avaliação
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                   variant={activeFilter === "mine" ? "default" : "ghost"}
                   size="sm"
                   className="h-7 text-xs"
                   onClick={() => setActiveFilter("mine")}
-                  title="Conversas cuja última mensagem foi enviada por você"
+                  title="Alunos atribuídos a mim"
                 >
-                  Enviadas
+                  Meus
                 </Button>
                 <Button variant={activeFilter === "no-workout" ? "default" : "ghost"} size="sm" className="h-7 text-xs" onClick={() => setActiveFilter("no-workout")}><AlertTriangle className="h-3 w-3 mr-1" />S/ Treino</Button>
               </div>
@@ -1937,7 +2025,7 @@ export default function WhatsAppChat() {
                       </Button>
                     </div>
                   ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                     {hasOlderMessages && (
                       <div className="flex justify-center pb-2">
                         <Button
@@ -1956,7 +2044,7 @@ export default function WhatsAppChat() {
                         Nenhuma mensagem nesta conversa
                       </div>
                     )}
-                    {messages.map((msg) => {
+                    {messages.map((msg, index) => {
                       const mediaSrc = getMediaSrc(msg);
                       const isMedia = msg.type !== "text" && (msg.media_type || msg.type === "image" || msg.type === "video" || msg.type === "audio" || msg.type === "document" || msg.type === "sticker");
                       const isImage = msg.media_type?.startsWith("image/") || msg.type === "image" || msg.type === "sticker";
@@ -1964,8 +2052,18 @@ export default function WhatsAppChat() {
                       const isAudio = msg.media_type?.startsWith("audio/") || msg.type === "audio";
                       const quotedPreview = (msg.quoted_message_preview || "").trim();
                       const quotedLabel = msg.quoted_message_source === "outgoing" ? "Você" : getContactName(selectedChat);
+                      const previousMessage = index > 0 ? messages[index - 1] : null;
+                      const showDateDivider = !previousMessage || !isSameDay(new Date(previousMessage.created_at), new Date(msg.created_at));
                       return (
-                        <div key={msg.id} className="group flex w-full">
+                        <div key={msg.id} className="space-y-2">
+                          {showDateDivider && (
+                            <div className="flex justify-center py-1">
+                              <span className="rounded-full border border-border bg-background/95 px-3 py-1 text-[11px] font-mono-data text-muted-foreground shadow-sm">
+                                {formatMessageDay(msg.created_at)}
+                              </span>
+                            </div>
+                          )}
+                        <div className="group flex w-full">
                           <div className={cn(
                             "relative flex w-full min-w-0 items-center gap-1",
                             msg.source === "outgoing" ? "justify-end" : "justify-start",
@@ -1973,7 +2071,7 @@ export default function WhatsAppChat() {
                             {msg.source === "outgoing" && msg.message_id_external && (
                               <button
                                 onClick={() => handleDeleteMessage(msg)}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive"
+                                className="rounded-full p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/20 hover:text-destructive group-hover:opacity-100"
                                 title="Apagar para todos"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -1982,24 +2080,24 @@ export default function WhatsAppChat() {
                             {msg.message_id_external && (
                               <button
                                 onClick={() => setReplyingTo(msg)}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                                className="rounded-full p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
                                 title="Responder"
                               >
                                 <Reply className="h-3.5 w-3.5" />
                               </button>
                             )}
                             <div className={cn(
-                              "min-w-0 max-w-[86%] rounded-lg px-3 py-2 text-sm sm:max-w-[78%]",
+                              "min-w-0 max-w-[86%] rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[78%]",
                               msg.source === "outgoing"
-                                ? "rounded-br-none bg-[#203b78] text-white shadow-sm"
-                                : "rounded-bl-none border border-sky-200 bg-sky-50 text-slate-900 shadow-sm",
+                                ? "rounded-br-md bg-[#203b78] text-white shadow-sm"
+                                : "rounded-bl-md border border-sky-200 bg-sky-50 text-slate-900 shadow-sm",
                             )}>
                             {msg.source === "outgoing" && msg.sender_id && senderNames[msg.sender_id] && (
                               <p className="text-[10px] font-semibold mb-0.5 text-primary-foreground/80">{senderNames[msg.sender_id]}</p>
                             )}
                             {quotedPreview && (
                               <div className={cn(
-                                "mb-2 rounded-md border-l-2 px-2 py-1.5 text-xs",
+                                "mb-2 rounded-xl border-l-2 px-2.5 py-1.5 text-xs",
                                 msg.source === "outgoing"
                                   ? "border-primary-foreground/50 bg-primary-foreground/10 text-primary-foreground/85"
                                   : "border-primary/60 bg-background/70 text-muted-foreground",
@@ -2016,10 +2114,10 @@ export default function WhatsAppChat() {
                               </div>
                             )}
                             {mediaSrc && isImage ? (
-                              <img src={mediaSrc} alt="Imagem" className="rounded max-w-full max-h-64 mb-1 cursor-pointer" onClick={() => window.open(mediaSrc!, "_blank")} onError={() => handleMediaError(msg)} />
+                              <img src={mediaSrc} alt="Imagem" className="mb-1 max-h-64 max-w-full cursor-pointer rounded-xl" onClick={() => window.open(mediaSrc!, "_blank")} onError={() => handleMediaError(msg)} />
                             ) : mediaSrc && isVideo ? (
                               <div className="mb-1">
-                                <video src={mediaSrc} controls className="rounded max-w-full max-h-64" onError={() => handleMediaError(msg)} />
+                                <video src={mediaSrc} controls className="max-h-64 max-w-full rounded-xl" onError={() => handleMediaError(msg)} />
                                 {msg.source !== "outgoing" && (
                                   <Button
                                     size="sm"
@@ -2042,9 +2140,10 @@ export default function WhatsAppChat() {
                               <p className="text-xs text-muted-foreground italic mb-1">Carregando mídia...</p>
                             ) : null}
                             <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</p>
-                            <p className={cn("text-[10px] mt-1 font-mono-data", msg.source === "outgoing" ? "text-primary-foreground/70" : "text-muted-foreground")}>{format(new Date(msg.created_at), "HH:mm")}</p>
+                            <p className={cn("mt-1.5 text-[10px] font-mono-data", msg.source === "outgoing" ? "text-primary-foreground/70" : "text-muted-foreground")}>{formatMessageTimestamp(msg.created_at)}</p>
                             </div>
                           </div>
+                        </div>
                         </div>
                       );
                     })}
@@ -2055,7 +2154,7 @@ export default function WhatsAppChat() {
 
                 {replyingTo && (
                   <div className="border-t border-border bg-white px-3 pt-2">
-                    <div className="flex items-center gap-2 rounded-md border-l-4 border-primary bg-sky-50 p-2">
+                    <div className="flex items-center gap-2 rounded-2xl border-l-4 border-primary bg-sky-50 p-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-[10px] font-semibold text-primary">
                           {replyingTo.source === "outgoing" ? "Você" : getContactName(selectedChat!)}
@@ -2064,7 +2163,7 @@ export default function WhatsAppChat() {
                           {replyingTo.content || (replyingTo.media_type ? "📎 Mídia" : "Mensagem")}
                         </p>
                       </div>
-                      <button onClick={() => setReplyingTo(null)} className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                      <button onClick={() => setReplyingTo(null)} className="rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -2079,7 +2178,7 @@ export default function WhatsAppChat() {
                     onChange={handleFileUpload}
                   />
                   {isRecording ? (
-                    <div className="flex min-w-0 items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-1.5">
+                    <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 p-1.5">
                       <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
                         <span className="h-3 w-3 rounded-full bg-destructive animate-pulse" />
                         <span className="truncate text-sm font-medium text-destructive">Gravando... {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, "0")}</span>
@@ -2092,7 +2191,7 @@ export default function WhatsAppChat() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="flex min-w-0 items-end gap-1.5 rounded-lg border border-border bg-background p-1.5 shadow-sm sm:gap-2">
+                    <div className="flex min-w-0 items-end gap-1.5 rounded-2xl border border-border bg-background p-1.5 shadow-sm sm:gap-2">
                       <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Enviar imagem ou arquivo" onClick={() => fileInputRef.current?.click()} disabled={sendingAttachment}>
                         <Image className="h-4 w-4" />
                       </Button>
@@ -2131,7 +2230,7 @@ export default function WhatsAppChat() {
                           rows={1}
                         />
                         {showTemplates && (
-                          <div ref={templatePopoverRef} className="absolute bottom-full left-0 right-0 mb-1 bg-popover border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto z-50">
+                          <div ref={templatePopoverRef} className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-60 overflow-y-auto rounded-2xl border border-border bg-popover shadow-lg">
                             {templates
                               .filter(t => !templateFilter || t.title.toLowerCase().includes(templateFilter) || (t.shortcut && t.shortcut.toLowerCase().includes(templateFilter)))
                               .map(t => {
