@@ -41,6 +41,24 @@ import {
 
 const AnamnesisManager = lazy(() => import("./AnamnesisManager"));
 
+const BUDGET_LABELS: Record<string, string> = {
+  "200_300": "R$ 200-300",
+  "300_400": "R$ 300-400",
+  "400_500": "R$ 400-500",
+};
+
+const CONTACT_PERIOD_LABELS: Record<string, string> = {
+  morning: "manha",
+  afternoon: "tarde",
+  evening: "noite",
+};
+
+const WAIT_FILTERS: Record<string, { label: string; minHours: number }> = {
+  "24h": { label: "24h+", minHours: 24 },
+  "3d": { label: "3 dias+", minHours: 72 },
+  "7d": { label: "7 dias+", minHours: 168 },
+};
+
 interface Student {
   entityType: "student" | "lead";
   leadId?: string;
@@ -147,6 +165,17 @@ function stageIcon(stage: FunnelStageKey) {
   return UserPlus;
 }
 
+function waitHours(student: Student) {
+  const reference = student.updated_at || student.created_at;
+  return Math.max(0, (Date.now() - new Date(reference).getTime()) / (60 * 60 * 1000));
+}
+
+function waitLabel(student: Student) {
+  const hours = waitHours(student);
+  if (hours < 24) return `${Math.max(1, Math.floor(hours))}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
 export default function RegistrationManager() {
   const { companyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
@@ -164,6 +193,9 @@ export default function RegistrationManager() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeStage, setActiveStage] = useState<FunnelStageKey | "all">("all");
+  const [budgetFilter, setBudgetFilter] = useState("all");
+  const [waitFilter, setWaitFilter] = useState("all");
+  const [sortMode, setSortMode] = useState("priority");
 
   const loadPipeline = async () => {
     if (!effectiveCompanyId) return;
@@ -320,19 +352,26 @@ export default function RegistrationManager() {
       })
       .filter((student) => {
         if (activeStage !== "all" && student.stage !== activeStage) return false;
+        if (budgetFilter !== "all" && student.budget_range !== budgetFilter) return false;
+        if (waitFilter !== "all") {
+          const filter = WAIT_FILTERS[waitFilter];
+          if (filter && waitHours(student) < filter.minHours) return false;
+        }
         if (isOpenFunnelStage(student.stage)) return true;
         if (student.stage === "active_onboarding") return true;
         if (student.stage === "active" && student.activated_at) return new Date(student.activated_at).getTime() >= thirtyDaysAgo;
         return false;
       })
       .sort((a, b) => {
+        if (sortMode === "oldest") return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        if (sortMode === "newest") return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         if (a.entityType === "lead" || b.entityType === "lead") {
           const priority = (budgetPriority[b.budget_range || ""] || 0) - (budgetPriority[a.budget_range || ""] || 0);
           if (priority !== 0) return priority;
         }
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       });
-  }, [students, activeStage]);
+  }, [students, activeStage, budgetFilter, waitFilter, sortMode]);
 
   const studentsByStage = useMemo(() => {
     const grouped = new Map<FunnelStageKey, StudentWithStage[]>();
@@ -389,7 +428,7 @@ export default function RegistrationManager() {
         if (error || !data?.id) throw new Error(data?.error || error?.message || "Não foi possível registrar o contato.");
         await openChatWithStudent(
           student,
-          `Oi, ${firstName(student.full_name)}! Recebi seu pré-cadastro e queria entender um pouco melhor seu objetivo para indicar o acompanhamento ideal.`,
+          `Oi, ${firstName(student.full_name)}! Recebi seu pré-cadastro. Vi seu objetivo e queria entender alguns detalhes pra te orientar no plano ideal e na avaliação de movimento. Posso te chamar agora?`,
         );
         await loadPipeline();
         return;
@@ -406,7 +445,7 @@ export default function RegistrationManager() {
           routePrefix: chatRoutePrefix,
           studentId: data.studentId,
           phone: waDigits(student.whatsapp || student.phone),
-          message: `Oi, ${firstName(student.full_name)}! Vamos seguir com seu cadastro. Complete os dados fiscais para emissão da nota e liberação do pagamento: ${fiscalLink}`,
+          message: `Oi, ${firstName(student.full_name)}! Vamos seguir com seu cadastro BN. Nesse link voce completa os dados fiscais que o Asaas precisa para nota e pagamento: ${fiscalLink}\n\nDepois dele voce escolhe o plano e faz o Pix pelo Asaas. Em seguida eu te mando/confirmo as instrucoes da Avaliacao de Movimento; depois do pagamento confirmado, o prazo para avaliacao e inicio do treino e de ate 5 dias uteis.`,
           onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
         });
         await loadPipeline();
@@ -417,7 +456,7 @@ export default function RegistrationManager() {
         const fiscalLink = await createFiscalLinkForStudent(student.id);
         await openChatWithStudent(
           student,
-          `Oi, ${firstName(student.full_name)}! Complete seus dados fiscais para seguirmos com seu plano e a emissao da nota: ${fiscalLink}`,
+          `Oi, ${firstName(student.full_name)}! Passando novamente seu cadastro fiscal: ${fiscalLink}\n\nEle libera a escolha do plano e o pagamento Pix pelo Asaas. Assim que o pagamento confirmar, voce entra no onboarding de avaliacao de movimento e inicio do treino.`,
         );
         await loadPipeline();
         return;
@@ -427,7 +466,7 @@ export default function RegistrationManager() {
         const paymentLink = await createPlansLink(student.id);
         await openChatWithStudent(
           student,
-          `Oi, ${firstName(student.full_name)}! Seu cadastro fiscal esta concluido. Agora escolha seu plano e faça o pagamento com Pix seguro pelo Asaas: ${paymentLink}`,
+          `Oi, ${firstName(student.full_name)}! Seu cadastro fiscal esta concluido. Agora escolha seu plano e faca o pagamento com Pix pelo Asaas: ${paymentLink}\n\nDepois da confirmacao, voce passa para aluno ativo e recebe as instrucoes finais da Avaliacao de Movimento. O prazo para avaliacao e inicio do treino e de ate 5 dias uteis.`,
         );
         return;
       }
@@ -463,7 +502,7 @@ export default function RegistrationManager() {
       return;
     }
     const msg = selectedStudent
-      ? `Oi, ${firstName(selectedStudent.full_name)}! Complete seus dados fiscais para seguirmos com seu plano e a emissao da nota: ${targetLink}`
+      ? `Oi, ${firstName(selectedStudent.full_name)}! Complete seus dados fiscais para seguirmos com seu plano, nota e pagamento pelo Asaas: ${targetLink}`
       : `Ola! Faca seu cadastro por aqui: ${targetLink}`;
     await openStudentChat({
       navigate,
@@ -547,9 +586,9 @@ export default function RegistrationManager() {
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-eyebrow">Fluxo de interessados</p>
-            <h2 className="font-display text-2xl text-primary">Anamnese dos alunos</h2>
+            <h2 className="font-display text-2xl text-primary">Pré-cadastro e anamnese</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Envie, copie ou edite a anamnese estruturada sem sair da aba de Interessados.
+              O pré-cadastro publico usa a anamnese estruturada. Quando o lead avanca, essas respostas alimentam o Studio Integrado.
             </p>
           </div>
         </div>
@@ -573,7 +612,7 @@ export default function RegistrationManager() {
               Os cartoes mostram a etapa atual, a ultima acao registrada e o proximo movimento.
             </p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Button
               variant={activeStage === "all" ? "default" : "outline"}
               size="sm"
@@ -591,6 +630,44 @@ export default function RegistrationManager() {
                 {FUNNEL_STAGE_META[stage].shortLabel}
               </Button>
             ))}
+          </div>
+        </div>
+
+        <div className="grid gap-2 rounded-2xl border border-border bg-card p-3 md:grid-cols-3">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Faixa de investimento</Label>
+            <Select value={budgetFilter} onValueChange={setBudgetFilter}>
+              <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as faixas</SelectItem>
+                <SelectItem value="400_500">R$ 400-500 primeiro</SelectItem>
+                <SelectItem value="300_400">R$ 300-400</SelectItem>
+                <SelectItem value="200_300">R$ 200-300</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Tempo de espera</Label>
+            <Select value={waitFilter} onValueChange={setWaitFilter}>
+              <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Qualquer tempo</SelectItem>
+                {Object.entries(WAIT_FILTERS).map(([value, item]) => (
+                  <SelectItem key={value} value={value}>{item.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Ordenar</Label>
+            <Select value={sortMode} onValueChange={setSortMode}>
+              <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="priority">Prioridade BN</SelectItem>
+                <SelectItem value="oldest">Mais antigos primeiro</SelectItem>
+                <SelectItem value="newest">Mais recentes primeiro</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -664,11 +741,15 @@ export default function RegistrationManager() {
                           <div className="mt-3 grid gap-1.5 text-[11px] text-muted-foreground">
                             <div className="flex justify-between gap-2">
                               <span>Investimento</span>
-                              <span className="font-mono-data">{{ "200_300": "R$ 200–300", "300_400": "R$ 300–400", "400_500": "R$ 400–500" }[student.budget_range || ""] || "não informado"}</span>
+                              <span className="font-mono-data">{BUDGET_LABELS[student.budget_range || ""] || "não informado"}</span>
                             </div>
                             <div className="flex justify-between gap-2">
                               <span>Melhor contato</span>
-                              <span className="font-mono-data">{{ morning: "manhã", afternoon: "tarde", evening: "noite" }[student.preferred_contact_period || ""] || "não informado"}</span>
+                              <span className="font-mono-data">{CONTACT_PERIOD_LABELS[student.preferred_contact_period || ""] || "não informado"}</span>
+                            </div>
+                            <div className="flex justify-between gap-2">
+                              <span>Espera</span>
+                              <span className="font-mono-data">{waitLabel(student)}</span>
                             </div>
                             {student.stage === "contacted" && (
                               <div className="space-y-1 pt-1">

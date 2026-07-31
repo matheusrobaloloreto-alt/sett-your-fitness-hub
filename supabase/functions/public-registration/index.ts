@@ -77,6 +77,98 @@ const cleanText = (value: unknown) =>
   typeof value === "string" ? value.trim() : "";
 const escapeLikePattern = (value: string) => value.replace(/[\\%_]/g, "\\$&");
 
+function cleanLongText(value: unknown, maxLength = 2000) {
+  return String(value ?? "")
+    .replace(/[^\x20-\x7E\u00C0-\u017F\n\r\t]/g, "")
+    .slice(0, maxLength)
+    .trim();
+}
+
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function boolValue(value: unknown) {
+  return value === true || value === "true" || value === "sim";
+}
+
+function asArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => cleanLongText(item, 120)).filter(Boolean);
+  if (typeof value === "string") {
+    return value.split(",").map((item) => cleanLongText(item, 120)).filter(Boolean);
+  }
+  return [];
+}
+
+function includesAny(values: string[], needles: string[]) {
+  const source = values.join(" ").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return needles.some((needle) => source.includes(needle));
+}
+
+function parseSessionMinutes(body: Record<string, unknown>) {
+  const direct = numberOrNull(body.session_duration_min);
+  if (direct) return direct;
+  const label = cleanLongText(body.session_duration, 120).toLowerCase();
+  if (label.includes("30") && label.includes("45")) return 45;
+  if (label.includes("45") && label.includes("60")) return 60;
+  if (label.includes("60")) return 60;
+  if (label.includes("30")) return 30;
+  return null;
+}
+
+function buildClinicalText(body: Record<string, unknown>) {
+  const clinical = [
+    body.clin_cardiac === "sim" && "histórico cardíaco/pressão alta",
+    body.clin_chest_pain === "sim" && "RELATA dor no peito/tontura/falta de ar ao esforço",
+    body.clin_surgery === "sim" && `cirurgia recente (<6 meses)${body.clin_surgery_detail ? ": " + cleanLongText(body.clin_surgery_detail, 120) : ""}`,
+    body.clin_pregnant === "gravida" && `GESTANTE${body.clin_pregnant_detail ? " (" + cleanLongText(body.clin_pregnant_detail, 120) + ")" : ""}`,
+    body.clin_pregnant === "posparto" && `pós-parto recente${body.clin_pregnant_detail ? " (" + cleanLongText(body.clin_pregnant_detail, 120) + ")" : ""}`,
+    body.clin_smoke === "sim" && "fumante",
+    body.clin_acute === "sim" && "doença aguda/febre no momento",
+    body.clin_other && cleanLongText(body.clin_other),
+  ].filter(Boolean);
+  const evaParts = ([
+    ["tornozelo", body.eva_tornozelo],
+    ["joelho", body.eva_joelho],
+    ["quadril", body.eva_quadril],
+    ["lombar", body.eva_lombar],
+    ["ombro", body.eva_ombro],
+  ] as [string, unknown][])
+    .filter(([, value]) => Number(value) > 0)
+    .map(([key, value]) => `${key} ${value}`);
+  return [
+    clinical.length ? `TRIAGEM CLÍNICA: ${clinical.join("; ")}` : "",
+    evaParts.length ? `DOR ARTICULAR AGORA (EVA 0-10): ${evaParts.join(", ")}` : "",
+  ].filter(Boolean).join(" | ");
+}
+
+function buildNutritionContext(body: Record<string, unknown>) {
+  if (body.nutrition_context) return cleanLongText(body.nutrition_context, 4000);
+  const routineLabels: Record<string, string> = { fixa: "fixos", varia: "variam um pouco", muda: "mudam bastante" };
+  const fastedLabels: Record<string, string> = { nunca: "nunca", asvezes: "às vezes", sempre: "sempre" };
+  const appetiteLabels: Record<string, string> = { faminto: "com bastante fome", normal: "normal", sem_fome: "sem fome", enjoo: "enjoo/não come" };
+  return [
+    body.nutrition && `Relato alimentar: ${cleanLongText(body.nutrition)}`,
+    `Refeições/dia: ${body.meals_per_day || "não informado"}`,
+    (body.meal_t1 || body.meal_t2 || body.meal_t3) && `Horários habituais: ${[
+      body.meal_t1 && "1ª " + cleanLongText(body.meal_t1, 20),
+      body.meal_t2 && "almoço " + cleanLongText(body.meal_t2, 20),
+      body.meal_t3 && "última " + cleanLongText(body.meal_t3, 20),
+    ].filter(Boolean).join(", ")}`,
+    body.meal_routine && `Horários ${routineLabels[String(body.meal_routine)] || body.meal_routine}`,
+    body.train_time && `Treina no período: ${cleanLongText(body.train_time, 80)}`,
+    body.train_fasted && `Treina em jejum: ${fastedLabels[String(body.train_fasted)] || body.train_fasted}`,
+    body.appetite_wake && `Fome ao acordar: ${appetiteLabels[String(body.appetite_wake)] || body.appetite_wake}`,
+    body.food_likes && `Gosta de: ${cleanLongText(body.food_likes)}`,
+    body.food_dislikes && `NÃO gosta / evitar: ${cleanLongText(body.food_dislikes)}`,
+    body.hydration && `Hidratação atual: ${cleanLongText(body.hydration, 60)}`,
+    body.gi_sensitivities && `Desconfortos digestivos: ${cleanLongText(body.gi_sensitivities, 200)}`,
+    body.fueling_strategy && `Nutrição em treino/prova longa: ${cleanLongText(body.fueling_strategy, 200)}`,
+  ].filter(Boolean).join(" | ");
+}
+
 function fiscalValidation(student: Record<string, unknown>): string[] {
   const missing: string[] = [];
   if (!normalizeEmail(student.email) || !normalizeEmail(student.email).includes("@")) missing.push("e-mail válido");
@@ -264,28 +356,118 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
   const answers = lead.pre_registration_answers && typeof lead.pre_registration_answers === "object"
     ? lead.pre_registration_answers as Record<string, unknown>
     : {};
-  const sportFrequency = Number(answers.sport_frequency || 0) || 0;
+  const modalities = asArray(answers.modalities);
+  const allEquipment = asArray(answers.available_equipment);
+  const strength = answers.interest_strength !== undefined
+    ? boolValue(answers.interest_strength)
+    : includesAny(modalities, ["musculacao", "funcional", "crossfit"]);
+  const running = answers.interest_running !== undefined
+    ? boolValue(answers.interest_running)
+    : includesAny(modalities, ["corrida", "triathlon"]);
+  const swimming = answers.interest_swimming !== undefined
+    ? boolValue(answers.interest_swimming)
+    : includesAny(modalities, ["natacao", "natação", "triathlon"]);
+  const cycling = answers.interest_cycling !== undefined
+    ? boolValue(answers.interest_cycling)
+    : includesAny(modalities, ["bike", "ciclismo", "triathlon"]);
+  const clinicalText = buildClinicalText(answers);
+  const cardioDetail = [
+    running && `CORRIDA: ${[
+      answers.run_where && cleanLongText(answers.run_where, 120),
+      answers.run_best_time && "melhor tempo " + cleanLongText(answers.run_best_time, 120),
+    ].filter(Boolean).join(", ") || "detalhes não informados"}`,
+    swimming && `NATAÇÃO: ${[
+      answers.swim_pool && "piscina " + cleanLongText(answers.swim_pool, 80),
+      answers.swim_level && "nível " + cleanLongText(answers.swim_level, 80),
+      answers.swim_volume && "volume " + cleanLongText(answers.swim_volume, 120),
+      answers.swim_best && "melhor tempo/pace " + cleanLongText(answers.swim_best, 80),
+    ].filter(Boolean).join(", ") || "detalhes não informados"}`,
+    cycling && `CICLISMO: ${[
+      answers.bike_type && cleanLongText(answers.bike_type, 80),
+      answers.bike_volume && "volume " + cleanLongText(answers.bike_volume, 120),
+      answers.bike_ftp && "FTP/potência " + cleanLongText(answers.bike_ftp, 60),
+      boolValue(answers.bike_power) && "tem medidor de potência",
+    ].filter(Boolean).join(", ") || "detalhes não informados"}`,
+    answers.perceived_recovery && `Recuperação percebida hoje: ${answers.perceived_recovery}/10`,
+  ].filter(Boolean);
   const notes = [
-    cleanText(answers.notes),
-    `Faixa de investimento: ${cleanText(lead.budget_range) || "não informada"}`,
-    `Período de contato: ${cleanText(lead.preferred_contact_period) || "não informado"}`,
+    answers.goals && `Metas: ${cleanLongText(answers.goals)}`,
+    answers.training_days && `Dias atuais de treino: ${cleanLongText(answers.training_days)}`,
+    answers.profession && `Profissão/rotina: ${cleanLongText(answers.profession)}`,
+    answers.aware_of_trilogy !== undefined && `Consciência treino + alimentação + sono: ${boolValue(answers.aware_of_trilogy) ? "sim" : "não"}`,
+    answers.feel_in_3_months && `Como quer se sentir em 3 meses: ${cleanLongText(answers.feel_in_3_months)}`,
+    answers.biggest_obstacle && `Maior obstáculo: ${cleanLongText(answers.biggest_obstacle)}`,
+    answers.sleep_hours && `Horas de sono: ${cleanLongText(answers.sleep_hours, 80)}`,
+    answers.restorative_sleep !== undefined && `Sono reparador: ${boolValue(answers.restorative_sleep) ? "sim" : "não"}`,
+    answers.supplements && `Suplementos: ${cleanLongText(answers.supplements)}`,
+    ...cardioDetail,
+    answers.extra_comments && `Comentários: ${cleanLongText(answers.extra_comments)}`,
+    `Faixa de investimento mensal: ${cleanText(lead.budget_range) || "não informada"}`,
+    `Melhor horário para contato: ${cleanText(lead.preferred_contact_period) || "não informado"}`,
   ].filter(Boolean).join("\n");
   return {
     student_id: studentId,
     company_id: lead.company_id,
-    objective: cleanText(answers.objective) || null,
-    activity_level: cleanText(answers.experience_level) || null,
-    is_endurance_athlete: sportFrequency >= 3,
-    training_modality: cleanText(answers.preferred_training) || null,
-    days_per_week_strength: Number(answers.weekly_availability || 0) || null,
-    days_per_week_cardio: sportFrequency || null,
-    session_duration_min: Number(answers.session_duration_min || 0) || null,
-    sport: cleanText(answers.sport) || null,
-    cardio_goal: cleanText(answers.cardio_goal) || null,
-    injuries: cleanText(answers.pain_details) || null,
-    food_restrictions: cleanText(answers.food_restrictions) || null,
-    nutrition_context: cleanText(answers.nutrition_goal) || null,
+    age: numberOrNull(answers.age),
+    body_fat_percent: numberOrNull(answers.body_fat_percent),
+    objective: cleanLongText(answers.objective || answers.goals, 300) || null,
+    activity_level: cleanLongText(answers.activity_level, 120) || null,
+    is_endurance_athlete: running || swimming || cycling,
+    training_modality: cleanLongText([
+      strength && "musculação",
+      running && "corrida",
+      swimming && "natação",
+      cycling && "ciclismo",
+    ].filter(Boolean).join(" + ") || modalities.join(" + "), 300) || null,
+    days_per_week_strength: strength
+      ? (numberOrNull(answers.days_strength) ?? numberOrNull(answers.available_days))
+      : null,
+    days_per_week_cardio: (running || swimming || cycling)
+      ? (numberOrNull(answers.days_cardio) ?? numberOrNull(answers.available_days))
+      : null,
+    session_duration_min: parseSessionMinutes(answers),
+    equipment: cleanLongText(answers.equipment || answers.training_location || allEquipment.join(", "), 500) || null,
+    experience_months: numberOrNull(answers.experience_months),
+    sport: running ? "corrida" : swimming ? "natacao" : cycling ? "ciclismo" : null,
+    fcmax: numberOrNull(answers.fcmax),
+    fcrep: numberOrNull(answers.fcrep),
+    current_volume_weekly: numberOrNull(answers.current_volume_weekly),
+    cardio_goal: cleanLongText(answers.cardio_goal || answers.sport_goal, 300) || null,
+    stress_score: numberOrNull(answers.stress_score),
+    sleep_quality: numberOrNull(answers.sleep_quality),
+    injuries: [
+      cleanLongText(answers.injuries),
+      answers.current_pain && `Dor atual: ${cleanLongText(answers.current_pain)}`,
+      answers.diseases && `Doenças/remédios: ${cleanLongText(answers.diseases)}`,
+      answers.medical_conditions && `Condições médicas: ${cleanLongText(answers.medical_conditions)}`,
+      answers.medications && `Medicamentos: ${cleanLongText(answers.medications)}`,
+      clinicalText,
+    ].filter(Boolean).join(" | ") || null,
+    food_restrictions: cleanLongText(answers.food_restrictions || answers.food_preferences, 1000) || null,
+    nutrition_context: buildNutritionContext(answers) || null,
+    budget_food: cleanLongText(answers.budget_food || "moderado", 80) || null,
+    meals_per_day: numberOrNull(answers.meals_per_day),
+    has_kitchen: answers.has_kitchen === undefined ? true : boolValue(answers.has_kitchen),
     notes,
+    wants_strength: strength,
+    wants_running: running,
+    wants_swimming: swimming,
+    wants_cycling: cycling,
+    wants_nutrition: true,
+    shown_blocks: [
+      "pré-cadastro",
+      "dados",
+      "objetivo",
+      "treino",
+      "saude",
+      "clinica",
+      "nutricao",
+      strength && "musculacao",
+      running && "corrida",
+      swimming && "natacao",
+      cycling && "ciclismo",
+    ].filter(Boolean),
+    updated_at: new Date().toISOString(),
   };
 }
 

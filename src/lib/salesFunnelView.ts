@@ -49,12 +49,12 @@ export const FUNNEL_STAGE_META: Record<FunnelStageKey, {
   contacted: {
     label: "Contato feito",
     shortLabel: "Contato",
-    description: "A equipe já chamou; aguardando qualificação para o cadastro fiscal.",
+    description: "A equipe ja chamou; aguardando envio do cadastro fiscal e escolha do plano.",
   },
   fiscal_registration_pending: {
-    label: "Cadastro fiscal",
+    label: "Cadastro + plano",
     shortLabel: "Fiscal",
-    description: "Link enviado; aguardando CPF/CNPJ, endereco e WhatsApp.",
+    description: "Link enviado; aguardando dados fiscais para liberar pagamento Asaas.",
   },
   payment_pending: {
     label: "Pagamento Asaas",
@@ -104,8 +104,8 @@ export function stageNextAction(
 ): string {
   const stage = normalizeSalesStage(student);
   if (stage === "interested") return "Registrar contato";
-  if (stage === "contacted") return "Enviar cadastro fiscal";
-  if (stage === "fiscal_registration_pending") return "Aguardar ou reenviar cadastro fiscal";
+  if (stage === "contacted") return "Enviar cadastro fiscal + plano";
+  if (stage === "fiscal_registration_pending") return "Aguardar ou reenviar cadastro";
   if (stage === "payment_pending") {
     return student.payment_link_sent_at ? "Aguardar Pix Asaas" : "Enviar checkout Asaas";
   }
