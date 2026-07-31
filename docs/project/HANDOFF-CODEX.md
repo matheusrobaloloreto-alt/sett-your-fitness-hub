@@ -207,3 +207,28 @@ operam de ponta a ponta depois de cadastrar os secrets reais: `ASAAS_API_KEY`,
 - QA automatizado final: TypeScript 0 erros, 17 arquivos/170 testes verdes, build de produção
   verde e `npm audit` sem vulnerabilidades. O lint global ainda contém dívida histórica de
   `no-explicit-any` (não é regressão desta rodada e não afeta o build).
+
+## 11. Consolidação de integrações e propriedade — 2026-07-31
+
+- `c37cb2e codex: unify live app integrations`: filtros do WhatsApp passaram a usar status,
+  funil, matrícula e ciclo vigentes; BNITO do professor e do aluno passaram a carregar contexto
+  real de matrícula, anamnese, avaliação, prescrições, check-ins e feedbacks, com validação de
+  tenant. As anamneses legadas foram normalizadas sem apagar a origem e os chats diretos foram
+  reconciliados por telefone somente quando o vínculo era inequívoco.
+- `9bd894f codex: lock canonical repository ownership`: documentação e remotes foram travados no
+  repositório `matheusrobaloloreto-alt/sett-your-fitness-hub`. `main` e
+  `codex/claude-compat` apontam para esse commit. O estado anterior do repositório de destino foi
+  preservado em `archive/pre-consolidation-20260731`; a história BN anterior está em
+  `legacy/bn-main-local`.
+- O único remote local é `origin` para a conta do Matheus. A Netlify não possui vínculo Git antigo
+  (deploy continua pela CLI). O deploy de código `6a6d2d05bb6957d694d54402` está em produção e o
+  bundle contém o backend canônico, com zero ocorrência do projeto Supabase legado.
+- Auditoria viva no Bn-app: 65 perfis, 54 ativos, 60 matrículas ativas, 307 chats, 24 anamneses
+  canônicas, 7 avaliações, 41 ciclos vigentes, 25 treinos materializados, 15 planos de força,
+  22 de cardio, 12 de nutrição, 16 bundles e uma instância WhatsApp conectada.
+- Pendências de dados, não falhas de código: 5 ativos sem matrícula operacional, 35 ativos sem
+  anamnese disponível, 50 sem avaliação funcional, 8 ciclos vigentes ainda sem treino e 47 ativos
+  sem acesso ao portal. Não fabricar esses registros; tratar pela operação/telas de ativação e
+  prescrição.
+- QA final: 30 arquivos/231 testes verdes, TypeScript 0 erros, build verde e lint com 0 erros
+  (50 warnings históricos de Hooks/Fast Refresh).
