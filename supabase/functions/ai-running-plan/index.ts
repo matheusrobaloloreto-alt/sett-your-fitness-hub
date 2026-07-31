@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertBundleAccess, assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
-import { buildCardioProgram, assertCardioPlanComplete } from "../_shared/prescription/cardio/cardioEngine.ts";
+import { buildCardioProgram, assertCardioPlanComplete, normalizeCardioSport } from "../_shared/prescription/cardio/cardioEngine.ts";
 import { businessDateYmd } from "../_shared/business-date.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
@@ -18,6 +18,37 @@ const corsHeaders = {
 const clean = (s: string) => (s || "").replace(/[^\x20-\x7E\u00C0-\u017F]/g, "");
 const textValue = (v: any) => typeof v === "string" ? v : v == null ? "" : JSON.stringify(v);
 const compactJson = (value: unknown, maxLength = 10000) => JSON.stringify(value ?? {}, null, 2).slice(0, maxLength);
+const PAIN_REGIONS = ["tornozelo", "joelho", "quadril", "lombar", "ombro"] as const;
+
+function deriveEva(input: Record<string, any>): Record<string, number> {
+  const result: Record<string, number> = {};
+  if (input.eva && typeof input.eva === "object") {
+    for (const [region, value] of Object.entries(input.eva)) {
+      const score = Number(value);
+      if (Number.isFinite(score)) result[region] = Math.max(0, Math.min(10, score));
+    }
+  }
+  const corpus = JSON.stringify([
+    input.injuries,
+    input.anamnese_context?.injuries,
+    input.anamnese_context?.notes,
+    input.prescription_integration?.risk_screening,
+  ]).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  for (const region of PAIN_REGIONS) {
+    const match = corpus.match(new RegExp(`${region}[^0-9]{0,24}(10|[0-9])`));
+    if (match) result[region] = Math.max(result[region] || 0, Number(match[1]));
+  }
+  const screening = input.prescription_integration?.risk_screening;
+  const painRegions = Array.isArray(screening?.pain_regions) ? screening.pain_regions : [];
+  const hasRedFlag = Array.isArray(screening?.red_flags) && screening.red_flags.length > 0;
+  for (const rawRegion of painRegions) {
+    const region = String(rawRegion).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    if (PAIN_REGIONS.includes(region as typeof PAIN_REGIONS[number]) && result[region] == null) {
+      result[region] = hasRedFlag ? 5 : 3;
+    }
+  }
+  return result;
+}
 
 interface CompanyAiConfig {
   assistant_name: string;
@@ -412,6 +443,13 @@ serve(async (req) => {
       start_date: cycleContext?.start_date ?? program_sequence?.start_date ?? null,
       end_date: cycleContext?.end_date ?? program_sequence?.end_date ?? null,
     };
+    try {
+      input.sport = normalizeCardioSport(sport);
+    } catch (sportError) {
+      throw new HttpError(422, sportError instanceof Error ? sportError.message : "Modalidade não suportada.");
+    }
+    input.eva = deriveEva(input);
+    input.prescription_integration = prescription_integration ?? null;
     const aiConfig = await loadCompanyAiConfig(supabase, authorizedCompanyId);
 
     // Monta contexto do atleta

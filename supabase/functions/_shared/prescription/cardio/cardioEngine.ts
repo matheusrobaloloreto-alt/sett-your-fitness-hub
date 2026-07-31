@@ -30,6 +30,15 @@ export interface CardioInput {
   injuries?: string | null;
   equipment?: string | null;
   diet_type?: string | null;
+  prescription_integration?: {
+    readiness?: { status?: string | null } | null;
+    risk_screening?: {
+      red_flags?: unknown[];
+      yellow_flags?: unknown[];
+      pain_regions?: unknown[];
+    } | null;
+    prescription_decision?: { blocked_progressions?: unknown[] } | null;
+  } | null;
   strength_plan_context?: { days_per_week?: number; workouts?: Array<{ day?: any; focus?: string; has_heavy_legs?: boolean }> } | null;
   [k: string]: unknown;
 }
@@ -123,11 +132,15 @@ const INTERVALS: Record<"corrida" | "ciclismo" | "natacao", Record<"z3" | "z4" |
   natacao: { z3: "4x200 m Z3 c/ 30s de parede", z4: "6x100 m Z4 c/ 20s de parede", z5: "10x50 m forte c/ 30s de parede" },
 };
 
-function normSport(s?: string): "corrida" | "ciclismo" | "natacao" {
-  const x = (s || "corrida").toLowerCase();
+export function normalizeCardioSport(s?: string): "corrida" | "ciclismo" | "natacao" {
+  const x = (s || "corrida")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
   if (x.includes("cicl") || x.includes("bike") || x.includes("pedal")) return "ciclismo";
   if (x.includes("nata") || x.includes("swim") || x.includes("piscina")) return "natacao";
-  return "corrida";
+  if (x.includes("corr") || x === "run" || x === "running") return "corrida";
+  throw new Error("Modalidade não suportada. Use corrida, ciclismo ou natação.");
 }
 
 // ── Zonas Karvonen ───────────────────────────────────────────────────────────
@@ -175,6 +188,21 @@ function resolveSafety(input: CardioInput, level: string) {
   if (evaMax >= 7) { contraindicated = true; eva_status = "linha_vermelha"; restrictions.push("EVA ≥ 7: contraindicação absoluta — parar a modalidade e buscar avaliação médica."); }
   else if (evaMax >= 5) { regenOnly = true; maxZone = Math.min(maxZone, 1); eva_status = "linha_vermelha"; restrictions.push("EVA 5–6: apenas regeneração ativa; encaminhar fisioterapia."); }
   else if (evaMax >= 3) { eva_status = "atencao"; maxZone = Math.min(maxZone, 3); restrictions.push("EVA 3–4: volume reduzido ~30% e troca de impacto por água/bicicleta."); }
+
+  const integration = input.prescription_integration;
+  const redFlags = Array.isArray(integration?.risk_screening?.red_flags) ? integration!.risk_screening!.red_flags! : [];
+  const yellowFlags = Array.isArray(integration?.risk_screening?.yellow_flags) ? integration!.risk_screening!.yellow_flags! : [];
+  const blocked = Array.isArray(integration?.prescription_decision?.blocked_progressions)
+    ? integration!.prescription_decision!.blocked_progressions!
+    : [];
+  if (redFlags.length) {
+    regenOnly = true;
+    maxZone = Math.min(maxZone, 1);
+    restrictions.push("Red flag na integração anamnese + avaliação: manter apenas regeneração até revisão do professor.");
+  } else if (integration?.readiness?.status === "cautela" || yellowFlags.length || blocked.length) {
+    maxZone = Math.min(maxZone, 3);
+    restrictions.push("Avaliação integrada em cautela: intensidade limitada a Z3 e progressão condicionada à revisão técnica.");
+  }
 
   if (level === "iniciante") maxZone = Math.min(maxZone, 2);
   else if (level === "intermediario") maxZone = Math.min(maxZone, 4);
@@ -307,7 +335,7 @@ function complementaryStrength(sport: string): string[] {
 
 // ── Motor principal ──────────────────────────────────────────────────────────
 export function buildCardioProgram(input: CardioInput): CardioPlan {
-  const sport = normSport(input.sport);
+  const sport = normalizeCardioSport(input.sport);
   const sequence = sequenceMeta(input);
   const N = clamp(Math.round(num(input.duration_weeks)) || 6, 1, 16);
   let sessionMin = clamp(Math.round(num(input.session_duration)) || 60, 20, 180);

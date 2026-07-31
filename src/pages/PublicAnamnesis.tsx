@@ -13,10 +13,7 @@ import { CheckCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { applyTheme } from "@/contexts/ThemeContext";
 import { formatPhone } from "@/lib/masks";
-
-const MODALITY_OPTIONS = [
-  "Nenhum", "Musculação / Funcional", "Corrida", "Natação", "Bike", "Triathlon", "Tênis"
-];
+import { SUPPORTED_TRAINING_MODALITIES } from "@/lib/anamnesisOptions";
 
 const EQUIPMENT_OPTIONS = [
   "Mini Bands (elástico curto fechado)", "Thera Bands (elástico grande aberto)",
@@ -578,7 +575,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             <div className="space-y-2">
               <Label className="font-sans font-medium">Quais modalidades você pratica atualmente? *</Label>
               <div className="grid grid-cols-2 gap-2">
-                {MODALITY_OPTIONS.map(m => (
+                {SUPPORTED_TRAINING_MODALITIES.map(m => (
                   <label key={m} className="flex items-center gap-2 text-sm font-sans cursor-pointer">
                     <Checkbox checked={modalities.includes(m)} onCheckedChange={() => toggleArrayItem(modalities, m, setModalities)} />
                     {m}

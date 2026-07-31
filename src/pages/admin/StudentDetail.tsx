@@ -48,6 +48,8 @@ import { formatCPF, formatCEP, formatPhone } from "@/lib/masks";
 import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { SUPPORTED_TRAINING_MODALITIES } from "@/lib/anamnesisOptions";
+import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
 // Heavy children loaded only when their tab is opened (chunk size win)
 const WorkoutAnalysis = lazy(() => import("@/components/trainer/WorkoutAnalysis").then(m => ({ default: m.WorkoutAnalysis })));
 const TrainerWeeklyBar = lazy(() => import("@/components/trainer/TrainerWeeklyBar").then(m => ({ default: m.TrainerWeeklyBar })));
@@ -206,9 +208,7 @@ const cycleCalendarColors: Record<string, { bg: string; text: string }> = {
   expired_no_workout: { bg: "hsl(var(--destructive) / 0.25)", text: "hsl(var(--destructive))" },
 };
 
-const MODALITY_OPTIONS = [
-  "Nenhum", "Musculação / Funcional", "Corrida", "Natação", "Bike", "Triathlon", "Tênis"
-];
+const MODALITY_OPTIONS = SUPPORTED_TRAINING_MODALITIES;
 
 const EQUIPMENT_OPTIONS = [
   "Mini Bands (elástico curto fechado)", "Thera Bands (elástico grande aberto)",
@@ -1115,7 +1115,24 @@ export default function StudentDetail() {
               question="Me ajude a identificar os principais riscos e proximos passos deste aluno."
             />
             <Button variant="ghost" size="sm" className="text-xs" onClick={async () => {
-              const link = `${window.location.origin}/anamnese/${id}`;
+              if (!id || !student.company_id) {
+                toast({ title: "Não foi possível gerar o link", variant: "destructive" });
+                return;
+              }
+              const token = crypto.randomUUID().replace(/-/g, "");
+              const { error } = await (supabase as any).from("anamnese_invites").insert({
+                company_id: student.company_id,
+                student_id: id,
+                token,
+                student_name: student.full_name,
+                created_by: session?.user?.id ?? null,
+                status: "pending",
+              });
+              if (error) {
+                toast({ title: "Não foi possível gerar o link", description: error.message, variant: "destructive" });
+                return;
+              }
+              const link = anamnesisInviteUrl(window.location.origin, token);
               try { await navigator.clipboard.writeText(link); } catch {
                 const ta = document.createElement("textarea");
                 ta.value = link; ta.style.position = "fixed"; ta.style.left = "-9999px";

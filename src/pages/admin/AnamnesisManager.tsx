@@ -13,6 +13,7 @@ import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import FormFieldEditor from "@/components/FormFieldEditor";
 import { useNavigate } from "react-router-dom";
 import { openStudentChat } from "@/lib/studentChat";
+import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
 
 // Anamnese ÚNICA (estúdio integrado). A aba Anamnese seleciona o aluno, gera o link da
 // anamnese estruturada e envia direto no WhatsApp dele (ou copia o link).
@@ -77,7 +78,7 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
     });
     setCreating(false);
     if (error) { toast.error("Não consegui gerar o link: " + error.message); return null; }
-    const url = `${window.location.origin}/anamnese-convite/${token}`;
+    const url = anamnesisInviteUrl(window.location.origin, token);
     setLink(url);
     return url;
   }

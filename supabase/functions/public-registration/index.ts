@@ -28,13 +28,14 @@ function json(body: unknown, status = 200) {
 
 async function resolveCompany(slug: string | null) {
   if (slug) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("companies")
       .select("id, name, slug")
       .eq("slug", slug)
       .eq("is_active", true)
       .maybeSingle();
-    if (data) return data;
+    if (error) throw new HttpError(500, `Falha ao localizar empresa: ${error.message}`);
+    return data;
   }
   const { data } = await supabase
     .from("companies")
@@ -358,6 +359,10 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
     : {};
   const modalities = asArray(answers.modalities);
   const allEquipment = asArray(answers.available_equipment);
+  const equipmentContext = [
+    cleanLongText(answers.training_location, 160),
+    allEquipment.join(", "),
+  ].filter(Boolean).join(" | ");
   const strength = answers.interest_strength !== undefined
     ? boolValue(answers.interest_strength)
     : includesAny(modalities, ["musculacao", "funcional", "crossfit"]);
@@ -426,7 +431,7 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
       ? (numberOrNull(answers.days_cardio) ?? numberOrNull(answers.available_days))
       : null,
     session_duration_min: parseSessionMinutes(answers),
-    equipment: cleanLongText(answers.equipment || answers.training_location || allEquipment.join(", "), 500) || null,
+    equipment: cleanLongText(answers.equipment || equipmentContext, 500) || null,
     experience_months: numberOrNull(answers.experience_months),
     sport: running ? "corrida" : swimming ? "natacao" : cycling ? "ciclismo" : null,
     fcmax: numberOrNull(answers.fcmax),
@@ -496,6 +501,25 @@ async function convertLeadToFiscal(req: Request, leadId: unknown) {
       studentId = created.data.id;
     }
     if (!studentId) throw new HttpError(500, "Falha ao identificar o aluno.");
+    const answers = lead.pre_registration_answers && typeof lead.pre_registration_answers === "object"
+      ? lead.pre_registration_answers as Record<string, unknown>
+      : {};
+    const demographics: Record<string, unknown> = {};
+    const gender = cleanText(answers.gender).toUpperCase();
+    if (["M", "F"].includes(gender)) demographics.gender = gender;
+    const weightKg = numberOrNull(answers.weight_kg);
+    const heightCm = numberOrNull(answers.height_cm);
+    if (weightKg != null) demographics.weight_kg = weightKg;
+    if (heightCm != null) demographics.height_cm = heightCm;
+    if (Object.keys(demographics).length) {
+      const demographicUpdate = await supabase.from("students")
+        .update(demographics)
+        .eq("id", studentId)
+        .eq("company_id", tenant.companyId);
+      if (demographicUpdate.error) {
+        throw new HttpError(500, `Falha ao integrar dados físicos: ${demographicUpdate.error.message}`);
+      }
+    }
     const anamnesis = await supabase.from("student_anamneses")
       .upsert(anamnesisFromLead(lead, studentId), { onConflict: "student_id" });
     if (anamnesis.error) throw new HttpError(500, `Falha ao integrar pré-cadastro: ${anamnesis.error.message}`);
@@ -583,8 +607,11 @@ async function createRegistrationLink(req: Request, studentId: unknown) {
     link = created.data;
   }
 
-  const update: Record<string, unknown> = { sales_stage: "fiscal_registration_pending" };
-  if (!["active", "awaiting_renewal"].includes(student.status || "")) update.status = "interested";
+  const activeStudent = ["active", "awaiting_renewal"].includes(student.status || "");
+  const update: Record<string, unknown> = activeStudent
+    ? {}
+    : { sales_stage: "fiscal_registration_pending", status: "interested" };
+  if (Object.keys(update).length === 0) return { ...link, student: { id: student.id, full_name: student.full_name } };
   const { error: updateError } = await supabase.from("students")
     .update(update)
     .eq("id", student.id)
@@ -649,12 +676,11 @@ async function completeFiscalRegistration(link: RegistrationLink, studentInput: 
   if (!currentStudent) throw new HttpError(404, "Cadastro não encontrado.");
 
   const completedAt = new Date().toISOString();
+  const activeStudent = ["active", "awaiting_renewal"].includes(currentStudent.status || "");
   const payload: Record<string, unknown> = {
     ...fiscalPayload(studentInput),
-    status: ["active", "awaiting_renewal"].includes(currentStudent.status || "")
-      ? currentStudent.status
-      : "pending",
-    sales_stage: "payment_pending",
+    status: activeStudent ? currentStudent.status : "pending",
+    sales_stage: activeStudent ? "active" : "payment_pending",
     fiscal_completed_at: completedAt,
   };
   const { error: updateError } = await supabase.from("students")

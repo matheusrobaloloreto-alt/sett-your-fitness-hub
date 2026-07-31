@@ -109,6 +109,47 @@ describe("progressão longitudinal determinística", () => {
     expect(second.weeks).toHaveLength(6);
   });
 
+  it("cardio reduz intensidade quando a integração de anamnese e avaliação pede cautela", () => {
+    const plan = buildCardioProgram({
+      sport: "corrida",
+      goal: "10 km",
+      duration_weeks: 6,
+      days_per_week: 4,
+      session_duration: 60,
+      experience_months: 18,
+      eva: { joelho: 4 },
+      prescription_integration: {
+        readiness: { status: "cautela" },
+        risk_screening: { pain_regions: ["joelho"], red_flags: [], yellow_flags: ["valgo dinâmico"] },
+        prescription_decision: { blocked_progressions: ["bloquear impacto alto enquanto houver dor"] },
+      },
+    });
+
+    expect(plan.safety_check.eva_status).toBe("atencao");
+    expect(plan.safety_check.restrictions.join(" ")).toContain("Avaliação integrada em cautela");
+    expect(plan.weeks.flatMap((week) => week.sessions).every((session) => !/Z4|Z5/.test(session.zone))).toBe(true);
+  });
+
+  it("cardio mantém somente regeneração diante de red flag integrada", () => {
+    const plan = buildCardioProgram({
+      sport: "ciclismo",
+      duration_weeks: 6,
+      days_per_week: 3,
+      prescription_integration: {
+        readiness: { status: "cautela" },
+        risk_screening: { pain_regions: ["joelho"], red_flags: ["dor severa"], yellow_flags: [] },
+      },
+    });
+
+    expect(plan.safety_check.restrictions.join(" ")).toContain("Red flag");
+    expect(plan.weeks.flatMap((week) => week.sessions).every((session) => session.zone === "Z1")).toBe(true);
+  });
+
+  it("cardio rejeita modalidade sem motor em vez de tratá-la como corrida", () => {
+    expect(() => buildCardioProgram({ sport: "tênis" }))
+      .toThrow("Modalidade não suportada");
+  });
+
   it("nutrição acompanha a fase da carga mantendo proteína e continuidade", () => {
     const first = buildNutritionProgram({
       weight_kg: 75,

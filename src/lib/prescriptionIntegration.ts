@@ -314,6 +314,14 @@ function hasUsefulAnamnese(a: AnyRecord) {
 
 function hasUsefulAssessment(ax: AnyRecord) {
   return Boolean(
+    ax?.id ||
+    ax?.schema === "bn_functional_assessment_v1" ||
+    ax?.assessment_contract_version ||
+    ax?.prescription_context?.contract === "bn_functional_assessment_v1" ||
+    ax?.report_sections ||
+    Array.isArray(ax?.ohs_compensations) ||
+    Array.isArray(ax?.postural_compensations) ||
+    ax?.total_compensacoes === 0 ||
     ax?.resumo_para_prescricao ||
     ax?.direcionamento_protocolo ||
     ax?.sequencia_bn_video ||
@@ -372,6 +380,22 @@ function buildFunctionalPriorities(ax: AnyRecord, textCorpus: string) {
 
 function extractCompensations(ax: AnyRecord) {
   const values: string[] = [];
+  const structuredSources = [
+    ax.ohs_compensations,
+    ax.postural_compensations,
+    ax.prescription_context?.ohs_compensations,
+    ax.prescription_context?.postural_compensations,
+  ];
+  for (const source of structuredSources) {
+    for (const comp of asArray(source)) {
+      if (comp?.presente === false) continue;
+      const label = comp?.compensacao || comp?.label || comp?.key;
+      const severity = comp?.severidade || comp?.gravidade;
+      const implication = comp?.implicacao_treino || comp?.impacto;
+      const value = [severity, label, implication].filter(Boolean).join(": ");
+      if (value) values.push(value);
+    }
+  }
   for (const item of asArray(ax.sequencia_bn_video)) {
     for (const comp of asArray(item?.compensacoes || item?.achados)) {
       values.push(typeof comp === "string" ? comp : [comp?.gravidade, comp?.descricao, comp?.lado].filter(Boolean).join(" "));
@@ -391,6 +415,7 @@ function extractCompensations(ax: AnyRecord) {
 
 function buildMovementNotes(ax: AnyRecord) {
   return uniqueStrings([
+    ...extractCompensations(ax),
     ...asArray(ax.analise_tecnica_movimento).map((item) =>
       [item?.movimento, item?.achado, item?.cue_ou_ajuste || item?.impacto].filter(Boolean).join(": "),
     ),

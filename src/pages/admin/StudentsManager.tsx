@@ -19,6 +19,7 @@ import { format, addWeeks } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { StudentChatButton } from "@/components/admin/StudentChatButton";
+import { preRegistrationUrl } from "@/lib/publicFlowLinks";
 
 interface Student {
   id: string;
@@ -483,9 +484,7 @@ export default function StudentsManager() {
                 if (!effectiveCompanyId) return;
                 const { data } = await supabase.from("companies").select("slug").eq("id", effectiveCompanyId).maybeSingle();
                 const slug = data?.slug;
-                const link = slug
-                  ? `${window.location.origin}/inscricao/${slug}`
-                  : `${window.location.origin}/inscricao`;
+                const link = preRegistrationUrl(window.location.origin, slug);
                 try { await navigator.clipboard.writeText(link); } catch {
                   const ta = document.createElement("textarea");
                   ta.value = link; ta.style.position = "fixed"; ta.style.left = "-9999px";
@@ -495,7 +494,7 @@ export default function StudentsManager() {
                 toast({ title: "Link de cadastro copiado!", description: link });
               }}
             >
-              <Copy className="h-4 w-4 mr-2" />Link de Cadastro
+              <Copy className="h-4 w-4 mr-2" />Link de Pré-cadastro
             </Button>
             <Button onClick={openCreate}><UserPlus className="h-4 w-4 mr-2" />Novo Aluno</Button>
           </div>

@@ -128,6 +128,10 @@ function buildNutritionContext(body: Record<string, any>) {
 function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Record<string, any>) {
   const modalities = asArray(body.modalities);
   const allEquipment = asArray(body.available_equipment);
+  const equipmentContext = [
+    cleanText(body.training_location, 160),
+    allEquipment.join(", "),
+  ].filter(Boolean).join(" | ");
   const strength = body.interest_strength !== undefined
     ? boolValue(body.interest_strength)
     : includesAny(modalities, ["musculacao", "funcional", "crossfit"]);
@@ -199,7 +203,7 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
       ? (numberOrNull(body.days_cardio) ?? numberOrNull(body.days_available ?? body.available_days))
       : null,
     session_duration_min: parseSessionMinutes(body),
-    equipment: cleanText(body.equipment || body.training_location || allEquipment.join(", "), 500),
+    equipment: cleanText(body.equipment || equipmentContext, 500),
     experience_months: numberOrNull(body.experience_months),
     sport: running ? "corrida" : swimming ? "natacao" : cycling ? "ciclismo" : cleanText(body.sport, 80) || null,
     fcmax: numberOrNull(body.fcmax),
@@ -221,6 +225,23 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
     budget_food: cleanText(body.budget_food || "moderado", 80),
     meals_per_day: numberOrNull(body.meals_per_day) || null,
     has_kitchen: body.has_kitchen === undefined ? true : boolValue(body.has_kitchen),
+    wants_strength: strength,
+    wants_running: running,
+    wants_swimming: swimming,
+    wants_cycling: cycling,
+    wants_nutrition: body.interest_nutrition === undefined ? true : boolValue(body.interest_nutrition),
+    shown_blocks: [
+      "dados",
+      "objetivo",
+      "treino",
+      "saude",
+      "clinica",
+      "nutricao",
+      strength && "musculacao",
+      running && "corrida",
+      swimming && "natacao",
+      cycling && "ciclismo",
+    ].filter(Boolean),
     notes,
     updated_at: new Date().toISOString(),
   };

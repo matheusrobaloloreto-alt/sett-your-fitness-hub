@@ -4,6 +4,7 @@
 // WhatsApp externo: sem conversa vinculada, a tela interna abre um novo rascunho pelo telefone.
 import type { NavigateFunction } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { paymentUrl } from "@/lib/publicFlowLinks";
 
 // Mapa student_id -> chat_id (whatsapp_chats), escopo por empresa quando informado.
 export async function buildStudentChatMap(companyId?: string | null): Promise<Record<string, string>> {
@@ -94,7 +95,7 @@ export async function createPlansLink(studentId: string): Promise<string> {
   if (error || !data?.token) {
     throw new Error(data?.error || error?.message || "Não foi possível criar o link de pagamento.");
   }
-  return `${window.location.origin}/pagamento/${data.token}`;
+  return paymentUrl(window.location.origin, data.token);
 }
 
 export function birthdayMessage(fullName?: string | null): string {

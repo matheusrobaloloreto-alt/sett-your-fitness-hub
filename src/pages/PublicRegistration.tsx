@@ -14,6 +14,8 @@ import { Logo } from "@/components/Logo";
 import { formatCPF, formatCEP, formatPhone } from "@/lib/masks";
 import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { applyTheme } from "@/contexts/ThemeContext";
+import { SUPPORTED_TRAINING_MODALITIES } from "@/lib/anamnesisOptions";
+import { paymentPath } from "@/lib/publicFlowLinks";
 
 interface CompanyBranding {
   logo_url: string | null;
@@ -23,16 +25,6 @@ interface CompanyBranding {
   card_color: string;
   text_color: string;
 }
-
-const MODALITY_OPTIONS = [
-  "Nenhum",
-  "Musculação / Funcional",
-  "Corrida",
-  "Natação",
-  "Bike",
-  "Triathlon",
-  "Tênis",
-];
 
 const EQUIPMENT_OPTIONS = [
   "Mini Bands (elástico curto fechado)",
@@ -510,7 +502,7 @@ export default function PublicRegistration() {
               </p>
             )}
             {paymentToken && (
-              <Button className="w-full" onClick={() => navigate(`/pagamento/${paymentToken}`)}>
+              <Button className="w-full" onClick={() => navigate(paymentPath(paymentToken))}>
                 Escolher plano e pagar agora
               </Button>
             )}
@@ -626,7 +618,7 @@ export default function PublicRegistration() {
                   <div className="space-y-2">
                     <Label className="font-sans">Quais modalidades você pratica ou quer receber no app?</Label>
                     <div className="grid gap-2 sm:grid-cols-2">
-                      {MODALITY_OPTIONS.map((modality) => (
+                      {SUPPORTED_TRAINING_MODALITIES.map((modality) => (
                         <label key={modality} className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm">
                           <Checkbox checked={modalities.includes(modality)} onCheckedChange={() => toggleArrayItem(modalities, modality, setModalities)} />
                           {modality}

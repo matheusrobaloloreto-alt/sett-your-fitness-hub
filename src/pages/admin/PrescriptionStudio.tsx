@@ -35,6 +35,7 @@ import { PeriodizationRoadmap } from "@/components/admin/PeriodizationRoadmap";
 import { openStudentChat } from "@/lib/studentChat";
 import { toast } from "sonner";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
 import {
   describeLongitudinalPhase,
   isCycleCurrent,
@@ -345,7 +346,7 @@ export default function PrescriptionStudio() {
       setCreatingInvite(false);
       return null;
     }
-    const link = `${window.location.origin}/anamnese-convite/${token}`;
+    const link = anamnesisInviteUrl(window.location.origin, token);
     setInviteLink(link);
     setCreatingInvite(false);
     return link;

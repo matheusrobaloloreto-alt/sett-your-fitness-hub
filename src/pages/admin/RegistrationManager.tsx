@@ -28,6 +28,10 @@ import {
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
+import {
+  fiscalRegistrationUrl,
+  preRegistrationUrl,
+} from "@/lib/publicFlowLinks";
 import { cn } from "@/lib/utils";
 import {
   FUNNEL_STAGE_META,
@@ -181,7 +185,7 @@ export default function RegistrationManager() {
   const navigate = useNavigate();
   const chatRoutePrefix = role === "master" ? "admin" : role || "admin";
 
-  const [generalLink, setGeneralLink] = useState(`${window.location.origin}/cadastro`);
+  const [generalLink, setGeneralLink] = useState(preRegistrationUrl(window.location.origin));
   const [students, setStudents] = useState<Student[]>([]);
   const [phone, setPhone] = useState("");
   const [fiscalStudentId, setFiscalStudentId] = useState("");
@@ -206,7 +210,7 @@ export default function RegistrationManager() {
         .select("slug")
         .eq("id", effectiveCompanyId)
         .maybeSingle();
-      const companyLink = `${window.location.origin}/cadastro${companyResult.data?.slug ? "/" + companyResult.data.slug : ""}`;
+      const companyLink = preRegistrationUrl(window.location.origin, companyResult.data?.slug);
       setGeneralLink(companyLink);
 
       const [studentResult, leadResult] = await Promise.all([
@@ -379,7 +383,7 @@ export default function RegistrationManager() {
       if (error || !data?.token) {
         throw new Error(data?.error || error?.message || "Nao foi possivel criar o link fiscal.");
       }
-      return `${window.location.origin}/cadastro-fiscal/${data.token}`;
+      return fiscalRegistrationUrl(window.location.origin, data.token);
     } finally {
       setCreatingLink(false);
     }
@@ -426,7 +430,7 @@ export default function RegistrationManager() {
           body: { action: "convert-lead", leadId: student.leadId || student.id },
         });
         if (error || !data?.token || !data?.studentId) throw new Error(data?.error || error?.message || "Não foi possível iniciar o cadastro fiscal.");
-        const fiscalLink = `${window.location.origin}/cadastro-fiscal/${data.token}`;
+        const fiscalLink = fiscalRegistrationUrl(window.location.origin, data.token);
         await openStudentChat({
           navigate,
           routePrefix: chatRoutePrefix,
@@ -600,7 +604,10 @@ export default function RegistrationManager() {
               >
                 <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione para gerar o link individual..." /></SelectTrigger>
                 <SelectContent>
-                  {students.filter((student) => student.entityType === "student").map((student) => {
+                  {students.filter((student) =>
+                    student.entityType === "student"
+                    && !["active", "awaiting_renewal"].includes(student.status),
+                  ).map((student) => {
                     const stage = normalizeSalesStage(student);
                     return (
                       <SelectItem key={student.id} value={student.id}>
