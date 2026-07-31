@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { format, formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
@@ -6,27 +8,122 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserPlus, Copy, Check, MessageCircle, Link2, Pencil, ArrowLeft, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  CheckCircle2,
+  ClipboardCheck,
+  Copy,
+  CreditCard,
+  FileCheck2,
+  Link2,
+  Loader2,
+  MessageCircle,
+  Pencil,
+  UserPlus,
+  UserRoundCheck,
+} from "lucide-react";
 import { toast } from "sonner";
 import FormFieldEditor from "@/components/FormFieldEditor";
 import { useNavigate } from "react-router-dom";
-import { openStudentChat } from "@/lib/studentChat";
+import { createPlansLink, openStudentChat } from "@/lib/studentChat";
+import { cn } from "@/lib/utils";
+import {
+  FUNNEL_STAGE_META,
+  FUNNEL_STAGE_ORDER,
+  type FunnelStageKey,
+  funnelStageProgress,
+  isOpenFunnelStage,
+  normalizeSalesStage,
+  stageNextAction,
+} from "@/lib/salesFunnelView";
 
 interface Student {
   id: string;
   full_name: string;
   phone: string | null;
   whatsapp: string | null;
+  email: string | null;
   status: string | null;
+  sales_stage: string | null;
+  fiscal_completed_at: string | null;
+  payment_link_sent_at: string | null;
+  activated_at: string | null;
+  assessment_due_at: string | null;
+  onboarding_instructions_sent_at: string | null;
+  selected_plan_id: string | null;
+  assigned_trainer_id: string | null;
+  created_at: string;
+  updated_at: string | null;
+  hasAnamnesis?: boolean;
+  hasAssessment?: boolean;
+  latestEvent?: FunnelEvent | null;
 }
+
+interface FunnelEvent {
+  id: string;
+  student_id: string;
+  event_type: string;
+  status: "processing" | "completed" | "failed";
+  error: string | null;
+  created_at: string;
+  processed_at: string | null;
+}
+
+type StudentWithStage = Student & { stage: FunnelStageKey; nextAction: string; progress: number };
 
 function waDigits(phone?: string | null): string | null {
   if (!phone) return null;
   let d = phone.replace(/\D/g, "");
   if (!d) return null;
-  if (d.length <= 11) d = "55" + d; // assume Brasil se vier sem DDI
+  if (d.length <= 11) d = "55" + d;
   return d;
+}
+
+function firstName(name: string) {
+  return name.trim().split(/\s+/)[0] || "tudo bem";
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "nao registrado";
+  try {
+    return format(new Date(value), "dd/MM HH:mm", { locale: ptBR });
+  } catch {
+    return "nao registrado";
+  }
+}
+
+function relativeDate(value?: string | null) {
+  if (!value) return "sem data";
+  try {
+    return formatDistanceToNow(new Date(value), { locale: ptBR, addSuffix: true });
+  } catch {
+    return "sem data";
+  }
+}
+
+function stageTone(stage: FunnelStageKey) {
+  const tones: Record<FunnelStageKey, string> = {
+    interested: "border-sky-200 bg-sky-50/70 text-sky-800",
+    fiscal_registration_pending: "border-violet-200 bg-violet-50/70 text-violet-800",
+    payment_pending: "border-amber-200 bg-amber-50/75 text-amber-800",
+    active_onboarding: "border-emerald-200 bg-emerald-50/70 text-emerald-800",
+    active: "border-slate-200 bg-slate-50 text-slate-700",
+    lost: "border-rose-200 bg-rose-50/70 text-rose-800",
+  };
+  return tones[stage];
+}
+
+function stageIcon(stage: FunnelStageKey) {
+  if (stage === "fiscal_registration_pending") return FileCheck2;
+  if (stage === "payment_pending") return CreditCard;
+  if (stage === "active_onboarding") return ClipboardCheck;
+  if (stage === "active") return CheckCircle2;
+  if (stage === "lost") return ArrowLeft;
+  return UserPlus;
 }
 
 export default function RegistrationManager() {
@@ -44,70 +141,238 @@ export default function RegistrationManager() {
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const [creatingLink, setCreatingLink] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeStage, setActiveStage] = useState<FunnelStageKey | "all">("all");
+
+  const loadPipeline = async () => {
+    if (!effectiveCompanyId) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const companyResult = await (supabase as any)
+        .from("companies")
+        .select("slug")
+        .eq("id", effectiveCompanyId)
+        .maybeSingle();
+      const companyLink = `${window.location.origin}/cadastro${companyResult.data?.slug ? "/" + companyResult.data.slug : ""}`;
+      setGeneralLink(companyLink);
+      setLink(companyLink);
+
+      const { data: rows, error } = await (supabase as any)
+        .from("students")
+        .select([
+          "id",
+          "full_name",
+          "phone",
+          "whatsapp",
+          "email",
+          "status",
+          "sales_stage",
+          "fiscal_completed_at",
+          "payment_link_sent_at",
+          "activated_at",
+          "assessment_due_at",
+          "onboarding_instructions_sent_at",
+          "selected_plan_id",
+          "assigned_trainer_id",
+          "created_at",
+          "updated_at",
+        ].join(", "))
+        .eq("company_id", effectiveCompanyId)
+        .order("created_at", { ascending: false })
+        .limit(160);
+      if (error) throw error;
+
+      const baseStudents = (rows || []) as Student[];
+      const ids = baseStudents.map((student) => student.id);
+      if (ids.length === 0) {
+        setStudents([]);
+        return;
+      }
+
+      const [eventResult, anamnesisResult, assessmentResult] = await Promise.all([
+        (supabase as any)
+          .from("student_funnel_events")
+          .select("id, student_id, event_type, status, error, created_at, processed_at")
+          .eq("company_id", effectiveCompanyId)
+          .in("student_id", ids)
+          .order("created_at", { ascending: false })
+          .limit(240),
+        (supabase as any)
+          .from("student_anamneses")
+          .select("student_id")
+          .eq("company_id", effectiveCompanyId)
+          .in("student_id", ids),
+        (supabase as any)
+          .from("functional_assessments")
+          .select("student_id")
+          .eq("company_id", effectiveCompanyId)
+          .in("student_id", ids),
+      ]);
+
+      if (eventResult.error) console.warn("registration funnel events unavailable", eventResult.error);
+      if (anamnesisResult.error) console.warn("registration anamneses unavailable", anamnesisResult.error);
+      if (assessmentResult.error) console.warn("registration assessments unavailable", assessmentResult.error);
+      const latestEventByStudent = new Map<string, FunnelEvent>();
+      ((eventResult.error ? [] : eventResult.data || []) as FunnelEvent[]).forEach((event) => {
+        if (!latestEventByStudent.has(event.student_id)) latestEventByStudent.set(event.student_id, event);
+      });
+      const anamnesisStudents = new Set((anamnesisResult.error ? [] : anamnesisResult.data || []).map((row: any) => row.student_id));
+      const assessedStudents = new Set((assessmentResult.error ? [] : assessmentResult.data || []).map((row: any) => row.student_id));
+
+      setStudents(baseStudents.map((student) => ({
+        ...student,
+        hasAnamnesis: anamnesisStudents.has(student.id),
+        hasAssessment: assessedStudents.has(student.id),
+        latestEvent: latestEventByStudent.get(student.id) || null,
+      })));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Nao foi possivel carregar os cadastros.";
+      setLoadError(message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!effectiveCompanyId) return;
-    (supabase as any).from("companies").select("slug").eq("id", effectiveCompanyId).maybeSingle()
-      .then(({ data }: any) => {
-        const companyLink = `${window.location.origin}/cadastro${data?.slug ? "/" + data.slug : ""}`;
-        setGeneralLink(companyLink);
-        setLink(companyLink);
-      });
-    (supabase as any).from("students").select("id, full_name, phone, whatsapp, status")
-      .eq("company_id", effectiveCompanyId)
-      .in("status", ["interested", "pending", "active", "awaiting_renewal"])
-      .order("full_name")
-      .then(({ data }: any) => setStudents(data || []));
+    void loadPipeline();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveCompanyId]);
 
-  // Selecionar um aluno preenche o telefone (útil pra reenviar a quem já está na base).
   useEffect(() => {
     const s = students.find((x) => x.id === studentId);
     if (s) setPhone(s.whatsapp || s.phone || "");
     setLink(generalLink);
   }, [studentId, students, generalLink]);
 
-  const ensurePersonalLink = async (): Promise<string> => {
-    if (!studentId) return link;
-    if (link.includes("/cadastro-fiscal/")) return link;
+  const stagedStudents = useMemo<StudentWithStage[]>(() => {
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    return students
+      .map((student) => {
+        const stage = normalizeSalesStage(student);
+        const nextAction = stageNextAction(student, {
+          hasAnamnesis: student.hasAnamnesis,
+          hasAssessment: student.hasAssessment,
+        });
+        return { ...student, stage, nextAction, progress: funnelStageProgress(stage) };
+      })
+      .filter((student) => {
+        if (activeStage !== "all" && student.stage !== activeStage) return false;
+        if (isOpenFunnelStage(student.stage)) return true;
+        if (student.stage === "active_onboarding") return true;
+        if (student.stage === "active" && student.activated_at) return new Date(student.activated_at).getTime() >= thirtyDaysAgo;
+        return false;
+      });
+  }, [students, activeStage]);
+
+  const studentsByStage = useMemo(() => {
+    const grouped = new Map<FunnelStageKey, StudentWithStage[]>();
+    FUNNEL_STAGE_ORDER.forEach((stage) => grouped.set(stage, []));
+    stagedStudents.forEach((student) => grouped.get(student.stage)?.push(student));
+    return grouped;
+  }, [stagedStudents]);
+
+  const selectedStudent = students.find((student) => student.id === studentId);
+
+  const createFiscalLinkForStudent = async (id: string): Promise<string> => {
     setCreatingLink(true);
     try {
       const { data, error } = await supabase.functions.invoke("public-registration", {
-        body: { action: "create-link", studentId },
+        body: { action: "create-link", studentId: id },
       });
       if (error || !data?.token) {
-        throw new Error(data?.error || error?.message || "Não foi possível criar o link fiscal.");
+        throw new Error(data?.error || error?.message || "Nao foi possivel criar o link fiscal.");
       }
-      const personalized = `${window.location.origin}/cadastro-fiscal/${data.token}`;
-      setLink(personalized);
-      return personalized;
+      return `${window.location.origin}/cadastro-fiscal/${data.token}`;
     } finally {
       setCreatingLink(false);
     }
   };
 
+  const ensurePersonalLink = async (): Promise<string> => {
+    if (!studentId) return link;
+    if (link.includes("/cadastro-fiscal/")) return link;
+    const personalized = await createFiscalLinkForStudent(studentId);
+    setLink(personalized);
+    await loadPipeline();
+    setLink(personalized);
+    return personalized;
+  };
+
+  const openChatWithStudent = async (student: Student, message: string) => {
+    const digits = waDigits(student.whatsapp || student.phone || phone);
+    await openStudentChat({
+      navigate,
+      routePrefix: chatRoutePrefix,
+      studentId: student.id,
+      phone: digits,
+      message,
+      onNoChat: () => toast.error("Informe um telefone valido para abrir a conversa interna."),
+    });
+  };
+
+  const handleStageAction = async (student: StudentWithStage) => {
+    try {
+      if (student.stage === "interested" || student.stage === "fiscal_registration_pending") {
+        const fiscalLink = await createFiscalLinkForStudent(student.id);
+        await openChatWithStudent(
+          student,
+          `Oi, ${firstName(student.full_name)}! Complete seus dados fiscais para seguirmos com seu plano e a emissao da nota: ${fiscalLink}`,
+        );
+        await loadPipeline();
+        return;
+      }
+
+      if (student.stage === "payment_pending") {
+        const paymentLink = await createPlansLink(student.id);
+        await openChatWithStudent(
+          student,
+          `Oi, ${firstName(student.full_name)}! Seu cadastro fiscal esta concluido. Agora escolha seu plano e faça o pagamento com Pix seguro pelo Asaas: ${paymentLink}`,
+        );
+        return;
+      }
+
+      if (student.stage === "active_onboarding") {
+        const due = student.assessment_due_at
+          ? format(new Date(`${student.assessment_due_at}T00:00:00`), "dd/MM/yyyy", { locale: ptBR })
+          : "em ate 5 dias uteis";
+        await openChatWithStudent(
+          student,
+          `Oi, ${firstName(student.full_name)}! Pagamento confirmado. O proximo passo e a avaliacao de movimento. Me envie os videos/fotos conforme as instrucoes; o prazo para avaliacao e inicio do treino e ${due}.`,
+        );
+        return;
+      }
+
+      navigate(`/${chatRoutePrefix}/students/${student.id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Nao foi possivel executar a acao.");
+    }
+  };
+
   const sendWhatsApp = async () => {
     const digits = waDigits(phone);
-    if (!digits) { toast.error("Digite o WhatsApp do interessado (ou selecione um aluno)."); return; }
-    const selectedStudent = students.find((student) => student.id === studentId);
+    if (!digits) {
+      toast.error("Digite o WhatsApp do interessado ou selecione uma pessoa.");
+      return;
+    }
     let targetLink = link;
     try {
       targetLink = await ensurePersonalLink();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível gerar o link.");
+      toast.error(error instanceof Error ? error.message : "Nao foi possivel gerar o link.");
       return;
     }
-    const firstName = selectedStudent?.full_name.trim().split(/\s+/)[0] || "";
     const msg = selectedStudent
-      ? `Oi, ${firstName}! Complete seus dados fiscais para seguirmos com seu plano e a emissão da nota: ${targetLink}`
-      : `Olá! Faça seu cadastro por aqui: ${targetLink}`;
+      ? `Oi, ${firstName(selectedStudent.full_name)}! Complete seus dados fiscais para seguirmos com seu plano e a emissao da nota: ${targetLink}`
+      : `Ola! Faca seu cadastro por aqui: ${targetLink}`;
     await openStudentChat({
       navigate,
       routePrefix: chatRoutePrefix,
       studentId: selectedStudent?.id || null,
       phone: digits,
       message: msg,
-      onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
+      onNoChat: () => toast.error("Informe um telefone valido para abrir a conversa interna."),
     });
   };
 
@@ -119,11 +384,10 @@ export default function RegistrationManager() {
       setTimeout(() => setCopied(false), 1500);
       toast.success("Link copiado!");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível gerar o link.");
+      toast.error(error instanceof Error ? error.message : "Nao foi possivel gerar o link.");
     }
   };
 
-  // Modo editor de perguntas — reusa o FormFieldEditor existente.
   if (editing) {
     return (
       <div className="space-y-4">
@@ -133,7 +397,7 @@ export default function RegistrationManager() {
         <FormFieldEditor
           formType="registration"
           title="EDITAR CADASTRO"
-          subtitle="Edite as perguntas do formulário público de cadastro."
+          subtitle="Edite as perguntas do formulario publico de cadastro."
           publicPath="/cadastro"
         />
       </div>
@@ -144,9 +408,10 @@ export default function RegistrationManager() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 text-3xl text-primary"><UserPlus className="h-7 w-7" /> CADASTRO</h1>
+          <p className="text-eyebrow">Cadastro e fechamento</p>
+          <h1 className="font-display text-3xl text-primary">Novos cadastros</h1>
           <p className="mt-1 font-sans text-sm text-muted-foreground">
-            Envie o cadastro fiscal individual. Ao concluir, o interessado vira pendente e recebe o checkout Asaas.
+            Acompanhe exatamente onde cada pessoa esta: cadastro fiscal, checkout Asaas, pagamento ou onboarding.
           </p>
         </div>
         <Button variant="outline" onClick={() => setEditing(true)}>
@@ -155,24 +420,27 @@ export default function RegistrationManager() {
       </div>
 
       <Card className="bg-card">
-        <CardHeader className="pb-3"><CardTitle className="text-base">Enviar cadastro</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle className="text-base">Enviar cadastro ou reenviar etapa</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Interessado ou aluno</Label>
               <Select value={studentId} onValueChange={setStudentId}>
-                <SelectTrigger><SelectValue placeholder="Selecione para gerar o link individual…" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Selecione para gerar o link individual..." /></SelectTrigger>
                 <SelectContent>
-                  {students.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.full_name} · {s.status === "interested" ? "Interessado" : s.status === "pending" ? "Pendente" : "Aluno"}
-                    </SelectItem>
-                  ))}
+                  {students.map((s) => {
+                    const stage = normalizeSalesStage(s);
+                    return (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.full_name} - {FUNNEL_STAGE_META[stage].label}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>WhatsApp do interessado</Label>
+              <Label>WhatsApp</Label>
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(DDD) 9 xxxx-xxxx" inputMode="tel" />
             </div>
           </div>
@@ -180,7 +448,7 @@ export default function RegistrationManager() {
           <div className="flex flex-wrap gap-2">
             <Button onClick={sendWhatsApp} disabled={creatingLink} className="bg-[#25D366] text-white hover:bg-[#25D366]/90">
               {creatingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />}
-              Abrir conversa com cadastro
+              Abrir conversa com cadastro fiscal
             </Button>
             <Button variant="outline" onClick={copyLink} disabled={creatingLink}>
               {creatingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : copied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
@@ -192,11 +460,172 @@ export default function RegistrationManager() {
             <Link2 className="h-4 w-4 shrink-0 text-primary" />
             <span className="truncate font-mono-data text-xs text-muted-foreground">{link}</span>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Selecione uma pessoa para criar um link seguro com o nome já preenchido. Sem seleção, o link geral continua disponível para novos contatos.
-          </p>
         </CardContent>
       </Card>
+
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-display text-2xl text-foreground">Esteira de fechamento</h2>
+            <p className="text-sm text-muted-foreground">
+              Os cartoes mostram a etapa atual, a ultima acao registrada e o proximo movimento.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              variant={activeStage === "all" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActiveStage("all")}
+            >
+              Todos
+            </Button>
+            {FUNNEL_STAGE_ORDER.filter((stage) => stage !== "lost").map((stage) => (
+              <Button
+                key={stage}
+                variant={activeStage === stage ? "default" : "outline"}
+                size="sm"
+                onClick={() => setActiveStage(stage)}
+              >
+                {FUNNEL_STAGE_META[stage].shortLabel}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {loadError && (
+          <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card p-8 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Carregando esteira
+          </div>
+        ) : (
+          <div className="grid gap-3 xl:grid-cols-5">
+            {FUNNEL_STAGE_ORDER.filter((stage) => stage !== "lost").map((stage) => {
+              const Icon = stageIcon(stage);
+              const rows = studentsByStage.get(stage) || [];
+              return (
+                <div key={stage} className="min-h-[220px] rounded-lg border border-border bg-background">
+                  <div className={cn("border-b px-3 py-3", stageTone(stage))}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-4 w-4 shrink-0" />
+                          <h3 className="truncate text-sm font-semibold text-foreground">{FUNNEL_STAGE_META[stage].label}</h3>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{FUNNEL_STAGE_META[stage].description}</p>
+                      </div>
+                      <span className="rounded-full bg-background/80 px-2 py-0.5 font-mono-data text-xs text-foreground">
+                        {rows.length}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="max-h-[560px] space-y-2 overflow-auto p-2">
+                    {rows.length === 0 ? (
+                      <p className="rounded-md border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
+                        Sem pessoas aqui.
+                      </p>
+                    ) : rows.map((student) => (
+                      <div
+                        key={student.id}
+                        role="button"
+                        tabIndex={0}
+                        className="w-full rounded-lg border border-border bg-card p-3 text-left transition hover:border-primary/45 hover:bg-primary/5"
+                        onClick={() => navigate(`/${chatRoutePrefix}/students/${student.id}`)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            navigate(`/${chatRoutePrefix}/students/${student.id}`);
+                          }
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-foreground">{student.full_name}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">Entrou {relativeDate(student.created_at)}</p>
+                          </div>
+                          <Badge variant="outline" className={cn("shrink-0 border", stageTone(student.stage))}>
+                            {FUNNEL_STAGE_META[student.stage].shortLabel}
+                          </Badge>
+                        </div>
+
+                        <Progress value={student.progress} className="mt-3 h-1.5" />
+
+                        <div className="mt-3 grid gap-1.5 text-[11px] text-muted-foreground">
+                          <div className="flex justify-between gap-2">
+                            <span>Fiscal</span>
+                            <span className="font-mono-data">{student.fiscal_completed_at ? "ok" : "pendente"}</span>
+                          </div>
+                          <div className="flex justify-between gap-2">
+                            <span>Pagamento</span>
+                            <span className="font-mono-data">{student.activated_at ? "confirmado" : student.payment_link_sent_at ? "link enviado" : "pendente"}</span>
+                          </div>
+                          <div className="flex justify-between gap-2">
+                            <span>Anamnese</span>
+                            <span className="font-mono-data">{student.hasAnamnesis ? "ok" : "pendente"}</span>
+                          </div>
+                          <div className="flex justify-between gap-2">
+                            <span>Avaliacao</span>
+                            <span className="font-mono-data">{student.hasAssessment ? "ok" : student.assessment_due_at ? `ate ${format(new Date(`${student.assessment_due_at}T00:00:00`), "dd/MM")}` : "pendente"}</span>
+                          </div>
+                        </div>
+
+                        {student.latestEvent && (
+                          <div className={cn(
+                            "mt-3 rounded-md border px-2 py-1.5 text-[11px]",
+                            student.latestEvent.status === "failed"
+                              ? "border-destructive/25 bg-destructive/5 text-destructive"
+                              : "border-border bg-secondary/35 text-muted-foreground",
+                          )}>
+                            <p className="font-medium text-foreground">
+                              Ultimo evento: {student.latestEvent.event_type.replace(/_/g, " ")}
+                            </p>
+                            <p>{student.latestEvent.status} - {formatDate(student.latestEvent.processed_at || student.latestEvent.created_at)}</p>
+                            {student.latestEvent.error && <p className="line-clamp-2">{student.latestEvent.error}</p>}
+                          </div>
+                        )}
+
+                        <div className="mt-3 flex items-center justify-between gap-2">
+                          <span className="line-clamp-2 text-xs font-medium text-foreground">{student.nextAction}</span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 shrink-0 px-2 text-xs"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void handleStageAction(student);
+                            }}
+                          >
+                            {student.stage === "active" ? "Abrir" : "Agir"}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <div className="rounded-lg border border-border bg-secondary/30 p-3">
+        <div className="flex items-start gap-2">
+          <UserRoundCheck className="mt-0.5 h-4 w-4 text-primary" />
+          <div>
+            <p className="text-sm font-medium text-foreground">Regra operacional</p>
+            <p className="text-xs text-muted-foreground">
+              O aluno so entra como ativo depois do pagamento Asaas. Antes disso, a esteira mostra se falta cadastro fiscal, checkout, Pix ou avaliacao.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

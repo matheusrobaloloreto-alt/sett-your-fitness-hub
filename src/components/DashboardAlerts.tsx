@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { buildStudentChatMap, openStudentChat, birthdayMessage } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { FUNNEL_STAGE_META, normalizeSalesStage, stageNextAction } from "@/lib/salesFunnelView";
 
 interface Birthday { full_name: string; birth_date: string; student_id: string; isToday: boolean; day: number; }
 interface MissingWorkout { student_name: string; student_id: string; cycle_number: number; cycle_id: string; start_date: string; end_date: string; trainer_name?: string; }
@@ -17,7 +18,18 @@ interface AwaitingTrainingDate { student_name: string; student_id: string; enrol
 interface AwaitingTrainer { student_name: string; student_id: string; }
 interface MissingEnrollment { student_name: string; student_id: string; }
 interface IncompleteBilling { student_name: string; student_id: string; missing: string[]; }
-interface RecentStudent { student_name: string; student_id: string; status: string; created_at: string; }
+interface RecentStudent {
+  student_name: string;
+  student_id: string;
+  status: string;
+  created_at: string;
+  sales_stage: string | null;
+  fiscal_completed_at: string | null;
+  payment_link_sent_at: string | null;
+  activated_at: string | null;
+  assessment_due_at: string | null;
+  onboarding_instructions_sent_at: string | null;
+}
 
 interface AlertsData {
   birthdays: Birthday[];
@@ -186,11 +198,12 @@ async function fetchAlerts(
     });
     incompleteBilling = flagged.sort((a, b) => b.missing.length - a.missing.length);
 
+    const recentCutoff = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     let recentQuery = supabase
       .from("students")
-      .select("id, full_name, status, created_at")
-      .in("status", ["active", "pending"])
-      .gte("created_at", new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString())
+      .select("id, full_name, status, created_at, sales_stage, fiscal_completed_at, payment_link_sent_at, activated_at, assessment_due_at, onboarding_instructions_sent_at")
+      .in("status", ["interested", "active", "pending"])
+      .or(`created_at.gte.${recentCutoff},sales_stage.in.(interested,fiscal_registration_pending,payment_pending,active_onboarding)`)
       .order("created_at", { ascending: false });
     if (effectiveCompanyId) recentQuery = recentQuery.eq("company_id", effectiveCompanyId);
     const { data: recentRows } = await recentQuery;
@@ -199,6 +212,12 @@ async function fetchAlerts(
       student_id: student.id,
       status: student.status,
       created_at: student.created_at,
+      sales_stage: student.sales_stage,
+      fiscal_completed_at: student.fiscal_completed_at,
+      payment_link_sent_at: student.payment_link_sent_at,
+      activated_at: student.activated_at,
+      assessment_due_at: student.assessment_due_at,
+      onboarding_instructions_sent_at: student.onboarding_instructions_sent_at,
     }));
   }
 
@@ -212,6 +231,7 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
   const queryClient = useQueryClient();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
   const routePrefix = role === "master" && isViewingCompany ? "admin" : role;
+  const safeRoutePrefix = (routePrefix as string) || "admin";
 
   const { data } = useQuery({
     queryKey: ["dashboard-alerts", trainerId ?? "all", effectiveCompanyId ?? "all"],
@@ -248,7 +268,7 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
   const incompleteBilling = data?.incompleteBilling ?? [];
   const recentStudents = data?.recentStudents ?? [];
 
-  const goToStudent = (studentId: string) => navigate(`/${routePrefix}/students/${studentId}`);
+  const goToStudent = (studentId: string) => navigate(`/${safeRoutePrefix}/students/${studentId}`);
 
   // Mapa aluno→conversa para o botão de mensagem de aniversário (abre o chat com a mensagem pronta).
   const { data: studentChatMap } = useQuery({
@@ -259,7 +279,7 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
   const sendBirthday = (studentId: string, fullName: string) => {
     void openStudentChat({
       navigate,
-      routePrefix: (routePrefix as string) || "admin",
+      routePrefix: safeRoutePrefix,
       chatId: studentChatMap?.[studentId],
       studentId,
       message: birthdayMessage(fullName),
@@ -332,6 +352,17 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
         action: () => goToStudent(a.student_id),
         birthday: a,
       })),
+      ...recentStudents.map((student, i) => {
+        const stage = normalizeSalesStage(student);
+        return {
+          key: `recent-${student.student_id}-${i}`,
+          tone: stage === "payment_pending" ? "warning" : stage === "active_onboarding" ? "info" : "neutral",
+          label: "Cadastro",
+          title: student.student_name,
+          subtitle: `${FUNNEL_STAGE_META[stage].label} · ${stageNextAction(student)}`,
+          action: () => goToStudent(student.student_id),
+        };
+      }),
     ];
 
     const visibleItems = attentionItems.slice(0, 6);
@@ -343,6 +374,7 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
       { label: "Cobrança", value: incompleteBilling.length },
       { label: "Treino", value: missingWorkouts.length },
       { label: "Aniversários", value: birthdays.length },
+      { label: "Cadastros", value: recentStudents.length },
     ].filter((item) => item.value > 0);
 
     const toneClass: Record<string, string> = {
@@ -515,28 +547,48 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
           <CardHeader className="pb-3">
             <CardTitle className="text-primary text-lg flex items-center gap-2">
               <UserPlus className="h-5 w-5" />NOVOS CADASTROS
-              <span className="ml-auto text-xs font-mono-data text-muted-foreground">30 DIAS</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto h-7 px-2 text-xs"
+                onClick={() => navigate(`/${safeRoutePrefix}/registration`)}
+              >
+                Ver esteira
+              </Button>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2 max-h-[200px] overflow-auto">
-              {recentStudents.map((student) => (
-                <div
-                  key={student.student_id}
-                  className={`${itemClass} bg-primary/5 border border-primary/15`}
-                  onClick={() => goToStudent(student.student_id)}
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-sans text-foreground truncate">{student.student_name}</p>
-                    <p className="text-xs text-muted-foreground font-sans">
-                      {new Date(student.created_at).toLocaleDateString("pt-BR")}
-                    </p>
+              {recentStudents.map((student) => {
+                const stage = normalizeSalesStage(student);
+                const tone = stage === "payment_pending"
+                  ? "bg-warning/5 border-warning/20"
+                  : stage === "active_onboarding"
+                  ? "bg-primary/5 border-primary/20"
+                  : "bg-secondary/40 border-border";
+                const chipTone = stage === "payment_pending"
+                  ? "bg-warning/15 text-warning"
+                  : stage === "active_onboarding"
+                  ? "bg-primary/10 text-primary"
+                  : "bg-muted text-muted-foreground";
+                return (
+                  <div
+                    key={student.student_id}
+                    className={`${itemClass} ${tone} border`}
+                    onClick={() => goToStudent(student.student_id)}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-sans text-foreground truncate">{student.student_name}</p>
+                      <p className="text-xs text-muted-foreground font-sans truncate">
+                        {FUNNEL_STAGE_META[stage].label} · {stageNextAction(student)}
+                      </p>
+                    </div>
+                    <span className={`text-xs font-sans font-medium px-2 py-0.5 rounded shrink-0 ${chipTone}`}>
+                      {FUNNEL_STAGE_META[stage].shortLabel}
+                    </span>
                   </div>
-                  <span className="text-xs font-sans font-medium px-2 py-0.5 rounded bg-primary/10 text-primary">
-                    {student.status === "pending" ? "Pendente" : "Ativo"}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
