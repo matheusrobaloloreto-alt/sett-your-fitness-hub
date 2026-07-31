@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
@@ -38,8 +38,6 @@ import {
   normalizeSalesStage,
   stageNextAction,
 } from "@/lib/salesFunnelView";
-
-const AnamnesisManager = lazy(() => import("./AnamnesisManager"));
 
 const BUDGET_LABELS: Record<string, string> = {
   "200_300": "R$ 200-300",
@@ -184,18 +182,15 @@ export default function RegistrationManager() {
   const chatRoutePrefix = role === "master" ? "admin" : role || "admin";
 
   const [generalLink, setGeneralLink] = useState(`${window.location.origin}/cadastro`);
-  const [link, setLink] = useState(`${window.location.origin}/cadastro`);
   const [students, setStudents] = useState<Student[]>([]);
-  const [studentId, setStudentId] = useState("");
   const [phone, setPhone] = useState("");
   const [copied, setCopied] = useState(false);
-  const [creatingLink, setCreatingLink] = useState(false);
+  const [, setCreatingLink] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeStage, setActiveStage] = useState<FunnelStageKey | "all">("all");
   const [budgetFilter, setBudgetFilter] = useState("all");
   const [waitFilter, setWaitFilter] = useState("all");
-  const [sortMode, setSortMode] = useState("priority");
 
   const loadPipeline = async () => {
     if (!effectiveCompanyId) return;
@@ -209,7 +204,6 @@ export default function RegistrationManager() {
         .maybeSingle();
       const companyLink = `${window.location.origin}/cadastro${companyResult.data?.slug ? "/" + companyResult.data.slug : ""}`;
       setGeneralLink(companyLink);
-      setLink(companyLink);
 
       const [studentResult, leadResult] = await Promise.all([
         (supabase as any)
@@ -332,12 +326,6 @@ export default function RegistrationManager() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveCompanyId]);
 
-  useEffect(() => {
-    const s = students.find((x) => x.id === studentId);
-    if (s) setPhone(s.whatsapp || s.phone || "");
-    setLink(generalLink);
-  }, [studentId, students, generalLink]);
-
   const stagedStudents = useMemo<StudentWithStage[]>(() => {
     const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const budgetPriority: Record<string, number> = { "400_500": 3, "300_400": 2, "200_300": 1 };
@@ -363,15 +351,13 @@ export default function RegistrationManager() {
         return false;
       })
       .sort((a, b) => {
-        if (sortMode === "oldest") return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-        if (sortMode === "newest") return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         if (a.entityType === "lead" || b.entityType === "lead") {
           const priority = (budgetPriority[b.budget_range || ""] || 0) - (budgetPriority[a.budget_range || ""] || 0);
           if (priority !== 0) return priority;
         }
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       });
-  }, [students, activeStage, budgetFilter, waitFilter, sortMode]);
+  }, [students, activeStage, budgetFilter, waitFilter]);
 
   const studentsByStage = useMemo(() => {
     const grouped = new Map<FunnelStageKey, StudentWithStage[]>();
@@ -379,8 +365,6 @@ export default function RegistrationManager() {
     stagedStudents.forEach((student) => grouped.get(student.stage)?.push(student));
     return grouped;
   }, [stagedStudents]);
-
-  const selectedStudent = students.find((student) => student.entityType === "student" && student.id === studentId);
 
   const createFiscalLinkForStudent = async (id: string): Promise<string> => {
     setCreatingLink(true);
@@ -395,16 +379,6 @@ export default function RegistrationManager() {
     } finally {
       setCreatingLink(false);
     }
-  };
-
-  const ensurePersonalLink = async (): Promise<string> => {
-    if (!studentId) return link;
-    if (link.includes("/cadastro-fiscal/")) return link;
-    const personalized = await createFiscalLinkForStudent(studentId);
-    setLink(personalized);
-    await loadPipeline();
-    setLink(personalized);
-    return personalized;
   };
 
   const openChatWithStudent = async (student: Student, message: string) => {
@@ -488,41 +462,30 @@ export default function RegistrationManager() {
     }
   };
 
-  const sendWhatsApp = async () => {
+  const sendPreRegistrationLink = async () => {
     const digits = waDigits(phone);
     if (!digits) {
-      toast.error("Digite o WhatsApp do interessado ou selecione uma pessoa.");
+      toast.error("Digite um WhatsApp para enviar o link universal.");
       return;
     }
-    let targetLink = link;
-    try {
-      targetLink = await ensurePersonalLink();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Nao foi possivel gerar o link.");
-      return;
-    }
-    const msg = selectedStudent
-      ? `Oi, ${firstName(selectedStudent.full_name)}! Complete seus dados fiscais para seguirmos com seu plano, nota e pagamento pelo Asaas: ${targetLink}`
-      : `Ola! Faca seu cadastro por aqui: ${targetLink}`;
     await openStudentChat({
       navigate,
       routePrefix: chatRoutePrefix,
-      studentId: selectedStudent?.id || null,
+      studentId: null,
       phone: digits,
-      message: msg,
+      message: `Oi! Para aplicar para o acompanhamento da BN, preencha este pré-cadastro rapidinho: ${generalLink}\n\nDepois que voce enviar, seu perfil entra na nossa lista de interessados e a equipe chama voce por aqui para seguir com cadastro, plano, pagamento Asaas e avaliacao de movimento.`,
       onNoChat: () => toast.error("Informe um telefone valido para abrir a conversa interna."),
     });
   };
 
   const copyLink = async () => {
     try {
-      const targetLink = await ensurePersonalLink();
-      await navigator.clipboard?.writeText(targetLink);
+      await navigator.clipboard?.writeText(generalLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-      toast.success("Link copiado!");
+      toast.success("Link universal copiado!");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Nao foi possivel gerar o link.");
+      toast.error(error instanceof Error ? error.message : "Nao foi possivel copiar o link.");
     }
   };
 
@@ -538,71 +501,37 @@ export default function RegistrationManager() {
         </div>
       </div>
 
-      <Card className="bg-card">
-        <CardHeader className="pb-3"><CardTitle className="text-base">Enviar cadastro ou reenviar etapa</CardTitle></CardHeader>
+      <Card className="rounded-2xl border-primary/20 bg-card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Link universal de pré-cadastro</CardTitle>
+        </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Interessado ou aluno</Label>
-              <Select value={studentId} onValueChange={setStudentId}>
-                <SelectTrigger><SelectValue placeholder="Selecione para gerar o link individual..." /></SelectTrigger>
-                <SelectContent>
-                  {students.filter((s) => s.entityType === "student").map((s) => {
-                    const stage = normalizeSalesStage(s);
-                    return (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.full_name} - {FUNNEL_STAGE_META[stage].label}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+          <div className="rounded-2xl border border-border bg-secondary/35 p-3">
+            <div className="flex items-center gap-2">
+              <Link2 className="h-4 w-4 shrink-0 text-primary" />
+              <span className="truncate font-mono-data text-xs text-muted-foreground">{generalLink}</span>
             </div>
-            <div className="space-y-1.5">
-              <Label>WhatsApp</Label>
-              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(DDD) 9 xxxx-xxxx" inputMode="tel" />
-            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Este é o primeiro passo para qualquer pessoa. Ela responde o pré-cadastro, vira interessada na esteira e só depois recebe cadastro fiscal, plano e pagamento.
+            </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={sendWhatsApp} disabled={creatingLink} className="bg-[#25D366] text-white hover:bg-[#25D366]/90">
-              {creatingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />}
-              Abrir conversa com cadastro fiscal
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+            <div className="space-y-1.5">
+              <Label>Enviar para um WhatsApp avulso</Label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(DDD) 9 xxxx-xxxx" inputMode="tel" />
+            </div>
+            <Button onClick={sendPreRegistrationLink} className="self-end bg-[#25D366] text-white hover:bg-[#25D366]/90">
+              <MessageCircle className="mr-2 h-4 w-4" />
+              Abrir conversa
             </Button>
-            <Button variant="outline" onClick={copyLink} disabled={creatingLink}>
-              {creatingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : copied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
+            <Button variant="outline" onClick={copyLink} className="self-end">
+              {copied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
               Copiar link
             </Button>
           </div>
-
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 p-2.5">
-            <Link2 className="h-4 w-4 shrink-0 text-primary" />
-            <span className="truncate font-mono-data text-xs text-muted-foreground">{link}</span>
-          </div>
         </CardContent>
       </Card>
-
-      <section className="space-y-4 border-t border-border pt-5">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-eyebrow">Fluxo de interessados</p>
-            <h2 className="font-display text-2xl text-primary">Pré-cadastro e anamnese</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              O pré-cadastro publico usa a anamnese estruturada. Quando o lead avanca, essas respostas alimentam o Studio Integrado.
-            </p>
-          </div>
-        </div>
-        <Suspense
-          fallback={(
-            <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-background p-6 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Carregando anamnese
-            </div>
-          )}
-        >
-          <AnamnesisManager embedded />
-        </Suspense>
-      </section>
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -633,7 +562,7 @@ export default function RegistrationManager() {
           </div>
         </div>
 
-        <div className="grid gap-2 rounded-2xl border border-border bg-card p-3 md:grid-cols-3">
+        <div className="grid gap-2 rounded-2xl border border-border bg-card p-3 md:grid-cols-2">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Faixa de investimento</Label>
             <Select value={budgetFilter} onValueChange={setBudgetFilter}>
@@ -655,17 +584,6 @@ export default function RegistrationManager() {
                 {Object.entries(WAIT_FILTERS).map(([value, item]) => (
                   <SelectItem key={value} value={value}>{item.label}</SelectItem>
                 ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Ordenar</Label>
-            <Select value={sortMode} onValueChange={setSortMode}>
-              <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="priority">Prioridade BN</SelectItem>
-                <SelectItem value="oldest">Mais antigos primeiro</SelectItem>
-                <SelectItem value="newest">Mais recentes primeiro</SelectItem>
               </SelectContent>
             </Select>
           </div>
