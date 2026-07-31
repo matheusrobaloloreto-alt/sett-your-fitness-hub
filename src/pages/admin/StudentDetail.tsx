@@ -230,6 +230,18 @@ const TRAINING_LOCATION_OPTIONS = [
 
 const SLEEP_OPTIONS = ["4h", "4h - 6h", "6h - 8h", "8h +"];
 
+const STUDENT_TABS = [
+  ["overview", "Visão Geral"],
+  ["program", "Programa"],
+  ["workouts", "Treinos"],
+  ["analytics", "Análises"],
+  ["anamnesis", "Anamnese"],
+  ["evaluations", "Avaliações"],
+  ["progress", "Progresso"],
+  ["financial", "Financeiro"],
+  ["hub", "Acompanhamento"],
+] as const;
+
 const isCyclePrescribed = (cycle: TrainingCycle) =>
   Boolean(cycle.has_workout || cycle.prescribed_offline_at);
 
@@ -308,14 +320,7 @@ export default function StudentDetail() {
   const [loginCreds, setLoginCreds] = useState<{ email: string; password: string } | null>(null);
   const [loadingLogin, setLoadingLogin] = useState(false);
   const [copiedLogin, setCopiedLogin] = useState(false);
-  // Abas unificadas: 3 grupos, cada um com sub-abas (nada de info é removido).
   const [activeTab, setActiveTab] = useState("overview");
-  const TAB_GROUPS = [
-    { id: "programa", label: "Programa", tabs: [["program", "Programa"], ["workouts", "Treinos"], ["analytics", "Análises"]] },
-    { id: "avaliacoes", label: "Avaliações", tabs: [["anamnesis", "Anamnese"], ["evaluations", "Avaliações"], ["progress", "Progresso"]] },
-    { id: "visao360", label: "Visão 360", tabs: [["overview", "Visão Geral"], ["financial", "Financeiro"], ["hub", "Acompanhamento"]] },
-  ] as const;
-  const activeGroup = TAB_GROUPS.find((g) => g.tabs.some(([v]: readonly [string, string]) => v === activeTab)) || TAB_GROUPS[0];
 
   const handleActivateStudentAccess = async () => {
     if (!student?.email) {
@@ -1016,31 +1021,17 @@ export default function StudentDetail() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          {/* Navegação em 2 níveis: 3 grupos no topo + sub-abas do grupo ativo */}
-          <div className="flex flex-wrap items-center gap-1.5 border-b border-border pb-1.5">
-            {TAB_GROUPS.map((g) => (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => setActiveTab(g.tabs[0][0])}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${activeGroup.id === g.id ? "bg-primary/10 text-primary font-semibold" : "text-muted-foreground hover:text-foreground"}`}
+          <TabsList className="mb-4 flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0 pb-2">
+            {STUDENT_TABS.map(([value, label]) => (
+              <TabsTrigger
+                key={value}
+                value={value}
+                className="shrink-0 rounded-full border border-transparent px-3 py-1.5 text-sm font-medium text-muted-foreground shadow-none data-[state=active]:border-primary/30 data-[state=active]:bg-secondary data-[state=active]:text-primary data-[state=active]:shadow-sm"
               >
-                {g.label}
-              </button>
+                {label}
+              </TabsTrigger>
             ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-1 mt-2 mb-3">
-            {activeGroup.tabs.map(([v, l]) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setActiveTab(v)}
-                className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${activeTab === v ? "border-primary/40 bg-secondary text-foreground font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
+          </TabsList>
 
           {/* ===== VISÃO 360 (linha do tempo + pasta + contato semanal) ===== */}
           <TabsContent value="hub" className="space-y-5">
