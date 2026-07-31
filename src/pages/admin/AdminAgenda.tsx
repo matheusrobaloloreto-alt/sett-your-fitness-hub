@@ -11,6 +11,7 @@ import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { useToast } from "@/hooks/use-toast";
 
 interface AgendaEvent {
   id: string;
@@ -19,6 +20,7 @@ interface AgendaEvent {
   label: string;
   studentName: string;
   studentId?: string;
+  cycleId?: string;
   trainerName?: string;
   meta?: string;
 }
@@ -39,14 +41,16 @@ const dotColors: Record<string, string> = {
 
 export default function AdminAgenda() {
   const navigate = useNavigate();
-  const { role, companyId } = useAuth();
+  const { role, companyId, session } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
+  const { toast } = useToast();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
   const rolePrefix = role === "coordinator" ? "/coordinator" : role === "trainer" ? "/trainer" : "/admin";
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [loading, setLoading] = useState(true);
+  const [markingCycleId, setMarkingCycleId] = useState<string | null>(null);
 
   useEffect(() => { loadEvents(); }, [currentMonth, effectiveCompanyId]);
 
@@ -119,6 +123,7 @@ export default function AdminAgenda() {
           label: `Ciclo ${c.cycle_number}`,
           studentName: (c as any).enrollments?.students?.full_name || "—",
           studentId: (c as any).enrollments?.student_id,
+          cycleId: c.id,
           trainerName: trainerId ? trainerMap[trainerId] : undefined,
         });
       });
@@ -162,6 +167,34 @@ export default function AdminAgenda() {
 
   const handleEventClick = (ev: AgendaEvent) => {
     if (ev.studentId) navigate(`${rolePrefix}/students/${ev.studentId}`);
+  };
+
+  const markCycleAsDone = async (ev: AgendaEvent) => {
+    if (!ev.cycleId || ev.type !== "prescription_pending") return;
+    if (!session?.user?.id) {
+      toast({ title: "Sessão expirada", description: "Entre novamente para marcar o ciclo.", variant: "destructive" });
+      return;
+    }
+
+    setMarkingCycleId(ev.cycleId);
+    const { error } = await (supabase as any)
+      .from("training_cycles")
+      .update({
+        prescribed_offline_at: new Date().toISOString(),
+        prescribed_offline_by: session.user.id,
+      })
+      .eq("id", ev.cycleId);
+    setMarkingCycleId(null);
+
+    if (error) {
+      toast({ title: "Erro ao marcar como feito", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    setEvents((prev) => prev.map((item) => (
+      item.id === ev.id ? { ...item, type: "prescription_done" } : item
+    )));
+    toast({ title: "Treino marcado como feito", description: `${ev.studentName} saiu da fila de prescrição.` });
   };
 
   return (
@@ -294,6 +327,22 @@ export default function AdminAgenda() {
                               </p>
                             )}
                           </div>
+                          {ev.type === "prescription_pending" && ev.cycleId && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 shrink-0 rounded-full border-green-500/35 bg-green-500/10 px-3 text-xs font-semibold text-green-700 hover:bg-green-500/20"
+                              disabled={markingCycleId === ev.cycleId}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void markCycleAsDone(ev);
+                              }}
+                            >
+                              <CheckCircle className="mr-1 h-3.5 w-3.5" />
+                              {markingCycleId === ev.cycleId ? "..." : "Feito"}
+                            </Button>
+                          )}
                           {ev.meta && <Badge variant="outline" className="text-[10px] shrink-0">{ev.meta}</Badge>}
                         </div>
                       );
