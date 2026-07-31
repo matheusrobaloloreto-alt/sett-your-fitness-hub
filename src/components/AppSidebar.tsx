@@ -12,7 +12,6 @@ import {
   MessageSquare,
   Palette,
   ChevronDown,
-  Contact,
   Zap,
   Building2,
   Dumbbell,
@@ -64,6 +63,7 @@ const moduleMap: Record<string, PermissionModule> = {
   "Cadastro": "registration",
   "Anamnese": "anamnesis",
   "Questionários": "registration",
+  "Interessados": "registration",
   "Alunos": "students",
   "Agenda": "agenda",
   "Exercícios": "exercises",
@@ -85,6 +85,7 @@ const baseAdminItems: typeof managementItems = [];
 const managementItems = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Carteira", url: "/admin/carteira", icon: Briefcase },
+  { title: "Interessados", url: "/admin/registration", icon: UserPlus },
   { title: "Questionários", url: "/admin/questionarios", icon: FileText },
   { title: "Planos", url: "/admin/plans", icon: ClipboardList },
   { title: "Alunos", url: "/admin/students", icon: Users },
@@ -99,7 +100,6 @@ const financialItem = { title: "Financeiro", url: "/admin/financial", icon: Doll
 
 const whatsappSubItems = [
   { title: "Conversas", url: "/admin/whatsapp-chat", icon: MessageSquare },
-  { title: "CRM", url: "/admin/whatsapp-crm", icon: Contact },
   { title: "Templates", url: "/admin/whatsapp-templates", icon: FileText },
   { title: "Automação", url: "/admin/whatsapp-automation", icon: Zap },
   { title: "Configurações", url: "/admin/whatsapp", icon: Settings },
@@ -108,6 +108,7 @@ const whatsappSubItems = [
 const coordinatorAllItems = [
   { title: "Dashboard", url: "/coordinator", icon: LayoutDashboard },
   { title: "Carteira", url: "/coordinator/carteira", icon: Briefcase },
+  { title: "Interessados", url: "/coordinator/registration", icon: UserPlus },
   { title: "Questionários", url: "/coordinator/questionarios", icon: FileText },
   { title: "Planos", url: "/coordinator/plans", icon: ClipboardList },
   { title: "Alunos", url: "/coordinator/students", icon: Users },
@@ -119,7 +120,6 @@ const coordinatorAllItems = [
 
 const coordinatorWhatsappSubItems = [
   { title: "Conversas", url: "/coordinator/whatsapp-chat", icon: MessageSquare },
-  { title: "CRM", url: "/coordinator/whatsapp-crm", icon: Contact },
   { title: "Templates", url: "/coordinator/whatsapp-templates", icon: FileText },
   { title: "Automação", url: "/coordinator/whatsapp-automation", icon: Zap },
   { title: "Configurações", url: "/coordinator/whatsapp", icon: Settings },
@@ -127,7 +127,6 @@ const coordinatorWhatsappSubItems = [
 
 const trainerWhatsappSubItems = [
   { title: "Conversas", url: "/trainer/whatsapp-chat", icon: MessageSquare },
-  { title: "CRM", url: "/trainer/whatsapp-crm", icon: Contact },
   { title: "Templates", url: "/trainer/whatsapp-templates", icon: FileText },
   { title: "Automação", url: "/trainer/whatsapp-automation", icon: Zap },
   { title: "Configurações", url: "/trainer/whatsapp", icon: Settings },
@@ -136,6 +135,7 @@ const trainerWhatsappSubItems = [
 const trainerAllItems = [
   { title: "Dashboard", url: "/trainer", icon: LayoutDashboard },
   { title: "Carteira", url: "/trainer/carteira", icon: Briefcase },
+  { title: "Interessados", url: "/trainer/registration", icon: UserPlus },
   { title: "Questionários", url: "/trainer/questionarios", icon: FileText },
   { title: "Planos", url: "/trainer/plans", icon: ClipboardList },
   { title: "Alunos", url: "/trainer/students", icon: Users },

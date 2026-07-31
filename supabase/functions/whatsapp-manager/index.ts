@@ -96,16 +96,6 @@ Deno.serve(async (req) => {
     const evoKey = Deno.env.get("EVOLUTION_API_KEY") || "";
     const webhookSecret = Deno.env.get("WHATSAPP_WEBHOOK_SECRET") || "";
 
-    if (!evoUrl || !evoKey || !webhookSecret) {
-      if (action === "check-status") {
-        return json({ status: "not_configured", configured: false });
-      }
-      return json({
-        error: "Integração WhatsApp ainda não configurada no servidor.",
-        code: "whatsapp_not_configured",
-      }, 503);
-    }
-
     const evoHeaders: Record<string, string> = {
       "Content-Type": "application/json",
       apikey: evoKey,
@@ -135,6 +125,38 @@ Deno.serve(async (req) => {
         .eq("company_id", resolvedCompanyId)
         .maybeSingle();
       if (!chatRow) return json({ error: "Forbidden: chat not in company" }, 403);
+    }
+
+    // Read/unread is application state and must not depend on the external
+    // WhatsApp provider being online. The service-role update is safe only
+    // after the authenticated tenant and chat ownership checks above.
+    if (action === "set-read-state") {
+      if (!body.chatId || typeof body.unread !== "boolean") {
+        return json({ error: "chatId and unread are required" }, 400);
+      }
+      const unreadCount = body.unread ? 1 : 0;
+      const { data: updatedChat, error: updateError } = await adminClient
+        .from("whatsapp_chats")
+        .update({ unread_count: unreadCount })
+        .eq("id", body.chatId)
+        .eq("company_id", resolvedCompanyId)
+        .select("id, unread_count")
+        .single();
+      if (updateError) {
+        console.error("Failed to update WhatsApp read state:", updateError.message);
+        return json({ error: "Failed to update read state" }, 500);
+      }
+      return json(updatedChat);
+    }
+
+    if (!evoUrl || !evoKey || !webhookSecret) {
+      if (action === "check-status") {
+        return json({ status: "not_configured", configured: false });
+      }
+      return json({
+        error: "Integração WhatsApp ainda não configurada no servidor.",
+        code: "whatsapp_not_configured",
+      }, 503);
     }
 
     // Look up instance_name from whatsapp_instances table

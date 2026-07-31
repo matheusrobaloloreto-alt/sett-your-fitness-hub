@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { cadenceDisplayName, cadenceTone, formatCadence, type CadenceRow } from "./contactCadence";
+import {
+  cadenceDisplayName,
+  cadenceTone,
+  filterCadenceByWindow,
+  formatCadence,
+  type CadenceRow,
+} from "./contactCadence";
 
 const row = (patch: Partial<CadenceRow> = {}): CadenceRow => ({
   chat_id: "00000000-0000-0000-0000-000000000001",
@@ -38,5 +44,20 @@ describe("contact cadence", () => {
     expect(cadenceDisplayName(row({ student_name: "Aluno", contact_name: "Contato" }))).toBe("Aluno");
     expect(cadenceDisplayName(row({ contact_name: "Contato" }))).toBe("Contato");
     expect(cadenceDisplayName(row({ contact_name: null }))).toBe("Contato sem nome");
+  });
+
+  it("filtra a cadência pelas janelas de 1 semana a 3 meses", () => {
+    const rows = [
+      row({ chat_id: "1", hours_since: 6 * 24 }),
+      row({ chat_id: "2", hours_since: 10 * 24 }),
+      row({ chat_id: "3", hours_since: 25 * 24 }),
+      row({ chat_id: "4", hours_since: 70 * 24 }),
+      row({ chat_id: "5", hours_since: 91 * 24 }),
+    ];
+
+    expect(filterCadenceByWindow(rows, 7).map((item) => item.chat_id)).toEqual(["1"]);
+    expect(filterCadenceByWindow(rows, 14).map((item) => item.chat_id)).toEqual(["1", "2"]);
+    expect(filterCadenceByWindow(rows, 30).map((item) => item.chat_id)).toEqual(["1", "2", "3"]);
+    expect(filterCadenceByWindow(rows, 90).map((item) => item.chat_id)).toEqual(["1", "2", "3", "4"]);
   });
 });

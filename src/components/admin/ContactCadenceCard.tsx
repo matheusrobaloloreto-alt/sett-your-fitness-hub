@@ -8,7 +8,15 @@ import { Badge } from "@/components/ui/badge";
 import { Timer, MessageSquare, BellOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { cadenceDisplayName, cadenceTone, formatCadence, type CadenceRow } from "@/lib/contactCadence";
+import {
+  cadenceDisplayName,
+  cadenceTone,
+  filterCadenceByWindow,
+  formatCadence,
+  type CadenceRow,
+  type CadenceWindowDays,
+} from "@/lib/contactCadence";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const TONE_CLASS: Record<string, string> = {
   ok: "bg-emerald-500/15 text-emerald-600",
@@ -20,6 +28,7 @@ export function ContactCadenceCard({ companyId, routePrefix }: { companyId: stri
   const navigate = useNavigate();
   const [rows, setRows] = useState<CadenceRow[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [windowDays, setWindowDays] = useState<CadenceWindowDays>(90);
 
   const load = useCallback(async () => {
     if (!companyId) { setRows([]); setLoaded(true); return; }
@@ -39,22 +48,34 @@ export function ContactCadenceCard({ companyId, routePrefix }: { companyId: stri
   };
 
   if (!loaded || rows.length === 0) return null;
-  const leads = rows.filter((r) => r.kind === "lead").length;
+  const filteredRows = filterCadenceByWindow(rows, windowDays);
+  const leads = filteredRows.filter((r) => r.kind === "lead").length;
 
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-primary text-lg">
           <Timer className="h-5 w-5" /> Cadência de Contatos
-          <span className="ml-auto flex gap-1.5">
-            <Badge variant="outline">{rows.length} sem resposta</Badge>
+          <span className="ml-auto flex items-center gap-1.5">
+            <Select value={String(windowDays)} onValueChange={(value) => setWindowDays(Number(value) as CadenceWindowDays)}>
+              <SelectTrigger className="h-8 w-[132px] rounded-lg text-xs" aria-label="Período da cadência">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">Até 1 semana</SelectItem>
+                <SelectItem value="14">Até 2 semanas</SelectItem>
+                <SelectItem value="30">Até 1 mês</SelectItem>
+                <SelectItem value="90">Até 3 meses</SelectItem>
+              </SelectContent>
+            </Select>
+            <Badge variant="outline">{filteredRows.length} sem resposta</Badge>
             {leads > 0 && <Badge className="bg-blue-500/15 text-blue-600">{leads} lead(s)</Badge>}
           </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-1.5 max-h-80 overflow-y-auto">
-          {rows.slice(0, 20).map((r) => (
+          {filteredRows.slice(0, 20).map((r) => (
             <div key={r.chat_id} className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">
               <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold font-mono-data shrink-0", TONE_CLASS[cadenceTone(r.hours_since)])}>
                 {formatCadence(r.hours_since)}
@@ -84,7 +105,10 @@ export function ContactCadenceCard({ companyId, routePrefix }: { companyId: stri
             </div>
           ))}
         </div>
-        {rows.length > 20 && <p className="mt-2 text-[11px] text-muted-foreground">Mostrando os 20 mais atrasados de {rows.length}.</p>}
+        {filteredRows.length === 0 && (
+          <p className="py-6 text-center text-sm text-muted-foreground">Nenhum contato sem resposta neste período.</p>
+        )}
+        {filteredRows.length > 20 && <p className="mt-2 text-[11px] text-muted-foreground">Mostrando os 20 mais atrasados de {filteredRows.length}.</p>}
       </CardContent>
     </Card>
   );

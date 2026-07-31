@@ -1040,23 +1040,35 @@ export default function WhatsAppChat() {
   const handleToggleUnread = async (chatId: string, currentUnread: number) => {
     const newCount = Number(currentUnread || 0) > 0 ? 0 : 1;
     setUpdatingUnreadChatId(chatId);
-    let updateQuery = supabase
-      .from("whatsapp_chats")
-      .update({ unread_count: newCount })
-      .eq("id", chatId);
-    if (effectiveCompanyId) updateQuery = updateQuery.eq("company_id", effectiveCompanyId);
-    const { data, error } = await updateQuery
-      .select("id, unread_count")
-      .maybeSingle();
-    setUpdatingUnreadChatId(null);
-    if (error || !data) {
-      toast.error("Não foi possível atualizar a conversa");
-      return;
+    try {
+      const { data: auth } = await supabase.auth.getSession();
+      if (!auth.session) throw new Error("Sessão expirada");
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.session.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({
+          action: "set-read-state",
+          companyId: effectiveCompanyId,
+          chatId,
+          unread: newCount > 0,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Não foi possível atualizar a conversa");
+      const persistedCount = Number(payload.unread_count || 0);
+      setChats((prev) => prev.map((chat) => (
+        chat.id === chatId ? { ...chat, unread_count: persistedCount } : chat
+      )));
+      toast.success(persistedCount > 0 ? "Marcado como não lida" : "Marcado como lida");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Não foi possível atualizar a conversa"));
+    } finally {
+      setUpdatingUnreadChatId(null);
     }
-    setChats((prev) => prev.map((chat) => (
-      chat.id === chatId ? { ...chat, unread_count: Number(data.unread_count || 0) } : chat
-    )));
-    toast.success(newCount > 0 ? "Marcado como não lida" : "Marcado como lida");
   };
 
   // ─── Audio Recording ───
@@ -1413,7 +1425,7 @@ export default function WhatsAppChat() {
             <Tag className="h-3 w-3" /> Etiquetas
           </p>
           {availableLabels.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Crie etiquetas no CRM</p>
+            <p className="text-xs text-muted-foreground">Crie etiquetas nas configurações do WhatsApp</p>
           ) : (
             <div className="flex flex-wrap gap-1">
               {availableLabels.map((label) => {
@@ -1563,7 +1575,7 @@ export default function WhatsAppChat() {
                     </Select>
                   </div>
                   <div className="space-y-1.5 sm:col-span-2">
-                    <p className="text-xs font-medium text-muted-foreground">Etiqueta CRM</p>
+                    <p className="text-xs font-medium text-muted-foreground">Etiqueta</p>
                     <Select value={bulkFilters.labelId} onValueChange={(value) => setBulkFilters((prev) => ({ ...prev, labelId: value }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>

@@ -54,7 +54,9 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
   const sevenDaysFromNow = format(addDays(businessToday, 7), "yyyy-MM-dd");
 
   let studentQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "active");
-  let interestedQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "interested");
+  let interestedQuery = (supabase as any).from("leads").select("*", { count: "exact", head: true })
+    .is("converted_to_student_id", null)
+    .in("stage", ["interested", "contacted"]);
   let pendingQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "pending");
   let awaitingRenewalQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "awaiting_renewal");
   let inactiveQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "inactive");
@@ -324,7 +326,7 @@ export default function AdminDashboard() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-card border-border cursor-pointer hover:border-blue-500/50 transition-colors" onClick={() => navigate(`/${routePrefix}/students?status=interested`)}>
+          <Card className="bg-card border-border cursor-pointer hover:border-blue-500/50 transition-colors" onClick={() => navigate(`/${routePrefix}/registration`)}>
             <CardContent className="flex items-center gap-4 pt-6">
               <div className="p-3 rounded-lg bg-blue-500/10"><UserPlus className="h-6 w-6 text-blue-600" /></div>
               <div>

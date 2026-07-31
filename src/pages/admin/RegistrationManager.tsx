@@ -22,12 +22,10 @@ import {
   Link2,
   Loader2,
   MessageCircle,
-  Pencil,
   UserPlus,
   UserRoundCheck,
 } from "lucide-react";
 import { toast } from "sonner";
-import FormFieldEditor from "@/components/FormFieldEditor";
 import { useNavigate } from "react-router-dom";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
 import { cn } from "@/lib/utils";
@@ -42,6 +40,8 @@ import {
 } from "@/lib/salesFunnelView";
 
 interface Student {
+  entityType: "student" | "lead";
+  leadId?: string;
   id: string;
   full_name: string;
   phone: string | null;
@@ -61,6 +61,23 @@ interface Student {
   hasAnamnesis?: boolean;
   hasAssessment?: boolean;
   latestEvent?: FunnelEvent | null;
+  budget_range?: string | null;
+  preferred_contact_period?: string | null;
+  contact_outcome?: string | null;
+  pre_registration_answers?: Record<string, unknown> | null;
+}
+
+interface LeadRow {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  stage: string | null;
+  budget_range: string | null;
+  preferred_contact_period: string | null;
+  contact_outcome: string | null;
+  pre_registration_answers: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string | null;
 }
 
 interface FunnelEvent {
@@ -108,6 +125,7 @@ function relativeDate(value?: string | null) {
 function stageTone(stage: FunnelStageKey) {
   const tones: Record<FunnelStageKey, string> = {
     interested: "border-sky-200 bg-sky-50/70 text-sky-800",
+    contacted: "border-cyan-200 bg-cyan-50/70 text-cyan-800",
     fiscal_registration_pending: "border-violet-200 bg-violet-50/70 text-violet-800",
     payment_pending: "border-amber-200 bg-amber-50/75 text-amber-800",
     active_onboarding: "border-emerald-200 bg-emerald-50/70 text-emerald-800",
@@ -118,6 +136,7 @@ function stageTone(stage: FunnelStageKey) {
 }
 
 function stageIcon(stage: FunnelStageKey) {
+  if (stage === "contacted") return MessageCircle;
   if (stage === "fiscal_registration_pending") return FileCheck2;
   if (stage === "payment_pending") return CreditCard;
   if (stage === "active_onboarding") return ClipboardCheck;
@@ -139,7 +158,6 @@ export default function RegistrationManager() {
   const [studentId, setStudentId] = useState("");
   const [phone, setPhone] = useState("");
   const [copied, setCopied] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [creatingLink, setCreatingLink] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -159,35 +177,75 @@ export default function RegistrationManager() {
       setGeneralLink(companyLink);
       setLink(companyLink);
 
-      const { data: rows, error } = await (supabase as any)
-        .from("students")
-        .select([
-          "id",
-          "full_name",
-          "phone",
-          "whatsapp",
-          "email",
-          "status",
-          "sales_stage",
-          "fiscal_completed_at",
-          "payment_link_sent_at",
-          "activated_at",
-          "assessment_due_at",
-          "onboarding_instructions_sent_at",
-          "selected_plan_id",
-          "assigned_trainer_id",
-          "created_at",
-          "updated_at",
-        ].join(", "))
-        .eq("company_id", effectiveCompanyId)
-        .order("created_at", { ascending: false })
-        .limit(160);
-      if (error) throw error;
+      const [studentResult, leadResult] = await Promise.all([
+        (supabase as any)
+          .from("students")
+          .select([
+            "id",
+            "full_name",
+            "phone",
+            "whatsapp",
+            "email",
+            "status",
+            "sales_stage",
+            "fiscal_completed_at",
+            "payment_link_sent_at",
+            "activated_at",
+            "assessment_due_at",
+            "onboarding_instructions_sent_at",
+            "selected_plan_id",
+            "assigned_trainer_id",
+            "created_at",
+            "updated_at",
+          ].join(", "))
+          .eq("company_id", effectiveCompanyId)
+          .order("created_at", { ascending: false })
+          .limit(160),
+        (supabase as any)
+          .from("leads")
+          .select("id, full_name, phone, stage, budget_range, preferred_contact_period, contact_outcome, pre_registration_answers, created_at, updated_at")
+          .eq("company_id", effectiveCompanyId)
+          .is("converted_to_student_id", null)
+          .in("stage", ["interested", "contacted"])
+          .order("created_at", { ascending: false })
+          .limit(160),
+      ]);
+      if (studentResult.error) throw studentResult.error;
+      if (leadResult.error) throw leadResult.error;
 
-      const baseStudents = (rows || []) as Student[];
+      const baseStudents = ((studentResult.data || []) as Omit<Student, "entityType">[]).map((student) => ({
+        ...student,
+        entityType: "student" as const,
+      }));
+      const leads = ((leadResult.data || []) as LeadRow[]).map((lead): Student => ({
+        entityType: "lead",
+        leadId: lead.id,
+        id: lead.id,
+        full_name: lead.full_name,
+        phone: lead.phone,
+        whatsapp: lead.phone,
+        email: null,
+        status: "interested",
+        sales_stage: lead.stage === "contacted" ? "contacted" : "interested",
+        fiscal_completed_at: null,
+        payment_link_sent_at: null,
+        activated_at: null,
+        assessment_due_at: null,
+        onboarding_instructions_sent_at: null,
+        selected_plan_id: null,
+        assigned_trainer_id: null,
+        created_at: lead.created_at,
+        updated_at: lead.updated_at,
+        hasAnamnesis: true,
+        hasAssessment: false,
+        budget_range: lead.budget_range,
+        preferred_contact_period: lead.preferred_contact_period,
+        contact_outcome: lead.contact_outcome,
+        pre_registration_answers: lead.pre_registration_answers,
+      }));
       const ids = baseStudents.map((student) => student.id);
       if (ids.length === 0) {
-        setStudents([]);
+        setStudents(leads);
         return;
       }
 
@@ -221,12 +279,12 @@ export default function RegistrationManager() {
       const anamnesisStudents = new Set((anamnesisResult.error ? [] : anamnesisResult.data || []).map((row: any) => row.student_id));
       const assessedStudents = new Set((assessmentResult.error ? [] : assessmentResult.data || []).map((row: any) => row.student_id));
 
-      setStudents(baseStudents.map((student) => ({
+      setStudents([...leads, ...baseStudents.map((student) => ({
         ...student,
         hasAnamnesis: anamnesisStudents.has(student.id),
         hasAssessment: assessedStudents.has(student.id),
         latestEvent: latestEventByStudent.get(student.id) || null,
-      })));
+      }))]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Nao foi possivel carregar os cadastros.";
       setLoadError(message);
@@ -248,6 +306,7 @@ export default function RegistrationManager() {
 
   const stagedStudents = useMemo<StudentWithStage[]>(() => {
     const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const budgetPriority: Record<string, number> = { "400_500": 3, "300_400": 2, "200_300": 1 };
     return students
       .map((student) => {
         const stage = normalizeSalesStage(student);
@@ -263,6 +322,13 @@ export default function RegistrationManager() {
         if (student.stage === "active_onboarding") return true;
         if (student.stage === "active" && student.activated_at) return new Date(student.activated_at).getTime() >= thirtyDaysAgo;
         return false;
+      })
+      .sort((a, b) => {
+        if (a.entityType === "lead" || b.entityType === "lead") {
+          const priority = (budgetPriority[b.budget_range || ""] || 0) - (budgetPriority[a.budget_range || ""] || 0);
+          if (priority !== 0) return priority;
+        }
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   }, [students, activeStage]);
 
@@ -273,7 +339,7 @@ export default function RegistrationManager() {
     return grouped;
   }, [stagedStudents]);
 
-  const selectedStudent = students.find((student) => student.id === studentId);
+  const selectedStudent = students.find((student) => student.entityType === "student" && student.id === studentId);
 
   const createFiscalLinkForStudent = async (id: string): Promise<string> => {
     setCreatingLink(true);
@@ -305,7 +371,7 @@ export default function RegistrationManager() {
     await openStudentChat({
       navigate,
       routePrefix: chatRoutePrefix,
-      studentId: student.id,
+      studentId: student.entityType === "student" ? student.id : null,
       phone: digits,
       message,
       onNoChat: () => toast.error("Informe um telefone valido para abrir a conversa interna."),
@@ -314,7 +380,38 @@ export default function RegistrationManager() {
 
   const handleStageAction = async (student: StudentWithStage) => {
     try {
-      if (student.stage === "interested" || student.stage === "fiscal_registration_pending") {
+      if (student.entityType === "lead" && student.stage === "interested") {
+        const { data, error } = await supabase.functions.invoke("public-registration", {
+          body: { action: "mark-lead-contacted", leadId: student.leadId || student.id, outcome: "in_conversation" },
+        });
+        if (error || !data?.id) throw new Error(data?.error || error?.message || "Não foi possível registrar o contato.");
+        await openChatWithStudent(
+          student,
+          `Oi, ${firstName(student.full_name)}! Recebi seu pré-cadastro e queria entender um pouco melhor seu objetivo para indicar o acompanhamento ideal.`,
+        );
+        await loadPipeline();
+        return;
+      }
+
+      if (student.entityType === "lead" && student.stage === "contacted") {
+        const { data, error } = await supabase.functions.invoke("public-registration", {
+          body: { action: "convert-lead", leadId: student.leadId || student.id },
+        });
+        if (error || !data?.token || !data?.studentId) throw new Error(data?.error || error?.message || "Não foi possível iniciar o cadastro fiscal.");
+        const fiscalLink = `${window.location.origin}/cadastro-fiscal/${data.token}`;
+        await openStudentChat({
+          navigate,
+          routePrefix: chatRoutePrefix,
+          studentId: data.studentId,
+          phone: waDigits(student.whatsapp || student.phone),
+          message: `Oi, ${firstName(student.full_name)}! Vamos seguir com seu cadastro. Complete os dados fiscais para emissão da nota e liberação do pagamento: ${fiscalLink}`,
+          onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
+        });
+        await loadPipeline();
+        return;
+      }
+
+      if (student.stage === "fiscal_registration_pending") {
         const fiscalLink = await createFiscalLinkForStudent(student.id);
         await openChatWithStudent(
           student,
@@ -344,7 +441,7 @@ export default function RegistrationManager() {
         return;
       }
 
-      navigate(`/${chatRoutePrefix}/students/${student.id}`);
+      if (student.entityType === "student") navigate(`/${chatRoutePrefix}/students/${student.id}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Nao foi possivel executar a acao.");
     }
@@ -388,22 +485,6 @@ export default function RegistrationManager() {
     }
   };
 
-  if (editing) {
-    return (
-      <div className="space-y-4">
-        <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
-          <ArrowLeft className="mr-1.5 h-4 w-4" /> Voltar ao envio
-        </Button>
-        <FormFieldEditor
-          formType="registration"
-          title="EDITAR CADASTRO"
-          subtitle="Edite as perguntas do formulario publico de cadastro."
-          publicPath="/cadastro"
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -411,12 +492,9 @@ export default function RegistrationManager() {
           <p className="text-eyebrow">Cadastro e fechamento</p>
           <h1 className="font-display text-3xl text-primary">Novos cadastros</h1>
           <p className="mt-1 font-sans text-sm text-muted-foreground">
-            Acompanhe exatamente onde cada pessoa esta: cadastro fiscal, checkout Asaas, pagamento ou onboarding.
+            Do pré-cadastro ao primeiro treino, sem contar interessados como alunos antes da hora.
           </p>
         </div>
-        <Button variant="outline" onClick={() => setEditing(true)}>
-          <Pencil className="mr-2 h-4 w-4" /> Editar perguntas
-        </Button>
       </div>
 
       <Card className="bg-card">
@@ -428,7 +506,7 @@ export default function RegistrationManager() {
               <Select value={studentId} onValueChange={setStudentId}>
                 <SelectTrigger><SelectValue placeholder="Selecione para gerar o link individual..." /></SelectTrigger>
                 <SelectContent>
-                  {students.map((s) => {
+                  {students.filter((s) => s.entityType === "student").map((s) => {
                     const stage = normalizeSalesStage(s);
                     return (
                       <SelectItem key={s.id} value={s.id}>
@@ -504,7 +582,7 @@ export default function RegistrationManager() {
             Carregando esteira
           </div>
         ) : (
-          <div className="grid gap-3 xl:grid-cols-5">
+          <div className="grid gap-3 xl:grid-cols-6">
             {FUNNEL_STAGE_ORDER.filter((stage) => stage !== "lost").map((stage) => {
               const Icon = stageIcon(stage);
               const rows = studentsByStage.get(stage) || [];
@@ -536,11 +614,13 @@ export default function RegistrationManager() {
                         role="button"
                         tabIndex={0}
                         className="w-full rounded-lg border border-border bg-card p-3 text-left transition hover:border-primary/45 hover:bg-primary/5"
-                        onClick={() => navigate(`/${chatRoutePrefix}/students/${student.id}`)}
+                        onClick={() => {
+                          if (student.entityType === "student") navigate(`/${chatRoutePrefix}/students/${student.id}`);
+                        }}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            navigate(`/${chatRoutePrefix}/students/${student.id}`);
+                            if (student.entityType === "student") navigate(`/${chatRoutePrefix}/students/${student.id}`);
                           }
                         }}
                       >
@@ -556,7 +636,42 @@ export default function RegistrationManager() {
 
                         <Progress value={student.progress} className="mt-3 h-1.5" />
 
-                        <div className="mt-3 grid gap-1.5 text-[11px] text-muted-foreground">
+                        {student.entityType === "lead" ? (
+                          <div className="mt-3 grid gap-1.5 text-[11px] text-muted-foreground">
+                            <div className="flex justify-between gap-2">
+                              <span>Investimento</span>
+                              <span className="font-mono-data">{{ "200_300": "R$ 200–300", "300_400": "R$ 300–400", "400_500": "R$ 400–500" }[student.budget_range || ""] || "não informado"}</span>
+                            </div>
+                            <div className="flex justify-between gap-2">
+                              <span>Melhor contato</span>
+                              <span className="font-mono-data">{{ morning: "manhã", afternoon: "tarde", evening: "noite" }[student.preferred_contact_period || ""] || "não informado"}</span>
+                            </div>
+                            {student.stage === "contacted" && (
+                              <div className="space-y-1 pt-1">
+                                <span>Classificação</span>
+                                <Select
+                                  value={student.contact_outcome || "in_conversation"}
+                                  onValueChange={async (outcome) => {
+                                    const { error } = await supabase.functions.invoke("public-registration", {
+                                      body: { action: "mark-lead-contacted", leadId: student.leadId || student.id, outcome },
+                                    });
+                                    if (error) toast.error("Não foi possível atualizar a classificação.");
+                                    else await loadPipeline();
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 rounded-lg text-xs"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="in_conversation">Em conversa</SelectItem>
+                                    <SelectItem value="no_response">Sem resposta</SelectItem>
+                                    <SelectItem value="follow_up">Retornar depois</SelectItem>
+                                    <SelectItem value="qualified">Qualificado</SelectItem>
+                                    <SelectItem value="not_fit">Sem perfil</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+                          </div>
+                        ) : <div className="mt-3 grid gap-1.5 text-[11px] text-muted-foreground">
                           <div className="flex justify-between gap-2">
                             <span>Fiscal</span>
                             <span className="font-mono-data">{student.fiscal_completed_at ? "ok" : "pendente"}</span>
@@ -573,7 +688,7 @@ export default function RegistrationManager() {
                             <span>Avaliacao</span>
                             <span className="font-mono-data">{student.hasAssessment ? "ok" : student.assessment_due_at ? `ate ${format(new Date(`${student.assessment_due_at}T00:00:00`), "dd/MM")}` : "pendente"}</span>
                           </div>
-                        </div>
+                        </div>}
 
                         {student.latestEvent && (
                           <div className={cn(

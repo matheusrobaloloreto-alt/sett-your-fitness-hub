@@ -4,7 +4,10 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-const TRACKED_ROLES = new Set(["admin", "coordinator", "trainer"]);
+// Master users also act as company administrators when a company is selected.
+// Recording that session against the selected company keeps the team activity
+// panel accurate without attributing activity across every tenant.
+const TRACKED_ROLES = new Set(["master", "admin", "coordinator", "trainer"]);
 const HEARTBEAT_MS = 60_000;
 
 export function useStaffPresence(role: string | null | undefined, companyId: string | null) {

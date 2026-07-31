@@ -33,3 +33,10 @@ export interface CadenceRow {
 export function cadenceDisplayName(row: CadenceRow): string {
   return row.student_name || row.contact_name || "Contato sem nome";
 }
+
+export type CadenceWindowDays = 7 | 14 | 30 | 90;
+
+export function filterCadenceByWindow(rows: CadenceRow[], days: CadenceWindowDays): CadenceRow[] {
+  const maximumHours = days * 24;
+  return rows.filter((row) => Number.isFinite(row.hours_since) && row.hours_since <= maximumHours);
+}

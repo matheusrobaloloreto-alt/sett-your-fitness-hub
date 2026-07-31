@@ -1,5 +1,6 @@
 export type SalesStage =
   | "interested"
+  | "contacted"
   | "fiscal_registration_pending"
   | "payment_pending"
   | "active_onboarding"
@@ -8,6 +9,7 @@ export type SalesStage =
 
 export type FunnelStageKey =
   | "interested"
+  | "contacted"
   | "fiscal_registration_pending"
   | "payment_pending"
   | "active_onboarding"
@@ -26,6 +28,7 @@ export interface FunnelStageStudent {
 
 export const FUNNEL_STAGE_ORDER: FunnelStageKey[] = [
   "interested",
+  "contacted",
   "fiscal_registration_pending",
   "payment_pending",
   "active_onboarding",
@@ -41,7 +44,12 @@ export const FUNNEL_STAGE_META: Record<FunnelStageKey, {
   interested: {
     label: "Interessado",
     shortLabel: "Lead",
-    description: "Precisa receber o cadastro fiscal individual.",
+    description: "Pré-cadastro recebido; precisa do primeiro contato humano.",
+  },
+  contacted: {
+    label: "Contato feito",
+    shortLabel: "Contato",
+    description: "A equipe já chamou; aguardando qualificação para o cadastro fiscal.",
   },
   fiscal_registration_pending: {
     label: "Cadastro fiscal",
@@ -95,7 +103,8 @@ export function stageNextAction(
   opts: { hasAnamnesis?: boolean; hasAssessment?: boolean } = {},
 ): string {
   const stage = normalizeSalesStage(student);
-  if (stage === "interested") return "Enviar cadastro fiscal";
+  if (stage === "interested") return "Registrar contato";
+  if (stage === "contacted") return "Enviar cadastro fiscal";
   if (stage === "fiscal_registration_pending") return "Aguardar ou reenviar cadastro fiscal";
   if (stage === "payment_pending") {
     return student.payment_link_sent_at ? "Aguardar Pix Asaas" : "Enviar checkout Asaas";

@@ -15,7 +15,8 @@ describe("salesFunnelView", () => {
   });
 
   it("returns operational next actions for each registration phase", () => {
-    expect(stageNextAction({ sales_stage: "interested" })).toBe("Enviar cadastro fiscal");
+    expect(stageNextAction({ sales_stage: "interested" })).toBe("Registrar contato");
+    expect(stageNextAction({ sales_stage: "contacted" })).toBe("Enviar cadastro fiscal");
     expect(stageNextAction({ sales_stage: "payment_pending" })).toBe("Enviar checkout Asaas");
     expect(stageNextAction({ sales_stage: "payment_pending", payment_link_sent_at: "2026-07-31T10:00:00Z" })).toBe("Aguardar Pix Asaas");
     expect(stageNextAction({ sales_stage: "active_onboarding", onboarding_instructions_sent_at: "2026-07-31T10:00:00Z" }, { hasAnamnesis: true, hasAssessment: false })).toBe("Aguardar avaliacao de movimento");
@@ -23,6 +24,8 @@ describe("salesFunnelView", () => {
 
   it("keeps progress monotonic through the active funnel", () => {
     expect(funnelStageProgress("interested")).toBeLessThan(funnelStageProgress("fiscal_registration_pending"));
+    expect(funnelStageProgress("interested")).toBeLessThan(funnelStageProgress("contacted"));
+    expect(funnelStageProgress("contacted")).toBeLessThan(funnelStageProgress("fiscal_registration_pending"));
     expect(funnelStageProgress("payment_pending")).toBeLessThan(funnelStageProgress("active_onboarding"));
     expect(funnelStageProgress("active")).toBe(100);
   });

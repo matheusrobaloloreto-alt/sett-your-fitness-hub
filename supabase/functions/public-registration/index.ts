@@ -46,11 +46,24 @@ async function resolveCompany(slug: string | null) {
   return data;
 }
 
+async function resolveCompanyById(companyId: unknown) {
+  if (!isUuid(companyId)) return null;
+  const { data } = await supabase
+    .from("companies")
+    .select("id, name, slug")
+    .eq("id", companyId)
+    .eq("is_active", true)
+    .maybeSingle();
+  return data;
+}
+
 async function getBranding(companyId: string) {
   const { data, error } = await supabase
     .from("platform_settings")
     .select("logo_url, platform_title, primary_color, background_color, card_color, text_color")
     .eq("company_id", companyId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (error) throw new HttpError(500, `Falha ao carregar identidade visual: ${error.message}`);
   return data ?? null;
@@ -123,6 +136,202 @@ async function requireStaff(req: Request, studentId: unknown) {
   if (roleError) throw new HttpError(503, `Falha ao validar função: ${roleError.message}`);
   if (!roles.some((result) => result.data === true)) throw new HttpError(403, "Forbidden");
   return tenant;
+}
+
+async function requireCompanyStaff(req: Request, companyId: unknown) {
+  if (!isUuid(companyId)) throw new HttpError(400, "companyId inválido.");
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) throw new HttpError(401, "Unauthorized");
+  const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: userData, error: userError } = await authClient.auth.getUser(
+    authHeader.slice("Bearer ".length),
+  );
+  if (userError || !userData?.user?.id) throw new HttpError(401, "Unauthorized");
+  const userId = userData.user.id;
+  const tenant = await assertTenantAccess(
+    supabase,
+    { sub: userId },
+    { companyId, requireStaff: true },
+  );
+  const roleResults = await Promise.all(
+    ["master", "admin", "coordinator", "trainer"].map((role) =>
+      supabase.rpc("has_role", { _user_id: userId, _role: role })
+    ),
+  );
+  const roleError = roleResults.find((result) => result.error)?.error;
+  if (roleError) throw new HttpError(503, `Falha ao validar função: ${roleError.message}`);
+  if (!roleResults.some((result) => result.data === true)) throw new HttpError(403, "Forbidden");
+  return { userId, companyId: tenant.companyId };
+}
+
+const INVESTMENT_RANGES = new Set(["200_300", "300_400", "400_500"]);
+const CONTACT_PERIODS = new Set(["morning", "afternoon", "evening"]);
+
+function responseDeadline(now = new Date()) {
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    weekday: "short",
+  }).format(now);
+  return ["Fri", "Sat", "Sun"].includes(weekday)
+    ? "Você vai ouvir da gente já na segunda-feira."
+    : "Você vai ouvir da gente ainda hoje.";
+}
+
+async function preRegister(body: Record<string, unknown>) {
+  const company = await resolveCompanyById(body.companyId) || await resolveCompany(cleanText(body.slug) || null);
+  if (!company) throw new HttpError(400, "Empresa inválida.");
+  const fullName = cleanText(body.fullName);
+  const phone = onlyDigits(body.whatsapp);
+  const budgetRange = cleanText(body.budgetRange);
+  const preferredContactPeriod = cleanText(body.preferredContactPeriod);
+  const answers = body.answers && typeof body.answers === "object"
+    ? body.answers as Record<string, unknown>
+    : {};
+  if (fullName.length < 3) throw new HttpError(422, "Informe seu nome completo.");
+  if (phone.length < 10) throw new HttpError(422, "Informe um WhatsApp válido.");
+  if (!INVESTMENT_RANGES.has(budgetRange)) throw new HttpError(422, "Selecione a faixa de investimento.");
+  if (!CONTACT_PERIODS.has(preferredContactPeriod)) throw new HttpError(422, "Selecione o melhor horário para contato.");
+  if (!cleanText(answers.objective)) throw new HttpError(422, "Informe seu objetivo principal.");
+
+  const submittedAt = new Date().toISOString();
+  const leadPayload = {
+    company_id: company.id,
+    full_name: fullName,
+    phone,
+    source: "public_pre_registration",
+    stage: "interested",
+    budget_range: budgetRange,
+    preferred_contact_period: preferredContactPeriod,
+    pre_registration_answers: answers,
+    submitted_at: submittedAt,
+    updated_at: submittedAt,
+  };
+  const { data: existing, error: existingError } = await supabase
+    .from("leads")
+    .select("id, stage")
+    .eq("company_id", company.id)
+    .eq("phone", phone)
+    .is("converted_to_student_id", null)
+    .maybeSingle();
+  if (existingError) throw new HttpError(500, `Falha ao consultar pré-cadastro: ${existingError.message}`);
+
+  let leadId: string;
+  if (existing?.id) {
+    const updatePayload = existing.stage === "contacted" ? { ...leadPayload, stage: "contacted" } : leadPayload;
+    const updated = await supabase.from("leads").update(updatePayload).eq("id", existing.id).select("id").single();
+    if (updated.error || !updated.data) throw new HttpError(500, `Falha ao atualizar pré-cadastro: ${updated.error?.message || "erro desconhecido"}`);
+    leadId = updated.data.id;
+  } else {
+    const created = await supabase.from("leads").insert(leadPayload).select("id").single();
+    if (created.error || !created.data) throw new HttpError(500, `Falha ao salvar pré-cadastro: ${created.error?.message || "erro desconhecido"}`);
+    leadId = created.data.id;
+  }
+
+  return { leadId, firstName: fullName.split(/\s+/)[0], deadline: responseDeadline() };
+}
+
+async function loadLeadForStaff(req: Request, leadId: unknown) {
+  if (!isUuid(leadId)) throw new HttpError(400, "leadId inválido.");
+  const { data: lead, error } = await supabase.from("leads").select("*").eq("id", leadId).maybeSingle();
+  if (error) throw new HttpError(500, `Falha ao carregar interessado: ${error.message}`);
+  if (!lead) throw new HttpError(404, "Interessado não encontrado.");
+  const tenant = await requireCompanyStaff(req, lead.company_id);
+  return { lead, tenant };
+}
+
+async function markLeadContacted(req: Request, leadId: unknown, outcome: unknown = "in_conversation") {
+  const { lead, tenant } = await loadLeadForStaff(req, leadId);
+  const contactOutcome = cleanText(outcome) || "in_conversation";
+  if (!["in_conversation", "no_response", "follow_up", "qualified", "not_fit"].includes(contactOutcome)) {
+    throw new HttpError(422, "Classificação de contato inválida.");
+  }
+  const now = new Date().toISOString();
+  const { data, error } = await supabase.from("leads").update({
+    stage: "contacted",
+    contact_outcome: contactOutcome,
+    contacted_at: lead.contacted_at || now,
+    last_contact_at: now,
+    assigned_to: lead.assigned_to || tenant.userId,
+    updated_at: now,
+  }).eq("id", lead.id).eq("company_id", tenant.companyId).select("id, stage, contact_outcome, contacted_at").single();
+  if (error) throw new HttpError(500, `Falha ao registrar contato: ${error.message}`);
+  return data;
+}
+
+function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
+  const answers = lead.pre_registration_answers && typeof lead.pre_registration_answers === "object"
+    ? lead.pre_registration_answers as Record<string, unknown>
+    : {};
+  const sportFrequency = Number(answers.sport_frequency || 0) || 0;
+  const notes = [
+    cleanText(answers.notes),
+    `Faixa de investimento: ${cleanText(lead.budget_range) || "não informada"}`,
+    `Período de contato: ${cleanText(lead.preferred_contact_period) || "não informado"}`,
+  ].filter(Boolean).join("\n");
+  return {
+    student_id: studentId,
+    company_id: lead.company_id,
+    objective: cleanText(answers.objective) || null,
+    activity_level: cleanText(answers.experience_level) || null,
+    is_endurance_athlete: sportFrequency >= 3,
+    training_modality: cleanText(answers.preferred_training) || null,
+    days_per_week_strength: Number(answers.weekly_availability || 0) || null,
+    days_per_week_cardio: sportFrequency || null,
+    session_duration_min: Number(answers.session_duration_min || 0) || null,
+    sport: cleanText(answers.sport) || null,
+    cardio_goal: cleanText(answers.cardio_goal) || null,
+    injuries: cleanText(answers.pain_details) || null,
+    food_restrictions: cleanText(answers.food_restrictions) || null,
+    nutrition_context: cleanText(answers.nutrition_goal) || null,
+    notes,
+  };
+}
+
+async function convertLeadToFiscal(req: Request, leadId: unknown) {
+  const { lead, tenant } = await loadLeadForStaff(req, leadId);
+  let studentId = lead.converted_to_student_id as string | null;
+  if (!studentId) {
+    const phone = onlyDigits(lead.phone);
+    const { data: matchingStudent } = await supabase.from("students")
+      .select("id")
+      .eq("company_id", tenant.companyId)
+      .or(`phone.eq.${phone},whatsapp.eq.${phone}`)
+      .limit(1)
+      .maybeSingle();
+    studentId = matchingStudent?.id || null;
+    if (!studentId) {
+      const created = await supabase.from("students").insert({
+        company_id: tenant.companyId,
+        full_name: lead.full_name,
+        phone,
+        whatsapp: phone,
+        status: "interested",
+        sales_stage: "fiscal_registration_pending",
+      }).select("id").single();
+      if (created.error || !created.data) throw new HttpError(500, `Falha ao iniciar cadastro fiscal: ${created.error?.message || "erro desconhecido"}`);
+      studentId = created.data.id;
+    }
+    if (!studentId) throw new HttpError(500, "Falha ao identificar o aluno.");
+    const anamnesis = await supabase.from("student_anamneses")
+      .upsert(anamnesisFromLead(lead, studentId), { onConflict: "student_id" });
+    if (anamnesis.error) throw new HttpError(500, `Falha ao integrar pré-cadastro: ${anamnesis.error.message}`);
+  }
+  if (!studentId) throw new HttpError(500, "Falha ao identificar o aluno.");
+
+  const now = new Date().toISOString();
+  const leadUpdate = await supabase.from("leads").update({
+    stage: "fiscal_registration",
+    contact_outcome: "qualified",
+    converted_to_student_id: studentId,
+    fiscal_invited_at: now,
+    updated_at: now,
+  }).eq("id", lead.id).eq("company_id", tenant.companyId);
+  if (leadUpdate.error) throw new HttpError(500, `Falha ao avançar interessado: ${leadUpdate.error.message}`);
+
+  const registration = await createRegistrationLink(req, studentId);
+  return { leadId: lead.id, studentId, token: registration.token, expiresAt: registration.expires_at };
 }
 
 type RegistrationLink = {
@@ -359,6 +568,18 @@ Deno.serve(async (req) => {
 
     if (action === "create-link") {
       return json(await createRegistrationLink(req, body.studentId));
+    }
+
+    if (action === "pre-register") {
+      return json(await preRegister(body));
+    }
+
+    if (action === "mark-lead-contacted") {
+      return json(await markLeadContacted(req, body.leadId, body.outcome));
+    }
+
+    if (action === "convert-lead") {
+      return json(await convertLeadToFiscal(req, body.leadId));
     }
 
     if (action === "context") {

@@ -4,7 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
@@ -33,6 +35,7 @@ export default function PublicRegistration() {
   const [branding, setBranding] = useState<CompanyBranding | null>(null);
   const [fiscalMode, setFiscalMode] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [deadlineMessage, setDeadlineMessage] = useState("");
 
   const [fullName, setFullName] = useState("");
   const [birthDate, setBirthDate] = useState("");
@@ -45,6 +48,19 @@ export default function PublicRegistration() {
   const [state, setState] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
+  const [objective, setObjective] = useState("");
+  const [painPresent, setPainPresent] = useState("no");
+  const [painDetails, setPainDetails] = useState("");
+  const [weeklyAvailability, setWeeklyAvailability] = useState("3");
+  const [sessionDuration, setSessionDuration] = useState("60");
+  const [experienceLevel, setExperienceLevel] = useState("");
+  const [sport, setSport] = useState("");
+  const [sportFrequency, setSportFrequency] = useState("0");
+  const [nutritionGoal, setNutritionGoal] = useState("");
+  const [foodRestrictions, setFoodRestrictions] = useState("");
+  const [budgetRange, setBudgetRange] = useState("");
+  const [preferredContactPeriod, setPreferredContactPeriod] = useState("");
+  const [notes, setNotes] = useState("");
 
   // CEP → endereço (e endereço → CEP) automático via ViaCEP
   const fillFromCep = async (cepValue: string) => {
@@ -100,6 +116,59 @@ export default function PublicRegistration() {
   const titleText = branding?.platform_title || "Set Training App";
 
   const handleSubmit = async () => {
+    if (!fiscalMode) {
+      const missing: string[] = [];
+      if (!fullName.trim()) missing.push("nome completo");
+      if (whatsapp.replace(/\D/g, "").length < 10) missing.push("WhatsApp");
+      if (!objective) missing.push("objetivo");
+      if (!experienceLevel) missing.push("experiência");
+      if (!budgetRange) missing.push("faixa de investimento");
+      if (!preferredContactPeriod) missing.push("horário para contato");
+      if (painPresent === "yes" && !painDetails.trim()) missing.push("detalhes da dor");
+      if (missing.length > 0) {
+        toast({ title: "Complete seu pré-cadastro", description: `Preencha: ${missing.join(", ")}.`, variant: "destructive" });
+        return;
+      }
+      if (!companyId) {
+        toast({ title: "Erro ao identificar a empresa", description: "Recarregue a página e tente novamente.", variant: "destructive" });
+        return;
+      }
+      setSaving(true);
+      const { data, error } = await supabase.functions.invoke("public-registration", {
+        body: {
+          action: "pre-register",
+          companyId,
+          slug: slug ?? null,
+          fullName,
+          whatsapp,
+          budgetRange,
+          preferredContactPeriod,
+          answers: {
+            objective,
+            pain_present: painPresent === "yes",
+            pain_details: painPresent === "yes" ? painDetails : "",
+            weekly_availability: Number(weeklyAvailability),
+            session_duration_min: Number(sessionDuration),
+            experience_level: experienceLevel,
+            sport,
+            sport_frequency: sport ? Number(sportFrequency) : 0,
+            nutrition_goal: nutritionGoal,
+            food_restrictions: foodRestrictions,
+            preferred_training: sport ? "strength_and_sport" : "strength",
+            notes,
+          },
+        },
+      });
+      setSaving(false);
+      if (error || !data?.leadId) {
+        toast({ title: "Não foi possível enviar", description: data?.error || error?.message || "Tente novamente.", variant: "destructive" });
+        return;
+      }
+      setDeadlineMessage(data.deadline || "Você vai ouvir da gente em breve.");
+      setDone(true);
+      return;
+    }
+
     const missing: string[] = [];
     if (!fullName) missing.push("Nome Completo");
     if (!birthDate) missing.push("Data de Nascimento");
@@ -174,6 +243,30 @@ export default function PublicRegistration() {
   }
 
   if (done) {
+    if (!fiscalMode) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-background p-4">
+          <Card className="w-full max-w-lg rounded-2xl border-border bg-card text-center shadow-sm">
+            <CardContent className="space-y-4 px-6 py-10">
+              <CheckCircle className="mx-auto h-14 w-14 text-primary" />
+              <h2 className="font-display text-3xl text-primary">PRÉ-CADASTRO RECEBIDO</h2>
+              <p className="font-sans text-muted-foreground">
+                Recebi sua aplicação, {fullName.trim().split(/\s+/)[0]}.
+              </p>
+              <p className="font-sans text-sm leading-relaxed text-muted-foreground">
+                Analisamos cada perfil com atenção antes de responder. Recebemos bastante gente interessada em treinar com a gente e mantemos um número limitado de alunos por vez para garantir esse acompanhamento de perto.
+              </p>
+              <p className="rounded-xl bg-primary/8 px-4 py-3 font-sans font-semibold text-primary">
+                {deadlineMessage}
+              </p>
+              <p className="font-sans text-sm text-muted-foreground">
+                Vamos usar esse contato para fazer sua Avaliação de Movimento e ajudar você a escolher o plano ideal para o seu objetivo. Já já a gente se fala.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full bg-card border-border text-center">
@@ -210,18 +303,18 @@ export default function PublicRegistration() {
             <div className="flex justify-center"><Logo size="lg" sublabel="Training App" /></div>
           )}
           <h1 className="text-4xl text-primary">
-            {fiscalMode ? "CADASTRO FISCAL" : `CADASTRO ${titleText}`}
+            {fiscalMode ? "CADASTRO FISCAL" : "PRÉ-CADASTRO"}
           </h1>
           <p className="text-sm text-muted-foreground font-sans">
             {fiscalMode
               ? "Complete os dados necessários para o cadastro no Asaas e emissão da nota fiscal."
-              : "Dados pessoais e de cobrança"}
+              : "Conte um pouco sobre você. Leva poucos minutos e não pedimos dados fiscais nesta etapa."}
           </p>
         </div>
 
         <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-primary text-xl">DADOS PESSOAIS</CardTitle>
+            <CardTitle className="text-primary text-xl">{fiscalMode ? "DADOS PESSOAIS" : "SUA APLICAÇÃO"}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -237,6 +330,108 @@ export default function PublicRegistration() {
                 <p className="text-xs text-muted-foreground">Nome já identificado pela equipe.</p>
               )}
             </div>
+            {!fiscalMode && (
+              <>
+                <div className="space-y-2">
+                  <Label className="font-sans">WhatsApp *</Label>
+                  <Input value={whatsapp} onChange={e => setWhatsapp(formatPhone(e.target.value))} placeholder="(00) 00000-0000" inputMode="tel" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-sans">Qual é seu principal objetivo? *</Label>
+                  <Select value={objective} onValueChange={setObjective}>
+                    <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hypertrophy">Ganhar massa muscular</SelectItem>
+                      <SelectItem value="fat_loss">Emagrecer</SelectItem>
+                      <SelectItem value="performance">Melhorar performance</SelectItem>
+                      <SelectItem value="health">Saúde e qualidade de vida</SelectItem>
+                      <SelectItem value="return">Voltar a treinar com segurança</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-sans">Sente alguma dor ou limitação hoje? *</Label>
+                  <Select value={painPresent} onValueChange={setPainPresent}>
+                    <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="no">Não</SelectItem><SelectItem value="yes">Sim</SelectItem></SelectContent>
+                  </Select>
+                </div>
+                {painPresent === "yes" && (
+                  <div className="space-y-2">
+                    <Label className="font-sans">Onde dói e em quais movimentos? *</Label>
+                    <Textarea value={painDetails} onChange={e => setPainDetails(e.target.value)} placeholder="Descreva com suas palavras" className="min-h-24 rounded-xl" />
+                  </div>
+                )}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="font-sans">Dias disponíveis por semana *</Label>
+                    <Select value={weeklyAvailability} onValueChange={setWeeklyAvailability}>
+                      <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>{[2, 3, 4, 5, 6].map(day => <SelectItem key={day} value={String(day)}>{day} dias</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-sans">Tempo por treino *</Label>
+                    <Select value={sessionDuration} onValueChange={setSessionDuration}>
+                      <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="30">30 min</SelectItem><SelectItem value="45">45 min</SelectItem><SelectItem value="60">60 min</SelectItem><SelectItem value="75">75 min ou mais</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-sans">Sua experiência com treino *</Label>
+                  <Select value={experienceLevel} onValueChange={setExperienceLevel}>
+                    <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                    <SelectContent><SelectItem value="beginner">Estou começando</SelectItem><SelectItem value="returning">Já treinei e estou voltando</SelectItem><SelectItem value="intermediate">Treino regularmente</SelectItem><SelectItem value="advanced">Treino há anos</SelectItem></SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-sans">Pratica corrida, ciclismo, natação ou outro esporte?</Label>
+                  <Input value={sport} onChange={e => setSport(e.target.value)} placeholder="Deixe vazio se não pratica" className="rounded-xl" />
+                </div>
+                {sport.trim() && (
+                  <div className="space-y-2">
+                    <Label className="font-sans">Quantas vezes por semana?</Label>
+                    <Select value={sportFrequency} onValueChange={setSportFrequency}>
+                      <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>{[1, 2, 3, 4, 5, 6, 7].map(day => <SelectItem key={day} value={String(day)}>{day}x</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label className="font-sans">O que você quer melhorar na alimentação?</Label>
+                  <Textarea value={nutritionGoal} onChange={e => setNutritionGoal(e.target.value)} placeholder="Rotina, energia, composição corporal..." className="rounded-xl" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-sans">Possui restrição alimentar?</Label>
+                  <Input value={foodRestrictions} onChange={e => setFoodRestrictions(e.target.value)} placeholder="Alergias, intolerâncias ou preferências" className="rounded-xl" />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="font-sans">Faixa de investimento mensal *</Label>
+                    <Select value={budgetRange} onValueChange={setBudgetRange}>
+                      <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                      <SelectContent><SelectItem value="200_300">R$ 200 a R$ 300</SelectItem><SelectItem value="300_400">R$ 300 a R$ 400</SelectItem><SelectItem value="400_500">R$ 400 a R$ 500</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-sans">Melhor horário para contato *</Label>
+                    <Select value={preferredContactPeriod} onValueChange={setPreferredContactPeriod}>
+                      <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                      <SelectContent><SelectItem value="morning">Manhã</SelectItem><SelectItem value="afternoon">Tarde</SelectItem><SelectItem value="evening">Noite</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-sans">Algo mais que devemos saber?</Label>
+                  <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Opcional" className="rounded-xl" />
+                </div>
+                <Button className="w-full rounded-xl" onClick={handleSubmit} disabled={saving}>
+                  {saving ? "Enviando..." : "Enviar pré-cadastro"}
+                </Button>
+              </>
+            )}
+            {fiscalMode && <>
             <div className="space-y-2">
               <Label className="font-sans">Data de Nascimento *</Label>
               <Input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} />
@@ -284,6 +479,7 @@ export default function PublicRegistration() {
             <Button className="w-full" onClick={handleSubmit} disabled={saving}>
               {saving ? "Salvando..." : "Concluir cadastro e seguir para pagamento"}
             </Button>
+            </>}
           </CardContent>
         </Card>
       </div>
