@@ -63,11 +63,11 @@ The Vite dev server defaults to `http://localhost:8080`.
 
 ### Repositório & Acesso (para o Codex)
 
-- **🔄 CANÔNICO (ordem do Matheus, 2026-07-17): remote `origin` → `https://github.com/syervibecoding/sett-your-fitness-hub.git`.** É AQUI que sincronizamos daqui em diante (`main` + `codex/claude-compat`). Histórias do fork e do original foram unidas no merge `e3cd99b` (estratégia ours — árvore do fork preservada; commits Lovable do original ficam no histórico p/ porte seletivo).
-- **Remote único autorizado:** `origin` → `https://github.com/syervibecoding/sett-your-fitness-hub.git`. O remote antigo `bn` foi removido localmente; não fazer push em forks antigos.
+- **CANÔNICO (ordem do Matheus, 2026-07-31): remote `origin` → `https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub.git`.** É o único destino autorizado para `main` e `codex/claude-compat`.
+- **Não reconectar** `syervibecoding`, Lovable ou forks antigos. A história anterior à consolidação foi preservada no próprio repositório canônico nas branches `archive/pre-consolidation-20260731` e `legacy/bn-main-local`.
 - **Codex em máquina/ambiente SEPARADO** — clonar e usar a branch de colab:
   ```bash
-  git clone https://github.com/syervibecoding/sett-your-fitness-hub.git
+  git clone https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub.git
   cd sett-your-fitness-hub && git checkout codex/claude-compat
   ```
   Antes de editar: `git pull --ff-only origin codex/claude-compat`. Ao soltar: `git push origin codex/claude-compat` (commits prefixados `claude:` / `codex:`).
@@ -78,7 +78,7 @@ The Vite dev server defaults to `http://localhost:8080`.
 - Old local GitHub token remotes found in abandoned copies were replaced with clean GitHub URLs.
 - AI refinement pack was found in `/Users/macbookpro/Downloads/app bn/sett-your-fitness-hub` and integrated as `supabase/functions/ai-coach-pack` plus the `/admin/ia`, `/coordinator/ia`, and `/trainer/ia` routes.
 - Current verified checks: `npm run build` passes, `npm run test` passes, and `npm audit --omit=dev` reports 0 vulnerabilities.
-- `npm run lint` currently fails on inherited project debt, mostly `@typescript-eslint/no-explicit-any`, hook dependency warnings, Fast Refresh warnings, and a few `prefer-const`/empty-interface issues. Do not treat the existing lint baseline as a regression unless your change adds new violations.
+- `npm run lint` currently completes with 0 errors and inherited React Hooks/Fast Refresh warnings. Do not treat the warning baseline as a regression unless a change adds new violations.
 - Full `npm audit` still reports a Vite/esbuild development-server advisory that requires `npm audit fix --force` and a breaking Vite major upgrade. Do not force that upgrade casually.
 - `npx update-browserslist-db@latest` currently tries to use `bun` because the repo includes Bun lockfiles, but Bun is not installed on this machine. The warning is non-blocking for build/test.
 

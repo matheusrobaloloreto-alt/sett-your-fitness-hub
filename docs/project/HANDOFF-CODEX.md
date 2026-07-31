@@ -1,6 +1,6 @@
 # HANDOFF para o Codex — estado do SETT/BN e como prosseguir
 
-**Última atualização:** 2026-07-17 · **Autor:** Claude (ATENA) · **Branch canônica:** `codex/claude-compat`
+**Última atualização:** 2026-07-31 · **Autores:** Claude + Codex (ATENA) · **Branch canônica:** `codex/claude-compat`
 
 Este arquivo é a fonte da verdade do que foi feito nesta jornada e como continuar sem quebrar nada.
 Leia inteiro antes de mexer.
@@ -11,8 +11,8 @@ Leia inteiro antes de mexer.
 
 | O quê | Valor |
 |---|---|
-| **Repo CANÔNICO (novo)** | `origin` → `github.com/syervibecoding/sett-your-fitness-hub` |
-| **Remotes autorizados** | apenas `origin` → `github.com/syervibecoding/sett-your-fitness-hub` |
+| **Repo CANÔNICO** | `origin` → `github.com/matheusrobaloloreto-alt/sett-your-fitness-hub` |
+| **Remotes autorizados** | apenas `origin` → `github.com/matheusrobaloloreto-alt/sett-your-fitness-hub` |
 | **Branch de trabalho** | `codex/claude-compat` (main recebe fast-forward quando alinhado) |
 | **Supabase (backend REAL)** | projeto **`zshrcgbyhzxpnlccssyz`** (Bn-app) — dados reais, 917 exercícios, 24+ edges, secrets |
 | **Frontend (prod)** | Netlify `bn-performance-webapp-matheus.netlify.app` (site id `9a061d2e-ee2c-444b-aa69-fe262caf0246`) |
@@ -20,6 +20,10 @@ Leia inteiro antes de mexer.
 | **Deploy frontend** | `npm run build && netlify deploy --prod --dir=dist --site 9a061d2e-ee2c-444b-aa69-fe262caf0246` |
 
 Fluxo git: `git pull --ff-only origin codex/claude-compat` antes de editar; `git push origin codex/claude-compat` ao soltar; commits com prefixo `claude:` / `codex:`.
+
+O projeto Supabase `zshrcgbyhzxpnlccssyz` está conectado diretamente a esse repositório,
+diretório `.`, branch de produção `main`, com deploy de produção habilitado e preview branches
+automáticas desabilitadas. Não reconectar `syervibecoding`, Lovable ou outro Supabase.
 
 ---
 
