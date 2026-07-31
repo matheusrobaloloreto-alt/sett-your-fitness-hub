@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { CheckCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { applyTheme } from "@/contexts/ThemeContext";
+import { formatPhone } from "@/lib/masks";
 
 const MODALITY_OPTIONS = [
   "Nenhum", "Musculação / Funcional", "Corrida", "Natação", "Bike", "Triathlon", "Tênis"
@@ -59,8 +60,13 @@ const ANAMNESIS_STEPS = [
   { title: "Compromisso", kicker: "Etapa 04 / Fechamento", description: "Expectativa, obstáculos e autorizações." },
 ];
 
-export default function PublicAnamnesis() {
-  const { studentId } = useParams<{ studentId: string }>();
+interface PublicAnamnesisProps {
+  mode?: "student" | "pre-registration";
+}
+
+export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisProps) {
+  const { studentId, slug } = useParams<{ studentId?: string; slug?: string }>();
+  const isPreRegistration = mode === "pre-registration";
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
@@ -70,6 +76,11 @@ export default function PublicAnamnesis() {
   const [notFound, setNotFound] = useState(false);
   const [logoSrc, setLogoSrc] = useState<string | null>(null);
   const [titleText, setTitleText] = useState("ANAMNESE");
+  const [fullName, setFullName] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [budgetRange, setBudgetRange] = useState("");
+  const [preferredContactPeriod, setPreferredContactPeriod] = useState("");
+  const [deadlineMessage, setDeadlineMessage] = useState("");
 
   // Fields
   const [age, setAge] = useState("");
@@ -156,8 +167,21 @@ export default function PublicAnamnesis() {
   const [giSensitivities, setGiSensitivities] = useState("");
 
   useEffect(() => {
-    if (!studentId) { setNotFound(true); return; }
     const init = async () => {
+      if (isPreRegistration) {
+        const { data, error } = await supabase.functions.invoke("public-registration", {
+          body: { action: "context", slug: slug ?? null },
+        });
+        if (error || !data?.company) { setNotFound(true); return; }
+        setCompanyId(data.company.id);
+        setTitleText("PRÉ-CADASTRO");
+        if (data.branding) {
+          if (data.branding.logo_url) setLogoSrc(data.branding.logo_url);
+          applyTheme(data.branding);
+        }
+        return;
+      }
+      if (!studentId) { setNotFound(true); return; }
       const { data, error } = await supabase.functions.invoke("public-anamnesis", {
         body: { action: "context", studentId },
       });
@@ -178,7 +202,7 @@ export default function PublicAnamnesis() {
       }
     };
     init();
-  }, [studentId]);
+  }, [isPreRegistration, slug, studentId]);
 
   const toggleArrayItem = (arr: string[], item: string, setter: (v: string[]) => void) => {
     setter(arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item]);
@@ -196,6 +220,11 @@ export default function PublicAnamnesis() {
   const getMissingFields = (targetStep: number) => {
     if (targetStep === 1) {
       return [
+        ...(isPreRegistration ? [
+          [fullName.trim(), "nome completo"],
+          [whatsapp.replace(/\D/g, "").length >= 10 ? whatsapp : "", "WhatsApp"],
+          [objective, "objetivo principal"],
+        ] : []),
         [sessionDuration, "tempo livre para as sessões"],
         [trainingLocation, "local de treino"],
       ].filter(([value]) => !value).map(([, label]) => label);
@@ -222,6 +251,10 @@ export default function PublicAnamnesis() {
       [biggestObstacle, "principal obstáculo"],
       [authorizesPlan, "autorização do plano"],
       [commitsCommunication, "compromisso de comunicação"],
+      ...(isPreRegistration ? [
+        [budgetRange, "faixa de investimento mensal"],
+        [preferredContactPeriod, "melhor horário para contato"],
+      ] : []),
     ].filter(([value]) => !value).map(([, label]) => label);
   };
 
@@ -253,10 +286,7 @@ export default function PublicAnamnesis() {
     const allModalities = [...modalities, ...(modalityOther ? [modalityOther] : [])];
     const allEquipment = [...equipment, ...(equipmentOther ? [equipmentOther] : [])];
 
-    const { data, error } = await supabase.functions.invoke("public-anamnesis", {
-      body: {
-        action: "submit",
-        studentId: studentId!,
+    const answers = {
         age: age ? Number(age) : null,
         gender,
         weight_kg: weightKg ? Number(weightKg) : null,
@@ -343,15 +373,44 @@ export default function PublicAnamnesis() {
         supplements,
         hydration,
         gi_sensitivities: giSensitivities,
-      },
-    });
+    };
+
+    const { data, error } = isPreRegistration
+      ? await supabase.functions.invoke("public-registration", {
+          body: {
+            action: "pre-register",
+            companyId,
+            slug: slug ?? null,
+            fullName,
+            whatsapp,
+            budgetRange,
+            preferredContactPeriod,
+            answers: {
+              ...answers,
+              budget_range: budgetRange,
+              preferred_contact_period: preferredContactPeriod,
+            },
+          },
+        })
+      : await supabase.functions.invoke("public-anamnesis", {
+          body: {
+            action: "submit",
+            studentId: studentId!,
+            ...answers,
+          },
+        });
 
     setSaving(false);
-    if (error || data?.error) {
-      toast({ title: "Erro ao salvar anamnese", description: error?.message || data?.error, variant: "destructive" });
+    if (error || data?.error || (isPreRegistration && !data?.leadId)) {
+      toast({
+        title: isPreRegistration ? "Não foi possível enviar o pré-cadastro" : "Erro ao salvar anamnese",
+        description: error?.message || data?.error || "Tente novamente.",
+        variant: "destructive",
+      });
       return;
     }
 
+    if (isPreRegistration) setDeadlineMessage(data.deadline || "Você vai ouvir da gente em breve.");
     setDone(true);
   };
 
@@ -360,8 +419,12 @@ export default function PublicAnamnesis() {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full bg-card border-border text-center">
           <CardContent className="pt-8 pb-8 space-y-4">
-            <h2 className="text-2xl text-primary">ALUNO NÃO ENCONTRADO</h2>
-            <p className="text-muted-foreground font-sans">O link de anamnese é inválido ou o aluno não existe.</p>
+            <h2 className="text-2xl text-primary">LINK INDISPONÍVEL</h2>
+            <p className="text-muted-foreground font-sans">
+              {isPreRegistration
+                ? "Este link de pré-cadastro não está disponível. Fale com a equipe para receber o endereço correto."
+                : "O link de anamnese é inválido ou o aluno não existe."}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -369,6 +432,30 @@ export default function PublicAnamnesis() {
   }
 
   if (done) {
+    if (isPreRegistration) {
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center p-4">
+          <Card className="max-w-lg w-full rounded-2xl bg-card border-border text-center">
+            <CardContent className="px-6 py-10 space-y-4">
+              <CheckCircle className="h-16 w-16 text-primary mx-auto" />
+              <h2 className="font-display text-3xl text-primary">PRÉ-CADASTRO RECEBIDO</h2>
+              <p className="text-muted-foreground font-sans">
+                Recebi sua aplicação, {fullName.trim().split(/\s+/)[0]}.
+              </p>
+              <p className="text-sm leading-relaxed text-muted-foreground font-sans">
+                Analisamos cada perfil com atenção antes de responder. Recebemos bastante gente interessada em treinar com a gente e mantemos um número limitado de alunos por vez para garantir esse acompanhamento de perto.
+              </p>
+              <p className="rounded-xl bg-primary/10 px-4 py-3 font-sans font-semibold text-primary">
+                {deadlineMessage}
+              </p>
+              <p className="text-sm text-muted-foreground font-sans">
+                Vamos usar esse contato para fazer sua Avaliação de Movimento e ajudar você a escolher o plano ideal para o seu objetivo. Já já a gente se fala.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full bg-card border-border text-center">
@@ -396,7 +483,7 @@ export default function PublicAnamnesis() {
           ) : (
             <div className="flex justify-center"><Logo size="lg" sublabel="Training App" /></div>
           )}
-          <p className="text-eyebrow">Ficha de anamnese</p>
+          <p className="text-eyebrow">{isPreRegistration ? "Aplicação para acompanhamento" : "Ficha de anamnese"}</p>
           <h1 className="font-display text-4xl text-primary">{titleText}</h1>
           {studentName && <p className="text-muted-foreground font-sans">Aluno: <strong className="text-foreground">{studentName}</strong></p>}
         </div>
@@ -420,6 +507,26 @@ export default function PublicAnamnesis() {
           <CardContent className="space-y-6">
             {step === 1 && (
             <>
+            {isPreRegistration && (
+              <div className="space-y-4 rounded-xl border border-border bg-background/60 p-4">
+                <div>
+                  <h3 className="font-display text-lg text-primary">Seus dados de contato</h3>
+                  <p className="mt-1 text-sm text-muted-foreground font-sans">
+                    Nesta primeira etapa pedimos apenas nome e WhatsApp. Os dados fiscais ficam para depois.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="font-sans font-medium">Nome completo *</Label>
+                    <Input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Como podemos chamar você?" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-sans font-medium">WhatsApp *</Label>
+                    <Input value={whatsapp} onChange={e => setWhatsapp(formatPhone(e.target.value))} placeholder="(00) 00000-0000" inputMode="tel" />
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="space-y-4">
               <h3 className="font-display text-lg text-primary">Dados para prescrição integrada</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -955,6 +1062,36 @@ export default function PublicAnamnesis() {
 
             {step === 4 && (
             <>
+            {isPreRegistration && (
+              <div className="space-y-4 rounded-xl border border-border bg-background/60 p-4">
+                <div>
+                  <h3 className="font-display text-lg text-primary">Preferências para o atendimento</h3>
+                  <p className="mt-1 text-sm text-muted-foreground font-sans">
+                    Estas respostas ajudam a equipe a organizar a prioridade e falar com você no melhor momento.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="font-sans font-medium">Faixa de investimento mensal *</Label>
+                    <select value={budgetRange} onChange={e => setBudgetRange(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                      <option value="">Selecione...</option>
+                      <option value="200_300">R$ 200 a R$ 300</option>
+                      <option value="300_400">R$ 300 a R$ 400</option>
+                      <option value="400_500">R$ 400 a R$ 500</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-sans font-medium">Melhor horário para contato *</Label>
+                    <select value={preferredContactPeriod} onChange={e => setPreferredContactPeriod(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                      <option value="">Selecione...</option>
+                      <option value="morning">Manhã</option>
+                      <option value="afternoon">Tarde</option>
+                      <option value="evening">Noite</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="space-y-2">
               <Label className="font-sans font-medium">Como você quer se sentir em 3 meses? *</Label>
               <Textarea value={feelIn3Months} onChange={e => setFeelIn3Months(e.target.value)} />
@@ -1006,7 +1143,7 @@ export default function PublicAnamnesis() {
                 </Button>
               ) : (
                 <Button className="flex-1" onClick={handleSubmit} disabled={saving}>
-                  {saving ? "Salvando..." : "Finalizar Anamnese"}
+                  {saving ? "Salvando..." : isPreRegistration ? "Enviar pré-cadastro" : "Finalizar Anamnese"}
                 </Button>
               )}
             </div>

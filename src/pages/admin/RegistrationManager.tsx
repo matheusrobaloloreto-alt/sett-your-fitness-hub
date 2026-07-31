@@ -184,8 +184,12 @@ export default function RegistrationManager() {
   const [generalLink, setGeneralLink] = useState(`${window.location.origin}/cadastro`);
   const [students, setStudents] = useState<Student[]>([]);
   const [phone, setPhone] = useState("");
+  const [fiscalStudentId, setFiscalStudentId] = useState("");
+  const [fiscalPhone, setFiscalPhone] = useState("");
+  const [fiscalLink, setFiscalLink] = useState("");
   const [copied, setCopied] = useState(false);
-  const [, setCreatingLink] = useState(false);
+  const [fiscalCopied, setFiscalCopied] = useState(false);
+  const [creatingLink, setCreatingLink] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeStage, setActiveStage] = useState<FunnelStageKey | "all">("all");
@@ -381,6 +385,15 @@ export default function RegistrationManager() {
     }
   };
 
+  const ensureFiscalLink = async () => {
+    if (!fiscalStudentId) throw new Error("Selecione a pessoa que receberá o cadastro.");
+    if (fiscalLink) return fiscalLink;
+    const personalized = await createFiscalLinkForStudent(fiscalStudentId);
+    setFiscalLink(personalized);
+    await loadPipeline();
+    return personalized;
+  };
+
   const openChatWithStudent = async (student: Student, message: string) => {
     const digits = waDigits(student.whatsapp || student.phone || phone);
     await openStudentChat({
@@ -489,6 +502,36 @@ export default function RegistrationManager() {
     }
   };
 
+  const sendFiscalRegistrationLink = async () => {
+    try {
+      const selected = students.find((student) => student.entityType === "student" && student.id === fiscalStudentId);
+      if (!selected) throw new Error("Selecione a pessoa que receberá o cadastro.");
+      const targetLink = await ensureFiscalLink();
+      await openStudentChat({
+        navigate,
+        routePrefix: chatRoutePrefix,
+        studentId: selected.id,
+        phone: waDigits(fiscalPhone || selected.whatsapp || selected.phone),
+        message: `Oi, ${firstName(selected.full_name)}! Agora vamos completar seu cadastro com os dados fiscais que o Asaas precisa. Depois você escolhe o plano e faz o pagamento por aqui: ${targetLink}`,
+        onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível gerar o cadastro fiscal.");
+    }
+  };
+
+  const copyFiscalRegistrationLink = async () => {
+    try {
+      const targetLink = await ensureFiscalLink();
+      await navigator.clipboard?.writeText(targetLink);
+      setFiscalCopied(true);
+      setTimeout(() => setFiscalCopied(false), 1500);
+      toast.success("Link de cadastro fiscal copiado!");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível gerar o cadastro fiscal.");
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -528,6 +571,67 @@ export default function RegistrationManager() {
             <Button variant="outline" onClick={copyLink} className="self-end">
               {copied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
               Copiar link
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-border bg-card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Cadastro fiscal, escolha do plano e pagamento</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Esta é a segunda etapa. Use depois do pré-cadastro e do primeiro contato para coletar os dados do Asaas, liberar os planos e seguir para o pagamento.
+          </p>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Pessoa</Label>
+              <Select
+                value={fiscalStudentId}
+                onValueChange={(id) => {
+                  const selected = students.find((student) => student.entityType === "student" && student.id === id);
+                  setFiscalStudentId(id);
+                  setFiscalPhone(selected?.whatsapp || selected?.phone || "");
+                  setFiscalLink("");
+                  setFiscalCopied(false);
+                }}
+              >
+                <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione para gerar o link individual..." /></SelectTrigger>
+                <SelectContent>
+                  {students.filter((student) => student.entityType === "student").map((student) => {
+                    const stage = normalizeSalesStage(student);
+                    return (
+                      <SelectItem key={student.id} value={student.id}>
+                        {student.full_name} - {FUNNEL_STAGE_META[stage].label}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>WhatsApp</Label>
+              <Input value={fiscalPhone} onChange={(event) => setFiscalPhone(event.target.value)} placeholder="(DDD) 9 xxxx-xxxx" inputMode="tel" />
+            </div>
+          </div>
+
+          {fiscalLink && (
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-secondary/35 p-3">
+              <Link2 className="h-4 w-4 shrink-0 text-primary" />
+              <span className="truncate font-mono-data text-xs text-muted-foreground">{fiscalLink}</span>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={sendFiscalRegistrationLink} disabled={!fiscalStudentId || creatingLink} className="bg-[#25D366] text-white hover:bg-[#25D366]/90">
+              {creatingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />}
+              Abrir conversa com cadastro
+            </Button>
+            <Button variant="outline" onClick={copyFiscalRegistrationLink} disabled={!fiscalStudentId || creatingLink}>
+              {creatingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : fiscalCopied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
+              Copiar link de cadastro
             </Button>
           </div>
         </CardContent>
