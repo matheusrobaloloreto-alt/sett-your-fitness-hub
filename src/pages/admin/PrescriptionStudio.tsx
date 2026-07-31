@@ -40,6 +40,7 @@ import {
   describeLongitudinalPhase,
   isCycleCurrent,
   longitudinalPhase,
+  selectPrescriptionEnrollment,
   selectPrescriptionTargets,
   type PrescriptionScheduleCycle,
   type PrescriptionScheduleMode,
@@ -230,26 +231,41 @@ export default function PrescriptionStudio() {
     (async () => {
       setScheduleLoading(true);
       setScheduledSummaries([]);
+      const { data: enrollmentRows } = await db.from("enrollments")
+        .select("id, status, created_at")
+        .eq("student_id", studentId)
+        .in("status", ["active", "awaiting_training", "awaiting_renewal"])
+        .order("created_at", { ascending: false });
+      const currentEnrollment = selectPrescriptionEnrollment(enrollmentRows || []);
+      if (!active) return;
+      if (!currentEnrollment) {
+        setScheduleCycles([]);
+        setSelectedCycleId("");
+        setScheduleLoading(false);
+        return;
+      }
       const { data, error: scheduleError } = await db.rpc("sync_prescription_cycles", {
         _student_id: studentId,
         _start_date: null,
       });
       if (!active) return;
+      let rows: PrescriptionScheduleCycle[] = [];
       if (scheduleError) {
         const { data: fallback } = await db.from("training_cycles")
           .select("id, enrollment_id, cycle_number, start_date, end_date, status")
-          .eq("student_id", studentId)
+          .eq("enrollment_id", currentEnrollment.id)
           .order("cycle_number");
-        setScheduleCycles((fallback || []).map((cycle: any) => ({ ...cycle, has_workouts: false, has_bundle: false })));
+        rows = (fallback || []).map((cycle: any) => ({ ...cycle, has_workouts: false, has_bundle: false }));
       } else {
-        const rows = (data || []) as PrescriptionScheduleCycle[];
-        setScheduleCycles(rows);
-        const preferred = rows.find((cycle) => isCycleCurrent(cycle) && !cycle.has_workouts && !cycle.has_bundle)
-          || rows.find((cycle) => !cycle.has_workouts && !cycle.has_bundle && cycle.start_date >= businessDateYmd())
-          || rows.find((cycle) => isCycleCurrent(cycle))
-          || rows[0];
-        setSelectedCycleId(preferred?.id || "");
+        rows = ((data || []) as PrescriptionScheduleCycle[])
+          .filter((cycle) => cycle.enrollment_id === currentEnrollment.id);
       }
+      setScheduleCycles(rows);
+      const preferred = rows.find((cycle) => isCycleCurrent(cycle) && !cycle.has_workouts && !cycle.has_bundle)
+        || rows.find((cycle) => !cycle.has_workouts && !cycle.has_bundle && cycle.start_date >= businessDateYmd())
+        || rows.find((cycle) => isCycleCurrent(cycle))
+        || rows[0];
+      setSelectedCycleId(preferred?.id || "");
       setScheduleLoading(false);
     })();
     return () => { active = false; };

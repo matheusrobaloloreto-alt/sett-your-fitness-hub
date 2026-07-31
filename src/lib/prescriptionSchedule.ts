@@ -11,6 +11,12 @@ export interface PrescriptionScheduleCycle {
   has_bundle?: boolean;
 }
 
+export interface PrescriptionEnrollment {
+  id: string;
+  status: string;
+  created_at?: string | null;
+}
+
 export type LongitudinalPhase = "base" | "acumulacao" | "intensificacao" | "consolidacao";
 
 const DAY_MS = 86_400_000;
@@ -64,6 +70,28 @@ export function selectCurrentCyclePerEnrollment(
     if (a.cycle_number !== b.cycle_number) return b.cycle_number - a.cycle_number;
     return utcDay(b.start_date) - utcDay(a.start_date);
   })[0]);
+}
+
+/**
+ * Um aluno pode manter matrículas antigas para histórico. O Studio sempre deve
+ * prescrever sobre uma única matrícula vigente, sem misturar ciclos legados.
+ */
+export function selectPrescriptionEnrollment<T extends PrescriptionEnrollment>(
+  enrollments: T[],
+): T | null {
+  const statusPriority: Record<string, number> = {
+    active: 0,
+    awaiting_training: 1,
+    awaiting_renewal: 2,
+  };
+
+  return [...enrollments]
+    .filter((enrollment) => enrollment.status in statusPriority)
+    .sort((a, b) => {
+      const statusDifference = statusPriority[a.status] - statusPriority[b.status];
+      if (statusDifference !== 0) return statusDifference;
+      return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+    })[0] ?? null;
 }
 
 export function longitudinalPhase(cycleNumber: number): LongitudinalPhase {

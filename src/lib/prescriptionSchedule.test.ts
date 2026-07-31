@@ -4,6 +4,7 @@ import {
   isCycleCurrent,
   longitudinalPhase,
   selectCurrentCyclePerEnrollment,
+  selectPrescriptionEnrollment,
   selectPrescriptionTargets,
   type PrescriptionScheduleCycle,
 } from "./prescriptionSchedule";
@@ -72,5 +73,14 @@ describe("prescriptionSchedule", () => {
 
     expect(selectCurrentCyclePerEnrollment(overlapping, today).map((item) => item.id))
       .toEqual(["cycle-6", "cycle-1"]);
+  });
+
+  it("mantém o Studio na matrícula vigente e não mistura ciclos de matrículas antigas", () => {
+    expect(selectPrescriptionEnrollment([
+      { id: "inactive", status: "inactive", created_at: "2026-07-30" },
+      { id: "renewal", status: "awaiting_renewal", created_at: "2026-07-31" },
+      { id: "active-old", status: "active", created_at: "2026-06-01" },
+      { id: "active-new", status: "active", created_at: "2026-07-01" },
+    ])?.id).toBe("active-new");
   });
 });
