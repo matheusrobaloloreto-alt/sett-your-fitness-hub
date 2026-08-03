@@ -1843,8 +1843,27 @@ export default function WhatsAppChat() {
                   const labels = chatLabels[chat.id] || [];
                   const lastSenderName = chat.last_sender_id ? senderNames[chat.last_sender_id] : null;
                   const isUnread = Number(chat.unread_count || 0) > 0;
+                  const readToggle = (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleToggleUnread(chat.id, chat.unread_count); }}
+                      disabled={updatingUnreadChatId === chat.id}
+                      data-read-state={isUnread ? "unread" : "read"}
+                      className={cn(
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background/95 shadow-sm transition-all disabled:cursor-wait disabled:opacity-40",
+                        isUnread
+                          ? "border-blue-300 text-blue-600 shadow-blue-500/20 drop-shadow-[0_0_4px_rgba(37,99,235,0.45)] hover:bg-blue-50"
+                          : "border-slate-200 text-slate-400 opacity-60 hover:bg-slate-100 hover:opacity-100",
+                      )}
+                      style={{ color: isUnread ? "rgb(37, 99, 235)" : "rgb(148, 163, 184)" }}
+                      title={isUnread ? "Não lida: clicar para marcar como lida" : "Lida: clicar para marcar como não lida"}
+                      aria-label={isUnread ? "Conversa não lida" : "Conversa lida"}
+                    >
+                      {isUnread ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
+                    </button>
+                  );
                   return (
-                    <div key={chat.id} className="relative group">
+                    <div key={chat.id} className="group">
                       <div
                         role="button"
                         tabIndex={0}
@@ -1858,7 +1877,7 @@ export default function WhatsAppChat() {
                             setEditingName(false);
                           }
                         }}
-                        className={cn("w-full text-left p-3 pr-11 border-b border-border hover:bg-muted/50 transition-colors flex items-start gap-3", selectedChatId === chat.id && "bg-primary/10")}
+                        className={cn("w-full text-left p-3 border-b border-border hover:bg-muted/50 transition-colors flex items-start gap-3", selectedChatId === chat.id && "bg-primary/10")}
                       >
                         {renderAvatar(chat)}
                         <div className="flex-1 min-w-0">
@@ -1888,24 +1907,10 @@ export default function WhatsAppChat() {
                             {chat.last_message_at && <p className="shrink-0 text-[10px] text-muted-foreground">{format(new Date(chat.last_message_at), "dd/MM HH:mm")}</p>}
                           </div>
                         </div>
+                        <div className="flex min-h-[64px] shrink-0 items-end justify-center pb-0.5">
+                          {readToggle}
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); handleToggleUnread(chat.id, chat.unread_count); }}
-                        disabled={updatingUnreadChatId === chat.id}
-                        data-read-state={isUnread ? "unread" : "read"}
-                        className={cn(
-                          "absolute bottom-2 right-2 z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-background/95 shadow-sm transition-all disabled:cursor-wait disabled:opacity-40",
-                          isUnread
-                            ? "border-blue-300 text-blue-600 shadow-blue-500/20 drop-shadow-[0_0_4px_rgba(37,99,235,0.45)] hover:bg-blue-50"
-                            : "border-slate-200 text-slate-400 opacity-60 hover:bg-slate-100 hover:opacity-100",
-                        )}
-                        style={{ color: isUnread ? "rgb(37, 99, 235)" : "rgb(148, 163, 184)" }}
-                        title={isUnread ? "Não lida: clicar para marcar como lida" : "Lida: clicar para marcar como não lida"}
-                        aria-label={isUnread ? "Conversa não lida" : "Conversa lida"}
-                      >
-                        {isUnread ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
-                      </button>
                     </div>
                   );
                 })
