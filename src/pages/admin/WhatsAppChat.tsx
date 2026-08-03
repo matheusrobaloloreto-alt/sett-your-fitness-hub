@@ -1822,7 +1822,7 @@ export default function WhatsAppChat() {
               </div>
             </div>
 
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full">
               {loadingChats ? (
                 <div className="flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -1863,7 +1863,7 @@ export default function WhatsAppChat() {
                     </button>
                   );
                   return (
-                    <div key={chat.id} className="group">
+                    <div key={chat.id} className="group w-full max-w-full overflow-hidden">
                       <div
                         role="button"
                         tabIndex={0}
