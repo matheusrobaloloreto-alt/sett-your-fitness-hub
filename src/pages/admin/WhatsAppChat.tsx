@@ -69,6 +69,7 @@ type Message = {
   source: string;
   type: string;
   created_at: string;
+  timestamp: string | null;
   sender_id: string | null;
   media_url: string | null;
   media_type: string | null;
@@ -174,6 +175,23 @@ const formatMessageTimestamp = (value: string) => (
   format(new Date(value), "dd/MM/yyyy HH:mm")
 );
 
+const getMessageDateValue = (message: Pick<Message, "created_at" | "timestamp">) => {
+  const value = message.timestamp || message.created_at;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? message.created_at : value;
+};
+
+const isDurableMediaUrl = (url: string | null | undefined) => {
+  if (!url) return false;
+  if (url.startsWith("data:") || url.startsWith("blob:")) return true;
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname.includes("supabase.co") || parsed.pathname.includes("/storage/v1/object");
+  } catch {
+    return !/^https?:\/\//i.test(url);
+  }
+};
+
 const isAdministrativeRole = (role: string | null) => (
   role === "admin" || role === "master" || role === "coordinator"
 );
@@ -227,6 +245,8 @@ export default function WhatsAppChat() {
   const [mediaFallbacks, setMediaFallbacks] = useState<Record<string, string>>({});
   const [failedMediaFetches, setFailedMediaFetches] = useState<Record<string, true>>({});
   const [failedAvatarUrls, setFailedAvatarUrls] = useState<Record<string, true>>({});
+  const avatarFetchesRef = useRef<Set<string>>(new Set());
+  const avatarMissesRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -458,6 +478,7 @@ export default function WhatsAppChat() {
       .from("whatsapp_messages")
       .select("*")
       .eq("chat_id", chatId)
+      .order("timestamp", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(MESSAGE_PAGE_SIZE);
 
@@ -475,14 +496,15 @@ export default function WhatsAppChat() {
 
   const loadOlderMessages = useCallback(async () => {
     if (!selectedChatId || loadingOlderMessages || !hasOlderMessages || messages.length === 0) return;
-    const oldestCreatedAt = messages[0].created_at;
+    const oldestTimestamp = getMessageDateValue(messages[0]);
     setLoadingOlderMessages(true);
 
     const { data, error } = await supabase
       .from("whatsapp_messages")
       .select("*")
       .eq("chat_id", selectedChatId)
-      .lt("created_at", oldestCreatedAt)
+      .lt("timestamp", oldestTimestamp)
+      .order("timestamp", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(MESSAGE_PAGE_SIZE);
 
@@ -601,8 +623,9 @@ export default function WhatsAppChat() {
   };
 
   // Media fallback
-  const handleMediaError = useCallback(async (msg: Message) => {
-    if (mediaFallbacks[msg.id] || failedMediaFetches[msg.id] || !msg.message_id_external) return;
+  const handleMediaError = useCallback(async (msg: Message, force = false) => {
+    if (!msg.message_id_external) return;
+    if (!force && (mediaFallbacks[msg.id] || failedMediaFetches[msg.id])) return;
 
     const chat = chats.find((c) => c.id === selectedChatId);
 
@@ -616,9 +639,12 @@ export default function WhatsAppChat() {
         body: JSON.stringify({
           action: "fetch-media",
           companyId: effectiveCompanyId,
+          chatId: selectedChatId,
+          messageDbId: msg.id,
           messageId: msg.message_id_external,
           remoteJid: chat?.remote_jid || undefined,
           fromMe: msg.source === "outgoing",
+          mimeType: msg.media_type,
         }),
       });
 
@@ -628,6 +654,12 @@ export default function WhatsAppChat() {
       }
 
       const data = await res.json();
+      if (data.mediaUrl) {
+        setMessages((prev) => prev.map((item) => (
+          item.id === msg.id ? { ...item, media_url: data.mediaUrl, media_type: data.mimetype || item.media_type } : item
+        )));
+        return;
+      }
       if (data.base64 && data.mimetype) {
         setMediaFallbacks((prev) => ({ ...prev, [msg.id]: `data:${data.mimetype};base64,${data.base64}` }));
         return;
@@ -639,7 +671,22 @@ export default function WhatsAppChat() {
     }
   }, [chats, effectiveCompanyId, failedMediaFetches, mediaFallbacks, selectedChatId]);
 
-  const getMediaSrc = (msg: Message) => mediaFallbacks[msg.id] || msg.media_url;
+  const shouldHydrateMedia = useCallback((msg: Message) => (
+    Boolean(
+      msg.media_type
+      && msg.message_id_external
+      && !mediaFallbacks[msg.id]
+      && !failedMediaFetches[msg.id]
+      && (!msg.media_url || !isDurableMediaUrl(msg.media_url))
+    )
+  ), [failedMediaFetches, mediaFallbacks]);
+
+  const getMediaSrc = (msg: Message) => {
+    if (mediaFallbacks[msg.id]) return mediaFallbacks[msg.id];
+    if (shouldHydrateMedia(msg)) return null;
+    if (failedMediaFetches[msg.id] && msg.media_url && !isDurableMediaUrl(msg.media_url)) return null;
+    return msg.media_url;
+  };
 
   // Load templates & categories
   const loadTemplates = useCallback(async () => {
@@ -784,6 +831,8 @@ export default function WhatsAppChat() {
     pendingPrefillRef.current = null;
   }, [chats, chatsLoaded]);
   useEffect(() => {
+    setMediaFallbacks({});
+    setFailedMediaFetches({});
     if (selectedChatId) {
       void loadMessages(selectedChatId);
     } else {
@@ -801,10 +850,10 @@ export default function WhatsAppChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: messagesLoading ? "auto" : "smooth" });
   }, [messages, messagesLoading]);
 
-  // Auto-fetch media for messages that have media_type but no media_url or fallback
+  // Auto-fetch media when the provider only stored a temporary WhatsApp URL.
   useEffect(() => {
     const pendingMedia = messages.filter(
-      (m) => m.media_type && !m.media_url && !mediaFallbacks[m.id] && !failedMediaFetches[m.id] && m.message_id_external
+      (m) => shouldHydrateMedia(m)
     );
     if (pendingMedia.length === 0) return;
     // Throttle: fetch max 3 at a time
@@ -812,7 +861,7 @@ export default function WhatsAppChat() {
     for (const msg of toFetch) {
       handleMediaError(msg);
     }
-  }, [messages, mediaFallbacks, failedMediaFetches, handleMediaError]);
+  }, [messages, shouldHydrateMedia, handleMediaError]);
 
   // Realtime - canal privado por empresa (compatível com policy de realtime.messages)
   // Usa selectedChatIdRef para não re-subscrever o canal a cada conversa aberta (evita thrash).
@@ -847,6 +896,7 @@ export default function WhatsAppChat() {
         source: "outgoing",
         type: "text",
         created_at: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
         sender_id: user?.id || null,
         media_url: null,
         media_type: null,
@@ -1171,6 +1221,50 @@ export default function WhatsAppChat() {
   };
 
   const isGroup = (chat: Chat) => chat.remote_jid.includes("@g.us");
+  const fetchChatPhoto = useCallback(async (chatId: string) => {
+    if (avatarFetchesRef.current.has(chatId) || avatarMissesRef.current.has(chatId)) return;
+    avatarFetchesRef.current.add(chatId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({
+          action: "fetch-profile-picture",
+          companyId: effectiveCompanyId,
+          chatId,
+        }),
+      });
+      if (!response.ok) {
+        avatarMissesRef.current.add(chatId);
+        return;
+      }
+
+      const payload = await response.json();
+      if (!payload.photo) {
+        avatarMissesRef.current.add(chatId);
+        return;
+      }
+      avatarMissesRef.current.delete(chatId);
+      setFailedAvatarUrls((previous) => {
+        const next = { ...previous };
+        delete next[payload.photo];
+        return next;
+      });
+      setChats((previous) => previous.map((chat) => (
+        chat.id === chatId ? { ...chat, contact_photo: payload.photo } : chat
+      )));
+    } finally {
+      avatarFetchesRef.current.delete(chatId);
+    }
+  }, [effectiveCompanyId]);
+
   const renderAvatar = (chat: Chat, size = "h-10 w-10") => {
     const photo = chat.contact_photo;
     return (
@@ -1182,7 +1276,13 @@ export default function WhatsAppChat() {
             className="h-full w-full object-cover"
             loading="lazy"
             referrerPolicy="no-referrer"
-            onError={() => setFailedAvatarUrls((prev) => ({ ...prev, [photo]: true }))}
+            onError={() => {
+              setFailedAvatarUrls((prev) => ({ ...prev, [photo]: true }));
+              setChats((previous) => previous.map((item) => (
+                item.id === chat.id ? { ...item, contact_photo: null } : item
+              )));
+              void fetchChatPhoto(chat.id);
+            }}
           />
         ) : isGroup(chat) ? (
           <Users className="h-5 w-5 text-muted-foreground" />
@@ -1197,37 +1297,17 @@ export default function WhatsAppChat() {
   const selectedChat = chats.find((c) => c.id === selectedChatId);
   useEffect(() => {
     if (!selectedChat?.id || selectedChat.contact_photo) return;
-    let cancelled = false;
+    void fetchChatPhoto(selectedChat.id);
+  }, [fetchChatPhoto, selectedChat?.contact_photo, selectedChat?.id]);
 
-    const fetchSelectedChatPhoto = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        },
-        body: JSON.stringify({
-          action: "fetch-profile-picture",
-          companyId: effectiveCompanyId,
-          chatId: selectedChat.id,
-        }),
-      });
-      if (!response.ok || cancelled) return;
-
-      const payload = await response.json();
-      if (!payload.photo || cancelled) return;
-      setChats((previous) => previous.map((chat) => (
-        chat.id === selectedChat.id ? { ...chat, contact_photo: payload.photo } : chat
-      )));
-    };
-
-    void fetchSelectedChatPhoto();
-    return () => { cancelled = true; };
-  }, [effectiveCompanyId, selectedChat?.contact_photo, selectedChat?.id]);
+  useEffect(() => {
+    const missingPhotoChats = chats
+      .filter((chat) => !chat.contact_photo && !isGroup(chat))
+      .slice(0, 16);
+    for (const chat of missingPhotoChats) {
+      void fetchChatPhoto(chat.id);
+    }
+  }, [chats, fetchChatPhoto]);
 
   const selectableCategories = [...categories, DEFAULT_CATEGORY]
     .concat(
@@ -1347,6 +1427,7 @@ export default function WhatsAppChat() {
               source: "outgoing",
               type: "text",
               created_at: new Date().toISOString(),
+              timestamp: new Date().toISOString(),
               sender_id: user?.id || null,
               media_url: null,
               media_type: null,
@@ -1777,7 +1858,7 @@ export default function WhatsAppChat() {
                             setEditingName(false);
                           }
                         }}
-                        className={cn("w-full text-left p-3 border-b border-border hover:bg-muted/50 transition-colors flex items-start gap-3", selectedChatId === chat.id && "bg-primary/10")}
+                        className={cn("w-full text-left p-3 pr-11 border-b border-border hover:bg-muted/50 transition-colors flex items-start gap-3", selectedChatId === chat.id && "bg-primary/10")}
                       >
                         {renderAvatar(chat)}
                         <div className="flex-1 min-w-0">
@@ -1802,30 +1883,29 @@ export default function WhatsAppChat() {
                               })}
                             </div>
                           )}
-                          <div className="flex items-center justify-between mt-0.5">
-                            {lastSenderName && <p className="text-[10px] text-muted-foreground truncate">Enviado por: {lastSenderName}</p>}
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {chat.last_message_at && <p className="text-[10px] text-muted-foreground">{format(new Date(chat.last_message_at), "dd/MM HH:mm")}</p>}
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleToggleUnread(chat.id, chat.unread_count); }}
-                                disabled={updatingUnreadChatId === chat.id}
-                                data-read-state={isUnread ? "unread" : "read"}
-                                className={cn(
-                                  "rounded p-1 transition-all disabled:cursor-wait disabled:opacity-40",
-                                  isUnread
-                                    ? "text-blue-600 drop-shadow-[0_0_4px_rgba(37,99,235,0.65)] hover:bg-blue-50"
-                                    : "text-slate-400 opacity-55 hover:bg-slate-100 hover:opacity-100",
-                                )}
-                                style={{ color: isUnread ? "rgb(37, 99, 235)" : "rgb(148, 163, 184)" }}
-                                title={isUnread ? "Não lida: clicar para marcar como lida" : "Lida: clicar para marcar como não lida"}
-                                aria-label={isUnread ? "Conversa não lida" : "Conversa lida"}
-                              >
-                                {isUnread ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
-                              </button>
-                            </div>
+                          <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                            {lastSenderName ? <p className="min-w-0 truncate text-[10px] text-muted-foreground">Enviado por: {lastSenderName}</p> : <span />}
+                            {chat.last_message_at && <p className="shrink-0 text-[10px] text-muted-foreground">{format(new Date(chat.last_message_at), "dd/MM HH:mm")}</p>}
                           </div>
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleToggleUnread(chat.id, chat.unread_count); }}
+                        disabled={updatingUnreadChatId === chat.id}
+                        data-read-state={isUnread ? "unread" : "read"}
+                        className={cn(
+                          "absolute bottom-2 right-2 z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-background/95 shadow-sm transition-all disabled:cursor-wait disabled:opacity-40",
+                          isUnread
+                            ? "border-blue-300 text-blue-600 shadow-blue-500/20 drop-shadow-[0_0_4px_rgba(37,99,235,0.45)] hover:bg-blue-50"
+                            : "border-slate-200 text-slate-400 opacity-60 hover:bg-slate-100 hover:opacity-100",
+                        )}
+                        style={{ color: isUnread ? "rgb(37, 99, 235)" : "rgb(148, 163, 184)" }}
+                        title={isUnread ? "Não lida: clicar para marcar como lida" : "Lida: clicar para marcar como não lida"}
+                        aria-label={isUnread ? "Conversa não lida" : "Conversa lida"}
+                      >
+                        {isUnread ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
+                      </button>
                     </div>
                   );
                 })
@@ -2101,6 +2181,7 @@ export default function WhatsAppChat() {
                       </div>
                     )}
                     {messages.map((msg, index) => {
+                      const messageDateValue = getMessageDateValue(msg);
                       const mediaSrc = getMediaSrc(msg);
                       const isMedia = msg.type !== "text" && (msg.media_type || msg.type === "image" || msg.type === "video" || msg.type === "audio" || msg.type === "document" || msg.type === "sticker");
                       const isImage = msg.media_type?.startsWith("image/") || msg.type === "image" || msg.type === "sticker";
@@ -2109,13 +2190,13 @@ export default function WhatsAppChat() {
                       const quotedPreview = (msg.quoted_message_preview || "").trim();
                       const quotedLabel = msg.quoted_message_source === "outgoing" ? "Você" : getContactName(selectedChat);
                       const previousMessage = index > 0 ? messages[index - 1] : null;
-                      const showDateDivider = !previousMessage || !isSameDay(new Date(previousMessage.created_at), new Date(msg.created_at));
+                      const showDateDivider = !previousMessage || !isSameDay(new Date(getMessageDateValue(previousMessage)), new Date(messageDateValue));
                       return (
                         <div key={msg.id} className="space-y-2">
                           {showDateDivider && (
                             <div className="flex justify-center py-1">
                               <span className="rounded-full border border-border bg-background/95 px-3 py-1 text-[11px] font-mono-data text-muted-foreground shadow-sm">
-                                {formatMessageDay(msg.created_at)}
+                                {formatMessageDay(messageDateValue)}
                               </span>
                             </div>
                           )}
@@ -2193,10 +2274,12 @@ export default function WhatsAppChat() {
                             ) : mediaSrc && isMedia ? (
                               <a href={mediaSrc} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs underline mb-1"><Download className="h-3 w-3" />Baixar arquivo</a>
                             ) : isMedia && !mediaSrc ? (
-                              <p className="text-xs text-muted-foreground italic mb-1">Carregando mídia...</p>
+                              <div className="mb-1 rounded-xl border border-dashed border-sky-200 bg-white/65 px-3 py-2 text-xs text-muted-foreground">
+                                {failedMediaFetches[msg.id] ? "Mídia indisponível no provedor" : "Carregando mídia..."}
+                              </div>
                             ) : null}
                             <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</p>
-                            <p className={cn("mt-1.5 text-[10px] font-mono-data", msg.source === "outgoing" ? "text-primary-foreground/70" : "text-muted-foreground")}>{formatMessageTimestamp(msg.created_at)}</p>
+                            <p className={cn("mt-1.5 text-[10px] font-mono-data", msg.source === "outgoing" ? "text-primary-foreground/70" : "text-muted-foreground")}>{formatMessageTimestamp(messageDateValue)}</p>
                             </div>
                           </div>
                         </div>

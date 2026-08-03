@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-webhook-secret, x-repair-token",
 };
 
 function safeEqual(left: string, right: string) {
@@ -74,6 +74,81 @@ function extractQuotedPreview(contextInfo: any): string | null {
   return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 }
 
+function normalizeArrayPayload(payload: any): any[] {
+  if (Array.isArray(payload)) return payload;
+  const candidates = [
+    payload?.messages,
+    payload?.messages?.records,
+    payload?.data,
+    payload?.data?.records,
+    payload?.result,
+    payload?.result?.records,
+    payload?.response,
+    payload?.response?.records,
+    payload?.records,
+    payload?.data?.messages,
+    payload?.data?.messages?.records,
+    payload?.data?.data,
+    payload?.data?.data?.records,
+    payload?.result?.messages,
+    payload?.result?.messages?.records,
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+  return [];
+}
+
+function normalizeProviderMessage(raw: any) {
+  return raw?.message?.key ? raw.message : raw;
+}
+
+function isProviderMessage(candidate: any) {
+  const message = normalizeProviderMessage(candidate);
+  return Boolean(
+    message?.key?.remoteJid
+    && (
+      message.message
+      || message.messageType
+      || message.messageTimestamp
+      || message.timestamp
+    )
+  );
+}
+
+function extractWebhookMessages(body: any): any[] {
+  const arrayCandidates = [
+    body?.data,
+    body?.data?.messages,
+    body?.messages,
+    body?.data?.data,
+    body?.result,
+    body?.response,
+  ];
+
+  for (const candidate of arrayCandidates) {
+    if (!Array.isArray(candidate)) continue;
+    const messages = candidate
+      .map((item) => normalizeProviderMessage(item))
+      .filter((item) => isProviderMessage(item));
+    if (messages.length > 0) return messages;
+  }
+
+  const singleCandidates = [
+    body?.data,
+    body?.data?.message,
+    body?.message,
+    body,
+  ];
+
+  for (const candidate of singleCandidates) {
+    const message = normalizeProviderMessage(candidate);
+    if (isProviderMessage(message)) return [message];
+  }
+
+  return [];
+}
+
 function messageDate(value: unknown): Date {
   const numeric = Number(value);
   if (Number.isFinite(numeric) && numeric > 0) {
@@ -86,6 +161,177 @@ function messageDate(value: unknown): Date {
     if (!Number.isNaN(parsed.getTime())) return parsed;
   }
   return new Date();
+}
+
+function extensionFromMime(mimetype: string | null) {
+  if (!mimetype) return "bin";
+  if (mimetype.includes("jpeg")) return "jpg";
+  if (mimetype.includes("png")) return "png";
+  if (mimetype.includes("webp")) return "webp";
+  if (mimetype.includes("mp4")) return "mp4";
+  if (mimetype.includes("ogg")) return "ogg";
+  if (mimetype.includes("opus")) return "ogg";
+  if (mimetype.includes("mpeg")) return "mp3";
+  if (mimetype.includes("pdf")) return "pdf";
+  return mimetype.split("/")[1]?.split(";")[0]?.replace(/[^a-z0-9]/gi, "") || "bin";
+}
+
+function decodeBase64(base64: string) {
+  const clean = base64.includes(",") ? base64.split(",").pop() || "" : base64;
+  const binary = atob(clean);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+async function persistProviderMedia(args: {
+  adminClient: any;
+  evoUrl: string;
+  instanceName: string;
+  evoHeaders: Record<string, string>;
+  companyId: string;
+  chatId: string;
+  messageId: string | null;
+  remoteJid: string;
+  fromMe: boolean;
+  mimetype: string | null;
+}) {
+  if (!args.messageId) return null;
+  const key: Record<string, unknown> = { id: args.messageId, remoteJid: args.remoteJid, fromMe: args.fromMe };
+  const attempts = [
+    { message: { key }, convertToMp4: false },
+    { message: { key: { id: args.messageId } }, convertToMp4: false },
+    { key, convertToMp4: false },
+    { id: args.messageId, convertToMp4: false },
+  ];
+
+  for (const payload of attempts) {
+    const res = await fetch(`${args.evoUrl}/chat/getBase64FromMediaMessage/${args.instanceName}`, {
+      method: "POST",
+      headers: args.evoHeaders,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) continue;
+    const media = await res.json().catch(() => ({}));
+    if (!media?.base64) continue;
+
+    const mimetype = media.mimetype || args.mimetype || "application/octet-stream";
+    const bytes = decodeBase64(String(media.base64));
+    const path = `${args.companyId}/${args.chatId}/inbound-${args.messageId}.${extensionFromMime(mimetype)}`;
+    const { error: uploadError } = await args.adminClient.storage
+      .from("whatsapp-media")
+      .upload(path, bytes, { contentType: mimetype, upsert: true });
+    if (uploadError) {
+      console.error("[webhook] media upload failed:", uploadError.message);
+      return null;
+    }
+    const { data: signed } = await args.adminClient.storage
+      .from("whatsapp-media")
+      .createSignedUrl(path, 60 * 60 * 24 * 7);
+    return { mediaUrl: signed?.signedUrl || null, mimetype };
+  }
+
+  return null;
+}
+
+function detectMessageType(msg: any) {
+  if (msg.message?.reactionMessage || msg.messageType === "reactionMessage") return "reaction";
+  if (msg.message?.imageMessage || msg.messageType === "imageMessage") return "image";
+  if (msg.message?.videoMessage || msg.messageType === "videoMessage") return "video";
+  if (msg.message?.audioMessage || msg.messageType === "audioMessage") return "audio";
+  if (msg.message?.documentMessage || msg.messageType === "documentMessage") return "document";
+  if (msg.message?.stickerMessage || msg.messageType === "stickerMessage") return "sticker";
+  if (msg.messageType && msg.messageType !== "conversation" && msg.messageType !== "extendedTextMessage") return String(msg.messageType);
+  return "text";
+}
+
+function detectMediaType(msg: any, msgType: string): string | null {
+  return msg.message?.imageMessage?.mimetype
+    || msg.message?.videoMessage?.mimetype
+    || msg.message?.audioMessage?.mimetype
+    || msg.message?.documentMessage?.mimetype
+    || msg.message?.stickerMessage?.mimetype
+    || (msgType === "image" ? "image/jpeg" : null)
+    || (msgType === "video" ? "video/mp4" : null)
+    || (msgType === "audio" ? "audio/ogg" : null)
+    || (msgType === "sticker" ? "image/webp" : null)
+    || null;
+}
+
+function extractMediaUrl(message: any): string | null {
+  return message?.imageMessage?.url
+    || message?.videoMessage?.url
+    || message?.audioMessage?.url
+    || message?.documentMessage?.url
+    || message?.stickerMessage?.url
+    || null;
+}
+
+function dedupeProviderMessages(messages: any[]) {
+  const seen = new Set<string>();
+  const unique: any[] = [];
+  for (const raw of messages) {
+    const message = normalizeProviderMessage(raw);
+    const key = message?.key || {};
+    const identity = `${key.remoteJid || "unknown"}:${key.id || message.messageTimestamp || message.timestamp || unique.length}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    unique.push(message);
+  }
+  return unique;
+}
+
+async function fetchMessagesWithPayload(
+  evoUrl: string,
+  instanceName: string,
+  evoHeaders: Record<string, string>,
+  payload: Record<string, unknown>,
+) {
+  const res = await fetch(`${evoUrl}/chat/findMessages/${instanceName}`, {
+    method: "POST",
+    headers: evoHeaders,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => ({}));
+  return normalizeArrayPayload(data);
+}
+
+async function fetchRecentMessages(
+  evoUrl: string,
+  instanceName: string,
+  evoHeaders: Record<string, string>,
+  limit: number,
+  remoteJids: string[] = [],
+  perChatLimit = 80,
+) {
+  const attempts = [
+    { where: {}, limit },
+    { limit },
+    { page: 1, limit },
+    { where: { key: {} }, limit },
+  ];
+  const collected: any[] = [];
+  for (const payload of attempts) {
+    const messages = await fetchMessagesWithPayload(evoUrl, instanceName, evoHeaders, payload);
+    collected.push(...messages);
+    if (collected.length >= limit) return dedupeProviderMessages(collected).slice(0, limit);
+  }
+
+  for (const remoteJid of remoteJids) {
+    const scopedAttempts = [
+      { where: { key: { remoteJid } }, limit: perChatLimit },
+      { where: { remoteJid }, limit: perChatLimit },
+      { remoteJid, limit: perChatLimit },
+    ];
+    for (const payload of scopedAttempts) {
+      const messages = await fetchMessagesWithPayload(evoUrl, instanceName, evoHeaders, payload);
+      collected.push(...messages);
+      if (messages.length > 0) break;
+    }
+    if (collected.length >= limit) break;
+  }
+  return dedupeProviderMessages(collected).slice(0, limit);
 }
 
 // ─── SEND TEXT MESSAGE ───
@@ -387,7 +633,10 @@ Deno.serve(async (req) => {
     });
   }
   const suppliedSecret = req.headers.get("x-webhook-secret") || new URL(req.url).searchParams.get("token") || "";
-  if (!safeEqual(suppliedSecret, expectedSecret)) {
+  const expectedRepairToken = Deno.env.get("WHATSAPP_REPAIR_TOKEN") || "";
+  const suppliedRepairToken = req.headers.get("x-repair-token") || new URL(req.url).searchParams.get("repair_token") || "";
+  const isRepairRequest = safeEqual(suppliedRepairToken, expectedRepairToken);
+  if (!safeEqual(suppliedSecret, expectedSecret) && !isRepairRequest) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -402,6 +651,251 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+
+    if (isRepairRequest && body.action === "repair-sync") {
+      const evoUrl = Deno.env.get("EVOLUTION_API_URL") || "";
+      const evoKey = Deno.env.get("EVOLUTION_API_KEY") || "";
+      if (!evoUrl || !evoKey) {
+        return new Response(JSON.stringify({ error: "Evolution not configured" }), {
+          status: 503,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const limit = Math.min(Math.max(Number(body.limit || 1000), 1), 5000);
+      const days = Math.min(Math.max(Number(body.days || 14), 1), 120);
+      const maxChats = Math.min(Math.max(Number(body.maxChats || 250), 1), 1000);
+      const perChatLimit = Math.min(Math.max(Number(body.perChatLimit || 80), 1), 300);
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const evoHeaders: Record<string, string> = { "Content-Type": "application/json", apikey: evoKey };
+
+      const { data: instance, error: instanceError } = await adminClient
+        .from("whatsapp_instances")
+        .select("id, company_id, instance_name")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (instanceError || !instance) {
+        return new Response(JSON.stringify({ error: "WhatsApp instance not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const webhookUrl = new URL(`${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-webhook`);
+      webhookUrl.searchParams.set("token", expectedSecret);
+      const webhookPayloads = [
+        {
+          webhook: {
+            enabled: true,
+            url: webhookUrl.toString(),
+            headers: { "x-webhook-secret": expectedSecret },
+            byEvents: false,
+            base64: false,
+            events: ["MESSAGES_UPSERT", "MESSAGES_SET", "CONNECTION_UPDATE"],
+          },
+        },
+        {
+          enabled: true,
+          url: webhookUrl.toString(),
+          webhook_by_events: false,
+          webhook_base64: false,
+          events: ["MESSAGES_UPSERT", "MESSAGES_SET", "messages.upsert", "messages.set", "CONNECTION_UPDATE", "connection.update"],
+          headers: { "x-webhook-secret": expectedSecret },
+        },
+      ];
+
+      let webhookConfigured = false;
+      for (const payload of webhookPayloads) {
+        const webhookRes = await fetch(`${evoUrl}/webhook/set/${instance.instance_name}`, {
+          method: "POST",
+          headers: evoHeaders,
+          body: JSON.stringify(payload),
+        });
+        if (webhookRes.ok) {
+          webhookConfigured = true;
+          break;
+        }
+        console.error("[repair-sync] webhook/set failed:", await webhookRes.text());
+      }
+
+      const settingsRes = await fetch(`${evoUrl}/settings/set/${instance.instance_name}`, {
+        method: "POST",
+        headers: evoHeaders,
+        body: JSON.stringify({
+          rejectCall: false,
+          msgCall: "",
+          groupsIgnore: false,
+          alwaysOnline: true,
+          readMessages: false,
+          readStatus: false,
+          syncFullHistory: true,
+        }),
+      });
+
+      const { data: knownChats } = await adminClient
+        .from("whatsapp_chats")
+        .select("remote_jid, last_message_at")
+        .eq("instance_id", instance.id)
+        .eq("company_id", instance.company_id)
+        .not("remote_jid", "is", null)
+        .order("last_message_at", { ascending: false, nullsFirst: false })
+        .limit(maxChats);
+      const remoteJids = [...new Set((knownChats || []).map((chat: any) => String(chat.remote_jid || "")).filter(Boolean))];
+
+      const rawMessages = await fetchRecentMessages(
+        evoUrl,
+        instance.instance_name,
+        evoHeaders,
+        limit,
+        remoteJids,
+        perChatLimit,
+      );
+      let scanned = 0;
+      let inserted = 0;
+      let skippedOld = 0;
+      let skippedDuplicate = 0;
+      let mediaPersisted = 0;
+      const touchedChats = new Set<string>();
+
+      for (const raw of rawMessages) {
+        const msg = normalizeProviderMessage(raw);
+        const key = msg?.key || {};
+        const remoteJid = String(key.remoteJid || "");
+        if (!remoteJid) continue;
+        const providerDate = messageDate(msg.messageTimestamp ?? msg.timestamp);
+        if (providerDate < since) {
+          skippedOld += 1;
+          continue;
+        }
+        scanned += 1;
+        const msgType = detectMessageType(msg);
+        if (msgType === "reaction") continue;
+        const msgExtId = key.id ? String(key.id) : null;
+        const isFromMe = key.fromMe === true;
+        const finalMediaType = detectMediaType(msg, msgType);
+        let mediaUrl = extractMediaUrl(msg.message);
+        const content = extractMessageText(msg.message, finalMediaType ? msgType : "mídia");
+        const contactName = remoteJid.includes("@g.us") ? (msg.groupMetadata?.subject || null) : (msg.pushName || null);
+
+        let { data: chat } = await adminClient
+          .from("whatsapp_chats")
+          .select("id, student_id, contact_name, last_message_at")
+          .eq("instance_id", instance.id)
+          .eq("remote_jid", remoteJid)
+          .maybeSingle();
+        if (!chat) {
+          const { data: insertedChat } = await adminClient
+            .from("whatsapp_chats")
+            .insert({
+              instance_id: instance.id,
+              company_id: instance.company_id,
+              remote_jid: remoteJid,
+              last_message_at: providerDate.toISOString(),
+              ...(!isFromMe && contactName ? { contact_name: contactName } : {}),
+            })
+            .select("id, student_id, contact_name, last_message_at")
+            .maybeSingle();
+          chat = insertedChat;
+        }
+        if (!chat) continue;
+        touchedChats.add(chat.id);
+
+        if (!isFromMe && contactName && contactName !== chat.contact_name) {
+          await adminClient.from("whatsapp_chats").update({ contact_name: contactName }).eq("id", chat.id);
+        }
+
+        const phoneBase = remoteJid.replace(/@.*$/, "");
+        const phoneClean = phoneBase.replace(/^55/, "");
+        if (phoneClean && !remoteJid.includes("@g.us") && !chat.student_id) {
+          const { data: student } = await adminClient.from("students")
+            .select("id")
+            .eq("company_id", instance.company_id)
+            .or(`whatsapp.ilike.%${phoneClean}%,phone.ilike.%${phoneClean}%`)
+            .limit(1)
+            .maybeSingle();
+          if (student) {
+            await adminClient.from("whatsapp_chats").update({ student_id: student.id }).eq("id", chat.id);
+          }
+        }
+
+        if (msgExtId) {
+          const { data: existing } = await adminClient
+            .from("whatsapp_messages")
+            .select("id")
+            .eq("chat_id", chat.id)
+            .eq("message_id_external", msgExtId)
+            .limit(1)
+            .maybeSingle();
+          if (existing) {
+            skippedDuplicate += 1;
+            continue;
+          }
+        }
+
+        if (finalMediaType && msgExtId) {
+          const persisted = await persistProviderMedia({
+            adminClient,
+            evoUrl,
+            instanceName: instance.instance_name,
+            evoHeaders,
+            companyId: instance.company_id,
+            chatId: chat.id,
+            messageId: msgExtId,
+            remoteJid,
+            fromMe: isFromMe,
+            mimetype: finalMediaType,
+          });
+          if (persisted?.mediaUrl) {
+            mediaUrl = persisted.mediaUrl;
+            mediaPersisted += 1;
+          }
+        }
+
+        const { error: insertError } = await adminClient.from("whatsapp_messages").insert({
+          chat_id: chat.id,
+          company_id: instance.company_id,
+          message_id_external: msgExtId,
+          content,
+          type: msgType,
+          is_from_me: isFromMe,
+          source: isFromMe ? "outgoing" : "incoming",
+          sender_id: isFromMe ? null : remoteJid,
+          media_url: mediaUrl,
+          media_type: finalMediaType,
+          timestamp: providerDate.toISOString(),
+          origin: "provider_history_sync",
+        });
+        if (insertError) {
+          if (insertError.code === "23505") skippedDuplicate += 1;
+          else console.error("[repair-sync] message insert failed:", insertError.message);
+          continue;
+        }
+        inserted += 1;
+
+        if (!chat.last_message_at || new Date(chat.last_message_at).getTime() <= providerDate.getTime()) {
+          await adminClient.from("whatsapp_chats").update({
+            last_message: content,
+            last_message_at: providerDate.toISOString(),
+            ...(isFromMe ? { unread_count: 0 } : {}),
+          }).eq("id", chat.id);
+        }
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        instance: instance.instance_name,
+        webhookConfigured,
+        settingsConfigured: settingsRes.ok,
+        knownChats: remoteJids.length,
+        scanned,
+        inserted,
+        skippedOld,
+        skippedDuplicate,
+        mediaPersisted,
+        touchedChats: touchedChats.size,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // ─── CONNECTION UPDATE ───
     if (event === "CONNECTION_UPDATE" || body.event === "connection.update") {
@@ -452,13 +946,7 @@ Deno.serve(async (req) => {
       || event === "MESSAGES_SET"
       || event === "messages.set"
     ) {
-      const messages = Array.isArray(body.data)
-        ? body.data
-        : Array.isArray(body.data?.messages)
-          ? body.data.messages
-          : body.data?.message
-            ? [body.data.message]
-            : [];
+      const messages = extractWebhookMessages(body);
       const isHistoryEvent = event === "MESSAGES_SET" || event === "messages.set";
       const instanceName = body.instance;
       if (!instanceName) {
@@ -487,7 +975,7 @@ Deno.serve(async (req) => {
         const isFromMe = key.fromMe === true;
 
         // Extract media
-        const mediaUrl = msg.message?.imageMessage?.url || msg.message?.videoMessage?.url || msg.message?.audioMessage?.url || msg.message?.documentMessage?.url || msg.message?.stickerMessage?.url || null;
+        let mediaUrl = msg.message?.imageMessage?.url || msg.message?.videoMessage?.url || msg.message?.audioMessage?.url || msg.message?.documentMessage?.url || msg.message?.stickerMessage?.url || null;
         const mediaType = msg.message?.imageMessage?.mimetype || msg.message?.videoMessage?.mimetype || msg.message?.audioMessage?.mimetype || msg.message?.documentMessage?.mimetype || msg.message?.stickerMessage?.mimetype || null;
 
         let msgType = "text";
@@ -675,6 +1163,24 @@ Deno.serve(async (req) => {
             .limit(1)
             .maybeSingle();
           quotedDbId = quotedRow?.id || null;
+        }
+
+        if (finalMediaType && msgExtId) {
+          const persisted = await persistProviderMedia({
+            adminClient,
+            evoUrl,
+            instanceName,
+            evoHeaders,
+            companyId: instance.company_id,
+            chatId: chat.id,
+            messageId: msgExtId,
+            remoteJid,
+            fromMe: isFromMe,
+            mimetype: finalMediaType,
+          });
+          if (persisted?.mediaUrl) {
+            mediaUrl = persisted.mediaUrl;
+          }
         }
 
         // Insert message

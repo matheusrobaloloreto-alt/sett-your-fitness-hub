@@ -46,6 +46,58 @@ function buildQuotedMessage(preview: string | null, type?: string | null): Recor
   return { conversation: preview || "Mensagem" };
 }
 
+function extensionFromMime(mimetype: string | null) {
+  if (!mimetype) return "bin";
+  if (mimetype.includes("jpeg")) return "jpg";
+  if (mimetype.includes("png")) return "png";
+  if (mimetype.includes("webp")) return "webp";
+  if (mimetype.includes("mp4")) return "mp4";
+  if (mimetype.includes("ogg")) return "ogg";
+  if (mimetype.includes("opus")) return "ogg";
+  if (mimetype.includes("mpeg")) return "mp3";
+  if (mimetype.includes("pdf")) return "pdf";
+  return mimetype.split("/")[1]?.split(";")[0]?.replace(/[^a-z0-9]/gi, "") || "bin";
+}
+
+function decodeBase64(base64: string) {
+  const clean = base64.includes(",") ? base64.split(",").pop() || "" : base64;
+  const binary = atob(clean);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+async function persistRemoteFile(args: {
+  adminClient: any;
+  bucket: string;
+  url: string;
+  filePath: string;
+  fallbackMime: string;
+  signedSeconds?: number;
+}) {
+  const response = await fetch(args.url);
+  if (!response.ok) return null;
+
+  const contentType = response.headers.get("content-type") || args.fallbackMime;
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const pathWithExtension = args.filePath.includes(".")
+    ? args.filePath
+    : `${args.filePath}.${extensionFromMime(contentType)}`;
+
+  const { error: uploadError } = await args.adminClient.storage
+    .from(args.bucket)
+    .upload(pathWithExtension, bytes, { contentType, upsert: true });
+  if (uploadError) {
+    console.error("remote file persistence upload failed:", uploadError.message);
+    return null;
+  }
+
+  const { data: signed } = await args.adminClient.storage
+    .from(args.bucket)
+    .createSignedUrl(pathWithExtension, args.signedSeconds || 60 * 60 * 24 * 30);
+  return signed?.signedUrl || null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -454,10 +506,8 @@ Deno.serve(async (req) => {
 
       const webhookUrl = new URL(`${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-webhook`);
       webhookUrl.searchParams.set("token", webhookSecret);
-      const webhookUpdate = await fetch(`${evoUrl}/webhook/set/${instanceName}`, {
-        method: "POST",
-        headers: evoHeaders,
-        body: JSON.stringify({
+      const webhookPayloads = [
+        {
           webhook: {
             enabled: true,
             url: webhookUrl.toString(),
@@ -466,10 +516,32 @@ Deno.serve(async (req) => {
             base64: false,
             events: ["MESSAGES_UPSERT", "MESSAGES_SET", "CONNECTION_UPDATE"],
           },
-        }),
-      });
-      if (!webhookUpdate.ok) {
-        return json({ error: "Failed to configure WhatsApp history webhook", details: await webhookUpdate.text() }, 502);
+        },
+        {
+          enabled: true,
+          url: webhookUrl.toString(),
+          webhook_by_events: false,
+          webhook_base64: false,
+          events: ["MESSAGES_UPSERT", "MESSAGES_SET", "messages.upsert", "messages.set", "CONNECTION_UPDATE", "connection.update"],
+          headers: { "x-webhook-secret": webhookSecret },
+        },
+      ];
+      let webhookConfigured = false;
+      let webhookError = "";
+      for (const payload of webhookPayloads) {
+        const webhookUpdate = await fetch(`${evoUrl}/webhook/set/${instanceName}`, {
+          method: "POST",
+          headers: evoHeaders,
+          body: JSON.stringify(payload),
+        });
+        if (webhookUpdate.ok) {
+          webhookConfigured = true;
+          break;
+        }
+        webhookError = await webhookUpdate.text();
+      }
+      if (!webhookConfigured) {
+        return json({ error: "Failed to configure WhatsApp history webhook", details: webhookError }, 502);
       }
       return json({ success: true, syncFullHistory: true });
     }
@@ -758,37 +830,60 @@ Deno.serve(async (req) => {
       if (chatError) throw new Error(`Failed to load chat profile: ${chatError.message}`);
       if (!chat?.remote_jid) return json({ photo: null });
 
-      const profileRes = await fetch(`${evoUrl}/chat/fetchProfilePictureUrl/${instanceName}`, {
-        method: "POST",
-        headers: evoHeaders,
-        body: JSON.stringify({ number: chat.remote_jid }),
-      });
-      if (!profileRes.ok) return json({ photo: null });
+      const phoneBase = String(chat.remote_jid).replace(/@.*$/, "");
+      const photoPayloads = [
+        { number: chat.remote_jid },
+        { number: phoneBase },
+        phoneBase.startsWith("55") ? { number: phoneBase.slice(2) } : null,
+      ].filter(Boolean) as Array<Record<string, string>>;
 
-      const profileData = await profileRes.json().catch(() => ({}));
-      const photo = String(
-        profileData?.profilePictureUrl ||
-        profileData?.profilePicUrl ||
-        profileData?.pictureUrl ||
-        profileData?.picture ||
-        "",
-      ).trim();
+      let photo = "";
+      for (const payload of photoPayloads) {
+        const profileRes = await fetch(`${evoUrl}/chat/fetchProfilePictureUrl/${instanceName}`, {
+          method: "POST",
+          headers: evoHeaders,
+          body: JSON.stringify(payload),
+        });
+        if (!profileRes.ok) continue;
+
+        const profileData = await profileRes.json().catch(() => ({}));
+        photo = String(
+          profileData?.profilePictureUrl ||
+          profileData?.profilePicUrl ||
+          profileData?.pictureUrl ||
+          profileData?.picture ||
+          "",
+        ).trim();
+        if (photo) break;
+      }
 
       if (photo) {
+        const durablePhoto = await persistRemoteFile({
+          adminClient,
+          bucket: "whatsapp-media",
+          url: photo,
+          filePath: `${resolvedCompanyId}/${chat.id}/avatar`,
+          fallbackMime: "image/jpeg",
+        }).catch((error) => {
+          console.error("profile picture durable persistence failed", String(error));
+          return null;
+        });
+        const storedPhoto = durablePhoto || photo;
         const { error: photoError } = await adminClient
           .from("whatsapp_chats")
-          .update({ contact_photo: photo })
+          .update({ contact_photo: storedPhoto })
           .eq("id", chat.id)
           .eq("company_id", resolvedCompanyId);
         if (photoError) console.error("profile picture persistence failed", photoError.message);
+        return json({ photo: storedPhoto });
       }
 
-      return json({ photo: photo || null });
+      return json({ photo: null });
     }
 
     // ─── FETCH MEDIA (base64) ───
     if (action === "fetch-media") {
-      const { messageId, remoteJid: mediaJid, fromMe } = body;
+      const { messageId, remoteJid: mediaJid, fromMe, chatId: mediaChatId, messageDbId, mimeType: requestedMimeType } = body;
       if (!messageId) return json({ error: "messageId required" }, 400);
 
       const key: Record<string, unknown> = { id: messageId };
@@ -816,6 +911,39 @@ Deno.serve(async (req) => {
         return { ok: false as const, errText: "No base64 returned" };
       };
 
+      const persistFetchedMedia = async (mediaData: any) => {
+        const mimetype = mediaData?.mimetype || requestedMimeType || "application/octet-stream";
+        if (!mediaChatId || !messageDbId || !mediaData?.base64) {
+          return { base64: mediaData?.base64 || null, mimetype, mediaUrl: null };
+        }
+        try {
+          const bytes = decodeBase64(String(mediaData.base64));
+          const filePath = `${resolvedCompanyId}/${mediaChatId}/inbound-${messageId}.${extensionFromMime(mimetype)}`;
+          const { error: uploadError } = await adminClient.storage
+            .from("whatsapp-media")
+            .upload(filePath, bytes, { contentType: mimetype, upsert: true });
+          if (uploadError) throw uploadError;
+
+          const { data: signed } = await adminClient.storage
+            .from("whatsapp-media")
+            .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+          const mediaUrl = signed?.signedUrl || null;
+          if (mediaUrl) {
+            const { error: updateError } = await adminClient
+              .from("whatsapp_messages")
+              .update({ media_url: mediaUrl, media_type: mimetype })
+              .eq("id", messageDbId)
+              .eq("chat_id", mediaChatId)
+              .eq("company_id", resolvedCompanyId);
+            if (updateError) console.error("fetch-media persistence update failed:", updateError.message);
+          }
+          return { base64: mediaData.base64, mimetype, mediaUrl };
+        } catch (error) {
+          console.error("fetch-media persistence failed:", String(error));
+          return { base64: mediaData.base64, mimetype, mediaUrl: null };
+        }
+      };
+
       // Try common payload formats used across different Evolution builds
       const payloadAttempts: Array<{ label: string; payload: Record<string, unknown> }> = [
         { label: "primary", payload: { message: { key }, convertToMp4: false } },
@@ -829,7 +957,7 @@ Deno.serve(async (req) => {
       for (const current of payloadAttempts) {
         attempt = await tryGetBase64(current.payload, current.label);
         if (attempt.ok) {
-          return json({ base64: attempt.mediaData.base64, mimetype: attempt.mediaData?.mimetype || null });
+          return json(await persistFetchedMedia(attempt.mediaData));
         }
       }
 
@@ -887,7 +1015,7 @@ Deno.serve(async (req) => {
         for (const current of hydratedAttempts) {
           attempt = await tryGetBase64(current.payload, current.label);
           if (attempt.ok) {
-            return json({ base64: attempt.mediaData.base64, mimetype: attempt.mediaData?.mimetype || null });
+            return json(await persistFetchedMedia(attempt.mediaData));
           }
         }
       }
