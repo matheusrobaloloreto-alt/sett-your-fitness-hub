@@ -20,6 +20,7 @@ import { ptBR } from "date-fns/locale";
 import { Textarea } from "@/components/ui/textarea";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { resolvePerformanceTrainerId, type TrainerAssignmentPeriod } from "@/lib/teamPerformance";
 
 interface TeamMember {
   user_id: string;
@@ -374,23 +375,20 @@ export default function TeamManager() {
 
     const profiles = profilesRes.data || [];
     const students = studentsRes.data || [];
-    const history = historyRes.data || [];
+    const history = (historyRes.data || []) as TrainerAssignmentPeriod[];
     const studentIds = students.map((s) => s.id);
+    const activeTrainerIds = new Set(trainerIds);
+    const currentTrainerByStudent = new Map(students.map((student) => [student.id, student.assigned_trainer_id]));
 
     // Helper: who was the trainer of `studentId` at instant `date`?
     const trainerAt = (studentId: string, date: Date): string | null => {
-      const t = date.getTime();
-      // Find a history entry covering this date
-      const match = history.find((h) => {
-        if (h.student_id !== studentId) return false;
-        const startT = new Date(h.assigned_at).getTime();
-        const endT = h.unassigned_at ? new Date(h.unassigned_at).getTime() : Infinity;
-        return t >= startT && t <= endT;
+      return resolvePerformanceTrainerId({
+        studentId,
+        at: date,
+        history,
+        currentTrainerId: currentTrainerByStudent.get(studentId),
+        activeTrainerIds,
       });
-      if (match) return match.trainer_id;
-      // Fallback: current assigned trainer
-      const s = students.find((x) => x.id === studentId);
-      return s?.assigned_trainer_id || null;
     };
 
     // 1) Manual/off-app completed sessions (workout_id is null). These are shown apart
