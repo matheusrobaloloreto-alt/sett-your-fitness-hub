@@ -1843,21 +1843,21 @@ export default function WhatsAppChat() {
                   const labels = chatLabels[chat.id] || [];
                   const lastSenderName = chat.last_sender_id ? senderNames[chat.last_sender_id] : null;
                   const isUnread = Number(chat.unread_count || 0) > 0;
-                  const readToggle = (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); handleToggleUnread(chat.id, chat.unread_count); }}
-                      disabled={updatingUnreadChatId === chat.id}
-                      data-read-state={isUnread ? "unread" : "read"}
-                      className={cn(
-                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background/95 shadow-sm transition-all disabled:cursor-wait disabled:opacity-40",
-                        isUnread
-                          ? "border-blue-300 text-blue-600 shadow-blue-500/20 drop-shadow-[0_0_4px_rgba(37,99,235,0.45)] hover:bg-blue-50"
-                          : "border-slate-200 text-slate-400 opacity-60 hover:bg-slate-100 hover:opacity-100",
-                      )}
-                      style={{ color: isUnread ? "rgb(37, 99, 235)" : "rgb(148, 163, 184)" }}
-                      title={isUnread ? "Não lida: clicar para marcar como lida" : "Lida: clicar para marcar como não lida"}
-                      aria-label={isUnread ? "Conversa não lida" : "Conversa lida"}
+	                  const readToggle = (
+	                    <button
+	                      type="button"
+	                      onClick={(e) => { e.stopPropagation(); handleToggleUnread(chat.id, chat.unread_count); }}
+	                      disabled={updatingUnreadChatId === chat.id}
+	                      data-read-state={isUnread ? "unread" : "read"}
+	                      className={cn(
+	                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-background shadow-sm transition-all disabled:cursor-wait disabled:opacity-40",
+	                        isUnread
+	                          ? "border-blue-300 text-blue-600 shadow-blue-500/25 ring-2 ring-blue-500/15 drop-shadow-[0_0_5px_rgba(37,99,235,0.45)] hover:bg-blue-50"
+	                          : "border-slate-200 bg-slate-50/80 text-slate-400 hover:bg-slate-100 hover:text-slate-500",
+	                      )}
+	                      style={{ color: isUnread ? "rgb(37, 99, 235)" : "rgb(148, 163, 184)" }}
+	                      title={isUnread ? "Não lida: clicar para marcar como lida" : "Lida: clicar para marcar como não lida"}
+	                      aria-label={isUnread ? "Conversa não lida" : "Conversa lida"}
                     >
                       {isUnread ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
                     </button>
@@ -1877,12 +1877,15 @@ export default function WhatsAppChat() {
                             setEditingName(false);
                           }
                         }}
-                        className={cn("w-full text-left p-3 border-b border-border hover:bg-muted/50 transition-colors flex items-start gap-3", selectedChatId === chat.id && "bg-primary/10")}
-                      >
-                        {renderAvatar(chat)}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium text-sm text-foreground truncate min-w-0 flex-1">{getContactName(chat)}</span>
+	                        className={cn("relative flex w-full items-start gap-3 border-b border-border p-3 pr-14 text-left transition-colors hover:bg-muted/50", selectedChatId === chat.id && "bg-primary/10")}
+	                      >
+	                        <div className="absolute right-3 top-3 z-10">
+	                          {readToggle}
+	                        </div>
+	                        {renderAvatar(chat)}
+	                        <div className="flex-1 min-w-0">
+	                          <div className="flex items-center justify-between gap-2">
+	                            <span className="font-medium text-sm text-foreground truncate min-w-0 flex-1">{getContactName(chat)}</span>
                             {chat.unread_count > 0 && (
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <span className="h-2.5 w-2.5 rounded-full bg-primary animate-pulse" />
@@ -1904,14 +1907,11 @@ export default function WhatsAppChat() {
                           )}
                           <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
                             {lastSenderName ? <p className="min-w-0 truncate text-[10px] text-muted-foreground">Enviado por: {lastSenderName}</p> : <span />}
-                            {chat.last_message_at && <p className="shrink-0 text-[10px] text-muted-foreground">{format(new Date(chat.last_message_at), "dd/MM HH:mm")}</p>}
-                          </div>
-                        </div>
-                        <div className="flex min-h-[64px] shrink-0 items-end justify-center pb-0.5">
-                          {readToggle}
-                        </div>
-                      </div>
-                    </div>
+	                            {chat.last_message_at && <p className="shrink-0 text-[10px] text-muted-foreground">{format(new Date(chat.last_message_at), "dd/MM HH:mm")}</p>}
+	                          </div>
+	                        </div>
+	                      </div>
+	                    </div>
                   );
                 })
               )}

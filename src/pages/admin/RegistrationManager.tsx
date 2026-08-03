@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   ArrowLeft,
   Check,
@@ -18,6 +19,7 @@ import {
   ClipboardCheck,
   Copy,
   CreditCard,
+  Eye,
   FileCheck2,
   Link2,
   Loader2,
@@ -114,6 +116,94 @@ interface FunnelEvent {
 
 type StudentWithStage = Student & { stage: FunnelStageKey; nextAction: string; progress: number };
 
+type AnswerEntry = { key: string; label: string; value: string };
+
+const ANSWER_LABELS: Record<string, string> = {
+  age: "Idade",
+  gender: "Sexo",
+  weight_kg: "Peso atual",
+  height_cm: "Altura",
+  body_fat_percent: "% gordura",
+  objective: "Objetivo principal",
+  activity_level: "Nível de atividade",
+  experience_months: "Treina musculação há",
+  modalities: "Modalidades praticadas/solicitadas",
+  training_days: "Semana de treinos",
+  available_days: "Dias disponíveis",
+  days_strength: "Dias de musculação",
+  days_cardio: "Dias de cardio",
+  session_duration: "Duração por sessão",
+  training_location: "Local de treino",
+  available_equipment: "Equipamentos disponíveis",
+  goals: "Metas com os treinos",
+  diseases: "Doenças ou condições",
+  injuries: "Lesões ou histórico",
+  current_pain: "Dor atual",
+  sport_goal: "Objetivo/prova esportiva",
+  current_volume_weekly: "Volume atual",
+  current_volume_unit: "Unidade do volume",
+  fcmax: "FC máxima",
+  fcrep: "FC repouso",
+  perceived_recovery: "Recuperação percebida",
+  run_where: "Onde corre",
+  run_best_time: "Melhor tempo recente",
+  swim_pool: "Piscina",
+  swim_level: "Nível na natação",
+  swim_volume: "Volume de natação",
+  swim_best: "Melhor tempo/pace na natação",
+  bike_type: "Tipo de bike",
+  bike_volume: "Volume de bike",
+  bike_ftp: "FTP",
+  bike_power: "Usa medidor de potência",
+  fueling_strategy: "Estratégia de alimentação nos treinos",
+  medical_conditions: "Condições médicas",
+  medications: "Medicamentos",
+  stress_score: "Estresse",
+  sleep_quality: "Qualidade do sono",
+  sleep_hours: "Horas de sono",
+  clin_cardiac: "Problema cardíaco",
+  clin_chest_pain: "Dor no peito",
+  clin_surgery: "Cirurgia recente",
+  clin_surgery_detail: "Detalhes da cirurgia",
+  clin_pregnant: "Gestante/pós-parto",
+  clin_pregnant_detail: "Detalhes gestacionais",
+  clin_smoke: "Fuma",
+  clin_acute: "Dor aguda",
+  clin_other: "Outro ponto clínico",
+  eva_tornozelo: "EVA tornozelo",
+  eva_joelho: "EVA joelho",
+  eva_quadril: "EVA quadril",
+  eva_lombar: "EVA lombar",
+  eva_ombro: "EVA ombro",
+  nutrition: "Nutrição",
+  profession: "Profissão/rotina",
+  restorative_sleep: "Sono reparador",
+  aware_of_trilogy: "Conhece treino/sono/nutrição",
+  meals_per_day: "Refeições por dia",
+  meal_t1: "Refeição 1",
+  meal_t2: "Refeição 2",
+  meal_t3: "Refeição 3",
+  meal_routine: "Rotina alimentar",
+  train_time: "Horário de treino",
+  train_fasted: "Treina em jejum",
+  appetite_wake: "Apetite ao acordar",
+  food_likes: "Alimentos que gosta",
+  food_dislikes: "Alimentos que não gosta",
+  food_restrictions: "Restrições alimentares",
+  budget_food: "Orçamento alimentar",
+  has_kitchen: "Tem cozinha/estrutura",
+  supplements: "Suplementos",
+  hydration: "Hidratação",
+  gi_sensitivities: "Sensibilidade gastrointestinal",
+  feel_in_3_months: "Como quer se sentir em 3 meses",
+  biggest_obstacle: "Maior obstáculo",
+  extra_comments: "Comentários extras",
+  authorizes_plan: "Autorizou uso das informações",
+  commits_communication: "Compromisso de comunicação",
+  budget_range: "Investimento",
+  preferred_contact_period: "Melhor horário para contato",
+};
+
 function waDigits(phone?: string | null): string | null {
   if (!phone) return null;
   let d = phone.replace(/\D/g, "");
@@ -124,6 +214,100 @@ function waDigits(phone?: string | null): string | null {
 
 function firstName(name: string) {
   return name.trim().split(/\s+/)[0] || "tudo bem";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeSearch(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function labelizeKey(key: string) {
+  return key
+    .replace(/[._-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function answerLabel(key: string) {
+  const last = key.split(".").pop() || key;
+  return ANSWER_LABELS[key] || ANSWER_LABELS[last] || labelizeKey(last);
+}
+
+function formatAnswerValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "boolean") return value ? "sim" : "não";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => formatAnswerValue(item))
+      .filter(Boolean)
+      .join(", ");
+  }
+  if (isRecord(value)) {
+    return Object.entries(value)
+      .map(([key, item]) => {
+        const formatted = formatAnswerValue(item);
+        return formatted ? `${answerLabel(key)}: ${formatted}` : "";
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+  return String(value);
+}
+
+function leadAnswerEntries(student: Pick<Student, "pre_registration_answers">): AnswerEntry[] {
+  const answers = student.pre_registration_answers || {};
+  const walk = (value: Record<string, unknown>, parent = ""): AnswerEntry[] => (
+    Object.entries(value).flatMap(([key, raw]) => {
+      const fullKey = parent ? `${parent}.${key}` : key;
+      if (raw === null || raw === undefined || raw === "") return [];
+      if (isRecord(raw)) return walk(raw, fullKey);
+      if (Array.isArray(raw) && raw.length === 0) return [];
+      const formatted = formatAnswerValue(raw);
+      return formatted ? [{ key: fullKey, label: answerLabel(fullKey), value: formatted }] : [];
+    })
+  );
+  return walk(answers);
+}
+
+function findLeadAnswer(student: Pick<Student, "pre_registration_answers">, terms: string[]) {
+  const normalizedTerms = terms.map(normalizeSearch);
+  return leadAnswerEntries(student).find((entry) => {
+    const haystack = normalizeSearch(`${entry.key} ${entry.label}`);
+    return normalizedTerms.some((term) => haystack.includes(term));
+  })?.value || "";
+}
+
+function leadSummaryRows(student: Student) {
+  const rows = [
+    ["Objetivo", findLeadAnswer(student, ["objective", "objetivo"])],
+    ["Metas", findLeadAnswer(student, ["goals", "metas", "feel_in_3_months", "desejos"])],
+    ["Dor/lesão", findLeadAnswer(student, ["current_pain", "injuries", "dor", "lesao", "lesão", "pain", "injury"])],
+    ["Limitação/rotina", findLeadAnswer(student, ["biggest_obstacle", "limita", "restric", "dificuldade", "obstacle"])],
+    ["Modalidades", findLeadAnswer(student, ["modalities", "servicos", "services", "modalidades"])],
+    ["Semana", findLeadAnswer(student, ["training_days", "semana", "dias"])],
+  ];
+  return rows.filter(([, value]) => value);
+}
+
+function buildLeadFirstContactMessage(student: Student, trainerName: string) {
+  const pain = findLeadAnswer(student, ["current_pain", "injuries", "dor", "lesao", "lesão", "pain", "injury"]);
+  const limitation = findLeadAnswer(student, ["biggest_obstacle", "limita", "restric", "dificuldade", "obstacle"]);
+  const painPhrase = pain || "[dor/queixa específica citada no pré-cadastro]";
+  const limitationPhrase = limitation || "[situação que isso limita, citada no pré-cadastro]";
+
+  return [
+    `Oi ${firstName(student.full_name)}, tudo bem? Sou ${trainerName} da BN Performance Training.`,
+    "",
+    `Vi na sua aplicação que ${painPhrase} e realmente, isso é algo que merece atenção, principalmente quando já ${limitationPhrase}. Fica tranquilo(a), você vai passar por uma Avaliação de Movimento completa antes de começar com a gente, pra termos certeza de tudo que você precisa.`,
+    "",
+    "Prefere continuar por mensagens aqui ou marcar uma videochamada com a Bruna?",
+  ].join("\n");
 }
 
 function formatDate(value?: string | null) {
@@ -179,14 +363,20 @@ function waitLabel(student: Student) {
 }
 
 export default function RegistrationManager() {
-  const { companyId, role } = useAuth();
+  const { companyId, role, user } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId ?? null;
   const navigate = useNavigate();
   const chatRoutePrefix = role === "master" ? "admin" : role || "admin";
+  const currentTrainerName = useMemo(() => {
+    const metadataName = user?.user_metadata?.full_name || user?.user_metadata?.name;
+    if (typeof metadataName === "string" && metadataName.trim()) return metadataName.trim();
+    return user?.email?.split("@")[0] || "[nome do treinador]";
+  }, [user]);
 
   const [generalLink, setGeneralLink] = useState(preRegistrationUrl(window.location.origin));
   const [students, setStudents] = useState<Student[]>([]);
+  const [selectedLead, setSelectedLead] = useState<Student | null>(null);
   const [phone, setPhone] = useState("");
   const [fiscalStudentId, setFiscalStudentId] = useState("");
   const [fiscalPhone, setFiscalPhone] = useState("");
@@ -419,7 +609,7 @@ export default function RegistrationManager() {
         if (error || !data?.id) throw new Error(data?.error || error?.message || "Não foi possível registrar o contato.");
         await openChatWithStudent(
           student,
-          `Oi, ${firstName(student.full_name)}! Recebi seu pré-cadastro. Vi seu objetivo e queria entender alguns detalhes pra te orientar no plano ideal e na avaliação de movimento. Posso te chamar agora?`,
+          buildLeadFirstContactMessage(student, currentTrainerName),
         );
         await loadPipeline();
         return;
@@ -839,20 +1029,37 @@ export default function RegistrationManager() {
                           </div>
                         )}
 
-                        <div className="mt-3 flex items-center justify-between gap-2">
-                          <span className="line-clamp-2 text-xs font-medium text-foreground">{student.nextAction}</span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 shrink-0 px-2 text-xs"
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              void handleStageAction(student);
-                            }}
-                          >
-                            {student.stage === "active" ? "Abrir" : "Agir"}
-                          </Button>
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                          <span className="line-clamp-2 min-w-[9rem] flex-1 text-xs font-medium text-foreground">{student.nextAction}</span>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {student.entityType === "lead" && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-xs"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  setSelectedLead(student);
+                                }}
+                              >
+                                <Eye className="mr-1 h-3.5 w-3.5" />
+                                Ver pré-cadastro
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void handleStageAction(student);
+                              }}
+                            >
+                              {student.stage === "active" ? "Abrir" : "Agir"}
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -875,6 +1082,117 @@ export default function RegistrationManager() {
           </div>
         </div>
       </div>
+
+      <Dialog open={Boolean(selectedLead)} onOpenChange={(open) => !open && setSelectedLead(null)}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto rounded-3xl border-border bg-card">
+          {selectedLead && (() => {
+            const summary = leadSummaryRows(selectedLead);
+            const answers = leadAnswerEntries(selectedLead);
+            const firstContactMessage = buildLeadFirstContactMessage(selectedLead, currentTrainerName);
+            return (
+              <>
+                <DialogHeader className="pr-6">
+                  <DialogTitle className="font-display text-2xl text-primary">Pré-cadastro de {selectedLead.full_name}</DialogTitle>
+                  <DialogDescription>
+                    Leia as respostas antes de chamar o lead. O roteiro abaixo já vem com espaços para personalizar a primeira abordagem.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4">
+                  <div className="grid gap-2 rounded-2xl border border-primary/15 bg-primary/5 p-3 sm:grid-cols-3">
+                    <div>
+                      <p className="text-eyebrow">Investimento</p>
+                      <p className="font-mono-data text-sm text-foreground">
+                        {BUDGET_LABELS[selectedLead.budget_range || ""] || "não informado"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-eyebrow">Melhor contato</p>
+                      <p className="font-mono-data text-sm text-foreground">
+                        {CONTACT_PERIOD_LABELS[selectedLead.preferred_contact_period || ""] || "não informado"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-eyebrow">Tempo na esteira</p>
+                      <p className="font-mono-data text-sm text-foreground">{waitLabel(selectedLead)}</p>
+                    </div>
+                  </div>
+
+                  {summary.length > 0 && (
+                    <div className="rounded-2xl border border-border bg-secondary/25 p-3">
+                      <p className="mb-2 text-sm font-semibold text-foreground">Resumo para personalizar o contato</p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {summary.map(([label, value]) => (
+                          <div key={label} className="rounded-xl border border-border bg-background/70 p-2">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+                            <p className="mt-1 text-sm text-foreground">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="rounded-2xl border border-border bg-background p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-foreground">Roteiro sugerido da primeira mensagem</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="rounded-full"
+                        onClick={async () => {
+                          await navigator.clipboard?.writeText(firstContactMessage);
+                          toast.success("Roteiro copiado.");
+                        }}
+                      >
+                        <Copy className="mr-2 h-4 w-4" />
+                        Copiar roteiro
+                      </Button>
+                    </div>
+                    <div className="mt-3 whitespace-pre-wrap rounded-2xl border border-border bg-secondary/30 p-3 text-sm leading-relaxed text-foreground">
+                      {firstContactMessage}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-background p-3">
+                    <p className="mb-2 text-sm font-semibold text-foreground">Respostas completas do pré-cadastro</p>
+                    {answers.length === 0 ? (
+                      <p className="rounded-xl border border-dashed border-border p-3 text-sm text-muted-foreground">
+                        Nenhuma resposta estruturada encontrada para este lead.
+                      </p>
+                    ) : (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {answers.map((answer) => (
+                          <div key={answer.key} className="rounded-xl border border-border bg-secondary/20 p-2">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{answer.label}</p>
+                            <p className="mt-1 break-words text-sm text-foreground">{answer.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setSelectedLead(null)}>
+                      Fechar
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setSelectedLead(null);
+                        void handleStageAction({ ...selectedLead, stage: normalizeSalesStage(selectedLead), nextAction: stageNextAction(selectedLead), progress: funnelStageProgress(normalizeSalesStage(selectedLead)) });
+                      }}
+                    >
+                      <MessageCircle className="mr-2 h-4 w-4" />
+                      Abrir WhatsApp interno
+                    </Button>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

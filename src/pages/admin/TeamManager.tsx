@@ -42,8 +42,12 @@ interface TrainerPerformance {
   full_name: string;
   role: string;
   activeStudents: number;
-  sessionsByMonth: Record<string, number>; // "YYYY-MM" -> count
+  sessionsByMonth: Record<string, number>; // ciclos entregues por mês: "YYYY-MM" -> count
+  scheduledByMonth: Record<string, number>; // ciclos previstos na agenda por mês
+  manualByMonth: Record<string, number>; // treinos avulsos registrados fora da agenda
   totalSessions: number;
+  totalScheduled: number;
+  totalManual: number;
   students: { id: string; full_name: string }[];
 }
 
@@ -389,8 +393,10 @@ export default function TeamManager() {
       return s?.assigned_trainer_id || null;
     };
 
-    // 1) Manual/off-app completed sessions (workout_id is null)
+    // 1) Manual/off-app completed sessions (workout_id is null). These are shown apart
+    // from agenda cycles so the performance numbers match the Agenda view.
     let manualSessions: { student_id: string; completed_at: string | null }[] = [];
+    let scheduledCycles: { cycle_id: string; student_id: string; start_date: string }[] = [];
     let prescribedCycles: { cycle_id: string; student_id: string; start_date: string }[] = [];
 
     if (studentIds.length > 0) {
@@ -414,8 +420,9 @@ export default function TeamManager() {
       if (enrollmentIds.length > 0) {
         const { data: cycles } = await supabase
           .from("training_cycles")
-          .select("id, enrollment_id, start_date, prescribed_offline_at")
+          .select("id, enrollment_id, start_date, status, prescribed_offline_at")
           .in("enrollment_id", enrollmentIds)
+          .in("status", ["active", "pending", "completed"])
           .gte("start_date", rangeStart.slice(0, 10))
           .lte("start_date", rangeEnd.slice(0, 10));
 
@@ -426,13 +433,20 @@ export default function TeamManager() {
             .select("cycle_id, exercises")
             .in("cycle_id", cycleIds);
           const cyclesWithWorkout = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
+          scheduledCycles = (cycles || []).map((c) => ({
+            cycle_id: c.id,
+            student_id: enrollStudent.get(c.enrollment_id) as string,
+            start_date: c.start_date,
+          })).filter((c) => Boolean(c.student_id));
+
           prescribedCycles = (cycles || [])
             .filter((c) => cyclesWithWorkout.has(c.id) || c.prescribed_offline_at)
             .map((c) => ({
               cycle_id: c.id,
               student_id: enrollStudent.get(c.enrollment_id) as string,
               start_date: c.start_date,
-            }));
+            }))
+            .filter((c) => Boolean(c.student_id));
         }
       }
     }
@@ -442,9 +456,27 @@ export default function TeamManager() {
       const trainerStudents = students.filter((s) => s.assigned_trainer_id === tid);
 
       const sessionsByMonth: Record<string, number> = {};
+      const scheduledByMonth: Record<string, number> = {};
+      const manualByMonth: Record<string, number> = {};
       for (const m of performanceMonths) sessionsByMonth[m.key] = 0;
+      for (const m of performanceMonths) scheduledByMonth[m.key] = 0;
+      for (const m of performanceMonths) manualByMonth[m.key] = 0;
 
       let total = 0;
+      let totalScheduled = 0;
+      let totalManual = 0;
+
+      // Attribute scheduled cycles using historical trainer at cycle start_date.
+      // This is the denominator that should match the Agenda prescription events.
+      for (const c of scheduledCycles) {
+        const cycleDate = new Date(c.start_date);
+        if (trainerAt(c.student_id, cycleDate) !== tid) continue;
+        const key = format(cycleDate, "yyyy-MM");
+        if (scheduledByMonth[key] !== undefined) {
+          scheduledByMonth[key]++;
+          totalScheduled++;
+        }
+      }
 
       // Attribute prescribed cycles using historical trainer at cycle start_date
       for (const c of prescribedCycles) {
@@ -463,9 +495,9 @@ export default function TeamManager() {
         const sessDate = new Date(sess.completed_at);
         if (trainerAt(sess.student_id, sessDate) !== tid) continue;
         const key = format(sessDate, "yyyy-MM");
-        if (sessionsByMonth[key] !== undefined) {
-          sessionsByMonth[key]++;
-          total++;
+        if (manualByMonth[key] !== undefined) {
+          manualByMonth[key]++;
+          totalManual++;
         }
       }
 
@@ -475,7 +507,11 @@ export default function TeamManager() {
         role: roleMap.get(tid) || "trainer",
         activeStudents: trainerStudents.length,
         sessionsByMonth,
+        scheduledByMonth,
+        manualByMonth,
         totalSessions: total,
+        totalScheduled,
+        totalManual,
         students: trainerStudents.map((s) => ({ id: s.id, full_name: s.full_name })),
       };
     });
@@ -1050,7 +1086,7 @@ export default function TeamManager() {
                     Ajustar histórico
                   </Button>
                   <p className="text-xs text-muted-foreground font-sans ml-auto max-w-xs">
-                    Conta treinos <strong>concluídos</strong> pelos alunos atribuídos a cada treinador.
+                    Compara ciclos <strong>entregues</strong> com os ciclos <strong>previstos na Agenda</strong>. Avulsos aparecem separados.
                   </p>
                 </CardContent>
               </Card>
@@ -1075,10 +1111,15 @@ export default function TeamManager() {
                              <span className={`text-xs font-sans font-medium px-2 py-0.5 rounded capitalize ${roleColors[t.role] || ""}`}>
                                {roleLabels[t.role] || t.role}
                              </span>
-                             <Badge variant="default" className="gap-1">
-                               {t.totalSessions} no período
-                             </Badge>
-                           </div>
+	                             <Badge variant="default" className="gap-1">
+	                               {t.totalSessions}/{t.totalScheduled} entregues
+	                             </Badge>
+                              {t.totalManual > 0 && (
+                                <Badge variant="outline" className="gap-1 border-amber-300 bg-amber-50 text-amber-800">
+                                  +{t.totalManual} avulsos
+                                </Badge>
+                              )}
+	                           </div>
                            <Badge variant="secondary" className="gap-1 shrink-0">
                              <Users className="h-3 w-3" />
                              {t.activeStudents}
@@ -1086,15 +1127,22 @@ export default function TeamManager() {
                          </div>
                        </CardHeader>
                       <CardContent className="space-y-3">
-                        <p className="text-xs text-muted-foreground font-sans flex items-center gap-1">
-                          <BarChart3 className="h-3 w-3" /> Ciclos prescritos + treinos avulsos por mês
-                        </p>
+	                        <p className="text-xs text-muted-foreground font-sans flex items-center gap-1">
+	                          <BarChart3 className="h-3 w-3" /> Ciclos entregues / previstos na Agenda por mês
+	                        </p>
                         <div className={`grid gap-2 ${performanceMonths.length <= 3 ? 'grid-cols-3' : performanceMonths.length <= 4 ? 'grid-cols-4' : 'grid-cols-3 sm:grid-cols-6'}`}>
                           {performanceMonths.map((m) => (
-                            <div key={m.key} className="text-center p-2 rounded-md bg-secondary/50">
-                              <p className="text-xs text-muted-foreground font-sans capitalize">{m.label}</p>
-                              <p className="text-lg font-bold text-foreground">{t.sessionsByMonth[m.key] || 0}</p>
-                            </div>
+	                            <div key={m.key} className="text-center p-2 rounded-xl bg-secondary/50">
+	                              <p className="text-xs text-muted-foreground font-sans capitalize">{m.label}</p>
+	                              <p className="text-lg font-bold text-foreground">
+                                  {t.sessionsByMonth[m.key] || 0}/{t.scheduledByMonth[m.key] || 0}
+                                </p>
+                                {(t.manualByMonth[m.key] || 0) > 0 && (
+                                  <p className="mt-0.5 text-[10px] font-medium text-amber-700">
+                                    +{t.manualByMonth[m.key]} avulso{(t.manualByMonth[m.key] || 0) > 1 ? "s" : ""}
+                                  </p>
+                                )}
+	                            </div>
                           ))}
                         </div>
                         <Button variant="outline" size="sm" className="w-full" onClick={() => openManualDialog(t)} disabled={t.students.length === 0}>
