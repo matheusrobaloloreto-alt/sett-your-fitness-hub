@@ -10,6 +10,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
 import {
   Send, Search, User, MessageSquare, Users,
   Paperclip, Filter, AlertTriangle, DollarSign, Calendar, Clock,
@@ -17,6 +19,7 @@ import {
   MessageCircle, ChevronDown, Tag, Trash2, Reply, Activity,
   ArrowLeft, Loader2, Maximize2, Minimize2,
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, RefreshCw,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, differenceInDays, isSameDay, isToday, isYesterday } from "date-fns";
@@ -30,6 +33,8 @@ import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { listStudentFiles, signStudentFile } from "@/lib/studentFiles";
 import { type FunnelStageStudent } from "@/lib/salesFunnelView";
 import { businessDateYmd } from "@/lib/businessDate";
+import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
+import type { PreRegistrationData } from "@/lib/preRegistration";
 import {
   matchesWhatsAppStatusFilter,
   selectCurrentCycle,
@@ -258,6 +263,8 @@ export default function WhatsAppChat() {
   const [isChatListCollapsed, setIsChatListCollapsed] = useState(false);
   const [isConversationCollapsed, setIsConversationCollapsed] = useState(false);
   const [isContextCollapsed, setIsContextCollapsed] = useState(false);
+  const [selectedPreRegistration, setSelectedPreRegistration] = useState<PreRegistrationData | null>(null);
+  const [preRegistrationLoading, setPreRegistrationLoading] = useState(false);
 
   // Templates state
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
@@ -1296,6 +1303,31 @@ export default function WhatsAppChat() {
 
   const selectedChat = chats.find((c) => c.id === selectedChatId);
   useEffect(() => {
+    let cancelled = false;
+    if (!selectedChat) {
+      setSelectedPreRegistration(null);
+      setPreRegistrationLoading(false);
+      return () => { cancelled = true; };
+    }
+
+    setPreRegistrationLoading(true);
+    void loadStudentPreRegistration({
+      studentId: selectedChat.student_id,
+      companyId: effectiveCompanyId,
+      phone: selectedChat.student?.whatsapp || selectedChat.remote_jid,
+    }).then((data) => {
+      if (!cancelled) setSelectedPreRegistration(data);
+    }).catch((error) => {
+      console.error("Falha ao carregar pré-cadastro no WhatsApp:", error);
+      if (!cancelled) setSelectedPreRegistration(null);
+    }).finally(() => {
+      if (!cancelled) setPreRegistrationLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [effectiveCompanyId, selectedChat?.id, selectedChat?.remote_jid, selectedChat?.student?.whatsapp, selectedChat?.student_id]);
+
+  useEffect(() => {
     if (!selectedChat?.id || selectedChat.contact_photo) return;
     void fetchChatPhoto(selectedChat.id);
   }, [fetchChatPhoto, selectedChat?.contact_photo, selectedChat?.id]);
@@ -2057,6 +2089,33 @@ export default function WhatsAppChat() {
                     <p className="text-xs text-muted-foreground">{formatPhone(selectedChat.remote_jid) || selectedChat.remote_jid.replace(/@.*$/, "")}</p>
                   </div>
                   <div className="flex gap-1 items-center flex-wrap">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-8 gap-1.5 rounded-full text-xs">
+                          <ClipboardList className="h-3.5 w-3.5" />
+                          <span className="hidden lg:inline">Pré-cadastro</span>
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="end"
+                        sideOffset={8}
+                        className="w-[min(92vw,30rem)] overflow-hidden rounded-3xl border-border bg-card p-0 shadow-xl"
+                      >
+                        <div className="border-b border-border px-4 py-3">
+                          <p className="font-display text-lg text-primary">Anamnese</p>
+                          <p className="text-xs text-muted-foreground">Respostas recebidas no pré-cadastro.</p>
+                        </div>
+                        <ScrollArea className="max-h-[65vh]">
+                          <PreRegistrationDetails
+                            data={selectedPreRegistration}
+                            loading={preRegistrationLoading}
+                            compact
+                            className="p-4"
+                          />
+                        </ScrollArea>
+                      </PopoverContent>
+                    </Popover>
                     {(chatLabels[selectedChat.id] || []).map((label) => (
                       <Badge key={label} variant={label === "Aguardando Treino" ? "destructive" : "secondary"} className={cn("text-[10px] h-5", label === "Financeiro" && "bg-amber-500/90 text-white")}>{label}</Badge>
                     ))}

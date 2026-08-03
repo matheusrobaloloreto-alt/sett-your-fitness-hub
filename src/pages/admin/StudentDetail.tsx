@@ -10,8 +10,6 @@ import { Calendar } from "@/components/ui/calendar";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -19,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StudentCycleFeedbackCard } from "@/components/admin/StudentCycleFeedbackCard";
 import { PlanVersionsCard } from "@/components/admin/PlanVersionsCard";
 import { AssessmentCompareCard } from "@/components/admin/AssessmentCompareCard";
-import { StudentCustomAnswersCard } from "@/components/admin/StudentCustomAnswersCard";
+import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
 import { CollapsibleCard } from "@/components/admin/CollapsibleCard";
 import { StudentGoalsManager } from "@/components/admin/StudentGoalsManager";
 import { StudentTimeline } from "@/components/admin/StudentTimeline";
@@ -32,6 +30,8 @@ import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { ProgressPhotosPanel } from "@/components/ProgressPhotosPanel";
+import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
+import type { PreRegistrationData } from "@/lib/preRegistration";
 
 // Safely format a date string. Returns "—" when value is missing or invalid.
 function safeFormatDate(value: string | null | undefined, fmt: string, opts?: Parameters<typeof format>[2]): string {
@@ -48,8 +48,6 @@ import { formatCPF, formatCEP, formatPhone } from "@/lib/masks";
 import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
-import { SUPPORTED_TRAINING_MODALITIES } from "@/lib/anamnesisOptions";
-import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
 // Heavy children loaded only when their tab is opened (chunk size win)
 const WorkoutAnalysis = lazy(() => import("@/components/trainer/WorkoutAnalysis").then(m => ({ default: m.WorkoutAnalysis })));
 const TrainerWeeklyBar = lazy(() => import("@/components/trainer/TrainerWeeklyBar").then(m => ({ default: m.TrainerWeeklyBar })));
@@ -88,30 +86,6 @@ interface Student {
   selected_plan_id: string | null;
   assigned_trainer_id: string | null;
   company_id: string | null;
-}
-
-interface Anamnesis {
-  id: string;
-  modalities: string[];
-  training_days: string | null;
-  available_days: number | null;
-  session_duration: string | null;
-  training_location: string | null;
-  available_equipment: string[];
-  goals: string | null;
-  diseases: string | null;
-  injuries: string | null;
-  current_pain: string | null;
-  nutrition: string | null;
-  profession: string | null;
-  sleep_hours: string | null;
-  restorative_sleep: boolean | null;
-  aware_of_trilogy: boolean | null;
-  feel_in_3_months: string | null;
-  biggest_obstacle: string | null;
-  extra_comments: string | null;
-  authorizes_plan: boolean | null;
-  commits_communication: boolean | null;
 }
 
 interface Enrollment {
@@ -208,28 +182,6 @@ const cycleCalendarColors: Record<string, { bg: string; text: string }> = {
   expired_no_workout: { bg: "hsl(var(--destructive) / 0.25)", text: "hsl(var(--destructive))" },
 };
 
-const MODALITY_OPTIONS = SUPPORTED_TRAINING_MODALITIES;
-
-const EQUIPMENT_OPTIONS = [
-  "Mini Bands (elástico curto fechado)", "Thera Bands (elástico grande aberto)",
-  "Super Bands (elástico grande fechado)", "Medball - Wallball", "Barra Olímpica",
-  "Polia alta/baixa", "Anilhas até 10kg", "Anilhas até 20kg",
-  "Hack de Agachamento Livre", "Hack de Agachamento Guiado",
-  "Halteres até 10kg", "Halteres até 20kg", "Halteres até 30kg ou +",
-  "Banco Inclinação Ajustável", "Kettlebell até 10kg", "Kettlebell até 20kg",
-  "Máquinas", "Caixote", "Step"
-];
-
-const SESSION_DURATION_OPTIONS = [
-  "até 30 minutos", "de 30 a 45 minutos", "de 45 a 60 minutos", "60 minutos ou +"
-];
-
-const TRAINING_LOCATION_OPTIONS = [
-  "Academia de Rede", "Academia do Prédio", "Em casa", "Box de Crossfit/Studio"
-];
-
-const SLEEP_OPTIONS = ["4h", "4h - 6h", "6h - 8h", "8h +"];
-
 const STUDENT_TABS = [
   ["overview", "Visão Geral"],
   ["program", "Programa"],
@@ -260,7 +212,8 @@ export default function StudentDetail() {
   const { session, role } = useAuth();
   const { toast } = useToast();
   const [student, setStudent] = useState<Student | null>(null);
-  const [anamnesis, setAnamnesis] = useState<Anamnesis | null>(null);
+  const [preRegistration, setPreRegistration] = useState<PreRegistrationData | null>(null);
+  const [preRegistrationLoading, setPreRegistrationLoading] = useState(true);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [cycles, setCycles] = useState<TrainingCycle[]>([]);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
@@ -286,16 +239,6 @@ export default function StudentDetail() {
     full_name: "", email: "", phone: "", birth_date: "", cpf: "", cep: "", address: "",
     address_number: "", neighborhood: "", city: "", state: "",
     whatsapp: "", status: "pending", notes: ""
-  });
-
-  // Edit anamnesis dialog state
-  const [editAnamnesisOpen, setEditAnamnesisOpen] = useState(false);
-  const [anamnesisForm, setAnamnesisForm] = useState({
-    modalities: [] as string[], training_days: "", available_days: "", session_duration: "",
-    training_location: "", available_equipment: [] as string[], goals: "", diseases: "",
-    injuries: "", current_pain: "", nutrition: "", profession: "", sleep_hours: "",
-    restorative_sleep: "", aware_of_trilogy: "", feel_in_3_months: "", biggest_obstacle: "",
-    extra_comments: "", authorizes_plan: "", commits_communication: "",
   });
 
   // Financial edit dialog
@@ -465,11 +408,19 @@ export default function StudentDetail() {
     // Load trainer name — will be set after enrollments load (uses active enrollment trainer)
     setTrainerName(null);
 
-    // Load anamnesis (latest version)
-    const { data: anamnesisData } = await supabase
-      .from("anamnesis").select("*").eq("student_id", studentId)
-      .order("version", { ascending: false }).limit(1).maybeSingle();
-    setAnamnesis(anamnesisData as unknown as Anamnesis | null);
+    setPreRegistrationLoading(true);
+    try {
+      setPreRegistration(await loadStudentPreRegistration({
+        studentId,
+        companyId: studentData.company_id,
+        phone: studentData.whatsapp || studentData.phone,
+      }));
+    } catch (error) {
+      console.error("Falha ao carregar pré-cadastro do aluno:", error);
+      setPreRegistration(null);
+    } finally {
+      setPreRegistrationLoading(false);
+    }
 
     const { data: enrollmentData } = await supabase
       .from("enrollments").select("*").eq("student_id", studentId)
@@ -731,73 +682,6 @@ export default function StudentDetail() {
     toast({ title: "Dados atualizados!" });
     setEditStudentOpen(false);
     loadData(id);
-  };
-
-  // ---- EDIT ANAMNESIS ----
-  const openEditAnamnesis = () => {
-    if (anamnesis) {
-      setAnamnesisForm({
-        modalities: anamnesis.modalities || [], training_days: anamnesis.training_days || "",
-        available_days: anamnesis.available_days != null ? String(anamnesis.available_days) : "",
-        session_duration: anamnesis.session_duration || "", training_location: anamnesis.training_location || "",
-        available_equipment: anamnesis.available_equipment || [], goals: anamnesis.goals || "",
-        diseases: anamnesis.diseases || "", injuries: anamnesis.injuries || "",
-        current_pain: anamnesis.current_pain || "", nutrition: anamnesis.nutrition || "",
-        profession: anamnesis.profession || "", sleep_hours: anamnesis.sleep_hours || "",
-        restorative_sleep: anamnesis.restorative_sleep != null ? (anamnesis.restorative_sleep ? "sim" : "nao") : "",
-        aware_of_trilogy: anamnesis.aware_of_trilogy != null ? (anamnesis.aware_of_trilogy ? "sim" : "nao") : "",
-        feel_in_3_months: anamnesis.feel_in_3_months || "", biggest_obstacle: anamnesis.biggest_obstacle || "",
-        extra_comments: anamnesis.extra_comments || "",
-        authorizes_plan: anamnesis.authorizes_plan != null ? (anamnesis.authorizes_plan ? "sim" : "nao") : "",
-        commits_communication: anamnesis.commits_communication != null ? (anamnesis.commits_communication ? "sim" : "nao") : "",
-      });
-    } else {
-      setAnamnesisForm({
-        modalities: [], training_days: "", available_days: "", session_duration: "", training_location: "",
-        available_equipment: [], goals: "", diseases: "", injuries: "", current_pain: "", nutrition: "",
-        profession: "", sleep_hours: "", restorative_sleep: "", aware_of_trilogy: "", feel_in_3_months: "",
-        biggest_obstacle: "", extra_comments: "", authorizes_plan: "", commits_communication: "",
-      });
-    }
-    setEditAnamnesisOpen(true);
-  };
-
-  const toggleAnamnesisArray = (field: "modalities" | "available_equipment", item: string) => {
-    const arr = anamnesisForm[field];
-    setAnamnesisForm({ ...anamnesisForm, [field]: arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item] });
-  };
-
-  const handleSaveAnamnesis = async () => {
-    if (!id) return;
-    setSaving(true);
-    const payload = {
-      student_id: id,
-      modalities: anamnesisForm.modalities, training_days: anamnesisForm.training_days || null,
-      available_days: anamnesisForm.available_days ? parseInt(anamnesisForm.available_days) : null,
-      session_duration: anamnesisForm.session_duration || null, training_location: anamnesisForm.training_location || null,
-      available_equipment: anamnesisForm.available_equipment, goals: anamnesisForm.goals || null,
-      diseases: anamnesisForm.diseases || null, injuries: anamnesisForm.injuries || null,
-      current_pain: anamnesisForm.current_pain || null, nutrition: anamnesisForm.nutrition || null,
-      profession: anamnesisForm.profession || null, sleep_hours: anamnesisForm.sleep_hours || null,
-      restorative_sleep: anamnesisForm.restorative_sleep ? anamnesisForm.restorative_sleep === "sim" : null,
-      aware_of_trilogy: anamnesisForm.aware_of_trilogy ? anamnesisForm.aware_of_trilogy === "sim" : null,
-      feel_in_3_months: anamnesisForm.feel_in_3_months || null, biggest_obstacle: anamnesisForm.biggest_obstacle || null,
-      extra_comments: anamnesisForm.extra_comments || null,
-      authorizes_plan: anamnesisForm.authorizes_plan ? anamnesisForm.authorizes_plan === "sim" : null,
-      commits_communication: anamnesisForm.commits_communication ? anamnesisForm.commits_communication === "sim" : null,
-    };
-
-    let error;
-    if (anamnesis) {
-      ({ error } = await supabase.from("anamnesis").update(payload as any).eq("id", anamnesis.id));
-    } else {
-      ({ error } = await supabase.from("anamnesis").insert(payload as any));
-    }
-    setSaving(false);
-    if (error) { toast({ title: "Erro ao salvar anamnese", description: error.message, variant: "destructive" }); return; }
-    toast({ title: anamnesis ? "Anamnese atualizada!" : "Anamnese adicionada!" });
-    setEditAnamnesisOpen(false);
-    loadData(id!);
   };
 
   // ---- FINANCIAL ----
@@ -1114,36 +998,6 @@ export default function StudentDetail() {
               context={`Detalhe do aluno. Status: ${student.status}. Treinador: ${trainerName || "nao definido"}. Matriculas: ${enrollments.length}. Ciclos: ${cycles.length}.`}
               question="Me ajude a identificar os principais riscos e proximos passos deste aluno."
             />
-            <Button variant="ghost" size="sm" className="text-xs" onClick={async () => {
-              if (!id || !student.company_id) {
-                toast({ title: "Não foi possível gerar o link", variant: "destructive" });
-                return;
-              }
-              const token = crypto.randomUUID().replace(/-/g, "");
-              const { error } = await (supabase as any).from("anamnese_invites").insert({
-                company_id: student.company_id,
-                student_id: id,
-                token,
-                student_name: student.full_name,
-                created_by: session?.user?.id ?? null,
-                status: "pending",
-              });
-              if (error) {
-                toast({ title: "Não foi possível gerar o link", description: error.message, variant: "destructive" });
-                return;
-              }
-              const link = anamnesisInviteUrl(window.location.origin, token);
-              try { await navigator.clipboard.writeText(link); } catch {
-                const ta = document.createElement("textarea");
-                ta.value = link; ta.style.position = "fixed"; ta.style.left = "-9999px";
-                document.body.appendChild(ta); ta.focus(); ta.select();
-                document.execCommand("copy"); document.body.removeChild(ta);
-              }
-              toast({ title: "Link da anamnese copiado!" });
-            }}>
-              <Link className="h-3.5 w-3.5 mr-1" />
-              <span className="hidden sm:inline">Anamnese</span>
-            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -1593,48 +1447,25 @@ export default function StudentDetail() {
 
           {/* ===== ANAMNESE ===== */}
           <TabsContent value="anamnesis">
-            {id && <StudentCustomAnswersCard studentId={id} />}
-            <Card className="bg-card border-border">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-primary text-lg">
+            <Card className="rounded-3xl border-border bg-card">
+              <CardHeader>
+                <CardTitle className="flex flex-wrap items-center gap-2 text-lg text-primary">
                   ANAMNESE
+                  <Badge variant="outline" className="rounded-full text-[10px] font-mono-data">
+                    Pré-cadastro
+                  </Badge>
                   <BnitoContextButton
                     label="anamnese do aluno"
-                    context={`Anamnese do aluno ${student.full_name}: objetivos, dores, lesoes, rotina, sono, equipamentos e restricoes.`}
-                    question="Quais pontos desta anamnese devem mudar a prescricao?"
+                    context={`Pré-cadastro de ${student.full_name}: fonte oficial de objetivos, dores, lesões, rotina, sono, equipamentos, modalidades solicitadas e restrições para a prescrição.`}
+                    question="Quais respostas deste pré-cadastro devem mudar a prescrição?"
                   />
                 </CardTitle>
-                <Button variant="ghost" size="sm" onClick={openEditAnamnesis}>
-                  <Pencil className="h-4 w-4 mr-1" />{anamnesis ? "Editar" : "Adicionar"}
-                </Button>
+                <p className="text-sm text-muted-foreground">
+                  As respostas abaixo são as mesmas usadas pelo Studio Integrado e pelos motores de prescrição.
+                </p>
               </CardHeader>
-              <CardContent className="space-y-4 text-sm font-sans">
-                {!anamnesis ? (
-                  <p className="text-muted-foreground">Nenhuma anamnese preenchida. Clique em "Adicionar" para preencher.</p>
-                ) : (
-                  <>
-                    {anamnesis.modalities && (Array.isArray(anamnesis.modalities) ? anamnesis.modalities.length > 0 : anamnesis.modalities) && <div><span className="font-medium text-foreground">Modalidades:</span> <span className="text-muted-foreground">{Array.isArray(anamnesis.modalities) ? anamnesis.modalities.join(", ") : anamnesis.modalities}</span></div>}
-                    {anamnesis.training_days && <div><span className="font-medium text-foreground">Dias de treino:</span> <span className="text-muted-foreground">{anamnesis.training_days}</span></div>}
-                    {anamnesis.available_days != null && <div><span className="font-medium text-foreground">Dias disponíveis p/ BN:</span> <span className="text-muted-foreground">{anamnesis.available_days}</span></div>}
-                    {anamnesis.session_duration && <div><span className="font-medium text-foreground">Tempo por sessão:</span> <span className="text-muted-foreground">{anamnesis.session_duration}</span></div>}
-                    {anamnesis.training_location && <div><span className="font-medium text-foreground">Local de treino:</span> <span className="text-muted-foreground">{anamnesis.training_location}</span></div>}
-                    {anamnesis.available_equipment && (Array.isArray(anamnesis.available_equipment) ? anamnesis.available_equipment.length > 0 : anamnesis.available_equipment) && <div><span className="font-medium text-foreground">Equipamentos:</span> <span className="text-muted-foreground">{Array.isArray(anamnesis.available_equipment) ? anamnesis.available_equipment.join(", ") : anamnesis.available_equipment}</span></div>}
-                    {anamnesis.goals && <div><span className="font-medium text-foreground">Metas:</span> <span className="text-muted-foreground">{anamnesis.goals}</span></div>}
-                    {anamnesis.diseases && <div><span className="font-medium text-foreground">Doenças/Remédios:</span> <span className="text-muted-foreground">{anamnesis.diseases}</span></div>}
-                    {anamnesis.injuries && <div><span className="font-medium text-foreground">Lesões:</span> <span className="text-muted-foreground">{anamnesis.injuries}</span></div>}
-                    {anamnesis.current_pain && <div><span className="font-medium text-foreground">Dores atuais:</span> <span className="text-muted-foreground">{anamnesis.current_pain}</span></div>}
-                    {anamnesis.nutrition && <div><span className="font-medium text-foreground">Alimentação:</span> <span className="text-muted-foreground">{anamnesis.nutrition}</span></div>}
-                    {anamnesis.profession && <div><span className="font-medium text-foreground">Profissão/Rotina:</span> <span className="text-muted-foreground">{anamnesis.profession}</span></div>}
-                    {anamnesis.sleep_hours && <div><span className="font-medium text-foreground">Sono:</span> <span className="text-muted-foreground">{anamnesis.sleep_hours}</span></div>}
-                    {anamnesis.restorative_sleep != null && <div><span className="font-medium text-foreground">Sono reparador:</span> <span className="text-muted-foreground">{anamnesis.restorative_sleep ? "Sim" : "Não"}</span></div>}
-                    {anamnesis.aware_of_trilogy != null && <div><span className="font-medium text-foreground">Consciente da tríade:</span> <span className="text-muted-foreground">{anamnesis.aware_of_trilogy ? "Sim" : "Não"}</span></div>}
-                    {anamnesis.feel_in_3_months && <div><span className="font-medium text-foreground">Como quer se sentir em 3 meses:</span> <span className="text-muted-foreground">{anamnesis.feel_in_3_months}</span></div>}
-                    {anamnesis.biggest_obstacle && <div><span className="font-medium text-foreground">Maior obstáculo:</span> <span className="text-muted-foreground">{anamnesis.biggest_obstacle}</span></div>}
-                    {anamnesis.extra_comments && <div><span className="font-medium text-foreground">Comentários extras:</span> <span className="text-muted-foreground">{anamnesis.extra_comments}</span></div>}
-                    {anamnesis.authorizes_plan != null && <div><span className="font-medium text-foreground">Autoriza criação do plano:</span> <span className="text-muted-foreground">{anamnesis.authorizes_plan ? "SIM" : "NÃO"}</span></div>}
-                    {anamnesis.commits_communication != null && <div><span className="font-medium text-foreground">Compromete-se a comunicar:</span> <span className="text-muted-foreground">{anamnesis.commits_communication ? "SIM" : "NÃO"}</span></div>}
-                  </>
-                )}
+              <CardContent>
+                <PreRegistrationDetails data={preRegistration} loading={preRegistrationLoading} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -1919,48 +1750,6 @@ export default function StudentDetail() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditStudentOpen(false)}>Cancelar</Button>
               <Button onClick={handleSaveStudent} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Edit Anamnesis Dialog */}
-        <Dialog open={editAnamnesisOpen} onOpenChange={setEditAnamnesisOpen}>
-          <DialogContent className="bg-card border-border max-h-[90vh] overflow-y-auto max-w-2xl">
-            <DialogHeader><DialogTitle className="text-primary">{anamnesis ? "EDITAR ANAMNESE" : "ADICIONAR ANAMNESE"}</DialogTitle></DialogHeader>
-            <div className="space-y-5">
-              <div className="space-y-2">
-                <Label className="font-sans font-medium">Modalidades</Label>
-                <div className="grid grid-cols-2 gap-2">{MODALITY_OPTIONS.map(m => (<label key={m} className="flex items-center gap-2 text-sm font-sans cursor-pointer"><Checkbox checked={anamnesisForm.modalities.includes(m)} onCheckedChange={() => toggleAnamnesisArray("modalities", m)} />{m}</label>))}</div>
-              </div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Dias de treino</Label><Textarea value={anamnesisForm.training_days} onChange={e => setAnamnesisForm({ ...anamnesisForm, training_days: e.target.value })} className="bg-secondary border-border" /></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label className="font-sans font-medium">Dias disponíveis p/ BN</Label><Input type="number" min={0} max={7} value={anamnesisForm.available_days} onChange={e => setAnamnesisForm({ ...anamnesisForm, available_days: e.target.value })} className="bg-secondary border-border" /></div>
-                <div className="space-y-2"><Label className="font-sans font-medium">Tempo por sessão</Label><Select value={anamnesisForm.session_duration} onValueChange={v => setAnamnesisForm({ ...anamnesisForm, session_duration: v })}><SelectTrigger className="bg-secondary border-border"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{SESSION_DURATION_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent></Select></div>
-              </div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Local de treino</Label><Select value={anamnesisForm.training_location} onValueChange={v => setAnamnesisForm({ ...anamnesisForm, training_location: v })}><SelectTrigger className="bg-secondary border-border"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{TRAINING_LOCATION_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent></Select></div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Equipamentos disponíveis</Label><div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto">{EQUIPMENT_OPTIONS.map(e => (<label key={e} className="flex items-center gap-2 text-sm font-sans cursor-pointer"><Checkbox checked={anamnesisForm.available_equipment.includes(e)} onCheckedChange={() => toggleAnamnesisArray("available_equipment", e)} />{e}</label>))}</div></div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Metas</Label><Textarea value={anamnesisForm.goals} onChange={e => setAnamnesisForm({ ...anamnesisForm, goals: e.target.value })} className="bg-secondary border-border" /></div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Doenças/Remédios</Label><Textarea value={anamnesisForm.diseases} onChange={e => setAnamnesisForm({ ...anamnesisForm, diseases: e.target.value })} className="bg-secondary border-border" /></div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Lesões</Label><Textarea value={anamnesisForm.injuries} onChange={e => setAnamnesisForm({ ...anamnesisForm, injuries: e.target.value })} className="bg-secondary border-border" /></div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Dores atuais</Label><Textarea value={anamnesisForm.current_pain} onChange={e => setAnamnesisForm({ ...anamnesisForm, current_pain: e.target.value })} className="bg-secondary border-border" /></div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Alimentação</Label><Textarea value={anamnesisForm.nutrition} onChange={e => setAnamnesisForm({ ...anamnesisForm, nutrition: e.target.value })} className="bg-secondary border-border" /></div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Profissão/Rotina</Label><Textarea value={anamnesisForm.profession} onChange={e => setAnamnesisForm({ ...anamnesisForm, profession: e.target.value })} className="bg-secondary border-border" /></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label className="font-sans font-medium">Horas de sono</Label><Select value={anamnesisForm.sleep_hours} onValueChange={v => setAnamnesisForm({ ...anamnesisForm, sleep_hours: v })}><SelectTrigger className="bg-secondary border-border"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{SLEEP_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent></Select></div>
-                <div className="space-y-2"><Label className="font-sans font-medium">Sono reparador?</Label><RadioGroup value={anamnesisForm.restorative_sleep} onValueChange={v => setAnamnesisForm({ ...anamnesisForm, restorative_sleep: v })}><div className="flex gap-4"><div className="flex items-center gap-1"><RadioGroupItem value="sim" id="ed-rs-s" /><Label htmlFor="ed-rs-s" className="font-sans font-normal">Sim</Label></div><div className="flex items-center gap-1"><RadioGroupItem value="nao" id="ed-rs-n" /><Label htmlFor="ed-rs-n" className="font-sans font-normal">Não</Label></div></div></RadioGroup></div>
-              </div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Consciente da tríade?</Label><RadioGroup value={anamnesisForm.aware_of_trilogy} onValueChange={v => setAnamnesisForm({ ...anamnesisForm, aware_of_trilogy: v })}><div className="flex gap-4"><div className="flex items-center gap-1"><RadioGroupItem value="sim" id="ed-at-s" /><Label htmlFor="ed-at-s" className="font-sans font-normal">Sim</Label></div><div className="flex items-center gap-1"><RadioGroupItem value="nao" id="ed-at-n" /><Label htmlFor="ed-at-n" className="font-sans font-normal">Não</Label></div></div></RadioGroup></div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Como quer se sentir em 3 meses</Label><Textarea value={anamnesisForm.feel_in_3_months} onChange={e => setAnamnesisForm({ ...anamnesisForm, feel_in_3_months: e.target.value })} className="bg-secondary border-border" /></div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Maior obstáculo</Label><Textarea value={anamnesisForm.biggest_obstacle} onChange={e => setAnamnesisForm({ ...anamnesisForm, biggest_obstacle: e.target.value })} className="bg-secondary border-border" /></div>
-              <div className="space-y-2"><Label className="font-sans font-medium">Comentários extras</Label><Textarea value={anamnesisForm.extra_comments} onChange={e => setAnamnesisForm({ ...anamnesisForm, extra_comments: e.target.value })} className="bg-secondary border-border" /></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label className="font-sans font-medium">Autoriza plano?</Label><RadioGroup value={anamnesisForm.authorizes_plan} onValueChange={v => setAnamnesisForm({ ...anamnesisForm, authorizes_plan: v })}><div className="flex gap-4"><div className="flex items-center gap-1"><RadioGroupItem value="sim" id="ed-ap-s" /><Label htmlFor="ed-ap-s" className="font-sans font-normal">Sim</Label></div><div className="flex items-center gap-1"><RadioGroupItem value="nao" id="ed-ap-n" /><Label htmlFor="ed-ap-n" className="font-sans font-normal">Não</Label></div></div></RadioGroup></div>
-                <div className="space-y-2"><Label className="font-sans font-medium">Compromete-se a comunicar?</Label><RadioGroup value={anamnesisForm.commits_communication} onValueChange={v => setAnamnesisForm({ ...anamnesisForm, commits_communication: v })}><div className="flex gap-4"><div className="flex items-center gap-1"><RadioGroupItem value="sim" id="ed-cc-s" /><Label htmlFor="ed-cc-s" className="font-sans font-normal">Sim</Label></div><div className="flex items-center gap-1"><RadioGroupItem value="nao" id="ed-cc-n" /><Label htmlFor="ed-cc-n" className="font-sans font-normal">Não</Label></div></div></RadioGroup></div>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEditAnamnesisOpen(false)}>Cancelar</Button>
-              <Button onClick={handleSaveAnamnesis} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

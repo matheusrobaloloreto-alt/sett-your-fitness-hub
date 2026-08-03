@@ -65,10 +65,10 @@ describe("resolvePrescriptionInterests", () => {
 describe("buildAnamnesisStepIds", () => {
   it("separates strength, sports and nutrition into conditional steps", () => {
     expect(buildAnamnesisStepIds(["strength"])).toEqual([
-      "profile", "services", "experience", "schedule", "strength", "health", "clinical", "recovery", "finish",
+      "profile", "services", "experience", "recovery", "schedule", "strength", "health", "clinical", "finish",
     ]);
     expect(buildAnamnesisStepIds(["running", "nutrition"])).toEqual([
-      "profile", "services", "experience", "schedule", "sports", "health", "clinical", "nutrition", "recovery", "finish",
+      "profile", "services", "experience", "recovery", "schedule", "sports", "health", "clinical", "nutrition", "finish",
     ]);
   });
 });

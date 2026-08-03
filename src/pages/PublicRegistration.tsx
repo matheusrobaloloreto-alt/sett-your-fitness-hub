@@ -93,7 +93,7 @@ export default function PublicRegistration() {
   const [email, setEmail] = useState("");
   const [objective, setObjective] = useState("");
   const [age, setAge] = useState("");
-  const [gender, setGender] = useState("M");
+  const [gender, setGender] = useState("");
   const [weightKg, setWeightKg] = useState("");
   const [heightCm, setHeightCm] = useState("");
   const [bodyFatPercent, setBodyFatPercent] = useState("");
@@ -122,6 +122,7 @@ export default function PublicRegistration() {
   const [runWhere, setRunWhere] = useState("");
   const [runBestTime, setRunBestTime] = useState("");
   const [swimPool, setSwimPool] = useState("");
+  const [swimPoolOther, setSwimPoolOther] = useState("");
   const [swimLevel, setSwimLevel] = useState("");
   const [swimVolume, setSwimVolume] = useState("");
   const [swimBest, setSwimBest] = useState("");
@@ -253,6 +254,8 @@ export default function PublicRegistration() {
       if (!fullName.trim()) missing.push("nome completo");
       if (whatsapp.replace(/\D/g, "").length < 10) missing.push("WhatsApp");
       if (!objective) missing.push("objetivo");
+      if (!gender) missing.push("sexo");
+      if (swimPool === "outro" && !swimPoolOther.trim()) missing.push("descrição da piscina");
       if (!sessionDuration) missing.push("tempo por sessão");
       if (!trainingLocation) missing.push("local de treino");
       if (!goals.trim()) missing.push("metas");
@@ -322,7 +325,7 @@ export default function PublicRegistration() {
             perceived_recovery: perceivedRecovery,
             run_where: runWhere,
             run_best_time: runBestTime,
-            swim_pool: swimPool,
+            swim_pool: swimPool === "outro" ? swimPoolOther.trim() : swimPool === "nao_sei" ? "Não sei" : swimPool,
             swim_level: swimLevel,
             swim_volume: swimVolume,
             swim_best: swimBest,
@@ -569,9 +572,9 @@ export default function PublicRegistration() {
                       <Input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="Ex: 28" />
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-sans">Sexo</Label>
+                      <Label className="font-sans">Sexo *</Label>
                       <Select value={gender} onValueChange={setGender}>
-                        <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione..." /></SelectTrigger>
                         <SelectContent><SelectItem value="M">Masculino</SelectItem><SelectItem value="F">Feminino</SelectItem></SelectContent>
                       </Select>
                     </div>
@@ -730,8 +733,17 @@ export default function PublicRegistration() {
                         <Label className="font-sans">Piscina</Label>
                         <Select value={swimPool} onValueChange={setSwimPool}>
                           <SelectTrigger className="rounded-xl"><SelectValue placeholder="Se pratica natação" /></SelectTrigger>
-                          <SelectContent><SelectItem value="25m">25m</SelectItem><SelectItem value="50m">50m</SelectItem><SelectItem value="nao">Sem acesso regular</SelectItem></SelectContent>
+                          <SelectContent>
+                            <SelectItem value="25m">25m</SelectItem>
+                            <SelectItem value="50m">50m</SelectItem>
+                            <SelectItem value="nao">Sem acesso regular</SelectItem>
+                            <SelectItem value="nao_sei">Não sei</SelectItem>
+                            <SelectItem value="outro">Outro</SelectItem>
+                          </SelectContent>
                         </Select>
+                        {swimPool === "outro" && (
+                          <Input value={swimPoolOther} onChange={event => setSwimPoolOther(event.target.value)} placeholder="Ex: piscina de 20 m" />
+                        )}
                       </div>
                       <div className="space-y-2">
                         <Label className="font-sans">Nível na natação</Label>

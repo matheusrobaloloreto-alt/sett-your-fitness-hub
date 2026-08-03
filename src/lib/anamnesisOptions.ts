@@ -125,13 +125,13 @@ export function buildAnamnesisStepIds(services: readonly string[]): AnamnesisSte
     "profile",
     "services",
     "experience",
+    "recovery",
     "schedule",
     wantsStrength && "strength",
     hasEndurance && "sports",
     "health",
     "clinical",
     wantsNutrition && "nutrition",
-    "recovery",
     "finish",
   ].filter(Boolean) as AnamnesisStepId[];
 }

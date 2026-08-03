@@ -95,7 +95,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
 
   // Fields
   const [age, setAge] = useState("");
-  const [gender, setGender] = useState("M");
+  const [gender, setGender] = useState("");
   const [weightKg, setWeightKg] = useState("");
   const [heightCm, setHeightCm] = useState("");
   const [bodyFatPercent, setBodyFatPercent] = useState("");
@@ -132,6 +132,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [runWhere, setRunWhere] = useState("");
   const [runBestTime, setRunBestTime] = useState("");
   const [swimPool, setSwimPool] = useState("");
+  const [swimPoolOther, setSwimPoolOther] = useState("");
   const [swimLevel, setSwimLevel] = useState("");
   const [swimVolume, setSwimVolume] = useState("");
   const [swimBest, setSwimBest] = useState("");
@@ -260,6 +261,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
     }
     if (targetStepId === "experience") {
       return [
+        [gender, "sexo"],
         [modalities.length > 0 ? "ok" : "", "modalidades praticadas atualmente"],
       ].filter(([value]) => !value).map(([, label]) => label);
     }
@@ -273,9 +275,13 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         [trainingLocation, "local da musculação"],
       ].filter(([value]) => !value).map(([, label]) => label);
     }
-    if (targetStepId === "sports" && !wantsStrength) {
-      return [[sessionDuration, "tempo livre para as sessões esportivas"]]
-        .filter(([value]) => !value).map(([, label]) => label);
+    if (targetStepId === "sports") {
+      return [
+        ...(!wantsStrength ? [[sessionDuration, "tempo livre para as sessões esportivas"]] : []),
+        ...(wantsSwimming && swimPool === "outro"
+          ? [[swimPoolOther.trim(), "descrição da piscina"]]
+          : []),
+      ].filter(([value]) => !value).map(([, label]) => label);
     }
     if (targetStepId === "health") {
       return [
@@ -383,7 +389,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         perceived_recovery: perceivedRecovery,
         run_where: runWhere,
         run_best_time: runBestTime,
-        swim_pool: swimPool,
+        swim_pool: swimPool === "outro" ? swimPoolOther.trim() : swimPool === "nao_sei" ? "Não sei" : swimPool,
         swim_level: swimLevel,
         swim_volume: swimVolume,
         swim_best: swimBest,
@@ -604,8 +610,9 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                   <Input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="Ex: 28" />
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-sans font-medium">Sexo</Label>
+                  <Label className="font-sans font-medium">Sexo *</Label>
                   <select value={gender} onChange={e => setGender(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                    <option value="">Selecione...</option>
                     <option value="M">Masculino</option>
                     <option value="F">Feminino</option>
                   </select>
@@ -790,7 +797,16 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                           <option value="25m">25m</option>
                           <option value="50m">50m</option>
                           <option value="nao">Sem acesso regular</option>
+                          <option value="nao_sei">Não sei</option>
+                          <option value="outro">Outro</option>
                         </select>
+                        {swimPool === "outro" && (
+                          <Input
+                            value={swimPoolOther}
+                            onChange={event => setSwimPoolOther(event.target.value)}
+                            placeholder="Ex: piscina de 20 m"
+                          />
+                        )}
                       </div>
                       <div className="space-y-2">
                         <Label className="font-sans font-medium">Nível na natação</Label>
