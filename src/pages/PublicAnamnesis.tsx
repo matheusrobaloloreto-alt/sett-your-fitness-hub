@@ -465,7 +465,9 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
       return;
     }
 
-    if (isPreRegistration) setDeadlineMessage(data.deadline || "Você vai ouvir da gente em breve.");
+    if (isPreRegistration) {
+      setDeadlineMessage(data.deadline || "Vamos analisar o seu perfil e, se pudermos realmente te ajudar, você receberá um retorno nosso em até 48 horas.");
+    }
     setDone(true);
   };
 
@@ -498,13 +500,16 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 Recebi sua aplicação, {fullName.trim().split(/\s+/)[0]}.
               </p>
               <p className="text-sm leading-relaxed text-muted-foreground font-sans">
-                Analisamos cada perfil com atenção antes de responder. Recebemos bastante gente interessada em treinar com a gente e mantemos um número limitado de alunos por vez para garantir esse acompanhamento de perto.
+                Recebemos muitos interessados em treinar com a gente e mantemos um número limitado de alunos por vez para garantir esse acompanhamento de perto.
               </p>
               <p className="rounded-xl bg-primary/10 px-4 py-3 font-sans font-semibold text-primary">
                 {deadlineMessage}
               </p>
               <p className="text-sm text-muted-foreground font-sans">
-                Vamos usar esse contato para fazer sua Avaliação de Movimento e ajudar você a escolher o plano ideal para o seu objetivo. Já já a gente se fala.
+                No próximo contato, faremos sua Avaliação de Movimento e escolheremos o plano ideal para alcançarmos o seu objetivo juntos.
+              </p>
+              <p className="text-sm font-semibold text-primary font-sans">
+                Até daqui a pouco!
               </p>
             </CardContent>
           </Card>

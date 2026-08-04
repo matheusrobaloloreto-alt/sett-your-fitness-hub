@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
+import { preRegistrationResponseDeadline } from "../_shared/pre-registration-confirmation.ts";
 import {
   buildFiscalRegistrationMessage,
   buildPaymentLinkMessage,
@@ -263,16 +264,6 @@ async function requireCompanyStaff(req: Request, companyId: unknown) {
 const INVESTMENT_RANGES = new Set(["200_300", "300_400", "400_500"]);
 const CONTACT_PERIODS = new Set(["morning", "afternoon", "evening"]);
 
-function responseDeadline(now = new Date()) {
-  const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Sao_Paulo",
-    weekday: "short",
-  }).format(now);
-  return ["Fri", "Sat", "Sun"].includes(weekday)
-    ? "Você vai ouvir da gente já na segunda-feira."
-    : "Você vai ouvir da gente ainda hoje.";
-}
-
 async function preRegister(body: Record<string, unknown>) {
   const company = await resolveCompanyById(body.companyId) || await resolveCompany(cleanText(body.slug) || null);
   if (!company) throw new HttpError(400, "Empresa inválida.");
@@ -323,7 +314,7 @@ async function preRegister(body: Record<string, unknown>) {
     leadId = created.data.id;
   }
 
-  return { leadId, firstName: fullName.split(/\s+/)[0], deadline: responseDeadline() };
+  return { leadId, firstName: fullName.split(/\s+/)[0], deadline: preRegistrationResponseDeadline() };
 }
 
 async function loadLeadForStaff(req: Request, leadId: unknown) {

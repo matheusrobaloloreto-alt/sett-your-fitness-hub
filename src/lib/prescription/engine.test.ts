@@ -315,6 +315,29 @@ describe("BN Prescription Engine v1", () => {
     expect(program.validator.pre_save.corrections.some((correction) => correction.code.includes("teacher_alert"))).toBe(true);
   });
 
+  it("não confunde compensação severa da avaliação com dor severa", () => {
+    const program = generateTrainingProgram(baseInput({
+      restrictions: "dor articular no joelho EVA 2",
+      painEva: 2,
+      painReports: [{ region: "joelho", eva: 2 }],
+      assessmentContext: {
+        ohs_compensations: [
+          { key: "trunk_forward_lean", presente: true, severidade: "severa" },
+          { key: "butt_wink", presente: true, severidade: "severa" },
+          { key: "shoulder_protraction_kyphosis", presente: true, severidade: "severa" },
+        ],
+      },
+    }));
+
+    expect(program.validator.pre_save.status).not.toBe("blocked");
+    expect(hasBlocker(program, "high_pain_requires_professional_review")).toBe(false);
+    expect(hasWarning(program, "trunk_forward_lean_severe_assessment_requires_teacher_review")).toBe(true);
+    expect(hasWarning(program, "butt_wink_severe_assessment_requires_teacher_review")).toBe(true);
+    expect(hasWarning(program, "shoulder_protraction_kyphosis_severe_assessment_requires_teacher_review")).toBe(true);
+    expect(program.validator.pre_save.corrections.some((correction) => correction.code.includes("teacher_alert"))).toBe(true);
+    expect(prescribedExerciseText(program)).not.toMatch(/good morning|terra convencional pesado|overhead pesado|barra nuca|dips/);
+  });
+
   it("gera hipertrofia padrão 4 dias para intermediário sem dor", () => {
     const program = generateTrainingProgram(baseInput({ fitnessLevel: "intermediario", objective: "hipertrofia", daysPerWeek: 4 }));
 

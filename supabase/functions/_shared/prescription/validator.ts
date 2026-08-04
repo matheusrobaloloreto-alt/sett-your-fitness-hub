@@ -1,6 +1,6 @@
 import { normalizeText } from "./presets.ts";
 import { hasPainContext } from "./progressionRules.ts";
-import { deriveRestrictionRules } from "./restrictionRules.ts";
+import { classifyPainSeverity, deriveRestrictionRules } from "./restrictionRules.ts";
 import { IMPORTANT_GROUPS, reviewVolume } from "./volumeRules.ts";
 import type {
   ExerciseCatalogEntry,
@@ -101,14 +101,30 @@ export function validateTrainingProgram(args: {
     });
   }
 
-  const severeRestrictions = deriveRestrictionRules(args.input).filter((rule) => rule.severity === "severa" || rule.alertTeacher);
-  for (const rule of severeRestrictions) {
+  const restrictionRules = deriveRestrictionRules(args.input);
+  const hasExplicitSeverePain = classifyPainSeverity(args.input) === "severa";
+
+  if (hasExplicitSeverePain) {
     add({
       severity: "blocker",
       code: "high_pain_requires_professional_review",
-      message: `${rule.label}: severidade ${rule.severity}; prescrição automática precisa de revisão do professor.`,
+      message: "Dor relatada com EVA acima de 5 ou descrita como forte/severa; a prescrição automática precisa de revisão do professor.",
       recommendation: "Remover padrão doloroso, manter apenas estímulos seguros e revisar com profissional antes de liberar ao aluno.",
       source: "anamnese",
+    });
+  }
+
+  const severeAssessmentRules = restrictionRules.filter((rule) =>
+    rule.severity === "severa"
+    && !["knee_pain", "low_back_pain", "shoulder_pain"].includes(rule.key)
+  );
+  for (const rule of severeAssessmentRules) {
+    add({
+      severity: "warning",
+      code: `${rule.key}_severe_assessment_requires_teacher_review`,
+      message: `${rule.label}: achado severo da avaliação funcional; o motor adaptou os padrões afetados.`,
+      recommendation: `${rule.recommendation} Revisar tecnicamente antes de liberar ao aluno.`,
+      source: "avaliacao_funcional",
     });
   }
 

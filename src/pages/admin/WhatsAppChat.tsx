@@ -629,6 +629,15 @@ export default function WhatsAppChat() {
     toast.success("Aluno vinculado à conversa");
   };
 
+  const handleUnlinkedContactName = (chat: Chat) => {
+    const contactName = getContactName(chat);
+    setSelectedChatId(chat.id);
+    setEditingName(false);
+    setLinkSearch(contactName);
+    void searchStudentsForLink(contactName);
+    setLinkDialogOpen(true);
+  };
+
   // Media fallback
   const handleMediaError = useCallback(async (msg: Message, force = false) => {
     if (!msg.message_id_external) return;
@@ -1930,7 +1939,17 @@ export default function WhatsAppChat() {
 	                                {getContactName(chat)}
 	                              </button>
 	                            ) : (
-	                              <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{getContactName(chat)}</span>
+	                              <button
+	                                type="button"
+	                                className="min-w-0 flex-1 truncate text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
+	                                title="Vincular este contato a um perfil"
+	                                onClick={(event) => {
+	                                  event.stopPropagation();
+	                                  handleUnlinkedContactName(chat);
+	                                }}
+	                              >
+	                                {getContactName(chat)}
+	                              </button>
 	                            )}
                             {chat.unread_count > 0 && (
                               <div className="flex items-center gap-1.5 shrink-0">
@@ -2104,7 +2123,14 @@ export default function WhatsAppChat() {
                             {getContactName(selectedChat)}
                           </button>
                         ) : (
-                          <p className="font-medium text-sm text-foreground">{getContactName(selectedChat)}</p>
+                          <button
+                            type="button"
+                            className="text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
+                            title="Vincular este contato a um perfil"
+                            onClick={() => handleUnlinkedContactName(selectedChat)}
+                          >
+                            {getContactName(selectedChat)}
+                          </button>
                         )}
                         <button onClick={() => { setEditingName(true); setEditNameValue(getContactName(selectedChat)); }} className="text-muted-foreground hover:text-foreground transition-colors">
                           <Pencil className="h-3 w-3" />

@@ -9,11 +9,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, Trash2, Search, Save, Play, ChevronUp, ChevronDown, BarChart3, BrainCircuit, Sparkles, MessageCircle, Loader2, AlertCircle, Dumbbell, PersonStanding, Clock } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Search, Save, Play, ChevronUp, ChevronDown, BarChart3, BrainCircuit, Sparkles, MessageCircle, Loader2, AlertCircle, Dumbbell, PersonStanding, Clock, ClipboardList } from "lucide-react";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useAssistantName } from "@/hooks/useAssistantName";
 import { BodyMap } from "@/components/body/BodyMap";
@@ -23,6 +25,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { groupWorkoutExercises, WORKOUT_METHODS, GROUPING_METHODS, SINGLE_METHODS, isGroupingMethod, methodNeedsSeconds, type MethodId } from "@/lib/workoutMethods";
 import { MethodBadge } from "@/components/workout/MethodBadge";
 import { useMaster } from "@/contexts/MasterContext";
+import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
+import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
+import type { PreRegistrationData } from "@/lib/preRegistration";
 
 interface Exercise {
   id: string;
@@ -223,6 +228,8 @@ export default function WorkoutBuilder() {
   const [videoModal, setVideoModal] = useState<{ type: "path" | "url"; value: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [cycleInfo, setCycleInfo] = useState<CycleInfo | null>(null);
+  const [preRegistration, setPreRegistration] = useState<PreRegistrationData | null>(null);
+  const [preRegistrationLoading, setPreRegistrationLoading] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
   const [bnitoQuestion, setBnitoQuestion] = useState("");
   const [bnitoLoading, setBnitoLoading] = useState<"review" | "ask" | null>(null);
@@ -322,10 +329,19 @@ export default function WorkoutBuilder() {
   };
 
   const loadCycleInfo = async () => {
+    setPreRegistrationLoading(true);
     try {
-      await resolveCycleInfo();
+      const info = await resolveCycleInfo();
+      const data = await loadStudentPreRegistration({
+        studentId: info.student_id,
+        companyId: info.company_id,
+      });
+      setPreRegistration(data);
     } catch (error) {
       console.warn("Nao foi possivel carregar contexto do ciclo", error);
+      setPreRegistration(null);
+    } finally {
+      setPreRegistrationLoading(false);
     }
   };
 
@@ -802,7 +818,7 @@ export default function WorkoutBuilder() {
     <>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={() => navigate(returnTo)}>
               <ArrowLeft className="h-5 w-5" />
@@ -830,7 +846,34 @@ export default function WorkoutBuilder() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {!isTemplate && cycleInfo && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <ClipboardList className="mr-2 h-4 w-4" />Pré-cadastro
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  sideOffset={8}
+                  className="w-[min(92vw,34rem)] overflow-hidden rounded-3xl border-border bg-card p-0 shadow-xl"
+                >
+                  <div className="border-b border-border px-4 py-3">
+                    <p className="font-display text-lg text-primary">Pré-cadastro de {cycleInfo.student_name}</p>
+                    <p className="text-xs text-muted-foreground">Objetivos, rotina, dores e restrições usadas na prescrição.</p>
+                  </div>
+                  <ScrollArea className="max-h-[70vh]">
+                    <PreRegistrationDetails
+                      data={preRegistration}
+                      loading={preRegistrationLoading}
+                      compact
+                      className="p-4"
+                    />
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+            )}
             <Button variant="outline" size="sm" onClick={() => callBnito("review")} disabled={!!bnitoLoading}>
               {bnitoLoading === "review" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <BrainCircuit className="h-4 w-4 mr-2" />}
               {assistantName}

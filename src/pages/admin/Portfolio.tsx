@@ -7,19 +7,34 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Briefcase, Loader2, User, CalendarDays } from "lucide-react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Briefcase, Loader2, Eye, Pencil, Trash2, CalendarDays } from "lucide-react";
 import { format, parseISO, differenceInDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { cadenceTone, formatCadence } from "@/lib/contactCadence";
 import { StudentChatButton } from "@/components/admin/StudentChatButton";
+import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+import { useToast } from "@/hooks/use-toast";
+import { formatCEP, formatCPF, formatPhone } from "@/lib/masks";
 
 interface Collaborator { user_id: string; full_name: string; roles: string[] }
 interface PortfolioStudent {
-  id: string; full_name: string; status: string; whatsapp: string | null;
+  id: string; full_name: string; status: string; whatsapp: string | null; phone: string | null;
+  email: string | null; birth_date: string | null; cpf: string | null; cep: string | null;
+  address: string | null; address_number: string | null; neighborhood: string | null;
+  city: string | null; state: string | null; notes: string | null;
   cycle_end?: string | null; chat_id?: string | null; hours_since_contact?: number | null;
 }
+
+const emptyStudentForm = {
+  full_name: "", email: "", phone: "", whatsapp: "", birth_date: "", cpf: "", cep: "",
+  address: "", address_number: "", neighborhood: "", city: "", state: "", status: "active", notes: "",
+};
 
 const STATUS_LABEL: Record<string, string> = {
   active: "Ativo", pending: "Pendente", awaiting_renewal: "Renovação", inactive: "Inativo",
@@ -41,6 +56,7 @@ export default function Portfolio() {
   const location = useLocation();
   const routePrefix = location.pathname.split("/")[1] || "admin";
   const { user, role, companyId } = useAuth();
+  const { toast } = useToast();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId ?? null;
   const canPickOthers = role === "admin" || role === "master";
@@ -51,6 +67,9 @@ export default function Portfolio() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
+  const [editingStudent, setEditingStudent] = useState<PortfolioStudent | null>(null);
+  const [studentForm, setStudentForm] = useState(emptyStudentForm);
+  const [savingStudent, setSavingStudent] = useState(false);
 
   // Colaboradores da empresa (para o seletor do admin/master).
   useEffect(() => {
@@ -83,7 +102,7 @@ export default function Portfolio() {
     setLoading(true);
     const { data: studs } = await supabase
       .from("students")
-      .select("id, full_name, status, whatsapp")
+      .select("id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, notes")
       .eq("company_id", effectiveCompanyId)
       .eq("assigned_trainer_id", selectedId)
       .order("full_name");
@@ -115,6 +134,84 @@ export default function Portfolio() {
   }, [effectiveCompanyId, selectedId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const openEditStudent = (student: PortfolioStudent) => {
+    setEditingStudent(student);
+    setStudentForm({
+      full_name: student.full_name,
+      email: student.email || "",
+      phone: student.phone || "",
+      whatsapp: student.whatsapp ? formatPhone(student.whatsapp) : "",
+      birth_date: student.birth_date || "",
+      cpf: student.cpf ? formatCPF(student.cpf) : "",
+      cep: student.cep ? formatCEP(student.cep) : "",
+      address: student.address || "",
+      address_number: student.address_number || "",
+      neighborhood: student.neighborhood || "",
+      city: student.city || "",
+      state: student.state || "",
+      status: student.status,
+      notes: student.notes || "",
+    });
+  };
+
+  const saveStudent = async () => {
+    if (!editingStudent || !studentForm.full_name.trim()) return;
+    setSavingStudent(true);
+    const { error } = await supabase.from("students").update({
+      full_name: studentForm.full_name.trim(),
+      email: studentForm.email.trim() || null,
+      phone: studentForm.phone.trim() || null,
+      whatsapp: studentForm.whatsapp.replace(/\D/g, "") || null,
+      birth_date: studentForm.birth_date || null,
+      cpf: studentForm.cpf.replace(/\D/g, "") || null,
+      cep: studentForm.cep.replace(/\D/g, "") || null,
+      address: studentForm.address.trim() || null,
+      address_number: studentForm.address_number.trim() || null,
+      neighborhood: studentForm.neighborhood.trim() || null,
+      city: studentForm.city.trim() || null,
+      state: studentForm.state.trim() || null,
+      status: studentForm.status,
+      notes: studentForm.notes.trim() || null,
+    }).eq("id", editingStudent.id).eq("company_id", effectiveCompanyId!);
+    setSavingStudent(false);
+    if (error) {
+      toast({ title: "Erro ao atualizar aluno", description: error.message, variant: "destructive" });
+      return;
+    }
+    try {
+      await supabase.functions.invoke("asaas-integration", {
+        body: {
+          action: "update-customer",
+          studentId: editingStudent.id,
+          name: studentForm.full_name.trim(),
+          email: studentForm.email.trim() || undefined,
+          mobilePhone: studentForm.whatsapp.replace(/\D/g, "") || undefined,
+          postalCode: studentForm.cep.replace(/\D/g, "") || undefined,
+          address: studentForm.address.trim() || undefined,
+          addressNumber: studentForm.address_number.trim() || undefined,
+          province: studentForm.neighborhood.trim() || undefined,
+        },
+      });
+    } catch (asaasError) {
+      console.error("Erro ao sincronizar aluno da carteira com Asaas:", asaasError);
+    }
+    toast({ title: "Aluno atualizado" });
+    setEditingStudent(null);
+    await load();
+  };
+
+  const deleteStudent = async (student: PortfolioStudent) => {
+    const confirmed = window.confirm(`Excluir ${student.full_name}? Esta ação remove o perfil e não pode ser desfeita.`);
+    if (!confirmed) return;
+    const { error } = await supabase.from("students").delete().eq("id", student.id).eq("company_id", effectiveCompanyId!);
+    if (error) {
+      toast({ title: "Erro ao excluir aluno", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Aluno removido" });
+    await load();
+  };
 
   const filtered = useMemo(() => students.filter((s) =>
     (statusFilter === "todos" || s.status === statusFilter) &&
@@ -210,18 +307,29 @@ export default function Portfolio() {
                         )}
                       </div>
                     </div>
-                    <button type="button" title="Abrir perfil"
-                      onClick={() => navigate(`/${routePrefix}/students/${s.id}`)}
-                      className="rounded p-1.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground">
-                      <User className="h-4 w-4" />
-                    </button>
-                    <StudentChatButton
-                      studentId={s.id}
-                      studentName={s.full_name}
-                      phone={s.whatsapp}
-                      chatId={s.chat_id}
-                      className="text-primary hover:bg-muted/60"
-                    />
+                    <div className="ml-2 flex shrink-0 items-center gap-1">
+                      <BnitoContextButton
+                        label={`aluno ${s.full_name}`}
+                        context={`Aluno da carteira. Status: ${STATUS_LABEL[s.status] || s.status}. ${s.cycle_end ? `Ciclo atual termina em ${format(parseISO(s.cycle_end), "dd/MM/yyyy")}.` : "Sem ciclo ativo identificado."}`}
+                        question="Qual é a ação técnica ou operacional prioritária para este aluno?"
+                      />
+                      <StudentChatButton
+                        studentId={s.id}
+                        studentName={s.full_name}
+                        phone={s.whatsapp || s.phone}
+                        chatId={s.chat_id}
+                        className="text-primary hover:bg-muted/60"
+                      />
+                      <Button variant="ghost" size="icon" aria-label={`Ver perfil de ${s.full_name}`} title={`Ver perfil de ${s.full_name}`} onClick={() => navigate(`/${routePrefix}/students/${s.id}`)}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" aria-label={`Editar ${s.full_name}`} title={`Editar ${s.full_name}`} onClick={() => openEditStudent(s)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" aria-label={`Excluir ${s.full_name}`} title={`Excluir ${s.full_name}`} className="text-destructive hover:text-destructive" onClick={() => deleteStudent(s)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 );
               })}
@@ -229,6 +337,53 @@ export default function Portfolio() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!editingStudent} onOpenChange={(open) => { if (!open) setEditingStudent(null); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl bg-card sm:max-w-xl">
+          <DialogHeader><DialogTitle className="text-primary">EDITAR ALUNO</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2"><Label>Nome completo *</Label><Input value={studentForm.full_name} onChange={(event) => setStudentForm({ ...studentForm, full_name: event.target.value })} /></div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2"><Label>E-mail</Label><Input value={studentForm.email} onChange={(event) => setStudentForm({ ...studentForm, email: event.target.value })} /></div>
+              <div className="space-y-2"><Label>WhatsApp</Label><Input value={studentForm.whatsapp} onChange={(event) => setStudentForm({ ...studentForm, whatsapp: formatPhone(event.target.value) })} /></div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2"><Label>CPF</Label><Input value={studentForm.cpf} onChange={(event) => setStudentForm({ ...studentForm, cpf: formatCPF(event.target.value) })} /></div>
+              <div className="space-y-2"><Label>CEP</Label><Input value={studentForm.cep} onChange={(event) => setStudentForm({ ...studentForm, cep: formatCEP(event.target.value) })} /></div>
+            </div>
+            <div className="space-y-2"><Label>Rua</Label><Input value={studentForm.address} onChange={(event) => setStudentForm({ ...studentForm, address: event.target.value })} /></div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2"><Label>Número</Label><Input value={studentForm.address_number} onChange={(event) => setStudentForm({ ...studentForm, address_number: event.target.value })} /></div>
+              <div className="space-y-2"><Label>Bairro</Label><Input value={studentForm.neighborhood} onChange={(event) => setStudentForm({ ...studentForm, neighborhood: event.target.value })} /></div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2"><Label>Cidade</Label><Input value={studentForm.city} onChange={(event) => setStudentForm({ ...studentForm, city: event.target.value })} /></div>
+              <div className="space-y-2"><Label>Estado</Label><Input value={studentForm.state} maxLength={2} onChange={(event) => setStudentForm({ ...studentForm, state: event.target.value })} /></div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2"><Label>Data de nascimento</Label><Input type="date" value={studentForm.birth_date} onChange={(event) => setStudentForm({ ...studentForm, birth_date: event.target.value })} /></div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={studentForm.status} onValueChange={(value) => setStudentForm({ ...studentForm, status: value })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="interested">Interessado</SelectItem>
+                    <SelectItem value="active">Ativo</SelectItem>
+                    <SelectItem value="pending">Pendente</SelectItem>
+                    <SelectItem value="awaiting_renewal">Aguardando renovação</SelectItem>
+                    <SelectItem value="inactive">Inativo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2"><Label>Observações</Label><Textarea rows={3} value={studentForm.notes} onChange={(event) => setStudentForm({ ...studentForm, notes: event.target.value })} /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingStudent(null)}>Cancelar</Button>
+            <Button onClick={saveStudent} disabled={savingStudent}>{savingStudent ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
