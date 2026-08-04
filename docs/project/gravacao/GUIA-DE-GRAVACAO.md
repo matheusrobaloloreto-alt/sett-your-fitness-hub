@@ -1,30 +1,26 @@
 # Guia de Gravação — Vídeos da Biblioteca BN
 
-**Para os 3 modelos.** São 926 exercícios divididos em 3 listas (~309 cada). Cada lista já vem
-agrupada por **estação da academia** — grave tudo de uma estação antes de trocar, é o que faz a
-gravação render.
+**Para os 3 modelos.** São 926 exercícios divididos em 3 listas (~309 cada), já agrupadas por
+**estação da academia** — grave tudo de uma estação antes de trocar, é o que faz render.
 
 ---
 
-## ⚠️ A regra que faz tudo funcionar: o nome do arquivo
+## Como funciona (é só isso)
 
-Cada linha da sua planilha tem uma coluna **`arquivo_final`**. O vídeo daquele exercício precisa ter
-**exatamente aquele nome**:
+Abra no celular a sua página — **`gravacao-modelo-N.html`**. Para cada exercício:
 
-```
-001-mergulho-em-banco.mp4
-```
+1. **Toque na imagem** para ver como se faz (o vídeo abre ali mesmo).
+2. **Toque em 🎥 Gravar** — a câmera abre sozinha.
+3. Grave, confirme. **O vídeo sobe automaticamente**, já ligado ao exercício certo.
 
-**O número de 3 dígitos no começo é o que importa** — é ele que liga o vídeo ao exercício certo no
-app. O resto do nome é só para humano conferir. Se o número estiver certo, está certo.
+Pronto. Sem renomear arquivo, sem mandar por WhatsApp, sem subir em pasta nenhuma. O botão fica
+**verde "✓ enviado"** e o exercício é marcado como gravado. A barra no topo mostra o progresso.
 
-- ✅ `047-supino-reto-barra.mp4`
-- ✅ `047-supino reto barra.MOV` (extensão e maiúsculas não importam)
-- ❌ `IMG_4823.mov` (não dá para saber que exercício é)
-- ❌ `supino.mp4` (sem número — vai depender de adivinhação)
-
-> **Dica:** renomeie **na hora**, logo depois de gravar cada exercício. Deixar 300 vídeos para
-> renomear no fim é onde tudo se perde.
+- **Deu erro no envio?** O botão fica vermelho — é só tocar nele de novo.
+- **Não gostou do take?** Toque em Gravar de novo no mesmo exercício. A regravação substitui a
+  anterior; vale sempre a última.
+- **Fechou a página?** O progresso fica salvo no celular. Continue de onde parou.
+- **Wi-Fi:** prefira gravar conectado no Wi-Fi. Os vídeos sobem um de cada vez para não travar.
 
 ---
 
@@ -33,55 +29,65 @@ app. O resto do nome é só para humano conferir. Se o número estiver certo, es
 | Item | Como fazer |
 |---|---|
 | **Celular** | Na **vertical** (em pé). É como o aluno vai ver no app. |
-| **Qualidade** | 1080p, 30fps. Não precisa 4K — o app comprime mesmo. |
 | **Duração** | **8 a 15 segundos.** 2 ou 3 repetições completas e bem feitas. |
 | **Enquadramento** | Corpo inteiro, ou o suficiente para ver a articulação que trabalha. Sem cortar pé/cabeça no movimento. |
-| **Ângulo** | O que mostra melhor a execução: geralmente 45° ou de lado. Agachamento/terra = de lado. Remada/puxada = 45°. |
+| **Ângulo** | O que mostra melhor a execução. Agachamento/terra = de lado. Remada/puxada = 45°. |
 | **Câmera** | **Parada** (apoiada ou tripé). Nada de câmera na mão seguindo o movimento. |
 | **Fundo** | O mais limpo possível. Evite gente passando atrás. |
 | **Luz** | De frente ou de cima. Evite gravar contra a janela (fica silhueta). |
 | **Roupa** | Que deixe ver as articulações. Sem roupa larga demais. |
 
 ### Não precisa se preocupar com:
-- **Áudio** — o app remove o som de todos os vídeos. Pode conversar à vontade durante a gravação.
-- **Edição** — não corte, não coloque música, não coloque texto. Manda cru.
-- **Capa/thumbnail** — o app gera sozinho, a partir do próprio vídeo.
+- **Áudio** — o app remove o som de todos os vídeos. Pode conversar durante a gravação.
+- **Edição** — não corte, não coloque música nem texto. Manda cru.
+- **Capa** — o app gera sozinho, a partir do próprio vídeo.
 
 ### Execução
-Faça o movimento **como o exercício deve ser feito** — é isso que o aluno vai copiar. Amplitude
-completa, ritmo controlado, sem pressa. Se errar no meio, grave de novo (é mais rápido que corrigir
-depois).
+Faça o movimento **como ele deve ser feito** — é isso que o aluno vai copiar. Amplitude completa,
+ritmo controlado, sem pressa. Se errar no meio, grave de novo (mais rápido que corrigir depois).
 
 ---
 
-## Onde entregar
+## Para o Matheus
 
-Jogue todos os vídeos na pasta do **Google Drive** combinada. Pode ser tudo na mesma pasta ou uma
-subpasta por modelo — o sistema acha de qualquer jeito, desde que **o nome do arquivo esteja certo**.
+### Publicar o que os modelos gravaram
 
-Não precisa avisar quando terminar um bloco: dá para importar em partes, quantas vezes for preciso.
-Se um vídeo for regravado depois, é só subir de novo com o mesmo nome que ele **substitui** o antigo.
+```bash
+node scripts/video-ingest.mjs --staging
+```
 
----
+Busca tudo que os celulares enviaram, comprime, gera as capas, publica no app e limpa a área de
+triagem. Antes disso, `--staging --dry-run` mostra o QA sem enviar nada. E a qualquer momento:
 
-## Para o Matheus — como importar
+```bash
+node scripts/video-ingest.mjs --status
+```
 
-1. A pasta do Drive precisa estar compartilhada como **"qualquer pessoa com o link"** (leitura).
-2. Me manda o link. Eu listo, baixo, comprimo, gero as capas, subo e ligo cada vídeo ao exercício.
-3. Recebe o relatório: quantos entraram, quais ficaram ambíguos e quais não bateram com nada.
+mostra a cobertura e o que ainda falta gravar.
 
-Por dentro (`scripts/video-ingest.mjs`):
+### Como funciona por dentro
+- A página usa a **câmera nativa** (`capture="environment"`), então sai na qualidade do aparelho,
+  com estabilização e tudo mais — melhor do que gravar dentro do navegador.
+- O upload vai para uma **área de triagem** (`_staging/`) com o código no nome. A página carrega um
+  **token que só assina upload nessa pasta** e não toca no banco: mesmo que o arquivo HTML vaze, o
+  pior caso é lixo numa pasta que você revisa antes de publicar. O segredo de admin nunca sai daqui.
+- Cada envio vira `<codigo>__<modelo>__<timestamp>`, então **regravar nunca sobrescreve** o take
+  anterior no envio — na publicação vence o mais recente.
+- Só depois de publicado o arquivo sai da triagem. Se algo falhar, o take original continua lá.
+- **Compressão**: 720p, sem áudio, `faststart`. ~1–2 MB por vídeo no app.
+- **QA automático**: arquivo corrompido vira falha; vídeo curto demais, longo demais, de baixa
+  resolução ou **com trecho congelado** entra no relatório de pendências.
+- **No banco**: grava `video_path` + `thumbnail_url` e **zera o YouTube** — o vídeo próprio vira a
+  fonte única, então capa e player nunca divergem.
+
+### Ainda dá para importar por pasta
+Se algum vídeo vier por fora (Drive, AirDrop, cartão), o caminho antigo continua valendo — basta o
+arquivo começar com o código de 3 dígitos:
 
 ```bash
 node scripts/video-ingest.mjs --dir ~/Downloads/videos-bn --dry-run
 ```
 
-- **Casamento**: pelo número do arquivo; sem número, tenta por similaridade de nome — e só aceita se
-  a melhor opção for claramente melhor que a segunda. Na dúvida, **não aplica**: entra no relatório
-  como ambíguo para decisão humana.
-- **Compressão**: 720p, sem áudio, `faststart` (toca sem baixar o vídeo inteiro). ~1–2 MB por vídeo.
-- **Capa**: quadro tirado a 1/3 do vídeo, quando o movimento já está acontecendo.
-- **No banco**: grava `video_path` + `thumbnail_url` e **zera o YouTube** — vídeo próprio vira a
-  fonte única, então capa e player nunca mais divergem.
-- **Regravação**: subir de novo com o mesmo nome substitui o arquivo anterior no storage.
-- É **retomável**: rodar de novo pula o que já baixou e já subiu.
+### Regerar as listas
+`python3 scripts/gerar-material-gravacao.py` — preserva os códigos já existentes e só numera
+exercício novo no fim. **Nunca renumere**: os modelos gravam vinculados a esses códigos.

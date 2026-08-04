@@ -40,11 +40,13 @@ const args = process.argv.slice(2);
 const flag = (n, d = null) => { const i = args.indexOf(`--${n}`); return i >= 0 ? (args[i + 1] ?? true) : d; };
 const DRY = args.includes("--dry-run");
 const STATUS = args.includes("--status");
+const STAGING = args.includes("--staging");
+let processadasDoStaging = [];
 const FORCE = args.includes("--force");
 const KEEP = args.includes("--keep-source");
 const JOBS = Math.max(1, parseInt(flag("jobs", "4"), 10) || 4);
 const MANIFEST = flag("manifest");
-const DIR = flag("dir") || (MANIFEST ? join(WORK, "download") : null);
+const DIR = flag("dir") || (MANIFEST || STAGING ? join(WORK, "download") : null);
 const ONLY = flag("only") ? String(flag("only")).split(",").map((s) => s.trim()) : null;
 const MAP_FILE = flag("map", "docs/project/gravacao/codigo-para-exercicio.json");
 
@@ -101,9 +103,42 @@ if (STATUS) {
   if (faltam.length > 20) console.log(`  ... e mais ${faltam.length - 20}`);
   process.exit(0);
 }
-if (!DIR) { console.error("Faltou --dir <pasta>, --manifest <drive.json> ou --status"); process.exit(1); }
+if (!DIR) { console.error("Faltou --dir <pasta>, --staging, --manifest <drive.json> ou --status"); process.exit(1); }
 
-// ---------- 0. Baixar do Google Drive ----------
+// ---------- 0a. Baixar as gravações feitas pelo celular (área de triagem) ----------
+if (STAGING) {
+  const { items } = await call({ action: "list-recordings" });
+  mkdirSync(DIR, { recursive: true });
+  console.log(`Gravações aguardando: ${items.length}`);
+  // Nome no storage: <codigo>__<modelo>__<timestamp>.<ext>. Se o mesmo exercício foi gravado
+  // mais de uma vez, vale o take mais recente — o modelo regravou porque não gostou do anterior.
+  const maisRecente = new Map();
+  for (const it of items) {
+    const cod = it.name.match(/^(\d{3})__/)?.[1];
+    if (!cod) continue;
+    const ts = Number(it.name.match(/__(\d+)\./)?.[1] || 0);
+    const atual = maisRecente.get(cod);
+    if (!atual || ts > atual.ts) maisRecente.set(cod, { ...it, ts, cod });
+  }
+  const antigos = items.length - maisRecente.size;
+  if (antigos) console.log(`  ${antigos} take(s) antigo(s) ignorado(s) (regravação vence)`);
+  const baixar = [...maisRecente.values()];
+  await pool(baixar, JOBS, async (it) => {
+    const ext = it.name.split(".").pop() || "mp4";
+    const destino = join(DIR, `${it.cod}-gravado.${ext}`);
+    if (existsSync(destino) && statSync(destino).size > 10000) return;
+    try {
+      await run("curl", ["-sL", "--fail", "--max-time", "900", "-o", destino, it.url], { maxBuffer: 1 << 20 });
+    } catch (e) {
+      rmSync(destino, { force: true });
+      console.log(`  ✖ ${it.name}: ${String(e.message || e).slice(0, 90)}`);
+    }
+  });
+  console.log(`Baixadas ${readdirSync(DIR).length} gravação(ões) para processar.\n`);
+  processadasDoStaging = items.map((i) => i.name);
+}
+
+// ---------- 0b. Baixar do Google Drive ----------
 if (MANIFEST) {
   const entradas = JSON.parse(readFileSync(resolve(process.cwd(), MANIFEST), "utf8"));
   mkdirSync(DIR, { recursive: true });
@@ -261,6 +296,19 @@ await pool(alvos, JOBS, async (m) => {
 let atualizados = 0;
 for (let k = 0; k < commits.length; k += 50) {
   atualizados += (await call({ action: "commit", items: commits.slice(k, k + 50) })).updated;
+}
+if (STAGING && atualizados && processadasDoStaging.length) {
+  // Só limpa a triagem depois que o vídeo está publicado: se algo falhar, o take original
+  // continua lá para uma nova tentativa.
+  const publicados = new Set(commits.map((c) => c.video_path.split("/")[1].replace(".mp4", "")));
+  const remover = processadasDoStaging.filter((n) => {
+    const cod = n.match(/^(\d{3})__/)?.[1];
+    return cod && codeMap[cod] && publicados.has(codeMap[cod].id);
+  });
+  if (remover.length) {
+    await call({ action: "remove-recordings", names: remover });
+    console.log(`Triagem limpa: ${remover.length} arquivo(s) já publicado(s).`);
+  }
 }
 const cov = await call({ action: "coverage" });
 

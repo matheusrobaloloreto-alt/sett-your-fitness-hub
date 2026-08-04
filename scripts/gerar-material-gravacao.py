@@ -92,18 +92,63 @@ li.ok{opacity:.5}li.ok .nome{text-decoration:line-through}
 button.cp{background:#2f4272;border:none;color:#F2EFE9;border-radius:6px;padding:5px 9px;font-size:11px;cursor:pointer;white-space:nowrap}
 .done{display:flex;gap:7px;align-items:center;padding:0 10px 10px;font-size:12.5px;color:#9fb0d4;cursor:pointer}
 .done input{flex:none;width:19px;height:19px;accent-color:#C9A227;min-width:0}
+.rec{margin:0 10px 10px}
+.rec button{width:100%;background:#C9A227;color:#0D1B3E;border:none;border-radius:9px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px}
+.rec button:disabled{opacity:.55;cursor:default}
+.rec.enviando button{background:#2f4272;color:#F2EFE9}
+.rec.enviado button{background:#1e7a4a;color:#fff}
+.rec.erro button{background:#8c2f2f;color:#fff}
+.up{height:4px;background:#0a1330;border-radius:2px;margin-top:6px;overflow:hidden;display:none}
+.rec.enviando .up{display:block}.up i{display:block;height:100%;background:#C9A227;width:0;transition:width .2s}
+.dica{font-size:11px;color:#9fb0d4;background:#16254c;border-radius:8px;padding:8px 10px;margin:0 10px 9px;line-height:1.4}
 .player{padding:0 10px 10px}.player:empty{padding:0}.player iframe,.player video{width:100%;aspect-ratio:16/9;border:0;border-radius:9px;background:#000}
 .desc{font-size:11.5px;color:#b9c6e2;padding:0 10px 9px;line-height:1.4}
 .empty{text-align:center;color:#9fb0d4;padding:36px 16px;font-size:13px}"""
 
-JS = """const K='bn-grav-%(m)s';
+JS = """const K='bn-grav-%(m)s',KS='bn-env-%(m)s',TOK='%(tok)s',FN='%(fn)s',ANON='%(anon)s';
 let done=JSON.parse(localStorage.getItem(K)||'[]');
+let enviados=JSON.parse(localStorage.getItem(KS)||'[]');
 const items=[...document.querySelectorAll('li')];
+
+// Fila de upload: um vídeo por vez. Na academia é 4G, e mandar 3 vídeos de 20MB em paralelo
+// derruba os três. Sequencial chega mais rápido e falha menos.
+const fila=[]; let ocupado=false;
+function estado(li,cls,txt,pct){const r=li.querySelector('.rec');
+ r.className='rec'+(cls?' '+cls:'');r.querySelector('b').textContent=txt;
+ if(pct!=null)r.querySelector('.up i').style.width=pct+'%%';}
+function marcarEnviado(li){const c=li.dataset.cod;
+ if(!enviados.includes(c)){enviados.push(c);localStorage.setItem(KS,JSON.stringify(enviados));}
+ if(!done.includes(c)){done.push(c);localStorage.setItem(K,JSON.stringify(done));}
+ li.classList.add('ok');li.querySelector('.done input').checked=true;prog();}
+async function processa(){
+ if(ocupado||!fila.length)return; ocupado=true;
+ const {li,file}=fila.shift(); const cod=li.dataset.cod;
+ try{
+  estado(li,'enviando','enviando... 0%%',0);
+  const ext=(file.name.split('.').pop()||'mp4').toLowerCase();
+  const r=await fetch(FN,{method:'POST',headers:{'Authorization':'Bearer '+ANON,'Content-Type':'application/json'},
+    body:JSON.stringify({action:'sign-recording',token:TOK,codigo:cod,ext})});
+  if(!r.ok)throw new Error('assinatura falhou');
+  const {signedUrl}=await r.json();
+  await new Promise((ok,err)=>{const x=new XMLHttpRequest();
+   x.open('PUT',signedUrl);x.setRequestHeader('Content-Type',file.type||'video/mp4');
+   x.upload.onprogress=e=>{if(e.lengthComputable)estado(li,'enviando','enviando... '+Math.round(e.loaded/e.total*100)+'%%',e.loaded/e.total*100);};
+   x.onload=()=>x.status<300?ok():err(new Error('HTTP '+x.status));
+   x.onerror=()=>err(new Error('sem conexão'));x.send(file);});
+  estado(li,'enviado','✓ enviado — gravar de novo');marcarEnviado(li);
+ }catch(e){estado(li,'erro','falhou: '+e.message+' — tocar p/ tentar de novo');}
+ ocupado=false;processa();}
 function prog(){const n=document.querySelectorAll('li.ok').length,t=items.length;
  document.querySelector('.prog i').style.width=(n/t*100)+'%%';
  document.querySelector('.progtxt').textContent=n+' de '+t+' gravados'+(n===t?' — acabou! 🎉':'');}
 items.forEach(li=>{const c=li.dataset.cod;
  if(done.includes(c)){li.classList.add('ok');li.querySelector('.done input').checked=true;}
+ if(enviados.includes(c))estado(li,'enviado','✓ enviado — gravar de novo');
+ const inp=li.querySelector('.rec input'),btn=li.querySelector('.rec button');
+ btn.addEventListener('click',()=>inp.click());
+ inp.addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];
+  if(!f)return; e.target.value='';
+  estado(li,'enviando','na fila...',0);fila.push({li,file:f});processa();});
  li.querySelector('.done input').addEventListener('change',e=>{
    if(e.target.checked){li.classList.add('ok');if(!done.includes(c))done.push(c);}
    else{li.classList.remove('ok');done=done.filter(x=>x!==c);}
@@ -129,6 +174,13 @@ prog();"""
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    # Token de upload por modelo, gerado fora do repo. Sem ele a página vira só consulta.
+    tok_path = Path.home() / ".bn-recording-tokens.json"
+    tokens_por_modelo = {}
+    if tok_path.exists():
+        tokens_por_modelo = {v: k for k, v in json.loads(tok_path.read_text()).items()}
+    else:
+        print("  aviso: ~/.bn-recording-tokens.json nao encontrado — paginas sem o botao Gravar")
     lib = carregar_biblioteca()
     mapa_path = OUT / "codigo-para-exercicio.json"
     mapa = json.loads(mapa_path.read_text(encoding="utf-8")) if mapa_path.exists() else {}
@@ -180,7 +232,7 @@ def main():
         with open(OUT / f"shot-list-modelo-{m}.csv", "w", newline="", encoding="utf-8-sig") as f:
             w = csv.DictWriter(f, fieldnames=COLS); w.writeheader()
             for r in itens: w.writerow(linha_csv(r))
-        gerar_html(m, itens)
+        gerar_html(m, itens, tokens_por_modelo.get(f'modelo-{m}', ''))
         print(f"  modelo {m}: {len(itens)} exercícios")
 
     with open(OUT / "shot-list-completo.csv", "w", newline="", encoding="utf-8-sig") as f:
@@ -191,7 +243,7 @@ def main():
                                     ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"  total: {len(linhas)} exercícios · {len(frageis)} sem vídeo (prioridade ALTA)")
 
-def gerar_html(m, itens):
+def gerar_html(m, itens, token):
     ests = sorted({r["estacao"] for r in itens})
     li = []
     for r in itens:
@@ -213,6 +265,10 @@ def gerar_html(m, itens):
             f'<div class="file"><code>{arq}</code><button class="cp" data-f="{arq}">copiar</button></div>'
             f'</div></div>{bloco_desc}'
             f'<div class="player"></div>'
+            # capture="environment" abre a câmera traseira direto; o vídeo volta para a página
+            # e sobe já vinculado ao código — ninguém precisa renomear nem achar o arquivo.
+            f'<div class="rec"><input type="file" accept="video/*" capture="environment" hidden>'
+            f'<button type="button"><b>🎥 Gravar</b></button><div class="up"><i></i></div></div>'
             f'<label class="done"><input type="checkbox"> já gravei este</label></li>')
     pag = (f'<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
            f'<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -223,8 +279,11 @@ def gerar_html(m, itens):
            f'<select id="est"><option value="">Todas as estações</option>'
            f'{"".join(f"<option>{html.escape(x)}</option>" for x in ests)}</select></div>'
            f'<div class="prog"><i></i></div><div class="progtxt"></div></header>'
+           f'<div class="dica">Toque em <b>🎥 Gravar</b> que a câmera abre. Ao confirmar o vídeo, ele '
+           f'sobe sozinho já ligado ao exercício certo — você não precisa renomear nem enviar nada. '
+           f'De preferência no Wi-Fi.</div>'
            f'<ul>{"".join(li)}</ul><div class="empty" style="display:none">Nada encontrado.</div>'
-           f'</div><script>{JS % {"m": m}}</script></body></html>')
+           f'</div><script>{JS % {"m": m, "tok": token, "fn": FN, "anon": ANON}}</script></body></html>')
     (OUT / f"gravacao-modelo-{m}.html").write_text(pag, encoding="utf-8")
 
 if __name__ == "__main__":

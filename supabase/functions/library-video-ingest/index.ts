@@ -21,10 +21,6 @@ const json = (body: unknown, status = 200) =>
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
-  const secret = Deno.env.get("VIDEO_INGEST_SECRET") || "";
-  const supplied = req.headers.get("x-webhook-secret") || "";
-  if (!secret || supplied !== secret) return json({ error: "forbidden" }, 403);
-
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -33,6 +29,51 @@ Deno.serve(async (req) => {
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "invalid json" }, 400); }
   const action = body?.action;
+
+  // --- Gravação pelo celular ---------------------------------------------------------------
+  // A página de gravação roda no navegador do modelo, então NÃO pode carregar o segredo de
+  // admin. Ela usa um token por modelo que só assina upload dentro de _staging/ e não toca no
+  // banco: o pior caso de um token vazado é lixo numa pasta de triagem que eu reviso antes de
+  // publicar.
+  if (action === "sign-recording") {
+    const tokens = JSON.parse(Deno.env.get("RECORDING_TOKENS") || "{}");
+    const quem = tokens[String(body?.token || "")];
+    if (!quem) return json({ error: "token inválido" }, 403);
+
+    const codigo = String(body?.codigo || "");
+    if (!/^\d{3}$/.test(codigo)) return json({ error: "código inválido" }, 400);
+    const ext = String(body?.ext || "mp4").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "mp4";
+    // Carimbo no nome: regravar não sobrescreve, então nunca se perde um take bom por engano.
+    const path = `_staging/${codigo}__${quem}__${Date.now()}.${ext}`;
+    const { data, error } = await admin.storage.from(BUCKET).createSignedUploadUrl(path);
+    if (error) return json({ error: error.message }, 500);
+    return json({ signedUrl: data.signedUrl, path });
+  }
+
+  // --- Daqui para baixo é só com o segredo de admin -----------------------------------------
+  const secret = Deno.env.get("VIDEO_INGEST_SECRET") || "";
+  const supplied = req.headers.get("x-webhook-secret") || "";
+  if (!secret || supplied !== secret) return json({ error: "forbidden" }, 403);
+
+  if (action === "list-recordings") {
+    const { data, error } = await admin.storage.from(BUCKET).list("_staging", {
+      limit: 1000, sortBy: { column: "name", order: "asc" },
+    });
+    if (error) return json({ error: error.message }, 500);
+    const itens = (data || []).filter((o: any) => o.name && !o.name.startsWith("."));
+    return json({ total: itens.length, items: itens.map((o: any) => ({
+      name: o.name, size: o.metadata?.size ?? null, created_at: o.created_at,
+      url: `${Deno.env.get("SUPABASE_URL")}/storage/v1/object/public/${BUCKET}/_staging/${encodeURIComponent(o.name)}`,
+    })) });
+  }
+
+  if (action === "remove-recordings") {
+    const nomes = (Array.isArray(body?.names) ? body.names : []).map((n: string) => `_staging/${n}`);
+    if (!nomes.length) return json({ error: "names vazio" }, 400);
+    const { error } = await admin.storage.from(BUCKET).remove(nomes);
+    if (error) return json({ error: error.message }, 500);
+    return json({ removed: nomes.length });
+  }
 
   if (action === "list") {
     const all: any[] = [];
