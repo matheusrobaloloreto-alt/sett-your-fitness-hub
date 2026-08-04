@@ -3,6 +3,15 @@ import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 
 type AppRole = "admin" | "coordinator" | "trainer" | "master" | "student" | null;
+const ROLE_PRIORITY: Exclude<AppRole, null>[] = ["master", "admin", "coordinator", "trainer", "student"];
+
+function resolvePrimaryRole(roles: unknown[]): AppRole {
+  const roleSet = new Set(roles.filter((value): value is Exclude<AppRole, null> => (
+    typeof value === "string" && ROLE_PRIORITY.includes(value as Exclude<AppRole, null>)
+  )));
+
+  return ROLE_PRIORITY.find((candidate) => roleSet.has(candidate)) ?? null;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -31,20 +40,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const roleFetchedFor = useRef<string | null>(null);
 
   const fetchRoleAndCompany = async (userId: string) => {
-    if (roleFetchedFor.current === userId && role !== null) {
-      setLoading(false);
-      return;
-    }
     try {
       const [roleRes, companyRes] = await Promise.all([
         supabase.rpc("get_user_role", { _user_id: userId }),
-        supabase.from("company_members").select("company_id").eq("user_id", userId).limit(1).maybeSingle(),
+        supabase.from("company_members").select("company_id").eq("user_id", userId).limit(1),
       ]);
-      setRole((roleRes.data as AppRole) || null);
-      setCompanyId(companyRes.data?.company_id || null);
+
+      let resolvedRole = (roleRes.data as AppRole) || null;
+
+      if (roleRes.error || !resolvedRole) {
+        if (roleRes.error) {
+          console.warn("Failed to resolve role via RPC, falling back to user_roles:", roleRes.error.message);
+        }
+
+        const fallbackRes = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", userId);
+
+        if (fallbackRes.error) {
+          console.error("Failed to resolve role from user_roles:", fallbackRes.error.message);
+        } else {
+          resolvedRole = resolvePrimaryRole((fallbackRes.data || []).map((row) => row.role));
+        }
+      }
+
+      if (companyRes.error) {
+        console.warn("Failed to resolve company membership:", companyRes.error.message);
+      }
+
+      setRole(resolvedRole);
+      setCompanyId(companyRes.data?.[0]?.company_id || null);
       roleFetchedFor.current = userId;
     } catch (err) {
       console.error("Failed to fetch role/company:", err);
+      setRole(null);
+      setCompanyId(null);
     }
     setLoading(false);
   };
