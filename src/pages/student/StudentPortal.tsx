@@ -182,12 +182,13 @@ export default function StudentPortal() {
     // Detecta quais prescrições existem para mostrar as abas condicionais (nutrição/corrida/natação/ciclismo).
     // RLS já permite o aluno ler nutrition_plans e running_plans próprios.
     {
-      const [{ data: nutritionRows }, { data: runs }] = await Promise.all([
+      const [{ data: nutritionRows }, { data: runs }, { data: anamnese }] = await Promise.all([
         (supabase as any).from("nutrition_plans").select("id, start_date, end_date").eq("student_id", student.id),
         (supabase as any).from("running_plans").select("sport, start_date, end_date").eq("student_id", student.id),
+        (supabase as any).from("student_anamneses").select("wants_nutrition, has_nutritionist").eq("student_id", student.id).maybeSingle(),
       ]);
       const isVisibleToday = (row: any) => (!row.start_date || row.start_date <= todayStr) && (!row.end_date || row.end_date >= todayStr);
-      setHasNutrition((nutritionRows ?? []).some(isVisibleToday));
+      setHasNutrition((nutritionRows ?? []).some(isVisibleToday) || (!!(anamnese as any)?.wants_nutrition && !!(anamnese as any)?.has_nutritionist));
       const sports = new Set<string>();
       (runs ?? []).filter(isVisibleToday).forEach((r: any) => { if (r.sport) sports.add(String(r.sport).toLowerCase()); });
       setRunningSports(sports);

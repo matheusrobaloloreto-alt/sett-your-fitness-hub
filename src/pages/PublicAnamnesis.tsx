@@ -115,6 +115,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [injuries, setInjuries] = useState("");
   const [currentPain, setCurrentPain] = useState("");
   const [nutrition, setNutrition] = useState("");
+  const [hasNutritionist, setHasNutritionist] = useState("");
   const [profession, setProfession] = useState("");
   const [sleepHours, setSleepHours] = useState("");
   const [restorativeSleep, setRestorativeSleep] = useState("");
@@ -290,7 +291,10 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
       ].filter(([value]) => !value).map(([, label]) => label);
     }
     if (targetStepId === "nutrition") {
-      return [[nutrition, "alimentação"]]
+      return [
+        [nutrition, "alimentação"],
+        [hasNutritionist, "se já faz acompanhamento com nutricionista"],
+      ]
         .filter(([value]) => !value).map(([, label]) => label);
     }
     if (targetStepId === "recovery") {
@@ -366,6 +370,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         injuries,
         current_pain: currentPain,
         nutrition,
+        has_nutritionist: hasNutritionist === "sim",
         profession,
         sleep_hours: sleepHours,
         restorative_sleep: restorativeSleep === "sim",
@@ -996,8 +1001,26 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             {currentStep.id === "nutrition" && (
             <>
             <div className="space-y-2">
-              <Label className="font-sans font-medium">Como é a sua alimentação? Faz acompanhamento com Nutricionista? *</Label>
+              <Label className="font-sans font-medium">Como é a sua alimentação hoje? *</Label>
               <Textarea value={nutrition} onChange={e => setNutrition(e.target.value)} placeholder="Ex: faço 4 refeições, como bem durante a semana e tenho mais dificuldade à noite" />
+            </div>
+            <div className="space-y-3 rounded-lg border border-border bg-background/50 p-4">
+              <Label className="font-sans font-medium">Você já faz acompanhamento com nutricionista? *</Label>
+              <RadioGroup value={hasNutritionist} onValueChange={setHasNutritionist} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                  <RadioGroupItem value="sim" />
+                  Sim, já tenho nutricionista
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                  <RadioGroupItem value="nao" />
+                  Não tenho nutricionista
+                </label>
+              </RadioGroup>
+              {hasNutritionist === "sim" && (
+                <p className="text-xs text-muted-foreground">
+                  Depois, no app do aluno, você poderá enviar ou colar o cardápio do seu nutricionista para deixarmos tudo organizado na aba Nutrição.
+                </p>
+              )}
             </div>
 
             <div className="space-y-4 rounded-lg border border-border p-4">

@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Apple, Utensils, Droplets, Flame, Beef, Wheat, Leaf, Loader2, Coffee, Dumbbell, Moon, Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Apple, Utensils, Droplets, Flame, Beef, Wheat, Leaf, Loader2, Coffee, Dumbbell, Moon, Check, ClipboardList, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { businessDateYmd } from "@/lib/businessDate";
 
@@ -36,6 +38,12 @@ interface NutritionRow {
   meals?: MealItem[] | null;
   start_date?: string | null;
   end_date?: string | null;
+}
+interface StudentNutritionContext {
+  wants_nutrition?: boolean | null;
+  has_nutritionist?: boolean | null;
+  nutrition_context?: string | null;
+  meals_per_day?: number | null;
 }
 
 const GOAL_LABEL: Record<string, string> = {
@@ -89,8 +97,12 @@ function Chip({ children, variant }: { children: React.ReactNode; variant: "eat"
 
 export function NutritionPlanView({ studentId }: { studentId: string }) {
   const [row, setRow] = useState<NutritionRow | null>(null);
+  const [anamnese, setAnamnese] = useState<StudentNutritionContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [generatingMeals, setGeneratingMeals] = useState(false);
+  const [savingExternalPlan, setSavingExternalPlan] = useState(false);
+  const [externalPlanText, setExternalPlanText] = useState("");
+  const [externalPlanError, setExternalPlanError] = useState("");
 
   // Rastreador de hidratação (interativo) — persiste por aluno + dia no localStorage.
   const dayKey = useMemo(() => businessDateYmd(), []);
@@ -111,7 +123,8 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
       setLoading(true);
       try {
         const today = businessDateYmd();
-        const { data } = await (supabase as any)
+        const [{ data }, { data: anamneseRow }] = await Promise.all([
+          (supabase as any)
           .from("nutrition_plans")
           .select("*")
           .eq("student_id", studentId)
@@ -119,7 +132,13 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
           .or(`end_date.is.null,end_date.gte.${today}`)
           .order("created_at", { ascending: false })
           .limit(1)
-          .maybeSingle();
+          .maybeSingle(),
+          (supabase as any)
+            .from("student_anamneses")
+            .select("wants_nutrition, has_nutritionist, nutrition_context, meals_per_day")
+            .eq("student_id", studentId)
+            .maybeSingle(),
+        ]);
         let visible = data;
         if (!visible) {
           const { data: legacy } = await (supabase as any).from("nutrition_plans").select("*")
@@ -128,11 +147,12 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
           visible = legacy;
         }
         if (!active) return;
+        setAnamnese((anamneseRow as StudentNutritionContext) ?? null);
         setRow((visible as NutritionRow) ?? null);
         setLoading(false);
         // Gera o plano de refeições sob demanda se ainda não existe (preenche nutrition_plans.meals).
         const existing = Array.isArray((visible as any)?.meals) ? (visible as any).meals : [];
-        if (visible && existing.length === 0) {
+        if (visible && existing.length === 0 && !(anamneseRow as any)?.has_nutritionist) {
           setGeneratingMeals(true);
           try {
             const { data: gen } = await supabase.functions.invoke("ai-nutrition-meals", { body: { student_id: studentId } });
@@ -151,6 +171,65 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
     return () => { active = false; };
   }, [studentId]);
 
+  const saveExternalPlan = async () => {
+    const rawText = externalPlanText.trim();
+    if (rawText.length < 10) {
+      setExternalPlanError("Cole o cardápio do seu nutricionista antes de salvar.");
+      return;
+    }
+    setSavingExternalPlan(true);
+    setExternalPlanError("");
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-nutrition-meals", {
+        body: { action: "save_external_plan", student_id: studentId, raw_text: rawText },
+      });
+      if (error || (data as any)?.error) throw new Error(error?.message || (data as any)?.error || "Não foi possível salvar o cardápio.");
+      const meals = Array.isArray((data as any)?.meals) ? (data as any).meals : [];
+      const savedPlan = (data as any)?.plan as NutritionRow | undefined;
+      setRow(savedPlan ?? {
+        name: "Cardápio do nutricionista",
+        plan_name: "Cardápio do nutricionista",
+        goal: "acompanhamento_nutricionista",
+        meals,
+      });
+      setExternalPlanText("");
+    } catch (error) {
+      setExternalPlanError(error instanceof Error ? error.message : "Não foi possível salvar o cardápio.");
+    } finally {
+      setSavingExternalPlan(false);
+    }
+  };
+
+  const externalPlanCard = (
+    <Card className="bg-card border-border border-dashed">
+      <CardContent className="p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <ClipboardList className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+          <div className="space-y-1">
+            <h3 className="font-display text-xl text-foreground leading-tight">Cardápio do seu nutricionista</h3>
+            <p className="text-sm text-muted-foreground font-sans">
+              Cole aqui o plano alimentar que você já recebeu. O app organiza as refeições para ficar no mesmo formato das dicas nutricionais.
+            </p>
+          </div>
+        </div>
+        <Textarea
+          value={externalPlanText}
+          onChange={(event) => setExternalPlanText(event.target.value)}
+          placeholder="Ex: Café da manhã 07:00 - ovos, pão e fruta&#10;Almoço 12:30 - arroz, feijão, frango e salada&#10;Jantar 20:30 - peixe, legumes e batata"
+          className="min-h-[180px]"
+        />
+        {externalPlanError && <p className="text-xs text-destructive">{externalPlanError}</p>}
+        <Button type="button" onClick={saveExternalPlan} disabled={savingExternalPlan} className="w-full">
+          {savingExternalPlan ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+          Salvar cardápio
+        </Button>
+        <p className="text-[11px] text-muted-foreground">
+          O app não altera a conduta do seu nutricionista; apenas transforma o material em uma visualização mais fácil de acompanhar.
+        </p>
+      </CardContent>
+    </Card>
+  );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-10">
@@ -160,6 +239,7 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
   }
 
   if (!row) {
+    if (anamnese?.has_nutritionist) return externalPlanCard;
     return (
       <Card className="bg-card border-border border-dashed">
         <CardContent className="p-6 text-center">
@@ -323,6 +403,8 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
               );
             })}
           </div>
+        ) : anamnese?.has_nutritionist ? (
+          externalPlanCard
         ) : (
           <Card className="bg-card border-border border-dashed">
             <CardContent className="p-5 text-center">

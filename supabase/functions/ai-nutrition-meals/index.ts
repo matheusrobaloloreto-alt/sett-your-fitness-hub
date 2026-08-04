@@ -43,13 +43,110 @@ function fallbackMeals(opts: { mealsPerDay: number; veg: boolean; goal: string }
   return base.slice(0, Math.min(Math.max(opts.mealsPerDay || 5, 3), 6));
 }
 
+const mealHeaderRe = /^(café|cafe|desjejum|colação|colacao|lanche|almoço|almoco|jantar|ceia|pré[\s-]?treino|pre[\s-]?treino|pós[\s-]?treino|pos[\s-]?treino|refei[cç][aã]o\s*\d+|\d+[ªa]?\s*refei[cç][aã]o)\b[:\-\s]*/i;
+const timeRe = /\b([01]?\d|2[0-3])[:h]([0-5]\d)\b/;
+
+function normalizeTime(value: string) {
+  const match = value.match(timeRe);
+  if (!match) return null;
+  return `${match[1].padStart(2, "0")}:${match[2]}`;
+}
+
+function normalizeMealLabel(value: string, index: number) {
+  const text = value
+    .replace(/cafe/i, "Café")
+    .replace(/almoco/i, "Almoço")
+    .replace(/pre[\s-]?treino/i, "Pré-treino")
+    .replace(/pos[\s-]?treino/i, "Pós-treino")
+    .trim();
+  if (!text) return `Refeição ${index + 1}`;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function parseExternalDietText(rawText: string, expectedMeals: number) {
+  const lines = clean(rawText)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[\s\-•*]+/, "").trim())
+    .filter(Boolean);
+  const meals: any[] = [];
+  let current: { meal: string; time: string | null; items: string[] } | null = null;
+
+  const pushCurrent = () => {
+    if (!current) return;
+    const items = current.items
+      .map((item) => item.replace(mealHeaderRe, "").replace(timeRe, "").replace(/^[\s:–—-]+/, "").trim())
+      .filter(Boolean);
+    meals.push({
+      meal: current.meal,
+      time: current.time,
+      focus: "Cardápio informado pelo nutricionista",
+      eat: items.length ? items : ["seguir o cardápio prescrito"],
+      go_easy: [],
+      note: "Siga as quantidades e substituições combinadas com seu nutricionista.",
+    });
+  };
+
+  for (const line of lines) {
+    const header = line.match(mealHeaderRe);
+    if (header) {
+      pushCurrent();
+      current = {
+        meal: normalizeMealLabel(header[1], meals.length),
+        time: normalizeTime(line),
+        items: [line.replace(header[0], "").trim()].filter(Boolean),
+      };
+    } else if (current) {
+      current.items.push(line);
+      if (!current.time) current.time = normalizeTime(line);
+    } else {
+      current = {
+        meal: `Refeição ${meals.length + 1}`,
+        time: normalizeTime(line),
+        items: [line],
+      };
+    }
+  }
+  pushCurrent();
+
+  if (meals.length <= 1 && lines.length > 1) {
+    const target = Math.min(Math.max(Number(expectedMeals) || 3, 1), 8);
+    const chunkSize = Math.max(1, Math.ceil(lines.length / target));
+    return Array.from({ length: Math.min(target, Math.ceil(lines.length / chunkSize)) }).map((_, index) => {
+      const chunk = lines.slice(index * chunkSize, index * chunkSize + chunkSize);
+      return {
+        meal: `Refeição ${index + 1}`,
+        time: normalizeTime(chunk.join(" ")),
+        focus: "Cardápio informado pelo nutricionista",
+        eat: chunk.map((item) => item.replace(timeRe, "").trim()).filter(Boolean),
+        go_easy: [],
+        note: "Siga as quantidades e substituições combinadas com seu nutricionista.",
+      };
+    });
+  }
+
+  return meals;
+}
+
+function sanitizeMeals(meals: any[]) {
+  return meals.slice(0, 8).map((m: any, index) => ({
+    meal: typeof m?.meal === "string" ? m.meal.slice(0, 60) : `Refeição ${index + 1}`,
+    time: typeof m?.time === "string" ? m.time.slice(0, 12) : null,
+    focus: typeof m?.focus === "string" ? m.focus.slice(0, 160) : null,
+    eat: Array.isArray(m?.eat) ? m.eat.filter((x: any) => typeof x === "string" && x.trim()).slice(0, 10).map((x: string) => x.slice(0, 110)) : [],
+    go_easy: Array.isArray(m?.go_easy) ? m.go_easy.filter((x: any) => typeof x === "string" && x.trim()).slice(0, 6).map((x: string) => x.slice(0, 80)) : [],
+    note: typeof m?.note === "string" ? m.note.slice(0, 200) : null,
+  }));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const claims = await getClaims(req);
   if (!claims?.sub) return json({ error: "Unauthorized" }, 401);
 
   try {
-    const { student_id } = await req.json();
+    const body = await req.json();
+    const { student_id } = body;
+    const action = String(body?.action || "generate");
     if (!student_id) return json({ error: "student_id obrigatório" }, 400);
 
     const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
@@ -71,11 +168,61 @@ serve(async (req) => {
     // Plano nutricional mais recente do aluno.
     const { data: plan } = await db
       .from("nutrition_plans")
-      .select("id, goal, target_calories, target_protein_g, target_carbs_g, target_fat_g, context_dietary_restrictions, ai_rationale, meals")
+      .select("id, name, plan_name, goal, target_calories, target_protein_g, target_carbs_g, target_fat_g, target_water_ml, context_dietary_restrictions, ai_rationale, meals, start_date, end_date")
       .eq("student_id", student_id)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    // Anamnese (nº de refeições, horários, treino).
+    const { data: anamnese } = await (db as any)
+      .from("student_anamneses")
+      .select("meals_per_day, food_restrictions, nutrition_context, has_nutritionist")
+      .eq("student_id", student_id)
+      .maybeSingle();
+
+    const mealsPerDay = Number(anamnese?.meals_per_day) || 5;
+
+    if (action === "save_external_plan") {
+      const rawText = String(body?.raw_text || "").trim();
+      if (rawText.length < 10) return json({ error: "Cole o cardápio do nutricionista antes de salvar." }, 400);
+
+      const safeMeals = sanitizeMeals(parseExternalDietText(rawText, mealsPerDay));
+      if (!safeMeals.length) return json({ error: "Não foi possível identificar refeições no cardápio informado." }, 422);
+
+      const planId = (plan as any)?.id || crypto.randomUUID();
+      const persistencePayload = {
+        id: planId,
+        company_id: student.company_id,
+        student_id,
+        name: "Cardápio do nutricionista",
+        plan_name: "Cardápio do nutricionista",
+        goal: (plan as any)?.goal || "acompanhamento_nutricionista",
+        target_calories: (plan as any)?.target_calories ?? null,
+        target_protein_g: (plan as any)?.target_protein_g ?? null,
+        target_carbs_g: (plan as any)?.target_carbs_g ?? null,
+        target_fat_g: (plan as any)?.target_fat_g ?? null,
+        target_water_ml: (plan as any)?.target_water_ml ?? null,
+        total_calories: (plan as any)?.target_calories ?? null,
+        protein_g: (plan as any)?.target_protein_g ?? null,
+        carbs_g: (plan as any)?.target_carbs_g ?? null,
+        fat_g: (plan as any)?.target_fat_g ?? null,
+        context_dietary_restrictions: anamnese?.food_restrictions ?? (plan as any)?.context_dietary_restrictions ?? null,
+        meals: safeMeals,
+        ai_rationale: "Cardápio informado pelo aluno a partir do acompanhamento com nutricionista.",
+        observations: "Material organizado pelo app sem alterar a prescrição do nutricionista.",
+        start_date: (plan as any)?.start_date ?? new Date().toISOString().slice(0, 10),
+        end_date: (plan as any)?.end_date ?? null,
+        status: "active",
+      };
+
+      const write = (plan as any)?.id
+        ? await db.from("nutrition_plans").update(persistencePayload).eq("id", (plan as any).id).select("*").maybeSingle()
+        : await db.from("nutrition_plans").insert(persistencePayload).select("*").maybeSingle();
+      if (write.error) throw write.error;
+      return json({ meals: safeMeals, cached: false, source: "nutritionist_upload", plan: write.data ?? persistencePayload });
+    }
+
     if (!plan) return json({ error: "Nenhum plano nutricional encontrado" }, 404);
 
     // Idempotente: já tem refeições → devolve.
@@ -83,16 +230,8 @@ serve(async (req) => {
       return json({ meals: (plan as any).meals, cached: true });
     }
 
-    // Anamnese (nº de refeições, horários, treino).
-    const { data: anamnese } = await (db as any)
-      .from("student_anamneses")
-      .select("meals_per_day, food_restrictions, nutrition_context")
-      .eq("student_id", student_id)
-      .maybeSingle();
-
     const restrictions = `${(plan as any).context_dietary_restrictions || ""} ${anamnese?.food_restrictions || ""}`.toLowerCase();
     const veg = /(vegetarian|vegan|vegano|vegetarian)/.test(restrictions);
-    const mealsPerDay = Number(anamnese?.meals_per_day) || 5;
 
     const userPrompt = `
 Gere o PLANO DE REFEIÇÕES PRÁTICO do aluno. Individualize pela rotina.
@@ -150,14 +289,7 @@ Retorne APENAS JSON válido, sem texto extra:
     }
 
     // Sanitiza e grava.
-    const safeMeals = meals.slice(0, 8).map((m: any) => ({
-      meal: typeof m?.meal === "string" ? m.meal.slice(0, 60) : "Refeição",
-      time: typeof m?.time === "string" ? m.time.slice(0, 12) : null,
-      focus: typeof m?.focus === "string" ? m.focus.slice(0, 160) : null,
-      eat: Array.isArray(m?.eat) ? m.eat.filter((x: any) => typeof x === "string").slice(0, 8).map((x: string) => x.slice(0, 80)) : [],
-      go_easy: Array.isArray(m?.go_easy) ? m.go_easy.filter((x: any) => typeof x === "string").slice(0, 6).map((x: string) => x.slice(0, 80)) : [],
-      note: typeof m?.note === "string" ? m.note.slice(0, 200) : null,
-    }));
+    const safeMeals = sanitizeMeals(meals);
 
     await db.from("nutrition_plans").update({ meals: safeMeals }).eq("id", (plan as any).id);
     return json({ meals: safeMeals, cached: false });

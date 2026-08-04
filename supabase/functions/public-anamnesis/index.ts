@@ -111,6 +111,7 @@ function buildNutritionContext(body: Record<string, any>) {
   }).filter(Boolean);
   return [
     body.nutrition && `Relato alimentar: ${cleanText(body.nutrition)}`,
+    body.has_nutritionist !== undefined && `Acompanhamento com nutricionista: ${boolValue(body.has_nutritionist) ? "sim" : "não"}`,
     `Refeições/dia: ${body.meals_per_day || "não informado"}`,
     mealTimes.length && `Horários habituais: ${mealTimes.join(", ")}`,
     body.meal_routine && `Horários ${routineLabels[body.meal_routine] || body.meal_routine}`,
@@ -226,6 +227,7 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
     budget_food: cleanText(body.budget_food || "moderado", 80),
     meals_per_day: numberOrNull(body.meals_per_day) || null,
     has_kitchen: body.has_kitchen === undefined ? true : boolValue(body.has_kitchen),
+    has_nutritionist: boolValue(body.has_nutritionist),
     wants_strength: strength,
     wants_running: running,
     wants_swimming: swimming,

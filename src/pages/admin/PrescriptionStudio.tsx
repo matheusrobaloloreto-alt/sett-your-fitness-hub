@@ -16,7 +16,7 @@ import { useMaster } from "@/contexts/MasterContext";
 import { useCompanyAiConfig } from "@/lib/companyAiConfig";
 import {
   Loader2, Copy, CheckCircle2, Circle, AlertCircle, Send, Download, Wand2,
-  Dumbbell, Activity, Waves, Bike, Apple, FileText, GripVertical, CalendarRange, Layers3,
+  Dumbbell, Activity, Waves, Bike, Apple, FileText, GripVertical, CalendarRange, Layers3, Play,
 } from "lucide-react";
 import VideoAssessment from "@/components/VideoAssessment";
 import { generateAllPDFs, generateAssessmentPDF } from "@/lib/generatePDFs";
@@ -36,6 +36,7 @@ import { openStudentChat } from "@/lib/studentChat";
 import { toast } from "sonner";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
+import { exerciseThumb, youtubeIdFromUrl } from "@/lib/exerciseCover";
 import {
   describeLongitudinalPhase,
   isCycleCurrent,
@@ -51,6 +52,16 @@ import {
 type Modality = "musculacao" | "corrida" | "natacao" | "ciclismo" | "nutricao";
 type GenStatus = "idle" | "generating" | "done" | "error";
 const db = supabase as any;
+
+type StudioLibraryExercise = {
+  id: string;
+  name: string;
+  muscle_group: string | null;
+  video_url?: string | null;
+  video_path?: string | null;
+  thumbnail_url?: string | null;
+  youtube_video_id?: string | null;
+};
 
 const MODALITIES: { id: Modality; icon: any; label: string; sub: string }[] = [
   { id: "musculacao", icon: Dumbbell, label: "Musculação", sub: "Força + biomecânica" },
@@ -78,7 +89,7 @@ export default function PrescriptionStudio() {
   const [sendingAssess, setSendingAssess] = useState(false);
   const [editPlan, setEditPlan] = useState<any | null>(null);
   const [showEdit, setShowEdit] = useState(false);
-  const [library, setLibrary] = useState<{ id: string; name: string; muscle_group: string | null }[]>([]);
+  const [library, setLibrary] = useState<StudioLibraryExercise[]>([]);
   // #4 Templates de ciclo — salvar a prescrição editada e reusar em outros alunos.
   const [templates, setTemplates] = useState<{ id: string; name: string; plan: any }[]>([]);
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -761,10 +772,119 @@ export default function PrescriptionStudio() {
   // Biblioteca de exercícios para o seletor ao adicionar exercício na edição.
   useEffect(() => {
     (async () => {
-      const { data } = await db.from("exercise_library").select("id, name, muscle_group").order("name");
-      setLibrary(((data as any[]) || []).map((r) => ({ id: r.id, name: r.name, muscle_group: r.muscle_group })));
+      const { data } = await db
+        .from("exercise_library")
+        .select("id, name, muscle_group, video_url, video_path, thumbnail_url, youtube_video_id")
+        .order("name");
+      setLibrary(((data as any[]) || []).map((r) => ({
+        id: r.id,
+        name: r.name,
+        muscle_group: r.muscle_group,
+        video_url: r.video_url || null,
+        video_path: r.video_path || null,
+        thumbnail_url: r.thumbnail_url || null,
+        youtube_video_id: r.youtube_video_id || null,
+      })));
     })();
   }, []);
+  const normalizeExerciseName = (value?: string | null) =>
+    (value || "").trim().toLowerCase();
+  const findLibraryExercise = (exercise: any): StudioLibraryExercise | null => {
+    const id = exercise?.exercise_id;
+    if (id) {
+      const byId = library.find((item) => item.id === id);
+      if (byId) return byId;
+    }
+
+    const names = [
+      exercise?.library_exercise_name,
+      exercise?.exercise_name,
+      exercise?.name,
+    ].map(normalizeExerciseName).filter(Boolean);
+    if (names.length === 0) return null;
+
+    return library.find((item) => names.includes(normalizeExerciseName(item.name))) || null;
+  };
+  const exerciseStorageUrl = (path?: string | null) => {
+    if (!path) return null;
+    if (path.startsWith("http")) return path;
+    return supabase.storage.from("exercises-videos").getPublicUrl(path).data.publicUrl;
+  };
+  const exerciseVideoUrl = (exercise?: any, libraryExercise?: StudioLibraryExercise | null) => {
+    const storedPath = exercise?.video_path || libraryExercise?.video_path;
+    const storedUrl = exerciseStorageUrl(storedPath);
+    if (storedUrl) return storedUrl;
+
+    const videoUrl = exercise?.video_url || libraryExercise?.video_url;
+    if (videoUrl) return videoUrl;
+
+    const youtubeId = exercise?.youtube_video_id || libraryExercise?.youtube_video_id;
+    return youtubeId ? `https://www.youtube.com/watch?v=${youtubeId}` : null;
+  };
+  const isDirectVideoUrl = (url?: string | null) =>
+    !!url && /\.(mp4|webm|mov)(\?|#|$)/i.test(url);
+  const ExerciseVideoPreview = ({
+    exercise,
+    libraryExercise,
+    interactive = true,
+  }: {
+    exercise?: any;
+    libraryExercise?: StudioLibraryExercise | null;
+    interactive?: boolean;
+  }) => {
+    const videoUrl = exerciseVideoUrl(exercise, libraryExercise);
+    const thumbUrl = exerciseThumb({
+      youtube_video_id: exercise?.youtube_video_id || libraryExercise?.youtube_video_id || null,
+      video_url: exercise?.video_url || libraryExercise?.video_url || null,
+      video_path: exercise?.video_path || libraryExercise?.video_path || null,
+      thumbnail_url: exercise?.thumbnail_url || libraryExercise?.thumbnail_url || null,
+    });
+    const youtubeThumb = videoUrl ? youtubeIdFromUrl(videoUrl) : null;
+    const poster = thumbUrl || (youtubeThumb ? `https://i.ytimg.com/vi/${youtubeThumb}/hqdefault.jpg` : null);
+    const className = "relative h-11 w-14 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm";
+    const content = (
+      <>
+        {poster ? (
+          <img src={poster} alt="" loading="lazy" className="h-full w-full object-cover" />
+        ) : videoUrl && isDirectVideoUrl(videoUrl) ? (
+          <video src={videoUrl} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+        ) : (
+          <span className="flex h-full w-full items-center justify-center">
+            <Dumbbell className="h-4 w-4 text-slate-400" />
+          </span>
+        )}
+        {videoUrl && (
+          <span className="absolute inset-0 flex items-center justify-center bg-black/15">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/90 shadow-sm">
+              <Play className="h-3 w-3 fill-[#1B2B4A] text-[#1B2B4A]" />
+            </span>
+          </span>
+        )}
+      </>
+    );
+
+    if (!interactive || !videoUrl) {
+      return (
+        <div className={className} title={videoUrl ? "Vídeo do exercício" : "Sem vídeo cadastrado"}>
+          {content}
+        </div>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        className={`${className} hover:ring-2 hover:ring-[#1B2B4A]/20`}
+        title="Abrir vídeo do exercício"
+        onClick={(event) => {
+          event.stopPropagation();
+          window.open(videoUrl, "_blank", "noopener,noreferrer");
+        }}
+      >
+        {content}
+      </button>
+    );
+  };
   const updateExField = (wi: number, ei: number, field: string, value: any) =>
     setEditPlan((p: any) => { if (!p) return p; const n = JSON.parse(JSON.stringify(p)); if (n.workouts?.[wi]?.exercises?.[ei]) n.workouts[wi].exercises[ei][field] = value; return n; });
   const updateWName = (wi: number, value: string) =>
@@ -808,7 +928,7 @@ export default function PrescriptionStudio() {
       return n;
     });
   // Adiciona um exercício escolhido da BIBLIOTECA (com exercise_id → vídeo etc. no app).
-  const pickExercise = (lib: { id: string; name: string; muscle_group: string | null }) => {
+  const pickExercise = (lib: StudioLibraryExercise) => {
     if (!pickerTarget) return;
     const { wi, ei } = pickerTarget;
     setEditPlan((p: any) => {
@@ -1446,9 +1566,11 @@ export default function PrescriptionStudio() {
                                 <button type="button" onClick={() => removeWorkout(wi)} className="text-xs text-red-500 px-2 shrink-0 whitespace-nowrap">Remover treino</button>
                               </div>
                               <div className="grid grid-cols-12 gap-1 text-[10px] text-slate-400 uppercase px-0.5">
-                                <span className="col-span-1">Arrastar</span><span className="col-span-2">Exercício</span><span className="col-span-1">Sér</span><span className="col-span-2">Reps</span><span className="col-span-2">Desc(s)</span><span className="col-span-3">Obs</span><span className="col-span-1"></span>
+                                <span className="col-span-1">Arrastar</span><span className="col-span-1">Vídeo</span><span className="col-span-2">Exercício</span><span className="col-span-1">Sér</span><span className="col-span-2">Reps</span><span className="col-span-2">Desc(s)</span><span className="col-span-2">Obs</span><span className="col-span-1"></span>
                               </div>
-                              {(w.exercises || []).map((ex: any, ei: number) => (
+                              {(w.exercises || []).map((ex: any, ei: number) => {
+                                const libraryExercise = findLibraryExercise(ex);
+                                return (
                                 <div
                                   key={`${ex.exercise_id || ex.exercise_name || "exercise"}-${ei}`}
                                   draggable
@@ -1475,7 +1597,7 @@ export default function PrescriptionStudio() {
                                     dragExercise?.wi === wi && dragExercise?.ei === ei ? "bg-[#F5EDD8]/70 opacity-70" : "hover:bg-slate-50"
                                   }`}
                                 >
-                                  <div className="col-span-3 sm:col-span-1 flex items-center">
+                                  <div className="col-span-2 sm:col-span-1 flex items-center">
                                     <button
                                       type="button"
                                       className="h-7 w-8 inline-flex items-center justify-center rounded border border-slate-200 text-slate-500 cursor-grab active:cursor-grabbing hover:bg-white"
@@ -1485,14 +1607,23 @@ export default function PrescriptionStudio() {
                                       <GripVertical className="h-4 w-4" />
                                     </button>
                                   </div>
-                                  <button type="button" onClick={() => { setPickerTarget({ wi, ei }); setPickerSearch(""); setPickerGroup(""); }} className="col-span-9 sm:col-span-2 text-xs font-medium truncate text-left hover:text-[#1B2B4A] hover:underline" title="Trocar exercício (biblioteca)">{ex.exercise_name || "—"} ✎</button>
+                                  <div className="col-span-3 sm:col-span-1">
+                                    <ExerciseVideoPreview exercise={ex} libraryExercise={libraryExercise} />
+                                  </div>
+                                  <button type="button" onClick={() => { setPickerTarget({ wi, ei }); setPickerSearch(""); setPickerGroup(""); }} className="col-span-7 sm:col-span-2 min-w-0 text-xs font-medium text-left hover:text-[#1B2B4A] hover:underline" title="Trocar exercício (biblioteca)">
+                                    <span className="block truncate">{ex.exercise_name || "—"} ✎</span>
+                                    {libraryExercise?.muscle_group && (
+                                      <span className="block truncate text-[10px] font-normal text-slate-400">{libraryExercise.muscle_group}</span>
+                                    )}
+                                  </button>
                                   <Input className="col-span-3 sm:col-span-1 h-7 text-xs px-1" value={String(ex.sets ?? "")} onChange={e => updateExField(wi, ei, "sets", e.target.value)} placeholder="séries" />
                                   <Input className="col-span-3 sm:col-span-2 h-7 text-xs px-1" value={String(ex.reps ?? "")} onChange={e => updateExField(wi, ei, "reps", e.target.value)} placeholder="reps" />
                                   <Input className="col-span-3 sm:col-span-2 h-7 text-xs px-1" value={String(ex.rest_seconds ?? "")} onChange={e => updateExField(wi, ei, "rest_seconds", e.target.value)} placeholder="desc(s)" />
-                                  <Input className="col-span-9 sm:col-span-3 h-7 text-xs px-1" value={ex.cues || ex.notes || ""} onChange={e => updateExField(wi, ei, "cues", e.target.value)} placeholder="obs" />
+                                  <Input className="col-span-9 sm:col-span-2 h-7 text-xs px-1" value={ex.cues || ex.notes || ""} onChange={e => updateExField(wi, ei, "cues", e.target.value)} placeholder="obs" />
                                   <button type="button" onClick={() => removeExercise(wi, ei)} className="col-span-3 sm:col-span-1 text-red-500 text-sm" title="Remover exercício">✕</button>
                                 </div>
-                              ))}
+                                );
+                              })}
                               <button type="button" onClick={() => { setPickerTarget(pickerTarget?.wi === wi && pickerTarget?.ei == null ? null : { wi, ei: null }); setPickerSearch(""); setPickerGroup(""); }} className="text-xs text-[#1B2B4A] underline mt-1">+ Adicionar exercício</button>
                               {pickerTarget?.wi === wi && (
                                 <div className="mt-2 border rounded-lg p-2 bg-slate-50">
@@ -1512,9 +1643,12 @@ export default function PrescriptionStudio() {
                                       .filter(l => !pickerGroup || l.muscle_group === pickerGroup)
                                       .filter(l => (l.name || "").toLowerCase().includes(pickerSearch.trim().toLowerCase()))
                                       .slice(0, 60).map(l => (
-                                        <button type="button" key={l.id} onClick={() => pickExercise(l)} className="w-full text-left text-xs px-2 py-1 rounded border border-transparent hover:bg-white hover:border-slate-200 flex justify-between gap-2">
-                                          <span className="truncate">{l.name}</span>
-                                          {l.muscle_group && <span className="text-slate-400 shrink-0">{l.muscle_group}</span>}
+                                        <button type="button" key={l.id} onClick={() => pickExercise(l)} className="w-full text-left text-xs px-2 py-1 rounded-xl border border-transparent hover:bg-white hover:border-slate-200 flex items-center gap-2">
+                                          <ExerciseVideoPreview libraryExercise={l} interactive={false} />
+                                          <span className="min-w-0 flex-1">
+                                            <span className="block truncate">{l.name}</span>
+                                            {l.muscle_group && <span className="block text-[10px] text-slate-400 truncate">{l.muscle_group}</span>}
+                                          </span>
                                         </button>
                                       ))}
                                   </div>

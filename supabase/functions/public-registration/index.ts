@@ -158,6 +158,7 @@ function buildNutritionContext(body: Record<string, unknown>) {
   }).filter(Boolean);
   return [
     body.nutrition && `Relato alimentar: ${cleanLongText(body.nutrition)}`,
+    body.has_nutritionist !== undefined && `Acompanhamento com nutricionista: ${boolValue(body.has_nutritionist) ? "sim" : "não"}`,
     `Refeições/dia: ${body.meals_per_day || "não informado"}`,
     mealTimes.length && `Horários habituais: ${mealTimes.join(", ")}`,
     body.meal_routine && `Horários ${routineLabels[String(body.meal_routine)] || body.meal_routine}`,
@@ -446,6 +447,7 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
     budget_food: cleanLongText(answers.budget_food || "moderado", 80) || null,
     meals_per_day: numberOrNull(answers.meals_per_day),
     has_kitchen: answers.has_kitchen === undefined ? true : boolValue(answers.has_kitchen),
+    has_nutritionist: boolValue(answers.has_nutritionist),
     notes,
     wants_strength: strength,
     wants_running: running,

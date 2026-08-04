@@ -886,7 +886,7 @@ export default function WorkoutBuilder() {
                 <Save className="h-4 w-4 mr-2" />Salvar na biblioteca
               </Button>
             )}
-            <Button onClick={handleSaveAll} disabled={saving} size="lg">
+            <Button onClick={handleSaveAll} disabled={saving} size="sm">
               <Save className="h-4 w-4 mr-2" />
               {saving ? "Salvando..." : isTemplate ? "Salvar na Biblioteca" : "Salvar Tudo"}
             </Button>
