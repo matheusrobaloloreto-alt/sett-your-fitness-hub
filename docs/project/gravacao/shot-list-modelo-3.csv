@@ -1,0 +1,309 @@
+﻿codigo,arquivo_final,nome_exercicio,grupo_muscular,estacao,prioridade
+002,002-agachamento-bulgaro-smith.mp4,Agachamento Búlgaro Smith,quadríceps,Barra,ALTA
+003,003-agachamento-livre-com-barra.mp4,Agachamento livre com barra,Peso Livre,Barra,ALTA
+004,004-agachamento-smith.mp4,Agachamento Smith,quadríceps,Barra,ALTA
+005,005-barra-fixa-pronada.mp4,Barra Fixa Pronada,costas,Barra,ALTA
+006,006-bom-dia-smith.mp4,Bom dia Smith,posterior de coxa,Barra,ALTA
+007,007-flexao-de-punho-na-barra-fixa-ou-antebraco-na-barra-fixa.mp4,Flexão de Punho na Barra Fixa ou Antebraço na Barra Fixa,antebraço,Barra,ALTA
+008,008-levantamento-terra.mp4,Levantamento terra,Peso Livre,Barra,ALTA
+009,009-rack-pulls-smith.mp4,Rack Pulls Smith,posterior de coxa,Barra,ALTA
+010,010-rdl-b-stance-barra.mp4,RDL B-Stance Barra,posterior de coxa,Barra,ALTA
+011,011-rosca-direta-barra-w.mp4,Rosca Direta Barra W,bíceps,Barra,ALTA
+012,012-snatch-arranco-com-barra.mp4,Snatch (arranco) com barra,Peso Livre,Barra,ALTA
+013,013-supino-inclinado-barra.mp4,Supino Inclinado Barra,peitoral,Barra,ALTA
+014,014-supino-inclinado-smith-com-dead-stop.mp4,Supino Inclinado Smith com Dead Stop,peitoral,Barra,ALTA
+015,015-afundo-barra-livre.mp4,Afundo Barra Livre,quadríceps,Barra,normal
+016,016-afundo-smith.mp4,Afundo Smith,quadríceps,Barra,normal
+017,017-afundo-smith-2-steps.mp4,Afundo Smith 2 Steps,quadríceps,Barra,normal
+018,018-afundo-smith-com-step-na-frente.mp4,Afundo Smith com Step na Frente,quadríceps,Barra,normal
+019,019-agachamento-bulgaro-barra-livre.mp4,Agachamento Búlgaro Barra Livre,quadríceps,Barra,normal
+020,020-agachamento-frontal.mp4,Agachamento frontal,Peso Livre,Barra,normal
+021,021-agachamento-no-banco-smith.mp4,Agachamento no Banco Smith,quadríceps,Barra,normal
+022,022-avanco-com-barra-reta-afundo.mp4,Avanço com Barra Reta ( afundo ),Quadríceps,Barra,normal
+023,023-barra-fixa-pull-up.mp4,Barra fixa (pull-up),Peso Corporal,Barra,normal
+024,024-barra-fixa-neutra.mp4,Barra Fixa Neutra,costas,Barra,normal
+025,025-barra-fixa-supinada.mp4,Barra Fixa Supinada,costas,Barra,normal
+026,026-barra-supinada-chin-up.mp4,Barra supinada (chin-up),Peso Corporal,Barra,normal
+027,027-biset-rosca-direta-rosca-invertida-barra-w.mp4,Biset Rosca Direta + Rosca Invertida Barra W,bíceps,Barra,normal
+028,028-biset-triceps-testa-supino-fechado-barra.mp4,Biset Tríceps Testa + Supino Fechado Barra,tríceps,Barra,normal
+029,029-desenvolvimento-barra-sentado.mp4,Desenvolvimento Barra Sentado,ombro,Barra,normal
+030,030-desenvolvimento-militar.mp4,Desenvolvimento militar,Peso Livre,Barra,normal
+031,031-desenvolvimento-sentado-smith.mp4,Desenvolvimento Sentado Smith,ombro,Barra,normal
+032,032-drop-jump-barra-plio.mp4,Drop jump barra (plio),Musculação,Barra,normal
+033,033-elevacao-frontal-barra.mp4,Elevação Frontal Barra,ombro,Barra,normal
+034,034-elevacao-pelvica-barra.mp4,Elevação Pélvica Barra,glúteo,Barra,normal
+035,035-elevacao-pelvica-smith.mp4,Elevação Pélvica Smith,glúteo,Barra,normal
+036,036-encolhimento-inclinado-smith.mp4,Encolhimento Inclinado Smith,trapézio,Barra,normal
+037,037-encolhimento-overhead-barra.mp4,Encolhimento Overhead Barra,trapézio,Barra,normal
+038,038-encolhimento-overhead-smith.mp4,Encolhimento Overhead Smith,trapézio,Barra,normal
+039,039-encolhimento-smith.mp4,Encolhimento Smith,trapézio,Barra,normal
+040,040-flexao-aberta-smith.mp4,Flexão Aberta Smith,peitoral,Barra,normal
+041,041-flexao-fechada-smith.mp4,Flexão Fechada Smith,tríceps,Barra,normal
+042,042-good-morning.mp4,Good morning,Peso Livre,Barra,normal
+043,043-hang-clean.mp4,Hang clean,Peso Livre,Barra,normal
+044,044-hip-thrust-com-barra.mp4,Hip thrust com barra,Peso Livre,Barra,normal
+045,045-hip-thrust-explosivo.mp4,Hip thrust explosivo,Performance,Barra,normal
+046,046-muscle-up-progressao.mp4,Muscle-up (progressão),Peso Corporal,Barra,normal
+047,047-panturrilha-smith-com-step.mp4,Panturrilha Smith com Step,panturrilha,Barra,normal
+048,048-passada-barra.mp4,Passada Barra,quadríceps,Barra,normal
+049,049-passada-com-barra-reta-afundo.mp4,Passada com Barra Reta ( afundo),Quadríceps,Barra,normal
+050,050-power-clean.mp4,Power clean,Peso Livre,Barra,normal
+051,051-pulldown-barra.mp4,Pulldown barra,costas,Barra,normal
+052,052-rdl-barra.mp4,RDL Barra,posterior de coxa,Barra,normal
+053,053-recuo-barra-livre.mp4,Recuo Barra Livre,quadríceps,Barra,normal
+054,054-recuo-com-barra-reta-afundo.mp4,Recuo com Barra Reta ( afundo ),Quadríceps,Barra,normal
+055,055-recuo-smith.mp4,Recuo Smith,quadríceps,Barra,normal
+056,056-recuo-smith-com-step-na-frente.mp4,Recuo Smith com Step na Frente,quadríceps,Barra,normal
+057,057-remada-aberta-smith-barra.mp4,Remada aberta Smith/Barra,Dorsal,Barra,normal
+058,058-remada-alta-barra.mp4,Remada Alta Barra,ombro,Barra,normal
+059,059-remada-alta-no-smith.mp4,Remada Alta no Smith,ombro,Barra,normal
+060,060-remada-australiana-inverted-row.mp4,Remada australiana (inverted row),Peso Corporal,Barra,normal
+061,061-remada-cavalinho.mp4,Remada cavalinho,Peso Livre,Barra,normal
+062,062-remada-curvada-com-barra.mp4,Remada curvada com barra,Peso Livre,Barra,normal
+063,063-remada-curvada-pronada-barra.mp4,Remada Curvada Pronada Barra,costas,Barra,normal
+064,064-remada-curvada-pronada-barra-com-rotacao.mp4,Remada Curvada Pronada Barra com Rotação,costas,Barra,normal
+065,065-remada-curvada-pronada-smith.mp4,Remada Curvada Pronada Smith,costas,Barra,normal
+066,066-remada-curvada-supinada-barra.mp4,Remada Curvada Supinada Barra,costas,Barra,normal
+067,067-remada-curvada-supinada-smith.mp4,Remada Curvada Supinada Smith,costas,Barra,normal
+068,068-rosca-scott-barra.mp4,Rosca Scott Barra,bíceps,Barra,normal
+069,069-salto-barra-hexagonal-c-contramovimento-pre-plio.mp4,Salto barra Hexagonal c/ contramovimento ( pré plio ),Musculação,Barra,normal
+070,070-salto-barra-hexagonal-continuo-pre-plio.mp4,Salto Barra Hexagonal Contínuo ( pré plio ),Musculação,Barra,normal
+071,071-salto-com-barra-hexagonal-s-contramovimento-pre-plio.mp4,Salto com Barra Hexagonal S/ contramovimento ( pré plio ),Musculação,Barra,normal
+072,072-step-up-smith.mp4,Step Up Smith,quadríceps,Barra,normal
+073,073-stiff.mp4,Stiff,Peso Livre,Barra,normal
+074,074-stiff-abduzido-barra.mp4,Stiff Abduzido Barra,posterior de coxa,Barra,normal
+075,075-stiff-b-stance-barra.mp4,Stiff B-Stance Barra,posterior de coxa,Barra,normal
+076,076-stiff-barra.mp4,Stiff Barra,posterior de coxa,Barra,normal
+077,077-stiff-com-barra-reta-romanian-deadlift.mp4,Stiff com Barra Reta ( Romanian Deadlift ),Quadríceps,Barra,normal
+078,078-stiff-smith.mp4,Stiff Smith,posterior de coxa,Barra,normal
+079,079-supino-declinado-barra.mp4,Supino Declinado Barra,peitoral,Barra,normal
+080,080-supino-fechado-barra.mp4,Supino Fechado Barra,tríceps,Barra,normal
+081,081-supino-fechado-smith.mp4,Supino Fechado Smith,tríceps,Barra,normal
+082,082-supino-inclinado-smith.mp4,Supino Inclinado Smith,peitoral,Barra,normal
+083,083-supino-reto-barra.mp4,Supino Reto Barra,peitoral,Barra,normal
+084,084-supino-reto-com-barra.mp4,Supino reto com barra,Peso Livre,Barra,normal
+085,085-supino-reto-smith.mp4,Supino Reto Smith,peitoral,Barra,normal
+086,086-terra-barra-hexagonal.mp4,Terra Barra Hexagonal,Quadríceps,Barra,normal
+087,087-terra-com-barra-reta-deadlift.mp4,Terra com Barra Reta ( Deadlift ),Quadríceps,Barra,normal
+088,088-terra-romeno.mp4,Terra romeno,Peso Livre,Barra,normal
+089,089-terra-sumo.mp4,Terra sumô,Peso Livre,Barra,normal
+090,090-triceps-testa-barra-banco-45.mp4,Tríceps Testa Barra Banco 45,tríceps,Barra,normal
+091,091-triceps-testa-barra-banco-reto.mp4,Tríceps Testa Barra Banco Reto,tríceps,Barra,normal
+092,092-triceps-testa-barra-solo.mp4,Tríceps Testa Barra Solo,tríceps,Barra,normal
+093,093-prancha-na-bola-suica.mp4,Prancha na bola suíça,Core,Bola Suíça,normal
+094,094-stir-the-pot-na-bola.mp4,Stir the pot na bola,Core,Bola Suíça,normal
+192,192-drop-to-stick-queda-da-caixa-e-estabiliza.mp4,Drop to stick (queda da caixa e estabiliza),Performance,Caixa/Pliometria,ALTA
+193,193-fisio-joelho-salto-em-profundidade-energy-storage.mp4,Fisio Joelho: salto em profundidade (energy storage),Fisioterapia,Caixa/Pliometria,ALTA
+194,194-hurdle-hops-frontais.mp4,Hurdle hops frontais,Pliometria,Caixa/Pliometria,ALTA
+195,195-hurdle-hops-reativos-rebote-rapido.mp4,Hurdle hops reativos (rebote rápido),Performance,Caixa/Pliometria,ALTA
+196,196-afundo-pliometrico.mp4,Afundo pliométrico,Musculação,Caixa/Pliometria,normal
+197,197-aterrissagem-de-caixa-box-drop-landing.mp4,Aterrissagem de caixa (box drop landing),Performance,Caixa/Pliometria,normal
+198,198-aterrissagem-de-caixa-unipodal.mp4,Aterrissagem de caixa unipodal,Performance,Caixa/Pliometria,normal
+199,199-box-jump.mp4,Box jump,Pliometria,Caixa/Pliometria,normal
+200,200-box-jump-com-aterrissagem-suave.mp4,Box jump com aterrissagem suave,Pliometria,Caixa/Pliometria,normal
+201,201-burpee-box-jump.mp4,Burpee box jump,Pliometria,Caixa/Pliometria,normal
+202,202-bulgaro-com-salto.mp4,Búlgaro com salto,Quadríceps,Caixa/Pliometria,normal
+203,203-depth-jump-salto-em-profundidade.mp4,Depth jump (salto em profundidade),Pliometria,Caixa/Pliometria,normal
+204,204-depth-jump-com-rebote-imediato.mp4,Depth jump com rebote imediato,Performance,Caixa/Pliometria,normal
+205,205-depth-jump-para-caixa.mp4,Depth jump para caixa,Pliometria,Caixa/Pliometria,normal
+206,206-drop-jump-reativo-contato-minimo-no-solo.mp4,Drop jump reativo (contato mínimo no solo),Performance,Caixa/Pliometria,normal
+207,207-drop-landing-so-aterrissagem.mp4,Drop landing (só aterrissagem),Pliometria,Caixa/Pliometria,normal
+208,208-flexao-pliometrica-no-step.mp4,Flexão pliométrica no step,Pliometria,Caixa/Pliometria,normal
+209,209-hops-plio.mp4,Hops ( plio ),Musculação,Caixa/Pliometria,normal
+210,210-hurdle-hops-laterais.mp4,Hurdle hops laterais,Pliometria,Caixa/Pliometria,normal
+211,211-hurdle-hops-unipodais.mp4,Hurdle hops unipodais,Pliometria,Caixa/Pliometria,normal
+212,212-pliometria-alternada-elevacao.mp4,Pliometria Alternada Elevação,Musculação,Caixa/Pliometria,normal
+213,213-pliometria-plano-frontal-elevacao.mp4,Pliometria Plano Frontal Elevação,Musculação,Caixa/Pliometria,normal
+214,214-pliometria-unilateral-apoio-banco.mp4,Pliometria Unilateral apoio Banco,Musculação,Caixa/Pliometria,normal
+215,215-potencia-wall-ball-base-afundo.mp4,Potência Wall Ball base Afundo,Musculação,Caixa/Pliometria,normal
+216,216-salto-c-contramovimento-plio.mp4,Salto c/ contramovimento ( plio ),Musculação,Caixa/Pliometria,normal
+217,217-salto-em-profundidade-unipodal.mp4,Salto em profundidade unipodal,Performance,Caixa/Pliometria,normal
+218,218-salto-horizontal-c-contramovimento-plio.mp4,Salto horizontal c/ contramovimento ( plio ),Musculação,Caixa/Pliometria,normal
+219,219-salto-lateral-em-caixa.mp4,Salto lateral em caixa,Funcional,Caixa/Pliometria,normal
+220,220-saltos-horizontais-continuos.mp4,Saltos Horizontais Continuos,Musculação,Caixa/Pliometria,normal
+221,221-saltos-horizontais-unilaterais-estabilizando.mp4,Saltos Horizontais Unilaterais Estabilizando,Musculação,Caixa/Pliometria,normal
+222,222-saltos-verticais-continuos.mp4,Saltos Verticais Contínuos,Musculação,Caixa/Pliometria,normal
+223,223-step-up-com-elevacao-de-joelho.mp4,Step-up com elevação de joelho,Funcional,Caixa/Pliometria,normal
+224,224-subida-no-caixote-step-up.mp4,Subida no caixote (step-up),Peso Corporal,Caixa/Pliometria,normal
+225,225-wall-ball-slide.mp4,Wall Ball Slide,quadríceps,Caixa/Pliometria,normal
+226,226-wall-drill-diagonal-reativo.mp4,Wall Drill Diagonal Reativo,Musculação,Caixa/Pliometria,normal
+227,227-wall-drill-propulsao-diagonal.mp4,Wall Drill Propulsão Diagonal,Musculação,Caixa/Pliometria,normal
+229,229-sled-pull-puxar-treno.mp4,Sled pull (puxar trenó),Funcional,Corrida/Trenó,normal
+230,230-sled-push-empurrar-treno.mp4,Sled push (empurrar trenó),Funcional,Corrida/Trenó,normal
+231,231-sled-push-de-aceleracao.mp4,Sled push de aceleração,Performance,Corrida/Trenó,normal
+290,290-fisio-cotovelo-tyler-twist-com-flexbar.mp4,Fisio Cotovelo: Tyler twist com flexbar,Fisioterapia,Flexbar,normal
+291,291-afundo-com-halteres.mp4,Afundo com halteres,Peso Livre,Halteres,ALTA
+292,292-afundo-halteres.mp4,Afundo Halteres,quadríceps,Halteres,ALTA
+293,293-agachamento-sumo-halter.mp4,Agachamento Sumô Halter,quadríceps,Halteres,ALTA
+294,294-encolhimento-halter.mp4,Encolhimento Halter,trapézio,Halteres,ALTA
+295,295-fisio-cotovelo-extensao-de-punho-excentrica-epicondilite-lat.mp4,Fisio Cotovelo: extensão de punho excêntrica (epicondilite lateral),Fisioterapia,Halteres,ALTA
+296,296-fisio-cotovelo-flexao-de-punho-excentrica-epicondilite-media.mp4,Fisio Cotovelo: flexão de punho excêntrica (epicondilite medial),Fisioterapia,Halteres,ALTA
+297,297-fisio-posterior-terra-romeno-unipodal-lento-hsr.mp4,Fisio Posterior: terra romeno unipodal lento (HSR),Fisioterapia,Halteres,ALTA
+298,298-levantamento-terra-sumo-com-halter.mp4,Levantamento Terra Sumô com Halter,posterior de coxa,Halteres,ALTA
+299,299-passada-halteres.mp4,Passada Halteres,quadríceps,Halteres,ALTA
+300,300-pullover-halter.mp4,Pullover Halter,costas,Halteres,ALTA
+301,301-recuo-halteres.mp4,Recuo Halteres,quadríceps,Halteres,ALTA
+302,302-rosca-scott-unilateral-neutra-halter.mp4,Rosca Scott Unilateral Neutra Halter,bíceps,Halteres,ALTA
+303,303-abs-medball.mp4,Abs medball,Abdômen,Halteres,normal
+304,304-afundo-db-snatch.mp4,Afundo + DB Snatch,Musculação,Halteres,normal
+305,305-afundo-halteres-com-2-steps.mp4,Afundo Halteres com 2 Steps,quadríceps,Halteres,normal
+306,306-afundo-halteres-com-step-na-frente.mp4,Afundo Halteres com Step na Frente,quadríceps,Halteres,normal
+307,307-agachamento-bulgaro.mp4,Agachamento búlgaro,Peso Livre,Halteres,normal
+308,308-agachamento-com-desenvolvimento-halteres.mp4,Agachamento com Desenvolvimento Halteres,quadríceps,Halteres,normal
+309,309-agachamento-frontal-com-2-halteres.mp4,Agachamento Frontal Com 2 Halteres,quadríceps,Halteres,normal
+310,310-avanco-com-halteres-afundo.mp4,Avanço com Halteres (afundo),Quadríceps,Halteres,normal
+311,311-biset-crucifixo-inclinado-supino-inclinado-halteres.mp4,Biset Crucifixo Inclinado + Supino Inclinado Halteres,peitoral,Halteres,normal
+312,312-biset-triceps-testa-supino-fechado-halteres.mp4,Biset Tríceps Testa + Supino Fechado Halteres,tríceps,Halteres,normal
+313,313-core-medball-deitado.mp4,CORE Medball deitado,Abdômen,Halteres,normal
+314,314-crucifixo-inclinado-halteres.mp4,Crucifixo Inclinado Halteres,peitoral,Halteres,normal
+315,315-crucifixo-reto-halteres.mp4,Crucifixo Reto Halteres,peitoral,Halteres,normal
+316,316-db-snatch-saida-de-afundo.mp4,DB Snatch (saída de Afundo),Musculação,Halteres,normal
+317,317-desenvolvimento-halteres-em-pe.mp4,Desenvolvimento Halteres em Pé,ombro,Halteres,normal
+318,318-desenvolvimento-halteres-sentado.mp4,Desenvolvimento Halteres Sentado,ombro,Halteres,normal
+319,319-desenvolvimento-neutro-halteres-sentado.mp4,Desenvolvimento Neutro Halteres Sentado,ombro,Halteres,normal
+320,320-devil-press.mp4,Devil press,Funcional,Halteres,normal
+321,321-dumbbell-push-press.mp4,Dumbbell push press,Ombros,Halteres,normal
+322,322-elevacao-frontal-halteres-neutra.mp4,Elevação Frontal Halteres Neutra,ombro,Halteres,normal
+323,323-elevacao-lateral-halteres.mp4,Elevação Lateral Halteres,ombro,Halteres,normal
+324,324-elevacao-lateral-halteres-inclinada-sentado.mp4,Elevação Lateral Halteres Inclinada Sentado,ombro,Halteres,normal
+325,325-elevacao-lateral-halteres-sentado.mp4,Elevação Lateral Halteres Sentado,ombro,Halteres,normal
+326,326-elevacao-lateral-neutra-halteres.mp4,Elevação Lateral Neutra Halteres,ombro,Halteres,normal
+327,327-encolhimento-halter-com-inclinacao.mp4,Encolhimento Halter com Inclinação,trapézio,Halteres,normal
+328,328-extensao-de-punho-halteres.mp4,Extensão de Punho Halteres,antebraço,Halteres,normal
+329,329-farmers-carry.mp4,Farmers carry,Funcional,Halteres,normal
+330,330-fisio-cotovelo-pronacao-supinacao-com-peso.mp4,Fisio Cotovelo: pronação/supinação com peso,Fisioterapia,Halteres,normal
+331,331-fisio-ombro-scaption-full-can.mp4,Fisio Ombro: scaption (full can),Fisioterapia,Halteres,normal
+332,332-fisio-punho-desvio-radial-ulnar-com-peso.mp4,Fisio Punho: desvio radial/ulnar com peso,Fisioterapia,Halteres,normal
+333,333-fisio-punho-flexao-extensao-de-punho-com-peso.mp4,Fisio Punho: flexão/extensão de punho com peso,Fisioterapia,Halteres,normal
+334,334-fisio-quadril-hip-thrust-unilateral.mp4,Fisio Quadril: hip thrust unilateral,Fisioterapia,Halteres,normal
+335,335-flexao-de-punho-halteres.mp4,Flexão de Punho Halteres,antebraço,Halteres,normal
+336,336-landmine-rotation.mp4,Landmine rotation,Core,Halteres,normal
+337,337-man-maker.mp4,Man maker,Funcional,Halteres,normal
+338,338-passadas-com-halteres.mp4,Passadas com Halteres,Quadríceps,Halteres,normal
+339,339-plank-row-remada-na-prancha.mp4,Plank row (remada na prancha),Core,Halteres,normal
+340,340-prancha-medball.mp4,Prancha + medball,Abdômen,Halteres,normal
+341,341-prancha-alta-passando-halter.mp4,Prancha Alta Passando Halter,abdômen,Halteres,normal
+342,342-pronacao-e-supinacao-halteres.mp4,Pronação e Supinação Halteres,antebraço,Halteres,normal
+343,343-push-press.mp4,Push press,Funcional,Halteres,normal
+344,344-rdl-halteres.mp4,RDL Halteres,posterior de coxa,Halteres,normal
+345,345-recuo-com-halteres-afundo.mp4,Recuo com Halteres ( afundo ),Quadríceps,Halteres,normal
+346,346-recuo-halteres-com-step-na-frente.mp4,Recuo Halteres com Step na Frente,quadríceps,Halteres,normal
+347,347-remada-alta-halteres.mp4,Remada Alta Halteres,ombro,Halteres,normal
+348,348-remada-curvada-halteres-com-rotacao.mp4,Remada Curvada Halteres com Rotação,costas,Halteres,normal
+349,349-remada-curvada-halteres-neutra.mp4,Remada Curvada Halteres Neutra,costas,Halteres,normal
+350,350-remada-curvada-halteres-pronada.mp4,Remada Curvada Halteres Pronada,costas,Halteres,normal
+351,351-renegade-row.mp4,Renegade row,Core,Halteres,normal
+352,352-rosca-direta-halteres.mp4,Rosca Direta Halteres,bíceps,Halteres,normal
+353,353-rosca-martelo-alternada-halteres.mp4,Rosca Martelo Alternada Halteres,bíceps,Halteres,normal
+354,354-rosca-martelo-halteres.mp4,Rosca Martelo Halteres,bíceps,Halteres,normal
+355,355-rosca-scott-unilateral-halter.mp4,Rosca Scott Unilateral Halter,bíceps,Halteres,normal
+356,356-rosca-spider-halteres.mp4,Rosca Spider Halteres,bíceps,Halteres,normal
+357,357-russian-twist-com-peso.mp4,Russian twist com peso,Core,Halteres,normal
+358,358-salto-vertical-continuo-halteres-plio.mp4,Salto Vertical Continuo Halteres ( plio ),Musculação,Halteres,normal
+359,359-sl-2db-box-clean.mp4,SL 2DB Box Clean,Musculação,Halteres,normal
+360,360-sl-db-box-clean.mp4,SL DB Box Clean,Musculação,Halteres,normal
+361,361-sl-db-box-snatch.mp4,SL DB Box Snatch,Musculação,Halteres,normal
+362,362-snatch-unipodal-unilateral-halter.mp4,Snatch Unipodal / Unilateral Halter,Musculação,Halteres,normal
+363,363-step-up-halteres.mp4,Step Up Halteres,quadríceps,Halteres,normal
+364,364-stiff-abduzido-halteres.mp4,Stiff Abduzido Halteres,posterior de coxa,Halteres,normal
+365,365-stiff-b-stance-halteres.mp4,Stiff B-Stance Halteres,posterior de coxa,Halteres,normal
+366,366-stiff-com-halteres.mp4,Stiff com Halteres,Quadríceps,Halteres,normal
+367,367-stiff-halteres.mp4,Stiff Halteres,posterior de coxa,Halteres,normal
+368,368-stiff-unipodal-com-halter.mp4,Stiff Unipodal com Halter,Musculação,Halteres,normal
+369,369-suitcase-carry-caminhada-unilateral.mp4,Suitcase carry (caminhada unilateral),Core,Halteres,normal
+370,370-supino-fechado-halteres.mp4,Supino Fechado Halteres,tríceps,Halteres,normal
+371,371-supino-inclinado-com-halteres.mp4,Supino inclinado com halteres,Peso Livre,Halteres,normal
+372,372-supino-inclinado-halteres.mp4,Supino Inclinado Halteres,peitoral,Halteres,normal
+373,373-supino-reto-halteres.mp4,Supino Reto Halteres,peitoral,Halteres,normal
+374,374-terra-romeno-unipodal-single-leg-rdl.mp4,Terra romeno unipodal (single-leg RDL),Estabilidade,Halteres,normal
+375,375-thruster.mp4,Thruster,Funcional,Halteres,normal
+376,376-triceps-frances-unilateral-halter.mp4,Tríceps Francês Unilateral Halter,tríceps,Halteres,normal
+377,377-triceps-testa-halteres-banco-45.mp4,Tríceps Testa Halteres Banco 45,tríceps,Halteres,normal
+378,378-triceps-testa-halteres-banco-reto.mp4,Tríceps Testa Halteres Banco Reto,tríceps,Halteres,normal
+379,379-triceps-testa-halteres-solo.mp4,Tríceps Testa Halteres Solo,tríceps,Halteres,normal
+610,610-along-coluna-rotacao.mp4,Along. Coluna Rotação,alongamento,Mobilidade/Solo,ALTA
+611,611-along-hiperextensao-rolinho.mp4,Along. Hiperextensão Rolinho,alongamento,Mobilidade/Solo,ALTA
+612,612-along-iliopsoas.mp4,Along. Iliopsoas,alongamento,Mobilidade/Solo,ALTA
+613,613-apoio-unipodal-no-bosu.mp4,Apoio unipodal no bosu,Estabilidade,Mobilidade/Solo,ALTA
+614,614-extensora-com-alongamento-entre-series.mp4,Extensora com Alongamento Entre Séries,quadríceps,Mobilidade/Solo,ALTA
+615,615-mobilidade-buda.mp4,Mobilidade Buda,mobilidade,Mobilidade/Solo,ALTA
+616,616-mobilidade-cat-cow.mp4,Mobilidade Cat-Cow,mobilidade,Mobilidade/Solo,ALTA
+617,617-mobilidade-de-quadril-e-tornozelo-com-alongamento.mp4,Mobilidade de Quadril e Tornozelo com Alongamento,mobilidade,Mobilidade/Solo,ALTA
+618,618-mobilidade-de-quadril-foco-em-adutores.mp4,Mobilidade de Quadril foco em Adutores,mobilidade,Mobilidade/Solo,ALTA
+619,619-agachamento-no-bosu.mp4,Agachamento no bosu,Estabilidade,Mobilidade/Solo,normal
+620,620-along-adutores-bilateral.mp4,Along. Adutores Bilateral,alongamento,Mobilidade/Solo,normal
+621,621-along-adutores-flexionado-frog.mp4,Along. Adutores Flexionado (Frog),alongamento,Mobilidade/Solo,normal
+622,622-along-adutores-unilateral-estendido.mp4,Along. Adutores Unilateral Estendido,alongamento,Mobilidade/Solo,normal
+623,623-along-dorsal-e-quadrado-lombar-unilateral-espaldar.mp4,Along. Dorsal e Quadrado Lombar Unilateral Espaldar,alongamento,Mobilidade/Solo,normal
+624,624-along-dorsal-unilateral-espaldar.mp4,Along. Dorsal Unilateral Espaldar,alongamento,Mobilidade/Solo,normal
+625,625-along-gluteo-cruzado-espaldar.mp4,Along. Glúteo Cruzado Espaldar,alongamento,Mobilidade/Solo,normal
+626,626-along-gluteo-cruzado-solo.mp4,Along. Glúteo Cruzado Solo,alongamento,Mobilidade/Solo,normal
+627,627-along-levantador-da-escapula.mp4,Along. Levantador da Escápula,alongamento,Mobilidade/Solo,normal
+628,628-along-panturrilha-unilateral.mp4,Along. Panturrilha Unilateral,alongamento,Mobilidade/Solo,normal
+629,629-along-peitoral-bilateral-espaldar.mp4,Along. Peitoral Bilateral Espaldar,alongamento,Mobilidade/Solo,normal
+630,630-along-peitoral-menor.mp4,Along. Peitoral Menor,alongamento,Mobilidade/Solo,normal
+631,631-along-peitoral-unilateral-espaldar.mp4,Along. Peitoral Unilateral Espaldar,alongamento,Mobilidade/Solo,normal
+632,632-along-pigeon.mp4,Along. Pigeon,alongamento,Mobilidade/Solo,normal
+633,633-along-pigeon-com-quadrado-lombar.mp4,Along. Pigeon com Quadrado Lombar,alongamento,Mobilidade/Solo,normal
+634,634-along-posterior-bilateral-em-pe.mp4,Along. Posterior Bilateral em Pé,alongamento,Mobilidade/Solo,normal
+635,635-along-posterior-bilateral-solo.mp4,Along. Posterior Bilateral Solo,alongamento,Mobilidade/Solo,normal
+636,636-along-posterior-unilateral-estendido.mp4,Along. Posterior Unilateral Estendido,alongamento,Mobilidade/Solo,normal
+637,637-along-posterior-unilateral-flexionado.mp4,Along. Posterior Unilateral Flexionado,alongamento,Mobilidade/Solo,normal
+638,638-along-posterior-unilateral-solo.mp4,Along. Posterior Unilateral Solo,alongamento,Mobilidade/Solo,normal
+639,639-along-quadriceps-bilateral-solo.mp4,Along. Quadríceps Bilateral Solo,alongamento,Mobilidade/Solo,normal
+640,640-along-quadriceps-unilateral-em-pe.mp4,Along. Quadríceps Unilateral em Pé,alongamento,Mobilidade/Solo,normal
+641,641-along-reto-femoral-solo.mp4,Along. Reto Femoral Solo,alongamento,Mobilidade/Solo,normal
+642,642-along-tensor-da-fascia-lata-solo.mp4,Along. Tensor da Fascia Lata Solo,alongamento,Mobilidade/Solo,normal
+643,643-alongamento-de-gluteos-90-90.mp4,Alongamento de Glúteos 90-90,Musculação,Mobilidade/Solo,normal
+644,644-alongamento-tfl.mp4,Alongamento TFL,Alongamento,Mobilidade/Solo,normal
+645,645-controle-motor-mobilidade-e-estabilidade.mp4,Controle motor - mobilidade e estabilidade,Musculação,Mobilidade/Solo,normal
+646,646-fisio-quadril-hip-hinge-com-bastao.mp4,Fisio Quadril: hip hinge com bastão,Fisioterapia,Mobilidade/Solo,normal
+647,647-halo-mobilidade-superiores.mp4,Halo - mobilidade superiores,Musculação,Mobilidade/Solo,normal
+648,648-liberacao-de-adutores-no-foam-roll.mp4,Liberação de adutores no foam roll,Liberação Miofascial,Mobilidade/Solo,normal
+649,649-liberacao-de-banda-iliotibial-no-foam-roll.mp4,Liberação de banda iliotibial no foam roll,Liberação Miofascial,Mobilidade/Solo,normal
+650,650-liberacao-de-dorsal-no-foam-roll.mp4,Liberação de dorsal no foam roll,Liberação Miofascial,Mobilidade/Solo,normal
+651,651-liberacao-de-gluteo-no-foam-roll.mp4,Liberação de glúteo no foam roll,Liberação Miofascial,Mobilidade/Solo,normal
+652,652-liberacao-de-panturrilha-no-foam-roll.mp4,Liberação de panturrilha no foam roll,Liberação Miofascial,Mobilidade/Solo,normal
+653,653-liberacao-de-posterior-de-coxa-no-foam-roll.mp4,Liberação de posterior de coxa no foam roll,Liberação Miofascial,Mobilidade/Solo,normal
+654,654-liberacao-de-quadriceps-no-foam-roll.mp4,Liberação de quadríceps no foam roll,Liberação Miofascial,Mobilidade/Solo,normal
+655,655-liberacao-toracica-no-foam-roll.mp4,Liberação torácica no foam roll,Liberação Miofascial,Mobilidade/Solo,normal
+656,656-mobilidade-90-90-rot-externa.mp4,Mobilidade 90-90 Rot. Externa,Musculação,Mobilidade/Solo,normal
+657,657-mobilidade-90-90-rot-interna.mp4,Mobilidade 90-90 Rot. interna,Musculação,Mobilidade/Solo,normal
+658,658-mobilidade-90-90.mp4,Mobilidade 90/90,mobilidade,Mobilidade/Solo,normal
+659,659-mobilidade-90-90-completa.mp4,Mobilidade 90/90 completa,mobilidade,Mobilidade/Solo,normal
+660,660-mobilidade-corpo-todo.mp4,Mobilidade Corpo Todo,Musculação,Mobilidade/Solo,normal
+661,661-mobilidade-de-coluna.mp4,Mobilidade de Coluna,Musculação,Mobilidade/Solo,normal
+662,662-mobilidade-de-ombro-com-toque-de-maos.mp4,Mobilidade de Ombro com Toque de Mãos,mobilidade,Mobilidade/Solo,normal
+663,663-mobilidade-de-ombro-rotacao-externa-com-bastao.mp4,Mobilidade de Ombro Rotação Externa com Bastão,mobilidade,Mobilidade/Solo,normal
+664,664-mobilidade-de-ombro-rotacao-solo.mp4,Mobilidade de Ombro Rotação Solo,mobilidade,Mobilidade/Solo,normal
+665,665-mobilidade-de-ombro-w.mp4,Mobilidade de Ombro W,mobilidade,Mobilidade/Solo,normal
+666,666-mobilidade-de-quadril.mp4,Mobilidade de Quadril,Quadríceps,Mobilidade/Solo,normal
+667,667-mobilidade-de-quadril-sagital.mp4,Mobilidade de Quadril ( sagital ),Quadríceps,Mobilidade/Solo,normal
+668,668-mobilidade-de-quadril-2.mp4,Mobilidade de Quadril 2,Quadríceps,Mobilidade/Solo,normal
+669,669-mobilidade-de-quadril-3.mp4,Mobilidade de quadril 3,Quadríceps,Mobilidade/Solo,normal
+670,670-mobilidade-de-quadril-e-tornozelo.mp4,Mobilidade de Quadril e Tornozelo,mobilidade,Mobilidade/Solo,normal
+671,671-mobilidade-de-quadril-frog.mp4,Mobilidade de Quadril Frog,mobilidade,Mobilidade/Solo,normal
+672,672-mobilidade-de-quadril-lateral.mp4,Mobilidade de Quadril Lateral,mobilidade,Mobilidade/Solo,normal
+673,673-mobilidade-de-quadril-rotacao-interna-deitado.mp4,Mobilidade de Quadril Rotação Interna Deitado,Quadríceps,Mobilidade/Solo,normal
+674,674-mobilidade-de-quadril-adutores-post.mp4,Mobilidade de quadril-adutores/post,Quadríceps,Mobilidade/Solo,normal
+675,675-mobilidade-de-tornozelo.mp4,Mobilidade de Tornozelo,mobilidade,Mobilidade/Solo,normal
+676,676-mobilidade-de-tornozelo-quadril.mp4,Mobilidade de tornozelo/quadril,Quadríceps,Mobilidade/Solo,normal
+677,677-mobilidade-de-toracica.mp4,Mobilidade de Torácica,Musculação,Mobilidade/Solo,normal
+678,678-mobilidade-em-ponte-extensao.mp4,Mobilidade em ponte/Extensão,Musculação,Mobilidade/Solo,normal
+679,679-mobilidade-escapular-em-puxada.mp4,Mobilidade Escapular em Puxada,Dorsal,Mobilidade/Solo,normal
+680,680-mobilidade-escapular-trx.mp4,Mobilidade Escapular TRX,Dorsal,Mobilidade/Solo,normal
+681,681-mobilidade-full-inferiores-hard.mp4,Mobilidade Full Inferiores (hard),Quadríceps,Mobilidade/Solo,normal
+682,682-mobilidade-hiperextensao-lombar.mp4,Mobilidade Hiperextensão Lombar,mobilidade,Mobilidade/Solo,normal
+683,683-mobilidade-hiperextensao-toracica-rolinho.mp4,Mobilidade Hiperextensão Torácica Rolinho,mobilidade,Mobilidade/Solo,normal
+684,684-mobilidade-quadril-90-90.mp4,Mobilidade quadril 90-90,Quadríceps,Mobilidade/Solo,normal
+685,685-mobilidade-quadril-flexores-posterior.mp4,Mobilidade quadril flexores/posterior,Musculação,Mobilidade/Solo,normal
+686,686-mobilidade-rot-quadril-ext-int.mp4,Mobilidade rot quadril ext int,Quadríceps,Mobilidade/Solo,normal
+687,687-mobilidade-sapinho.mp4,Mobilidade Sapinho 🐸,Musculação,Mobilidade/Solo,normal
+688,688-mobilidade-toracica-bastao.mp4,Mobilidade Torácica Bastão,mobilidade,Mobilidade/Solo,normal
+689,689-mobilidade-toracica-com-rotacao-e-bastao.mp4,Mobilidade torácica com rotação e bastão,Mobilidade,Mobilidade/Solo,normal
+690,690-mobilidade-toracica-rotacao.mp4,Mobilidade Torácica Rotação,mobilidade,Mobilidade/Solo,normal
+691,691-mobilidade-toracica-semiajoelhado.mp4,Mobilidade Torácica Semiajoelhado,mobilidade,Mobilidade/Solo,normal
+692,692-prancha-no-bosu.mp4,Prancha no bosu,Estabilidade,Mobilidade/Solo,normal
+693,693-shoulder-dislocates-com-bastao.mp4,Shoulder dislocates com bastão,Mobilidade,Mobilidade/Solo,normal
+694,694-terra-romeno-unipodal-com-bastao.mp4,Terra romeno unipodal com bastão,Controle Motor,Mobilidade/Solo,normal
+921,921-sandbag-carry.mp4,Sandbag carry,Funcional,Sandbag,normal
