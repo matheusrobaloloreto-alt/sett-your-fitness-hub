@@ -139,7 +139,7 @@ export default function StudentWorkout() {
         if (exerciseIds.size > 0) {
           const { data: libraryData } = await supabase
             .from("exercise_library")
-            .select("id, video_url, video_path")
+            .select("id, video_url, video_path, youtube_video_id, thumbnail_url")
             .in("id", Array.from(exerciseIds));
           if (libraryData) {
             libraryData.forEach(lib => {

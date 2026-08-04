@@ -67,6 +67,7 @@ interface WorkoutExercise {
   rest: string;
   notes: string;
   youtube_video_id?: string | null;
+  thumbnail_url?: string | null;
 }
 
 interface WorkoutData {
@@ -244,15 +245,15 @@ export default function StudentPortal() {
           exs.forEach(ex => { if (ex.exercise_id) exerciseIds.add(ex.exercise_id); });
         });
 
-        const videoMap: Record<string, { video_url: string | null; video_path: string | null; youtube_video_id: string | null }> = {};
+        const videoMap: Record<string, { video_url: string | null; video_path: string | null; youtube_video_id: string | null; thumbnail_url: string | null }> = {};
         if (exerciseIds.size > 0) {
           const { data: libraryData } = await (supabase as any)
             .from("exercise_library")
-            .select("id, video_url, video_path, youtube_video_id")
+            .select("id, video_url, video_path, youtube_video_id, thumbnail_url")
             .in("id", Array.from(exerciseIds));
           if (libraryData) {
             libraryData.forEach((lib: any) => {
-              videoMap[lib.id] = { video_url: lib.video_url, video_path: lib.video_path, youtube_video_id: lib.youtube_video_id ?? null };
+              videoMap[lib.id] = { video_url: lib.video_url, video_path: lib.video_path, youtube_video_id: lib.youtube_video_id ?? null, thumbnail_url: lib.thumbnail_url ?? null };
             });
           }
         }
@@ -270,6 +271,7 @@ export default function StudentPortal() {
                 video_url: (ex.video_url && ex.video_url.trim()) || videoMap[ex.exercise_id]?.video_url || null,
                 video_path: (ex.video_path && ex.video_path.trim()) || videoMap[ex.exercise_id]?.video_path || null,
                 youtube_video_id: (ex as any).youtube_video_id || videoMap[ex.exercise_id]?.youtube_video_id || null,
+                thumbnail_url: (ex as any).thumbnail_url || videoMap[ex.exercise_id]?.thumbnail_url || null,
               })),
             }))
             .sort((a, b) => (a.title || "").localeCompare(b.title || ""));

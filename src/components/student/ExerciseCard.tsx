@@ -26,6 +26,7 @@ interface WorkoutExercise {
   video_url: string | null;
   video_path: string | null;
   youtube_video_id?: string | null;
+  thumbnail_url?: string | null;
   group_id?: string | null;
   method?: string | null;
   method_seconds?: number | null;

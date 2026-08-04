@@ -324,7 +324,7 @@ export default function WorkoutBuilder() {
   const loadLibrary = async () => {
     const { data } = await supabase
       .from("exercise_library")
-      .select("id, name, muscle_group, category, categories, video_url, video_path, description")
+      .select("id, name, muscle_group, category, categories, video_url, video_path, description, thumbnail_url, youtube_video_id")
       .order("muscle_group")
       .order("name");
     setLibraryExercises(((data || []) as unknown as Exercise[]).map((exercise) => ({
