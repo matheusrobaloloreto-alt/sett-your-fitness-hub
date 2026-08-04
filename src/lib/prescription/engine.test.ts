@@ -74,6 +74,72 @@ function explanationIds(program: ReturnType<typeof generateTrainingProgram>) {
 }
 
 describe("BN Prescription Engine v1", () => {
+  it("gera periodização semanal executável com cadência, rest-pause, drop-set e bi-set", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      objective: "hipertrofia",
+      daysPerWeek: 4,
+    }));
+    const methods = program.weekly_periodization.map((week) => week.methods);
+    const exercises = program.workouts.flatMap((workout) => workout.exercises);
+
+    expect(program.weekly_periodization).toHaveLength(6);
+    expect(program.weekly_periodization.map((week) => week.tempo_focus)).toEqual([
+      "3-1-1-0",
+      "3-0-1-1",
+      "3-0-1-0",
+      "2-1-1-0",
+      "2-0-1-0",
+      "2-0-1-0",
+    ]);
+    expect(methods[0]).toEqual([]);
+    expect(methods[1]).toEqual([]);
+    expect(methods[2]).toContain("Rest-pause");
+    expect(methods[3]).toContain("Drop-set");
+    expect(methods[4]).toContain("Bi-set");
+    expect(methods[5]).toContain("Drop-set");
+    expect(exercises.every((exercise) => exercise.weekly_prescription?.length === 6)).toBe(true);
+    expect(exercises.every((exercise) => exercise.weekly_prescription?.slice(0, 2).every((week) => !week.method))).toBe(true);
+  });
+
+  it("reserva cluster-set para avançado sem dor na semana final", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "avancado",
+      objective: "hipertrofia",
+      daysPerWeek: 5,
+    }));
+
+    expect(program.weekly_periodization[5].methods).toContain("Cluster-set");
+    expect(program.workouts.flatMap((workout) => workout.exercises)
+      .some((exercise) => exercise.weekly_prescription?.some((week) => week.week === 6 && week.method === "cluster"))).toBe(true);
+  });
+
+  it("bloqueia todos os métodos avançados quando há dor ou aluno iniciante", () => {
+    const beginner = generateTrainingProgram(baseInput({ fitnessLevel: "iniciante" }));
+    const pain = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      painEva: 4,
+      restrictions: "dor no joelho EVA 4",
+    }));
+
+    for (const program of [beginner, pain]) {
+      expect(program.weekly_periodization.every((week) => week.methods.length === 0)).toBe(true);
+      expect(program.workouts.flatMap((workout) => workout.exercises)
+        .every((exercise) => exercise.weekly_prescription?.every((week) => !week.method))).toBe(true);
+    }
+  });
+
+  it("gera quatro semanas quando o ciclo pede quatro, sem fabricar semanas extras", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      durationWeeks: 4,
+    }));
+
+    expect(program.weekly_periodization).toHaveLength(4);
+    expect(program.workouts.flatMap((workout) => workout.exercises)
+      .every((exercise) => exercise.weekly_prescription?.length === 4)).toBe(true);
+  });
+
   it("gera plano para iniciante com dor no joelho priorizando glúteo/controle e sem inventar exercício", () => {
     const program = generateTrainingProgram(baseInput({
       restrictions: "dor no joelho e valgo dinâmico",

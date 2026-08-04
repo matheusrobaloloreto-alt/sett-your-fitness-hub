@@ -898,7 +898,34 @@ export default function PrescriptionStudio() {
     );
   };
   const updateExField = (wi: number, ei: number, field: string, value: any) =>
-    setEditPlan((p: any) => { if (!p) return p; const n = JSON.parse(JSON.stringify(p)); if (n.workouts?.[wi]?.exercises?.[ei]) n.workouts[wi].exercises[ei][field] = value; return n; });
+    setEditPlan((p: any) => {
+      if (!p) return p;
+      const n = JSON.parse(JSON.stringify(p));
+      const exercise = n.workouts?.[wi]?.exercises?.[ei];
+      if (!exercise) return n;
+      const previous = Number(exercise[field]);
+      exercise[field] = value;
+      if (Array.isArray(exercise.weekly_prescription)) {
+        if (field === "sets") {
+          const next = Math.max(1, Number(value) || 1);
+          const delta = Number.isFinite(previous) ? next - previous : 0;
+          exercise.weekly_prescription = exercise.weekly_prescription.map((week: any) => ({
+            ...week,
+            sets: Math.max(1, (Number(week.sets) || next) + delta),
+          }));
+        } else if (field === "reps") {
+          exercise.weekly_prescription = exercise.weekly_prescription.map((week: any) => ({ ...week, reps: String(value) }));
+        } else if (field === "rest_seconds") {
+          const next = Math.max(0, Number(value) || 0);
+          const delta = Number.isFinite(previous) ? next - previous : 0;
+          exercise.weekly_prescription = exercise.weekly_prescription.map((week: any) => ({
+            ...week,
+            rest_seconds: Math.max(0, (Number(week.rest_seconds) || next) + delta),
+          }));
+        }
+      }
+      return n;
+    });
   const updateWName = (wi: number, value: string) =>
     setEditPlan((p: any) => { if (!p) return p; const n = JSON.parse(JSON.stringify(p)); if (n.workouts?.[wi]) n.workouts[wi].name = value; return n; });
   const renumberExercises = (exercises: any[] = []) =>
@@ -1611,6 +1638,18 @@ export default function PrescriptionStudio() {
                       {showEdit && (
                         <div className="mt-3 space-y-3">
                           <p className="text-xs text-slate-500">Edite séries / reps / descanso / obs. Ao publicar, vai a versão editada pro app do aluno.</p>
+                          {Array.isArray(editPlan.weekly_periodization) && editPlan.weekly_periodization.length > 0 && (
+                            <div className="grid gap-2 sm:grid-cols-3">
+                              {editPlan.weekly_periodization.map((week: any) => (
+                                <div key={week.week} className="rounded-xl border border-slate-200 bg-white p-2.5">
+                                  <p className="font-mono-data text-[10px] font-semibold uppercase text-[#8B7355]">Semana {week.week}</p>
+                                  <p className="mt-1 text-xs font-medium text-[#1B2B4A]">{week.stimulus}</p>
+                                  <p className="mt-1 text-[11px] text-slate-500">Cadência {week.tempo_focus} · RIR {week.rir}</p>
+                                  <p className="text-[11px] text-slate-500">{week.methods?.length ? week.methods.join(" + ") : week.method_focus}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {editPlan.workouts.map((w: any, wi: number) => (
                             <div key={wi} className="border rounded-lg p-2 bg-white space-y-1.5">
                               <div className="flex items-center gap-2">

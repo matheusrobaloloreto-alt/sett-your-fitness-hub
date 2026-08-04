@@ -109,6 +109,36 @@ export interface TrainingExercise {
   biomechanical_note: string;
   regression?: string;
   progression?: string;
+  method?: string | null;
+  group_id?: string | null;
+  method_seconds?: number | null;
+  weekly_prescription?: WeeklyExercisePrescription[];
+}
+
+export interface WeeklyExercisePrescription {
+  week: number;
+  block: "base" | "acumulacao" | "intensificacao";
+  sets: number;
+  reps: string;
+  rir: string;
+  rest_seconds: number;
+  tempo: string;
+  method?: string | null;
+  group_id?: string | null;
+  method_seconds?: number | null;
+  instruction: string;
+}
+
+export interface WeeklyPeriodizationWeek {
+  week: number;
+  block: "base" | "acumulacao" | "intensificacao";
+  stimulus: string;
+  rir: string;
+  volume_percent: number;
+  tempo_focus: string;
+  method_focus: string;
+  methods: string[];
+  instruction: string;
 }
 
 export interface TrainingWorkout {
@@ -210,6 +240,7 @@ export interface TrainingProgram {
     validation?: unknown;
   };
   periodization_blocks: PeriodizationBlock[];
+  weekly_periodization: WeeklyPeriodizationWeek[];
   weekly_structure: string;
   progression_protocol: string;
   warnings: string[];

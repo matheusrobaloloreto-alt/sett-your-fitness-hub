@@ -10,6 +10,7 @@ import {
   MESOCYCLES,
   type MicrocycleType,
 } from "@/lib/periodization";
+import type { ResolvedWeekContext } from "@/lib/weeklyStrengthPeriodization";
 
 const DOT: Record<MicrocycleType, string> = {
   ordinario: "bg-primary",
@@ -32,11 +33,13 @@ export function PeriodizationBanner({
   durationWeeks,
   startDate,
   endDate,
+  prescribedWeek,
 }: {
   objective?: string | null;
   durationWeeks?: number | null;
   startDate?: string | null;
   endDate?: string | null;
+  prescribedWeek?: ResolvedWeekContext | null;
 }) {
   const dur = durationWeeks || weeksBetweenDates(startDate, endDate) || 6;
   const plan = buildPeriodizationPlan(objective, dur);
@@ -49,6 +52,9 @@ export function PeriodizationBanner({
   if (!cur) return null;
   const curMicro = MICROCYCLES[cur.microcycle];
   const curMeso = MESOCYCLES[cur.mesocycle];
+  const currentLabel = prescribedWeek
+    ? `${prescribedWeek.block === "acumulacao" ? "Acumulação" : prescribedWeek.block === "intensificacao" ? "Intensificação" : "Base"} · ${prescribedWeek.methods.length ? prescribedWeek.methods.join(" + ") : "Séries retas"}`
+    : `${curMeso.label} · ${curMicro.short}`;
 
   const wk = plan.weeks[Math.min(sel, plan.weeks.length - 1)] || cur;
   const micro = MICROCYCLES[wk.microcycle];
@@ -70,7 +76,7 @@ export function PeriodizationBanner({
                   Periodização · Semana {curIdx + 1}/{plan.durationWeeks}
                 </span>
                 <span className="truncate font-sans text-xs text-muted-foreground">
-                  {curMeso.label} · {curMicro.short}
+                  {currentLabel}
                 </span>
               </span>
               <span className={`hidden shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide sm:inline ${CHIP[cur.microcycle]}`}>
@@ -121,8 +127,13 @@ export function PeriodizationBanner({
               <p className="font-sans text-sm leading-relaxed text-foreground">{micro.description}</p>
               <p className="font-sans text-xs text-muted-foreground">{wk.focus}</p>
               <p className="font-mono-data text-[11px] text-muted-foreground">
-                RIR alvo {wk.rir} · Volume ~{wk.volumePct}% da referência
+                RIR alvo {isCurrent && prescribedWeek ? prescribedWeek.rir : wk.rir} · Volume ~{wk.volumePct}% da referência
               </p>
+              {isCurrent && prescribedWeek && (
+                <p className="font-sans text-xs font-medium text-primary">
+                  Cadência {prescribedWeek.tempo.split("").join("-")} · {prescribedWeek.instruction}
+                </p>
+              )}
             </div>
 
             {/* Legenda */}

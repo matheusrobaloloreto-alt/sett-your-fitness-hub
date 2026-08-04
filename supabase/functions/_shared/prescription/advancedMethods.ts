@@ -28,6 +28,7 @@ export interface MethodAwareExercise {
   exercise_id?: string | null;
   exercise_name?: string | null;
   muscle_group?: string | null;
+  phase?: string | null;
   is_isolation?: boolean;      // isolador (preferível p/ métodos) vs composto pesado
   painful?: boolean;           // dor/restrição → nunca aplicar
   // saída:
@@ -40,8 +41,7 @@ export interface AdvancedMethodCtx {
   // O motor JÁ tem estes hoje (mapear presetKey/stimulus → mesocycle; fitnessLevel → level):
   mesocycle: "base" | "acumulacao" | "intensificacao" | "polimento";
   level: "iniciante" | "intermediario" | "avancado";
-  // OPCIONAIS — o motor ainda NÃO rastreia microciclo/semana. Com default a função já roda hoje;
-  // quando o motor passar week/microcycle, ligam a rotação por bloco + o skip de deload.
+  // OPCIONAIS para compatibilidade com chamadas antigas. O BN Engine passa todos estes campos.
   microcycle?: "ordinario" | "choque" | "regenerativo"; // default "ordinario"
   week?: number;                                         // 1-based; default 1 (bloco 0)
   hasPain?: boolean;                                     // dor relevante → conservador (nenhum método)
@@ -51,9 +51,30 @@ export interface AdvancedMethodCtx {
 
 // Heurística simples de isolador quando o motor não marca is_isolation.
 const COMPOUND_RE = /(agachamento|terra|levantamento|supino|desenvolvimento|remada|barra fixa|leg press|stiff|avanço|afundo|clean|snatch|push press|thruster)/i;
+const HEAVY_COMPOUND_RE = /(agachamento|terra|levantamento|leg press|hack|stiff|clean|snatch|push press|thruster)/i;
 function isIsolation(ex: MethodAwareExercise): boolean {
   if (typeof ex.is_isolation === "boolean") return ex.is_isolation;
   return !COMPOUND_RE.test(ex.exercise_name || "");
+}
+
+function isStableSingleCandidate(ex: MethodAwareExercise): boolean {
+  const phase = String(ex.phase || "").toLowerCase();
+  if (phase) return phase === "forca_especifica" || phase === "acessorio" || phase === "isolado";
+  return isIsolation(ex);
+}
+
+function isSafeGroupingCandidate(ex: MethodAwareExercise): boolean {
+  const phase = String(ex.phase || "").toLowerCase();
+  if (/mobilidade|ativacao_core/.test(phase)) return false;
+  if (HEAVY_COMPOUND_RE.test(ex.exercise_name || "")) return false;
+  return isStableSingleCandidate(ex) || phase === "controle_motor" || phase === "forca_global";
+}
+
+function lastConsecutivePair(indexes: number[]): number[] {
+  for (let index = indexes.length - 1; index > 0; index -= 1) {
+    if (indexes[index] === indexes[index - 1] + 1) return [indexes[index - 1], indexes[index]];
+  }
+  return [];
 }
 
 /**
@@ -73,48 +94,47 @@ export function planAdvancedMethods<T extends MethodAwareExercise>(exercises: T[
     return out;
   }
 
-  // Candidatos: isoladores, sem dor. Preferimos os ACESSÓRIOS (parte final da sessão).
-  const idxs = out
+  // Técnicas de intensidade ficam em acessórios estáveis. Agrupamentos também aceitam
+  // controle motor/compostos leves, mas nunca os padrões axiais pesados.
+  const singleIdxs = out
     .map((e, i) => ({ e, i }))
-    .filter(({ e }) => !e.painful && isIsolation(e))
+    .filter(({ e }) => !e.painful && isStableSingleCandidate(e))
     .map(({ i }) => i);
-  if (idxs.length === 0) return out;
+  const groupingIdxs = out
+    .map((e, i) => ({ e, i }))
+    .filter(({ e }) => !e.painful && isSafeGroupingCandidate(e))
+    .map(({ i }) => i);
+  if (singleIdxs.length === 0 && groupingIdxs.length < 2) return out;
 
-  const block = Math.floor((week - 1) / 2); // troca de estímulo a cada 2 semanas
   const adv = ctx.level === "avancado";
   const choque = micro === "choque" || ctx.mesocycle === "intensificacao";
 
-  // Catálogo permitido por nível + intensidade da fase, rotacionado por bloco.
-  const grouping: MethodId[] = adv ? ["biset", "triset", "giantset"] : ["biset"];
-  const single: MethodId[] = choque
-    ? (adv ? ["dropset", "cluster", "restpause"] : ["dropset", "restpause"])
-    : ["pico_contracao", "restpause", "pico_alongamento", "dropset"]; // acumulação = hipertrofia/controle (picos usam method_seconds)
-
   if (choque) {
-    // Intensificação/choque: tenta 1 bi-set (par de isoladores consecutivos) + 1 técnica single.
-    const gm = grouping[block % grouping.length];
-    const need = gm === "triset" ? 3 : gm === "giantset" ? 4 : 2;
-    // pega os ÚLTIMOS `need` isoladores consecutivos como bloco agrupado
-    const tail = idxs.slice(-need);
-    const consecutive = tail.length === need && tail.every((v, k) => k === 0 || v === tail[k - 1] + 1);
-    if (consecutive) {
-      const g = gid(tail[0]);
-      for (const i of tail) { out[i].method = gm; out[i].group_id = g; }
+    // Semana ímpar do bloco final: bi-set seguro. Semana par: técnica de intensidade
+    // em um único acessório. Assim a sessão nunca acumula técnicas demais.
+    if (week % 2 === 1) {
+      const pair = lastConsecutivePair(groupingIdxs);
+      if (pair.length === 2) {
+        const group = gid(pair[0]);
+        for (const index of pair) {
+          out[index].method = "biset";
+          out[index].group_id = group;
+        }
+        return out;
+      }
     }
-    // técnica single num isolador anterior ao bloco (se sobrar)
-    const rest = idxs.filter((i) => !(consecutive && tail.includes(i)));
-    if (rest.length) {
-      const sm = single[block % single.length];
-      const target = rest[rest.length - 1];
-      out[target].method = sm;
-      if (sm === "isometria" || sm === "pico_contracao" || sm === "pico_alongamento") out[target].method_seconds = 3;
+    if (singleIdxs.length) {
+      const target = singleIdxs[singleIdxs.length - 1];
+      out[target].method = adv && week % 2 === 0 ? "cluster" : week % 2 === 0 ? "dropset" : "restpause";
+      out[target].method_seconds = out[target].method === "cluster" ? 15 : out[target].method === "restpause" ? 20 : null;
     }
   } else {
-    // Acumulação (ordinário): só 1 técnica de intensidade leve no último isolador.
-    const sm = single[block % single.length];
-    const target = idxs[idxs.length - 1];
-    out[target].method = sm;
-    if (sm === "isometria" || sm === "pico_contracao" || sm === "pico_alongamento") out[target].method_seconds = 3;
+    // Acumulação: uma única técnica simples na última série de um acessório.
+    if (singleIdxs.length) {
+      const target = singleIdxs[singleIdxs.length - 1];
+      out[target].method = week % 2 === 1 ? "restpause" : "dropset";
+      out[target].method_seconds = out[target].method === "restpause" ? 20 : null;
+    }
   }
 
   return out;

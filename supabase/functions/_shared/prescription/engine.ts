@@ -5,6 +5,7 @@ import { buildPeriodizationBlocks, deloadAdjustSets, hasPainContext, progression
 import { applyLongitudinalProgression, previousExerciseIds, resolveSequenceNumber } from "./longitudinalRules.ts";
 import { applyRestrictionRules, deriveRestrictionRules } from "./restrictionRules.ts";
 import { validateTrainingProgram } from "./validator.ts";
+import { buildWeeklyPeriodization } from "./weeklyPeriodization.ts";
 import type {
   ExerciseCatalogEntry,
   PrescriptionInput,
@@ -235,6 +236,7 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
   const durationWeeks = resolveDurationWeeks(normalizedInput);
   const { workouts, gaps } = buildWorkouts(normalizedInput);
   const longitudinal = applyLongitudinalProgression(workouts, normalizedInput);
+  const weekly = buildWeeklyPeriodization(workouts, normalizedInput);
   const periodization = buildPeriodizationBlocks(normalizedInput);
   const split = resolveSplit(normalizedInput);
   const advancedAllowed = !hasPainContext(normalizedInput) && !normalizeText(normalizedInput.fitnessLevel).includes("inic");
@@ -245,7 +247,27 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
     ...deloadExplanation(Boolean(normalizedInput.deload)),
     progressionExplanation(advancedAllowed),
     longitudinal.explanation,
+    {
+      rule_id: "BN_WEEKLY_PERIODIZATION_EXECUTABLE",
+      category: "progressao" as const,
+      source: "objetivo" as const,
+      target: "ciclo_semanal",
+      action: "Aplicar automaticamente séries, repetições, RIR, cadência e método correspondentes à semana vigente.",
+      reason: "O ciclo precisa evoluir em blocos de duas semanas sem reiniciar o treino nem depender de texto interpretativo.",
+      severity: "leve" as const,
+    },
   ];
+  if (weekly.weeks.some((week) => week.methods.length > 0)) {
+    explanations.push({
+      rule_id: "BN_ADVANCED_METHODS_STABLE_ACCESSORIES",
+      category: "progressao",
+      source: "nivel",
+      target: "acessorios_estaveis",
+      action: "Rotacionar rest-pause, drop-set, bi-set e cluster-set conforme nível e semana.",
+      reason: "A variação aumenta densidade e interesse sem expor exercícios pesados, dolorosos ou instáveis a fadiga desnecessária.",
+      severity: "leve",
+    });
+  }
 
   const program: TrainingProgram = {
     schemaVersion: "bn-prescription-v1",
@@ -283,13 +305,14 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
     biomechanical_notes: restrictions.length
       ? restrictions.map((rule) => rule.recommendation).join(" ")
       : "Plano técnico conservador com mobilidade, ativação, controle motor e força antes de métodos avançados.",
-    workouts,
+    workouts: weekly.workouts,
     library_policy: {
       only_library_exercises: true,
       catalog_count: normalizedInput.catalog.length,
       gaps,
     },
     periodization_blocks: periodization,
+    weekly_periodization: weekly.weeks,
     weekly_structure: `${workouts.length} sessões/semana (${split.label}) distribuídas em dias alternados quando possível.`,
     progression_protocol: `${progressionProtocol(normalizedInput)} Continuidade entre ciclos: ${longitudinal.phase}; o próximo bloco deve partir deste resultado e do feedback real do aluno.`,
     warnings: gaps.length ? ["Biblioteca incompleta para alguns padrões; nenhum exercício foi inventado."] : [],

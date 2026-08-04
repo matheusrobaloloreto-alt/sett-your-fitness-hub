@@ -30,6 +30,9 @@ interface WorkoutExercise {
   group_id?: string | null;
   method?: string | null;
   method_seconds?: number | null;
+  tempo?: string | null;
+  rir?: string | null;
+  weekly_instruction?: string | null;
   sets: string;
   reps: string;
   rest: string;
@@ -172,6 +175,18 @@ export function ExerciseCard({
               <p className="text-xs text-muted-foreground font-sans whitespace-pre-wrap break-words">
                 <span className="font-medium text-foreground">Obs:</span> {ex.notes}
               </p>
+            )}
+
+            {(ex.tempo || ex.rir || ex.weekly_instruction) && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+                <div className="flex flex-wrap gap-2 font-mono-data text-[11px] font-semibold text-primary">
+                  {ex.tempo && <span>Cadência {ex.tempo.split("").join("-")}</span>}
+                  {ex.rir && <span>RIR {ex.rir}</span>}
+                </div>
+                {ex.weekly_instruction && (
+                  <p className="mt-1 font-sans text-xs leading-relaxed text-foreground">{ex.weekly_instruction}</p>
+                )}
+              </div>
             )}
 
             <div className="space-y-1">

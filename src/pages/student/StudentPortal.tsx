@@ -39,6 +39,7 @@ import { WorkoutHeader } from "@/components/student/WorkoutHeader";
 import { WeeklyGoalEditor } from "@/components/student/WeeklyGoalEditor";
 import { AchievementsPanel } from "@/components/student/AchievementsPanel";
 import { MonthlyLeaderboard } from "@/components/student/MonthlyLeaderboard";
+import { resolveWorkoutForCycleWeek, type ResolvedWeekContext, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 
 import { CycleFeedbackBanner } from "@/components/student/CycleFeedbackBanner";
 import { calculateStreak } from "@/lib/streakCalculator";
@@ -62,10 +63,15 @@ interface WorkoutExercise {
   video_path: string | null;
   group_id?: string | null;
   method?: string | null;
+  method_seconds?: number | null;
   sets: string;
   reps: string;
   rest: string;
   notes: string;
+  tempo?: string | null;
+  rir?: string | null;
+  weekly_instruction?: string | null;
+  weekly_prescription?: StoredWeeklyExercisePrescription[];
   youtube_video_id?: string | null;
   thumbnail_url?: string | null;
 }
@@ -76,6 +82,7 @@ interface WorkoutData {
   description: string | null;
   exercises: WorkoutExercise[];
   day_of_week: number | null;
+  weekly_context?: ResolvedWeekContext;
 }
 
 interface Cycle {
@@ -139,7 +146,15 @@ export default function StudentPortal() {
   const [runningSports, setRunningSports] = useState<Set<string>>(new Set());
   
 
-  const selectedWorkout = selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
+  const selectedWorkoutBase = selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
+  const selectedWorkout = useMemo(
+    () => resolveWorkoutForCycleWeek(
+      selectedWorkoutBase,
+      selectedCycle?.start_date,
+      selectedCycle?.duration_weeks,
+    ),
+    [selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks],
+  );
   const todayStr = businessDateYmd();
 
   const session = useWorkoutSession(studentId, companyId);
@@ -905,6 +920,7 @@ export default function StudentPortal() {
                   durationWeeks={selectedCycle.duration_weeks}
                   startDate={selectedCycle.start_date}
                   endDate={selectedCycle.end_date}
+                  prescribedWeek={selectedWorkout?.weekly_context}
                 />
 
                 <WhySafetyCard

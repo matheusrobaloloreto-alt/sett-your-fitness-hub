@@ -22,6 +22,19 @@ export interface StudentWorkoutExercise {
   method?: string | null;
   group_id?: string | null;
   method_seconds?: number | null;
+  weekly_prescription?: Array<{
+    week: number;
+    block: string;
+    sets: number;
+    reps: string;
+    rir: string;
+    rest_seconds: number;
+    tempo: string;
+    method?: string | null;
+    group_id?: string | null;
+    method_seconds?: number | null;
+    instruction: string;
+  }>;
 }
 
 export interface StudentWorkoutRow {
@@ -54,7 +67,7 @@ type PreviousWorkoutRow = {
 // Converte um exercício do plano da IA -> formato do app do aluno (tudo string, como o app espera).
 export function mapStrengthExercise(e: any): StudentWorkoutExercise {
   const restSeconds = e?.rest_seconds;
-  return {
+  const mapped: StudentWorkoutExercise = {
     exercise_id: e?.exercise_id ?? null,
     exercise_name: e?.exercise_name ?? e?.library_exercise_name ?? "Exercício",
     muscle_group: e?.muscle_group ?? "",
@@ -67,6 +80,24 @@ export function mapStrengthExercise(e: any): StudentWorkoutExercise {
     group_id: e?.group_id ?? null,
     method_seconds: e?.method_seconds ?? null,
   };
+  if (Array.isArray(e?.weekly_prescription)) {
+    mapped.weekly_prescription = e.weekly_prescription
+      .filter((week: any) => Number(week?.week) > 0)
+      .map((week: any) => ({
+        week: Number(week.week),
+        block: String(week.block || "base"),
+        sets: Math.max(1, Number(week.sets) || Number(e?.sets) || 1),
+        reps: String(week.reps ?? e?.reps ?? ""),
+        rir: String(week.rir ?? e?.rir ?? ""),
+        rest_seconds: Math.max(0, Number(week.rest_seconds) || Number(restSeconds) || 0),
+        tempo: String(week.tempo ?? e?.tempo ?? ""),
+        method: week.method ?? null,
+        group_id: week.group_id ?? null,
+        method_seconds: week.method_seconds ?? null,
+        instruction: String(week.instruction || ""),
+      }));
+  }
+  return mapped;
 }
 
 // Pure: monta as linhas de `workouts` a partir do plano. Testável sem rede.

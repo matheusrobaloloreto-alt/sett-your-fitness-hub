@@ -73,8 +73,29 @@ export function buildPeriodizationPlan(objective?: string | null, durationWeeks?
   const N = Math.max(1, Math.min(24, Math.round(Number(durationWeeks) || 6)));
   const perf = isPerformanceObjective(objective);
 
-  // Deload (regenerativo): blocos de 4 em macrociclos longos; senão, a última semana.
-  const blockLen = N <= 6 ? N : 4;
+  // O ciclo BN curto usa três blocos executáveis de duas semanas. Deload não é
+  // presumido: ele só deve entrar quando o motor identificar necessidade real.
+  if (N <= 6) {
+    const weeks: WeekPhase[] = Array.from({ length: N }, (_, index) => {
+      const week = index + 1;
+      const mesocycle: MesocyclePhase = week <= 2 ? "base" : week <= 4 ? "acumulacao" : "intensificacao";
+      const microcycle: MicrocycleType = week === 5 ? "choque" : "ordinario";
+      const rir = mesocycle === "base" ? "3-4" : mesocycle === "acumulacao" ? "2-3" : "2";
+      const volumePct = week === 1 ? 80 : week === 2 ? 90 : week === 3 ? 100 : week === 4 ? 105 : week === 5 ? 105 : 100;
+      return {
+        week,
+        mesocycle,
+        microcycle,
+        rir,
+        volumePct,
+        focus: MESOCYCLES[mesocycle].description,
+      };
+    });
+    return { durationWeeks: N, objective: objective ?? null, weeks };
+  }
+
+  // Em macrociclos longos, mantém semanas regenerativas a cada quatro semanas.
+  const blockLen = 4;
   const deload = new Set<number>();
   if (N >= 4) {
     for (let w = blockLen; w <= N; w += blockLen) deload.add(w);

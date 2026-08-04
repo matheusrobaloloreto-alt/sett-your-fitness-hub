@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,6 +11,8 @@ import { format, parseISO, differenceInDays, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { businessDateYmd } from "@/lib/businessDate";
+import { MethodBadge } from "@/components/workout/MethodBadge";
+import { resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 
 interface WorkoutExercise {
   exercise_id: string;
@@ -19,6 +21,13 @@ interface WorkoutExercise {
   video_url: string | null;
   video_path: string | null;
   youtube_video_id?: string | null;
+  method?: string | null;
+  group_id?: string | null;
+  method_seconds?: number | null;
+  tempo?: string | null;
+  rir?: string | null;
+  weekly_instruction?: string | null;
+  weekly_prescription?: StoredWeeklyExercisePrescription[];
   sets: string;
   reps: string;
   rest: string;
@@ -38,6 +47,7 @@ interface Cycle {
   start_date: string;
   end_date: string;
   status: string;
+  duration_weeks?: number | null;
   workouts: WorkoutData[];
 }
 
@@ -62,7 +72,11 @@ export default function StudentWorkout() {
   const [loadError, setLoadError] = useState("");
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
 
-  const selectedWorkout = selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
+  const selectedWorkoutBase = selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
+  const selectedWorkout = useMemo(
+    () => resolveWorkoutForCycleWeek(selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks),
+    [selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks],
+  );
 
   useEffect(() => {
     if (studentId) loadData();
@@ -113,7 +127,7 @@ export default function StudentWorkout() {
     if (enrollmentData) {
       const { data: cyclesData, error: cyclesError } = await supabase
         .from("training_cycles")
-        .select("id, cycle_number, start_date, end_date, status")
+        .select("id, cycle_number, start_date, end_date, status, duration_weeks")
         .eq("enrollment_id", enrollmentData.id)
         .order("cycle_number");
       if (cyclesError) throw cyclesError;
@@ -467,6 +481,7 @@ export default function StudentWorkout() {
                                   <p className="text-xs text-muted-foreground font-sans">
                                     {ex.sets}×{ex.reps} · {ex.rest}
                                   </p>
+                                  {ex.method && <MethodBadge method={ex.method} seconds={ex.method_seconds} tone="amber" />}
                                 </div>
                                 <div className="flex items-center gap-1.5 flex-shrink-0">
                                   {hasVideo(ex) && (
@@ -523,6 +538,15 @@ export default function StudentWorkout() {
                                       <p className="text-xs text-muted-foreground font-sans whitespace-pre-wrap">
                                         <span className="font-medium text-foreground">Obs:</span> {ex.notes}
                                       </p>
+                                    </div>
+                                  )}
+
+                                  {(ex.tempo || ex.rir || ex.weekly_instruction) && (
+                                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-2">
+                                      <p className="font-mono-data text-[11px] font-semibold text-primary">
+                                        {ex.tempo ? `Cadência ${ex.tempo.split("").join("-")}` : ""}{ex.tempo && ex.rir ? " · " : ""}{ex.rir ? `RIR ${ex.rir}` : ""}
+                                      </p>
+                                      {ex.weekly_instruction && <p className="mt-1 text-xs text-foreground">{ex.weekly_instruction}</p>}
                                     </div>
                                   )}
 

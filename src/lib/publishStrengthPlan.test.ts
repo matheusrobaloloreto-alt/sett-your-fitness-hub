@@ -40,6 +40,41 @@ describe("mapStrengthExercise", () => {
     expect(out.rest).toBe("");
     expect(out.notes).toBe("Joelho alinhado");
   });
+
+  it("preserva a prescrição semanal que o app do aluno executa", () => {
+    const out = mapStrengthExercise({
+      exercise_id: "abc",
+      exercise_name: "Remada Baixa",
+      sets: 3,
+      reps: "10-12",
+      rest_seconds: 60,
+      weekly_prescription: [
+        {
+          week: 5,
+          block: "intensificacao",
+          sets: 3,
+          reps: "10-12",
+          rir: "2",
+          rest_seconds: 45,
+          tempo: "2010",
+          method: "biset",
+          group_id: "m5_1",
+          method_seconds: null,
+          instruction: "Execute o par em sequência.",
+        },
+      ],
+    });
+
+    expect(out.weekly_prescription).toEqual([
+      expect.objectContaining({
+        week: 5,
+        block: "intensificacao",
+        tempo: "2010",
+        method: "biset",
+        group_id: "m5_1",
+      }),
+    ]);
+  });
 });
 
 describe("buildWorkoutRows", () => {
