@@ -13,6 +13,7 @@
  *   node scripts/video-ingest.mjs --dir ... --dry-run            # matching + QA, sem enviar
  *   node scripts/video-ingest.mjs --status                       # cobertura e o que falta gravar
  *   node scripts/video-ingest.mjs --dir ... --jobs 6 --only 001,002
+ *   node scripts/video-ingest.mjs --staging --no-trim     # não aparar as bordas paradas
  *
  * O manifest do Drive é [{"name":"001-....mp4","id":"<fileId>"}] — a pasta precisa estar
  * compartilhada como "qualquer pessoa com o link".
@@ -44,6 +45,7 @@ const STAGING = args.includes("--staging");
 let processadasDoStaging = [];
 const FORCE = args.includes("--force");
 const KEEP = args.includes("--keep-source");
+const NOTRIM = args.includes("--no-trim");
 const JOBS = Math.max(1, parseInt(flag("jobs", "4"), 10) || 4);
 const MANIFEST = flag("manifest");
 const DIR = flag("dir") || (MANIFEST || STAGING ? join(WORK, "download") : null);
@@ -213,6 +215,50 @@ for (const u of semMatch.slice(0, 10)) console.log(`    ✖ ${u}`);
 for (const d of duplicados.slice(0, 10)) console.log(`    ⧉ ${d.arquivo} e ${d.conflita_com} → ${d.exercicio}`);
 
 // ---------- 2. QA + compressão + upload (paralelo) ----------
+/**
+ * Onde o exercício realmente acontece dentro do vídeo.
+ *
+ * Todo vídeo de celular vem com gordura nas pontas: a pessoa toca em gravar e volta para a
+ * posição, faz o movimento, e sobra mais um tanto até ela ir desligar. Mede-se o movimento
+ * quadro a quadro (diferença entre quadros consecutivos → brilho médio dessa diferença) e
+ * corta-se só as bordas paradas, preservando tudo que tem ação.
+ *
+ * Devolve null sempre que o corte for arriscado — melhor entregar o vídeo inteiro do que
+ * decapitar a primeira repetição.
+ */
+async function detectarAcao(file, dur) {
+  try {
+    const { stderr } = await run("ffmpeg", ["-i", file, "-vf",
+      "tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG",
+      "-an", "-f", "null", "-"], { maxBuffer: 64 << 20 });
+    const amostras = [];
+    const re = /pts_time:([\d.]+)[\s\S]*?lavfi\.signalstats\.YAVG=([\d.]+)/g;
+    let m;
+    while ((m = re.exec(stderr)) !== null) amostras.push([parseFloat(m[1]), parseFloat(m[2])]);
+    if (amostras.length < 15) return null;
+
+    const vals = amostras.map((a) => a[1]).sort((a, b) => a - b);
+    const p = (q) => vals[Math.min(vals.length - 1, Math.floor(vals.length * q))];
+    const piso = p(0.10);  // ruído do sensor com a cena parada
+    const ref = p(0.90);   // movimento típico — percentil, não o máximo: um flash ou alguém
+                           // passando na frente viraria um pico que engoliria o exercício inteiro
+    if (ref <= piso * 1.5 || ref <= 0) return null; // vídeo homogêneo: nada a separar
+    const limiar = piso + (ref - piso) * 0.25;
+
+    const ativos = amostras.filter(([, v]) => v >= limiar).map(([t]) => t);
+    if (ativos.length < 8) return null; // isometria (prancha) quase não gera diferença: não corta
+
+    const MARGEM = 0.45; // um respiro antes e depois, para não cortar o início do movimento
+    const ini = Math.max(0, ativos[0] - MARGEM);
+    const fim = Math.min(dur, ativos[ativos.length - 1] + MARGEM);
+    const nova = fim - ini;
+    if (nova < 2.5) return null;             // sobrou pouco: a detecção provavelmente errou
+    if (nova > dur - 0.8) return null;       // não havia gordura relevante
+    if (nova < dur * 0.4) return null;       // cortaria mais de 60%: desconfia e mantém
+    return { ini, fim, nova };
+  } catch { return null; }
+}
+
 async function inspecionar(file) {
   const { stdout } = await run("ffprobe", ["-v", "error", "-select_streams", "v:0",
     "-show_entries", "stream=width,height:format=duration", "-of", "json", file], { maxBuffer: 1 << 20 });
@@ -231,10 +277,15 @@ async function processar(m) {
 
   const outMp4 = join(WORK, `${m.ex.id}.mp4`);
   const outJpg = join(WORK, `${m.ex.id}.jpg`);
+  // Apara as bordas paradas antes de comprimir (nada de cortar no meio: repetição é conteúdo).
+  const corte = NOTRIM ? null : await detectarAcao(src, info.dur);
+  const recorte = corte ? ["-ss", corte.ini.toFixed(2), "-to", corte.fim.toFixed(2)] : [];
+  if (corte) avisos.push(`aparado ${info.dur.toFixed(1)}s → ${corte.nova.toFixed(1)}s`);
+
   // force_divisible_by=2: celular grava 1080x1920 e a redução daria 405px de largura,
   // dimensão ímpar que o H.264/yuv420p recusa. freezedetect no mesmo passe custa ~nada
-  // e denuncia vídeo em que a câmera travou ou ninguém se moveu.
-  const { stderr } = await run("ffmpeg", ["-y", "-loglevel", "info", "-i", src,
+  // e denuncia vídeo em que a câmera travou ou ninguém se moveu. -an tira o áudio.
+  const { stderr } = await run("ffmpeg", ["-y", "-loglevel", "info", ...recorte, "-i", src,
     "-vf", "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30,freezedetect=n=-60dB:d=2",
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p",
     "-movflags", "+faststart", "-an", outMp4], { maxBuffer: 32 << 20 });

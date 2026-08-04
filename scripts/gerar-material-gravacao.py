@@ -272,6 +272,7 @@ def gerar_html(m, itens, token):
             f'<label class="done"><input type="checkbox"> já gravei este</label></li>')
     pag = (f'<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
            f'<meta name="viewport" content="width=device-width,initial-scale=1">'
+           f'<meta name="robots" content="noindex,nofollow">'
            f'<title>Gravação BN — Modelo {m}</title><style>{CSS}</style></head><body><div class="wrap">'
            f'<header><h1>Gravação BN — Modelo {m}</h1>'
            f'<div class="sub">{len(itens)} exercícios · toque na imagem para ver como se faz</div>'
