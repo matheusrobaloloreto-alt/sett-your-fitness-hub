@@ -79,7 +79,7 @@ export default function StudentAnamnese() {
     // Dor articular agora (EVA 0-10)
     eva_tornozelo: "0", eva_joelho: "0", eva_quadril: "0", eva_lombar: "0", eva_ombro: "0",
     // Nutrição — rotina alimentar e de treino
-    meals_per_day: "5", meal_t1: "", meal_t2: "", meal_t3: "",
+    meals_per_day: "5", meal_t1: "", meal_t2: "", meal_t3: "", meal_t4: "", meal_t5: "", meal_t6: "", meal_t7: "",
     meal_routine: "", train_time: "", train_fasted: "nunca", appetite_wake: "",
     // Nutrição — preferências / substituições
     food_likes: "", food_dislikes: "", food_restrictions: "", food_preferences: "",

@@ -24,12 +24,14 @@ import {
   Link2,
   Loader2,
   MessageCircle,
+  Trash2,
   UserPlus,
   UserRoundCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
+import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
 import {
   fiscalRegistrationUrl,
   preRegistrationUrl,
@@ -41,6 +43,7 @@ import {
   type FunnelStageKey,
   funnelStageProgress,
   isOpenFunnelStage,
+  normalizeLeadSalesStage,
   normalizeSalesStage,
   stageActionLabel,
   stageNextAction,
@@ -119,6 +122,14 @@ type StudentWithStage = Student & { stage: FunnelStageKey; nextAction: string; p
 
 type AnswerEntry = { key: string; label: string; value: string };
 
+type PreparedFiscalAction = {
+  studentId: string;
+  fullName: string;
+  phone: string | null;
+  link: string;
+  message: string;
+};
+
 const ANSWER_LABELS: Record<string, string> = {
   age: "Idade",
   gender: "Sexo",
@@ -184,6 +195,10 @@ const ANSWER_LABELS: Record<string, string> = {
   meal_t1: "Refeição 1",
   meal_t2: "Refeição 2",
   meal_t3: "Refeição 3",
+  meal_t4: "Refeição 4",
+  meal_t5: "Refeição 5",
+  meal_t6: "Refeição 6",
+  meal_t7: "Refeição 7",
   meal_routine: "Rotina alimentar",
   train_time: "Horário de treino",
   train_fasted: "Treina em jejum",
@@ -387,6 +402,7 @@ export default function RegistrationManager() {
   const [creatingLink, setCreatingLink] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [preparedFiscal, setPreparedFiscal] = useState<PreparedFiscalAction | null>(null);
   const [activeStage, setActiveStage] = useState<FunnelStageKey | "all">("all");
   const [budgetFilter, setBudgetFilter] = useState("all");
   const [waitFilter, setWaitFilter] = useState("all");
@@ -436,7 +452,7 @@ export default function RegistrationManager() {
           .select("id, full_name, phone, stage, budget_range, preferred_contact_period, contact_outcome, pre_registration_answers, created_at, updated_at")
           .eq("company_id", effectiveCompanyId)
           .is("converted_to_student_id", null)
-          .in("stage", ["interested", "contacted"])
+          .in("stage", ["interested", "contacted", "fiscal_registration", "fiscal_registration_pending"])
           .order("created_at", { ascending: false })
           .limit(160),
       ]);
@@ -456,7 +472,7 @@ export default function RegistrationManager() {
         whatsapp: lead.phone,
         email: null,
         status: "interested",
-        sales_stage: lead.stage === "contacted" ? "contacted" : "interested",
+        sales_stage: normalizeLeadSalesStage(lead.stage),
         fiscal_completed_at: null,
         payment_link_sent_at: null,
         activated_at: null,
@@ -582,53 +598,30 @@ export default function RegistrationManager() {
       }
 
       if (student.entityType === "lead") {
-        if (targetStage === "interested") {
-          const { error } = await (supabase as any)
-            .from("leads")
-            .update({ stage: "interested", contact_outcome: null, updated_at: new Date().toISOString() })
-            .eq("id", student.leadId || student.id);
-          if (error) throw error;
-          toast.success("Lead voltou para Interessado.");
-          await loadPipeline();
-          return;
-        }
-
         if (targetStage === "contacted") {
           const { data, error } = await supabase.functions.invoke("public-registration", {
             body: { action: "mark-lead-contacted", leadId: student.leadId || student.id, outcome: "in_conversation" },
           });
           if (error || !data?.id) throw new Error(data?.error || error?.message || "Não foi possível registrar o contato.");
-          toast.success("Contato registrado.");
-          await loadPipeline();
+        } else if (targetStage === "interested" || targetStage === "fiscal_registration_pending") {
+          const { error } = await (supabase as any)
+            .from("leads")
+            .update({
+              stage: targetStage,
+              contact_outcome: targetStage === "interested" ? null : student.contact_outcome,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", student.leadId || student.id)
+            .eq("company_id", effectiveCompanyId);
+          if (error) throw error;
+        } else {
+          toast.error("Antes do pagamento, prepare o cadastro fiscal pela ação do cartão.");
           return;
         }
 
-        if (targetStage === "fiscal_registration_pending") {
-          const { data, error } = await supabase.functions.invoke("public-registration", {
-            body: { action: "convert-lead", leadId: student.leadId || student.id },
-          });
-          if (error || !data?.token || !data?.studentId) {
-            throw new Error(data?.error || error?.message || "Não foi possível iniciar o cadastro fiscal.");
-          }
-          if (data.messageSent) {
-            toast.success("Cadastro fiscal enviado pelo WhatsApp do app.");
-          } else {
-            const fiscalLink = fiscalRegistrationUrl(window.location.origin, data.token);
-            toast.warning(data.messageError || "O envio automático falhou. O rascunho foi aberto para envio manual.");
-            await openStudentChat({
-              navigate,
-              routePrefix: chatRoutePrefix,
-              studentId: data.studentId,
-              phone: waDigits(student.whatsapp || student.phone),
-              message: `Oi, ${firstName(student.full_name)}! Vamos seguir com seu cadastro BN. Complete os dados fiscais e escolha seu plano neste link: ${fiscalLink}`,
-              onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
-            });
-          }
-          await loadPipeline();
-          return;
-        }
-
-        toast.error("Para avançar lead até pagamento, primeiro envie o cadastro fiscal.");
+        toast.success(`Movido para ${FUNNEL_STAGE_META[targetStage].label}. Nenhuma mensagem foi enviada.`);
+        setActiveStage("all");
+        await loadPipeline();
         return;
       }
 
@@ -654,6 +647,7 @@ export default function RegistrationManager() {
         .eq("id", student.id);
       if (error) throw error;
       toast.success(`Movido para ${FUNNEL_STAGE_META[targetStage].label}.`);
+      setActiveStage("all");
       await loadPipeline();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível mover o cartão.");
@@ -688,16 +682,123 @@ export default function RegistrationManager() {
     return personalized;
   };
 
-  const openChatWithStudent = async (student: Student, message: string) => {
+  const openChatWithStudent = async (student: Student, message = "") => {
     const digits = waDigits(student.whatsapp || student.phone || phone);
     await openStudentChat({
       navigate,
       routePrefix: chatRoutePrefix,
       studentId: student.entityType === "student" ? student.id : null,
       phone: digits,
+      contactName: student.full_name,
       message,
       onNoChat: () => toast.error("Informe um telefone valido para abrir a conversa interna."),
     });
+  };
+
+  const openPreRegistration = async (student: StudentWithStage) => {
+    if (student.entityType === "lead") {
+      setSelectedLead(student);
+      return;
+    }
+
+    const preRegistration = await loadStudentPreRegistration({
+      studentId: student.id,
+      companyId: effectiveCompanyId,
+      phone: student.whatsapp || student.phone,
+    });
+    if (!preRegistration) {
+      toast.error("Nenhum pré-cadastro foi encontrado para esta pessoa.");
+      return;
+    }
+
+    setSelectedLead({
+      ...student,
+      pre_registration_answers: preRegistration.answers,
+      budget_range: preRegistration.budgetRange,
+      preferred_contact_period: preRegistration.preferredContactPeriod,
+    });
+  };
+
+  const showPreparedFiscalAction = (params: {
+    studentId: string;
+    fullName: string;
+    phone: string | null;
+    token: string;
+  }) => {
+    const link = fiscalRegistrationUrl(window.location.origin, params.token);
+    setPreparedFiscal({
+      studentId: params.studentId,
+      fullName: params.fullName,
+      phone: params.phone,
+      link,
+      message: `Oi, ${firstName(params.fullName)}! Vamos seguir com seu cadastro BN. Complete os dados fiscais e escolha seu plano neste link: ${link}`,
+    });
+  };
+
+  const prepareFiscalForLead = async (student: StudentWithStage) => {
+    const { data, error } = await supabase.functions.invoke("public-registration", {
+      body: { action: "convert-lead", leadId: student.leadId || student.id },
+    });
+    if (error || !data?.token || !data?.studentId) {
+      throw new Error(data?.error || error?.message || "Não foi possível preparar o cadastro fiscal.");
+    }
+    showPreparedFiscalAction({
+      studentId: data.studentId,
+      fullName: student.full_name,
+      phone: waDigits(student.whatsapp || student.phone),
+      token: data.token,
+    });
+    toast.success("Cadastro preparado. Escolha se quer copiar ou abrir a conversa.");
+    await loadPipeline();
+  };
+
+  const prepareFiscalForStudent = async (student: StudentWithStage) => {
+    const { data, error } = await supabase.functions.invoke("public-registration", {
+      body: { action: "create-link", studentId: student.id },
+    });
+    if (error || !data?.token) {
+      throw new Error(data?.error || error?.message || "Não foi possível preparar o cadastro fiscal.");
+    }
+    showPreparedFiscalAction({
+      studentId: student.id,
+      fullName: student.full_name,
+      phone: waDigits(student.whatsapp || student.phone),
+      token: data.token,
+    });
+  };
+
+  const removeFromPipeline = async (student: StudentWithStage) => {
+    const isLead = student.entityType === "lead";
+    const confirmed = window.confirm(
+      isLead
+        ? `Excluir definitivamente o pré-cadastro de ${student.full_name}?`
+        : `Arquivar ${student.full_name}? O histórico será preservado.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      if (isLead) {
+        const { error } = await (supabase as any)
+          .from("leads")
+          .delete()
+          .eq("id", student.leadId || student.id)
+          .eq("company_id", effectiveCompanyId)
+          .is("converted_to_student_id", null);
+        if (error) throw error;
+        toast.success("Pré-cadastro excluído.");
+      } else {
+        const { error } = await (supabase as any)
+          .from("students")
+          .update({ status: "inactive", sales_stage: "lost", updated_at: new Date().toISOString() })
+          .eq("id", student.id)
+          .eq("company_id", effectiveCompanyId);
+        if (error) throw error;
+        toast.success("Perfil arquivado sem apagar o histórico.");
+      }
+      await loadPipeline();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível remover da esteira.");
+    }
   };
 
   const handleStageAction = async (student: StudentWithStage) => {
@@ -707,50 +808,22 @@ export default function RegistrationManager() {
           body: { action: "mark-lead-contacted", leadId: student.leadId || student.id, outcome: "in_conversation" },
         });
         if (error || !data?.id) throw new Error(data?.error || error?.message || "Não foi possível registrar o contato.");
-        await openChatWithStudent(
-          student,
-          buildLeadFirstContactMessage(student, currentTrainerName),
-        );
         await loadPipeline();
+        await openChatWithStudent(student);
+        toast.success("Contato registrado. A conversa foi aberta sem enviar mensagem.");
         return;
       }
 
-      if (student.entityType === "lead" && student.stage === "contacted") {
-        const { data, error } = await supabase.functions.invoke("public-registration", {
-          body: { action: "convert-lead", leadId: student.leadId || student.id },
-        });
-        if (error || !data?.token || !data?.studentId) throw new Error(data?.error || error?.message || "Não foi possível iniciar o cadastro fiscal.");
-        if (data.messageSent) {
-          toast.success("Cadastro fiscal enviado pelo WhatsApp do app.");
-        } else {
-          const fiscalLink = fiscalRegistrationUrl(window.location.origin, data.token);
-          toast.warning(data.messageError || "O envio automático falhou. O rascunho foi aberto para envio manual.");
-          await openStudentChat({
-            navigate,
-            routePrefix: chatRoutePrefix,
-            studentId: data.studentId,
-            phone: waDigits(student.whatsapp || student.phone),
-            message: `Oi, ${firstName(student.full_name)}! Vamos seguir com seu cadastro BN. Complete os dados fiscais e escolha seu plano neste link: ${fiscalLink}`,
-            onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
-          });
-        }
-        await loadPipeline();
+      if (
+        student.entityType === "lead"
+        && (student.stage === "contacted" || student.stage === "fiscal_registration_pending")
+      ) {
+        await prepareFiscalForLead(student);
         return;
       }
 
       if (student.stage === "fiscal_registration_pending") {
-        const { data, error } = await supabase.functions.invoke("public-registration", {
-          body: { action: "send-link", studentId: student.id, attemptId: crypto.randomUUID() },
-        });
-        if (error || !data?.token) throw new Error(data?.error || error?.message || "Não foi possível reenviar o cadastro fiscal.");
-        if (data.messageSent) {
-          toast.success("Cadastro fiscal enviado pelo WhatsApp do app.");
-        } else {
-          const fiscalLink = fiscalRegistrationUrl(window.location.origin, data.token);
-          toast.warning(data.messageError || "O envio automático falhou. O rascunho foi aberto para envio manual.");
-          await openChatWithStudent(student, `Oi, ${firstName(student.full_name)}! Passando novamente seu cadastro fiscal: ${fiscalLink}`);
-        }
-        await loadPipeline();
+        await prepareFiscalForStudent(student);
         return;
       }
 
@@ -1063,9 +1136,7 @@ export default function RegistrationManager() {
                       </p>
                     ) : rows.map((student) => (
                       <div
-                        key={student.id}
-                        role="button"
-                        tabIndex={0}
+                        key={cardIdFor(student)}
                         draggable
                         className={cn(
                           "w-full cursor-grab rounded-lg border border-border bg-card p-3 text-left transition hover:border-primary/45 hover:bg-primary/5 active:cursor-grabbing",
@@ -1073,6 +1144,11 @@ export default function RegistrationManager() {
                           movingCardId === cardIdFor(student) && "pointer-events-none opacity-60",
                         )}
                         onDragStart={(event) => {
+                          const target = event.target as HTMLElement;
+                          if (target.closest("button, input, [role='combobox'], [role='option']")) {
+                            event.preventDefault();
+                            return;
+                          }
                           const cardId = cardIdFor(student);
                           setDraggingCardId(cardId);
                           event.dataTransfer.effectAllowed = "move";
@@ -1081,15 +1157,6 @@ export default function RegistrationManager() {
                         onDragEnd={() => {
                           setDraggingCardId(null);
                           setDragOverStage(null);
-                        }}
-                        onClick={() => {
-                          if (student.entityType === "student") navigate(`/${chatRoutePrefix}/students/${student.id}`);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            if (student.entityType === "student") navigate(`/${chatRoutePrefix}/students/${student.id}`);
-                          }
                         }}
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -1180,7 +1247,7 @@ export default function RegistrationManager() {
                         <div className="mt-3 space-y-2">
                           <span className="line-clamp-2 block text-xs font-medium text-foreground">{student.nextAction}</span>
                           <div className="grid grid-cols-1 gap-1.5">
-                            {student.entityType === "lead" && (
+                            {(student.entityType === "lead" || student.hasAnamnesis) && (
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -1188,11 +1255,38 @@ export default function RegistrationManager() {
                                 onClick={(event) => {
                                   event.preventDefault();
                                   event.stopPropagation();
-                                  setSelectedLead(student);
+                                  void openPreRegistration(student);
                                 }}
                               >
                                 <Eye className="mr-1 h-3.5 w-3.5" />
                                 Ver pré-cadastro
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 w-full px-2 text-xs"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void openChatWithStudent(student);
+                              }}
+                            >
+                              <MessageCircle className="mr-1 h-3.5 w-3.5" />
+                              Abrir conversa
+                            </Button>
+                            {student.entityType === "student" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 w-full px-2 text-xs"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  navigate(`/${chatRoutePrefix}/students/${student.id}`);
+                                }}
+                              >
+                                Abrir perfil
                               </Button>
                             )}
                             <Button
@@ -1205,7 +1299,22 @@ export default function RegistrationManager() {
                                 void handleStageAction(student);
                               }}
                             >
-                              {stageActionLabel(student.stage)}
+                              {student.entityType === "lead" && student.stage === "fiscal_registration_pending"
+                                ? "Preparar cadastro fiscal"
+                                : stageActionLabel(student.stage)}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-full px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void removeFromPipeline(student);
+                              }}
+                            >
+                              <Trash2 className="mr-1 h-3.5 w-3.5" />
+                              {student.entityType === "lead" ? "Excluir pré-cadastro" : "Arquivar perfil"}
                             </Button>
                           </div>
                         </div>
@@ -1328,17 +1437,74 @@ export default function RegistrationManager() {
                       type="button"
                       onClick={() => {
                         setSelectedLead(null);
-                        void handleStageAction({ ...selectedLead, stage: normalizeSalesStage(selectedLead), nextAction: stageNextAction(selectedLead), progress: funnelStageProgress(normalizeSalesStage(selectedLead)) });
+                        void openChatWithStudent(selectedLead);
                       }}
                     >
                       <MessageCircle className="mr-2 h-4 w-4" />
-                      Abrir WhatsApp interno
+                      Abrir conversa sem enviar
                     </Button>
                   </div>
                 </div>
               </>
             );
           })()}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(preparedFiscal)} onOpenChange={(open) => !open && setPreparedFiscal(null)}>
+        <DialogContent className="max-w-xl rounded-3xl border-border bg-card">
+          {preparedFiscal && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="font-display text-2xl text-primary">Cadastro fiscal preparado</DialogTitle>
+                <DialogDescription>
+                  Nada foi enviado. Copie a mensagem ou abra a conversa e decida quando enviar.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-border bg-secondary/25 p-3">
+                  <p className="text-eyebrow">Link individual</p>
+                  <p className="mt-1 break-all font-mono-data text-xs text-foreground">{preparedFiscal.link}</p>
+                </div>
+                <div className="whitespace-pre-wrap rounded-2xl border border-border bg-background p-3 text-sm leading-relaxed text-foreground">
+                  {preparedFiscal.message}
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={async () => {
+                      await navigator.clipboard?.writeText(preparedFiscal.message);
+                      toast.success("Mensagem copiada. Nada foi enviado.");
+                    }}
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copiar mensagem
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={async () => {
+                      const current = preparedFiscal;
+                      setPreparedFiscal(null);
+                      await openStudentChat({
+                        navigate,
+                        routePrefix: chatRoutePrefix,
+                        studentId: current.studentId,
+                        phone: current.phone,
+                        contactName: current.fullName,
+                        message: "",
+                        onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
+                      });
+                    }}
+                  >
+                    <MessageCircle className="mr-2 h-4 w-4" />
+                    Abrir conversa sem enviar
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -34,13 +34,14 @@ export async function openStudentChat(opts: {
   chatId?: string | null;
   studentId?: string | null;
   phone?: string | null;
+  contactName?: string | null;
   message: string;
   onNoChat?: (message: string) => void;
 }): Promise<void> {
   const { navigate, routePrefix, studentId, message, onNoChat } = opts;
   let resolvedChatId = opts.chatId ?? null;
   let resolvedPhone = opts.phone ?? null;
-  let contactName: string | null = null;
+  let contactName: string | null = opts.contactName ?? null;
 
   if (!resolvedChatId && studentId) {
     const { data: linkedChat } = await supabase

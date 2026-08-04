@@ -21,6 +21,7 @@ import {
   resolvePrescriptionInterests,
   SUPPORTED_TRAINING_MODALITIES,
 } from "@/lib/anamnesisOptions";
+import { mealScheduleEntries, mealSchedulePayload } from "@/lib/mealSchedule";
 
 const EQUIPMENT_OPTIONS = [
   "Mini Bands (elástico curto fechado)", "Thera Bands (elástico grande aberto)",
@@ -110,7 +111,6 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [trainingLocation, setTrainingLocation] = useState("");
   const [equipment, setEquipment] = useState<string[]>([]);
   const [equipmentOther, setEquipmentOther] = useState("");
-  const [goals, setGoals] = useState("");
   const [diseases, setDiseases] = useState("");
   const [injuries, setInjuries] = useState("");
   const [currentPain, setCurrentPain] = useState("");
@@ -160,9 +160,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [evaLombar, setEvaLombar] = useState("0");
   const [evaOmbro, setEvaOmbro] = useState("0");
   const [mealsPerDay, setMealsPerDay] = useState("5");
-  const [mealT1, setMealT1] = useState("");
-  const [mealT2, setMealT2] = useState("");
-  const [mealT3, setMealT3] = useState("");
+  const [mealTimes, setMealTimes] = useState<string[]>(() => Array(7).fill(""));
   const [mealRoutine, setMealRoutine] = useState("");
   const [trainTime, setTrainTime] = useState("");
   const [trainFasted, setTrainFasted] = useState("nunca");
@@ -277,6 +275,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
     }
     if (targetStepId === "sports") {
       return [
+        [sportGoal.trim(), "meta dentro das modalidades esportivas"],
         ...(!wantsStrength ? [[sessionDuration, "tempo livre para as sessões esportivas"]] : []),
         ...(wantsSwimming && swimPool === "outro"
           ? [[swimPoolOther.trim(), "descrição da piscina"]]
@@ -285,7 +284,6 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
     }
     if (targetStepId === "health") {
       return [
-        [goals, "metas com o treino"],
         [diseases, "doenças ou remédios contínuos"],
         [injuries, "histórico de lesões"],
         [currentPain, "dor atual"],
@@ -363,7 +361,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         days_available: availability.totalDays,
         days_strength: wantsStrength ? availability.strengthDays ?? availability.totalDays : null,
         days_cardio: hasEndurance ? availability.cardioDays ?? availability.totalDays : null,
-        goals,
+        goals: sportGoal || objective,
         diseases,
         injuries,
         current_pain: currentPain,
@@ -417,9 +415,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         eva_lombar: evaLombar,
         eva_ombro: evaOmbro,
         meals_per_day: mealsPerDay ? Number(mealsPerDay) : null,
-        meal_t1: mealT1,
-        meal_t2: mealT2,
-        meal_t3: mealT3,
+        ...mealSchedulePayload(mealsPerDay, mealTimes),
         meal_routine: mealRoutine,
         train_time: trainTime,
         train_fasted: trainFasted,
@@ -743,8 +739,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 <h3 className="font-display text-lg text-primary">Dados das modalidades escolhidas</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2 sm:col-span-2">
-                    <Label className="font-sans font-medium">Objetivo ou prova nas modalidades escolhidas</Label>
-                    <Input value={sportGoal} onChange={e => setSportGoal(e.target.value)} placeholder="Ex: meia maratona, 5km, triathlon sprint..." />
+                    <Label className="font-sans font-medium">Qual meta você quer atingir dentro destas modalidades? *</Label>
+                    <Input value={sportGoal} onChange={e => setSportGoal(e.target.value)} placeholder="Ex: correr 5 km sem parar, completar uma meia maratona ou melhorar meu pace" />
                   </div>
                   {wantsRunning && (
                   <div className="space-y-2">
@@ -834,6 +830,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                         <select value={bikeType} onChange={e => setBikeType(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                           <option value="">Selecione...</option>
                           <option value="speed">Speed/estrada</option>
+                          <option value="gravel">Gravel</option>
                           <option value="mtb">MTB</option>
                           <option value="indoor">Indoor/rolo</option>
                         </select>
@@ -866,11 +863,6 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             <>
             {currentStep.id === "health" && (
             <>
-            <div className="space-y-2">
-              <Label className="font-sans font-medium">Quais as suas metas com o treino? *</Label>
-              <Textarea value={goals} onChange={e => setGoals(e.target.value)} placeholder="Ex: ganhar massa, reduzir dores e correr 5 km" />
-            </div>
-
             <div className="space-y-2">
               <Label className="font-sans font-medium">Possui alguma doença e/ou toma algum remédio contínuo? *</Label>
               <Textarea value={diseases} onChange={e => setDiseases(e.target.value)} placeholder="Ex: não possuo; ou hipertensão controlada" />
@@ -1021,18 +1013,18 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                     <option value="muda">Mudam bastante</option>
                   </select>
                 </div>
-                <div className="space-y-2">
-                  <Label className="font-sans font-medium">1ª refeição</Label>
-                  <Input type="time" value={mealT1} onChange={e => setMealT1(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-sans font-medium">Almoço</Label>
-                  <Input type="time" value={mealT2} onChange={e => setMealT2(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-sans font-medium">Última refeição</Label>
-                  <Input type="time" value={mealT3} onChange={e => setMealT3(e.target.value)} />
-                </div>
+                {mealScheduleEntries(mealsPerDay, mealTimes).map((meal) => (
+                  <div className="space-y-2" key={meal.key}>
+                    <Label className="font-sans font-medium">{meal.label}</Label>
+                    <Input
+                      type="time"
+                      value={meal.value}
+                      onChange={event => setMealTimes(current => current.map((value, index) => (
+                        index === meal.index ? event.target.value : value
+                      )))}
+                    />
+                  </div>
+                ))}
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Treina em jejum?</Label>
                   <select value={trainFasted} onChange={e => setTrainFasted(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">

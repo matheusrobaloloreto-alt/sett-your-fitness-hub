@@ -151,14 +151,14 @@ function buildNutritionContext(body: Record<string, unknown>) {
   const routineLabels: Record<string, string> = { fixa: "fixos", varia: "variam um pouco", muda: "mudam bastante" };
   const fastedLabels: Record<string, string> = { nunca: "nunca", asvezes: "às vezes", sempre: "sempre" };
   const appetiteLabels: Record<string, string> = { faminto: "com bastante fome", normal: "normal", sem_fome: "sem fome", enjoo: "enjoo/não come" };
+  const mealTimes = Array.from({ length: 7 }, (_, index) => {
+    const value = body[`meal_t${index + 1}`];
+    return value ? `${index + 1}ª ${cleanLongText(value, 20)}` : null;
+  }).filter(Boolean);
   return [
     body.nutrition && `Relato alimentar: ${cleanLongText(body.nutrition)}`,
     `Refeições/dia: ${body.meals_per_day || "não informado"}`,
-    (body.meal_t1 || body.meal_t2 || body.meal_t3) && `Horários habituais: ${[
-      body.meal_t1 && "1ª " + cleanLongText(body.meal_t1, 20),
-      body.meal_t2 && "almoço " + cleanLongText(body.meal_t2, 20),
-      body.meal_t3 && "última " + cleanLongText(body.meal_t3, 20),
-    ].filter(Boolean).join(", ")}`,
+    mealTimes.length && `Horários habituais: ${mealTimes.join(", ")}`,
     body.meal_routine && `Horários ${routineLabels[String(body.meal_routine)] || body.meal_routine}`,
     body.train_time && `Treina no período: ${cleanLongText(body.train_time, 80)}`,
     body.train_fasted && `Treina em jejum: ${fastedLabels[String(body.train_fasted)] || body.train_fasted}`,
@@ -538,14 +538,17 @@ async function convertLeadToFiscal(req: Request, leadId: unknown) {
   }).eq("id", lead.id).eq("company_id", tenant.companyId);
   if (leadUpdate.error) throw new HttpError(500, `Falha ao avançar interessado: ${leadUpdate.error.message}`);
 
-  const registration = await sendRegistrationLink(req, studentId, lead.id);
+  // Conversion only prepares the fiscal registration. Sending is a separate,
+  // explicit action so a Kanban move or profile open can never contact a lead.
+  const registration = await createRegistrationLink(req, studentId);
+  const registrationUrl = `${APP_URL}/cadastro-fiscal/${registration.token}`;
   return {
     leadId: lead.id,
     studentId,
     token: registration.token,
     expiresAt: registration.expires_at,
-    messageSent: registration.messageSent,
-    messageError: registration.messageError,
+    registrationUrl,
+    messageSent: false,
   };
 }
 

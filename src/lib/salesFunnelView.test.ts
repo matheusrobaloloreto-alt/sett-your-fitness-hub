@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { funnelStageProgress, normalizeSalesStage, stageActionLabel, stageNextAction } from "./salesFunnelView";
+import {
+  funnelStageProgress,
+  normalizeLeadSalesStage,
+  normalizeSalesStage,
+  stageActionLabel,
+  stageNextAction,
+} from "./salesFunnelView";
 
 describe("salesFunnelView", () => {
   it("prioritizes explicit sales_stage over legacy student status", () => {
@@ -12,6 +18,13 @@ describe("salesFunnelView", () => {
     expect(normalizeSalesStage({ status: "pending" })).toBe("payment_pending");
     expect(normalizeSalesStage({ status: "active" })).toBe("active");
     expect(normalizeSalesStage({ status: "inactive" })).toBe("lost");
+  });
+
+  it("keeps manually moved leads visible in every pre-payment Kanban stage", () => {
+    expect(normalizeLeadSalesStage("interested")).toBe("interested");
+    expect(normalizeLeadSalesStage("contacted")).toBe("contacted");
+    expect(normalizeLeadSalesStage("fiscal_registration_pending")).toBe("fiscal_registration_pending");
+    expect(normalizeLeadSalesStage("fiscal_registration")).toBe("fiscal_registration_pending");
   });
 
   it("returns operational next actions for each registration phase", () => {

@@ -105,14 +105,14 @@ function buildNutritionContext(body: Record<string, any>) {
   const routineLabels: Record<string, string> = { fixa: "fixos", varia: "variam um pouco", muda: "mudam bastante" };
   const fastedLabels: Record<string, string> = { nunca: "nunca", asvezes: "às vezes", sempre: "sempre" };
   const appetiteLabels: Record<string, string> = { faminto: "com bastante fome", normal: "normal", sem_fome: "sem fome", enjoo: "enjoo/não come" };
+  const mealTimes = Array.from({ length: 7 }, (_, index) => {
+    const value = body[`meal_t${index + 1}`];
+    return value ? `${index + 1}ª ${cleanText(value, 20)}` : null;
+  }).filter(Boolean);
   return [
     body.nutrition && `Relato alimentar: ${cleanText(body.nutrition)}`,
     `Refeições/dia: ${body.meals_per_day || "não informado"}`,
-    (body.meal_t1 || body.meal_t2 || body.meal_t3) && `Horários habituais: ${[
-      body.meal_t1 && "1ª " + cleanText(body.meal_t1, 20),
-      body.meal_t2 && "almoço " + cleanText(body.meal_t2, 20),
-      body.meal_t3 && "última " + cleanText(body.meal_t3, 20),
-    ].filter(Boolean).join(", ")}`,
+    mealTimes.length && `Horários habituais: ${mealTimes.join(", ")}`,
     body.meal_routine && `Horários ${routineLabels[body.meal_routine] || body.meal_routine}`,
     body.train_time && `Treina no período: ${cleanText(body.train_time, 80)}`,
     body.train_fasted && `Treina em jejum: ${fastedLabels[body.train_fasted] || body.train_fasted}`,

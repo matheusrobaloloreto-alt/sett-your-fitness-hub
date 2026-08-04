@@ -91,6 +91,14 @@ export function normalizeSalesStage(student: FunnelStageStudent): FunnelStageKey
   return "interested";
 }
 
+export function normalizeLeadSalesStage(stage?: string | null): FunnelStageKey {
+  if (stage === "contacted") return "contacted";
+  if (stage === "fiscal_registration" || stage === "fiscal_registration_pending") {
+    return "fiscal_registration_pending";
+  }
+  return "interested";
+}
+
 export function funnelStageProgress(stage: FunnelStageKey): number {
   const activeOrder = FUNNEL_STAGE_ORDER.filter((key) => key !== "lost");
   const idx = Math.max(0, activeOrder.indexOf(stage));

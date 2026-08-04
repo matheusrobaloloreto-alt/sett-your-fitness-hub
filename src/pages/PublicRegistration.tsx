@@ -16,6 +16,7 @@ import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { applyTheme } from "@/contexts/ThemeContext";
 import { SUPPORTED_TRAINING_MODALITIES } from "@/lib/anamnesisOptions";
 import { paymentPath } from "@/lib/publicFlowLinks";
+import { mealScheduleEntries, mealSchedulePayload } from "@/lib/mealSchedule";
 
 interface CompanyBranding {
   logo_url: string | null;
@@ -109,7 +110,6 @@ export default function PublicRegistration() {
   const [trainingLocation, setTrainingLocation] = useState("");
   const [equipment, setEquipment] = useState<string[]>([]);
   const [equipmentOther, setEquipmentOther] = useState("");
-  const [goals, setGoals] = useState("");
   const [diseases, setDiseases] = useState("");
   const [injuries, setInjuries] = useState("");
   const [currentPain, setCurrentPain] = useState("");
@@ -155,9 +155,7 @@ export default function PublicRegistration() {
   const [restorativeSleep, setRestorativeSleep] = useState("");
   const [awareOfTrilogy, setAwareOfTrilogy] = useState("");
   const [mealsPerDay, setMealsPerDay] = useState("5");
-  const [mealT1, setMealT1] = useState("");
-  const [mealT2, setMealT2] = useState("");
-  const [mealT3, setMealT3] = useState("");
+  const [mealTimes, setMealTimes] = useState<string[]>(() => Array(7).fill(""));
   const [mealRoutine, setMealRoutine] = useState("");
   const [trainTime, setTrainTime] = useState("");
   const [trainFasted, setTrainFasted] = useState("nunca");
@@ -258,7 +256,6 @@ export default function PublicRegistration() {
       if (swimPool === "outro" && !swimPoolOther.trim()) missing.push("descrição da piscina");
       if (!sessionDuration) missing.push("tempo por sessão");
       if (!trainingLocation) missing.push("local de treino");
-      if (!goals.trim()) missing.push("metas");
       if (!diseases.trim()) missing.push("doenças/remédios");
       if (!injuries.trim()) missing.push("histórico de lesões");
       if (!currentPain.trim()) missing.push("dor atual");
@@ -308,7 +305,7 @@ export default function PublicRegistration() {
             session_duration: sessionDuration,
             training_location: trainingLocation,
             available_equipment: allEquipment,
-            goals,
+            goals: sportGoal || objective,
             diseases,
             injuries,
             current_pain: currentPain,
@@ -358,9 +355,7 @@ export default function PublicRegistration() {
             restorative_sleep: restorativeSleep === "sim",
             aware_of_trilogy: awareOfTrilogy === "sim",
             meals_per_day: mealsPerDay ? Number(mealsPerDay) : null,
-            meal_t1: mealT1,
-            meal_t2: mealT2,
-            meal_t3: mealT3,
+            ...mealSchedulePayload(mealsPerDay, mealTimes),
             meal_routine: mealRoutine,
             train_time: trainTime,
             train_fasted: trainFasted,
@@ -690,8 +685,8 @@ export default function PublicRegistration() {
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2 sm:col-span-2">
-                        <Label className="font-sans">Objetivo / prova</Label>
-                        <Input value={sportGoal} onChange={e => setSportGoal(e.target.value)} placeholder="Ex: meia maratona, 5km, triathlon sprint..." />
+                        <Label className="font-sans">Qual meta você quer atingir dentro destas modalidades?</Label>
+                        <Input value={sportGoal} onChange={e => setSportGoal(e.target.value)} placeholder="Ex: correr 5 km sem parar, completar uma meia maratona ou melhorar meu pace" />
                       </div>
                       <div className="space-y-2">
                         <Label className="font-sans">Volume atual</Label>
@@ -764,7 +759,7 @@ export default function PublicRegistration() {
                         <Label className="font-sans">Tipo de bike</Label>
                         <Select value={bikeType} onValueChange={setBikeType}>
                           <SelectTrigger className="rounded-xl"><SelectValue placeholder="Se pratica bike" /></SelectTrigger>
-                          <SelectContent><SelectItem value="speed">Speed/estrada</SelectItem><SelectItem value="mtb">MTB</SelectItem><SelectItem value="indoor">Indoor/rolo</SelectItem></SelectContent>
+                          <SelectContent><SelectItem value="speed">Speed/estrada</SelectItem><SelectItem value="gravel">Gravel</SelectItem><SelectItem value="mtb">MTB</SelectItem><SelectItem value="indoor">Indoor/rolo</SelectItem></SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-2">
@@ -791,10 +786,6 @@ export default function PublicRegistration() {
                   <div>
                     <p className="text-eyebrow">Segurança</p>
                     <h2 className="font-display text-xl text-primary">Saúde, dores e triagem</h2>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="font-sans">Quais são suas metas com o treino? *</Label>
-                    <Textarea value={goals} onChange={e => setGoals(e.target.value)} className="rounded-xl" placeholder="Ex: ganhar massa, reduzir dores e correr 5 km" />
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans">Possui alguma doença e/ou toma algum remédio contínuo? *</Label>
@@ -929,18 +920,18 @@ export default function PublicRegistration() {
                       <Label className="font-sans">Horários das refeições</Label>
                       <Select value={mealRoutine} onValueChange={setMealRoutine}><SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent><SelectItem value="fixa">Fixos</SelectItem><SelectItem value="varia">Variam um pouco</SelectItem><SelectItem value="muda">Mudam bastante</SelectItem></SelectContent></Select>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="font-sans">1ª refeição</Label>
-                      <Input type="time" value={mealT1} onChange={e => setMealT1(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-sans">2ª refeição</Label>
-                      <Input type="time" value={mealT2} onChange={e => setMealT2(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-sans">3ª refeição</Label>
-                      <Input type="time" value={mealT3} onChange={e => setMealT3(e.target.value)} />
-                    </div>
+                    {mealScheduleEntries(mealsPerDay, mealTimes).map((meal) => (
+                      <div className="space-y-2" key={meal.key}>
+                        <Label className="font-sans">{meal.label}</Label>
+                        <Input
+                          type="time"
+                          value={meal.value}
+                          onChange={event => setMealTimes(current => current.map((value, index) => (
+                            index === meal.index ? event.target.value : value
+                          )))}
+                        />
+                      </div>
+                    ))}
                     <div className="space-y-2">
                       <Label className="font-sans">Treina em jejum?</Label>
                       <Select value={trainFasted} onValueChange={setTrainFasted}><SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="nunca">Nunca</SelectItem><SelectItem value="asvezes">Às vezes</SelectItem><SelectItem value="sempre">Sempre</SelectItem></SelectContent></Select>
