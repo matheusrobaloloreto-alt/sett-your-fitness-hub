@@ -390,6 +390,9 @@ export default function RegistrationManager() {
   const [activeStage, setActiveStage] = useState<FunnelStageKey | "all">("all");
   const [budgetFilter, setBudgetFilter] = useState("all");
   const [waitFilter, setWaitFilter] = useState("all");
+  const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
+  const [dragOverStage, setDragOverStage] = useState<FunnelStageKey | null>(null);
+  const [movingCardId, setMovingCardId] = useState<string | null>(null);
 
   const loadPipeline = async () => {
     if (!effectiveCompanyId) return;
@@ -564,6 +567,102 @@ export default function RegistrationManager() {
     stagedStudents.forEach((student) => grouped.get(student.stage)?.push(student));
     return grouped;
   }, [stagedStudents]);
+
+  const cardIdFor = (student: Pick<StudentWithStage, "entityType" | "id" | "leadId">) =>
+    `${student.entityType}:${student.leadId || student.id}`;
+
+  const moveCardToStage = async (student: StudentWithStage, targetStage: FunnelStageKey) => {
+    if (student.stage === targetStage) return;
+    const cardId = cardIdFor(student);
+    setMovingCardId(cardId);
+    try {
+      if (targetStage === "active" || targetStage === "active_onboarding") {
+        toast.error("Essa etapa depende de pagamento confirmado e instruções de avaliação. Use o fluxo normal.");
+        return;
+      }
+
+      if (student.entityType === "lead") {
+        if (targetStage === "interested") {
+          const { error } = await (supabase as any)
+            .from("leads")
+            .update({ stage: "interested", contact_outcome: null, updated_at: new Date().toISOString() })
+            .eq("id", student.leadId || student.id);
+          if (error) throw error;
+          toast.success("Lead voltou para Interessado.");
+          await loadPipeline();
+          return;
+        }
+
+        if (targetStage === "contacted") {
+          const { data, error } = await supabase.functions.invoke("public-registration", {
+            body: { action: "mark-lead-contacted", leadId: student.leadId || student.id, outcome: "in_conversation" },
+          });
+          if (error || !data?.id) throw new Error(data?.error || error?.message || "Não foi possível registrar o contato.");
+          toast.success("Contato registrado.");
+          await loadPipeline();
+          return;
+        }
+
+        if (targetStage === "fiscal_registration_pending") {
+          const { data, error } = await supabase.functions.invoke("public-registration", {
+            body: { action: "convert-lead", leadId: student.leadId || student.id },
+          });
+          if (error || !data?.token || !data?.studentId) {
+            throw new Error(data?.error || error?.message || "Não foi possível iniciar o cadastro fiscal.");
+          }
+          if (data.messageSent) {
+            toast.success("Cadastro fiscal enviado pelo WhatsApp do app.");
+          } else {
+            const fiscalLink = fiscalRegistrationUrl(window.location.origin, data.token);
+            toast.warning(data.messageError || "O envio automático falhou. O rascunho foi aberto para envio manual.");
+            await openStudentChat({
+              navigate,
+              routePrefix: chatRoutePrefix,
+              studentId: data.studentId,
+              phone: waDigits(student.whatsapp || student.phone),
+              message: `Oi, ${firstName(student.full_name)}! Vamos seguir com seu cadastro BN. Complete os dados fiscais e escolha seu plano neste link: ${fiscalLink}`,
+              onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
+            });
+          }
+          await loadPipeline();
+          return;
+        }
+
+        toast.error("Para avançar lead até pagamento, primeiro envie o cadastro fiscal.");
+        return;
+      }
+
+      const statusByStage: Partial<Record<FunnelStageKey, string>> = {
+        interested: "interested",
+        contacted: "interested",
+        fiscal_registration_pending: "interested",
+        payment_pending: "pending",
+      };
+      const nextStatus = statusByStage[targetStage];
+      if (!nextStatus) {
+        toast.error("Essa etapa precisa ser atualizada pelo fluxo de pagamento/avaliação.");
+        return;
+      }
+
+      const { error } = await (supabase as any)
+        .from("students")
+        .update({
+          status: nextStatus,
+          sales_stage: targetStage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", student.id);
+      if (error) throw error;
+      toast.success(`Movido para ${FUNNEL_STAGE_META[targetStage].label}.`);
+      await loadPipeline();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível mover o cartão.");
+    } finally {
+      setMovingCardId(null);
+      setDraggingCardId(null);
+      setDragOverStage(null);
+    }
+  };
 
   const createFiscalLinkForStudent = async (id: string): Promise<string> => {
     setCreatingLink(true);
@@ -919,7 +1018,29 @@ export default function RegistrationManager() {
               const Icon = stageIcon(stage);
               const rows = studentsByStage.get(stage) || [];
               return (
-                <div key={stage} className="min-h-[220px] rounded-lg border border-border bg-background">
+                <div
+                  key={stage}
+                  className={cn(
+                    "min-h-[220px] rounded-lg border bg-background transition-colors",
+                    dragOverStage === stage ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "border-border",
+                  )}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    if (dragOverStage !== stage) setDragOverStage(stage);
+                  }}
+                  onDragLeave={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                      setDragOverStage(null);
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const id = event.dataTransfer.getData("text/plain") || draggingCardId;
+                    const dragged = stagedStudents.find((item) => cardIdFor(item) === id);
+                    if (dragged) void moveCardToStage(dragged, stage);
+                    else setDragOverStage(null);
+                  }}
+                >
                   <div className={cn("border-b px-3 py-3", stageTone(stage))}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -938,14 +1059,29 @@ export default function RegistrationManager() {
                   <div className="max-h-[560px] space-y-2 overflow-auto p-2">
                     {rows.length === 0 ? (
                       <p className="rounded-md border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
-                        Sem pessoas aqui.
+                        {dragOverStage === stage ? "Solte aqui para mover." : "Sem pessoas aqui."}
                       </p>
                     ) : rows.map((student) => (
                       <div
                         key={student.id}
                         role="button"
                         tabIndex={0}
-                        className="w-full rounded-lg border border-border bg-card p-3 text-left transition hover:border-primary/45 hover:bg-primary/5"
+                        draggable
+                        className={cn(
+                          "w-full cursor-grab rounded-lg border border-border bg-card p-3 text-left transition hover:border-primary/45 hover:bg-primary/5 active:cursor-grabbing",
+                          draggingCardId === cardIdFor(student) && "opacity-50 ring-2 ring-primary/20",
+                          movingCardId === cardIdFor(student) && "pointer-events-none opacity-60",
+                        )}
+                        onDragStart={(event) => {
+                          const cardId = cardIdFor(student);
+                          setDraggingCardId(cardId);
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", cardId);
+                        }}
+                        onDragEnd={() => {
+                          setDraggingCardId(null);
+                          setDragOverStage(null);
+                        }}
                         onClick={() => {
                           if (student.entityType === "student") navigate(`/${chatRoutePrefix}/students/${student.id}`);
                         }}

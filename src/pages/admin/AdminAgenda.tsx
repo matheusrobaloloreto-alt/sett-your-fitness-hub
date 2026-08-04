@@ -316,7 +316,21 @@ export default function AdminAgenda() {
                             <cfg.icon className="h-4 w-4" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground font-sans truncate">{ev.studentName}</p>
+                            {ev.studentId ? (
+                              <button
+                                type="button"
+                                className="max-w-full truncate text-left font-sans text-sm font-medium text-foreground hover:text-primary hover:underline"
+                                title="Abrir perfil do aluno"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  navigate(`${rolePrefix}/students/${ev.studentId}`);
+                                }}
+                              >
+                                {ev.studentName}
+                              </button>
+                            ) : (
+                              <p className="text-sm font-medium text-foreground font-sans truncate">{ev.studentName}</p>
+                            )}
                             <p className="text-xs text-muted-foreground font-sans">{ev.label}</p>
                             {ev.trainerName && (
                               <p className="text-[11px] text-muted-foreground/70 font-sans">Treinador: {ev.trainerName}</p>

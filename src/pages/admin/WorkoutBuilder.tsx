@@ -125,6 +125,14 @@ interface PrescriptionValidationResult {
 
 const WORKOUT_LABELS = ["A", "B", "C", "D", "E", "F", "G"];
 
+type CycleInfo = {
+  cycle_number: number;
+  student_name: string;
+  student_id: string;
+  company_id: string;
+  gender?: "male" | "female";
+};
+
 const useMuscleGroups = () => {
   const [groups, setGroups] = useState<MuscleGroup[]>([]);
   useEffect(() => {
@@ -214,7 +222,7 @@ export default function WorkoutBuilder() {
     setWorkouts((prev) => prev.map((w, i) => i !== wIdx ? w : ({ ...w, exercises: w.exercises.map((e, k) => idxs.includes(k) ? { ...e, group_id: null, method: null, method_seconds: null } : e) })));
   const [videoModal, setVideoModal] = useState<{ type: "path" | "url"; value: string } | null>(null);
   const [saving, setSaving] = useState(false);
-  const [cycleInfo, setCycleInfo] = useState<{ cycle_number: number; student_name: string; student_id?: string; company_id?: string | null; gender?: "male" | "female" } | null>(null);
+  const [cycleInfo, setCycleInfo] = useState<CycleInfo | null>(null);
   const [showVolume, setShowVolume] = useState(true);
   const [bnitoQuestion, setBnitoQuestion] = useState("");
   const [bnitoLoading, setBnitoLoading] = useState<"review" | "ask" | null>(null);
@@ -272,32 +280,52 @@ export default function WorkoutBuilder() {
     toast({ title: "Salvo na biblioteca de treinos!" });
   };
 
-  const loadCycleInfo = async () => {
-    const { data } = await supabase
+  const resolveCycleInfo = async (): Promise<CycleInfo> => {
+    if (!cycleId) throw new Error("Ciclo nao informado para salvar o treino.");
+
+    const { data, error: cycleError } = await supabase
       .from("training_cycles")
       .select("cycle_number, enrollment_id, company_id")
       .eq("id", cycleId!)
-      .single();
-    if (data) {
-      const { data: enrollment } = await supabase
-        .from("enrollments")
-        .select("student_id, company_id")
-        .eq("id", data.enrollment_id)
-        .single();
-      if (enrollment) {
-        const { data: student } = await supabase
-          .from("students")
-          .select("full_name, gender")
-          .eq("id", enrollment.student_id)
-          .single();
-        setCycleInfo({
-          cycle_number: data.cycle_number,
-          student_name: student?.full_name || "Aluno",
-          student_id: enrollment.student_id,
-          company_id: data.company_id || enrollment.company_id,
-          gender: normalizeGender((student as any)?.gender) ?? "male",
-        });
-      }
+      .maybeSingle();
+    if (cycleError) throw cycleError;
+    if (!data) throw new Error("Ciclo de treino nao encontrado.");
+
+    const { data: enrollment, error: enrollmentError } = await supabase
+      .from("enrollments")
+      .select("student_id, company_id")
+      .eq("id", data.enrollment_id)
+      .maybeSingle();
+    if (enrollmentError) throw enrollmentError;
+    if (!enrollment?.student_id) throw new Error("Matricula do ciclo nao encontrada.");
+
+    const companyId = data.company_id || enrollment.company_id;
+    if (!companyId) {
+      throw new Error("Empresa do ciclo nao encontrada. Reabra a matricula antes de salvar o treino.");
+    }
+
+    const { data: student } = await supabase
+      .from("students")
+      .select("full_name, gender")
+      .eq("id", enrollment.student_id)
+      .maybeSingle();
+
+    const info: CycleInfo = {
+      cycle_number: data.cycle_number,
+      student_name: student?.full_name || "Aluno",
+      student_id: enrollment.student_id,
+      company_id: companyId,
+      gender: normalizeGender((student as any)?.gender) ?? "male",
+    };
+    setCycleInfo(info);
+    return info;
+  };
+
+  const loadCycleInfo = async () => {
+    try {
+      await resolveCycleInfo();
+    } catch (error) {
+      console.warn("Nao foi possivel carregar contexto do ciclo", error);
     }
   };
 
@@ -431,7 +459,17 @@ export default function WorkoutBuilder() {
     setSaving(true);
     setValidationResult(null);
 
-    const validation = await validateBeforeSave();
+    let saveContext: CycleInfo;
+    try {
+      saveContext = await resolveCycleInfo();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Nao foi possivel carregar o contexto do ciclo.";
+      toast({ title: "Erro ao preparar salvamento", description: message, variant: "destructive" });
+      setSaving(false);
+      return;
+    }
+
+    const validation = await validateBeforeSave(saveContext);
     if (!validation) {
       setSaving(false);
       return;
@@ -447,13 +485,18 @@ export default function WorkoutBuilder() {
       return;
     }
 
-    for (const workout of workouts) {
+    for (const [workoutIndex, workout] of workouts.entries()) {
       const payload = {
+        name: workout.title || `Treino ${WORKOUT_LABELS[workoutIndex] || workoutIndex + 1}`,
         title: workout.title,
         description: workout.description || null,
         cycle_id: cycleId!,
+        company_id: saveContext.company_id,
+        day_of_week: workoutIndex + 1,
+        sort_order: workoutIndex + 1,
         exercises: workout.exercises as any,
         created_by: user!.id,
+        updated_at: new Date().toISOString(),
       };
 
       if (workout.id) {
@@ -479,24 +522,24 @@ export default function WorkoutBuilder() {
     navigate(returnTo);
   };
 
-  const validateBeforeSave = async (): Promise<PrescriptionValidationResult | null> => {
+  const validateBeforeSave = async (context: CycleInfo | null = cycleInfo): Promise<PrescriptionValidationResult | null> => {
     try {
       let objective = "manual";
       let fitnessLevel = "intermediario";
       let anamneseContext: any = null;
       let assessmentContext: any = null;
 
-      if (cycleInfo?.student_id) {
+      if (context?.student_id) {
         const [{ data: anamnese }, { data: assessment }] = await Promise.all([
           supabase
             .from("student_anamneses")
             .select("*")
-            .eq("student_id", cycleInfo.student_id)
+            .eq("student_id", context.student_id)
             .maybeSingle(),
           supabase
             .from("functional_assessments")
             .select("nivel, assessment_json, report_text, created_at")
-            .eq("student_id", cycleInfo.student_id)
+            .eq("student_id", context.student_id)
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle(),
@@ -511,7 +554,7 @@ export default function WorkoutBuilder() {
       }
 
       const plan = {
-        cycle_name: cycleInfo ? `Ciclo ${cycleInfo.cycle_number}` : "Treino manual",
+        cycle_name: context ? `Ciclo ${context.cycle_number}` : "Treino manual",
         duration_weeks: 6,
         objective,
         workouts: workouts.map((workout, workoutIndex) => ({
@@ -534,8 +577,8 @@ export default function WorkoutBuilder() {
       };
       const { data, error } = await supabase.functions.invoke<{ result?: PrescriptionValidationResult; error?: string }>("ai-validate-prescription", {
         body: {
-          company_id: cycleInfo?.company_id,
-          student_id: cycleInfo?.student_id,
+          company_id: context?.company_id,
+          student_id: context?.student_id,
           objective,
           fitness_level: fitnessLevel,
           anamnese_context: anamneseContext,

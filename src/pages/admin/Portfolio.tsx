@@ -187,7 +187,14 @@ export default function Portfolio() {
                 return (
                   <div key={s.id} className="flex flex-wrap items-center gap-2 py-2.5">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{s.full_name}</p>
+                      <button
+                        type="button"
+                        className="max-w-full truncate text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
+                        onClick={() => navigate(`/${routePrefix}/students/${s.id}`)}
+                        title="Abrir perfil do aluno"
+                      >
+                        {s.full_name}
+                      </button>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                         <Badge className={cn("text-[10px]", STATUS_CLASS[s.status] || "bg-muted")}>{STATUS_LABEL[s.status] || s.status}</Badge>
                         {s.hours_since_contact != null && (

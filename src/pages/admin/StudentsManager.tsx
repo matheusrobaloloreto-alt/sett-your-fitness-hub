@@ -525,7 +525,14 @@ export default function StudentsManager() {
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <p className="text-foreground font-sans font-medium truncate">{s.full_name}</p>
+                      <button
+                        type="button"
+                        className="max-w-full truncate text-left font-sans font-medium text-foreground hover:text-primary hover:underline"
+                        onClick={() => navigate(`${rolePrefix}/students/${s.id}`)}
+                        title="Abrir perfil do aluno"
+                      >
+                        {s.full_name}
+                      </button>
                       <Badge variant="outline" className={`text-xs ${statusColors[s.status]}`}>{statusLabels[s.status] || s.status}</Badge>
                       {s.plan_name && <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">{s.plan_name}</Badge>}
                       {s.status === "active" && !s.user_id && <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">Sem acesso</Badge>}

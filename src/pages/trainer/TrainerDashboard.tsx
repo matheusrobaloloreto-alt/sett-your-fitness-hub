@@ -14,6 +14,7 @@ import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 interface Enrollment {
   id: string;
+  student_id: string;
   start_date: string;
   end_date: string;
   status: string;
@@ -145,7 +146,14 @@ export default function TrainerDashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <CardTitle className="flex items-center gap-2 text-primary text-xl">
-                          {enrollment.students?.full_name}
+                          <button
+                            type="button"
+                            className="truncate text-left hover:underline"
+                            title="Abrir perfil do aluno"
+                            onClick={() => navigate(`${getBasePath()}/students/${enrollment.student_id}`)}
+                          >
+                            {enrollment.students?.full_name}
+                          </button>
                           <BnitoContextButton
                             label={`aluno ${enrollment.students?.full_name || ""}`}
                             context={`Aluno no painel do professor. Plano: ${enrollment.plans?.name || "sem plano"}. Dias restantes: ${daysLeft}. Ciclos: ${enrollCycles.length}.`}

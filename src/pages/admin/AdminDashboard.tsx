@@ -395,7 +395,16 @@ export default function AdminDashboard() {
                     return (
                       <div key={contract.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 border border-border cursor-pointer hover:brightness-110 transition-all" onClick={() => navigate(`/${routePrefix}/students/${contract.student_id}`)}>
                         <div>
-                          <p className="text-foreground font-sans font-medium text-sm">{contract.students?.full_name}</p>
+                          <button
+                            type="button"
+                            className="text-left font-sans text-sm font-medium text-foreground hover:text-primary hover:underline"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              navigate(`/${routePrefix}/students/${contract.student_id}`);
+                            }}
+                          >
+                            {contract.students?.full_name}
+                          </button>
                           <p className="text-muted-foreground text-xs font-sans">{contract.plans?.name}</p>
                           {contract.trainer_id && trainerMap[contract.trainer_id] && (
                             <p className="text-muted-foreground/70 text-[11px] font-sans">Treinador: {trainerMap[contract.trainer_id]}</p>
@@ -436,7 +445,16 @@ export default function AdminDashboard() {
                   {cycleCountdowns.map((m: any, i: number) => (
                     <div key={i} className="flex flex-col gap-3 rounded-lg border border-border bg-secondary/50 p-3 sm:flex-row sm:items-center sm:justify-between" onClick={() => m.student_id && navigate(`/${routePrefix}/students/${m.student_id}`)}>
                       <div>
-                        <p className="text-foreground font-sans font-medium text-sm">{m.student_name}</p>
+                        <button
+                          type="button"
+                          className="text-left font-sans text-sm font-medium text-foreground hover:text-primary hover:underline"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            m.student_id && navigate(`/${routePrefix}/students/${m.student_id}`);
+                          }}
+                        >
+                          {m.student_name}
+                        </button>
                         <p className="text-muted-foreground text-xs font-sans">Ciclo {m.cycle_number} · vence {format(parseISO(m.end_date), "dd/MM")}</p>
                         <p className={`mt-1 text-xs font-medium ${m.next_ready ? "text-emerald-700" : "text-amber-700"}`}>
                           {m.next_ready ? `Próximo ciclo ${m.next_cycle_number} pronto` : "Próxima prescrição pendente"}

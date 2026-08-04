@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+import { useNavigate } from "react-router-dom";
 
 interface FinancialStats {
   monthRevenueBilling: number;
@@ -31,6 +32,7 @@ interface FinancialStats {
 
 interface RecentPayment {
   id: string;
+  student_id: string | null;
   value: number;
   billing_type: string;
   status: string;
@@ -52,9 +54,11 @@ const PAGE_SIZE = 20;
 
 export default function FinancialDashboard() {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const { companyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
+  const rolePrefix = role === "coordinator" ? "/coordinator" : role === "trainer" ? "/trainer" : "/admin";
   const [financialStats, setFinancialStats] = useState<FinancialStats>({
     monthRevenueBilling: 0, monthRevenueCash: 0, pendingCount: 0, pendingValue: 0, overdueCount: 0, overdueValue: 0, conversionRate: 0, prevMonthBilling: 0, prevMonthCash: 0, prevTicketMedio: 0,
   });
@@ -783,7 +787,20 @@ export default function FinancialDashboard() {
                 <TableBody>
                   {paginatedPayments.map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell className="font-medium font-sans">{p.students?.full_name || "—"}</TableCell>
+                      <TableCell className="font-medium font-sans">
+                        {p.student_id ? (
+                          <button
+                            type="button"
+                            className="max-w-[220px] truncate text-left hover:text-primary hover:underline"
+                            title="Abrir perfil do aluno"
+                            onClick={() => navigate(`${rolePrefix}/students/${p.student_id}`)}
+                          >
+                            {p.students?.full_name || "—"}
+                          </button>
+                        ) : (
+                          p.students?.full_name || "—"
+                        )}
+                      </TableCell>
                       <TableCell className="font-sans">{formatCurrency(Number(p.value))}</TableCell>
                       <TableCell className="font-sans">
                         {p.billing_type === "CREDIT_CARD" ? "Cartão" : p.billing_type === "PIX" ? "PIX" : p.billing_type}
