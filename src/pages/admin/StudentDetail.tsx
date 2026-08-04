@@ -228,6 +228,7 @@ export default function StudentDetail() {
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [trainers, setTrainers] = useState<Trainer[]>([]);
+  const [trainerOptionsLoading, setTrainerOptionsLoading] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [selectedTrainerId, setSelectedTrainerId] = useState("");
   const [startDate, setStartDate] = useState<Date>(new Date());
@@ -404,6 +405,7 @@ export default function StudentDetail() {
 
     if (!studentData) { setLoading(false); return; }
     setStudent(studentData as Student);
+    void loadEnrollmentOptions(studentData.company_id);
 
     // Load trainer name — will be set after enrollments load (uses active enrollment trainer)
     setTrainerName(null);
@@ -557,18 +559,60 @@ export default function StudentDetail() {
   };
 
   // Load plans and trainers for the enrollment dialog
-  const loadEnrollmentOptions = async () => {
-    const [{ data: plansData }, { data: rolesData }] = await Promise.all([
-      supabase.from("plans").select("id, name, duration_weeks, duration_days").eq("is_active", true).order("name"),
-      supabase.from("user_roles").select("user_id, role").in("role", ["admin", "coordinator", "trainer"]),
-    ]);
-    setPlans(plansData || []);
-    if (rolesData && rolesData.length > 0) {
-      const trainerUserIds = rolesData.map((r) => r.user_id);
-      const { data: profilesData } = await supabase.from("profiles").select("user_id, full_name").in("user_id", trainerUserIds);
-      setTrainers((profilesData || []).map((p) => ({ user_id: p.user_id, full_name: p.full_name || "Sem nome" })));
-    } else {
+  const loadEnrollmentOptions = async (companyIdOverride?: string | null) => {
+    const targetCompanyId = companyIdOverride || student?.company_id;
+    if (!targetCompanyId) {
+      setPlans([]);
       setTrainers([]);
+      return;
+    }
+
+    setTrainerOptionsLoading(true);
+    try {
+      const [{ data: plansData, error: plansError }, { data: membersData, error: membersError }] = await Promise.all([
+        supabase
+          .from("plans")
+          .select("id, name, duration_weeks, duration_days")
+          .eq("company_id", targetCompanyId)
+          .eq("is_active", true)
+          .order("name"),
+        supabase.from("company_members").select("user_id").eq("company_id", targetCompanyId),
+      ]);
+
+      if (plansError) throw plansError;
+      if (membersError) throw membersError;
+      setPlans(plansData || []);
+
+      const memberIds = [...new Set((membersData || []).map((member) => member.user_id))];
+      if (memberIds.length === 0) {
+        setTrainers([]);
+        return;
+      }
+
+      const [{ data: rolesData, error: rolesError }, { data: profilesData, error: profilesError }] = await Promise.all([
+        supabase
+          .from("user_roles")
+          .select("user_id, role")
+          .in("user_id", memberIds)
+          .in("role", ["admin", "coordinator", "trainer"]),
+        supabase.from("profiles").select("user_id, full_name").in("user_id", memberIds),
+      ]);
+
+      if (rolesError) throw rolesError;
+      if (profilesError) throw profilesError;
+
+      const eligibleIds = new Set((rolesData || []).map((roleRow) => roleRow.user_id));
+      setTrainers(
+        (profilesData || [])
+          .filter((profile) => eligibleIds.has(profile.user_id))
+          .map((profile) => ({ user_id: profile.user_id, full_name: profile.full_name || "Sem nome" }))
+          .sort((a, b) => a.full_name.localeCompare(b.full_name, "pt-BR")),
+      );
+    } catch (error) {
+      console.error("Falha ao carregar treinadores da empresa:", error);
+      setTrainers([]);
+    } finally {
+      setTrainerOptionsLoading(false);
     }
   };
 
@@ -576,7 +620,7 @@ export default function StudentDetail() {
     setSelectedPlanId(student?.selected_plan_id || "");
     setSelectedTrainerId("");
     setStartDate(new Date());
-    loadEnrollmentOptions();
+    void loadEnrollmentOptions(student?.company_id);
     setEnrollOpen(true);
   };
 
@@ -593,7 +637,11 @@ export default function StudentDetail() {
       toast({ title: "Erro ao atribuir treinador", description: error.message, variant: "destructive" });
       return;
     }
-    await supabase.from("students").update({ assigned_trainer_id: trainerId }).eq("id", id);
+    const { error: studentError } = await supabase.from("students").update({ assigned_trainer_id: trainerId }).eq("id", id);
+    if (studentError) {
+      toast({ title: "Matrícula atualizada parcialmente", description: `O treinador foi salvo na matrícula, mas não no perfil: ${studentError.message}`, variant: "destructive" });
+      return;
+    }
     toast({ title: "Treinador atribuído!" });
     loadData(id);
   };
@@ -608,6 +656,8 @@ export default function StudentDetail() {
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
+        {trainerOptionsLoading && <SelectItem value="__loading" disabled>Carregando equipe...</SelectItem>}
+        {!trainerOptionsLoading && trainers.length === 0 && <SelectItem value="__empty" disabled>Nenhum treinador disponível</SelectItem>}
         {trainers.map((t) => <SelectItem key={t.user_id} value={t.user_id}>{t.full_name}</SelectItem>)}
       </SelectContent>
     </Select>
