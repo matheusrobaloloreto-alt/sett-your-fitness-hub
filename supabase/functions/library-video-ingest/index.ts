@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await admin
         .from("exercise_library")
-        .select("id, name, muscle_group, equipment, video_path, video_url, youtube_video_id, thumbnail_url")
+        .select("id, name, muscle_group, equipment, description, video_path, video_url, youtube_video_id, thumbnail_url")
         .order("muscle_group").order("name")
         .range(from, from + PAGE - 1);
       if (error) return json({ error: error.message }, 500);
