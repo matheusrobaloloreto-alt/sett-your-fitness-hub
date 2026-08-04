@@ -615,17 +615,43 @@ export default function StudentDetail() {
 
   const handleCreateEnrollment = async () => {
     if (!selectedPlanId || !selectedTrainerId || !id || !session?.user?.id || !computedEndDate) return;
+    if (!student?.company_id) {
+      toast({ title: "Empresa não identificada", description: "Atualize o cadastro do aluno antes de criar a matrícula.", variant: "destructive" });
+      return;
+    }
+    if (!student.status || !["active", "awaiting_renewal"].includes(student.status)) {
+      toast({
+        title: "Pagamento ainda não confirmado",
+        description: "Use a esteira de Interessados para enviar o cadastro fiscal e o checkout. A matrícula será criada automaticamente após o Pix do Asaas.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSaving(true);
-    const { error } = await supabase.from("enrollments").insert({
+    const startDateValue = format(startDate, "yyyy-MM-dd");
+    const { data: enrollment, error } = await supabase.from("enrollments").insert({
       student_id: id,
+      company_id: student.company_id,
       plan_id: selectedPlanId,
       trainer_id: selectedTrainerId,
-      start_date: format(startDate, "yyyy-MM-dd"),
+      start_date: startDateValue,
       end_date: format(computedEndDate, "yyyy-MM-dd"),
-    });
+      training_start_date: startDateValue,
+      payment_status: "paid",
+      status: "active",
+    }).select("id").single();
     if (error) {
       setSaving(false);
       toast({ title: "Erro ao criar matrícula", description: error.message, variant: "destructive" });
+      return;
+    }
+    const { error: cycleError } = await supabase.rpc("recalculate_training_cycles", {
+      p_enrollment_id: enrollment.id,
+      p_new_start_date: startDateValue,
+    });
+    if (cycleError) {
+      setSaving(false);
+      toast({ title: "Matrícula criada, mas os ciclos não foram gerados", description: cycleError.message, variant: "destructive" });
       return;
     }
     // Sync assigned_trainer_id on student

@@ -956,7 +956,7 @@ async function syncPayments(body: any) {
   const { companyId, syncAll } = body;
 
   // Get all students with asaas_customer_id for this company
-  let studentsQuery = supabaseAdmin.from("students").select("id, asaas_customer_id, full_name, company_id");
+  let studentsQuery = supabaseAdmin.from("students").select("id, asaas_customer_id, full_name, company_id, selected_plan_id");
   if (companyId) studentsQuery = studentsQuery.eq("company_id", companyId);
   const { data: students } = await studentsQuery.not("asaas_customer_id", "is", null);
 
@@ -1010,13 +1010,13 @@ async function syncPayments(body: any) {
         // Check if already exists locally
         const { data: existing } = await supabaseAdmin
           .from("payments")
-          .select("id")
+          .select("id, status, student_id")
           .eq("asaas_payment_id", ap.id)
           .maybeSingle();
 
         if (existing) {
           // Update status + correct installment_count
-          await supabaseAdmin
+          const { error: updateError } = await supabaseAdmin
             .from("payments")
             .update({
               status: ap.status,
@@ -1024,9 +1024,13 @@ async function syncPayments(body: any) {
               installment_count: installmentCount,
             })
             .eq("id", existing.id);
+          if (updateError) throw updateError;
+          if (existing.status !== ap.status) {
+            await applyPaymentStatusEffects(student.id, ap.status, ap.id, student.selected_plan_id || undefined);
+          }
         } else {
           // Insert new
-          await supabaseAdmin.from("payments").insert({
+          const { error: insertError } = await supabaseAdmin.from("payments").insert({
             student_id: student.id,
             company_id: student.company_id || null,
             asaas_customer_id: student.asaas_customer_id,
@@ -1038,6 +1042,8 @@ async function syncPayments(body: any) {
             invoice_url: ap.invoiceUrl || null,
             installment_count: installmentCount,
           });
+          if (insertError) throw insertError;
+          await applyPaymentStatusEffects(student.id, ap.status, ap.id, student.selected_plan_id || undefined);
         }
         synced++;
       }

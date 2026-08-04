@@ -42,6 +42,7 @@ import {
   funnelStageProgress,
   isOpenFunnelStage,
   normalizeSalesStage,
+  stageActionLabel,
   stageNextAction,
 } from "@/lib/salesFunnelView";
 
@@ -620,25 +621,36 @@ export default function RegistrationManager() {
           body: { action: "convert-lead", leadId: student.leadId || student.id },
         });
         if (error || !data?.token || !data?.studentId) throw new Error(data?.error || error?.message || "Não foi possível iniciar o cadastro fiscal.");
-        const fiscalLink = fiscalRegistrationUrl(window.location.origin, data.token);
-        await openStudentChat({
-          navigate,
-          routePrefix: chatRoutePrefix,
-          studentId: data.studentId,
-          phone: waDigits(student.whatsapp || student.phone),
-          message: `Oi, ${firstName(student.full_name)}! Vamos seguir com seu cadastro BN. Nesse link voce completa os dados fiscais que o Asaas precisa para nota e pagamento: ${fiscalLink}\n\nDepois dele voce escolhe o plano e faz o Pix pelo Asaas. Em seguida eu te mando/confirmo as instrucoes da Avaliacao de Movimento; depois do pagamento confirmado, o prazo para avaliacao e inicio do treino e de ate 5 dias uteis.`,
-          onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
-        });
+        if (data.messageSent) {
+          toast.success("Cadastro fiscal enviado pelo WhatsApp do app.");
+        } else {
+          const fiscalLink = fiscalRegistrationUrl(window.location.origin, data.token);
+          toast.warning(data.messageError || "O envio automático falhou. O rascunho foi aberto para envio manual.");
+          await openStudentChat({
+            navigate,
+            routePrefix: chatRoutePrefix,
+            studentId: data.studentId,
+            phone: waDigits(student.whatsapp || student.phone),
+            message: `Oi, ${firstName(student.full_name)}! Vamos seguir com seu cadastro BN. Complete os dados fiscais e escolha seu plano neste link: ${fiscalLink}`,
+            onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
+          });
+        }
         await loadPipeline();
         return;
       }
 
       if (student.stage === "fiscal_registration_pending") {
-        const fiscalLink = await createFiscalLinkForStudent(student.id);
-        await openChatWithStudent(
-          student,
-          `Oi, ${firstName(student.full_name)}! Passando novamente seu cadastro fiscal: ${fiscalLink}\n\nEle libera a escolha do plano e o pagamento Pix pelo Asaas. Assim que o pagamento confirmar, voce entra no onboarding de avaliacao de movimento e inicio do treino.`,
-        );
+        const { data, error } = await supabase.functions.invoke("public-registration", {
+          body: { action: "send-link", studentId: student.id, attemptId: crypto.randomUUID() },
+        });
+        if (error || !data?.token) throw new Error(data?.error || error?.message || "Não foi possível reenviar o cadastro fiscal.");
+        if (data.messageSent) {
+          toast.success("Cadastro fiscal enviado pelo WhatsApp do app.");
+        } else {
+          const fiscalLink = fiscalRegistrationUrl(window.location.origin, data.token);
+          toast.warning(data.messageError || "O envio automático falhou. O rascunho foi aberto para envio manual.");
+          await openChatWithStudent(student, `Oi, ${firstName(student.full_name)}! Passando novamente seu cadastro fiscal: ${fiscalLink}`);
+        }
         await loadPipeline();
         return;
       }
@@ -1029,14 +1041,14 @@ export default function RegistrationManager() {
                           </div>
                         )}
 
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                          <span className="line-clamp-2 min-w-[9rem] flex-1 text-xs font-medium text-foreground">{student.nextAction}</span>
-                          <div className="flex shrink-0 items-center gap-1.5">
+                        <div className="mt-3 space-y-2">
+                          <span className="line-clamp-2 block text-xs font-medium text-foreground">{student.nextAction}</span>
+                          <div className="grid grid-cols-1 gap-1.5">
                             {student.entityType === "lead" && (
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-7 px-2 text-xs"
+                                className="h-8 w-full justify-start px-2 text-xs"
                                 onClick={(event) => {
                                   event.preventDefault();
                                   event.stopPropagation();
@@ -1049,15 +1061,15 @@ export default function RegistrationManager() {
                             )}
                             <Button
                               size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs"
+                              variant="default"
+                              className="h-8 w-full px-2 text-xs"
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
                                 void handleStageAction(student);
                               }}
                             >
-                              {student.stage === "active" ? "Abrir" : "Agir"}
+                              {stageActionLabel(student.stage)}
                             </Button>
                           </div>
                         </div>

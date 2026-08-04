@@ -119,6 +119,16 @@ export function stageNextAction(
   return "Reativar ou arquivar";
 }
 
+export function stageActionLabel(stage: FunnelStageKey): string {
+  if (stage === "interested") return "Registrar contato";
+  if (stage === "contacted") return "Enviar cadastro fiscal";
+  if (stage === "fiscal_registration_pending") return "Reenviar cadastro";
+  if (stage === "payment_pending") return "Enviar checkout";
+  if (stage === "active_onboarding") return "Enviar instruções";
+  if (stage === "active") return "Abrir aluno";
+  return "Revisar";
+}
+
 export function isOpenFunnelStage(stage: FunnelStageKey): boolean {
   return stage !== "active" && stage !== "lost";
 }

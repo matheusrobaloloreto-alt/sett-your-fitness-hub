@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
 import {
+  buildFiscalRegistrationMessage,
   buildPaymentLinkMessage,
   sendFunnelWhatsAppMessage,
 } from "../_shared/sales-funnel.ts";
@@ -537,8 +538,15 @@ async function convertLeadToFiscal(req: Request, leadId: unknown) {
   }).eq("id", lead.id).eq("company_id", tenant.companyId);
   if (leadUpdate.error) throw new HttpError(500, `Falha ao avançar interessado: ${leadUpdate.error.message}`);
 
-  const registration = await createRegistrationLink(req, studentId);
-  return { leadId: lead.id, studentId, token: registration.token, expiresAt: registration.expires_at };
+  const registration = await sendRegistrationLink(req, studentId, lead.id);
+  return {
+    leadId: lead.id,
+    studentId,
+    token: registration.token,
+    expiresAt: registration.expires_at,
+    messageSent: registration.messageSent,
+    messageError: registration.messageError,
+  };
 }
 
 type RegistrationLink = {
@@ -574,7 +582,7 @@ async function createRegistrationLink(req: Request, studentId: unknown) {
   const tenant = await requireStaff(req, studentId);
   const { data: student, error: studentError } = await supabase
     .from("students")
-    .select("id, full_name, status, sales_stage")
+    .select("id, full_name, status, sales_stage, phone, whatsapp")
     .eq("id", studentId)
     .eq("company_id", tenant.companyId)
     .maybeSingle();
@@ -584,7 +592,7 @@ async function createRegistrationLink(req: Request, studentId: unknown) {
   const now = new Date().toISOString();
   const { data: existing, error: existingError } = await supabase
     .from("public_registration_links")
-    .select("token, expires_at")
+    .select("id, token, company_id, expires_at")
     .eq("student_id", student.id)
     .eq("company_id", tenant.companyId)
     .is("revoked_at", null)
@@ -601,7 +609,7 @@ async function createRegistrationLink(req: Request, studentId: unknown) {
       student_id: student.id,
       company_id: tenant.companyId,
       created_by: tenant.userId,
-    }).select("token, expires_at").single();
+    }).select("id, token, company_id, expires_at").single();
     if (created.error || !created.data) {
       throw new HttpError(500, `Falha ao criar link: ${created.error?.message || "erro desconhecido"}`);
     }
@@ -612,14 +620,51 @@ async function createRegistrationLink(req: Request, studentId: unknown) {
   const update: Record<string, unknown> = activeStudent
     ? {}
     : { sales_stage: "fiscal_registration_pending", status: "interested" };
-  if (Object.keys(update).length === 0) return { ...link, student: { id: student.id, full_name: student.full_name } };
+  if (Object.keys(update).length === 0) return { ...link, student };
   const { error: updateError } = await supabase.from("students")
     .update(update)
     .eq("id", student.id)
     .eq("company_id", tenant.companyId);
   if (updateError) throw new HttpError(500, `Falha ao atualizar interessado: ${updateError.message}`);
 
-  return { ...link, student: { id: student.id, full_name: student.full_name } };
+  return { ...link, student };
+}
+
+async function sendRegistrationLink(req: Request, studentId: unknown, attemptId?: unknown) {
+  const registration = await createRegistrationLink(req, studentId);
+  const student = registration.student as {
+    id: string;
+    full_name: string;
+    phone: string | null;
+    whatsapp: string | null;
+  };
+  const registrationUrl = `${APP_URL}/cadastro-fiscal/${registration.token}`;
+  const phoneCandidates = [student.phone, student.whatsapp]
+    .map((value) => onlyDigits(value))
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  const eventAttempt = isUuid(attemptId) ? String(attemptId) : registration.token;
+  const sendResult = await sendFunnelWhatsAppMessage({
+    admin: supabase,
+    studentId: student.id,
+    companyId: registration.company_id,
+    fullName: student.full_name,
+    phone: phoneCandidates[0] || null,
+    text: buildFiscalRegistrationMessage(student.full_name, registrationUrl),
+    eventType: "fiscal_registration_link_sent",
+    eventKey: `fiscal_registration_link_sent:${eventAttempt}`,
+    payload: {
+      registration_link_id: registration.id,
+      registration_token: registration.token,
+    },
+  });
+
+  return {
+    ...registration,
+    registrationUrl,
+    messageSent: sendResult.sent,
+    messageError: sendResult.sent ? null : sendResult.reason || "Falha ao enviar cadastro fiscal.",
+  };
 }
 
 async function createPaymentLink(studentId: string, companyId: string) {
@@ -777,6 +822,10 @@ Deno.serve(async (req) => {
 
     if (action === "create-link") {
       return json(await createRegistrationLink(req, body.studentId));
+    }
+
+    if (action === "send-link") {
+      return json(await sendRegistrationLink(req, body.studentId, body.attemptId));
     }
 
     if (action === "pre-register") {

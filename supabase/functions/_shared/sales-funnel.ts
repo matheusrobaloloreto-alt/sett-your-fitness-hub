@@ -31,6 +31,14 @@ export function buildPaymentLinkMessage(fullName: string, paymentUrl: string): s
   return `Oi, ${firstName(fullName)}! Seu cadastro foi concluído. Agora escolha seu plano e faça o pagamento com segurança pelo Asaas: ${paymentUrl}`;
 }
 
+export function buildFiscalRegistrationMessage(fullName: string, registrationUrl: string): string {
+  return [
+    `Oi, ${firstName(fullName)}! Vamos seguir com seu cadastro na BN Performance Training.`,
+    `Neste link você completa os dados fiscais necessários para a nota e escolhe seu plano: ${registrationUrl}`,
+    "Depois, o pagamento é feito com segurança pelo Pix do Asaas. Assim que ele confirmar, você recebe as instruções da Avaliação de Movimento e o prazo para avaliação e início do treino é de até 5 dias úteis.",
+  ].join("\n\n");
+}
+
 export function buildAssessmentOnboardingMessage(args: {
   fullName: string;
   dueDate: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { funnelStageProgress, normalizeSalesStage, stageNextAction } from "./salesFunnelView";
+import { funnelStageProgress, normalizeSalesStage, stageActionLabel, stageNextAction } from "./salesFunnelView";
 
 describe("salesFunnelView", () => {
   it("prioritizes explicit sales_stage over legacy student status", () => {
@@ -28,5 +28,12 @@ describe("salesFunnelView", () => {
     expect(funnelStageProgress("contacted")).toBeLessThan(funnelStageProgress("fiscal_registration_pending"));
     expect(funnelStageProgress("payment_pending")).toBeLessThan(funnelStageProgress("active_onboarding"));
     expect(funnelStageProgress("active")).toBe(100);
+  });
+
+  it("uses explicit action labels that remain clear on narrow funnel cards", () => {
+    expect(stageActionLabel("interested")).toBe("Registrar contato");
+    expect(stageActionLabel("contacted")).toBe("Enviar cadastro fiscal");
+    expect(stageActionLabel("fiscal_registration_pending")).toBe("Reenviar cadastro");
+    expect(stageActionLabel("payment_pending")).toBe("Enviar checkout");
   });
 });
