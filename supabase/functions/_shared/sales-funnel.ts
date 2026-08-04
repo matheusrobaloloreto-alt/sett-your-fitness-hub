@@ -178,7 +178,7 @@ export async function sendFunnelWhatsAppMessage(args: {
     const response = await fetch(`${evoUrl}/message/sendText/${instance.instance_name}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: evoKey },
-      body: JSON.stringify({ number: remoteJid, text: args.text }),
+      body: JSON.stringify({ number: remoteJid.replace(/@.*$/, ""), text: args.text }),
     });
     if (!response.ok) {
       throw new Error(`Evolution ${response.status}: ${(await response.text()).slice(0, 300)}`);
