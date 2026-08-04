@@ -37,6 +37,7 @@ import { toast } from "sonner";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
 import { exerciseThumb, youtubeIdFromUrl } from "@/lib/exerciseCover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   describeLongitudinalPhase,
   isCycleCurrent,
@@ -129,6 +130,7 @@ export default function PrescriptionStudio() {
   const [pickerGroup, setPickerGroup] = useState("");
   const [pickerSearch, setPickerSearch] = useState("");
   const [dragExercise, setDragExercise] = useState<{ wi: number; ei: number } | null>(null);
+  const [exerciseVideoPlayer, setExerciseVideoPlayer] = useState<{ url: string; title: string } | null>(null);
   const [tab, setTab]             = useState("anamnese");
 
   // Anamnese state
@@ -823,6 +825,13 @@ export default function PrescriptionStudio() {
   };
   const isDirectVideoUrl = (url?: string | null) =>
     !!url && /\.(mp4|webm|mov)(\?|#|$)/i.test(url);
+  const exerciseVideoEmbedUrl = (url?: string | null) => {
+    if (!url) return null;
+    const youtubeId = youtubeIdFromUrl(url);
+    if (youtubeId) return `https://www.youtube-nocookie.com/embed/${youtubeId}?autoplay=1&rel=0`;
+    const vimeoId = url.match(/vimeo\.com\/(?:video\/)?(\d+)/i)?.[1];
+    return vimeoId ? `https://player.vimeo.com/video/${vimeoId}?autoplay=1` : null;
+  };
   const ExerciseVideoPreview = ({
     exercise,
     libraryExercise,
@@ -878,7 +887,10 @@ export default function PrescriptionStudio() {
         title="Abrir vídeo do exercício"
         onClick={(event) => {
           event.stopPropagation();
-          window.open(videoUrl, "_blank", "noopener,noreferrer");
+          setExerciseVideoPlayer({
+            url: videoUrl,
+            title: libraryExercise?.name || exercise?.exercise_name || exercise?.name || "Vídeo do exercício",
+          });
         }}
       >
         {content}
@@ -1043,6 +1055,46 @@ export default function PrescriptionStudio() {
 
   return (
     <div className="max-w-3xl mx-auto p-4 space-y-5">
+      <Dialog
+        open={!!exerciseVideoPlayer}
+        onOpenChange={(open) => {
+          if (!open) setExerciseVideoPlayer(null);
+        }}
+      >
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl overflow-hidden rounded-2xl border-0 bg-white p-0 shadow-2xl sm:rounded-2xl">
+          <DialogHeader className="border-b border-slate-100 px-5 py-4 pr-12 text-left">
+            <DialogTitle className="truncate text-lg text-[#1B2B4A]">
+              {exerciseVideoPlayer?.title || "Vídeo do exercício"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="bg-black">
+            {exerciseVideoPlayer && exerciseVideoEmbedUrl(exerciseVideoPlayer.url) ? (
+              <iframe
+                key={exerciseVideoPlayer.url}
+                src={exerciseVideoEmbedUrl(exerciseVideoPlayer.url) || undefined}
+                title={exerciseVideoPlayer.title}
+                className="aspect-video max-h-[75vh] w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            ) : exerciseVideoPlayer && isDirectVideoUrl(exerciseVideoPlayer.url) ? (
+              <video
+                key={exerciseVideoPlayer.url}
+                src={exerciseVideoPlayer.url}
+                className="aspect-video max-h-[75vh] w-full bg-black object-contain"
+                controls
+                autoPlay
+                playsInline
+              />
+            ) : (
+              <div className="flex aspect-video items-center justify-center px-6 text-center text-sm text-white/75">
+                Este formato de vídeo não pode ser reproduzido dentro do app.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-center gap-3 pt-1">
         <div className="h-11 w-11 rounded-xl bg-[#1B2B4A] flex items-center justify-center text-white font-black tracking-tight shadow-sm">BN</div>
         <div className="leading-tight">
