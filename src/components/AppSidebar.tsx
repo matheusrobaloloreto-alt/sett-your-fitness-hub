@@ -55,6 +55,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
 
 // Map sidebar items to permission modules
 const moduleMap: Record<string, PermissionModule> = {
@@ -151,6 +152,11 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const prefersReducedMotion = useReducedMotion();
   const title = settings?.platform_title || "Set Training App";
+  const [customLogoFailed, setCustomLogoFailed] = useState(false);
+
+  useEffect(() => {
+    setCustomLogoFailed(false);
+  }, [settings?.logo_url]);
 
   const isMaster = role === "master";
   const isAdmin = role === "admin";
@@ -223,8 +229,19 @@ export function AppSidebar() {
   return (
     <Sidebar className="border-r border-line">
       <div className="p-5 flex items-center gap-3 border-b border-line">
-        <div className="flex-1 min-w-0">
-          <Logo size="md" sublabel={roleLabel} />
+        <div className="flex-1 min-w-0 flex items-center">
+          {settings?.logo_url && !customLogoFailed ? (
+            <img
+              key={settings.logo_url}
+              src={settings.logo_url}
+              alt={title}
+              className="h-12 max-w-[160px] w-auto object-contain select-none"
+              draggable={false}
+              onError={() => setCustomLogoFailed(true)}
+            />
+          ) : (
+            <Logo size="md" sublabel={roleLabel} />
+          )}
         </div>
         {showAdminView && (
           <Button

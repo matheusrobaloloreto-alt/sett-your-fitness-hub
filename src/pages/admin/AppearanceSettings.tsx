@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Palette, Upload, RotateCcw, Save } from "lucide-react";
+import { Loader2, Palette, Sparkles, Upload, RotateCcw, Save } from "lucide-react";
+import { prepareLogoImage, type PreparedLogo } from "@/lib/logoImage";
 
 // Alinhado ao default canônico do ThemeContext (evita uma academia nova ver o tema
 // escuro BN antigo e o "Resetar" voltar pra marca errada).
@@ -50,6 +51,8 @@ export default function AppearanceSettings() {
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [currentLogoUrl, setCurrentLogoUrl] = useState<string | null>(null);
+  const [isProcessingLogo, setIsProcessingLogo] = useState(false);
+  const [preparedLogo, setPreparedLogo] = useState<PreparedLogo | null>(null);
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ["platform-settings-admin", effectiveCompanyId],
@@ -92,11 +95,32 @@ export default function AppearanceSettings() {
     document.documentElement.dataset.layout = layoutStyle;
   }, [layoutStyle]);
 
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => () => {
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+  }, [logoPreview]);
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setLogoFile(file);
-      setLogoPreview(URL.createObjectURL(file));
+    e.target.value = "";
+    if (!file) return;
+
+    setIsProcessingLogo(true);
+    try {
+      const prepared = await prepareLogoImage(file);
+      setLogoFile(prepared.file);
+      setPreparedLogo(prepared);
+      setLogoPreview(URL.createObjectURL(prepared.file));
+      if (prepared.backgroundRemoved) {
+        toast.success("Fundo uniforme removido. Confira a prévia e salve.");
+      } else if (prepared.reason === "already-transparent") {
+        toast.success("A logo já possui transparência e foi preservada.");
+      } else {
+        toast.info("Fundo complexo preservado para não recortar a marca incorretamente.");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível preparar a logo.");
+    } finally {
+      setIsProcessingLogo(false);
     }
   };
 
@@ -105,8 +129,10 @@ export default function AppearanceSettings() {
       let logoUrl = currentLogoUrl;
 
       if (logoFile) {
-        const ext = logoFile.name.split(".").pop();
-        const path = effectiveCompanyId ? `${effectiveCompanyId}/logo.${ext}` : `logo.${ext}`;
+        const version = Date.now();
+        const path = effectiveCompanyId
+          ? `${effectiveCompanyId}/logo-${version}.png`
+          : `logo-${version}.png`;
         const { error: uploadError } = await supabase.storage
           .from("platform-assets")
           .upload(path, logoFile, { upsert: true });
@@ -142,11 +168,17 @@ export default function AppearanceSettings() {
         if (error) throw error;
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       // Revalida AS DUAS famílias de query (a do admin e a do tema global), independente do id.
-      queryClient.invalidateQueries({ queryKey: ["platform-settings"] });
-      queryClient.invalidateQueries({ queryKey: ["platform-settings-admin"] });
-      refetch();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["platform-settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["platform-settings-admin"] }),
+      ]);
+      await refetch();
+      if (logoPreview) URL.revokeObjectURL(logoPreview);
+      setLogoPreview(null);
+      setLogoFile(null);
+      setPreparedLogo(null);
       toast.success("Aparência salva com sucesso!");
     },
     onError: (err: Error) => {
@@ -163,6 +195,7 @@ export default function AppearanceSettings() {
     setLayoutStyle("classico");
     setLogoFile(null);
     setLogoPreview(null);
+    setPreparedLogo(null);
   };
 
   if (isLoading) {
@@ -309,15 +342,34 @@ export default function AppearanceSettings() {
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans">Logo</Label>
-                  <div className="flex items-center gap-4">
-                    {displayLogo && (
-                      <img src={displayLogo} alt="Logo" className="h-16 w-16 object-contain rounded-lg border border-border bg-card p-1" />
-                    )}
-                    <label className="flex items-center gap-2 px-4 py-2 rounded-md border border-border cursor-pointer hover:bg-muted/50 transition-colors font-sans text-sm">
-                      <Upload className="h-4 w-4" />
-                      {displayLogo ? "Trocar Logo" : "Enviar Logo"}
-                      <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
+                  <div className="flex flex-wrap items-center gap-4">
+                    {displayLogo && <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-border">
+                      <div className="flex h-20 w-20 items-center justify-center bg-background p-2">
+                        <img src={displayLogo} alt="Logo em fundo claro" className="max-h-full max-w-full object-contain" />
+                      </div>
+                      <div className="flex h-20 w-20 items-center justify-center bg-primary p-2">
+                        <img src={displayLogo} alt="Logo em fundo da marca" className="max-h-full max-w-full object-contain" />
+                      </div>
+                    </div>}
+                    <label className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border px-4 py-2 cursor-pointer hover:bg-muted/50 transition-colors font-sans text-sm">
+                      {isProcessingLogo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                      {isProcessingLogo ? "Preparando..." : displayLogo ? "Trocar logo" : "Enviar logo"}
+                      <input
+                        type="file"
+                        accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                        onChange={handleLogoChange}
+                        disabled={isProcessingLogo}
+                        className="hidden"
+                      />
                     </label>
+                  </div>
+                  <div className="flex items-start gap-2 rounded-md border border-border bg-background/60 p-3 text-xs text-muted-foreground">
+                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <p>
+                      PNG, JPG ou WebP até 12 MB. Fundos uniformes são removidos automaticamente;
+                      logos transparentes são preservadas. A prévia mostra o resultado em superfícies clara e escura.
+                      {preparedLogo?.backgroundRemoved ? " Fundo removido nesta imagem." : ""}
+                    </p>
                   </div>
                 </div>
               </CardContent>

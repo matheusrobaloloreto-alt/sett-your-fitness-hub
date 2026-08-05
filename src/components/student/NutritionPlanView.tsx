@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Apple, Utensils, Droplets, Flame, Beef, Wheat, Leaf, Loader2, Coffee, Dumbbell, Moon, Check, ClipboardList, Save } from "lucide-react";
+import { Apple, Utensils, Droplets, Flame, Beef, Wheat, Leaf, Loader2, Coffee, Dumbbell, Moon, Check, ClipboardList, Save, FileText, FileUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { businessDateYmd } from "@/lib/businessDate";
+import { extractDietPdfText } from "@/lib/dietPdf";
 
 // Espelha o schema VIVO de nutrition_plans (Supabase zshrcgbyhzxpnlccssyz): macros em target_*,
 // objetivo em goal, restrições em context_dietary_restrictions, e o PLANO DE REFEIÇÕES prático em
@@ -101,8 +102,11 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
   const [loading, setLoading] = useState(true);
   const [generatingMeals, setGeneratingMeals] = useState(false);
   const [savingExternalPlan, setSavingExternalPlan] = useState(false);
+  const [readingExternalPdf, setReadingExternalPdf] = useState(false);
   const [externalPlanText, setExternalPlanText] = useState("");
   const [externalPlanError, setExternalPlanError] = useState("");
+  const [externalPlanFileName, setExternalPlanFileName] = useState("");
+  const externalPdfInputRef = useRef<HTMLInputElement>(null);
 
   // Rastreador de hidratação (interativo) — persiste por aluno + dia no localStorage.
   const dayKey = useMemo(() => businessDateYmd(), []);
@@ -171,11 +175,11 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
     return () => { active = false; };
   }, [studentId]);
 
-  const saveExternalPlan = async () => {
-    const rawText = externalPlanText.trim();
+  const saveExternalPlan = async (rawTextOverride?: string) => {
+    const rawText = (rawTextOverride ?? externalPlanText).trim();
     if (rawText.length < 10) {
       setExternalPlanError("Cole o cardápio do seu nutricionista antes de salvar.");
-      return;
+      return false;
     }
     setSavingExternalPlan(true);
     setExternalPlanError("");
@@ -193,10 +197,29 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
         meals,
       });
       setExternalPlanText("");
+      return true;
     } catch (error) {
       setExternalPlanError(error instanceof Error ? error.message : "Não foi possível salvar o cardápio.");
+      return false;
     } finally {
       setSavingExternalPlan(false);
+    }
+  };
+
+  const handleExternalPdf = async (file: File | null) => {
+    if (!file) return;
+    setReadingExternalPdf(true);
+    setExternalPlanError("");
+    setExternalPlanFileName(file.name);
+    try {
+      const text = await extractDietPdfText(file);
+      setExternalPlanText(text);
+      await saveExternalPlan(text);
+    } catch (error) {
+      setExternalPlanError(error instanceof Error ? error.message : "Não foi possível ler o PDF.");
+    } finally {
+      setReadingExternalPdf(false);
+      if (externalPdfInputRef.current) externalPdfInputRef.current.value = "";
     }
   };
 
@@ -208,9 +231,37 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
           <div className="space-y-1">
             <h3 className="font-display text-xl text-foreground leading-tight">Cardápio do seu nutricionista</h3>
             <p className="text-sm text-muted-foreground font-sans">
-              Cole aqui o plano alimentar que você já recebeu. O app organiza as refeições para ficar no mesmo formato das dicas nutricionais.
+              Envie o PDF que você já recebeu. O app lê e organiza as refeições no mesmo formato das dicas nutricionais, sem alterar a conduta do profissional.
             </p>
           </div>
+        </div>
+        <input
+          ref={externalPdfInputRef}
+          type="file"
+          accept="application/pdf,.pdf"
+          className="hidden"
+          onChange={(event) => void handleExternalPdf(event.target.files?.[0] ?? null)}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => externalPdfInputRef.current?.click()}
+          disabled={readingExternalPdf || savingExternalPlan}
+          className="w-full min-h-12 border-primary/25"
+        >
+          {readingExternalPdf || savingExternalPlan ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
+          {readingExternalPdf ? "Lendo PDF..." : savingExternalPlan ? "Organizando refeições..." : "Enviar PDF do cardápio"}
+        </Button>
+        {externalPlanFileName && (
+          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+            <FileText className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{externalPlanFileName}</span>
+          </p>
+        )}
+        <div className="flex items-center gap-3" aria-hidden="true">
+          <span className="h-px flex-1 bg-border" />
+          <span className="text-eyebrow text-muted-foreground">ou cole o conteúdo</span>
+          <span className="h-px flex-1 bg-border" />
         </div>
         <Textarea
           value={externalPlanText}
@@ -219,9 +270,9 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
           className="min-h-[180px]"
         />
         {externalPlanError && <p className="text-xs text-destructive">{externalPlanError}</p>}
-        <Button type="button" onClick={saveExternalPlan} disabled={savingExternalPlan} className="w-full">
+        <Button type="button" onClick={() => void saveExternalPlan()} disabled={savingExternalPlan || readingExternalPdf} className="w-full">
           {savingExternalPlan ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-          Salvar cardápio
+          Organizar texto colado
         </Button>
         <p className="text-[11px] text-muted-foreground">
           O app não altera a conduta do seu nutricionista; apenas transforma o material em uma visualização mais fácil de acompanhar.

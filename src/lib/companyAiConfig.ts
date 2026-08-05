@@ -55,8 +55,16 @@ export async function fetchCompanyAiConfig(companyId: string | null | undefined)
     .select("assistant_name, consultancy_name, methodology, plans_payment, tone, owner_credentials, niche_audience, exercise_preferences, progression_model, periodization_doctrine, strength_endurance_integration, assessment_protocol, red_lines, communication_style, nutrition_scope, ethical_limits, onboarding_completed")
     .eq("company_id", companyId)
     .maybeSingle();
-  if (!data) return DEFAULT_AI_CONFIG;
-  return { ...DEFAULT_AI_CONFIG, ...data };
+  if (data) return { ...DEFAULT_AI_CONFIG, ...data };
+
+  // Alunos não podem ler a configuração metodológica completa da empresa. A RPC retorna
+  // somente a identidade pública do assistente da própria empresa do aluno.
+  const { data: publicIdentity } = await (supabase as any)
+    .rpc("get_company_ai_identity", { _company_id: companyId })
+    .maybeSingle();
+
+  if (!publicIdentity) return DEFAULT_AI_CONFIG;
+  return { ...DEFAULT_AI_CONFIG, ...publicIdentity };
 }
 
 export async function saveCompanyAiConfig(
