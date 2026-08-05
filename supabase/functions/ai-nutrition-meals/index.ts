@@ -4,6 +4,7 @@
 // schema inconsistente). Idempotente: se o plano já tem meals, devolve o que existe.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseExternalDietText, sanitizeExternalMeals } from "./external-plan.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -41,90 +42,6 @@ function fallbackMeals(opts: { mealsPerDay: number; veg: boolean; goal: string }
     { meal: "Ceia", time: "22:30", focus: "Algo leve com proteína", eat: [veg ? "iogurte/queijo" : "iogurte", "castanhas"], go_easy: ["doces", "cafeína"] },
   ];
   return base.slice(0, Math.min(Math.max(opts.mealsPerDay || 5, 3), 6));
-}
-
-const mealHeaderRe = /^(café|cafe|desjejum|colação|colacao|lanche|almoço|almoco|jantar|ceia|pré[\s-]?treino|pre[\s-]?treino|pós[\s-]?treino|pos[\s-]?treino|refei[cç][aã]o\s*\d+|\d+[ªa]?\s*refei[cç][aã]o)\b[:\-\s]*/i;
-const timeRe = /\b([01]?\d|2[0-3])[:h]([0-5]\d)\b/;
-
-function normalizeTime(value: string) {
-  const match = value.match(timeRe);
-  if (!match) return null;
-  return `${match[1].padStart(2, "0")}:${match[2]}`;
-}
-
-function normalizeMealLabel(value: string, index: number) {
-  const text = value
-    .replace(/cafe/i, "Café")
-    .replace(/almoco/i, "Almoço")
-    .replace(/pre[\s-]?treino/i, "Pré-treino")
-    .replace(/pos[\s-]?treino/i, "Pós-treino")
-    .trim();
-  if (!text) return `Refeição ${index + 1}`;
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-function parseExternalDietText(rawText: string, expectedMeals: number) {
-  const lines = clean(rawText)
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^[\s\-•*]+/, "").trim())
-    .filter(Boolean);
-  const meals: any[] = [];
-  let current: { meal: string; time: string | null; items: string[] } | null = null;
-
-  const pushCurrent = () => {
-    if (!current) return;
-    const items = current.items
-      .map((item) => item.replace(mealHeaderRe, "").replace(timeRe, "").replace(/^[\s:–—-]+/, "").trim())
-      .filter(Boolean);
-    meals.push({
-      meal: current.meal,
-      time: current.time,
-      focus: "Cardápio informado pelo nutricionista",
-      eat: items.length ? items : ["seguir o cardápio prescrito"],
-      go_easy: [],
-      note: "Siga as quantidades e substituições combinadas com seu nutricionista.",
-    });
-  };
-
-  for (const line of lines) {
-    const header = line.match(mealHeaderRe);
-    if (header) {
-      pushCurrent();
-      current = {
-        meal: normalizeMealLabel(header[1], meals.length),
-        time: normalizeTime(line),
-        items: [line.replace(header[0], "").trim()].filter(Boolean),
-      };
-    } else if (current) {
-      current.items.push(line);
-      if (!current.time) current.time = normalizeTime(line);
-    } else {
-      current = {
-        meal: `Refeição ${meals.length + 1}`,
-        time: normalizeTime(line),
-        items: [line],
-      };
-    }
-  }
-  pushCurrent();
-
-  if (meals.length <= 1 && lines.length > 1) {
-    const target = Math.min(Math.max(Number(expectedMeals) || 3, 1), 8);
-    const chunkSize = Math.max(1, Math.ceil(lines.length / target));
-    return Array.from({ length: Math.min(target, Math.ceil(lines.length / chunkSize)) }).map((_, index) => {
-      const chunk = lines.slice(index * chunkSize, index * chunkSize + chunkSize);
-      return {
-        meal: `Refeição ${index + 1}`,
-        time: normalizeTime(chunk.join(" ")),
-        focus: "Cardápio informado pelo nutricionista",
-        eat: chunk.map((item) => item.replace(timeRe, "").trim()).filter(Boolean),
-        go_easy: [],
-        note: "Siga as quantidades e substituições combinadas com seu nutricionista.",
-      };
-    });
-  }
-
-  return meals;
 }
 
 function sanitizeMeals(meals: any[]) {
@@ -187,7 +104,7 @@ serve(async (req) => {
       const rawText = String(body?.raw_text || "").trim();
       if (rawText.length < 10) return json({ error: "Cole o cardápio do nutricionista antes de salvar." }, 400);
 
-      const safeMeals = sanitizeMeals(parseExternalDietText(rawText, mealsPerDay));
+      const safeMeals = sanitizeExternalMeals(parseExternalDietText(rawText, mealsPerDay));
       if (!safeMeals.length) return json({ error: "Não foi possível identificar refeições no cardápio informado." }, 422);
 
       const planId = (plan as any)?.id || crypto.randomUUID();

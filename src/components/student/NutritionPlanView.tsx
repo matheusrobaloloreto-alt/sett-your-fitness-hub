@@ -4,10 +4,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Apple, Utensils, Droplets, Flame, Beef, Wheat, Leaf, Loader2, Coffee, Dumbbell, Moon, Check, ClipboardList, Save, FileText, FileUp } from "lucide-react";
+import { Apple, Utensils, Droplets, Flame, Beef, Wheat, Leaf, Loader2, Coffee, Dumbbell, Moon, Check, ClipboardList, Save, FileText, FileUp, Info, ListChecks } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { businessDateYmd } from "@/lib/businessDate";
 import { extractDietPdfText } from "@/lib/dietPdf";
+import { prepareImportedNutritionPlan, type ImportedNutritionItem } from "@/lib/nutritionPlanDisplay";
 
 // Espelha o schema VIVO de nutrition_plans (Supabase zshrcgbyhzxpnlccssyz): macros em target_*,
 // objetivo em goal, restrições em context_dietary_restrictions, e o PLANO DE REFEIÇÕES prático em
@@ -94,6 +95,36 @@ function Chip({ children, variant }: { children: React.ReactNode; variant: "eat"
       {children}
     </span>
   );
+}
+
+function ImportedPlanItem({ item }: { item: ImportedNutritionItem }) {
+  if (item.kind === "separator") {
+    return (
+      <div className="flex basis-full items-center gap-3 py-0.5" aria-label="ou">
+        <span className="h-px flex-1 bg-border" />
+        <span className="text-eyebrow text-muted-foreground">ou</span>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+    );
+  }
+
+  if (item.kind === "heading") {
+    return <p className="basis-full pt-1 text-xs font-semibold text-primary">{item.text}</p>;
+  }
+
+  if (item.kind === "detail") {
+    const [lead, ...rest] = item.text.split(":");
+    return (
+      <div className="flex basis-full gap-2.5 rounded-md border border-border/80 bg-background/65 px-3 py-2.5 text-sm leading-relaxed text-foreground">
+        <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+        <p>
+          {rest.length > 0 ? <><span className="font-medium">{lead}:</span> {rest.join(":")}</> : item.text}
+        </p>
+      </div>
+    );
+  }
+
+  return <Chip variant="eat">{item.text}</Chip>;
 }
 
 export function NutritionPlanView({ studentId }: { studentId: string }) {
@@ -310,6 +341,8 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
   const title = rawTitle.split(/\s*[—|]\s*/)[0].trim() || "Plano nutricional";
   const goal = row.goal ? GOAL_LABEL[row.goal] || row.goal : null;
   const meals = asArray<MealItem>(row.meals).filter((m) => m && (m.meal || (m.eat && m.eat.length)));
+  const isExternalPlan = row.goal === "acompanhamento_nutricionista";
+  const importedDisplay = isExternalPlan ? prepareImportedNutritionPlan(meals) : null;
 
   // Divisão dos macros por contribuição calórica (P/C = 4 kcal/g, G = 9 kcal/g).
   const pK = protein * 4, cK = carbs * 4, fK = fat * 9;
@@ -342,6 +375,39 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
           </div>
         </div>
       </div>
+
+      {isExternalPlan && (
+        <Card className="bg-primary/[0.035] border-primary/15">
+          <CardContent className="p-4 flex items-start gap-3">
+            <FileText className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">Prescrição do seu nutricionista</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                O app organizou o material enviado para facilitar sua consulta. Alimentos, quantidades e substituições permanecem exatamente como foram prescritos.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {isExternalPlan && importedDisplay && importedDisplay.overview.length > 0 && (
+        <Card className="bg-card border-border overflow-hidden">
+          <CardContent className="p-0">
+            <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-4 py-2.5">
+              <ListChecks className="h-4 w-4 text-primary" />
+              <span className="font-semibold text-foreground">Orientações gerais</span>
+            </div>
+            <div className="grid gap-2 p-4 sm:grid-cols-2">
+              {importedDisplay.overview.map((item) => (
+                <div key={item} className="flex items-start gap-2.5 rounded-md border border-border/80 bg-background/65 px-3 py-2.5 text-sm leading-relaxed">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Hidratação (interativo) — no topo */}
       {totalGlasses > 0 && (
@@ -417,9 +483,35 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
       {/* PLANO DE REFEIÇÕES (prático, individualizado pela anamnese) */}
       <div>
         <p className="text-eyebrow text-muted-foreground mb-2">Plano de refeições</p>
-        {meals.length > 0 ? (
+        {(isExternalPlan ? importedDisplay?.meals.length : meals.length) ? (
           <div className="space-y-2.5">
-            {meals.map((m, i) => {
+            {isExternalPlan && importedDisplay ? importedDisplay.meals.map((m, i) => {
+              const Icon = mealIcon(m.meal);
+              return (
+                <Card key={`${m.meal}-${i}`} className="bg-card border-border overflow-hidden">
+                  <CardContent className="p-0">
+                    <div className="flex items-center justify-between gap-2 bg-primary/5 px-4 py-2.5 border-b border-border">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Icon className="h-4 w-4 text-primary shrink-0" />
+                        <span className="font-semibold text-foreground truncate">{m.meal}</span>
+                      </div>
+                      {m.time && <Badge variant="outline" className="font-mono-data text-primary border-primary/30 shrink-0">{m.time}</Badge>}
+                    </div>
+                    <div className="p-4 space-y-3">
+                      {m.focus && <p className="text-sm font-medium text-primary/90">{m.focus}</p>}
+                      {m.items.length > 0 && (
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5">Conforme o cardápio</p>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {m.items.map((item, itemIndex) => <ImportedPlanItem key={`${item.kind}-${item.text}-${itemIndex}`} item={item} />)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            }) : meals.map((m, i) => {
               const Icon = mealIcon(m.meal);
               const eat = asArray<string>(m.eat).filter(Boolean);
               const easy = asArray<string>(m.go_easy).filter(Boolean);
@@ -476,7 +568,9 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
       </div>
 
       <p className="text-[11px] text-muted-foreground text-center px-4">
-        Sugestões nutricionais educativas do seu treinador — não substituem o acompanhamento de um nutricionista.
+        {isExternalPlan
+          ? "Visualização organizada do cardápio enviado pelo seu nutricionista. Em caso de dúvida, siga a orientação do profissional responsável."
+          : "Sugestões nutricionais educativas do seu treinador — não substituem o acompanhamento de um nutricionista."}
       </p>
     </div>
   );
