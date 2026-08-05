@@ -17,6 +17,49 @@ type PreRegistrationDetailsProps = {
   className?: string;
 };
 
+const PRIMARY_ANSWER_ORDER = [
+  "age",
+  "gender",
+  "weight_kg",
+  "height_cm",
+  "objective",
+  "goals",
+  "requested_services",
+  "prescribed_modalities",
+  "modalities",
+  "experience_months",
+  "training_days",
+  "available_days",
+  "days_available",
+  "days_strength",
+  "days_cardio",
+  "session_duration",
+  "session_duration_min",
+  "training_location",
+  "available_equipment",
+  "equipment",
+  "sport_goal",
+  "cardio_goal",
+  "current_volume_weekly",
+  "current_volume_unit",
+  "current_pain",
+  "injuries",
+  "diseases",
+  "medical_conditions",
+  "medications",
+  "stress_score",
+  "sleep_quality",
+  "sleep_hours",
+  "nutrition",
+  "nutrition_context",
+  "food_restrictions",
+] as const;
+
+function primaryAnswerPosition(key: string) {
+  const answerKey = key.split(".").pop() || key;
+  return PRIMARY_ANSWER_ORDER.indexOf(answerKey as (typeof PRIMARY_ANSWER_ORDER)[number]);
+}
+
 function formatSubmittedAt(value: string | null) {
   if (!value) return "Não informado";
   const date = new Date(value);
@@ -52,6 +95,32 @@ export function PreRegistrationDetails({
 
   const answers = preRegistrationAnswerEntries(data.answers)
     .filter((answer) => !["budget_range", "preferred_contact_period"].includes(answer.key));
+  const primaryAnswers = answers
+    .filter((answer) => primaryAnswerPosition(answer.key) >= 0)
+    .sort((left, right) => primaryAnswerPosition(left.key) - primaryAnswerPosition(right.key));
+  const primaryKeys = new Set(primaryAnswers.map((answer) => answer.key));
+  const additionalAnswers = answers.filter((answer) => !primaryKeys.has(answer.key));
+
+  const renderAnswers = (items: typeof answers, emphasized = false) => (
+    <dl className={cn("grid gap-2", compact ? "grid-cols-1" : "md:grid-cols-2")}>
+      {items.map((answer) => (
+        <div
+          key={answer.key}
+          className={cn(
+            "min-w-0 rounded-2xl border p-3",
+            emphasized
+              ? "border-primary/20 bg-primary/[0.06]"
+              : "border-border bg-background/80",
+          )}
+        >
+          <dt className="text-eyebrow text-muted-foreground">{answer.label}</dt>
+          <dd className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+            {answer.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -81,7 +150,7 @@ export function PreRegistrationDetails({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-medium text-foreground">Respostas do pré-cadastro</p>
+        <p className="font-medium text-foreground">Principais informações</p>
         <Badge variant="outline" className="rounded-full font-mono-data text-[10px]">
           {data.source === "lead" ? "Resposta original" : "Dados integrados"}
         </Badge>
@@ -92,16 +161,15 @@ export function PreRegistrationDetails({
           O pré-cadastro existe, mas não possui respostas estruturadas.
         </div>
       ) : (
-        <dl className={cn("grid gap-2", compact ? "grid-cols-1" : "md:grid-cols-2")}>
-          {answers.map((answer) => (
-            <div key={answer.key} className="min-w-0 rounded-2xl border border-border bg-background/80 p-3">
-              <dt className="text-eyebrow text-muted-foreground">{answer.label}</dt>
-              <dd className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
-                {answer.value}
-              </dd>
+        <>
+          {primaryAnswers.length > 0 ? renderAnswers(primaryAnswers, true) : renderAnswers(answers)}
+          {primaryAnswers.length > 0 && additionalAnswers.length > 0 && (
+            <div className="space-y-2 pt-1">
+              <p className="font-medium text-foreground">Demais respostas</p>
+              {renderAnswers(additionalAnswers)}
             </div>
-          ))}
-        </dl>
+          )}
+        </>
       )}
     </div>
   );

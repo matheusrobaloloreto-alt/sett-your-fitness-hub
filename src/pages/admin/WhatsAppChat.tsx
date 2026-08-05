@@ -2151,17 +2151,16 @@ export default function WhatsAppChat() {
                       <PopoverContent
                         align="end"
                         sideOffset={8}
-                        className="w-[min(92vw,30rem)] overflow-hidden rounded-3xl border-border bg-card p-0 shadow-xl"
+                        className="w-[min(94vw,48rem)] overflow-hidden rounded-3xl border-border bg-card p-0 shadow-xl"
                       >
                         <div className="border-b border-border px-4 py-3">
-                          <p className="font-display text-lg text-primary">Anamnese</p>
-                          <p className="text-xs text-muted-foreground">Respostas recebidas no pré-cadastro.</p>
+                          <p className="font-display text-lg text-primary">Pré-cadastro completo</p>
+                          <p className="text-xs text-muted-foreground">Informações usadas no atendimento, avaliação e prescrição.</p>
                         </div>
-                        <ScrollArea className="max-h-[65vh]">
+                        <ScrollArea className="max-h-[72vh]">
                           <PreRegistrationDetails
                             data={selectedPreRegistration}
                             loading={preRegistrationLoading}
-                            compact
                             className="p-4"
                           />
                         </ScrollArea>

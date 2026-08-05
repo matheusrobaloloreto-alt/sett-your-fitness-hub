@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Trash2, UserPlus, Shield, KeyRound, Plus, Eye, EyeOff, Pencil, Users, BarChart3, CalendarPlus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,7 +20,12 @@ import { ptBR } from "date-fns/locale";
 import { Textarea } from "@/components/ui/textarea";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
-import { resolvePerformanceTrainerId, type TrainerAssignmentPeriod } from "@/lib/teamPerformance";
+import {
+  buildManualSessionSummary,
+  resolveManualPerformanceTrainerId,
+  resolvePerformanceTrainerId,
+  type TrainerAssignmentPeriod,
+} from "@/lib/teamPerformance";
 
 interface TeamMember {
   user_id: string;
@@ -75,6 +80,7 @@ const PERMISSION_ROLES = [
 ];
 
 export default function TeamManager() {
+  const manualSaveInFlight = useRef(false);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [availableUsers, setAvailableUsers] = useState<ProfileOption[]>([]);
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
@@ -393,20 +399,24 @@ export default function TeamManager() {
 
     // 1) Manual/off-app completed sessions (workout_id is null). These are shown apart
     // from agenda cycles so the performance numbers match the Agenda view.
-    let manualSessions: { student_id: string; completed_at: string | null }[] = [];
+    let manualSessions: { student_id: string; completed_at: string | null; exercises_summary: unknown }[] = [];
     let scheduledCycles: { cycle_id: string; student_id: string; start_date: string }[] = [];
     let prescribedCycles: { cycle_id: string; student_id: string; start_date: string }[] = [];
 
     if (studentIds.length > 0) {
       const { data: sessRes } = await supabase
         .from("workout_sessions")
-        .select("student_id, completed_at, workout_id")
+        .select("student_id, completed_at, workout_id, exercises_summary")
         .eq("status", "completed")
         .is("workout_id", null)
         .in("student_id", studentIds)
         .gte("completed_at", rangeStart)
         .lte("completed_at", rangeEnd);
-      manualSessions = (sessRes || []).map((s) => ({ student_id: s.student_id, completed_at: s.completed_at }));
+      manualSessions = (sessRes || []).map((s) => ({
+        student_id: s.student_id,
+        completed_at: s.completed_at,
+        exercises_summary: s.exercises_summary,
+      }));
 
       const { data: enrolls } = await supabase
         .from("enrollments")
@@ -491,7 +501,15 @@ export default function TeamManager() {
       for (const sess of manualSessions) {
         if (!sess.completed_at) continue;
         const sessDate = new Date(sess.completed_at);
-        if (trainerAt(sess.student_id, sessDate) !== tid) continue;
+        const attributedTrainerId = resolveManualPerformanceTrainerId({
+          studentId: sess.student_id,
+          at: sessDate,
+          history,
+          currentTrainerId: currentTrainerByStudent.get(sess.student_id),
+          activeTrainerIds,
+          exercisesSummary: sess.exercises_summary,
+        });
+        if (attributedTrainerId !== tid) continue;
         const key = format(sessDate, "yyyy-MM");
         if (manualByMonth[key] !== undefined) {
           manualByMonth[key]++;
@@ -531,26 +549,57 @@ export default function TeamManager() {
   };
 
   const handleSaveManualSession = async () => {
-    if (!manualTrainer || !manualStudentId || !manualDate || !effectiveCompanyId) return;
+    if (manualSaveInFlight.current || !manualTrainer || !manualStudentId || !manualDate || !effectiveCompanyId) return;
+    manualSaveInFlight.current = true;
     setManualSaving(true);
     const completedIso = new Date(manualDate + "T12:00:00").toISOString();
-    const { error } = await supabase.from("workout_sessions").insert({
-      student_id: manualStudentId,
-      company_id: effectiveCompanyId,
-      workout_id: null,
-      status: "completed",
-      started_at: completedIso,
-      completed_at: completedIso,
-      notes: manualNotes || null,
-    });
-    setManualSaving(false);
-    if (error) {
-      toast({ title: "Erro", description: error.message, variant: "destructive" });
-      return;
+    try {
+      const { data: sameDayRows, error: lookupError } = await supabase
+        .from("workout_sessions")
+        .select("id, exercises_summary")
+        .eq("student_id", manualStudentId)
+        .eq("completed_at", completedIso)
+        .is("workout_id", null);
+      if (lookupError) throw lookupError;
+
+      const duplicate = (sameDayRows || []).some((row) => {
+        const summary = row.exercises_summary as Record<string, unknown> | null;
+        return summary?.source === "team_performance_manual"
+          && summary?.trainer_id === manualTrainer.user_id;
+      });
+      if (duplicate) {
+        toast({
+          title: "Treino já registrado",
+          description: "Já existe um treino avulso deste aluno, nesta data, creditado a este colaborador.",
+        });
+        return;
+      }
+
+      const { error } = await supabase.from("workout_sessions").insert({
+        student_id: manualStudentId,
+        company_id: effectiveCompanyId,
+        workout_id: null,
+        status: "completed",
+        started_at: completedIso,
+        completed_at: completedIso,
+        notes: manualNotes || null,
+        exercises_summary: buildManualSessionSummary(manualTrainer.user_id),
+      });
+      if (error) throw error;
+
+      toast({ title: "Treino avulso registrado!" });
+      setManualOpen(false);
+      loadPerformance();
+    } catch (error) {
+      toast({
+        title: "Erro",
+        description: error instanceof Error ? error.message : "Não foi possível registrar o treino avulso.",
+        variant: "destructive",
+      });
+    } finally {
+      manualSaveInFlight.current = false;
+      setManualSaving(false);
     }
-    toast({ title: "Treino avulso registrado!" });
-    setManualOpen(false);
-    loadPerformance();
   };
 
   // ===== Trainer history adjustment =====

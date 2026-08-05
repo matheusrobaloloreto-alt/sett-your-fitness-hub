@@ -3099,6 +3099,14 @@ export type Database = {
         Args: { p_enrollment_id: string; p_new_start_date: string }
         Returns: undefined
       }
+      reschedule_training_cycles_from: {
+        Args: {
+          p_cycle_id: string
+          p_enrollment_id: string
+          p_new_start_date: string
+        }
+        Returns: undefined
+      }
       student_self_update_allowed: {
         Args: {
           _asaas_customer_id: string

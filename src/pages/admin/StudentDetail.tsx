@@ -216,6 +216,7 @@ export default function StudentDetail() {
   const [preRegistrationLoading, setPreRegistrationLoading] = useState(true);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [cycles, setCycles] = useState<TrainingCycle[]>([]);
+  const [reschedulingCycleId, setReschedulingCycleId] = useState<string | null>(null);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [allWorkouts, setAllWorkouts] = useState<any[]>([]);
   const [asaasPayments, setAsaasPayments] = useState<AsaasPayment[]>([]);
@@ -709,6 +710,37 @@ export default function StudentDetail() {
     setSaving(false);
     toast({ title: "Matrícula criada com sucesso!" });
     setEnrollOpen(false);
+    loadData(id);
+  };
+
+  const handleRescheduleCycle = async (
+    enrollmentId: string,
+    cycle: TrainingCycle,
+    date: Date,
+  ) => {
+    if (!id || reschedulingCycleId) return;
+    setReschedulingCycleId(cycle.id);
+    const dateStr = format(date, "yyyy-MM-dd");
+    const { error } = await supabase.rpc("reschedule_training_cycles_from", {
+      p_enrollment_id: enrollmentId,
+      p_cycle_id: cycle.id,
+      p_new_start_date: dateStr,
+    });
+    setReschedulingCycleId(null);
+
+    if (error) {
+      toast({
+        title: "Erro ao reagendar ciclo",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: `Ciclo ${cycle.cycle_number} reagendado`,
+      description: "As datas deste ciclo e de todos os seguintes foram ajustadas.",
+    });
     loadData(id);
   };
 
@@ -1431,30 +1463,23 @@ export default function StudentDetail() {
                                         )}
                                       </div>
                                     )}
-                                    {c.cycle_number === 1 && (role === "admin" || role === "master" || role === "coordinator") && (
+                                    {(role === "trainer" || role === "admin" || role === "master" || role === "coordinator") && (
                                       <Popover>
                                         <PopoverTrigger asChild>
-                                          <Button variant="ghost" size="sm" className="h-5 text-[10px] px-2">
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-5 text-[10px] px-2"
+                                            disabled={reschedulingCycleId !== null}
+                                          >
                                             <CalendarIcon className="h-3 w-3 mr-0.5" />Alterar data
                                           </Button>
                                         </PopoverTrigger>
                                         <PopoverContent className="w-auto p-0" align="start">
                                           <Calendar
                                             mode="single"
-                                            onSelect={async (date) => {
-                                              if (!date) return;
-                                              const dateStr = format(date, "yyyy-MM-dd");
-                                              const { error } = await supabase.rpc("recalculate_training_cycles", {
-                                                p_enrollment_id: e.id,
-                                                p_new_start_date: dateStr,
-                                              });
-                                              if (error) {
-                                                toast({ title: "Erro ao recalcular ciclos", description: error.message, variant: "destructive" });
-                                              } else {
-                                                toast({ title: "Ciclos recalculados com sucesso!" });
-                                                loadData(id!);
-                                              }
-                                            }}
+                                            selected={parseISO(c.start_date)}
+                                            onSelect={(date) => date && handleRescheduleCycle(e.id, c, date)}
                                             locale={ptBR}
                                             className="pointer-events-auto"
                                           />
