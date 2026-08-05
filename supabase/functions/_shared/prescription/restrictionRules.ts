@@ -1,6 +1,6 @@
 import { PAIN_AND_SAFETY_RULES } from "./methodology.ts";
 import { normalizeText } from "./presets.ts";
-import type { PrescriptionInput, RestrictionRule, TrainingProgram, ValidationCorrection } from "./types.ts";
+import type { PrescriptionInput, RestrictionRule, TrainingExercise, TrainingProgram, ValidationCorrection } from "./types.ts";
 import { clinicalRiskText, prescriptionRiskText } from "./clinicalContext.ts";
 
 export type Severity = "leve" | "moderada" | "severa";
@@ -190,6 +190,35 @@ export function deriveRestrictionRules(input: PrescriptionInput): RestrictionRul
   }
 
   return rules;
+}
+
+export function exerciseConflictsWithRestrictions(
+  exercise: Pick<TrainingExercise, "exercise_name" | "biomechanical_note" | "cues" | "phase" | "muscle_group">,
+  rules: RestrictionRule[],
+) {
+  const text = normalizeText([
+    exercise.exercise_name,
+    exercise.biomechanical_note,
+    exercise.cues,
+    exercise.phase,
+  ]);
+  const group = normalizeText(exercise.muscle_group);
+
+  return rules.some((rule) => {
+    const explicitlyAvoided = rule.avoidKeywords.some((keyword) => text.includes(normalizeText(keyword)));
+    if (explicitlyAvoided) return true;
+
+    if (rule.region === "joelho") {
+      return /quadr/.test(group) && /agach|afundo|avanco|lunge|leg press|extensor|salto|step|joelho/.test(text);
+    }
+    if (rule.region === "lombar") {
+      return /posterior|lombar/.test(group) && /terra|stiff|rdl|good morning|agach|hiperextens|flexao|hinge/.test(text);
+    }
+    if (rule.region === "ombro") {
+      return /peit|ombro/.test(group) && /supino|press|desenvolvimento|overhead|dips|remada alta|elevacao/.test(text);
+    }
+    return false;
+  });
 }
 
 export function applyRestrictionRules(program: TrainingProgram, rules: RestrictionRule[]) {

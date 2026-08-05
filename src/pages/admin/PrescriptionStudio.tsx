@@ -37,6 +37,7 @@ import { toast } from "sonner";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
 import { exerciseThumb, youtubeIdFromUrl } from "@/lib/exerciseCover";
+import { summarizeExerciseWeeklyProgression } from "@/lib/weeklyStrengthPeriodization";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   describeLongitudinalPhase,
@@ -63,6 +64,34 @@ type StudioLibraryExercise = {
   thumbnail_url?: string | null;
   youtube_video_id?: string | null;
 };
+
+function studioAnswerSources(anamnese: Record<string, unknown>) {
+  const asRecord = (value: unknown): Record<string, unknown> => (
+    value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {}
+  );
+  return [
+    anamnese,
+    asRecord(anamnese.raw_answers),
+    asRecord(anamnese.answers),
+    asRecord(anamnese.responses),
+  ];
+}
+
+function studioAnamneseValue(anamnese: Record<string, unknown>, keys: string[]) {
+  for (const source of studioAnswerSources(anamnese)) {
+    for (const key of keys) {
+      const value = source[key];
+      if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+    }
+  }
+  return undefined;
+}
+
+function formatStudioTempo(value: string) {
+  return /^\d{4}$/.test(value) ? value.split("").join("-") : value;
+}
 
 const MODALITIES: { id: Modality; icon: any; label: string; sub: string }[] = [
   { id: "musculacao", icon: Dumbbell, label: "Musculação", sub: "Força + biomecânica" },
@@ -550,10 +579,18 @@ export default function PrescriptionStudio() {
           setStatus((current) => ({ ...current, musculacao: "generating" }));
           const cardioDays = ["corrida", "natacao", "ciclismo"].some((modality) => modalities.has(modality as Modality))
             ? Number(a.days_per_week_cardio) || 0 : 0;
+          const fitnessLevel = studioAnamneseValue(a, [
+            "fitness_level", "strength_level", "training_level", "nivel_treino", "nivel_musculacao",
+          ]);
+          const experienceMonths = studioAnamneseValue(a, [
+            "experience_months", "strength_experience_months", "muscle_training_months",
+            "training_experience_months", "tempo_treino_meses", "tempo_de_treino_meses",
+          ]);
           const { data, error: edgeError } = await supabase.functions.invoke("ai-prescribe-workout", { body: {
             student_id: studentId, student_name: student?.name, company_id: companyId,
             anamnese_id: a.id, objective: a.objective,
-            experience_months: a.experience_months,
+            fitness_level: fitnessLevel,
+            experience_months: experienceMonths,
             days_per_week: Number(a.days_per_week_strength) || 3, duration_weeks: 6,
             equipment: a.equipment, block_number: cycle.cycle_number,
             is_endurance_athlete: a.is_endurance_athlete, restrictions: a.injuries, notes: a.notes,
@@ -1662,6 +1699,7 @@ export default function PrescriptionStudio() {
                               </div>
                               {(w.exercises || []).map((ex: any, ei: number) => {
                                 const libraryExercise = findLibraryExercise(ex);
+                                const weeklyBlocks = summarizeExerciseWeeklyProgression(ex.weekly_prescription);
                                 return (
                                 <div
                                   key={`${ex.exercise_id || ex.exercise_name || "exercise"}-${ei}`}
@@ -1685,10 +1723,13 @@ export default function PrescriptionStudio() {
                                     moveExerciseTo(wi, source.ei, ei);
                                   }}
                                   onDragEnd={() => setDragExercise(null)}
-                                  className={`grid grid-cols-12 gap-1 items-center rounded-md transition-colors ${
-                                    dragExercise?.wi === wi && dragExercise?.ei === ei ? "bg-[#F5EDD8]/70 opacity-70" : "hover:bg-slate-50"
+                                  className={`rounded-xl border transition-colors ${
+                                    dragExercise?.wi === wi && dragExercise?.ei === ei
+                                      ? "border-[#8B7355]/40 bg-[#F5EDD8]/70 opacity-70"
+                                      : "border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50/60"
                                   }`}
                                 >
+                                  <div className="grid grid-cols-12 gap-1 items-center p-1">
                                   <div className="col-span-2 sm:col-span-1 flex items-center">
                                     <button
                                       type="button"
@@ -1713,6 +1754,33 @@ export default function PrescriptionStudio() {
                                   <Input className="col-span-3 sm:col-span-2 h-7 text-xs px-1" value={String(ex.rest_seconds ?? "")} onChange={e => updateExField(wi, ei, "rest_seconds", e.target.value)} placeholder="desc(s)" />
                                   <Input className="col-span-9 sm:col-span-2 h-7 text-xs px-1" value={ex.cues || ex.notes || ""} onChange={e => updateExField(wi, ei, "cues", e.target.value)} placeholder="obs" />
                                   <button type="button" onClick={() => removeExercise(wi, ei)} className="col-span-3 sm:col-span-1 text-red-500 text-sm" title="Remover exercício">✕</button>
+                                  </div>
+                                  {weeklyBlocks.length > 0 && (
+                                    <div className="grid gap-1.5 border-t border-slate-100 bg-[#FAF8F2]/70 p-2 sm:grid-cols-3">
+                                      {weeklyBlocks.map((block) => (
+                                        <div key={block.weeks} className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+                                          <div className="flex flex-wrap items-center gap-1">
+                                            <span className="font-mono-data text-[9px] font-semibold uppercase text-[#8B7355]">
+                                              Semanas {block.weeks}
+                                            </span>
+                                            {block.method ? (
+                                              <span className="rounded-full bg-[#1B2B4A] px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                                {block.method}
+                                              </span>
+                                            ) : (
+                                              <span className="text-[9px] text-slate-400">Séries retas</span>
+                                            )}
+                                          </div>
+                                          <p className="mt-1 text-[10px] font-medium text-[#1B2B4A]">
+                                            {block.setsReps} · Cadência {formatStudioTempo(block.tempo)} · RIR {block.rir}
+                                          </p>
+                                          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-slate-500" title={block.instruction}>
+                                            {block.instruction}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                                 );
                               })}

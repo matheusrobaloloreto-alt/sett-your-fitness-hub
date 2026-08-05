@@ -162,6 +162,23 @@ describe("BN Prescription Engine v1", () => {
     }
   });
 
+  it("mantém métodos em acessórios seguros quando a dor é leve e localizada", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      painEva: 2,
+      painReports: [{ region: "joelho", eva: 2 }],
+      restrictions: "dor leve no joelho EVA 2",
+    }));
+    const exercises = program.workouts.flatMap((workout) => workout.exercises);
+    const kneePattern = /agachamento|leg press|afundo|avanço|step up/i;
+    const kneeExercises = exercises.filter((exercise) => kneePattern.test(exercise.exercise_name));
+
+    expect(program.weekly_periodization.slice(2).some((week) => week.methods.length > 0)).toBe(true);
+    expect(exercises.some((exercise) => exercise.weekly_prescription?.some((week) => Boolean(week.method)))).toBe(true);
+    expect(kneeExercises.every((exercise) => exercise.weekly_prescription?.every((week) => !week.method))).toBe(true);
+    expect(program.progression_protocol.toLowerCase()).toContain("progressao por tolerancia");
+  });
+
   it("gera quatro semanas quando o ciclo pede quatro, sem fabricar semanas extras", () => {
     const program = generateTrainingProgram(baseInput({
       fitnessLevel: "intermediario",

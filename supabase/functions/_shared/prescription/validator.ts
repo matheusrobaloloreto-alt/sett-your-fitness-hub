@@ -1,5 +1,5 @@
 import { normalizeText } from "./presets.ts";
-import { hasPainContext } from "./progressionRules.ts";
+import { shouldHoldProgression } from "./progressionRules.ts";
 import { classifyPainSeverity, deriveRestrictionRules } from "./restrictionRules.ts";
 import { IMPORTANT_GROUPS, reviewVolume } from "./volumeRules.ts";
 import type {
@@ -217,7 +217,7 @@ export function validateTrainingProgram(args: {
     });
   }
 
-  if (hasPainContext(args.input) && hasAdvancedMethod(args.program)) {
+  if (shouldHoldProgression(args.input) && hasAdvancedMethod(args.program)) {
     add({
       severity: "warning",
       code: "advanced_method_with_pain",

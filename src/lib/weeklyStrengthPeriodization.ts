@@ -37,6 +37,69 @@ export interface ResolvedWeekContext {
   instruction: string;
 }
 
+export interface WeeklyProgressionSummary {
+  weeks: string;
+  setsReps: string;
+  tempo: string;
+  rir: string;
+  method: string | null;
+  instruction: string;
+}
+
+const METHOD_LABELS: Record<string, string> = {
+  biset: "Bi-set",
+  superset: "Super-set",
+  triset: "Tri-set",
+  giantset: "Giant-set",
+  circuito: "Circuito",
+  dropset: "Drop-set",
+  restpause: "Rest-pause",
+  cluster: "Cluster-set",
+  isometria: "Isometria",
+  pico_contracao: "Pico de contração",
+  pico_alongamento: "Pico de alongamento",
+};
+
+export function weeklyMethodLabel(method?: string | null, seconds?: number | null) {
+  if (!method) return null;
+  const label = METHOD_LABELS[method] || method.replaceAll("_", " ");
+  return seconds ? `${label} (${seconds}s)` : label;
+}
+
+function compactPair(values: string[]) {
+  const unique = [...new Set(values.filter(Boolean))];
+  return unique.join(" → ");
+}
+
+export function summarizeExerciseWeeklyProgression(
+  items?: StoredWeeklyExercisePrescription[] | null,
+): WeeklyProgressionSummary[] {
+  if (!items?.length) return [];
+  const ordered = [...items].sort((a, b) => Number(a.week) - Number(b.week));
+  const blocks: Array<[number, number]> = [[1, 2], [3, 4], [5, 6]];
+
+  return blocks.flatMap(([start, end]) => {
+    const period = ordered.filter((item) => item.week >= start && item.week <= end);
+    if (!period.length) return [];
+    const methods = [...new Set(period
+      .map((item) => weeklyMethodLabel(item.method, item.method_seconds))
+      .filter((method): method is string => Boolean(method)))];
+    const instructions = period
+      .filter((item) => item.method)
+      .map((item) => item.instruction)
+      .filter(Boolean);
+
+    return [{
+      weeks: `${start}-${Math.min(end, period.at(-1)?.week || end)}`,
+      setsReps: compactPair(period.map((item) => `${item.sets}x${item.reps}`)),
+      tempo: compactPair(period.map((item) => item.tempo)),
+      rir: compactPair(period.map((item) => item.rir)),
+      method: methods.length ? methods.join(" + ") : null,
+      instruction: instructions.at(-1) || period.at(-1)?.instruction || "Siga os parâmetros do bloco.",
+    }];
+  });
+}
+
 export function resolveExerciseForWeek<T extends WeeklyAwareExercise>(exercise: T, week: number): T {
   const prescription = exercise.weekly_prescription?.find((item) => Number(item.week) === week);
   if (!prescription) return exercise;

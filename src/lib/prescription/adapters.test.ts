@@ -68,6 +68,26 @@ describe("B2 — input adapter", () => {
     expect(input.fitnessLevel).toBe("intermediario");
   });
 
+  it("lê nível e experiência quando o pré-cadastro entrega respostas aninhadas", () => {
+    const { input, warnings } = buildPrescriptionInputFromEdgePayload({
+      payload: {
+        objective: "hipertrofia",
+        days_per_week: 4,
+        anamnese_context: {
+          raw_answers: {
+            nivel_musculacao: "Intermediário",
+            tempo_treino_meses: "18",
+          },
+        },
+      },
+      catalog: buildCatalog(),
+    });
+
+    expect(input.fitnessLevel).toBe("intermediario");
+    expect(input.experienceMonths).toBe(18);
+    expect(warnings.some((warning) => warning.includes("default conservador 'iniciante'"))).toBe(false);
+  });
+
   it("1) preserva dor estruturada EVA 4 sem depender de texto (e o engine trava progressão)", () => {
     const catalog = buildCatalog();
     const { input } = buildPrescriptionInputFromEdgePayload({

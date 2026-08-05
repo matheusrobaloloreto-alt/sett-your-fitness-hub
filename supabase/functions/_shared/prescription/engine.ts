@@ -1,7 +1,7 @@
 import { pickCatalogExercise } from "./exerciseScoring.ts";
 import { correctionsToExplanations, deloadExplanation, enduranceExplanation, explanationsFromRestrictions, frequencyDowngradeExplanation, progressionExplanation } from "./explanations.ts";
 import { normalizeText, objectiveModifier, resolveSplit, selectMethodologyPreset } from "./presets.ts";
-import { buildPeriodizationBlocks, deloadAdjustSets, hasPainContext, progressionProtocol, resolveDurationWeeks } from "./progressionRules.ts";
+import { buildPeriodizationBlocks, deloadAdjustSets, progressionProtocol, resolveDurationWeeks, shouldHoldProgression } from "./progressionRules.ts";
 import { applyLongitudinalProgression, previousExerciseIds, resolveSequenceNumber } from "./longitudinalRules.ts";
 import { applyRestrictionRules, deriveRestrictionRules } from "./restrictionRules.ts";
 import { validateTrainingProgram } from "./validator.ts";
@@ -197,7 +197,7 @@ function buildWorkouts(input: PrescriptionInput) {
 function applySimpleCorrections(program: TrainingProgram, input: PrescriptionInput) {
   const corrections: ValidationCorrection[] = [];
   const level = normalizeText(input.fitnessLevel);
-  if (hasPainContext(input) || level.includes("inic")) {
+  if (shouldHoldProgression(input) || level.includes("inic")) {
     const before = JSON.stringify(program.periodization_blocks);
     program.periodization_blocks = program.periodization_blocks.map((block) => ({
       ...block,
@@ -230,7 +230,7 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
   const weekly = buildWeeklyPeriodization(workouts, normalizedInput);
   const periodization = buildPeriodizationBlocks(normalizedInput);
   const split = resolveSplit(normalizedInput);
-  const advancedAllowed = !hasPainContext(normalizedInput) && !normalizeText(normalizedInput.fitnessLevel).includes("inic");
+  const advancedAllowed = !shouldHoldProgression(normalizedInput) && !normalizeText(normalizedInput.fitnessLevel).includes("inic");
   const explanations = [
     ...explanationsFromRestrictions(restrictions),
     ...enduranceExplanation(Boolean(normalizedInput.isEnduranceAthlete || normalizedInput.runningDaysContext)),

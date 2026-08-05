@@ -492,16 +492,6 @@ function normalizeText(value: unknown) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-function resolveStrengthLevel(fitnessLevel: unknown, experienceMonths: unknown) {
-  const explicit = normalizeText(fitnessLevel);
-  if (explicit.includes("avanc")) return "avancado";
-  if (explicit.includes("inter")) return "intermediario";
-  if (explicit.includes("inic")) return "iniciante";
-  const months = Number(experienceMonths);
-  if (Number.isFinite(months)) return months >= 24 ? "avancado" : months >= 6 ? "intermediario" : "iniciante";
-  return "iniciante";
-}
-
 function selectMethodologyPreset(
   objective: unknown,
   fitnessLevel: unknown,
@@ -1455,7 +1445,32 @@ serve(async (req) => {
     const aiConfig = await loadCompanyAiConfig(supabase, authorizedCompanyId);
     const exerciseCatalog = await loadExerciseCatalog(supabase, authorizedCompanyId);
     const exerciseCatalogText = formatExerciseCatalog(exerciseCatalog);
-    const effectiveFitnessLevel = resolveStrengthLevel(fitness_level, experience_months);
+    const adaptedPrescription = buildPrescriptionInputFromEdgePayload({
+      payload: {
+        student_name,
+        objective,
+        fitness_level,
+        experience_months,
+        days_per_week,
+        duration_weeks,
+        equipment,
+        restrictions,
+        injuries: (anamnese_context as any)?.injuries ?? restrictions,
+        block_number,
+        is_endurance_athlete,
+        assessment_context,
+        anamnese_context,
+        prescription_integration,
+        running_days_context,
+        previous_plan_context: effectivePreviousPlan,
+        previous_performance_context,
+        program_sequence: effectiveProgramSequence,
+        notes,
+      },
+      catalog: exerciseCatalog.exercises as any,
+    });
+    const effectiveFitnessLevel = adaptedPrescription.input.fitnessLevel;
+    const effectiveExperienceMonths = adaptedPrescription.input.experienceMonths;
     const presetKey = selectMethodologyPreset(
       objective,
       effectiveFitnessLevel,
@@ -1470,6 +1485,7 @@ DADOS DO ATLETA:
 Nome: ${clean(student_name || "não informado")}
 Objetivo: ${clean(objective)}
 Nível de musculação: ${clean(effectiveFitnessLevel)}
+Experiência em musculação: ${effectiveExperienceMonths ?? "não informada"} meses
 Dias disponíveis para força: ${days_per_week}
 Duração do ciclo: ${duration_weeks} semanas
 Bloco atual: ${block_number || 1} (pliometria ${block_number >= 2 ? "PERMITIDA" : "PROIBIDA"})
@@ -1544,30 +1560,7 @@ INSTRUÇÕES:
     let planJson: any = null;
     let fallbackReason: string | null = null;
     try {
-      const { input, warnings: adapterWarnings } = buildPrescriptionInputFromEdgePayload({
-        payload: {
-          student_name,
-          objective,
-          fitness_level: effectiveFitnessLevel,
-          experience_months,
-          days_per_week,
-          duration_weeks,
-          equipment,
-          restrictions,
-          injuries: (anamnese_context as any)?.injuries ?? restrictions,
-          block_number,
-          is_endurance_athlete,
-          assessment_context,
-          anamnese_context,
-          prescription_integration,
-          running_days_context,
-          previous_plan_context: effectivePreviousPlan,
-          previous_performance_context,
-          program_sequence: effectiveProgramSequence,
-          notes,
-        },
-        catalog: exerciseCatalog.exercises as any,
-      });
+      const { input, warnings: adapterWarnings } = adaptedPrescription;
       const program = generateTrainingProgram(input);
       if (adapterWarnings.length) {
         program.warnings.push(...adapterWarnings);
@@ -1672,7 +1665,8 @@ INSTRUÇÕES:
         const mode = shadow.resolveEngineFlag(engineFlag) === "on" ? "on" : "shadow";
         const { input } = buildPrescriptionInputFromEdgePayload({
           payload: {
-            student_name, objective, fitness_level: effectiveFitnessLevel, experience_months,
+            student_name, objective, fitness_level: effectiveFitnessLevel,
+            experience_months: effectiveExperienceMonths,
             days_per_week, duration_weeks,
             equipment, restrictions, block_number, is_endurance_athlete,
             assessment_context, anamnese_context, prescription_integration,

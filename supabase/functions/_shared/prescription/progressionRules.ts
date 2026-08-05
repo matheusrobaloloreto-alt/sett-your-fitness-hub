@@ -13,7 +13,10 @@ export function hasPainContext(input: PrescriptionInput) {
 }
 
 export function shouldHoldProgression(input: PrescriptionInput) {
-  return hasPainContext(input) || Boolean(input.techniqueBreakdown);
+  const severity = classifyPainSeverity(input);
+  const text = clinicalRiskText(input);
+  const conservativeReturn = /retorno|reabilit|pos[- ]?dor|p[oó]s[- ]?dor/.test(text);
+  return severity !== "leve" || conservativeReturn || Boolean(input.techniqueBreakdown);
 }
 
 export function resolveDurationWeeks(input: PrescriptionInput) {
@@ -24,9 +27,8 @@ export function resolveDurationWeeks(input: PrescriptionInput) {
 export function buildPeriodizationBlocks(input: PrescriptionInput): PeriodizationBlock[] {
   const duration = resolveDurationWeeks(input);
   const level = normalizeText(input.fitnessLevel);
-  const pain = hasPainContext(input);
-  const advancedAllowed = !pain && !level.includes("inic");
   const hold = shouldHoldProgression(input);
+  const advancedAllowed = !hold && !level.includes("inic");
 
   if (duration === 4) {
     return [
@@ -46,7 +48,7 @@ export function progressionProtocol(input: PrescriptionInput) {
   if (input.deload) return `Deload: reduzir volume 40-50%, RIR ${DELOAD_RULES.rir}, sem falha e sem método avançado.`;
   if (shouldHoldProgression(input)) return "Progressao por tolerancia: dor > 3 ou técnica quebrou: hold/regress. Sem método avançado, sem pliometria e sem falha.";
   return hasPainContext(input)
-    ? "Progredir reps antes de carga; regredir amplitude/carga se dor > 3 ou perda técnica. Métodos avançados bloqueados."
+    ? "Progressao por tolerancia: progredir reps antes de carga; regredir amplitude/carga se dor > 3 ou perda técnica. Métodos avançados somente em acessórios estáveis e fora da região dolorosa."
     : "Progredir reps antes de carga; usar métodos avançados apenas no bloco final e em padrões estáveis.";
 }
 

@@ -1,6 +1,7 @@
 import { planAdvancedMethods, type MethodId } from "./advancedMethods.ts";
 import { normalizeText } from "./presets.ts";
-import { hasPainContext, resolveDurationWeeks, shouldHoldProgression } from "./progressionRules.ts";
+import { resolveDurationWeeks, shouldHoldProgression } from "./progressionRules.ts";
+import { deriveRestrictionRules, exerciseConflictsWithRestrictions } from "./restrictionRules.ts";
 import type {
   PrescriptionInput,
   TrainingExercise,
@@ -14,6 +15,7 @@ type PlannedExercise = Omit<TrainingExercise, "method"> & {
   method?: MethodId | null;
   group_id?: string | null;
   method_seconds?: number | null;
+  painful?: boolean;
 };
 
 const METHOD_IDS = new Set<MethodId>([
@@ -43,7 +45,7 @@ function resolveLevel(input: PrescriptionInput): "iniciante" | "intermediario" |
 
 function weekRules(input: PrescriptionInput): WeekRule[] {
   const duration = resolveDurationWeeks(input);
-  const safeOnly = hasPainContext(input) || shouldHoldProgression(input) || Boolean(input.deload) || resolveLevel(input) === "iniciante";
+  const safeOnly = shouldHoldProgression(input) || Boolean(input.deload) || resolveLevel(input) === "iniciante";
   const finalMethod = safeOnly
     ? "Sem método avançado; evoluir somente com execução estável."
     : "Bi-set e técnica de intensidade em acessórios estáveis; nunca em padrão doloroso.";
@@ -99,12 +101,14 @@ export function buildWeeklyPeriodization(
 ): { workouts: TrainingWorkout[]; weeks: WeeklyPeriodizationWeek[] } {
   const rules = weekRules(input);
   const level = resolveLevel(input);
-  const blocked = hasPainContext(input) || shouldHoldProgression(input) || Boolean(input.deload);
+  const blocked = shouldHoldProgression(input) || Boolean(input.deload);
+  const restrictions = deriveRestrictionRules(input);
   const methodSets = new Map<number, Set<string>>(rules.map((rule) => [rule.week, new Set<string>()]));
 
   const nextWorkouts = workouts.map((workout, workoutIndex) => {
     const methodReadyExercises: PlannedExercise[] = workout.exercises.map((exercise) => ({
       ...exercise,
+      painful: exerciseConflictsWithRestrictions(exercise, restrictions),
       method: exercise.method && METHOD_IDS.has(exercise.method as MethodId)
         ? exercise.method as MethodId
         : null,

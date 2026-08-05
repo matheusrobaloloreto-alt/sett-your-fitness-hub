@@ -13,6 +13,36 @@ function asNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function answerSources(payload: EdgePrescriptionPayload) {
+  const anamnese = asRecord(payload.anamnese_context);
+  return [
+    payload as Record<string, unknown>,
+    anamnese,
+    asRecord(anamnese.raw_answers),
+    asRecord(anamnese.answers),
+    asRecord(anamnese.responses),
+    asRecord(payload.raw_answers),
+    asRecord(payload.answers),
+    asRecord(payload.responses),
+  ];
+}
+
+function firstAnswer(payload: EdgePrescriptionPayload, keys: string[]) {
+  for (const source of answerSources(payload)) {
+    for (const key of keys) {
+      const value = source[key];
+      if (value !== undefined && value !== null && value !== "") return value;
+    }
+  }
+  return undefined;
+}
+
 function explicitTrainingLevel(value: unknown): "iniciante" | "intermediario" | "avancado" | null {
   const normalized = asString(value)?.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") ?? "";
   if (normalized.includes("avanc")) return "avancado";
@@ -22,13 +52,23 @@ function explicitTrainingLevel(value: unknown): "iniciante" | "intermediario" | 
 }
 
 function inferTrainingLevel(payload: EdgePrescriptionPayload, warnings: string[]) {
-  const explicit = explicitTrainingLevel(payload.fitness_level);
+  const explicit = explicitTrainingLevel(firstAnswer(payload, [
+    "fitness_level",
+    "strength_level",
+    "training_level",
+    "nivel_treino",
+    "nivel_musculacao",
+  ]));
   if (explicit) return explicit;
 
-  const anamnese = payload.anamnese_context && typeof payload.anamnese_context === "object"
-    ? payload.anamnese_context as Record<string, unknown>
-    : {};
-  const months = asNumber(payload.experience_months ?? anamnese.experience_months);
+  const months = asNumber(firstAnswer(payload, [
+    "experience_months",
+    "strength_experience_months",
+    "muscle_training_months",
+    "training_experience_months",
+    "tempo_treino_meses",
+    "tempo_de_treino_meses",
+  ]));
   if (months != null) {
     const inferred = months >= 24 ? "avancado" : months >= 6 ? "intermediario" : "iniciante";
     warnings.push(`fitness_level inferido como '${inferred}' por ${months} meses de musculacao.`);
@@ -75,10 +115,14 @@ export function buildPrescriptionInputFromEdgePayload(args: {
   const objective = asString(payload.objective);
   if (!objective) warnings.push("objective ausente; default conservador 'hipertrofia'.");
 
-  const experienceMonths = asNumber(
-    payload.experience_months
-      ?? (payload.anamnese_context as Record<string, unknown> | null | undefined)?.experience_months,
-  );
+  const experienceMonths = asNumber(firstAnswer(payload, [
+    "experience_months",
+    "strength_experience_months",
+    "muscle_training_months",
+    "training_experience_months",
+    "tempo_treino_meses",
+    "tempo_de_treino_meses",
+  ]));
   const fitnessLevel = inferTrainingLevel(payload, warnings);
 
   const daysRaw = asNumber(payload.days_per_week);
