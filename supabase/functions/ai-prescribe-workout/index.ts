@@ -5,15 +5,16 @@ import { planAdvancedMethods } from "../_shared/prescription/advancedMethods.ts"
 import { buildPrescriptionInputFromEdgePayload } from "../_shared/prescription/adapters/inputAdapter.ts";
 import { adaptTrainingProgramForAiStrengthPlan } from "../_shared/prescription/adapters/outputAdapter.ts";
 import { generateTrainingProgram } from "../_shared/prescription/engine.ts";
+import { clinicalRiskText, prescriptionRiskText } from "../_shared/prescription/clinicalContext.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const MODEL = Deno.env.get("ANTHROPIC_MODEL") || "claude-sonnet-4-5-20250929";
-// Fallback-first: por padrão NÃO chama a IA — o plano sai do gerador determinístico
-// (buildEmergencyFallbackPlan: completo, só biblioteca, passa o validator pre_save).
-// Para voltar a IA como gerador primário, defina PRESCRIPTION_AI_FIRST=on.
+// O BN Prescription Engine v1 é o gerador principal: determinístico, biblioteca-only
+// e com periodização semanal executável. A IA, quando ligada, apenas enriquece textos;
+// buildEmergencyFallbackPlan fica como último recurso se o engine falhar.
 const AI_FIRST = (Deno.env.get("PRESCRIPTION_AI_FIRST") ?? "off").trim().toLowerCase() === "on";
 
 const corsHeaders = {
@@ -491,16 +492,26 @@ function normalizeText(value: unknown) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+function resolveStrengthLevel(fitnessLevel: unknown, experienceMonths: unknown) {
+  const explicit = normalizeText(fitnessLevel);
+  if (explicit.includes("avanc")) return "avancado";
+  if (explicit.includes("inter")) return "intermediario";
+  if (explicit.includes("inic")) return "iniciante";
+  const months = Number(experienceMonths);
+  if (Number.isFinite(months)) return months >= 24 ? "avancado" : months >= 6 ? "intermediario" : "iniciante";
+  return "iniciante";
+}
+
 function selectMethodologyPreset(
   objective: unknown,
   fitnessLevel: unknown,
   restrictions: unknown,
-  assessmentContext: unknown,
+  anamneseContext: unknown,
   isEnduranceAthlete: unknown,
 ) {
   const objectiveText = normalizeText(objective);
   const levelText = normalizeText(fitnessLevel);
-  const riskText = normalizeText({ restrictions, assessmentContext });
+  const riskText = clinicalRiskText({ restrictions, anamneseContext });
   if (riskText.match(/lesao|lesoes|dor|eva|retorno|pos[- ]?operatorio|cirurgia|radicul|formigamento/)) return "retorno_lesao";
   if (isEnduranceAthlete) return "corrida_musculacao";
   if (objectiveText.includes("forca")) return "forca";
@@ -582,6 +593,7 @@ function validatePrescriptionPlan(args: {
   objective: unknown;
   fitnessLevel: unknown;
   restrictions: unknown;
+  anamneseContext: unknown;
   assessmentContext: unknown;
   durationWeeks: unknown;
   blockNumber: unknown;
@@ -629,10 +641,18 @@ function validatePrescriptionPlan(args: {
     }
   }
 
-  const riskText = normalizeText({ restrictions: args.restrictions, assessmentContext: args.assessmentContext });
+  const clinicalText = clinicalRiskText({
+    restrictions: args.restrictions,
+    anamneseContext: args.anamneseContext,
+  });
+  const riskText = prescriptionRiskText({
+    restrictions: args.restrictions,
+    anamneseContext: args.anamneseContext,
+    assessmentContext: args.assessmentContext,
+  });
   const levelText = normalizeText(args.fitnessLevel);
   const objectiveText = normalizeText(args.objective);
-  const painActive = /(dor|eva\s*[4-9]|eva\s*10|joelho|lombar|ombro|tornozelo|quadril|lesao|lesoes)/.test(riskText);
+  const painActive = /(dor|eva\s*[1-9]|eva\s*10|joelho|lombar|ombro|tornozelo|quadril|lesao|lesoes|retorno|reabilit)/.test(clinicalText);
   const exerciseMap = new Map(args.catalog.exercises.map((exercise) => [exercise.id, exercise]));
 
   if ((levelText.includes("inic") || painActive) && hasAdvancedMethod(args.plan)) {
@@ -1367,6 +1387,7 @@ serve(async (req) => {
       student_id, student_name, company_id,
       objective,          // "hipertrofia" | "forca" | "emagrecimento" | "performance"
       fitness_level,      // "iniciante" | "intermediario" | "avancado"
+      experience_months,  // experiência específica em musculação
       days_per_week,      // dias disponíveis para musculação
       duration_weeks,
       equipment,          // "academia_completa" | "casa_halteres" | "funcional"
@@ -1434,11 +1455,12 @@ serve(async (req) => {
     const aiConfig = await loadCompanyAiConfig(supabase, authorizedCompanyId);
     const exerciseCatalog = await loadExerciseCatalog(supabase, authorizedCompanyId);
     const exerciseCatalogText = formatExerciseCatalog(exerciseCatalog);
+    const effectiveFitnessLevel = resolveStrengthLevel(fitness_level, experience_months);
     const presetKey = selectMethodologyPreset(
       objective,
-      fitness_level,
+      effectiveFitnessLevel,
       restrictions,
-      assessment_context,
+      anamnese_context,
       is_endurance_athlete,
     );
     const selectedPreset = METHODOLOGY_PRESETS[presetKey as keyof typeof METHODOLOGY_PRESETS];
@@ -1447,7 +1469,7 @@ serve(async (req) => {
 DADOS DO ATLETA:
 Nome: ${clean(student_name || "não informado")}
 Objetivo: ${clean(objective)}
-Nível: ${clean(fitness_level)}
+Nível de musculação: ${clean(effectiveFitnessLevel)}
 Dias disponíveis para força: ${days_per_week}
 Duração do ciclo: ${duration_weeks} semanas
 Bloco atual: ${block_number || 1} (pliometria ${block_number >= 2 ? "PERMITIDA" : "PROIBIDA"})
@@ -1521,13 +1543,13 @@ INSTRUÇÕES:
 
     let planJson: any = null;
     let fallbackReason: string | null = null;
-
     try {
       const { input, warnings: adapterWarnings } = buildPrescriptionInputFromEdgePayload({
         payload: {
           student_name,
           objective,
-          fitness_level,
+          fitness_level: effectiveFitnessLevel,
+          experience_months,
           days_per_week,
           duration_weeks,
           equipment,
@@ -1568,7 +1590,7 @@ INSTRUÇÕES:
         selectedPreset,
         studentName: student_name,
         objective,
-        fitnessLevel: fitness_level,
+        fitnessLevel: effectiveFitnessLevel,
         daysPerWeek: days_per_week,
         restrictions,
         assessmentContext: assessment_context,
@@ -1587,8 +1609,9 @@ INSTRUÇÕES:
       libraryValidation,
       catalog: exerciseCatalog,
       objective,
-      fitnessLevel: fitness_level,
+      fitnessLevel: effectiveFitnessLevel,
       restrictions,
+      anamneseContext: anamnese_context,
       assessmentContext: assessment_context,
       durationWeeks: duration_weeks,
       blockNumber: block_number,
@@ -1613,10 +1636,14 @@ INSTRUÇÕES:
         ...(libraryValidation?.invalid?.length ? [`Exercicios fora da biblioteca: ${libraryValidation.invalid.join(", ")}`] : []),
       ],
     };
-    planJson.methodology_preset = {
+    const deterministicPreset = planJson.generated_by === "bn_prescription_engine_v1"
+      && isRecord(planJson.methodology_preset)
+      ? planJson.methodology_preset
+      : null;
+    planJson.methodology_preset = deterministicPreset || {
       key: presetKey,
       label: selectedPreset.label,
-      why_selected: planJson.methodology_preset?.why_selected || "Selecionado pelo objetivo, nivel, restricoes/anamnese, avaliacao funcional e contexto de endurance.",
+      why_selected: "Selecionado pelo objetivo, nivel, restricoes/anamnese e contexto de endurance.",
       rules: selectedPreset,
     };
     planJson.validator = {
@@ -1630,12 +1657,8 @@ INSTRUÇÕES:
         || "Sua prescrição nova já está pronta no app. Dá uma olhada com calma e me chama por aqui se quiser tirar dúvida de execução.",
     };
 
-    // ── B5/B6 — Shadow mode + feature flag (PRESCRIPTION_ENGINE_V1) ─────────────
-    // Default OFF: undefined/off => comportamento 100% atual (este bloco nem roda).
-    // shadow/on: roda o BN Prescription Engine v1 EM PARALELO, só para LOG comparativo;
-    // NUNCA altera planJson nem a resposta {id, plan}. Cutover real do "on" (servir o plano
-    // do engine) é etapa separada e NÃO autorizada nesta ordem. Erros aqui nunca quebram a
-    // prescrição atual (try/catch que só loga). O engine só é importado atrás da flag.
+    // Comparação histórica opcional. O plano servido acima já vem do engine determinístico;
+    // este bloco existe apenas para manter a telemetria antiga enquanto a flag estiver ativa.
     const engineFlag = (Deno.env.get("PRESCRIPTION_ENGINE_V1") ?? "off").trim().toLowerCase();
     if (engineFlag === "shadow" || engineFlag === "on") {
       const shadowStart = Date.now();
@@ -1649,7 +1672,8 @@ INSTRUÇÕES:
         const mode = shadow.resolveEngineFlag(engineFlag) === "on" ? "on" : "shadow";
         const { input } = buildPrescriptionInputFromEdgePayload({
           payload: {
-            student_name, objective, fitness_level, days_per_week, duration_weeks,
+            student_name, objective, fitness_level: effectiveFitnessLevel, experience_months,
+            days_per_week, duration_weeks,
             equipment, restrictions, block_number, is_endurance_athlete,
             assessment_context, anamnese_context, prescription_integration,
             running_days_context, previous_plan_context: effectivePreviousPlan,

@@ -13,6 +13,38 @@ function asNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function explicitTrainingLevel(value: unknown): "iniciante" | "intermediario" | "avancado" | null {
+  const normalized = asString(value)?.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") ?? "";
+  if (normalized.includes("avanc")) return "avancado";
+  if (normalized.includes("inter")) return "intermediario";
+  if (normalized.includes("inic")) return "iniciante";
+  return null;
+}
+
+function inferTrainingLevel(payload: EdgePrescriptionPayload, warnings: string[]) {
+  const explicit = explicitTrainingLevel(payload.fitness_level);
+  if (explicit) return explicit;
+
+  const anamnese = payload.anamnese_context && typeof payload.anamnese_context === "object"
+    ? payload.anamnese_context as Record<string, unknown>
+    : {};
+  const months = asNumber(payload.experience_months ?? anamnese.experience_months);
+  if (months != null) {
+    const inferred = months >= 24 ? "avancado" : months >= 6 ? "intermediario" : "iniciante";
+    warnings.push(`fitness_level inferido como '${inferred}' por ${months} meses de musculacao.`);
+    return inferred;
+  }
+
+  const sequence = asNumber(payload.program_sequence?.sequence_number ?? payload.block_number);
+  if (payload.previous_plan_context && sequence != null && sequence > 1) {
+    warnings.push("fitness_level inferido como 'intermediario' pela continuidade de um plano anterior.");
+    return "intermediario";
+  }
+
+  warnings.push("fitness_level de musculacao ausente; default conservador 'iniciante'.");
+  return "iniciante";
+}
+
 type PainReport = { region?: string; eva?: number | null; severity?: string | null };
 
 function normalizePainReports(payload: EdgePrescriptionPayload): PainReport[] | null {
@@ -43,8 +75,11 @@ export function buildPrescriptionInputFromEdgePayload(args: {
   const objective = asString(payload.objective);
   if (!objective) warnings.push("objective ausente; default conservador 'hipertrofia'.");
 
-  const fitnessLevel = asString(payload.fitness_level);
-  if (!fitnessLevel) warnings.push("fitness_level ausente; default conservador 'iniciante'.");
+  const experienceMonths = asNumber(
+    payload.experience_months
+      ?? (payload.anamnese_context as Record<string, unknown> | null | undefined)?.experience_months,
+  );
+  const fitnessLevel = inferTrainingLevel(payload, warnings);
 
   const daysRaw = asNumber(payload.days_per_week);
   if (daysRaw == null) warnings.push("days_per_week ausente/invalido; default 3.");
@@ -70,7 +105,8 @@ export function buildPrescriptionInputFromEdgePayload(args: {
   const input: PrescriptionInput = {
     studentName: payload.student_name,
     objective: objective ?? "hipertrofia",
-    fitnessLevel: fitnessLevel ?? "iniciante",
+    fitnessLevel,
+    experienceMonths,
     daysPerWeek: daysRaw ?? 3,
     durationWeeks: asNumber(payload.duration_weeks) ?? 6,
     equipment: payload.equipment ?? "academia_completa",

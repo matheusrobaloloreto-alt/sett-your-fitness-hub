@@ -38,6 +38,36 @@ function buildCatalog() {
 }
 
 describe("B2 — input adapter", () => {
+  it("infere nível de musculação pelos meses e ignora nível de atividade diária", () => {
+    const { input, warnings } = buildPrescriptionInputFromEdgePayload({
+      payload: {
+        objective: "hipertrofia",
+        fitness_level: "muito ativo",
+        experience_months: 18,
+        days_per_week: 4,
+      },
+      catalog: buildCatalog(),
+    });
+
+    expect(input.fitnessLevel).toBe("intermediario");
+    expect(input.experienceMonths).toBe(18);
+    expect(warnings.some((warning) => warning.includes("18 meses"))).toBe(true);
+  });
+
+  it("infere intermediário pela continuidade quando não há meses informados", () => {
+    const { input } = buildPrescriptionInputFromEdgePayload({
+      payload: {
+        objective: "hipertrofia",
+        days_per_week: 4,
+        previous_plan_context: { cycle_name: "Ciclo anterior" },
+        program_sequence: { sequence_number: 3 },
+      },
+      catalog: buildCatalog(),
+    });
+
+    expect(input.fitnessLevel).toBe("intermediario");
+  });
+
   it("1) preserva dor estruturada EVA 4 sem depender de texto (e o engine trava progressão)", () => {
     const catalog = buildCatalog();
     const { input } = buildPrescriptionInputFromEdgePayload({

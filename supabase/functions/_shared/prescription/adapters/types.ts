@@ -13,6 +13,7 @@ export interface EdgePrescriptionPayload {
   student_name?: unknown;
   objective?: unknown;
   fitness_level?: unknown;
+  experience_months?: unknown;
   days_per_week?: unknown;
   duration_weeks?: unknown;
   equipment?: unknown;

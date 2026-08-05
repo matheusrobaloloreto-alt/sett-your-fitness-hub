@@ -1,6 +1,7 @@
 import { PAIN_AND_SAFETY_RULES } from "./methodology.ts";
 import { normalizeText } from "./presets.ts";
 import type { PrescriptionInput, RestrictionRule, TrainingProgram, ValidationCorrection } from "./types.ts";
+import { clinicalRiskText, prescriptionRiskText } from "./clinicalContext.ts";
 
 export type Severity = "leve" | "moderada" | "severa";
 
@@ -18,14 +19,7 @@ function asSeverity(value: unknown): Severity {
 }
 
 export function classifyPainSeverity(input: PrescriptionInput, region?: string): Severity {
-  const text = normalizeText({
-    restrictions: input.restrictions,
-    injuries: input.injuries,
-    painReports: input.painReports,
-    anamnese: input.anamneseContext,
-    integration: input.prescriptionIntegration,
-    notes: input.notes,
-  });
+  const text = clinicalRiskText(input);
   const scoped = region ? `${region} ${text}` : text;
   const reportEva = Math.max(0, ...(input.painReports || [])
     .filter((report) => !region || normalizeText(report.region).includes(normalizeText(region)) || text.includes(normalizeText(region)))
@@ -140,15 +134,7 @@ export function getRestrictionRulesForRegion(input: PrescriptionInput, region: "
 }
 
 export function deriveRestrictionRules(input: PrescriptionInput): RestrictionRule[] {
-  const text = normalizeText({
-    restrictions: input.restrictions,
-    injuries: input.injuries,
-    painReports: input.painReports,
-    assessment: input.assessmentContext,
-    anamnese: input.anamneseContext,
-    integration: input.prescriptionIntegration,
-    notes: input.notes,
-  });
+  const text = prescriptionRiskText(input);
   const rules: RestrictionRule[] = [];
 
   if (has(text, /joelho|valgo|patelar|condromalacia/)) {

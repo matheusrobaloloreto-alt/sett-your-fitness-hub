@@ -14,6 +14,7 @@ import type {
   TrainingWorkout,
   ValidationCorrection,
 } from "./types.ts";
+import { prescriptionRiskText } from "./clinicalContext.ts";
 
 type ExerciseSpec = {
   phase: string;
@@ -51,17 +52,7 @@ function normalizeCatalog(catalog: ExerciseCatalogEntry[] = []) {
 }
 
 function riskText(input: PrescriptionInput) {
-  return normalizeText({
-    restrictions: input.restrictions,
-    injuries: input.injuries,
-    painReports: input.painReports,
-    assessmentContext: input.assessmentContext,
-    anamneseContext: input.anamneseContext,
-    prescriptionIntegration: input.prescriptionIntegration,
-    notes: input.notes,
-    painEva: input.painEva,
-    techniqueBreakdown: input.techniqueBreakdown,
-  });
+  return prescriptionRiskText(input);
 }
 
 function distributeDays(count: number) {

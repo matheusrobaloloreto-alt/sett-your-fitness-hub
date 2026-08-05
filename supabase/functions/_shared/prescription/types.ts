@@ -37,6 +37,7 @@ export interface PrescriptionInput {
   studentName?: unknown;
   objective?: PrescriptionObjective;
   fitnessLevel?: FitnessLevel;
+  experienceMonths?: number | string | null;
   daysPerWeek?: number | string | null;
   durationWeeks?: number | string | null;
   equipment?: unknown;

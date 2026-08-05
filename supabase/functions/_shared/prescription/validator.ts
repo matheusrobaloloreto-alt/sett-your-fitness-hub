@@ -11,6 +11,7 @@ import type {
   ValidationCorrection,
   ValidationWarning,
 } from "./types.ts";
+import { clinicalRiskText, prescriptionRiskText } from "./clinicalContext.ts";
 
 function collectExerciseIds(program: TrainingProgram) {
   return program.workouts.flatMap((workout) => workout.exercises.map((exercise) => exercise.exercise_id));
@@ -153,20 +154,11 @@ export function validateTrainingProgram(args: {
     });
   }
 
-  const context = normalizeText({
-    objective: args.input.objective,
-    restrictions: args.input.restrictions,
-    injuries: args.input.injuries,
-    painReports: args.input.painReports,
-    assessmentContext: args.input.assessmentContext,
-    anamneseContext: args.input.anamneseContext,
-    prescriptionIntegration: args.input.prescriptionIntegration,
-    notes: args.input.notes,
-    painEva: args.input.painEva,
-  });
+  const clinicalContext = clinicalRiskText(args.input);
+  const context = `${normalizeText(args.input.objective)} ${prescriptionRiskText(args.input)}`;
   const planText = normalizeText(args.program);
   const exerciseText = exerciseOnlyText(args.program);
-  if (/(dor|lesao|lesões|joelho|lombar|ombro|valgo|butt|retorno)/.test(context)) {
+  if (/(dor|lesao|lesões|joelho|lombar|ombro|retorno|reabilit)/.test(clinicalContext)) {
     add({
       severity: "warning",
       code: "pain_or_injury_requires_conservative_progression",

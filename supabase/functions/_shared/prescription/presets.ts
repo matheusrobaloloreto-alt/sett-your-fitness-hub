@@ -1,5 +1,6 @@
 import type { MethodologyPreset, PrescriptionInput } from "./types.ts";
 import { OBJECTIVE_MODIFIERS, SPLIT_TABLE } from "./methodology.ts";
+import { clinicalRiskText } from "./clinicalContext.ts";
 
 export const METHODOLOGY_PRESETS: Record<string, MethodologyPreset> = {
   hipertrofia_iniciante: {
@@ -100,15 +101,15 @@ export function normalizeText(value: unknown) {
   return raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-export function selectMethodologyPreset(input: Pick<PrescriptionInput, "objective" | "fitnessLevel" | "daysPerWeek" | "restrictions" | "assessmentContext" | "isEnduranceAthlete" | "runningDaysContext">) {
+export function selectMethodologyPreset(input: PrescriptionInput) {
   const objective = normalizeText(input.objective);
   const level = normalizeText(input.fitnessLevel);
-  const risk = normalizeText({ restrictions: input.restrictions, assessment: input.assessmentContext });
+  const risk = clinicalRiskText(input);
   const days = Number(input.daysPerWeek) || 3;
   const hasPain = /(dor|lesao|lesoes|joelho|lombar|ombro|eva\s*[4-9]|valgo|butt)/.test(risk);
 
   if (input.isEnduranceAthlete || input.runningDaysContext || days <= 2 && /corrida|endurance|triathlon/.test(objective)) return METHODOLOGY_PRESETS.corrida_musculacao;
-  if (hasPain) return METHODOLOGY_PRESETS.retorno_lesao;
+  if (hasPain || /retorno|reabilit|pos[- ]?operatorio/.test(objective)) return METHODOLOGY_PRESETS.retorno_lesao;
   if (objective.includes("forca")) return METHODOLOGY_PRESETS.forca;
   if (objective.includes("emagrec")) return METHODOLOGY_PRESETS.emagrecimento;
   if (objective.includes("recomp")) return METHODOLOGY_PRESETS.recomposicao;
@@ -116,9 +117,9 @@ export function selectMethodologyPreset(input: Pick<PrescriptionInput, "objectiv
   return METHODOLOGY_PRESETS.hipertrofia_iniciante;
 }
 
-export function objectiveKey(input: Pick<PrescriptionInput, "objective" | "restrictions" | "assessmentContext">) {
+export function objectiveKey(input: PrescriptionInput) {
   const objective = normalizeText(input.objective);
-  const risk = normalizeText({ restrictions: input.restrictions, assessment: input.assessmentContext });
+  const risk = clinicalRiskText(input);
   if (/(dor|lesao|retorno|reabilit|joelho|lombar|ombro|valgo|butt)/.test(`${objective} ${risk}`)) return "retorno_gradual" as const;
   if (objective.includes("forca")) return "forca_geral" as const;
   if (objective.includes("emagrec")) return "emagrecimento" as const;
@@ -126,7 +127,7 @@ export function objectiveKey(input: Pick<PrescriptionInput, "objective" | "restr
   return "hipertrofia" as const;
 }
 
-export function objectiveModifier(input: Pick<PrescriptionInput, "objective" | "restrictions" | "assessmentContext">) {
+export function objectiveModifier(input: PrescriptionInput) {
   return OBJECTIVE_MODIFIERS[objectiveKey(input)];
 }
 

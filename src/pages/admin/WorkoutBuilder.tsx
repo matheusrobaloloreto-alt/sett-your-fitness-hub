@@ -881,15 +881,17 @@ export default function WorkoutBuilder() {
             <Button variant="outline" size="sm" onClick={() => setShowVolume(!showVolume)}>
               <BarChart3 className="h-4 w-4 mr-2" />Volume
             </Button>
-            {!isTemplate && (
-              <Button variant="outline" size="sm" onClick={saveAsTemplate} disabled={workouts.length === 0}>
-                <Save className="h-4 w-4 mr-2" />Salvar na biblioteca
+            <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+              {!isTemplate && (
+                <Button variant="outline" size="sm" onClick={saveAsTemplate} disabled={workouts.length === 0}>
+                  <Save className="h-4 w-4 mr-2" />Salvar na biblioteca
+                </Button>
+              )}
+              <Button onClick={handleSaveAll} disabled={saving} size="sm">
+                <Save className="h-4 w-4 mr-2" />
+                {saving ? "Salvando..." : isTemplate ? "Salvar na Biblioteca" : "Salvar Tudo"}
               </Button>
-            )}
-            <Button onClick={handleSaveAll} disabled={saving} size="sm">
-              <Save className="h-4 w-4 mr-2" />
-              {saving ? "Salvando..." : isTemplate ? "Salvar na Biblioteca" : "Salvar Tudo"}
-            </Button>
+            </div>
           </div>
         </div>
 

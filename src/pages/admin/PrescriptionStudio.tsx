@@ -552,7 +552,8 @@ export default function PrescriptionStudio() {
             ? Number(a.days_per_week_cardio) || 0 : 0;
           const { data, error: edgeError } = await supabase.functions.invoke("ai-prescribe-workout", { body: {
             student_id: studentId, student_name: student?.name, company_id: companyId,
-            anamnese_id: a.id, objective: a.objective, fitness_level: a.activity_level,
+            anamnese_id: a.id, objective: a.objective,
+            experience_months: a.experience_months,
             days_per_week: Number(a.days_per_week_strength) || 3, duration_weeks: 6,
             equipment: a.equipment, block_number: cycle.cycle_number,
             is_endurance_athlete: a.is_endurance_athlete, restrictions: a.injuries, notes: a.notes,

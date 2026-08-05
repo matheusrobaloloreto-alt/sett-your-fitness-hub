@@ -2,6 +2,7 @@ import { normalizeText } from "./presets.ts";
 import type { MethodologyPreset, PrescriptionInput, TrainingProgram, VolumeReview } from "./types.ts";
 import { LARGE_GROUPS, SMALL_GROUPS, VOLUME_RULES } from "./methodology.ts";
 import { classifyPainSeverity } from "./restrictionRules.ts";
+import { clinicalRiskText } from "./clinicalContext.ts";
 
 export const IMPORTANT_GROUPS = ["quadriceps", "posterior", "gluteos", "costas", "peitoral", "core"];
 
@@ -54,7 +55,7 @@ function enduranceFactorForGroup(group: unknown, input?: PrescriptionInput) {
 }
 
 function objectiveMultiplier(input: PrescriptionInput) {
-  const text = normalizeText({ objective: input.objective, restrictions: input.restrictions, assessment: input.assessmentContext });
+  const text = `${normalizeText(input.objective)} ${clinicalRiskText(input)}`;
   if (/forca/.test(text)) return 0.7;
   if (/saude/.test(text)) return 0.7;
   if (/retorno|lesao|dor|joelho|lombar|ombro|valgo|butt/.test(text)) return 0.5;

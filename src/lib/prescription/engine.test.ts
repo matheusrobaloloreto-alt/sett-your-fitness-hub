@@ -74,6 +74,39 @@ function explanationIds(program: ReturnType<typeof generateTrainingProgram>) {
 }
 
 describe("BN Prescription Engine v1", () => {
+  it("não transforma nomes de campos ou respostas clínicas negativas em dor", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      objective: "hipertrofia",
+      daysPerWeek: 4,
+      anamneseContext: {
+        current_pain: "Não possuo dor",
+        injuries: "Nenhuma lesão",
+        pain_eva: 0,
+        medical_conditions: "Nenhuma",
+      },
+      assessmentContext: {
+        ohs_compensations: [{ key: "dynamic_valgus", presente: true, severidade: "leve" }],
+      },
+    }));
+
+    expect(program.methodology_preset.key).toBe("hipertrofia_intermediario");
+    expect(program.weekly_periodization[2].methods).toContain("Rest-pause");
+    expect(program.weekly_periodization[4].methods).toContain("Bi-set");
+    expect(program.validator.pre_save.blockers).toEqual([]);
+    expect(program.validator.pre_save.corrections.some((item) => item.code === "removed_advanced_methods")).toBe(false);
+  });
+
+  it("ignora pain report regional com EVA zero ao decidir métodos avançados", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      painReports: [{ region: "joelho", eva: 0 }],
+    }));
+
+    expect(program.weekly_periodization[2].methods).toContain("Rest-pause");
+    expect(program.progression_protocol.toLowerCase()).not.toContain("hold/regress");
+  });
+
   it("gera periodização semanal executável com cadência, rest-pause, drop-set e bi-set", () => {
     const program = generateTrainingProgram(baseInput({
       fitnessLevel: "intermediario",
