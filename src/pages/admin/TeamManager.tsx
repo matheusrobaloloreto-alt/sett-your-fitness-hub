@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { Trash2, UserPlus, Shield, KeyRound, Plus, Eye, EyeOff, Pencil, Users, BarChart3, CalendarPlus } from "lucide-react";
+import { Trash2, UserPlus, Shield, KeyRound, Plus, Eye, EyeOff, Pencil, Users, BarChart3, CalendarPlus, ListChecks } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,17 @@ interface TrainerPerformance {
   totalScheduled: number;
   totalManual: number;
   students: { id: string; full_name: string }[];
+  manualSessions: ManualPerformanceSession[];
+}
+
+interface ManualPerformanceSession {
+  id: string;
+  student_id: string;
+  student_name: string;
+  trainer_id: string;
+  completed_at: string;
+  notes: string | null;
+  monthKey: string;
 }
 
 const ALL_ROLES = ["admin", "coordinator", "trainer"] as const;
@@ -123,6 +134,11 @@ export default function TeamManager() {
   const [manualDate, setManualDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [manualNotes, setManualNotes] = useState("");
   const [manualSaving, setManualSaving] = useState(false);
+  const [manualMode, setManualMode] = useState<"create" | "edit">("create");
+  const [manualEditingId, setManualEditingId] = useState<string | null>(null);
+  const [manualListOpen, setManualListOpen] = useState(false);
+  const [manualListTrainer, setManualListTrainer] = useState<TrainerPerformance | null>(null);
+  const [manualDeletingId, setManualDeletingId] = useState<string | null>(null);
 
   // Trainer history dialog
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -382,6 +398,7 @@ export default function TeamManager() {
     const profiles = profilesRes.data || [];
     const students = studentsRes.data || [];
     const history = (historyRes.data || []) as TrainerAssignmentPeriod[];
+    const studentNameById = new Map(students.map((student) => [student.id, student.full_name]));
     const studentIds = students.map((s) => s.id);
     const activeTrainerIds = new Set(trainerIds);
     const currentTrainerByStudent = new Map(students.map((student) => [student.id, student.assigned_trainer_id]));
@@ -399,22 +416,30 @@ export default function TeamManager() {
 
     // 1) Manual/off-app completed sessions (workout_id is null). These are shown apart
     // from agenda cycles so the performance numbers match the Agenda view.
-    let manualSessions: { student_id: string; completed_at: string | null; exercises_summary: unknown }[] = [];
+    let manualSessions: {
+      id: string;
+      student_id: string;
+      completed_at: string | null;
+      notes: string | null;
+      exercises_summary: unknown;
+    }[] = [];
     let scheduledCycles: { cycle_id: string; student_id: string; start_date: string }[] = [];
     let prescribedCycles: { cycle_id: string; student_id: string; start_date: string }[] = [];
 
     if (studentIds.length > 0) {
       const { data: sessRes } = await supabase
         .from("workout_sessions")
-        .select("student_id, completed_at, workout_id, exercises_summary")
+        .select("id, student_id, completed_at, workout_id, notes, exercises_summary")
         .eq("status", "completed")
         .is("workout_id", null)
         .in("student_id", studentIds)
         .gte("completed_at", rangeStart)
         .lte("completed_at", rangeEnd);
       manualSessions = (sessRes || []).map((s) => ({
+        id: s.id,
         student_id: s.student_id,
         completed_at: s.completed_at,
+        notes: s.notes,
         exercises_summary: s.exercises_summary,
       }));
 
@@ -473,6 +498,7 @@ export default function TeamManager() {
       let total = 0;
       let totalScheduled = 0;
       let totalManual = 0;
+      const manualDetails: ManualPerformanceSession[] = [];
 
       // Attribute scheduled cycles using historical trainer at cycle start_date.
       // This is the denominator that should match the Agenda prescription events.
@@ -514,6 +540,15 @@ export default function TeamManager() {
         if (manualByMonth[key] !== undefined) {
           manualByMonth[key]++;
           totalManual++;
+          manualDetails.push({
+            id: sess.id,
+            student_id: sess.student_id,
+            student_name: studentNameById.get(sess.student_id) || "Aluno sem nome",
+            trainer_id: attributedTrainerId,
+            completed_at: sess.completed_at,
+            notes: sess.notes,
+            monthKey: key,
+          });
         }
       }
 
@@ -529,6 +564,7 @@ export default function TeamManager() {
         totalScheduled,
         totalManual,
         students: trainerStudents.map((s) => ({ id: s.id, full_name: s.full_name })),
+        manualSessions: manualDetails.sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()),
       };
     });
 
@@ -541,12 +577,35 @@ export default function TeamManager() {
   }, [effectiveCompanyId, performanceMonths]);
 
   const openManualDialog = (trainer: TrainerPerformance) => {
+    setManualMode("create");
+    setManualEditingId(null);
     setManualTrainer(trainer);
     setManualStudentId("");
     setManualDate(format(new Date(), "yyyy-MM-dd"));
     setManualNotes("");
     setManualOpen(true);
   };
+
+  const openManualList = (trainer: TrainerPerformance) => {
+    setManualListTrainer(trainer);
+    setManualListOpen(true);
+  };
+
+  const openEditManualSession = (trainer: TrainerPerformance, session: ManualPerformanceSession) => {
+    setManualMode("edit");
+    setManualEditingId(session.id);
+    setManualTrainer(trainerPerformance.find((item) => item.user_id === session.trainer_id) || trainer);
+    setManualStudentId(session.student_id);
+    setManualDate(format(new Date(session.completed_at), "yyyy-MM-dd"));
+    setManualNotes(session.notes || "");
+    setManualListOpen(false);
+    setManualOpen(true);
+  };
+
+  const manualStudentOptions = useMemo(() => {
+    if (manualMode === "edit") return allCompanyStudents;
+    return manualTrainer?.students || [];
+  }, [allCompanyStudents, manualMode, manualTrainer?.students]);
 
   const handleSaveManualSession = async () => {
     if (manualSaveInFlight.current || !manualTrainer || !manualStudentId || !manualDate || !effectiveCompanyId) return;
@@ -563,6 +622,7 @@ export default function TeamManager() {
       if (lookupError) throw lookupError;
 
       const duplicate = (sameDayRows || []).some((row) => {
+        if (manualMode === "edit" && row.id === manualEditingId) return false;
         const summary = row.exercises_summary as Record<string, unknown> | null;
         return summary?.source === "team_performance_manual"
           && summary?.trainer_id === manualTrainer.user_id;
@@ -575,19 +635,37 @@ export default function TeamManager() {
         return;
       }
 
-      const { error } = await supabase.from("workout_sessions").insert({
+      if (manualMode === "edit" && manualEditingId) {
+        const { error } = await supabase.from("workout_sessions").update({
+          student_id: manualStudentId,
+          company_id: effectiveCompanyId,
+          workout_id: null,
+          status: "completed",
+          started_at: completedIso,
+          completed_at: completedIso,
+          session_date: manualDate,
+          notes: manualNotes || null,
+          exercises_summary: buildManualSessionSummary(manualTrainer.user_id),
+        }).eq("id", manualEditingId);
+        if (error) throw error;
+
+        toast({ title: "Treino avulso atualizado!" });
+      } else {
+        const { error } = await supabase.from("workout_sessions").insert({
         student_id: manualStudentId,
         company_id: effectiveCompanyId,
         workout_id: null,
         status: "completed",
         started_at: completedIso,
         completed_at: completedIso,
+        session_date: manualDate,
         notes: manualNotes || null,
         exercises_summary: buildManualSessionSummary(manualTrainer.user_id),
       });
-      if (error) throw error;
+        if (error) throw error;
 
-      toast({ title: "Treino avulso registrado!" });
+        toast({ title: "Treino avulso registrado!" });
+      }
       setManualOpen(false);
       loadPerformance();
     } catch (error) {
@@ -599,6 +677,40 @@ export default function TeamManager() {
     } finally {
       manualSaveInFlight.current = false;
       setManualSaving(false);
+    }
+  };
+
+  const handleDeleteManualSession = async (session: ManualPerformanceSession) => {
+    if (!window.confirm(`Apagar o treino avulso de ${session.student_name} em ${format(new Date(session.completed_at), "dd/MM/yyyy")}?`)) {
+      return;
+    }
+    setManualDeletingId(session.id);
+    try {
+      const { error } = await supabase
+        .from("workout_sessions")
+        .delete()
+        .eq("id", session.id)
+        .is("workout_id", null);
+      if (error) throw error;
+      toast({ title: "Treino avulso apagado" });
+      setManualListTrainer((trainer) => trainer ? {
+        ...trainer,
+        manualSessions: trainer.manualSessions.filter((item) => item.id !== session.id),
+        totalManual: Math.max(0, trainer.totalManual - 1),
+        manualByMonth: {
+          ...trainer.manualByMonth,
+          [session.monthKey]: Math.max(0, (trainer.manualByMonth[session.monthKey] || 0) - 1),
+        },
+      } : trainer);
+      loadPerformance();
+    } catch (error) {
+      toast({
+        title: "Erro",
+        description: error instanceof Error ? error.message : "Não foi possível apagar o treino avulso.",
+        variant: "destructive",
+      });
+    } finally {
+      setManualDeletingId(null);
     }
   };
 
@@ -1192,10 +1304,22 @@ export default function TeamManager() {
 	                            </div>
                           ))}
                         </div>
-                        <Button variant="outline" size="sm" className="w-full" onClick={() => openManualDialog(t)} disabled={t.students.length === 0}>
-                          <CalendarPlus className="h-4 w-4 mr-2" />
-                          Registrar treino avulso
-                        </Button>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <Button variant="outline" size="sm" className="w-full" onClick={() => openManualDialog(t)} disabled={t.students.length === 0}>
+                            <CalendarPlus className="h-4 w-4 mr-2" />
+                            Registrar treino avulso
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => openManualList(t)}
+                            disabled={t.manualSessions.length === 0}
+                          >
+                            <ListChecks className="h-4 w-4 mr-2" />
+                            Ver avulsos
+                          </Button>
+                        </div>
                       </CardContent>
                     </Card>
                   ))}
@@ -1207,10 +1331,32 @@ export default function TeamManager() {
           <Dialog open={manualOpen} onOpenChange={setManualOpen}>
             <DialogContent className="bg-card border-border">
               <DialogHeader>
-                <DialogTitle className="text-primary">REGISTRAR TREINO AVULSO</DialogTitle>
+                <DialogTitle className="text-primary">
+                  {manualMode === "edit" ? "EDITAR TREINO AVULSO" : "REGISTRAR TREINO AVULSO"}
+                </DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                {manualTrainer && (
+                {manualMode === "edit" ? (
+                  <div className="space-y-2">
+                    <Label className="font-sans">Treinador creditado</Label>
+                    <Select
+                      value={manualTrainer?.user_id || ""}
+                      onValueChange={(trainerId) => {
+                        const selected = trainerPerformance.find((trainer) => trainer.user_id === trainerId);
+                        if (selected) setManualTrainer(selected);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione o treinador" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {trainerPerformance.map((trainer) => (
+                          <SelectItem key={trainer.user_id} value={trainer.user_id}>{trainer.full_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : manualTrainer && (
                   <p className="text-sm text-muted-foreground font-sans">
                     Treinador: <strong className="text-foreground">{manualTrainer.full_name}</strong>
                   </p>
@@ -1222,7 +1368,7 @@ export default function TeamManager() {
                       <SelectValue placeholder="Selecione o aluno" />
                     </SelectTrigger>
                     <SelectContent>
-                      {manualTrainer?.students.map((s) => (
+                      {manualStudentOptions.map((s) => (
                         <SelectItem key={s.id} value={s.id}>{s.full_name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -1237,8 +1383,71 @@ export default function TeamManager() {
                   <Textarea value={manualNotes} onChange={(e) => setManualNotes(e.target.value)} placeholder="Ex: treino presencial na academia" />
                 </div>
                 <Button onClick={handleSaveManualSession} className="w-full" disabled={manualSaving || !manualStudentId || !manualDate}>
-                  {manualSaving ? "Salvando..." : "Registrar treino"}
+                  {manualSaving ? "Salvando..." : manualMode === "edit" ? "Salvar alterações" : "Registrar treino"}
                 </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={manualListOpen} onOpenChange={setManualListOpen}>
+            <DialogContent className="bg-card border-border max-w-3xl">
+              <DialogHeader>
+                <DialogTitle className="text-primary">TREINOS AVULSOS</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                {manualListTrainer && (
+                  <p className="text-sm text-muted-foreground font-sans">
+                    Treinador creditado: <strong className="text-foreground">{manualListTrainer.full_name}</strong>
+                  </p>
+                )}
+                {!manualListTrainer || manualListTrainer.manualSessions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground font-sans py-6 text-center">
+                    Nenhum treino avulso neste período.
+                  </p>
+                ) : (
+                  <div className="max-h-[460px] overflow-y-auto space-y-2 pr-1">
+                    {manualListTrainer.manualSessions.map((session) => (
+                      <div key={session.id} className="rounded-2xl border border-border bg-background/70 p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0 space-y-1">
+                            <p className="font-sans font-semibold text-foreground">{session.student_name}</p>
+                            <p className="text-sm text-muted-foreground font-sans">
+                              {format(new Date(session.completed_at), "dd/MM/yyyy")} · {format(new Date(session.completed_at), "HH:mm")}
+                            </p>
+                            <p className="text-xs text-muted-foreground font-sans capitalize">
+                              Mês: {format(new Date(session.completed_at), "MMMM/yyyy", { locale: ptBR })}
+                            </p>
+                            {session.notes ? (
+                              <p className="text-sm text-foreground font-sans pt-2">{session.notes}</p>
+                            ) : (
+                              <p className="text-sm text-muted-foreground font-sans pt-2">Sem observação.</p>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openEditManualSession(manualListTrainer, session)}
+                            >
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Editar
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              disabled={manualDeletingId === session.id}
+                              onClick={() => handleDeleteManualSession(session)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              {manualDeletingId === session.id ? "Apagando..." : "Apagar"}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </DialogContent>
           </Dialog>
