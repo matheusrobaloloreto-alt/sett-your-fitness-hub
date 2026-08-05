@@ -170,11 +170,18 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
   // Nome do assistente vem da empresa do aluno (Central de IA). Padrão do app = "Setty".
   const [studentCompanyId, setStudentCompanyId] = useState<string | null>(null);
   useEffect(() => {
-    if (role !== "student") return;
+    if (role !== "student") {
+      setStudentCompanyId(null);
+      return;
+    }
     let active = true;
+    setStudentCompanyId(null);
     supabase.auth.getUser().then(({ data }) => {
       const uid = data.user?.id;
-      if (!uid) return;
+      if (!uid) {
+        if (active) setStudentCompanyId(null);
+        return;
+      }
       (supabase as any)
         .from("students")
         .select("company_id")
@@ -188,7 +195,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
       active = false;
     };
   }, [role]);
-  const { config } = useCompanyAiConfig(studentCompanyId);
+  const { config, loading: configLoading } = useCompanyAiConfig(studentCompanyId);
   const name = config.assistant_name || "Setty";
   const location = useLocation();
   const params = useParams();
@@ -209,11 +216,11 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
     setMessages((cur) => (cur.length === 1 && cur[0].id === WELCOME_ID ? [makeWelcome(name)] : cur));
   }, [name]);
 
-  const shouldShow = role === "student";
+  const shouldShow = role === "student" && Boolean(studentCompanyId) && !configLoading;
   const pageLabel = useMemo(() => getStudentPageLabel(location.pathname), [location.pathname]);
   const missionCacheKey = useMemo(
-    () => `student-bnito-mission:${businessDateYmd()}:${location.pathname}`,
-    [location.pathname],
+    () => `student-bnito-mission:${businessDateYmd()}:${studentCompanyId || "no-company"}:${name.trim().toLowerCase()}:${location.pathname}`,
+    [location.pathname, name, studentCompanyId],
   );
 
   const askBnito = useCallback(async (question: string) => {

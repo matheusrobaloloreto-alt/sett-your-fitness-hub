@@ -5,7 +5,7 @@
 //   - Assets do Vite (JS/CSS com hash no nome) → cache-first: o nome muda a cada build, então o
 //     cache NUNCA serve algo desatualizado; ganhamos velocidade e offline.
 // Bump CACHE a cada mudança estrutural deste arquivo para forçar limpeza dos caches antigos.
-const CACHE = "sett-cache-v3";
+const CACHE = "sett-cache-v4";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
