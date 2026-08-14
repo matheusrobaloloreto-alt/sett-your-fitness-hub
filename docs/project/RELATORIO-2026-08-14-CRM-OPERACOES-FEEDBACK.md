@@ -9,7 +9,9 @@ As correções locais foram implementadas em worktree e branch isoladas (`codex/
 ### WhatsApp e segurança de destinatário
 
 - O backend agora resolve a conversa e o destinatário a partir dos dados persistidos no servidor.
+- Para chats vinculados a aluno, a identidade canônica vem do telefone/WhatsApp do cadastro do aluno, não do `chatId` ou do JID já salvo; qualquer divergência bloqueia o envio antes do provedor.
 - `remoteJid` e `studentId` enviados pelo cliente são tratados somente como confirmação e falham de forma fechada quando divergem do vínculo salvo.
+- Identificadores opacos `@lid` e grupos `@g.us` nunca são comparados como números de telefone. Sem alias verificável persistido, um chat de aluno com esse tipo de identificador é bloqueado para revisão.
 - Conversas novas vinculadas a aluno exigem que o telefone informado corresponda ao telefone/WhatsApp do cadastro.
 - O identificador do destinatário é normalizado no formato aceito pelo provedor sem alterar IDs especiais de grupo/LID.
 - Texto, mídia, exclusão e automação usam o mesmo vínculo de destinatário.
@@ -26,6 +28,7 @@ Commit: `76ae174`.
 - A transição registra ator, motivo, estágio anterior/novo e matrícula paga em `student_funnel_events`.
 - A operação não dispara WhatsApp e não altera as automações existentes.
 - A UI pede justificativa antes de concluir o movimento.
+- O prazo de avaliação usa explicitamente a data de negócio em `America/Sao_Paulo`, sem depender do timezone da sessão SQL.
 
 Commit: `0e18702`.
 
@@ -51,7 +54,7 @@ Para concluir o teste com segurança, após autorização específica para deplo
 
 ## Validação
 
-- `deno test` do módulo de identidade WhatsApp: 7/7.
+- `deno test` de identidade e bloqueio pré-provedor da automação: 13/13.
 - `deno check` das três Edge Functions alteradas: aprovado.
 - Testes Vitest direcionados: 34 aprovações nas duas rodadas, cobrindo destinatário, funil, mensagens, matrícula e acesso da treinadora.
 - `npx tsc --noEmit`: aprovado.

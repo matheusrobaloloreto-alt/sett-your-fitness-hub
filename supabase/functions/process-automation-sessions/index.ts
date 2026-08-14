@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { evolutionTextRecipient } from "../_shared/whatsappIdentity.ts";
+import { evolutionTextRecipient, resolveVerifiedWhatsAppRecipient } from "../_shared/whatsappIdentity.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -115,7 +115,7 @@ async function applyLabel(admin: any, companyId: string, chatId: string, labelNa
   }
 }
 
-async function processSession(admin: any, session: FlowSession, provider: { url: string; key: string }) {
+export async function processSession(admin: any, session: FlowSession, provider: { url: string; key: string }) {
   const chatResult = await admin.from("whatsapp_chats")
     .select("id, company_id, instance_id, remote_jid, student_id")
     .eq("id", session.chat_id).single();
@@ -123,9 +123,28 @@ async function processSession(admin: any, session: FlowSession, provider: { url:
   const chat = chatResult.data;
   if (!chat.remote_jid) throw new Error("Conversa sem número remoto.");
   const expectedStudentId = String(session.context?.student_id || "").trim();
-  if (expectedStudentId && expectedStudentId !== chat.student_id) {
-    throw new Error("A conversa vinculada mudou de aluno; envio automático bloqueado para revisão.");
+  const identityStudentId = expectedStudentId || chat.student_id || "";
+  let student: { id: string; phone: string | null; whatsapp: string | null } | null = null;
+  if (identityStudentId) {
+    const studentResult = await admin.from("students")
+      .select("id, phone, whatsapp")
+      .eq("id", identityStudentId)
+      .eq("company_id", chat.company_id)
+      .maybeSingle();
+    if (studentResult.error) throw studentResult.error;
+    student = studentResult.data;
   }
+  const verifiedRecipient = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: chat.remote_jid,
+    chatRemoteJid: chat.remote_jid,
+    chatStudentId: chat.student_id,
+    requestedStudentId: expectedStudentId,
+    student,
+  });
+  if (!verifiedRecipient.ok) {
+    throw new Error(`Identidade do destinatário não confirmada (${verifiedRecipient.code}); envio automático bloqueado para revisão.`);
+  }
+  const verifiedRemoteJid = verifiedRecipient.remoteJid;
 
   let instanceQuery = admin.from("whatsapp_instances")
     .select("instance_name, status")
@@ -180,7 +199,7 @@ async function processSession(admin: any, session: FlowSession, provider: { url:
           evoUrl: provider.url,
           evoKey: provider.key,
           instanceName: instance.instance_name,
-          remoteJid: chat.remote_jid,
+          remoteJid: verifiedRemoteJid,
           chatId: chat.id,
           companyId: chat.company_id,
           text: message.trim(),
@@ -213,7 +232,7 @@ async function processSession(admin: any, session: FlowSession, provider: { url:
         evoUrl: provider.url,
         evoKey: provider.key,
         instanceName: instance.instance_name,
-        remoteJid: chat.remote_jid,
+        remoteJid: verifiedRemoteJid,
         chatId: chat.id,
         companyId: chat.company_id,
         text: message.trim(),
@@ -259,7 +278,7 @@ async function processSession(admin: any, session: FlowSession, provider: { url:
   return "completed";
 }
 
-Deno.serve(async (request) => {
+export async function handleAutomationRequest(request: Request) {
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
   const expectedSecret = Deno.env.get("AUTOMATION_CRON_SECRET") || "";
   const suppliedSecret = request.headers.get("x-cron-secret") || "";
@@ -311,4 +330,6 @@ Deno.serve(async (request) => {
   }
 
   return json({ claimed: sessions.length, completed, waiting, failed, triggers: triggerResult.data || null });
-});
+}
+
+if (import.meta.main) Deno.serve(handleAutomationRequest);

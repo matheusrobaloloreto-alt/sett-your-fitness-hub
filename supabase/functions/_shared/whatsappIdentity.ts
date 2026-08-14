@@ -1,10 +1,25 @@
 const DIRECT_JID_SUFFIX = "@s.whatsapp.net";
+const LID_JID_SUFFIX = "@lid";
+const GROUP_JID_SUFFIX = "@g.us";
+
+function rawPhoneCandidate(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (raw.includes("@") && !raw.endsWith(DIRECT_JID_SUFFIX)) return null;
+  return raw.endsWith(DIRECT_JID_SUFFIX)
+    ? raw.slice(0, -DIRECT_JID_SUFFIX.length)
+    : raw;
+}
 
 export function normalizeWhatsAppPhoneKey(value: unknown): string | null {
-  let digits = String(value || "").replace(/\D/g, "");
+  const candidate = rawPhoneCandidate(value);
+  if (!candidate) return null;
+  let digits = candidate.replace(/\D/g, "");
   if (!digits) return null;
 
-  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+  if (
+    digits.startsWith("55") && (digits.length === 12 || digits.length === 13)
+  ) {
     digits = digits.slice(2);
   } else if (digits.length > 11) {
     digits = digits.slice(-11);
@@ -43,9 +58,110 @@ export function sameWhatsAppRecipient(left: unknown, right: unknown): boolean {
   if (!leftRaw || !rightRaw) return false;
   if (leftRaw === rightRaw) return true;
 
+  // Provider-only identities are opaque. Their digits are not phone numbers,
+  // so LIDs and group JIDs may only match by exact identity (handled above).
+  if (
+    leftRaw.endsWith(LID_JID_SUFFIX) || rightRaw.endsWith(LID_JID_SUFFIX) ||
+    leftRaw.endsWith(GROUP_JID_SUFFIX) || rightRaw.endsWith(GROUP_JID_SUFFIX)
+  ) return false;
+
   const leftPhone = normalizeWhatsAppPhoneKey(leftRaw);
   const rightPhone = normalizeWhatsAppPhoneKey(rightRaw);
   return Boolean(leftPhone && rightPhone && leftPhone === rightPhone);
+}
+
+export type WhatsAppStudentIdentity = {
+  id: string;
+  phone?: unknown;
+  whatsapp?: unknown;
+};
+
+export type VerifiedWhatsAppRecipient =
+  | { ok: true; remoteJid: string; studentId: string | null }
+  | {
+    ok: false;
+    code:
+      | "whatsapp_student_mismatch"
+      | "whatsapp_student_not_found"
+      | "whatsapp_student_phone_missing"
+      | "whatsapp_student_phone_ambiguous"
+      | "whatsapp_stored_recipient_mismatch"
+      | "whatsapp_recipient_mismatch";
+  };
+
+function canonicalStudentDirectJid(
+  student: WhatsAppStudentIdentity,
+): VerifiedWhatsAppRecipient {
+  const phoneKeys = new Set(
+    [student.whatsapp, student.phone]
+      .map(normalizeWhatsAppPhoneKey)
+      .filter((value): value is string => Boolean(value)),
+  );
+  if (phoneKeys.size === 0) {
+    return { ok: false, code: "whatsapp_student_phone_missing" };
+  }
+  if (phoneKeys.size > 1) {
+    return { ok: false, code: "whatsapp_student_phone_ambiguous" };
+  }
+  return {
+    ok: true,
+    remoteJid: `55${[...phoneKeys][0]}${DIRECT_JID_SUFFIX}`,
+    studentId: student.id,
+  };
+}
+
+/**
+ * Resolves an outbound destination from independently persisted student data.
+ * A chat row is never the canonical identity for a linked student: both the
+ * stored chat JID and the client confirmation must agree with the student's
+ * phone before any provider request is allowed.
+ */
+export function resolveVerifiedWhatsAppRecipient(args: {
+  clientRemoteJid: unknown;
+  chatRemoteJid?: unknown;
+  chatStudentId?: unknown;
+  requestedStudentId?: unknown;
+  student?: WhatsAppStudentIdentity | null;
+}): VerifiedWhatsAppRecipient {
+  const clientRemoteJid = String(args.clientRemoteJid || "").trim();
+  const chatRemoteJid = String(args.chatRemoteJid || "").trim();
+  const chatStudentId = String(args.chatStudentId || "").trim() || null;
+  const requestedStudentId = String(args.requestedStudentId || "").trim() ||
+    null;
+
+  if (
+    chatStudentId && requestedStudentId && chatStudentId !== requestedStudentId
+  ) {
+    return { ok: false, code: "whatsapp_student_mismatch" };
+  }
+
+  const expectedStudentId = requestedStudentId || chatStudentId;
+  if (expectedStudentId) {
+    if (!args.student || args.student.id !== expectedStudentId) {
+      return { ok: false, code: "whatsapp_student_not_found" };
+    }
+    const canonical = canonicalStudentDirectJid(args.student);
+    if (!canonical.ok) return canonical;
+    if (
+      chatRemoteJid &&
+      !sameWhatsAppRecipient(chatRemoteJid, canonical.remoteJid)
+    ) {
+      return { ok: false, code: "whatsapp_stored_recipient_mismatch" };
+    }
+    if (!sameWhatsAppRecipient(clientRemoteJid, canonical.remoteJid)) {
+      return { ok: false, code: "whatsapp_recipient_mismatch" };
+    }
+    return canonical;
+  }
+
+  if (chatRemoteJid && !sameWhatsAppRecipient(clientRemoteJid, chatRemoteJid)) {
+    return { ok: false, code: "whatsapp_recipient_mismatch" };
+  }
+  return {
+    ok: true,
+    remoteJid: chatRemoteJid || clientRemoteJid,
+    studentId: null,
+  };
 }
 
 /**
@@ -55,7 +171,9 @@ export function sameWhatsAppRecipient(left: unknown, right: unknown): boolean {
  */
 export function evolutionTextRecipient(remoteJid: unknown): string {
   const raw = String(remoteJid || "").trim();
-  if (raw.endsWith(DIRECT_JID_SUFFIX)) return raw.slice(0, -DIRECT_JID_SUFFIX.length);
+  if (raw.endsWith(DIRECT_JID_SUFFIX)) {
+    return raw.slice(0, -DIRECT_JID_SUFFIX.length);
+  }
   return raw;
 }
 
@@ -76,7 +194,10 @@ export function providerWhatsAppJidVariants(
   return [...variants];
 }
 
-export function storageObjectPathFromUrl(url: unknown, bucket: string): string | null {
+export function storageObjectPathFromUrl(
+  url: unknown,
+  bucket: string,
+): string | null {
   const raw = String(url || "").trim();
   if (!raw) return null;
   try {
@@ -86,7 +207,9 @@ export function storageObjectPathFromUrl(url: unknown, bucket: string): string |
       `/storage/v1/object/public/${bucket}/`,
       `/storage/v1/object/authenticated/${bucket}/`,
     ];
-    const marker = markers.find((candidate) => parsed.pathname.includes(candidate));
+    const marker = markers.find((candidate) =>
+      parsed.pathname.includes(candidate)
+    );
     if (!marker) return null;
     return decodeURIComponent(parsed.pathname.split(marker)[1] || "") || null;
   } catch {

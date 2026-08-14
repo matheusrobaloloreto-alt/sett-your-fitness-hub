@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   directWhatsAppJidVariants,
   evolutionTextRecipient,
-  sameWhatsAppRecipient,
+  resolveVerifiedWhatsAppRecipient,
   storageObjectPathFromUrl,
 } from "../_shared/whatsappIdentity.ts";
 
@@ -41,6 +41,21 @@ function providerSendError(status: number) {
   return {
     error: "O provedor do WhatsApp não conseguiu enviar a mensagem. Verifique a conexão da instância.",
     code: "whatsapp_provider_failure",
+  };
+}
+
+function verifiedRecipientError(code: string) {
+  const messages: Record<string, string> = {
+    whatsapp_student_mismatch: "A conversa selecionada não pertence ao aluno informado.",
+    whatsapp_student_not_found: "O aluno vinculado à conversa não foi encontrado nesta empresa.",
+    whatsapp_student_phone_missing: "O aluno vinculado não possui um telefone válido para WhatsApp.",
+    whatsapp_student_phone_ambiguous: "O cadastro do aluno possui telefones divergentes. Revise o contato antes de enviar.",
+    whatsapp_stored_recipient_mismatch: "O destinatário salvo nesta conversa diverge do telefone do aluno. Envio bloqueado para revisão.",
+    whatsapp_recipient_mismatch: "A conversa mudou de destinatário antes do envio. Reabra o contato e tente novamente.",
+  };
+  return {
+    error: messages[code] || "Não foi possível confirmar com segurança o destinatário.",
+    code,
   };
 }
 
@@ -216,6 +231,28 @@ Deno.serve(async (req) => {
       if (!chatRow) return json({ error: "Forbidden: chat not in company" }, 403);
       boundChat = chatRow;
     }
+
+    const verifyOutboundRecipient = async (clientRemoteJid: unknown, requestedStudentId?: unknown) => {
+      const expectedStudentId = String(requestedStudentId || boundChat?.student_id || "").trim();
+      let student: { id: string; phone: string | null; whatsapp: string | null } | null = null;
+      if (expectedStudentId) {
+        const { data, error } = await adminClient
+          .from("students")
+          .select("id, phone, whatsapp")
+          .eq("id", expectedStudentId)
+          .eq("company_id", resolvedCompanyId)
+          .maybeSingle();
+        if (error) throw new Error(`Failed to verify WhatsApp student identity: ${error.message}`);
+        student = data;
+      }
+      return resolveVerifiedWhatsAppRecipient({
+        clientRemoteJid,
+        chatRemoteJid: boundChat?.remote_jid,
+        chatStudentId: boundChat?.student_id,
+        requestedStudentId,
+        student,
+      });
+    };
 
     // Read/unread is application state and must not depend on the external
     // WhatsApp provider being online. The service-role update is safe only
@@ -600,38 +637,9 @@ Deno.serve(async (req) => {
       } = body;
       if (!remoteJid || !String(content).trim()) return json({ error: "remoteJid and content required" }, 400);
 
-      if (boundChat && !sameWhatsAppRecipient(remoteJid, boundChat.remote_jid)) {
-        return json({
-          error: "A conversa mudou de destinatário antes do envio. Reabra o contato e tente novamente.",
-          code: "whatsapp_recipient_mismatch",
-        }, 409);
-      }
-      if (boundChat?.student_id && studentId && boundChat.student_id !== studentId) {
-        return json({
-          error: "A conversa selecionada não pertence ao aluno informado.",
-          code: "whatsapp_student_mismatch",
-        }, 409);
-      }
-
-      const effectiveRemoteJid = boundChat?.remote_jid || String(remoteJid).trim();
-      if (!boundChat && studentId) {
-        const { data: student } = await adminClient
-          .from("students")
-          .select("id, phone, whatsapp")
-          .eq("id", studentId)
-          .eq("company_id", resolvedCompanyId)
-          .maybeSingle();
-        if (!student) return json({ error: "Aluno não encontrado nesta empresa." }, 404);
-        const matchesStudent = [student.whatsapp, student.phone]
-          .filter(Boolean)
-          .some((candidate) => sameWhatsAppRecipient(candidate, effectiveRemoteJid));
-        if (!matchesStudent) {
-          return json({
-            error: "O número informado não corresponde ao WhatsApp cadastrado para este aluno.",
-            code: "whatsapp_student_recipient_mismatch",
-          }, 409);
-        }
-      }
+      const verifiedRecipient = await verifyOutboundRecipient(remoteJid, studentId);
+      if (!verifiedRecipient.ok) return json(verifiedRecipientError(verifiedRecipient.code), 409);
+      const effectiveRemoteJid = verifiedRecipient.remoteJid;
 
       const sendBody: Record<string, unknown> = {
         number: evolutionTextRecipient(effectiveRemoteJid),
@@ -810,15 +818,11 @@ Deno.serve(async (req) => {
 
     // ─── SEND MEDIA ───
     if (action === "send-media") {
-      const { remoteJid, mediaUrl, caption, chatId, fileName, mediatype: clientMediaType, mimeType } = body;
+      const { remoteJid, mediaUrl, caption, chatId, studentId, fileName, mediatype: clientMediaType, mimeType } = body;
       if (!remoteJid || !mediaUrl) return json({ error: "remoteJid and mediaUrl required" }, 400);
-      if (boundChat && !sameWhatsAppRecipient(remoteJid, boundChat.remote_jid)) {
-        return json({
-          error: "A conversa mudou de destinatário antes do envio. Reabra o contato e tente novamente.",
-          code: "whatsapp_recipient_mismatch",
-        }, 409);
-      }
-      const effectiveMediaRecipient = evolutionTextRecipient(boundChat?.remote_jid || remoteJid);
+      const verifiedRecipient = await verifyOutboundRecipient(remoteJid, studentId);
+      if (!verifiedRecipient.ok) return json(verifiedRecipientError(verifiedRecipient.code), 409);
+      const effectiveMediaRecipient = evolutionTextRecipient(verifiedRecipient.remoteJid);
 
       // Determine Evolution API mediatype: image, video, audio, document
       let evoMediaType = clientMediaType || "document";
@@ -1235,15 +1239,11 @@ Deno.serve(async (req) => {
 
     // ─── DELETE MESSAGE FOR EVERYONE ───
     if (action === "delete-message") {
-      const { remoteJid, messageId: msgExtId, chatId: deleteChatId } = body;
+      const { remoteJid, messageId: msgExtId, chatId: deleteChatId, studentId } = body;
       if (!remoteJid || !msgExtId) return json({ error: "remoteJid and messageId required" }, 400);
-      if (boundChat && !sameWhatsAppRecipient(remoteJid, boundChat.remote_jid)) {
-        return json({
-          error: "A conversa mudou de destinatário antes da exclusão. Reabra o contato e tente novamente.",
-          code: "whatsapp_recipient_mismatch",
-        }, 409);
-      }
-      const effectiveDeleteJid = boundChat?.remote_jid || remoteJid;
+      const verifiedRecipient = await verifyOutboundRecipient(remoteJid, studentId);
+      if (!verifiedRecipient.ok) return json(verifiedRecipientError(verifiedRecipient.code), 409);
+      const effectiveDeleteJid = verifiedRecipient.remoteJid;
 
       const deleteRes = await fetch(`${evoUrl}/chat/deleteMessageForEveryone/${instanceName}`, {
         method: "DELETE",

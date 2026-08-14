@@ -16,7 +16,9 @@ declare
   v_student public.students%rowtype;
   v_enrollment_id uuid;
   v_actor uuid := auth.uid();
-  v_due_date date := current_date;
+  -- Business deadlines follow the company's São Paulo calendar regardless of
+  -- the database session timezone or the UTC date at execution time.
+  v_due_date date := (clock_timestamp() at time zone 'America/Sao_Paulo')::date;
   v_days_added integer := 0;
   v_reason text := nullif(btrim(coalesce(_reason, '')), '');
 begin
