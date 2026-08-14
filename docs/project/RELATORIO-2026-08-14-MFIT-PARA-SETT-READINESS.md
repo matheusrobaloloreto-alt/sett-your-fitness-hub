@@ -73,7 +73,7 @@ O migrador foi executado duas vezes, sem `--apply`, com data de referência fixa
 | Planos bloqueados | 46 | 46 |
 | Operações candidatas | 0 | 0 |
 
-Removido apenas o timestamp `generated_at`, os dois relatórios geraram o mesmo SHA-256: `b669fe21d52c97b71eaacb58bcef7a068078edc11c63997422f94e3bed2da268`.
+Após o hardening fail-closed de status e a releitura pré-apply, o dry-run foi repetido mais duas vezes. Removido apenas o timestamp `generated_at`, ambos geraram o mesmo SHA-256: `deaa32881fa8d83cf4014d8d3bd64b0d45a831d00e06f8503daabc9c370a98ad`.
 
 ## Garantias já implementadas no migrador
 
