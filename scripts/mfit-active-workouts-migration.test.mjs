@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  EXPECTED_SUPABASE_PROJECT_REF,
   MARKER_PREFIX,
+  assertCanonicalSupabaseTarget,
   matchMfitClientsToSett,
   normalizeMfitClients,
   normalizeMfitPlans,
@@ -21,10 +24,12 @@ const IDS = {
 
 function baseInput() {
   return {
+    companyId: IDS.company,
     settPayload: {
       students: [{
         id: IDS.studentPhone,
         company_id: IDS.company,
+        status: "active",
         full_name: "Pessoa Reservada",
         phone: "+55 (11) 99999-0001",
         email: "sett@example.test",
@@ -59,6 +64,8 @@ function baseInput() {
               reps: "10-12",
               rest_seconds: 60,
               notes: "Controle técnico",
+              video_url: "https://media.example/supino",
+              thumbnail_url: "https://media.example/supino-thumb",
             }],
           }],
         }],
@@ -68,7 +75,26 @@ function baseInput() {
 }
 
 class MemoryDb {
-  constructor({ cycles = [], workouts = [], exercises = [], normalizedAvailable = true } = {}) {
+  constructor({
+    cycles = [],
+    workouts = [],
+    exercises = [
+      {
+        id: "60000000-0000-4000-8000-000000000099",
+        company_id: null,
+        name: "Supino MFIT Exato",
+        is_global: true,
+      },
+      {
+        id: "60000000-0000-4000-8000-000000000098",
+        company_id: null,
+        name: "Remada MFIT Exata",
+        is_global: true,
+      },
+    ],
+    workoutExercises = [],
+    normalizedAvailable = true,
+  } = {}) {
     this.enrollments = [{
       id: IDS.enrollment,
       student_id: IDS.studentPhone,
@@ -79,7 +105,7 @@ class MemoryDb {
     this.cycles = structuredClone(cycles);
     this.workouts = structuredClone(workouts);
     this.exercises = structuredClone(exercises);
-    this.workoutExercises = [];
+    this.workoutExercises = structuredClone(workoutExercises);
     this.normalizedSupport = { available: normalizedAvailable, has_id: normalizedAvailable };
     this.writes = { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 };
   }
@@ -162,9 +188,35 @@ test("CLI remains dry-run unless --apply is explicit", () => {
     "--sett-students", "sett.json",
     "--mfit-clients", "clients.json",
     "--mfit-workouts", "workouts.json",
+    "--company-id", IDS.company,
   ]);
   assert.equal(dryRun.apply, false);
-  assert.equal(parseArgs(["--apply", "--sett-students=a", "--mfit-clients=b", "--mfit-workouts=c"]).apply, true);
+  assert.throws(
+    () => parseArgs(["--apply", "--sett-students=a", "--mfit-clients=b", "--mfit-workouts=c"]),
+    /requires --confirm-project/,
+  );
+  assert.equal(parseArgs([
+    "--apply",
+    `--confirm-project=${EXPECTED_SUPABASE_PROJECT_REF}`,
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+  ]).apply, true);
+});
+
+test("only the canonical SETT Supabase project is accepted", () => {
+  assert.doesNotThrow(() => assertCanonicalSupabaseTarget(
+    `https://${EXPECTED_SUPABASE_PROJECT_REF}.supabase.co`,
+  ));
+  assert.throws(
+    () => assertCanonicalSupabaseTarget("https://noncanonical.supabase.co"),
+    /not the canonical SETT project/,
+  );
+  assert.throws(
+    () => assertCanonicalSupabaseTarget(`http://${EXPECTED_SUPABASE_PROJECT_REF}.supabase.co`),
+    /not the canonical SETT project/,
+  );
 });
 
 test("matching follows phone, then email, then exact unique name", () => {
@@ -176,7 +228,7 @@ test("matching follows phone, then email, then exact unique name", () => {
     { id: "20000000-0000-4000-8000-000000000005", full_name: "Nome Duplicado" },
   ] });
   const clients = normalizeMfitClients({ clients: [
-    { id: "phone", name: "Outro", phone: "+55 11 99999-0001", email: "email@example.test" },
+    { id: "phone", name: "Outro", phone: "+55 11 99999-0001", email: "unmatched@example.test" },
     { id: "email", name: "Outro 2", email: "EMAIL@example.test" },
     { id: "name", name: "Nome Exato Único" },
     { id: "duplicate", name: "Nome Duplicado" },
@@ -189,6 +241,29 @@ test("matching follows phone, then email, then exact unique name", () => {
   assert.equal(matches.get("name").student.id, IDS.studentName);
   assert.equal(matches.get("name").method, "exact_unique_name");
   assert.equal(matches.get("duplicate").reason, "ambiguous_name");
+});
+
+test("contradictory phone and email identifiers are blocked", () => {
+  const students = normalizeSettStudents({ students: [
+    { id: IDS.studentPhone, full_name: "Alvo Telefone", phone: "11999990001" },
+    { id: IDS.studentEmail, full_name: "Alvo Email", email: "email@example.test" },
+  ] });
+  const clients = normalizeMfitClients({ clients: [{
+    id: "conflict",
+    name: "Pessoa Conflitante",
+    phone: "11999990001",
+    email: "email@example.test",
+  }] });
+
+  const match = matchMfitClientsToSett(clients, students).get("conflict");
+  assert.equal(match.student, undefined);
+  assert.equal(match.reason, "conflicting_phone_email");
+});
+
+test("unknown MFIT plan statuses fail closed", () => {
+  const input = baseInput().mfitWorkoutsPayload;
+  input.clients[0].fichas[0].status = "mystery-state";
+  assert.equal(normalizeMfitPlans(input)[0].active, false);
 });
 
 test("MFIT client wrappers and active ficha sessions are normalized", () => {
@@ -206,13 +281,44 @@ test("default dry-run plans inserts but performs zero writes and emits no PII", 
 
   assert.equal(report.mode, "dry-run");
   assert.equal(report.summary.planned, 1);
-  assert.equal(report.summary.exercises_to_create, 1);
+  assert.equal(report.summary.exercise_catalog_coverage_percent, 100);
+  assert.equal(report.summary.exercises_to_create, 0);
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
 
   const serialized = JSON.stringify(report);
   for (const pii of ["Pessoa Reservada", "11999990001", "sett@example.test", "mfit@example.test", IDS.studentPhone]) {
     assert.equal(serialized.includes(pii), false, `report leaked ${pii}`);
   }
+});
+
+test("only active students in the explicit BN tenant are eligible", async () => {
+  const inactiveInput = baseInput();
+  inactiveInput.settPayload.students[0].status = "inactive";
+  const inactiveDb = new MemoryDb();
+  const inactive = await runMigration({ ...inactiveInput, db: inactiveDb, today: "2026-08-10" });
+  assert.equal(inactive.summary.sett_active_students_in_company, 0);
+  assert.equal(inactive.summary.skipped, 1);
+  assert.deepEqual(inactiveDb.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+
+  const otherTenantInput = baseInput();
+  otherTenantInput.settPayload.students[0].company_id = "10000000-0000-4000-8000-000000000999";
+  const otherTenantDb = new MemoryDb();
+  const otherTenant = await runMigration({ ...otherTenantInput, db: otherTenantDb, today: "2026-08-10" });
+  assert.equal(otherTenant.summary.sett_active_students_in_company, 0);
+  assert.equal(otherTenant.summary.skipped, 1);
+  assert.deepEqual(otherTenantDb.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("the database adapter exposes append-only mutations and no update or delete call", async () => {
+  const source = await readFile(new URL("./mfit-active-workouts-migration.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("export function createSupabaseAdapter");
+  const end = source.indexOf("export function validateSchema", start);
+  assert.ok(start >= 0 && end > start, "database adapter source region not found");
+  const adapter = source.slice(start, end);
+  assert.doesNotMatch(adapter, /\.(?:update|delete)\s*\(/);
+  assert.match(adapter, /\.upsert\(/);
+  assert.match(adapter, /ignoreDuplicates:\s*true/);
+  assert.doesNotMatch(adapter, /insertIgnoringIds\("exercise_library"/);
 });
 
 test("an exact company-scoped exercise is reused without creating or changing it", async () => {
@@ -313,13 +419,17 @@ test("equally plausible empty cycles block import instead of guessing", async ()
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
 });
 
-test("new MFIT exercises receive the mandatory review marker", async () => {
+test("a missing exercise blocks the whole batch and never changes the library", async () => {
   const input = baseInput();
-  const db = new MemoryDb();
+  const db = new MemoryDb({ exercises: [] });
   const report = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
 
-  assert.equal(report.summary.imported, 1);
-  assert.match(db.exercises[0].description, /Importado do MFIT; revisar metadados/);
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.summary.exercise_catalog_coverage_percent, 0);
+  assert.equal(report.summary.exercise_catalog_missing, 1);
+  assert.equal(report.results[0].reason, "exercise_not_in_catalog");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+  assert.equal(db.exercises.length, 0);
 });
 
 test("apply is append-only and a second identical run is a no-op", async () => {
@@ -328,11 +438,12 @@ test("apply is append-only and a second identical run is a no-op", async () => {
 
   const first = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
   assert.equal(first.summary.imported, 1);
-  assert.deepEqual(db.writes, { exercises: 1, cycles: 1, workouts: 1, workoutExercises: 1 });
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 1, workouts: 1, workoutExercises: 1 });
   assert.equal(db.exercises[0].name, "Supino MFIT Exato");
-  assert.equal(db.exercises[0].company_id, IDS.company);
-  assert.equal(db.exercises[0].is_global, false);
+  assert.equal(db.exercises[0].is_global, true);
   assert.ok(db.workouts[0].notes.startsWith(MARKER_PREFIX));
+  assert.equal(db.workouts[0].exercises[0].video_url, "https://media.example/supino");
+  assert.equal(db.workouts[0].exercises[0].thumbnail_url, "https://media.example/supino-thumb");
   assert.equal(db.workoutExercises.length, db.workouts[0].exercises.length);
 
   const writesAfterFirst = structuredClone(db.writes);
@@ -341,7 +452,7 @@ test("apply is append-only and a second identical run is a no-op", async () => {
   assert.deepEqual(db.writes, writesAfterFirst);
   assert.equal(db.cycles.length, 1);
   assert.equal(db.workouts.length, 1);
-  assert.equal(db.exercises.length, 1);
+  assert.equal(db.exercises.length, 2);
 });
 
 test("a repeated run repairs only a missing normalized mirror", async () => {
@@ -358,6 +469,116 @@ test("a repeated run repairs only a missing normalized mirror", async () => {
   assert.equal(db.writes.workouts, writesAfterCanonicalInsert.workouts);
   assert.equal(db.writes.workoutExercises, writesAfterCanonicalInsert.workoutExercises + 1);
   assert.equal(db.workoutExercises.length, db.workouts[0].exercises.length);
+});
+
+test("a repeated run fills a partially missing normalized mirror", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises.push({
+    id: "mfit-exercise-2",
+    name: "Remada MFIT Exata",
+    sets: 3,
+    reps: "8-10",
+    rest_seconds: 75,
+  });
+  const db = new MemoryDb();
+  await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  const writesAfterCanonicalInsert = structuredClone(db.writes);
+  db.workoutExercises.pop();
+
+  const repair = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  assert.equal(repair.summary.normalized_repaired, 1);
+  assert.equal(db.writes.workoutExercises, writesAfterCanonicalInsert.workoutExercises + 1);
+  assert.equal(db.workoutExercises.length, 2);
+});
+
+test("a repeated run repairs missing deterministic workouts after a partial failure", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts.push({
+    id: "session-b",
+    name: "Treino B",
+    day_of_week: 3,
+    exercises: [{
+      id: "mfit-exercise-2",
+      name: "Remada MFIT Exata",
+      sets: 3,
+      reps: "8-10",
+      rest_seconds: 75,
+    }],
+  });
+  const db = new MemoryDb();
+  await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  const removedWorkout = db.workouts.find((workout) => workout.name === "Treino B");
+  db.workouts = db.workouts.filter((workout) => workout.id !== removedWorkout.id);
+  db.workoutExercises = db.workoutExercises.filter((row) => row.workout_id !== removedWorkout.id);
+  const writesAfterPartialState = structuredClone(db.writes);
+
+  const repair = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  assert.equal(repair.summary.partial_repaired, 1);
+  assert.equal(db.writes.cycles, writesAfterPartialState.cycles);
+  assert.equal(db.writes.exercises, writesAfterPartialState.exercises);
+  assert.equal(db.writes.workouts, writesAfterPartialState.workouts + 1);
+  assert.equal(db.writes.workoutExercises, writesAfterPartialState.workoutExercises + 1);
+  assert.equal(db.workouts.length, 2);
+  assert.equal(db.workoutExercises.length, 2);
+});
+
+test("normalized-only materialization blocks an overlapping import", async () => {
+  const input = baseInput();
+  const existingCycleId = "40000000-0000-4000-8000-000000000030";
+  const existingWorkoutId = "50000000-0000-4000-8000-000000000030";
+  const db = new MemoryDb({
+    cycles: [{
+      id: existingCycleId,
+      enrollment_id: IDS.enrollment,
+      student_id: IDS.studentPhone,
+      company_id: IDS.company,
+      cycle_number: 1,
+      start_date: "2026-08-01",
+      end_date: "2026-09-15",
+      status: "active",
+    }],
+    workouts: [{
+      id: existingWorkoutId,
+      cycle_id: existingCycleId,
+      company_id: IDS.company,
+      name: "Treino normalizado",
+      notes: "manual SETT workout",
+      exercises: [],
+    }],
+    workoutExercises: [{
+      id: "70000000-0000-4000-8000-000000000030",
+      workout_id: existingWorkoutId,
+      exercise_id: "60000000-0000-4000-8000-000000000030",
+      exercise_name: "Treino existente",
+      exercise_order: 0,
+      sets: 3,
+      reps: "10",
+      rest_seconds: 60,
+      notes: null,
+    }],
+  });
+
+  const report = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.results[0].reason, "overlapping_cycle_with_workouts");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("normalized-equivalent exercise names reuse one existing library row", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises.push({
+    id: "mfit-exercise-alias",
+    name: "SÚPINO   MFIT EXATO",
+    sets: 3,
+    reps: "10-12",
+  });
+  const db = new MemoryDb();
+  const report = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(report.summary.exercises_to_create, 0);
+  assert.equal(report.summary.exercise_catalog_coverage_percent, 100);
+  assert.equal(db.exercises.length, 2);
+  assert.equal(db.workouts[0].exercises[0].exercise_id, db.workouts[0].exercises[1].exercise_id);
 });
 
 test("an overlapping materialized SETT cycle blocks import without mutations", async () => {

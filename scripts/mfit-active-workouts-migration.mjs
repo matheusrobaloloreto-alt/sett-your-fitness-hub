@@ -5,12 +5,13 @@ import { spawnSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createClient } from "@supabase/supabase-js";
 
 export const IMPORT_VERSION = "mfit-active-workouts-v1";
 export const MARKER_PREFIX = "mfit-import:v1:";
+export const EXPECTED_SUPABASE_PROJECT_REF = "zshrcgbyhzxpnlccssyz";
 
 const ACTIVE_ENROLLMENT_STATUSES = ["active", "awaiting_training", "awaiting_renewal"];
+const ACTIVE_STUDENT_STATUSES = new Set(["active", "awaiting_renewal"]);
 const INACTIVE_PLAN_STATUSES = new Set([
   "archived",
   "cancelled",
@@ -24,6 +25,13 @@ const INACTIVE_PLAN_STATUSES = new Set([
   "paused",
   "pending",
   "scheduled",
+]);
+const ACTIVE_PLAN_STATUSES = new Set([
+  "active",
+  "ativo",
+  "current",
+  "published",
+  "vigente",
 ]);
 const COLLECTION_ENVELOPES = ["data", "items", "results", "records", "rows", "hits", "payload"];
 const PLAN_CONTAINER_KEYS = [
@@ -234,6 +242,7 @@ export function normalizeSettStudents(payload) {
       return {
         id,
         company_id: cleanText(firstValue(row, ["company_id", "companyId", "empresa_id", "company.id"])),
+        status: cleanText(firstValue(row, ["status", "state", "situacao", "situação"])).toLocaleLowerCase("pt-BR"),
         input_index,
         ...normalizeContact(row),
       };
@@ -411,13 +420,30 @@ function mfitProtocol(row) {
   const rests = uniqueNonEmptyText(actual.map((item) => normalizeRest(item)));
   const tempos = uniqueNonEmptyText(actual.map((item) => cleanText(firstValue(item, ["cadencia", "tempo", "cadence"]))));
   const notes = uniqueNonEmptyText(actual.map((item) => cleanText(firstValue(item, ["obs", "notes", "observations", "observacoes", "observações"]))));
+  const loads = uniqueNonEmptyText(actual.map((item) => cleanText(
+    firstValue(item, ["load", "weight", "carga", "peso", "intensity", "intensidade"]),
+  )));
+  const series = actual.map((item) => {
+    const itemRepetition = parseMfitRepetition(
+      firstValue(item, ["repeticao", "reps", "repetitions", "rep_range"]),
+    );
+    return {
+      reps: itemRepetition.reps,
+      rest: normalizeRest(item),
+      tempo: cleanText(firstValue(item, ["cadencia", "tempo", "cadence"])),
+      load: cleanText(firstValue(item, ["load", "weight", "carga", "peso", "intensity", "intensidade"])),
+      notes: cleanText(firstValue(item, ["obs", "notes", "observations", "observacoes", "observações"])),
+    };
+  });
 
   return {
     sets: repetition.sets || String(actual.length),
     reps: repetition.reps || numericString(firstValue(first, ["reps", "repetitions", "repeticoes"]), ""),
     rest: rests[0] || normalizeRest(first),
     tempo: tempos[0] || "",
+    load: loads[0] || "",
     notes: notes.join(" | "),
+    series,
   };
 }
 
@@ -465,6 +491,8 @@ function normalizeMfitExercise(raw, index) {
     group_id: cleanText(firstValue(row, ["group_id", "groupId", "superset_id", "supersetId"])) || null,
     method_seconds: Number(firstValue(row, ["method_seconds", "methodSeconds"])) || null,
     tempo: protocol?.tempo || cleanText(firstValue(row, ["tempo", "cadence", "cadencia"])) || null,
+    load: protocol?.load || cleanText(firstValue(row, ["load", "weight", "carga", "peso", "intensity", "intensidade"])) || null,
+    mfit_protocol: protocol?.series?.length ? protocol.series : undefined,
     rir: cleanText(firstValue(row, ["rir", "reps_in_reserve"])) || null,
     set_types: Array.isArray(row.set_types) ? row.set_types.map(cleanText).filter(Boolean) : undefined,
     order: Number(firstValue(row, ["exercise_order", "exerciseOrder", "order", "ordem", "position"])) || index + 1,
@@ -597,8 +625,10 @@ function normalizeMfitSession(raw, index) {
 
 function explicitlyInactive(row) {
   if (row.active === false || row.is_active === false || row.isActive === false) return true;
+  if (row.active === true || row.is_active === true || row.isActive === true) return false;
   const status = cleanText(firstValue(row, ["status", "state", "situacao", "situação"])).toLowerCase();
-  return status ? INACTIVE_PLAN_STATUSES.has(status) : false;
+  if (!status) return false;
+  return INACTIVE_PLAN_STATUSES.has(status) || !ACTIVE_PLAN_STATUSES.has(status);
 }
 
 export function normalizeMfitPlans(payload) {
@@ -646,12 +676,27 @@ function uniqueCandidates(index, values) {
   return [...rows.values()];
 }
 
+function sameCandidate(left, right) {
+  return (left?.id ?? left?.source_id) === (right?.id ?? right?.source_id);
+}
+
+function intersectCandidates(left, right) {
+  return left.filter((candidate) => right.some((other) => sameCandidate(candidate, other)));
+}
+
 function matchContact(source, indexes, sourceNameCount = 1) {
   const phoneCandidates = uniqueCandidates(indexes.phone, source.phones);
+  const emailCandidates = uniqueCandidates(indexes.email, source.emails);
+
+  if (phoneCandidates.length && emailCandidates.length) {
+    const sharedCandidates = intersectCandidates(phoneCandidates, emailCandidates);
+    if (sharedCandidates.length === 1) return { row: sharedCandidates[0], method: "phone_email" };
+    if (sharedCandidates.length > 1) return { reason: "ambiguous_phone_email" };
+    return { reason: "conflicting_phone_email" };
+  }
+
   if (phoneCandidates.length === 1) return { row: phoneCandidates[0], method: "phone" };
   if (phoneCandidates.length > 1) return { reason: "ambiguous_phone" };
-
-  const emailCandidates = uniqueCandidates(indexes.email, source.emails);
   if (emailCandidates.length === 1) return { row: emailCandidates[0], method: "email" };
   if (emailCandidates.length > 1) return { reason: "ambiguous_email" };
 
@@ -811,6 +856,7 @@ function anonymousRef(...parts) {
 function chooseEnrollment(rows) {
   const priority = new Map(ACTIVE_ENROLLMENT_STATUSES.map((status, index) => [status, index]));
   return [...rows]
+    .map((row) => ({ ...row, status: cleanText(row.status).toLocaleLowerCase("pt-BR") }))
     .filter((row) => priority.has(row.status))
     .sort((a, b) => {
       const rank = priority.get(a.status) - priority.get(b.status);
@@ -828,10 +874,15 @@ function exerciseJson(exercise, exerciseId) {
     reps: exercise.reps,
     rest: exercise.rest,
     notes: exercise.notes,
+    video_url: exercise.video_url || null,
+    video_path: null,
+    thumbnail_url: exercise.thumbnail_url || null,
     ...(exercise.method ? { method: exercise.method } : {}),
     ...(exercise.group_id ? { group_id: exercise.group_id } : {}),
     ...(exercise.method_seconds ? { method_seconds: exercise.method_seconds } : {}),
     ...(exercise.tempo ? { tempo: exercise.tempo } : {}),
+    ...(exercise.load ? { load: exercise.load } : {}),
+    ...(exercise.mfit_protocol?.length ? { mfit_protocol: exercise.mfit_protocol } : {}),
     ...(exercise.rir ? { rir: exercise.rir } : {}),
     ...(exercise.set_types?.length ? { set_types: exercise.set_types } : {}),
   };
@@ -967,16 +1018,10 @@ export function createSupabaseAdapter(client, schema) {
       }
       return [...globalRows, ...companyRows];
     },
-    async getExercisesByIds(ids) {
-      return selectByIds("exercise_library", "id,company_id,name,is_global", "id", ids);
-    },
     async getWorkoutExercises(workoutIds) {
       if (!normalizedAvailable) return [];
       const select = `${normalizedHasId ? "id," : ""}${NORMALIZED_SCHEMA.join(",")}`;
       return selectByIds("workout_exercises", select, "workout_id", workoutIds);
-    },
-    insertExercises(rows) {
-      return insertIgnoringIds("exercise_library", rows, "id,company_id,name,is_global");
     },
     insertCycles(rows) {
       return insertIgnoringIds("training_cycles", rows, "id,enrollment_id,cycle_number");
@@ -1047,29 +1092,60 @@ function sameNormalizedRows(existing, expected) {
   return [...existing].map(canonical).sort().join("\n") === [...expected].map(canonical).sort().join("\n");
 }
 
-function normalizedRowsFromMaterializedWorkouts(workouts, hasId) {
-  return workouts.flatMap((workout) => (Array.isArray(workout.exercises) ? workout.exercises : []).map((exercise, index) => ({
-    ...(hasId
-      ? { id: deterministicUuid(IMPORT_VERSION, "workout-exercise", workout.id, index) }
-      : {}),
-    workout_id: workout.id,
-    exercise_id: exercise.exercise_id,
-    exercise_name: cleanText(exercise.exercise_name || exercise.name),
-    exercise_order: index,
-    sets: Number.parseInt(cleanText(exercise.sets), 10) || 0,
-    reps: cleanText(exercise.reps),
-    rest_seconds: restSeconds(exercise.rest),
-    notes: cleanText(exercise.notes) || null,
-  })));
+function normalizedRowIdentity(row, hasId) {
+  return hasId
+    ? cleanText(row.id)
+    : `${cleanText(row.workout_id)}\u0000${Number(row.exercise_order) || 0}`;
+}
+
+function analyzeNormalizedRows(existing, expected, hasId) {
+  const expectedByIdentity = new Map(expected.map((row) => [normalizedRowIdentity(row, hasId), row]));
+  const seen = new Set();
+  for (const row of existing) {
+    const identity = normalizedRowIdentity(row, hasId);
+    const expectedRow = expectedByIdentity.get(identity);
+    if (!identity || seen.has(identity) || !expectedRow || !sameNormalizedRows([row], [expectedRow])) {
+      return { conflict: true, missing: [] };
+    }
+    seen.add(identity);
+  }
+  return {
+    conflict: false,
+    missing: expected.filter((row) => !seen.has(normalizedRowIdentity(row, hasId))),
+  };
+}
+
+function canonicalWorkout(row) {
+  return stableStringify({
+    id: cleanText(row.id),
+    cycle_id: cleanText(row.cycle_id),
+    company_id: cleanText(row.company_id),
+    name: cleanText(row.name),
+    title: cleanText(row.title),
+    description: cleanText(row.description),
+    day_of_week: row.day_of_week === null || row.day_of_week === undefined ? null : Number(row.day_of_week),
+    sort_order: Number(row.sort_order) || 0,
+    exercises: Array.isArray(row.exercises) ? row.exercises : [],
+    notes: cleanText(row.notes),
+  });
+}
+
+function analyzeWorkoutRows(existing, expected) {
+  const expectedById = new Map(expected.map((row) => [row.id, row]));
+  const seen = new Set();
+  for (const row of existing) {
+    const expectedRow = expectedById.get(row.id);
+    if (!expectedRow || seen.has(row.id) || canonicalWorkout(row) !== canonicalWorkout(expectedRow)) {
+      return { conflict: true, missing: [] };
+    }
+    seen.add(row.id);
+  }
+  return { conflict: false, missing: expected.filter((row) => !seen.has(row.id)) };
 }
 
 function operationAlreadyMaterialized(workouts, operation) {
-  if (workouts.length !== operation.workouts.length) return false;
-  const byId = new Map(workouts.map((row) => [row.id, row]));
-  return operation.workouts.every((expected) => {
-    const existing = byId.get(expected.id);
-    return existing && markerMatches(existing.notes, operation.marker) && isMaterialized(existing);
-  });
+  const analysis = analyzeWorkoutRows(workouts, operation.workouts);
+  return !analysis.conflict && analysis.missing.length === 0;
 }
 
 async function applyOperation(db, operation) {
@@ -1079,6 +1155,11 @@ async function applyOperation(db, operation) {
   if (!cycle) {
     const siblingCycles = await db.getCycles([operation.cycle.enrollment_id]);
     const siblingWorkouts = await db.getWorkouts(siblingCycles.map((row) => row.id));
+    const normalizedWorkoutIds = new Set();
+    if (db.normalizedSupport.available && siblingWorkouts.length) {
+      const normalizedRows = await db.getWorkoutExercises(siblingWorkouts.map((row) => row.id));
+      for (const row of normalizedRows) normalizedWorkoutIds.add(row.workout_id);
+    }
     const workoutsByCycle = new Map();
     for (const workout of siblingWorkouts) {
       const rows = workoutsByCycle.get(workout.cycle_id) || [];
@@ -1087,7 +1168,8 @@ async function applyOperation(db, operation) {
     }
     const conflict = siblingCycles.some((row) =>
       rangesOverlap(operation.cycle.start_date, operation.cycle.end_date, row.start_date, row.end_date)
-      && (workoutsByCycle.get(row.id) || []).some(isMaterialized));
+      && (workoutsByCycle.get(row.id) || []).some((workout) =>
+        isMaterialized(workout) || normalizedWorkoutIds.has(workout.id)));
     if (conflict) return { status: "blocked", reason: "concurrent_materialized_cycle" };
 
     await db.insertCycles([operation.cycle]);
@@ -1100,30 +1182,40 @@ async function applyOperation(db, operation) {
   }
 
   let currentWorkouts = await db.getWorkouts([cycle.id]);
-  if (currentWorkouts.length) {
-    if (!operationAlreadyMaterialized(currentWorkouts, operation)) {
-      return { status: "blocked", reason: "cycle_contains_different_workouts" };
-    }
-  } else {
-    await db.insertWorkouts(operation.workouts);
-    currentWorkouts = await db.getWorkoutsByIds(operation.workouts.map((row) => row.id));
-    if (!operationAlreadyMaterialized(currentWorkouts, operation)) {
-      return { status: "partial_retry_required", reason: "workout_insert_incomplete" };
-    }
+  const workoutAnalysis = analyzeWorkoutRows(currentWorkouts, operation.workouts);
+  if (workoutAnalysis.conflict) {
+    return { status: "blocked", reason: "cycle_contains_different_workouts" };
+  }
+
+  if (workoutAnalysis.missing.length) await db.insertWorkouts(workoutAnalysis.missing);
+  currentWorkouts = await db.getWorkouts([cycle.id]);
+  if (!operationAlreadyMaterialized(currentWorkouts, operation)) {
+    return {
+      status: "partial_retry_required",
+      reason: "workout_insert_incomplete",
+    };
   }
 
   if (db.normalizedSupport.available) {
     const existingEntries = await db.getWorkoutExercises(operation.workouts.map((row) => row.id));
-    if (existingEntries.length) {
-      if (!sameNormalizedRows(existingEntries, operation.workout_exercises)) {
-        return { status: "partial_retry_required", reason: "normalized_mirror_conflict" };
-      }
-    } else {
-      await db.insertWorkoutExercises(operation.workout_exercises);
-      const insertedEntries = await db.getWorkoutExercises(operation.workouts.map((row) => row.id));
-      if (!sameNormalizedRows(insertedEntries, operation.workout_exercises)) {
-        return { status: "partial_retry_required", reason: "normalized_mirror_incomplete" };
-      }
+    const normalizedAnalysis = analyzeNormalizedRows(
+      existingEntries,
+      operation.workout_exercises,
+      db.normalizedSupport.has_id,
+    );
+    if (normalizedAnalysis.conflict) {
+      return {
+        status: "blocked",
+        reason: "normalized_mirror_conflict",
+      };
+    }
+    if (normalizedAnalysis.missing.length) await db.insertWorkoutExercises(normalizedAnalysis.missing);
+    const insertedEntries = await db.getWorkoutExercises(operation.workouts.map((row) => row.id));
+    if (!sameNormalizedRows(insertedEntries, operation.workout_exercises)) {
+      return {
+        status: "partial_retry_required",
+        reason: "normalized_mirror_incomplete",
+      };
     }
   }
 
@@ -1135,18 +1227,25 @@ export async function runMigration({
   mfitClientsPayload,
   mfitWorkoutsPayload,
   db,
+  companyId,
   apply = false,
   today = businessToday(),
   defaultDurationWeeks = 6,
 }) {
   const parsedToday = parseYmd(today);
   if (!parsedToday) throw new Error("Invalid --today date; expected YYYY-MM-DD");
+  const expectedCompanyId = cleanText(companyId);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(expectedCompanyId)) {
+    throw new Error("A valid BN company UUID is required for tenant-scoped migration");
+  }
   const durationFallback = Math.max(1, Number(defaultDurationWeeks) || 6);
   const students = normalizeSettStudents(settPayload);
+  const activeStudents = students.filter((student) =>
+    student.company_id === expectedCompanyId && ACTIVE_STUDENT_STATUSES.has(student.status));
   const clients = normalizeMfitClients(mfitClientsPayload);
   const allPlans = normalizeMfitPlans(mfitWorkoutsPayload);
   const plans = allPlans.filter((plan) => plan.active);
-  const clientMatches = matchMfitClientsToSett(clients, students);
+  const clientMatches = matchMfitClientsToSett(clients, activeStudents);
   const clientLookup = buildMfitClientLookup(clients);
   const results = [];
 
@@ -1186,6 +1285,10 @@ export async function runMigration({
       results.push({ ref: candidate.ref, status: "blocked", reason: "incomplete_enrollment_ownership", match_method: candidate.match_method, sessions: candidate.plan.sessions.length });
       continue;
     }
+    if (enrollment.company_id !== expectedCompanyId) {
+      results.push({ ref: candidate.ref, status: "blocked", reason: "enrollment_outside_target_company", match_method: candidate.match_method, sessions: candidate.plan.sessions.length });
+      continue;
+    }
     if (candidate.student.company_id && candidate.student.company_id !== enrollment.company_id) {
       results.push({ ref: candidate.ref, status: "blocked", reason: "student_enrollment_company_mismatch", match_method: candidate.match_method, sessions: candidate.plan.sessions.length });
       continue;
@@ -1196,7 +1299,29 @@ export async function runMigration({
   const enrollmentIds = [...new Set(selected.map((candidate) => candidate.enrollment.id))];
   const cycles = await db.getCycles(enrollmentIds);
   const workouts = await db.getWorkouts(cycles.map((cycle) => cycle.id));
+  const existingNormalizedRows = db.normalizedSupport.available && workouts.length
+    ? await db.getWorkoutExercises(workouts.map((workout) => workout.id))
+    : [];
+  const normalizedWorkoutIds = new Set(existingNormalizedRows.map((row) => row.workout_id));
+  const workoutHasMaterialization = (workout) => isMaterialized(workout) || normalizedWorkoutIds.has(workout.id);
   const catalog = await db.getExercises([...new Set(selected.map((candidate) => candidate.company_id))]);
+  const exerciseResolution = new Map();
+  for (const candidate of selected) {
+    for (const exercise of candidate.plan.sessions.flatMap((session) => session.exercises)) {
+      const normalizedName = normalizeCatalogName(exercise.name);
+      const key = `${candidate.company_id}\u0000${normalizedName}`;
+      if (exerciseResolution.has(key)) continue;
+      const matches = catalogCandidates(catalog, candidate.company_id, exercise.name);
+      exerciseResolution.set(key, matches.length === 1
+        ? { status: "matched", id: matches[0].id }
+        : { status: matches.length > 1 ? "ambiguous" : "missing" });
+    }
+  }
+  const exerciseCoverage = [...exerciseResolution.values()];
+  const catalogMatched = exerciseCoverage.filter((item) => item.status === "matched").length;
+  const catalogMissing = exerciseCoverage.filter((item) => item.status === "missing").length;
+  const catalogAmbiguous = exerciseCoverage.filter((item) => item.status === "ambiguous").length;
+  const catalogCoverageBlocked = catalogMissing > 0 || catalogAmbiguous > 0;
   const cyclesByEnrollment = new Map();
   const cyclesById = new Map(cycles.map((cycle) => [cycle.id, cycle]));
   const workoutsByCycle = new Map();
@@ -1218,12 +1343,23 @@ export async function runMigration({
   }
 
   const reservedRanges = new Map();
-  const newExercises = new Map();
   const operations = [];
   selected.sort((a, b) => `${a.enrollment.id}:${a.plan.source_id}`.localeCompare(`${b.enrollment.id}:${b.plan.source_id}`));
 
   for (const candidate of selected) {
     const { plan, enrollment, company_id: companyId } = candidate;
+    if (catalogCoverageBlocked) {
+      const planResolutions = plan.sessions
+        .flatMap((session) => session.exercises)
+        .map((exercise) => exerciseResolution.get(`${companyId}\u0000${normalizeCatalogName(exercise.name)}`));
+      const reason = planResolutions.some((item) => item?.status === "missing")
+        ? "exercise_not_in_catalog"
+        : planResolutions.some((item) => item?.status === "ambiguous")
+          ? "ambiguous_exact_exercise_name"
+          : "migration_batch_catalog_gate";
+      results.push({ ref: candidate.ref, status: "blocked", reason, match_method: candidate.match_method, sessions: plan.sessions.length });
+      continue;
+    }
     const durationWeeks = Math.max(1, Number(plan.duration_weeks) || durationFallback);
     const startDate = plan.start_date || parsedToday;
     const endDate = plan.end_date && plan.end_date >= startDate
@@ -1246,59 +1382,45 @@ export async function runMigration({
       .flatMap((cycle) => workoutsByCycle.get(cycle.id) || [])
       .filter((workout) => markerMatches(workout.notes, marker));
 
-    if (markerWorkouts.length === plan.sessions.length && markerWorkouts.every(isMaterialized)) {
-      const expectedMirror = normalizedRowsFromMaterializedWorkouts(markerWorkouts, db.normalizedSupport.has_id);
-      if (!db.normalizedSupport.available) {
-        results.push({ ref: candidate.ref, status: "already_imported", reason: null, match_method: candidate.match_method, sessions: plan.sessions.length, exercises: expectedMirror.length, marker: payloadHash.slice(0, 16) });
-        continue;
-      }
-      const existingMirror = await db.getWorkoutExercises(markerWorkouts.map((workout) => workout.id));
-      if (sameNormalizedRows(existingMirror, expectedMirror)) {
-        results.push({ ref: candidate.ref, status: "already_imported", reason: null, match_method: candidate.match_method, sessions: plan.sessions.length, exercises: expectedMirror.length, marker: payloadHash.slice(0, 16) });
-        continue;
-      }
-      if (existingMirror.length > 0) {
-        results.push({ ref: candidate.ref, status: "blocked", reason: "normalized_mirror_conflict", match_method: candidate.match_method, sessions: plan.sessions.length, exercises: expectedMirror.length, marker: payloadHash.slice(0, 16) });
-        continue;
-      }
-      if (apply) {
-        await db.insertWorkoutExercises(expectedMirror);
-        const repairedMirror = await db.getWorkoutExercises(markerWorkouts.map((workout) => workout.id));
-        if (!sameNormalizedRows(repairedMirror, expectedMirror)) {
-          results.push({ ref: candidate.ref, status: "partial_retry_required", reason: "normalized_mirror_incomplete", match_method: candidate.match_method, sessions: plan.sessions.length, exercises: expectedMirror.length, marker: payloadHash.slice(0, 16) });
-          continue;
-        }
-        results.push({ ref: candidate.ref, status: "normalized_repaired", reason: null, match_method: candidate.match_method, sessions: plan.sessions.length, exercises: expectedMirror.length, marker: payloadHash.slice(0, 16) });
-      } else {
-        results.push({ ref: candidate.ref, status: "planned_normalized_repair", reason: null, match_method: candidate.match_method, sessions: plan.sessions.length, exercises: expectedMirror.length, marker: payloadHash.slice(0, 16) });
-      }
+    const markerCycleIds = [...new Set(markerWorkouts.map((workout) => workout.cycle_id))];
+    if (markerCycleIds.length > 1) {
+      results.push({ ref: candidate.ref, status: "blocked", reason: "marker_spans_multiple_cycles", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
       continue;
     }
-    if (markerWorkouts.length) {
-      results.push({ ref: candidate.ref, status: "blocked", reason: "incomplete_existing_marker", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
+    const markerCycle = markerCycleIds.length ? cyclesById.get(markerCycleIds[0]) : null;
+    if (existingCycle && markerCycle && existingCycle.id !== markerCycle.id) {
+      results.push({ ref: candidate.ref, status: "blocked", reason: "marker_cycle_mismatch", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
       continue;
     }
 
     const deterministicWorkouts = existingCycle ? (workoutsByCycle.get(existingCycle.id) || []) : [];
-    if (deterministicWorkouts.some(isMaterialized)) {
+    if (deterministicWorkouts.some((workout) => workoutHasMaterialization(workout) && !markerMatches(workout.notes, marker))) {
       results.push({ ref: candidate.ref, status: "blocked", reason: "deterministic_cycle_has_workouts", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
       continue;
     }
 
-    const reusableCycle = existingCycle
-      ? { cycle: existingCycle, ambiguous: false }
+    const reusableCycle = existingCycle || markerCycle
+      ? { cycle: existingCycle || markerCycle, ambiguous: false }
       : chooseReusableEmptyCycle(enrollmentCycles, workoutsByCycle, startDate, endDate, parsedToday);
     if (reusableCycle.ambiguous) {
       results.push({ ref: candidate.ref, status: "blocked", reason: "ambiguous_empty_cycle_reuse", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
       continue;
     }
-    const targetExistingCycle = existingCycle || reusableCycle.cycle;
+    const targetExistingCycle = existingCycle || markerCycle || reusableCycle.cycle;
+    if (targetExistingCycle && (
+      targetExistingCycle.enrollment_id !== enrollment.id
+      || targetExistingCycle.company_id !== companyId
+      || (targetExistingCycle.student_id && targetExistingCycle.student_id !== candidate.student.id)
+    )) {
+      results.push({ ref: candidate.ref, status: "blocked", reason: "cycle_ownership_mismatch", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
+      continue;
+    }
     const targetCycleId = targetExistingCycle?.id || deterministicCycleId;
 
     const overlapping = enrollmentCycles.some((cycle) =>
       cycle.id !== targetCycleId
       && rangesOverlap(startDate, endDate, cycle.start_date, cycle.end_date)
-      && (workoutsByCycle.get(cycle.id) || []).some(isMaterialized));
+      && (workoutsByCycle.get(cycle.id) || []).some(workoutHasMaterialization));
     if (overlapping) {
       results.push({ ref: candidate.ref, status: "blocked", reason: "overlapping_cycle_with_workouts", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
       continue;
@@ -1310,44 +1432,13 @@ export async function runMigration({
     }
 
     const exerciseIds = new Map();
-    const exerciseRowsForPlan = new Map();
-    let exerciseConflict = false;
     for (const exercise of plan.sessions.flatMap((session) => session.exercises)) {
-      if (exerciseIds.has(exercise.name)) continue;
-      const candidatesByName = catalogCandidates(catalog, companyId, exercise.name);
-      if (candidatesByName.length > 1) {
-        exerciseConflict = true;
-        break;
-      }
-      if (candidatesByName.length === 1) {
-        exerciseIds.set(exercise.name, candidatesByName[0].id);
-        continue;
-      }
-      const key = `${companyId}\u0000${exercise.name}`;
-      const existingDraft = newExercises.get(key) || exerciseRowsForPlan.get(key);
-      const id = existingDraft?.id || deterministicUuid(IMPORT_VERSION, "exercise", companyId, exercise.name);
-      const sourceMarker = sha256(`${companyId}\u0000${exercise.source_id}\u0000${exercise.name}`).slice(0, 16);
-      const description = [exercise.description, "Importado do MFIT; revisar metadados", `Marker: mfit-exercise:v1:${sourceMarker}`]
-        .filter(Boolean)
-        .join("\n");
-      const row = existingDraft || {
-        id,
-        company_id: companyId,
-        name: exercise.name,
-        description,
-        muscle_group: exercise.muscle_group,
-        equipment: exercise.equipment || null,
-        difficulty: exercise.difficulty || "intermediate",
-        video_url: exercise.video_url || null,
-        thumbnail_url: exercise.thumbnail_url || null,
-        is_global: false,
-      };
-      exerciseRowsForPlan.set(key, row);
-      exerciseIds.set(exercise.name, id);
-    }
-    if (exerciseConflict) {
-      results.push({ ref: candidate.ref, status: "blocked", reason: "ambiguous_exact_exercise_name", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
-      continue;
+      const normalizedExerciseName = normalizeCatalogName(exercise.name);
+      if (exerciseIds.has(normalizedExerciseName)) continue;
+      exerciseIds.set(
+        normalizedExerciseName,
+        exerciseResolution.get(`${companyId}\u0000${normalizedExerciseName}`).id,
+      );
     }
 
     const cycleNumber = targetExistingCycle?.cycle_number || nextCycleNumber.get(enrollment.id);
@@ -1382,7 +1473,8 @@ export async function runMigration({
       description: session.description || session.notes || null,
       day_of_week: session.day_of_week,
       sort_order: sessionIndex + 1,
-      exercises: session.exercises.map((exercise) => exerciseJson(exercise, exerciseIds.get(exercise.name))),
+      exercises: session.exercises.map((exercise) =>
+        exerciseJson(exercise, exerciseIds.get(normalizeCatalogName(exercise.name)))),
       notes: [marker, session.notes].filter(Boolean).join("\n"),
     }));
     const normalizedRows = workoutRows.flatMap((workout, workoutIndex) =>
@@ -1391,7 +1483,7 @@ export async function runMigration({
           ? { id: deterministicUuid(IMPORT_VERSION, "workout-exercise", workout.id, exerciseIndex) }
           : {}),
         workout_id: workout.id,
-        exercise_id: exerciseIds.get(exercise.name),
+        exercise_id: exerciseIds.get(normalizeCatalogName(exercise.name)),
         exercise_name: exercise.name,
         exercise_order: exerciseIndex,
         sets: Number.parseInt(exercise.sets, 10) || 0,
@@ -1401,7 +1493,33 @@ export async function runMigration({
       })),
     );
 
-    for (const [key, row] of exerciseRowsForPlan) newExercises.set(key, row);
+    const existingTargetWorkouts = workoutsByCycle.get(targetCycleId) || [];
+    const existingWorkoutAnalysis = analyzeWorkoutRows(existingTargetWorkouts, workoutRows);
+    if (existingWorkoutAnalysis.conflict) {
+      results.push({ ref: candidate.ref, status: "blocked", reason: "cycle_contains_different_workouts", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
+      continue;
+    }
+
+    let repairKind = existingTargetWorkouts.length ? "partial_workouts" : null;
+    if (existingWorkoutAnalysis.missing.length === 0) {
+      if (!db.normalizedSupport.available) {
+        results.push({ ref: candidate.ref, status: "already_imported", reason: null, match_method: candidate.match_method, sessions: plan.sessions.length, exercises: normalizedRows.length, marker: payloadHash.slice(0, 16) });
+        continue;
+      }
+      const workoutIds = new Set(workoutRows.map((workout) => workout.id));
+      const existingMirror = existingNormalizedRows.filter((row) => workoutIds.has(row.workout_id));
+      const mirrorAnalysis = analyzeNormalizedRows(existingMirror, normalizedRows, db.normalizedSupport.has_id);
+      if (mirrorAnalysis.conflict) {
+        results.push({ ref: candidate.ref, status: "blocked", reason: "normalized_mirror_conflict", match_method: candidate.match_method, sessions: plan.sessions.length, exercises: normalizedRows.length, marker: payloadHash.slice(0, 16) });
+        continue;
+      }
+      if (mirrorAnalysis.missing.length === 0) {
+        results.push({ ref: candidate.ref, status: "already_imported", reason: null, match_method: candidate.match_method, sessions: plan.sessions.length, exercises: normalizedRows.length, marker: payloadHash.slice(0, 16) });
+        continue;
+      }
+      repairKind = "normalized_mirror";
+    }
+
     reserved.push({ start: startDate, end: endDate });
     reservedRanges.set(enrollment.id, reserved);
     operations.push({
@@ -1409,32 +1527,22 @@ export async function runMigration({
       match_method: candidate.match_method,
       marker,
       marker_hash: payloadHash.slice(0, 16),
+      repair_kind: repairKind,
       cycle,
       workouts: workoutRows,
       workout_exercises: normalizedRows,
     });
   }
 
-  let createdExercises = 0;
-  if (apply && newExercises.size) {
-    const rows = [...newExercises.values()];
-    await db.insertExercises(rows);
-    const verified = await db.getExercisesByIds(rows.map((row) => row.id));
-    const byId = new Map(verified.map((row) => [row.id, row]));
-    for (const row of rows) {
-      const actual = byId.get(row.id);
-      if (!actual || actual.company_id !== row.company_id || cleanText(actual.name) !== row.name || actual.is_global === true) {
-        throw new Error("Exercise insert verification failed without overwriting existing rows");
-      }
-    }
-    createdExercises = rows.length;
-  }
-
   for (const operation of operations) {
     if (!apply) {
       results.push({
         ref: operation.ref,
-        status: "planned",
+        status: operation.repair_kind === "normalized_mirror"
+          ? "planned_normalized_repair"
+          : operation.repair_kind === "partial_workouts"
+            ? "planned_partial_repair"
+            : "planned",
         reason: null,
         match_method: operation.match_method,
         sessions: operation.workouts.length,
@@ -1446,7 +1554,11 @@ export async function runMigration({
     const outcome = await applyOperation(db, operation);
     results.push({
       ref: operation.ref,
-      status: outcome.status,
+      status: outcome.status === "imported" && operation.repair_kind === "normalized_mirror"
+        ? "normalized_repaired"
+        : outcome.status === "imported" && operation.repair_kind === "partial_workouts"
+          ? "partial_repaired"
+          : outcome.status,
       reason: outcome.reason || null,
       match_method: operation.match_method,
       sessions: operation.workouts.length,
@@ -1470,16 +1582,25 @@ export async function runMigration({
       "only one unambiguous empty overlapping cycle can be reused",
       "same marker and payload hash are a no-op",
       "exercise matching is accent/case tolerant within the visible company/global catalog",
-      "new exercises preserve the exact MFIT name and are flagged for metadata review",
+      "100% deterministic exercise-catalog coverage is required for the whole batch",
+      "exercise-library rows are never created or modified by this migration",
+      "only assigned active prescription plans are imported; completed-session history is out of scope",
     ],
     summary: {
       sett_students_read: students.length,
+      sett_active_students_in_company: activeStudents.length,
       mfit_clients_read: clients.length,
       mfit_plans_read: allPlans.length,
       active_plans_considered: plans.length,
       candidate_operations: operations.length,
-      exercises_to_create: newExercises.size,
-      exercises_created_or_verified: apply ? createdExercises : 0,
+      exercise_catalog_required: exerciseCoverage.length,
+      exercise_catalog_matched: catalogMatched,
+      exercise_catalog_missing: catalogMissing,
+      exercise_catalog_ambiguous: catalogAmbiguous,
+      exercise_catalog_coverage_percent: exerciseCoverage.length
+        ? Number(((catalogMatched / exerciseCoverage.length) * 100).toFixed(2))
+        : 100,
+      exercises_to_create: 0,
       ...statuses,
     },
     results,
@@ -1510,6 +1631,19 @@ export function resolveSupabaseConfig(env, cliEnv = {}) {
   return { url: cleanText(url).replace(/\/$/, ""), serviceRoleKey: cleanText(serviceRoleKey) };
 }
 
+export function assertCanonicalSupabaseTarget(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Supabase target URL is invalid");
+  }
+  const projectRef = parsed.hostname.split(".")[0];
+  if (parsed.protocol !== "https:" || projectRef !== EXPECTED_SUPABASE_PROJECT_REF) {
+    throw new Error("Supabase target is not the canonical SETT project");
+  }
+}
+
 function loadSupabaseConfig(env = process.env) {
   let config = resolveSupabaseConfig(env);
   if (config.url && config.serviceRoleKey) return config;
@@ -1535,7 +1669,9 @@ export function parseArgs(argv) {
     settStudents: "",
     mfitClients: "",
     mfitWorkouts: "",
+    companyId: "",
     report: "",
+    confirmProject: "",
     today: "",
     durationWeeks: 6,
   };
@@ -1543,7 +1679,9 @@ export function parseArgs(argv) {
     ["--sett-students", "settStudents"],
     ["--mfit-clients", "mfitClients"],
     ["--mfit-workouts", "mfitWorkouts"],
+    ["--company-id", "companyId"],
     ["--report", "report"],
+    ["--confirm-project", "confirmProject"],
     ["--today", "today"],
     ["--duration-weeks", "durationWeeks"],
   ]);
@@ -1568,6 +1706,9 @@ export function parseArgs(argv) {
   if (!Number.isFinite(options.durationWeeks) || options.durationWeeks < 1) {
     throw new Error("--duration-weeks must be a positive number");
   }
+  if (options.apply && options.confirmProject !== EXPECTED_SUPABASE_PROJECT_REF) {
+    throw new Error(`--apply requires --confirm-project ${EXPECTED_SUPABASE_PROJECT_REF}`);
+  }
   return options;
 }
 
@@ -1577,10 +1718,13 @@ Usage:
     --sett-students <sett-students.json> \\
     --mfit-clients <mfit-clients.json> \\
     --mfit-workouts <mfit-active-workouts.json> \\
-    [--report <sanitized-report.json>] [--today YYYY-MM-DD] [--duration-weeks 6] [--apply]
+    --company-id <canonical-bn-company-uuid> \\
+    [--report <sanitized-report.json>] [--today YYYY-MM-DD] [--duration-weeks 6]
+    [--apply --confirm-project ${EXPECTED_SUPABASE_PROJECT_REF}]
 
 Safety:
-  Dry-run is the default. Database writes are reachable only with --apply.
+  Dry-run is the default. Database writes require both --apply and the canonical project confirmation.
+  Operational authorization from Matheus via ATENA is still mandatory before using those flags.
   Credentials are read from process environment or supabase status -o env; no .env file is read or written.
 `;
 
@@ -1603,8 +1747,8 @@ export async function main(argv = process.argv.slice(2)) {
     process.stdout.write(USAGE);
     return 0;
   }
-  if (!options.settStudents || !options.mfitClients || !options.mfitWorkouts) {
-    throw new Error("--sett-students, --mfit-clients and --mfit-workouts are required");
+  if (!options.settStudents || !options.mfitClients || !options.mfitWorkouts || !options.companyId) {
+    throw new Error("--sett-students, --mfit-clients, --mfit-workouts and --company-id are required");
   }
 
   const [settPayload, mfitClientsPayload, mfitWorkoutsPayload] = await Promise.all([
@@ -1613,8 +1757,10 @@ export async function main(argv = process.argv.slice(2)) {
     readJson(options.mfitWorkouts, "MFIT workouts input"),
   ]);
   const config = loadSupabaseConfig();
+  assertCanonicalSupabaseTarget(config.url);
   const schema = await fetchOpenApiSchema(config.url, config.serviceRoleKey);
   validateSchema(schema);
+  const { createClient } = await import("@supabase/supabase-js");
   const client = createClient(config.url, config.serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
@@ -1624,6 +1770,7 @@ export async function main(argv = process.argv.slice(2)) {
     mfitClientsPayload,
     mfitWorkoutsPayload,
     db,
+    companyId: options.companyId,
     apply: options.apply,
     today: options.today || businessToday(),
     defaultDurationWeeks: options.durationWeeks,
