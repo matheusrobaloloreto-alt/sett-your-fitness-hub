@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   mergeWorkoutDraftLogs,
   readWorkoutUiDraft,
+  reconcileWorkoutLogResponse,
   resolveWorkoutResumeTarget,
   workoutUiDraftKey,
   writeWorkoutUiDraft,
@@ -54,6 +55,37 @@ describe("workout draft persistence", () => {
       { set1: { completed: false, weight: 20, revision: 2, dirty: true, client_updated_at: "2026-08-14T13:00:00Z" } },
     )).toEqual({
       set1: { completed: true, weight: 30, revision: 3, updated_at: "2026-08-14T12:00:00Z" },
+    });
+  });
+
+  it("rebases an edit made during a conflicting request and keeps it dirty for retry", () => {
+    const sent = {
+      id: "log-1",
+      weight: 20,
+      completed: true,
+      revision: 1,
+      client_updated_at: "2026-08-14T12:00:00Z",
+      dirty: true,
+    };
+    const current = {
+      ...sent,
+      weight: 25,
+      client_updated_at: "2026-08-14T12:00:02Z",
+    };
+    const server = {
+      id: "log-1",
+      weight: 30,
+      completed: true,
+      revision: 3,
+      updated_at: "2026-08-14T12:00:01Z",
+    };
+
+    expect(reconcileWorkoutLogResponse(current, sent, server)).toEqual({
+      ...server,
+      ...current,
+      revision: 3,
+      updated_at: "2026-08-14T12:00:01Z",
+      dirty: true,
     });
   });
 

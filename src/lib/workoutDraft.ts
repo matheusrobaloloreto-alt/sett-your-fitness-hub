@@ -119,3 +119,25 @@ export function mergeWorkoutDraftLogs<T extends VersionedWorkoutLog>(
   }
   return merged;
 }
+
+/**
+ * Rebaseia a edição feita enquanto o autosave estava em voo sobre a revisão
+ * devolvida pelo servidor. Os campos locais continuam pendentes, mas o próximo
+ * CAS parte da nova revisão em vez de repetir a revisão obsoleta.
+ */
+export function reconcileWorkoutLogResponse<T extends VersionedWorkoutLog>(
+  current: T | undefined,
+  sent: VersionedWorkoutLog | undefined,
+  server: T,
+): T {
+  const editedDuringRequest = !!current?.client_updated_at
+    && current.client_updated_at !== sent?.client_updated_at;
+  if (!editedDuringRequest || !current) return { ...server, dirty: false };
+  return {
+    ...server,
+    ...current,
+    revision: server.revision,
+    updated_at: server.updated_at,
+    dirty: true,
+  };
+}

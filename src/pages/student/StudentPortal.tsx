@@ -55,6 +55,7 @@ import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import {
   mergeWorkoutDraftLogs,
   readWorkoutUiDraft,
+  reconcileWorkoutLogResponse,
   resolveWorkoutResumeTarget,
   workoutUiDraftKey,
   writeWorkoutUiDraft,
@@ -552,14 +553,7 @@ export default function StudentPortal() {
             const key = getLogKey(serverRow.workout_id, serverRow.exercise_index, serverRow.set_number);
             const current = next[key];
             const sent = sentByKey.get(key);
-            const wasEditedDuringSave = !!current?.client_updated_at
-              && current.client_updated_at !== sent?.client_updated_at;
-            const isConflict = conflictRows.some((row: WorkoutLog) =>
-              getLogKey(row.workout_id, row.exercise_index, row.set_number) === key
-            );
-            next[key] = wasEditedDuringSave && !isConflict
-              ? { ...current, id: serverRow.id, revision: serverRow.revision, updated_at: serverRow.updated_at, dirty: true }
-              : { ...serverRow, dirty: false };
+            next[key] = reconcileWorkoutLogResponse(current, sent, serverRow);
           }
           return next;
         });
