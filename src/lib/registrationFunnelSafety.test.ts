@@ -42,6 +42,8 @@ describe("registration funnel safety contracts", () => {
     expect(manualTransitionMigration).toContain("and e.payment_status = 'paid'");
     expect(manualTransitionMigration).toContain("'manual_payment_reconciliation'");
     expect(manualTransitionMigration).toContain("'message_sent', false");
+    expect(manualTransitionMigration).toContain("clock_timestamp() at time zone 'America/Sao_Paulo'");
+    expect(manualTransitionMigration).not.toMatch(/v_due_date date := current_date/i);
   });
 
   it("prepares fiscal registration without sending a message", () => {
