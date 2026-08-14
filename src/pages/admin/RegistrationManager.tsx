@@ -650,8 +650,8 @@ export default function RegistrationManager() {
     const cardId = cardIdFor(student);
     setMovingCardId(cardId);
     try {
-      if (targetStage === "active" || targetStage === "active_onboarding") {
-        toast.error("Essa etapa depende de pagamento confirmado e instruções de avaliação. Use o fluxo normal.");
+      if (targetStage === "active") {
+        toast.error("A conclusão do onboarding depende da avaliação e da liberação do treino. Use o fluxo normal.");
         return;
       }
 
@@ -678,6 +678,29 @@ export default function RegistrationManager() {
         }
 
         toast.success(`Movido para ${FUNNEL_STAGE_META[targetStage].label}. Nenhuma mensagem foi enviada.`);
+        setActiveStage("all");
+        await loadPipeline();
+        return;
+      }
+
+      if (targetStage === "active_onboarding") {
+        if (student.stage !== "payment_pending") {
+          toast.error("A reconciliação manual para avaliação parte da etapa Pagamento.");
+          return;
+        }
+        const reason = window.prompt(
+          "Como o pagamento foi conferido? Este motivo ficará registrado na auditoria.",
+          "Pagamento conferido na matrícula pela equipe.",
+        )?.trim();
+        if (!reason) return;
+
+        const { data, error } = await (supabase as any).rpc("move_student_to_assessment_stage", {
+          _student_id: student.id,
+          _reason: reason,
+        });
+        if (error) throw error;
+        if (!data?.audit_recorded) throw new Error("A transição não gerou a auditoria obrigatória.");
+        toast.success("Pagamento reconciliado e aluno movido para Avaliação. Nenhuma mensagem foi enviada.");
         setActiveStage("all");
         await loadPipeline();
         return;
