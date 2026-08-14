@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { useCompanyAiConfig } from "@/lib/companyAiConfig";
 import { useStaffPresence } from "@/hooks/useStaffPresence";
+import { PlatformAdSlot } from "@/components/PlatformAdSlot";
 
 const ContentLoader = () => (
   <div className="flex items-center justify-center py-24">
@@ -29,6 +30,8 @@ export function AppLayout() {
   const noPadding =
     location.pathname.includes("/whatsapp-chat") ||
     location.pathname.includes("/whatsapp-automation");
+  const isProfessional = role === "admin" || role === "coordinator" || role === "trainer";
+  const isDashboard = ["/admin", "/coordinator", "/trainer"].includes(location.pathname);
 
   return (
     <SidebarProvider>
@@ -50,11 +53,17 @@ export function AppLayout() {
               />
             </header>
             <div className={`flex-1 overflow-auto ${noPadding ? "" : "p-6 md:p-8"}`}>
+              {isProfessional && isDashboard && !noPadding && (
+                <PlatformAdSlot audience="professional" placement="dashboard_banner" companyId={effectiveCompanyId} className="mb-6" />
+              )}
               <Suspense fallback={<ContentLoader />}>
                 <RouteTransition>
                   <Outlet />
                 </RouteTransition>
               </Suspense>
+              {isProfessional && !noPadding && (
+                <PlatformAdSlot audience="professional" placement="footer" companyId={effectiveCompanyId} className="mt-8" />
+              )}
             </div>
           </main>
         </div>

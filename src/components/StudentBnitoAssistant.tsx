@@ -38,6 +38,14 @@ type StudentBnitoResponse = {
   raw?: string;
   error?: string;
   details?: string;
+  assistant_identity?: AssistantIdentity;
+};
+
+type AssistantIdentity = {
+  assistant_name: string;
+  consultancy_name?: string | null;
+  company_id?: string | null;
+  context_version?: string | null;
 };
 
 type ProactiveMission = {
@@ -167,8 +175,10 @@ function getUnavailableMessage(message: string, name: string) {
 
 export function StudentBnitoAssistantProvider({ children }: { children: ReactNode }) {
   const { role } = useAuth();
-  // Nome do assistente vem da empresa do aluno (Central de IA). Padrão do app = "Setty".
+  // A edge resolve a empresa a partir do JWT do aluno. A leitura direta abaixo é apenas
+  // um fallback visual para versões antigas da função e nunca é a fonte autoritativa.
   const [studentCompanyId, setStudentCompanyId] = useState<string | null>(null);
+  const [assistantIdentity, setAssistantIdentity] = useState<AssistantIdentity | null>(null);
   useEffect(() => {
     if (role !== "student") {
       setStudentCompanyId(null);
@@ -195,8 +205,8 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
       active = false;
     };
   }, [role]);
-  const { config, loading: configLoading } = useCompanyAiConfig(studentCompanyId);
-  const name = config.assistant_name || "Setty";
+  const { config } = useCompanyAiConfig(studentCompanyId);
+  const name = assistantIdentity?.assistant_name || config.assistant_name || "Assistente";
   const location = useLocation();
   const params = useParams();
   // useParams() devolve um OBJETO NOVO a cada render — usar `params` direto nas deps de
@@ -206,7 +216,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<StudentBnitoMessage[]>(() => [makeWelcome("Setty")]);
+  const [messages, setMessages] = useState<StudentBnitoMessage[]>(() => [makeWelcome("Assistente")]);
   const [mission, setMission] = useState<ProactiveMission | null>(null);
   const [missionLoading, setMissionLoading] = useState(false);
   const [missionDismissed, setMissionDismissed] = useState(false);
@@ -216,12 +226,54 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
     setMessages((cur) => (cur.length === 1 && cur[0].id === WELCOME_ID ? [makeWelcome(name)] : cur));
   }, [name]);
 
-  const shouldShow = role === "student" && Boolean(studentCompanyId) && !configLoading;
+  const shouldShow = role === "student";
   const pageLabel = useMemo(() => getStudentPageLabel(location.pathname), [location.pathname]);
   const missionCacheKey = useMemo(
-    () => `student-bnito-mission:${businessDateYmd()}:${studentCompanyId || "no-company"}:${name.trim().toLowerCase()}:${location.pathname}`,
-    [location.pathname, name, studentCompanyId],
+    () => `student-bnito-mission:${businessDateYmd()}:${assistantIdentity?.company_id || studentCompanyId || "no-company"}:${assistantIdentity?.context_version || "context-pending"}:${name.trim().toLowerCase()}:${location.pathname}`,
+    [assistantIdentity?.company_id, assistantIdentity?.context_version, location.pathname, name, studentCompanyId],
   );
+
+  const consumeIdentity = useCallback((data?: StudentBnitoResponse | null) => {
+    const next = data?.assistant_identity;
+    if (!next?.assistant_name) return;
+    setAssistantIdentity((current) => {
+      if (
+        current?.assistant_name === next.assistant_name
+        && current?.company_id === next.company_id
+        && current?.context_version === next.context_version
+      ) return current;
+      return next;
+    });
+    if (next.company_id) setStudentCompanyId(next.company_id);
+  }, []);
+
+  const refreshIdentity = useCallback(async () => {
+    if (role !== "student") return;
+    const { data, error } = await supabase.functions.invoke<StudentBnitoResponse>("ai-student-bnito", {
+      body: { action: "identity" },
+    });
+    if (!error) consumeIdentity(data);
+  }, [consumeIdentity, role]);
+
+  useEffect(() => {
+    if (role !== "student") {
+      setAssistantIdentity(null);
+      return;
+    }
+
+    void refreshIdentity();
+    const interval = window.setInterval(() => void refreshIdentity(), 60_000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshIdentity();
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshIdentity, role]);
 
   const askBnito = useCallback(async (question: string) => {
     const trimmed = question.trim();
@@ -256,7 +308,10 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
       if (!data) throw new Error("resposta vazia");
       if (data.error) throw new Error(data.details || data.error);
 
-      setMessages((current) => [...current, createMessage("assistant", formatStudentBnitoResponse(data, name))]);
+      consumeIdentity(data);
+
+      const responseName = data.assistant_identity?.assistant_name || name;
+      setMessages((current) => [...current, createMessage("assistant", formatStudentBnitoResponse(data, responseName))]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "erro inesperado";
       setMessages((current) => [...current, createMessage("assistant", getUnavailableMessage(message, name))]);
@@ -264,7 +319,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, location.pathname, messages, pageLabel, paramsKey, name]);
+  }, [consumeIdentity, loading, location.pathname, messages, pageLabel, paramsKey, name]);
 
   useEffect(() => {
     if (!shouldShow) return;
@@ -300,7 +355,8 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
       },
     }).then(({ data, error }) => {
       if (!active || error || !data || data.error) return;
-      const nextMission = toMission(data, fallback, name);
+      consumeIdentity(data);
+      const nextMission = toMission(data, fallback, data.assistant_identity?.assistant_name || name);
       setMission(nextMission);
       sessionStorage.setItem(missionCacheKey, JSON.stringify(nextMission));
     }).finally(() => {
@@ -311,7 +367,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname, missionCacheKey, pageLabel, paramsKey, shouldShow, name]);
+  }, [consumeIdentity, location.pathname, missionCacheKey, pageLabel, paramsKey, shouldShow, name]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

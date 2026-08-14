@@ -383,7 +383,7 @@ export default function PublicRegistration() {
         toast({ title: "Não foi possível enviar", description: data?.error || error?.message || "Tente novamente.", variant: "destructive" });
         return;
       }
-      setDeadlineMessage(data.deadline || "Vamos analisar o seu perfil e, se pudermos realmente te ajudar, você receberá um retorno nosso em até 48 horas.");
+      setDeadlineMessage(data.deadline || "Você vai ouvir da gente ainda hoje.");
       setDone(true);
       return;
     }
@@ -473,16 +473,13 @@ export default function PublicRegistration() {
                 Recebi sua aplicação, {fullName.trim().split(/\s+/)[0]}.
               </p>
               <p className="font-sans text-sm leading-relaxed text-muted-foreground">
-                Recebemos muitos interessados em treinar com a gente e mantemos um número limitado de alunos por vez para garantir esse acompanhamento de perto.
-              </p>
-              <p className="rounded-xl bg-primary/8 px-4 py-3 font-sans font-semibold text-primary">
-                {deadlineMessage}
+                Analisamos cada perfil com atenção antes de responder. Recebemos bastante gente interessada em treinar com a gente e mantemos um número limitado de alunos por vez para garantir esse acompanhamento de perto.
               </p>
               <p className="font-sans text-sm text-muted-foreground">
-                No próximo contato, faremos sua Avaliação de Movimento e escolheremos o plano ideal para alcançarmos o seu objetivo juntos.
+                <span className="font-semibold text-primary">{deadlineMessage}</span>, e vamos usar esse contato para fazer sua Avaliação de Movimento e te ajudar a escolher o plano ideal para o seu objetivo.
               </p>
               <p className="font-sans text-sm font-semibold text-primary">
-                Até daqui a pouco!
+                Já já a gente se fala.
               </p>
             </CardContent>
           </Card>

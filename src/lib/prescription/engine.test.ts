@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { buildWorkoutRows } from "@/lib/publishStrengthPlan";
+import { resolveWorkoutForCycleWeek } from "@/lib/weeklyStrengthPeriodization";
+import { groupWorkoutExercises } from "@/lib/workoutMethods";
 import { generateTrainingProgram } from "./engine";
 import { getVolumeRangeForGroup } from "./volumeRules";
 import type { ExerciseCatalogEntry, PrescriptionInput } from "./types";
@@ -125,14 +128,50 @@ describe("BN Prescription Engine v1", () => {
       "2-0-1-0",
       "2-0-1-0",
     ]);
-    expect(methods[0]).toEqual([]);
-    expect(methods[1]).toEqual([]);
+    const intensityMethod = /rest-pause|drop-set|cluster-set|pir[aâ]mide|up-set/i;
+    expect(methods[0].every((method) => !intensityMethod.test(method))).toBe(true);
+    expect(methods[1].every((method) => !intensityMethod.test(method))).toBe(true);
     expect(methods[2]).toContain("Rest-pause");
     expect(methods[3]).toContain("Drop-set");
     expect(methods[4]).toContain("Bi-set");
     expect(methods[5]).toContain("Drop-set");
     expect(exercises.every((exercise) => exercise.weekly_prescription?.length === 6)).toBe(true);
-    expect(exercises.every((exercise) => exercise.weekly_prescription?.slice(0, 2).every((week) => !week.method))).toBe(true);
+    expect(exercises.every((exercise) => exercise.weekly_prescription?.slice(0, 2)
+      .every((week) => !week.method || !intensityMethod.test(week.method)))).toBe(true);
+  });
+
+  it("preserva e ativa a periodização do motor até o contrato exibido ao aluno", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      objective: "hipertrofia",
+      daysPerWeek: 4,
+    }));
+    const rows = buildWorkoutRows(program, "cycle-1", "company-1");
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.flatMap((row) => row.exercises)
+      .every((exercise) => exercise.weekly_prescription?.length === 6)).toBe(true);
+
+    const week3Rows = rows.map((row) => resolveWorkoutForCycleWeek(
+      row,
+      "2026-07-20",
+      6,
+      new Date("2026-08-05T12:00:00-03:00"),
+    ));
+    expect(week3Rows.some((row) => row?.weekly_context?.methods.includes("restpause"))).toBe(true);
+    expect(week3Rows.flatMap((row) => row?.exercises || [])
+      .some((exercise) => exercise.method === "restpause" && exercise.set_types?.includes("failure"))).toBe(true);
+
+    const week5Rows = rows.map((row) => resolveWorkoutForCycleWeek(
+      row,
+      "2026-07-06",
+      6,
+      new Date("2026-08-05T12:00:00-03:00"),
+    ));
+    const visibleGroups = week5Rows.flatMap((row) => groupWorkoutExercises(row?.exercises || []));
+    expect(visibleGroups.some((group) =>
+      group.grouping && group.items.length >= 2 && ["biset", "triset", "circuito"].includes(group.method || "")
+    )).toBe(true);
   });
 
   it("reserva cluster-set para avançado sem dor na semana final", () => {
@@ -155,10 +194,14 @@ describe("BN Prescription Engine v1", () => {
       restrictions: "dor no joelho EVA 4",
     }));
 
+    const intensityMethod = /rest-pause|drop-set|cluster-set|pir[aâ]mide|up-set/i;
     for (const program of [beginner, pain]) {
-      expect(program.weekly_periodization.every((week) => week.methods.length === 0)).toBe(true);
+      expect(program.weekly_periodization.every((week) => week.methods.every((method) => !intensityMethod.test(method)))).toBe(true);
       expect(program.workouts.flatMap((workout) => workout.exercises)
-        .every((exercise) => exercise.weekly_prescription?.every((week) => !week.method))).toBe(true);
+        .every((exercise) => exercise.weekly_prescription?.every((week) => !week.method || !intensityMethod.test(week.method)))).toBe(true);
+      expect(program.workouts.flatMap((workout) => workout.exercises)
+        .every((exercise) => exercise.weekly_prescription?.every((week) =>
+          !week.set_types?.some((setType) => setType === "failure" || setType === "drop")))).toBe(true);
     }
   });
 
@@ -171,11 +214,15 @@ describe("BN Prescription Engine v1", () => {
     }));
     const exercises = program.workouts.flatMap((workout) => workout.exercises);
     const kneePattern = /agachamento|leg press|afundo|avanço|step up/i;
-    const kneeExercises = exercises.filter((exercise) => kneePattern.test(exercise.exercise_name));
+    const loadedKneePhases = new Set(["controle_motor", "forca_global", "forca_especifica"]);
+    const kneeExercises = exercises.filter((exercise) =>
+      kneePattern.test(exercise.exercise_name) && loadedKneePhases.has(exercise.phase));
+    const intensityMethod = /rest-pause|drop-set|cluster-set|pir[aâ]mide|up-set/i;
 
     expect(program.weekly_periodization.slice(2).some((week) => week.methods.length > 0)).toBe(true);
     expect(exercises.some((exercise) => exercise.weekly_prescription?.some((week) => Boolean(week.method)))).toBe(true);
-    expect(kneeExercises.every((exercise) => exercise.weekly_prescription?.every((week) => !week.method))).toBe(true);
+    expect(kneeExercises.every((exercise) => exercise.weekly_prescription?.every((week) =>
+      !week.method || !intensityMethod.test(week.method)))).toBe(true);
     expect(program.progression_protocol.toLowerCase()).toContain("progressao por tolerancia");
   });
 

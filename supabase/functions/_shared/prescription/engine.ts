@@ -5,6 +5,7 @@ import { buildPeriodizationBlocks, deloadAdjustSets, progressionProtocol, resolv
 import { applyLongitudinalProgression, previousExerciseIds, resolveSequenceNumber } from "./longitudinalRules.ts";
 import { applyRestrictionRules, deriveRestrictionRules } from "./restrictionRules.ts";
 import { validateTrainingProgram } from "./validator.ts";
+import { enforceVolumeCaps } from "./volumeRules.ts";
 import { buildWeeklyPeriodization } from "./weeklyPeriodization.ts";
 import type {
   ExerciseCatalogEntry,
@@ -29,7 +30,51 @@ type ExerciseSpec = {
   preferredMuscleGroup?: string;
   preferredPattern?: string;
   required?: boolean;
+  reportGap?: boolean;
 };
+
+const PHASE_ORDER: Record<string, number> = {
+  mobilidade: 10,
+  autoliberacao: 20,
+  alongamento: 30,
+  fisioterapia: 40,
+  controle_motor: 50,
+  ativacao_core: 60,
+  ativacao_especifica: 70,
+  pliometria: 80,
+  forca_global: 90,
+  forca_especifica: 100,
+};
+
+function isHypertrophyObjective(input: PrescriptionInput) {
+  return /(hipertrof|massa|estetica|recompos)/.test(normalizeText(input.objective));
+}
+
+function isPerformanceObjective(input: PrescriptionInput) {
+  return /(performance|potencia|velocidade|esporte)/.test(normalizeText(input.objective));
+}
+
+function canUsePlyometrics(input: PrescriptionInput) {
+  return isPerformanceObjective(input) &&
+    !normalizeText(input.fitnessLevel).includes("inic") &&
+    !shouldHoldProgression(input) &&
+    !input.deload;
+}
+
+function applyObjectiveProportions(input: PrescriptionInput, specs: ExerciseSpec[]) {
+  const hypertrophy = isHypertrophyObjective(input);
+  const performance = isPerformanceObjective(input);
+  return specs
+    .map((spec) => {
+      if (hypertrophy && spec.phase === "forca_especifica") return { ...spec, sets: Math.max(3, spec.sets) };
+      if (performance && ["controle_motor", "ativacao_core", "ativacao_especifica", "pliometria"].includes(spec.phase)) {
+        return { ...spec, sets: Math.max(2, spec.sets) };
+      }
+      if (performance && spec.phase === "forca_especifica") return { ...spec, sets: Math.min(2, spec.sets) };
+      return spec;
+    })
+    .sort((a, b) => (PHASE_ORDER[a.phase] ?? 999) - (PHASE_ORDER[b.phase] ?? 999));
+}
 
 function clean(value: unknown) {
   return String(value || "").replace(/[^\x20-\x7E\u00C0-\u017F]/g, "");
@@ -83,6 +128,7 @@ function exerciseToTrainingExercise(exercise: ExerciseCatalogEntry, spec: Exerci
     biomechanical_note: spec.note,
     regression: exercise.regressions?.[0] || "Reduzir amplitude/carga e manter dor <= 3.",
     progression: exercise.progressions?.[0] || "Progredir reps antes de carga, mantendo técnica.",
+    set_types: Array.from({ length: Math.max(1, deloadAdjustSets(spec.sets, input)) }, () => "normal" as const),
   };
 }
 
@@ -105,7 +151,9 @@ function selectExercises(input: PrescriptionInput, specs: ExerciseSpec[], usedId
       preferredExerciseIds: previousExerciseIds(input, spec.phase, spec.preferredMuscleGroup),
     });
     if (!exercise) {
-      gaps.push(`${spec.required === false ? "WARNING" : "BLOCKER"}:safe_alternative_unavailable:${spec.phase}:${spec.keywords.join("/")}`);
+      if (spec.reportGap !== false) {
+        gaps.push(`${spec.required === false ? "WARNING" : "BLOCKER"}:safe_alternative_unavailable:${spec.phase}:${spec.keywords.join("/")}`);
+      }
       return;
     }
     usedIds.add(exercise.id);
@@ -120,26 +168,42 @@ function lowerWorkoutSpecs(input: PrescriptionInput): ExerciseSpec[] {
   const knee = /joelho|valgo/.test(text);
   const back = /lombar|butt|retrovers/.test(text);
   const sets = input.isEnduranceAthlete || input.runningDaysContext ? 2 : 3;
-  return [
+  const specs: ExerciseSpec[] = [
     { phase: "mobilidade", keywords: ["mobilidade tornozelo quadril", "tornozelo", "quadril", "alongamento"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: input.deload ? "4-5" : "4", cue: "Amplitude sem dor e respiração calma.", note: knee ? "Preparar tornozelo/quadril para reduzir estresse no joelho." : "Preparar amplitude antes da força." },
+    { phase: "autoliberacao", keywords: ["auto liberacao", "liberacao miofascial", "rolo", "foam roller"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "30-45s", rest: 15, rir: "4-5", cue: "Pressão tolerável, sem insistir em dor aguda.", note: "Preparação opcional em circuito, sem gerar fadiga." },
     { phase: "ativacao_core", keywords: back ? ["pallof", "bird dog", "dead bug", "core"] : ["prancha", "dead bug", "core", "pallof"], preferredMuscleGroup: "core", preferredPattern: "core", sets: 2, reps: "20-30s", rest: 45, rir: input.deload ? "4-5" : "3-4", cue: "Trave costelas e pelve, sem prender o ar.", note: back ? "Core anti-extensão/anti-rotação para proteger lombar." : "Aumenta estabilidade lombo-pélvica antes da carga." },
     { phase: "ativacao_especifica", keywords: ["gluteo medio", "gluteo", "abducao", "mini band"], preferredMuscleGroup: "gluteos", preferredPattern: "isolado_acessorio", sets: 2, reps: "12-15", rest: 45, rir: input.deload ? "4-5" : "3", cue: "Joelho alinhado ao pé, sem colapsar.", note: knee ? "Prioriza controle de valgo dinâmico." : "Ativa quadril para padrões de agachar." },
     { phase: "controle_motor", keywords: knee ? ["leg press", "agachamento caixa", "caixa", "rom parcial"] : ["agachamento", "goblet", "squat", "caixa"], preferredMuscleGroup: "quadriceps", preferredPattern: "joelho_dominante", sets: knee ? 1 : 2, reps: "8-10", rest: 60, rir: input.deload ? "4-5" : "3-4", cue: "Desça até onde mantém pelve e joelho alinhados.", note: back ? "Limitar amplitude para manter coluna neutra." : "Reforça padrão técnico antes de carga." },
     { phase: "forca_global", keywords: back ? ["leg press", "hack", "maquina", "agachamento"] : knee ? ["leg press", "agachamento caixa", "caixa", "rom parcial"] : ["agachamento", "leg press", "goblet", "squat"], preferredMuscleGroup: "quadriceps", preferredPattern: "joelho_dominante", sets: knee ? Math.max(1, sets - 1) : sets, reps: "8-10", rest: 90, rir: input.deload ? "4-5" : "2-3", cue: "Empurre o chão sem perder alinhamento.", note: "Força global com margem de segurança." },
     { phase: "forca_especifica", keywords: ["posterior", "mesa flexora", "isquiotibiais", "gluteo"], preferredMuscleGroup: "posterior", preferredPattern: "quadril_dominante", required: false, sets: 2, reps: "10-12", rest: 75, rir: input.deload ? "4-5" : "2-3", cue: "Controle a volta e evite compensar lombar.", note: "Equilibra cadeia posterior para proteger joelho/quadril." },
   ];
+  if (canUsePlyometrics(input)) {
+    specs.push({ phase: "pliometria", keywords: ["salto baixo", "pogo", "hop", "pliometria", "med ball"], preferredMuscleGroup: "pernas", preferredPattern: "pliometria", required: false, reportGap: false, sets: 2, reps: "3-5", rest: 75, rir: "4", cue: "Poucas repetições, aterrissagem silenciosa e técnica limpa.", note: "Potência técnica antes da força; interromper na primeira perda de qualidade." });
+  }
+  if (isHypertrophyObjective(input)) {
+    specs.push({ phase: "forca_especifica", keywords: ["cadeira extensora", "mesa flexora", "maquina", "isolado"], preferredMuscleGroup: "quadriceps", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 3, reps: "10-15", rest: 60, rir: input.deload ? "4-5" : "2-3", cue: "Controle a amplitude e mantenha tensão no músculo-alvo.", note: "Maior proporção de força isolada e máquinas para hipertrofia." });
+  }
+  return applyObjectiveProportions(input, specs);
 }
 
 function upperWorkoutSpecs(input: PrescriptionInput): ExerciseSpec[] {
   const shoulder = /ombro|overhead|cifose|protrus/.test(riskText(input));
-  return [
+  const specs: ExerciseSpec[] = [
     { phase: "mobilidade", keywords: ["mobilidade toracica", "ombro", "shoulder", "toracica"], preferredMuscleGroup: "ombros", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: input.deload ? "4-5" : "4", cue: "Movimento suave, sem forçar amplitude.", note: "Prepara ombro e coluna torácica para membros superiores." },
+    { phase: "fisioterapia", keywords: ["fisioterapia ombro", "manguito", "rotacao externa", "escapula"], preferredMuscleGroup: "ombros", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "10-12", rest: 20, rir: "4-5", cue: "Baixa resistência e controle total.", note: "Preparação opcional agrupada, sem substituir atendimento clínico." },
     { phase: "ativacao_core", keywords: ["pallof", "prancha", "core", "dead bug"], preferredMuscleGroup: "core", preferredPattern: "core", sets: 2, reps: "20-30s", rest: 45, rir: input.deload ? "4-5" : "3-4", cue: "Mantenha tronco estável.", note: "Estabilidade para puxadas e empurradas." },
     { phase: "ativacao_especifica", keywords: shoulder ? ["face pull", "rotacao externa", "rotador", "manguito"] : ["escapula", "face pull", "rotador", "manguito"], preferredMuscleGroup: "ombros", preferredPattern: "isolado_acessorio", sets: 2, reps: "12-15", rest: 45, rir: input.deload ? "4-5" : "3", cue: "Ombros longe das orelhas.", note: shoulder ? "Prioriza controle escapular antes de empurrar." : "Melhora controle escapular." },
     { phase: "controle_motor", keywords: ["remada", "row", "puxada"], preferredMuscleGroup: "costas", preferredPattern: "puxar_horizontal", sets: 2, reps: "10", rest: 60, rir: input.deload ? "4-5" : "3", cue: "Puxe com cotovelos, sem jogar tronco.", note: "Ensina trajetória e controle escapular." },
     { phase: "forca_global", keywords: shoulder ? ["landmine", "supino maquina", "pegada neutra", "supino inclinado"] : ["supino", "press", "empurrar", "chest"], preferredMuscleGroup: "peitoral", preferredPattern: "empurrar_horizontal", sets: 3, reps: "8-10", rest: 90, rir: input.deload ? "4-5" : "2-3", cue: "Escápulas firmes e punho neutro.", note: shoulder ? "ROM indolor e controle escapular." : "Empurrar global com controle." },
     { phase: "forca_especifica", keywords: ["remada", "puxada", "costas", "dorsal"], preferredMuscleGroup: "costas", preferredPattern: "puxar_vertical", required: false, sets: 3, reps: "8-12", rest: 90, rir: input.deload ? "4-5" : "2-3", cue: "Controle a volta sem perder postura.", note: "Equilibra ombro e postura." },
   ];
+  if (canUsePlyometrics(input)) {
+    specs.push({ phase: "pliometria", keywords: ["med ball chest throw", "arremesso medicine ball", "potencia superior", "pliometria"], preferredMuscleGroup: "peitoral", preferredPattern: "pliometria", required: false, reportGap: false, sets: 2, reps: "3-5", rest: 75, rir: "4", cue: "Acelere sem perder o controle do tronco.", note: "Potência técnica de membros superiores antes da força." });
+  }
+  if (isHypertrophyObjective(input)) {
+    specs.push({ phase: "forca_especifica", keywords: ["crucifixo maquina", "voador", "crossover", "maquina peitoral"], preferredMuscleGroup: "peitoral", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 3, reps: "10-15", rest: 60, rir: input.deload ? "4-5" : "2-3", cue: "Mantenha tensão contínua e amplitude confortável.", note: "Acessório em máquina priorizado pelo objetivo de hipertrofia." });
+  }
+  return applyObjectiveProportions(input, specs);
 }
 
 function fullBodySpecs(input: PrescriptionInput): ExerciseSpec[] {
@@ -147,14 +211,22 @@ function fullBodySpecs(input: PrescriptionInput): ExerciseSpec[] {
   const knee = /joelho|valgo/.test(text);
   const back = /lombar|butt|retrovers/.test(text);
   const beginner = normalizeText(input.fitnessLevel).includes("inic");
-  return [
+  const specs: ExerciseSpec[] = [
     { phase: "mobilidade", keywords: ["mobilidade quadril", "tornozelo", "alongamento"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: input.deload ? "4-5" : "4", cue: "Busque amplitude confortável.", note: "Abre movimento antes do unilateral." },
+    { phase: "alongamento", keywords: ["alongamento dinamico", "mobilidade", "cadeia posterior", "quadril"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "30s", rest: 15, rir: "4-5", cue: "Sem rebotes e sem dor.", note: "Preparação curta agrupada com mobilidade e ativação." },
     { phase: "ativacao_core", keywords: back ? ["bird dog", "pallof", "dead bug", "core"] : ["bird dog", "perdigueiro", "core", "prancha"], preferredMuscleGroup: "core", preferredPattern: "core", sets: 2, reps: "8-10 por lado", rest: 45, rir: input.deload ? "4-5" : "3-4", cue: "Quadril parado e coluna neutra.", note: "Controle anti-rotação." },
     { phase: "controle_motor", keywords: knee ? ["step", "unilateral", "rom parcial", "gluteo"] : ["afundo", "lunge", "step", "unilateral"], preferredMuscleGroup: "gluteos", preferredPattern: "unilateral", sets: knee ? 1 : 2, reps: "8 por lado", rest: 60, rir: input.deload ? "4-5" : "3-4", cue: "Joelho acompanha o pé.", note: knee ? "Usar amplitude curta e sem dor." : "Integra equilíbrio e controle." },
     { phase: "forca_global", keywords: back ? ["hip thrust", "gluteo", "ponte"] : ["terra romeno", "rdl", "levantamento", "hip hinge"], preferredMuscleGroup: "posterior", preferredPattern: "quadril_dominante", sets: back ? 2 : 3, reps: "8-10", rest: 90, rir: input.deload ? "4-5" : "2-3", cue: "Dobre quadril sem arredondar lombar.", note: back ? "Preferir hinge leve ou hip thrust apoiado." : "Fortalece cadeia posterior com controle." },
     { phase: "forca_global", keywords: back ? ["remada apoiada", "remada maquina", "costas"] : ["remada", "puxada", "costas"], preferredMuscleGroup: "costas", preferredPattern: "puxar_horizontal", sets: 3, reps: "10-12", rest: 75, rir: input.deload ? "4-5" : "2-3", cue: "Postura alta e controle de escápulas.", note: "Complementa postura e tronco." },
     { phase: "forca_especifica", keywords: ["panturrilha", "calf", "abdomen", "core"], preferredMuscleGroup: "core", preferredPattern: "isolado_acessorio", required: false, sets: beginner ? 1 : 2, reps: "12-15", rest: 60, rir: input.deload ? "4-5" : "2-3", cue: "Controle total da fase excêntrica.", note: "Acessório leve para suporte do ciclo." },
   ];
+  if (canUsePlyometrics(input)) {
+    specs.push({ phase: "pliometria", keywords: ["salto baixo", "pogo", "hop", "med ball", "pliometria"], preferredMuscleGroup: "pernas", preferredPattern: "pliometria", required: false, reportGap: false, sets: 2, reps: "3-5", rest: 75, rir: "4", cue: "Qualidade máxima e aterrissagem controlada.", note: "Baixo volume de potência antes da força global." });
+  }
+  if (isHypertrophyObjective(input)) {
+    specs.push({ phase: "forca_especifica", keywords: ["maquina", "isolado", "extensora", "flexora", "crossover"], preferredMuscleGroup: "quadriceps", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 3, reps: "10-15", rest: 60, rir: input.deload ? "4-5" : "2-3", cue: "Tensão contínua sem compensar.", note: "Volume isolado adicional para hipertrofia." });
+  }
+  return applyObjectiveProportions(input, specs);
 }
 
 function splitTemplates(input: PrescriptionInput): Array<{ name: string; focus: string; specs: ExerciseSpec[] }> {
@@ -225,7 +297,10 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
   const preset = selectMethodologyPreset(normalizedInput);
   const restrictions = deriveRestrictionRules(normalizedInput);
   const durationWeeks = resolveDurationWeeks(normalizedInput);
-  const { workouts, gaps } = buildWorkouts(normalizedInput);
+  const built = buildWorkouts(normalizedInput);
+  const capped = enforceVolumeCaps(built.workouts, normalizedInput);
+  const gaps = built.gaps;
+  const workouts = capped.workouts;
   const longitudinal = applyLongitudinalProgression(workouts, normalizedInput);
   const weekly = buildWeeklyPeriodization(workouts, normalizedInput);
   const periodization = buildPeriodizationBlocks(normalizedInput);
@@ -247,8 +322,51 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
       reason: "O ciclo precisa evoluir em blocos de duas semanas sem reiniciar o treino nem depender de texto interpretativo.",
       severity: "leve" as const,
     },
+    {
+      rule_id: "BN_SESSION_PHASE_ORDER",
+      category: "priorizacao" as const,
+      source: "objetivo" as const,
+      target: "ordem_da_sessao",
+      action: "Ordenar a sessão em preparação, controle motor, ativações, potência elegível, força global e força específica.",
+      reason: "A sequência reduz interferência da fadiga na aprendizagem motora e mantém os exercícios isolados depois dos padrões globais.",
+      severity: "leve" as const,
+    },
+    ...(isHypertrophyObjective(normalizedInput)
+      ? [{
+          rule_id: "BN_HYPERTROPHY_EXERCISE_PROPORTION",
+          category: "priorizacao" as const,
+          source: "objetivo" as const,
+          target: "forca_especifica_e_maquinas",
+          action: "Aumentar a participação de exercícios isolados e máquinas depois da base global.",
+          reason: "O objetivo de hipertrofia pede mais volume local sem abandonar mobilidade, controle e força global.",
+          severity: "leve" as const,
+        }]
+      : []),
+    ...(isPerformanceObjective(normalizedInput)
+      ? [{
+          rule_id: "BN_PERFORMANCE_EXERCISE_PROPORTION",
+          category: "priorizacao" as const,
+          source: "objetivo" as const,
+          target: "controle_ativacao_e_potencia",
+          action: "Aumentar controle motor, ativações e potência técnica antes da força global.",
+          reason: "O objetivo de performance exige qualidade de movimento, produção de força e baixa fadiga antes do bloco principal.",
+          severity: "leve" as const,
+        }]
+      : []),
+    ...capped.adjustments.map((adjustment) => ({
+      rule_id: `BN_VOLUME_CAP_${adjustment.muscle_group.toUpperCase()}`,
+      category: "volume" as const,
+      source: "validador" as const,
+      target: adjustment.muscle_group,
+      action: `Reduzir de ${adjustment.before} para ${adjustment.after} séries semanais (teto ${adjustment.cap}).`,
+      reason: "O motor aplica o teto conservador da metodologia antes de validar e publicar o plano.",
+      severity: "leve" as const,
+    })),
   ];
-  if (weekly.weeks.some((week) => week.methods.length > 0)) {
+  const usesIntensityMethod = weekly.weeks.some((week) =>
+    week.methods.some((method) => /(rest-pause|drop-set|cluster|piramide|up-set)/i.test(method))
+  );
+  if (usesIntensityMethod) {
     explanations.push({
       rule_id: "BN_ADVANCED_METHODS_STABLE_ACCESSORIES",
       category: "progressao",

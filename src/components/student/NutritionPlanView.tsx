@@ -8,7 +8,11 @@ import { Apple, Utensils, Droplets, Flame, Beef, Wheat, Leaf, Loader2, Coffee, D
 import { cn } from "@/lib/utils";
 import { businessDateYmd } from "@/lib/businessDate";
 import { extractDietPdfText } from "@/lib/dietPdf";
-import { prepareImportedNutritionPlan, type ImportedNutritionItem } from "@/lib/nutritionPlanDisplay";
+import {
+  prepareImportedNutritionPlan,
+  type ExternalNutritionDocumentLike,
+  type ImportedNutritionItem,
+} from "@/lib/nutritionPlanDisplay";
 
 // Espelha o schema VIVO de nutrition_plans (Supabase zshrcgbyhzxpnlccssyz): macros em target_*,
 // objetivo em goal, restrições em context_dietary_restrictions, e o PLANO DE REFEIÇÕES prático em
@@ -40,6 +44,9 @@ interface NutritionRow {
   meals?: MealItem[] | null;
   start_date?: string | null;
   end_date?: string | null;
+  source_type?: string | null;
+  source_file_name?: string | null;
+  source_document?: ExternalNutritionDocumentLike | null;
 }
 interface StudentNutritionContext {
   wants_nutrition?: boolean | null;
@@ -109,22 +116,19 @@ function ImportedPlanItem({ item }: { item: ImportedNutritionItem }) {
   }
 
   if (item.kind === "heading") {
-    return <p className="basis-full pt-1 text-xs font-semibold text-primary">{item.text}</p>;
-  }
-
-  if (item.kind === "detail") {
-    const [lead, ...rest] = item.text.split(":");
     return (
-      <div className="flex basis-full gap-2.5 rounded-md border border-border/80 bg-background/65 px-3 py-2.5 text-sm leading-relaxed text-foreground">
-        <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-        <p>
-          {rest.length > 0 ? <><span className="font-medium">{lead}:</span> {rest.join(":")}</> : item.text}
-        </p>
+      <div className="basis-full border-b border-border/70 pb-1 pt-2 first:pt-0">
+        <p className="text-xs font-semibold text-primary">{item.text}</p>
       </div>
     );
   }
 
-  return <Chip variant="eat">{item.text}</Chip>;
+  return (
+    <div className="flex basis-full gap-2.5 rounded-md border border-border/80 bg-background px-3 py-2.5 text-sm leading-relaxed text-foreground">
+      <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+      <p className="whitespace-pre-wrap">{item.text}</p>
+    </div>
+  );
 }
 
 export function NutritionPlanView({ studentId }: { studentId: string }) {
@@ -206,9 +210,9 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
     return () => { active = false; };
   }, [studentId]);
 
-  const saveExternalPlan = async (rawTextOverride?: string) => {
-    const rawText = (rawTextOverride ?? externalPlanText).trim();
-    if (rawText.length < 10) {
+  const saveExternalPlan = async (rawTextOverride?: string, fileNameOverride?: string) => {
+    const rawText = rawTextOverride ?? externalPlanText;
+    if (rawText.trim().length < 10) {
       setExternalPlanError("Cole o cardápio do seu nutricionista antes de salvar.");
       return false;
     }
@@ -216,7 +220,12 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
     setExternalPlanError("");
     try {
       const { data, error } = await supabase.functions.invoke("ai-nutrition-meals", {
-        body: { action: "save_external_plan", student_id: studentId, raw_text: rawText },
+        body: {
+          action: "save_external_plan",
+          student_id: studentId,
+          raw_text: rawText,
+          source_file_name: (fileNameOverride ?? externalPlanFileName) || null,
+        },
       });
       if (error || (data as any)?.error) throw new Error(error?.message || (data as any)?.error || "Não foi possível salvar o cardápio.");
       const meals = Array.isArray((data as any)?.meals) ? (data as any).meals : [];
@@ -228,6 +237,7 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
         meals,
       });
       setExternalPlanText("");
+      setExternalPlanFileName(fileNameOverride ?? externalPlanFileName);
       return true;
     } catch (error) {
       setExternalPlanError(error instanceof Error ? error.message : "Não foi possível salvar o cardápio.");
@@ -245,7 +255,7 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
     try {
       const text = await extractDietPdfText(file);
       setExternalPlanText(text);
-      await saveExternalPlan(text);
+      await saveExternalPlan(text, file.name);
     } catch (error) {
       setExternalPlanError(error instanceof Error ? error.message : "Não foi possível ler o PDF.");
     } finally {
@@ -262,7 +272,7 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
           <div className="space-y-1">
             <h3 className="font-display text-xl text-foreground leading-tight">Cardápio do seu nutricionista</h3>
             <p className="text-sm text-muted-foreground font-sans">
-              Envie o PDF que você já recebeu. O app lê e organiza as refeições no mesmo formato das dicas nutricionais, sem alterar a conduta do profissional.
+              Envie o PDF que você já recebeu. O app preserva o documento integralmente e organiza as mesmas informações para consulta, sem resumir ou reescrever a prescrição.
             </p>
           </div>
         </div>
@@ -281,7 +291,7 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
           className="w-full min-h-12 border-primary/25"
         >
           {readingExternalPdf || savingExternalPlan ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
-          {readingExternalPdf ? "Lendo PDF..." : savingExternalPlan ? "Organizando refeições..." : "Enviar PDF do cardápio"}
+          {readingExternalPdf ? "Lendo PDF..." : savingExternalPlan ? "Salvando prescrição..." : "Enviar PDF do cardápio"}
         </Button>
         {externalPlanFileName && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -303,7 +313,7 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
         {externalPlanError && <p className="text-xs text-destructive">{externalPlanError}</p>}
         <Button type="button" onClick={() => void saveExternalPlan()} disabled={savingExternalPlan || readingExternalPdf} className="w-full">
           {savingExternalPlan ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-          Organizar texto colado
+          Salvar prescrição informada
         </Button>
         <p className="text-[11px] text-muted-foreground">
           O app não altera a conduta do seu nutricionista; apenas transforma o material em uma visualização mais fácil de acompanhar.
@@ -332,17 +342,21 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
     );
   }
 
-  const kcal = row.target_calories ?? row.total_calories;
-  const protein = row.target_protein_g ?? row.protein_g ?? 0;
-  const carbs = row.target_carbs_g ?? row.carbs_g ?? 0;
-  const fat = row.target_fat_g ?? row.fat_g ?? 0;
+  const isExternalPlan = row.source_type === "nutritionist_pdf" || row.goal === "acompanhamento_nutricionista";
+  const sourceTargets = isExternalPlan ? row.source_document?.targets : null;
+  // Em prescrições externas, metas só aparecem quando foram efetivamente encontradas no documento.
+  // Isso impede que um PDF herde metas antigas de um plano gerado pelo SETT.
+  const kcal = isExternalPlan ? sourceTargets?.calories_kcal ?? null : row.target_calories ?? row.total_calories;
+  const protein = isExternalPlan ? sourceTargets?.protein_g ?? 0 : row.target_protein_g ?? row.protein_g ?? 0;
+  const carbs = isExternalPlan ? sourceTargets?.carbs_g ?? 0 : row.target_carbs_g ?? row.carbs_g ?? 0;
+  const fat = isExternalPlan ? sourceTargets?.fat_g ?? 0 : row.target_fat_g ?? row.fat_g ?? 0;
+  const fiber = isExternalPlan ? sourceTargets?.fiber_g ?? 0 : row.target_fiber_g ?? 0;
   // Título limpo: remove o sufixo técnico "— objetivo | nome" que vem da geração automática.
   const rawTitle = row.plan_name || row.name || "";
   const title = rawTitle.split(/\s*[—|]\s*/)[0].trim() || "Plano nutricional";
   const goal = row.goal ? GOAL_LABEL[row.goal] || row.goal : null;
   const meals = asArray<MealItem>(row.meals).filter((m) => m && (m.meal || (m.eat && m.eat.length)));
-  const isExternalPlan = row.goal === "acompanhamento_nutricionista";
-  const importedDisplay = isExternalPlan ? prepareImportedNutritionPlan(meals) : null;
+  const importedDisplay = isExternalPlan ? prepareImportedNutritionPlan(meals, row.source_document) : null;
 
   // Divisão dos macros por contribuição calórica (P/C = 4 kcal/g, G = 9 kcal/g).
   const pK = protein * 4, cK = carbs * 4, fK = fat * 9;
@@ -354,9 +368,13 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
     { label: "Gordura", pct: pct(fK), cls: "bg-yellow-600" },
   ];
 
-  const waterMl = row.target_water_ml ?? 0;
+  const documentHasWaterTarget = !!(sourceTargets?.water_ml || sourceTargets?.water_ml_per_kg);
+  const waterMl = isExternalPlan
+    ? documentHasWaterTarget ? row.target_water_ml ?? sourceTargets?.water_ml ?? 0 : 0
+    : row.target_water_ml ?? 0;
   const totalGlasses = waterMl > 0 ? Math.max(1, Math.round(waterMl / GLASS_ML)) : 0;
   const waterPctDone = totalGlasses > 0 ? Math.round((Math.min(glasses, totalGlasses) / totalGlasses) * 100) : 0;
+  const hasAnyTarget = kcal != null || protein > 0 || carbs > 0 || fat > 0 || fiber > 0 || waterMl > 0;
 
   return (
     <div className="space-y-5">
@@ -383,8 +401,14 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
             <div className="space-y-1">
               <p className="text-sm font-semibold text-foreground">Prescrição do seu nutricionista</p>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                O app organizou o material enviado para facilitar sua consulta. Alimentos, quantidades e substituições permanecem exatamente como foram prescritos.
+                O app somente organiza a leitura. Alimentos, quantidades, observações e substituições permanecem exatamente como constam no documento recebido.
               </p>
+              {(row.source_file_name || importedDisplay?.sourceFileName) && (
+                <p className="flex items-center gap-1.5 text-xs text-primary">
+                  <FileText className="h-3.5 w-3.5" />
+                  {row.source_file_name || importedDisplay?.sourceFileName}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -446,17 +470,17 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
       )}
 
       {/* Macros do dia */}
-      <div>
-        <p className="text-eyebrow text-muted-foreground mb-2">Metas do dia</p>
-        <div className="grid grid-cols-3 gap-2">
+      {hasAnyTarget && <div>
+        <p className="text-eyebrow text-muted-foreground mb-2">Metas prescritas</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {kcal != null && <MacroCard icon={Flame} value={`${kcal}`} label="kcal/dia" tint="text-orange-500" />}
           {protein > 0 && <MacroCard icon={Beef} value={`${protein} g`} label="Proteína" tint="text-rose-500" />}
           {carbs > 0 && <MacroCard icon={Wheat} value={`${carbs} g`} label="Carboidrato" tint="text-amber-500" />}
           {fat > 0 && <MacroCard icon={Apple} value={`${fat} g`} label="Gordura" tint="text-yellow-600" />}
-          {row.target_fiber_g != null && <MacroCard icon={Leaf} value={`${row.target_fiber_g} g`} label="Fibra" tint="text-emerald-600" />}
+          {fiber > 0 && <MacroCard icon={Leaf} value={`${fiber} g`} label="Fibra" tint="text-emerald-600" />}
           {waterMl > 0 && <MacroCard icon={Droplets} value={`${(waterMl / 1000).toFixed(1)} L`} label="Água" tint="text-sky-500" />}
         </div>
-      </div>
+      </div>}
 
       {/* Divisão de macros (barra visual) */}
       {totK > 0 && (
@@ -501,8 +525,8 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
                       {m.focus && <p className="text-sm font-medium text-primary/90">{m.focus}</p>}
                       {m.items.length > 0 && (
                         <div>
-                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5">Conforme o cardápio</p>
-                          <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5">Prescrição original</p>
+                          <div className="flex flex-col gap-1.5">
                             {m.items.map((item, itemIndex) => <ImportedPlanItem key={`${item.kind}-${item.text}-${itemIndex}`} item={item} />)}
                           </div>
                         </div>
@@ -566,6 +590,15 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
           </Card>
         )}
       </div>
+
+      {isExternalPlan && importedDisplay?.rawText && (
+        <details className="rounded-md border border-border bg-card px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-primary">Conferir texto integral do documento</summary>
+          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap border-t border-border pt-3 font-sans text-xs leading-relaxed text-foreground">
+            {importedDisplay.rawText}
+          </pre>
+        </details>
+      )}
 
       <p className="text-[11px] text-muted-foreground text-center px-4">
         {isExternalPlan

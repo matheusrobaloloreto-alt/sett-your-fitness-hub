@@ -76,6 +76,7 @@ const moduleMap: Record<string, PermissionModule> = {
 const masterItems = [
   { title: "Dashboard", url: "/master", icon: LayoutDashboard },
   { title: "Empresas", url: "/master/companies", icon: Building2 },
+  { title: "Anúncios", url: "/master/ads", icon: Megaphone },
   { title: "Biblioteca", url: "/master/biblioteca", icon: Dumbbell },
   { title: "Minha Conta", url: "/master/account", icon: KeyRound },
 ];

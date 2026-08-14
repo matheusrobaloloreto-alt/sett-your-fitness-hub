@@ -1,4 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  directWhatsAppJidVariants,
+  normalizeWhatsAppPhoneKey,
+  providerWhatsAppJidVariants,
+} from "../_shared/whatsappIdentity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +18,102 @@ function safeEqual(left: string, right: string) {
     diff |= left.charCodeAt(index) ^ right.charCodeAt(index);
   }
   return diff === 0;
+}
+
+type WhatsAppChatRow = {
+  id: string;
+  student_id: string | null;
+  contact_name: string | null;
+  last_message_at: string | null;
+  remote_jid: string;
+};
+
+const CHAT_LOOKUP_COLUMNS = "id, student_id, contact_name, last_message_at, remote_jid";
+
+async function resolveExistingWhatsAppChat(args: {
+  adminClient: any;
+  instanceId: string;
+  companyId: string;
+  jidVariants: string[];
+  messageExternalId?: string | null;
+}): Promise<WhatsAppChatRow | null> {
+  const directJids = args.jidVariants.filter((jid) => jid.endsWith("@s.whatsapp.net"));
+  if (directJids.length > 0) {
+    const { data } = await args.adminClient.from("whatsapp_chats")
+      .select(CHAT_LOOKUP_COLUMNS)
+      .eq("instance_id", args.instanceId)
+      .in("remote_jid", directJids)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (data) return data as WhatsAppChatRow;
+  }
+
+  const lidJids = args.jidVariants.filter((jid) => jid.endsWith("@lid"));
+  if (lidJids.length > 0) {
+    const { data: alias } = await args.adminClient.from("whatsapp_jid_aliases")
+      .select("canonical_chat_id")
+      .eq("instance_id", args.instanceId)
+      .in("alias_jid", lidJids)
+      .limit(1)
+      .maybeSingle();
+    if (alias?.canonical_chat_id) {
+      const { data } = await args.adminClient.from("whatsapp_chats")
+        .select(CHAT_LOOKUP_COLUMNS)
+        .eq("id", alias.canonical_chat_id)
+        .eq("company_id", args.companyId)
+        .maybeSingle();
+      if (data) return data as WhatsAppChatRow;
+    }
+  }
+
+  if (args.messageExternalId && lidJids.length > 0) {
+    const { data: existingMessages } = await args.adminClient.from("whatsapp_messages")
+      .select("chat_id")
+      .eq("company_id", args.companyId)
+      .eq("message_id_external", args.messageExternalId)
+      .limit(10);
+    const chatIds = [...new Set((existingMessages || []).map((row: any) => row.chat_id).filter(Boolean))];
+    if (chatIds.length > 0) {
+      const { data: chats } = await args.adminClient.from("whatsapp_chats")
+        .select(CHAT_LOOKUP_COLUMNS)
+        .eq("instance_id", args.instanceId)
+        .in("id", chatIds);
+      const canonical = (chats || []).find((chat: WhatsAppChatRow) => chat.remote_jid.endsWith("@s.whatsapp.net"))
+        || (chats || [])[0];
+      if (canonical) return canonical as WhatsAppChatRow;
+    }
+  }
+
+  const { data } = await args.adminClient.from("whatsapp_chats")
+    .select(CHAT_LOOKUP_COLUMNS)
+    .eq("instance_id", args.instanceId)
+    .in("remote_jid", args.jidVariants)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  return (data as WhatsAppChatRow | null) || null;
+}
+
+async function persistWhatsAppJidAliases(args: {
+  adminClient: any;
+  companyId: string;
+  instanceId: string;
+  chat: WhatsAppChatRow;
+  jidVariants: string[];
+}) {
+  const aliases = args.jidVariants.filter((jid) => jid.endsWith("@lid"));
+  if (aliases.length === 0) return;
+  await args.adminClient.from("whatsapp_jid_aliases").upsert(
+    aliases.map((aliasJid) => ({
+      company_id: args.companyId,
+      instance_id: args.instanceId,
+      alias_jid: aliasJid,
+      canonical_chat_id: args.chat.id,
+      updated_at: new Date().toISOString(),
+    })),
+    { onConflict: "instance_id,alias_jid" },
+  );
 }
 
 // ─── VARIABLE REPLACEMENT ───
@@ -228,7 +329,7 @@ async function persistProviderMedia(args: {
     const { data: signed } = await args.adminClient.storage
       .from("whatsapp-media")
       .createSignedUrl(path, 60 * 60 * 24 * 7);
-    return { mediaUrl: signed?.signedUrl || null, mimetype };
+    return { mediaUrl: signed?.signedUrl || null, mediaStoragePath: path, mimetype };
   }
 
   return null;
@@ -304,6 +405,7 @@ async function fetchRecentMessages(
   limit: number,
   remoteJids: string[] = [],
   perChatLimit = 80,
+  includeGlobal = true,
 ) {
   const attempts = [
     { where: {}, limit },
@@ -312,10 +414,12 @@ async function fetchRecentMessages(
     { where: { key: {} }, limit },
   ];
   const collected: any[] = [];
-  for (const payload of attempts) {
-    const messages = await fetchMessagesWithPayload(evoUrl, instanceName, evoHeaders, payload);
-    collected.push(...messages);
-    if (collected.length >= limit) return dedupeProviderMessages(collected).slice(0, limit);
+  if (includeGlobal) {
+    for (const payload of attempts) {
+      const messages = await fetchMessagesWithPayload(evoUrl, instanceName, evoHeaders, payload);
+      collected.push(...messages);
+      if (collected.length >= limit) return dedupeProviderMessages(collected).slice(0, limit);
+    }
   }
 
   for (const remoteJid of remoteJids) {
@@ -635,22 +739,44 @@ Deno.serve(async (req) => {
   const suppliedSecret = req.headers.get("x-webhook-secret") || new URL(req.url).searchParams.get("token") || "";
   const expectedRepairToken = Deno.env.get("WHATSAPP_REPAIR_TOKEN") || "";
   const suppliedRepairToken = req.headers.get("x-repair-token") || new URL(req.url).searchParams.get("repair_token") || "";
-  const isRepairRequest = safeEqual(suppliedRepairToken, expectedRepairToken);
-  if (!safeEqual(suppliedSecret, expectedSecret) && !isRepairRequest) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  const hasWebhookSecret = safeEqual(suppliedSecret, expectedSecret);
+  const hasRepairToken = safeEqual(suppliedRepairToken, expectedRepairToken);
+  const adminClient = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+
+  let repairActor: { companyId: string | null; isMaster: boolean } | null = null;
+  const authHeader = req.headers.get("Authorization") || "";
+  if (!hasWebhookSecret && !hasRepairToken && authHeader.startsWith("Bearer ")) {
+    const anonClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const token = authHeader.slice("Bearer ".length);
+    const { data: claimsData } = await anonClient.auth.getClaims(token);
+    const userId = claimsData?.claims?.sub as string | undefined;
+    if (userId) {
+      const [{ data: hasAdmin }, { data: hasMaster }, { data: companyId }] = await Promise.all([
+        adminClient.rpc("has_role", { _user_id: userId, _role: "admin" }),
+        adminClient.rpc("has_role", { _user_id: userId, _role: "master" }),
+        adminClient.rpc("get_user_company_id", { _user_id: userId }),
+      ]);
+      if (hasAdmin || hasMaster) repairActor = { companyId: companyId || null, isMaster: Boolean(hasMaster) };
+    }
   }
 
   try {
     const body = await req.json();
     const event = body.event;
-
-    const adminClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const isRepairRequest = body.action === "repair-sync" && (hasRepairToken || Boolean(repairActor));
+    if (!hasWebhookSecret && !isRepairRequest) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (isRepairRequest && body.action === "repair-sync") {
       const evoUrl = Deno.env.get("EVOLUTION_API_URL") || "";
@@ -663,18 +789,26 @@ Deno.serve(async (req) => {
       }
 
       const limit = Math.min(Math.max(Number(body.limit || 1000), 1), 5000);
-      const days = Math.min(Math.max(Number(body.days || 14), 1), 120);
+      const days = Math.min(Math.max(Number(body.days || 14), 1), 365);
       const maxChats = Math.min(Math.max(Number(body.maxChats || 250), 1), 1000);
       const perChatLimit = Math.min(Math.max(Number(body.perChatLimit || 80), 1), 300);
       const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
       const evoHeaders: Record<string, string> = { "Content-Type": "application/json", apikey: evoKey };
 
-      const { data: instance, error: instanceError } = await adminClient
+      const requestedCompanyId = body.companyId || repairActor?.companyId || null;
+      if (repairActor && !repairActor.isMaster && requestedCompanyId !== repairActor.companyId) {
+        return new Response(JSON.stringify({ error: "Forbidden: company mismatch" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let instanceQuery = adminClient
         .from("whatsapp_instances")
         .select("id, company_id, instance_name")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order("updated_at", { ascending: false });
+      if (requestedCompanyId) instanceQuery = instanceQuery.eq("company_id", requestedCompanyId);
+      const { data: instance, error: instanceError } = await instanceQuery.limit(1).maybeSingle();
       if (instanceError || !instance) {
         return new Response(JSON.stringify({ error: "WhatsApp instance not found" }), {
           status: 404,
@@ -741,7 +875,15 @@ Deno.serve(async (req) => {
         .not("remote_jid", "is", null)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .limit(maxChats);
-      const remoteJids = [...new Set((knownChats || []).map((chat: any) => String(chat.remote_jid || "")).filter(Boolean))];
+      const requestedRemoteJids: string[] = Array.isArray(body.remoteJids)
+        ? body.remoteJids.flatMap((jid: unknown): string[] => directWhatsAppJidVariants(jid))
+        : [];
+      const remoteJids: string[] = [...new Set<string>(
+        (requestedRemoteJids.length > 0
+          ? requestedRemoteJids
+          : (knownChats || []).map((chat: any): string => String(chat.remote_jid || "")))
+          .filter(Boolean),
+      )];
 
       const rawMessages = await fetchRecentMessages(
         evoUrl,
@@ -750,6 +892,7 @@ Deno.serve(async (req) => {
         limit,
         remoteJids,
         perChatLimit,
+        requestedRemoteJids.length === 0,
       );
       let scanned = 0;
       let inserted = 0;
@@ -778,12 +921,17 @@ Deno.serve(async (req) => {
         const content = extractMessageText(msg.message, finalMediaType ? msgType : "mídia");
         const contactName = remoteJid.includes("@g.us") ? (msg.groupMetadata?.subject || null) : (msg.pushName || null);
 
-        let { data: chat } = await adminClient
-          .from("whatsapp_chats")
-          .select("id, student_id, contact_name, last_message_at")
-          .eq("instance_id", instance.id)
-          .eq("remote_jid", remoteJid)
-          .maybeSingle();
+        const jidVariants = providerWhatsAppJidVariants(remoteJid, [
+          key.remoteJidAlt,
+          msg.remoteJidAlt,
+        ]);
+        let chat = await resolveExistingWhatsAppChat({
+          adminClient,
+          instanceId: instance.id,
+          companyId: instance.company_id,
+          jidVariants,
+          messageExternalId: msgExtId,
+        });
         if (!chat) {
           const { data: insertedChat } = await adminClient
             .from("whatsapp_chats")
@@ -794,28 +942,36 @@ Deno.serve(async (req) => {
               last_message_at: providerDate.toISOString(),
               ...(!isFromMe && contactName ? { contact_name: contactName } : {}),
             })
-            .select("id, student_id, contact_name, last_message_at")
+            .select(CHAT_LOOKUP_COLUMNS)
             .maybeSingle();
-          chat = insertedChat;
+          chat = insertedChat as WhatsAppChatRow | null;
         }
         if (!chat) continue;
+        await persistWhatsAppJidAliases({
+          adminClient,
+          companyId: instance.company_id,
+          instanceId: instance.id,
+          chat,
+          jidVariants,
+        });
         touchedChats.add(chat.id);
 
         if (!isFromMe && contactName && contactName !== chat.contact_name) {
           await adminClient.from("whatsapp_chats").update({ contact_name: contactName }).eq("id", chat.id);
         }
 
-        const phoneBase = remoteJid.replace(/@.*$/, "");
-        const phoneClean = phoneBase.replace(/^55/, "");
-        if (phoneClean && !remoteJid.includes("@g.us") && !chat.student_id) {
-          const { data: student } = await adminClient.from("students")
-            .select("id")
-            .eq("company_id", instance.company_id)
-            .or(`whatsapp.ilike.%${phoneClean}%,phone.ilike.%${phoneClean}%`)
-            .limit(1)
-            .maybeSingle();
-          if (student) {
-            await adminClient.from("whatsapp_chats").update({ student_id: student.id }).eq("id", chat.id);
+        const phoneKey = normalizeWhatsAppPhoneKey(remoteJid);
+        if (phoneKey && !remoteJid.includes("@g.us") && !chat.student_id) {
+          const { data: students } = await adminClient.from("students")
+            .select("id, phone, whatsapp")
+            .eq("company_id", instance.company_id);
+          const matches = (students || []).filter((student: any) => (
+            normalizeWhatsAppPhoneKey(student.whatsapp) === phoneKey
+            || normalizeWhatsAppPhoneKey(student.phone) === phoneKey
+          ));
+          if (matches.length === 1) {
+            await adminClient.from("whatsapp_chats").update({ student_id: matches[0].id }).eq("id", chat.id);
+            chat.student_id = matches[0].id;
           }
         }
 
@@ -833,6 +989,7 @@ Deno.serve(async (req) => {
           }
         }
 
+        let mediaStoragePath: string | null = null;
         if (finalMediaType && msgExtId) {
           const persisted = await persistProviderMedia({
             adminClient,
@@ -848,6 +1005,7 @@ Deno.serve(async (req) => {
           });
           if (persisted?.mediaUrl) {
             mediaUrl = persisted.mediaUrl;
+            mediaStoragePath = persisted.mediaStoragePath;
             mediaPersisted += 1;
           }
         }
@@ -863,6 +1021,7 @@ Deno.serve(async (req) => {
           sender_id: isFromMe ? null : remoteJid,
           media_url: mediaUrl,
           media_type: finalMediaType,
+          media_storage_path: mediaStoragePath,
           timestamp: providerDate.toISOString(),
           origin: "provider_history_sync",
         });
@@ -880,6 +1039,12 @@ Deno.serve(async (req) => {
             ...(isFromMe ? { unread_count: 0 } : {}),
           }).eq("id", chat.id);
         }
+      }
+
+      if (touchedChats.size > 0) {
+        await adminClient.from("whatsapp_chats")
+          .update({ history_synced_at: new Date().toISOString() })
+          .in("id", [...touchedChats]);
       }
 
       return new Response(JSON.stringify({
@@ -973,6 +1138,11 @@ Deno.serve(async (req) => {
 
         const contactName = remoteJid.includes("@g.us") ? (msg.groupMetadata?.subject || null) : (msg.pushName || null);
         const isFromMe = key.fromMe === true;
+        const msgExtId = key.id ? String(key.id) : null;
+        const jidVariants = providerWhatsAppJidVariants(remoteJid, [
+          key.remoteJidAlt,
+          msg.remoteJidAlt,
+        ]);
 
         // Extract media
         let mediaUrl = msg.message?.imageMessage?.url || msg.message?.videoMessage?.url || msg.message?.audioMessage?.url || msg.message?.documentMessage?.url || msg.message?.stickerMessage?.url || null;
@@ -1003,33 +1173,39 @@ Deno.serve(async (req) => {
         let isFirstContact = false;
         const isDirectContact = !remoteJid.includes("@g.us");
         if (!isHistoryEvent && !isFromMe && isDirectContact) {
-          const phoneBase = remoteJid.replace(/@.*$/, "");
-          const { data: existingChats } = await adminClient.from("whatsapp_chats")
-            .select("id").eq("instance_id", instance.id)
-            .or(`remote_jid.eq.${remoteJid},remote_jid.ilike.${phoneBase}%`)
-            .limit(2);
-          isFirstContact = !existingChats || existingChats.length === 0;
+          const existingChat = await resolveExistingWhatsAppChat({
+            adminClient,
+            instanceId: instance.id,
+            companyId: instance.company_id,
+            jidVariants,
+            messageExternalId: msgExtId,
+          });
+          isFirstContact = !existingChat;
           
           // Also check if phone matches a known student — never trigger welcome for students
-          if (isFirstContact && phoneBase) {
-            const { data: knownStudent } = await adminClient.from("students")
-              .select("id").eq("company_id", instance.company_id)
-              .or(`whatsapp.ilike.%${phoneBase}%,phone.ilike.%${phoneBase}%`)
-              .limit(1).maybeSingle();
-            if (knownStudent) {
+          const phoneKey = normalizeWhatsAppPhoneKey(remoteJid);
+          if (isFirstContact && phoneKey) {
+            const { data: companyStudents } = await adminClient.from("students")
+              .select("id, phone, whatsapp").eq("company_id", instance.company_id);
+            const knownStudents = (companyStudents || []).filter((student: any) => (
+              normalizeWhatsAppPhoneKey(student.whatsapp) === phoneKey
+              || normalizeWhatsAppPhoneKey(student.phone) === phoneKey
+            ));
+            if (knownStudents.length === 1) {
               isFirstContact = false;
-              console.log("[webhook] Phone matches student, skipping first contact:", phoneBase);
+              console.log("[webhook] Phone matches student, skipping first contact:", phoneKey);
             }
           }
         }
 
         // Avoid moving a current chat backwards when old history arrives.
-        let { data: chat } = await adminClient
-          .from("whatsapp_chats")
-          .select("id, student_id, contact_name, last_message_at")
-          .eq("instance_id", instance.id)
-          .eq("remote_jid", remoteJid)
-          .maybeSingle();
+        let chat = await resolveExistingWhatsAppChat({
+          adminClient,
+          instanceId: instance.id,
+          companyId: instance.company_id,
+          jidVariants,
+          messageExternalId: msgExtId,
+        });
         if (!chat) {
           const { data: insertedChat, error: chatInsertError } = await adminClient
             .from("whatsapp_chats")
@@ -1040,18 +1216,18 @@ Deno.serve(async (req) => {
               last_message_at: providerMessageAt,
               ...(!isFromMe && contactName ? { contact_name: contactName } : {}),
             })
-            .select("id, student_id, contact_name, last_message_at")
+            .select(CHAT_LOOKUP_COLUMNS)
             .maybeSingle();
           if (chatInsertError?.code === "23505") {
-            const { data: racedChat } = await adminClient
-              .from("whatsapp_chats")
-              .select("id, student_id, contact_name, last_message_at")
-              .eq("instance_id", instance.id)
-              .eq("remote_jid", remoteJid)
-              .maybeSingle();
-            chat = racedChat;
+            chat = await resolveExistingWhatsAppChat({
+              adminClient,
+              instanceId: instance.id,
+              companyId: instance.company_id,
+              jidVariants,
+              messageExternalId: msgExtId,
+            });
           } else {
-            chat = insertedChat;
+            chat = insertedChat as WhatsAppChatRow | null;
           }
         } else if (!isFromMe && contactName && contactName !== chat.contact_name) {
           await adminClient
@@ -1061,94 +1237,34 @@ Deno.serve(async (req) => {
           chat.contact_name = contactName;
         }
         if (!chat) continue;
-
-        // ─── DEDUP @lid vs @s.whatsapp.net ───
-        // If this is a @lid chat, check if there's a canonical @s.whatsapp.net chat
-        // with the same student_id or contact_name in the same instance → merge
-        if (remoteJid.includes("@lid") && (chat.student_id || chat.contact_name)) {
-          const orFilters: string[] = [];
-          if (chat.student_id) orFilters.push(`student_id.eq.${chat.student_id}`);
-          if (chat.contact_name) orFilters.push(`contact_name.eq.${chat.contact_name}`);
-          
-          const { data: canonical } = await adminClient.from("whatsapp_chats")
-            .select("id")
-            .eq("instance_id", instance.id)
-            .neq("id", chat.id)
-            .like("remote_jid", "%@s.whatsapp.net")
-            .or(orFilters.join(","))
-            .limit(1)
-            .maybeSingle();
-
-          if (canonical) {
-            console.log("[webhook] Merging @lid chat", chat.id, "into canonical", canonical.id);
-            // Remove provider-level duplicates before moving messages. The database
-            // unique index then protects the merge from concurrent webhook delivery.
-            const { data: lidMessages } = await adminClient
-              .from("whatsapp_messages")
-              .select("id, message_id_external")
-              .eq("chat_id", chat.id)
-              .not("message_id_external", "is", null);
-            const externalIds = [...new Set(
-              (lidMessages || [])
-                .map((message: any) => message.message_id_external)
-                .filter(Boolean),
-            )];
-            if (externalIds.length > 0) {
-              const { data: canonicalMessages } = await adminClient
-                .from("whatsapp_messages")
-                .select("message_id_external")
-                .eq("chat_id", canonical.id)
-                .in("message_id_external", externalIds);
-              const canonicalExternalIds = new Set(
-                (canonicalMessages || []).map((message: any) => message.message_id_external),
-              );
-              const duplicateLidIds = (lidMessages || [])
-                .filter((message: any) => canonicalExternalIds.has(message.message_id_external))
-                .map((message: any) => message.id);
-              if (duplicateLidIds.length > 0) {
-                await adminClient.from("whatsapp_messages").delete().in("id", duplicateLidIds);
-              }
-            }
-
-            const { error: messageMoveError } = await adminClient
-              .from("whatsapp_messages")
-              .update({ chat_id: canonical.id })
-              .eq("chat_id", chat.id);
-            if (messageMoveError) {
-              console.error("[webhook] Failed to merge @lid messages:", messageMoveError);
-              continue;
-            }
-            // Move labels
-            await adminClient.from("whatsapp_chat_labels").update({ chat_id: canonical.id }).eq("chat_id", chat.id);
-            // Move flow sessions
-            await adminClient.from("flow_sessions").update({ chat_id: canonical.id }).eq("chat_id", chat.id);
-            // Update canonical last_message_at
-            await adminClient.from("whatsapp_chats").update({ last_message_at: new Date().toISOString() }).eq("id", canonical.id);
-            // Delete the @lid duplicate
-            await adminClient.from("whatsapp_chats").delete().eq("id", chat.id);
-            // Use canonical chat going forward
-            Object.assign(chat, { id: canonical.id });
-          }
-        }
+        await persistWhatsAppJidAliases({
+          adminClient,
+          companyId: instance.company_id,
+          instanceId: instance.id,
+          chat,
+          jidVariants,
+        });
 
         // Link student (supports both @s.whatsapp.net and @lid)
         let isStudent = !!chat.student_id;
-        const phoneBase = remoteJid.replace(/@.*$/, "");
-        const phoneClean = phoneBase.replace(/^55/, "");
-        if (phoneClean && !remoteJid.includes("@g.us") && !chat.student_id) {
-          const { data: student } = await adminClient.from("students").select("id")
-            .eq("company_id", instance.company_id)
-            .or(`whatsapp.ilike.%${phoneClean}%,phone.ilike.%${phoneClean}%`)
-            .limit(1).maybeSingle();
-          if (student) {
+        const phoneKey = normalizeWhatsAppPhoneKey(remoteJid);
+        if (phoneKey && !remoteJid.includes("@g.us") && !chat.student_id) {
+          const { data: companyStudents } = await adminClient.from("students")
+            .select("id, phone, whatsapp")
+            .eq("company_id", instance.company_id);
+          const matchingStudents = (companyStudents || []).filter((student: any) => (
+            normalizeWhatsAppPhoneKey(student.whatsapp) === phoneKey
+            || normalizeWhatsAppPhoneKey(student.phone) === phoneKey
+          ));
+          if (matchingStudents.length === 1) {
             isStudent = true;
-            await adminClient.from("whatsapp_chats").update({ student_id: student.id }).eq("id", chat.id);
-            console.log("[webhook] Auto-linked student", student.id, "to chat", chat.id);
+            chat.student_id = matchingStudents[0].id;
+            await adminClient.from("whatsapp_chats").update({ student_id: matchingStudents[0].id }).eq("id", chat.id);
+            console.log("[webhook] Auto-linked student", matchingStudents[0].id, "to chat", chat.id);
           }
         }
 
         // Deduplicate
-        const msgExtId = key.id || null;
         if (msgExtId) {
           const { data: existing } = await adminClient.from("whatsapp_messages").select("id").eq("chat_id", chat.id).eq("message_id_external", msgExtId).limit(1).maybeSingle();
           if (existing) continue;
@@ -1165,6 +1281,7 @@ Deno.serve(async (req) => {
           quotedDbId = quotedRow?.id || null;
         }
 
+        let mediaStoragePath: string | null = null;
         if (finalMediaType && msgExtId) {
           const persisted = await persistProviderMedia({
             adminClient,
@@ -1180,6 +1297,7 @@ Deno.serve(async (req) => {
           });
           if (persisted?.mediaUrl) {
             mediaUrl = persisted.mediaUrl;
+            mediaStoragePath = persisted.mediaStoragePath;
           }
         }
 
@@ -1189,11 +1307,13 @@ Deno.serve(async (req) => {
           content, type: msgType, is_from_me: isFromMe,
           source: isFromMe ? "outgoing" : "incoming", sender_id: isFromMe ? null : remoteJid,
           media_url: mediaUrl, media_type: finalMediaType,
+          media_storage_path: mediaStoragePath,
           quoted_message_id: quotedDbId,
           quoted_message_external_id: quotedExternalId,
           quoted_message_preview: quotedPreview,
           quoted_message_source: quotedSource,
           timestamp: providerMessageAt,
+          origin: isHistoryEvent ? "provider_history_sync" : "provider_live",
         });
         if (msgInsertError) {
           if (msgInsertError.code !== "23505") {

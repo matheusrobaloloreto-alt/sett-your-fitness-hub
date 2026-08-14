@@ -1,10 +1,41 @@
 export interface NutritionMealLike {
   meal?: string | null;
+  source_header?: string | null;
+  source_lines?: string[] | null;
   time?: string | null;
   focus?: string | null;
   eat?: string[] | null;
   go_easy?: string[] | null;
   note?: string | null;
+}
+
+export interface ExternalNutritionDocumentLike {
+  parser_version?: string | null;
+  raw_text?: string | null;
+  source_file_name?: string | null;
+  lines?: string[] | null;
+  overview?: string[] | null;
+  meals?: NutritionMealLike[] | null;
+  targets?: {
+    calories_kcal?: number | null;
+    protein_g?: number | null;
+    carbs_g?: number | null;
+    fat_g?: number | null;
+    fiber_g?: number | null;
+    water_ml?: number | null;
+    water_ml_per_kg?: number | null;
+  } | null;
+  target_evidence?: Partial<Record<
+    "calories_kcal" | "protein_g" | "carbs_g" | "fat_g" | "fiber_g" | "water_ml" | "water_ml_per_kg",
+    string
+  >> | null;
+}
+
+export interface NutritionPlanCandidate {
+  status?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  created_at?: string | null;
 }
 
 export type ImportedNutritionItemKind = "choice" | "detail" | "heading" | "separator";
@@ -24,6 +55,8 @@ export interface ImportedNutritionMeal {
 export interface ImportedNutritionDisplay {
   overview: string[];
   meals: ImportedNutritionMeal[];
+  sourceFileName: string | null;
+  rawText: string | null;
 }
 
 const MEAL_LABELS: Array<[RegExp, string]> = [
@@ -42,44 +75,27 @@ const PLAN_TITLE_RE = /^plano\s+alimentar\b/i;
 const STANDALONE_CONTEXT_RE = /^(diariamente|ao longo do dia|op[cç][aã]o(?:\s+\d+)?|alternativa(?:\s+\d+)?)[:.]?$/i;
 const SECTION_HEADING_RE = /^(fontes?\s+de\s+|prote[ií]na\s+e\s+carboidrato|escolher\s+uma|intermedi[aá]rio|substitui[cç][oõ]es|observa[cç][oõ]es|orienta[cç][oõ]es)/i;
 
-function cleanText(value: unknown): string {
-  return String(value ?? "")
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.;:])/g, "$1")
-    .trim();
+// Preserva o conteúdo clínico. Só remove espaços de borda inseridos pela extração do PDF.
+function sourceText(value: unknown): string {
+  return String(value ?? "").trim();
 }
 
-function normalizeUnits(value: string): string {
-  return value
-    .replace(/(\d)\s*(ml|mg|kg|kcal|g)\b/gi, (_, number: string, unit: string) => `${number} ${unit.toLowerCase()}`)
-    .replace(/\b(ml|mg|kg|kcal)\b/gi, (unit) => unit.toLowerCase());
-}
-
+// Mantida para consumidores legados, agora sem alterar caixa, unidades ou pontuação.
 export function humanizeNutritionText(value: unknown): string {
-  const text = cleanText(value);
-  if (!text) return "";
-
-  const letters = text.match(/[A-Za-zÀ-ÖØ-öø-ÿ]/g) ?? [];
-  const uppercase = text.match(/[A-ZÀ-ÖØ-Þ]/g) ?? [];
-  const shouting = letters.length >= 4 && uppercase.length / letters.length > 0.72;
-  const readable = shouting
-    ? text.toLocaleLowerCase("pt-BR").replace(/^\p{L}/u, (letter) => letter.toLocaleUpperCase("pt-BR"))
-    : text;
-
-  return normalizeUnits(readable);
+  return sourceText(value);
 }
 
 export function normalizeNutritionMealLabel(value: unknown, index = 0): string {
-  const text = cleanText(value).replace(/[:\-–—]+$/, "");
+  const text = sourceText(value).replace(/[:\-–—]+$/, "").trim();
   for (const [pattern, label] of MEAL_LABELS) {
     if (pattern.test(text)) return label;
   }
   if (!text || GENERIC_MEAL_RE.test(text)) return `Refeição ${index + 1}`;
-  return humanizeNutritionText(text);
+  return text;
 }
 
 function embeddedMealLabel(value: string): string | null {
-  const text = cleanText(value).replace(/[:\-–—]+$/, "");
+  const text = sourceText(value).replace(/[:\-–—]+$/, "").trim();
   for (const [pattern, label] of MEAL_LABELS) {
     if (pattern.test(text)) return label;
   }
@@ -87,66 +103,93 @@ function embeddedMealLabel(value: string): string | null {
 }
 
 function classifyImportedItem(value: string): ImportedNutritionItem | null {
-  const raw = cleanText(value);
-  if (!raw || PLAN_TITLE_RE.test(raw)) return null;
-  if (/^ou[.:]?$/i.test(raw)) return { kind: "separator", text: "ou" };
-
-  const text = humanizeNutritionText(raw);
-  if (STANDALONE_CONTEXT_RE.test(raw) || SECTION_HEADING_RE.test(raw)) {
-    return { kind: "heading", text: text.replace(/[:.]$/, "") };
+  const text = sourceText(value);
+  if (!text || PLAN_TITLE_RE.test(text)) return null;
+  if (/^ou[.:]?$/i.test(text)) return { kind: "separator", text };
+  if (STANDALONE_CONTEXT_RE.test(text) || SECTION_HEADING_RE.test(text)) {
+    return { kind: "heading", text };
   }
-
-  const commaCount = (raw.match(/,/g) ?? []).length;
-  const isLong = text.length > 72 || commaCount >= 3;
-  return { kind: isLong ? "detail" : "choice", text };
+  const commaCount = (text.match(/,/g) ?? []).length;
+  return { kind: text.length > 72 || commaCount >= 3 ? "detail" : "choice", text };
 }
 
 function cleanOverview(values: string[]): string[] {
-  return values
-    .filter((value) => !PLAN_TITLE_RE.test(cleanText(value)))
-    .filter((value) => !STANDALONE_CONTEXT_RE.test(cleanText(value)))
-    .map(humanizeNutritionText)
-    .filter(Boolean);
+  return values.map(sourceText).filter(Boolean).filter((value) => !PLAN_TITLE_RE.test(value));
 }
 
-export function prepareImportedNutritionPlan(meals: NutritionMealLike[] | null | undefined): ImportedNutritionDisplay {
-  const source = Array.isArray(meals) ? meals.filter(Boolean) : [];
-  const overview: string[] = [];
+function planDateRank(value?: string | null): string {
+  return typeof value === "string" ? value : "";
+}
+
+/**
+ * Define o plano vigente sem depender da ordem incidental da query:
+ * status ativo + janela de datas contendo hoje; se houver duplicidade, vence
+ * a data de início mais recente e depois o registro mais novo. Registros sem
+ * status só entram como compatibilidade legada quando nenhum ativo é elegível.
+ */
+export function selectCurrentNutritionPlan<T extends NutritionPlanCandidate>(
+  plans: T[] | null | undefined,
+  today: string,
+): T | null {
+  const rows = (Array.isArray(plans) ? plans : []).filter(Boolean);
+  const inDateWindow = (plan: T) =>
+    (!plan.start_date || plan.start_date <= today) && (!plan.end_date || plan.end_date >= today);
+  const byCurrentPriority = (a: T, b: T) =>
+    planDateRank(b.start_date).localeCompare(planDateRank(a.start_date)) ||
+    planDateRank(b.created_at).localeCompare(planDateRank(a.created_at));
+  const active = rows
+    .filter((plan) => /^(active|ativo)$/i.test(String(plan.status || "")) && inDateWindow(plan))
+    .sort(byCurrentPriority);
+  if (active.length) return active[0];
+  const legacy = rows
+    .filter((plan) => !plan.status && inDateWindow(plan))
+    .sort(byCurrentPriority);
+  return legacy[0] ?? null;
+}
+
+export function prepareImportedNutritionPlan(
+  meals: NutritionMealLike[] | null | undefined,
+  sourceDocument?: ExternalNutritionDocumentLike | null,
+): ImportedNutritionDisplay {
+  const documentMeals = Array.isArray(sourceDocument?.meals) ? sourceDocument.meals : null;
+  const source = (documentMeals || (Array.isArray(meals) ? meals : [])).filter(Boolean);
+  const overview = Array.isArray(sourceDocument?.overview)
+    ? cleanOverview(sourceDocument.overview)
+    : [];
   const prepared: ImportedNutritionMeal[] = [];
 
   source.forEach((meal, index) => {
-    const rawItems = Array.isArray(meal.eat) ? meal.eat.map(cleanText).filter(Boolean) : [];
+    const preservedLines = Array.isArray(meal.source_lines) && meal.source_lines.length
+      ? meal.source_lines
+      : Array.isArray(meal.eat) ? meal.eat : [];
+    const rawItems = preservedLines.map(sourceText).filter(Boolean);
     const currentLabel = normalizeNutritionMealLabel(meal.meal, index);
-    const isGeneric = GENERIC_MEAL_RE.test(cleanText(meal.meal)) || /^Refei[cç][aã]o\s+\d+$/i.test(currentLabel);
+    const isGeneric = GENERIC_MEAL_RE.test(sourceText(meal.meal)) || /^Refei[cç][aã]o\s+\d+$/i.test(currentLabel);
     const embeddedIndex = isGeneric ? rawItems.findIndex((item) => embeddedMealLabel(item) !== null) : -1;
-
-    const nextMealHasExplicitLabel = source[index + 1]
-      ? embeddedMealLabel(cleanText(source[index + 1]?.meal)) !== null
-      : false;
-    if (isGeneric && embeddedIndex < 0 && index === 0 && nextMealHasExplicitLabel) {
-      overview.push(...cleanOverview(rawItems));
-      return;
-    }
 
     let label = currentLabel;
     let items = rawItems;
     if (embeddedIndex >= 0) {
-      overview.push(...cleanOverview(rawItems.slice(0, embeddedIndex)));
+      if (!sourceDocument?.overview) overview.push(...cleanOverview(rawItems.slice(0, embeddedIndex)));
       label = embeddedMealLabel(rawItems[embeddedIndex]) || currentLabel;
       items = rawItems.slice(embeddedIndex + 1);
     }
 
     const displayItems = items.map(classifyImportedItem).filter((item): item is ImportedNutritionItem => item !== null);
-    if (!displayItems.length && !label) return;
-
-    const genericFocus = /card[aá]pio informado pelo nutricionista/i.test(String(meal.focus || ""));
     prepared.push({
       meal: label,
-      time: cleanText(meal.time) || null,
-      focus: genericFocus ? null : humanizeNutritionText(meal.focus),
+      time: sourceText(meal.time) || null,
+      focus: meal.focus && !/(?:prescri[cç][aã]o|card[aá]pio) (?:do|informado pelo) nutricionista/i.test(meal.focus)
+        ? sourceText(meal.focus)
+        : null,
       items: displayItems,
     });
   });
 
-  return { overview: Array.from(new Set(overview)), meals: prepared };
+  return {
+    overview,
+    meals: prepared,
+    sourceFileName: sourceText(sourceDocument?.source_file_name) || null,
+    rawText: typeof sourceDocument?.raw_text === "string" ? sourceDocument.raw_text : null,
+  };
 }

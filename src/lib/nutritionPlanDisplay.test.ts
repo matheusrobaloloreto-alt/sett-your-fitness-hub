@@ -29,12 +29,14 @@ const importedMeals = [
 ];
 
 describe("prepareImportedNutritionPlan", () => {
-  it("separa as orientações gerais do café da manhã embutido no PDF", () => {
+  it("separa as orientações gerais do café da manhã sem reescrever o PDF", () => {
     const result = prepareImportedNutritionPlan(importedMeals);
 
     expect(result.overview).toEqual([
-      "Beber 500 ml de água em temperatura ambiente",
-      "Consumir no mínimo 35 ml de água por quilo de peso",
+      "DIARIAMENTE:",
+      "BEBER 500ML DE ÁGUA EM TEMPERATURA AMBIENTE",
+      "AO LONGO DO DIA:",
+      "CONSUMIR NO MÍNIMO 35ML DE ÁGUA POR QUILO DE PESO",
     ]);
     expect(result.meals[0].meal).toBe("Café da manhã");
     expect(result.meals[0].focus).toBeNull();
@@ -47,7 +49,21 @@ describe("prepareImportedNutritionPlan", () => {
     expect(result.meals[1].items.map((item) => item.kind)).toEqual(["heading", "choice", "detail"]);
   });
 
-  it("normaliza caixa alta e unidades sem mudar o conteúdo", () => {
-    expect(humanizeNutritionText("BEBER 500ML DE ÁGUA E 20G DE CASTANHAS")).toBe("Beber 500 ml de água e 20 g de castanhas");
+  it("preserva caixa, unidades e pontuação do nutricionista", () => {
+    expect(humanizeNutritionText("BEBER 500ML DE ÁGUA E 20G DE CASTANHAS")).toBe("BEBER 500ML DE ÁGUA E 20G DE CASTANHAS");
+  });
+
+  it("prioriza o documento de origem e mantém texto e arquivo auditáveis", () => {
+    const result = prepareImportedNutritionPlan(importedMeals, {
+      raw_text: "ALMOÇO\n80G DE ARROZ",
+      source_file_name: "cardapio-original.pdf",
+      overview: ["ORIENTAÇÃO EXATA"],
+      meals: [{ meal: "ALMOÇO", source_lines: ["80G DE ARROZ"] }],
+    });
+
+    expect(result.sourceFileName).toBe("cardapio-original.pdf");
+    expect(result.rawText).toBe("ALMOÇO\n80G DE ARROZ");
+    expect(result.overview).toEqual(["ORIENTAÇÃO EXATA"]);
+    expect(result.meals[0].items[0].text).toBe("80G DE ARROZ");
   });
 });

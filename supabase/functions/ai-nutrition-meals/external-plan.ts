@@ -1,12 +1,42 @@
-const MAX_EXTERNAL_TEXT_LENGTH = 24_000;
+export const MAX_EXTERNAL_TEXT_LENGTH = 200_000;
 
-export const externalMealHeaderRe = /^(café\s+da\s+manhã|cafe\s+da\s+manha|café|cafe|desjejum|colação|colacao|lanche(?:\s+da\s+(?:manhã|manha|tarde))?|almoço|almoco|jantar|ceia|pré[\s-]?treino|pre[\s-]?treino|pós[\s-]?treino|pos[\s-]?treino|refei[cç][aã]o\s*\d+|\d+[ªa]?\s*refei[cç][aã]o)(?=\s|:|-|$)[:\-\s]*/i;
+export const externalMealHeaderRe = /^(caf[eé]\s+da\s+manh[aã]|caf[eé]|desjejum|cola[cç][aã]o|lanche(?:\s+da\s+(?:manh[aã]|tarde))?|almo[cç]o|jantar|ceia|pr[eé][\s-]?treino|p[oó]s[\s-]?treino|refei[cç][aã]o\s*\d+|\d+[ªa]?\s*refei[cç][aã]o)(?=\s|:|-|$)[:\-\s]*/i;
 const externalTimeRe = /\b([01]?\d|2[0-3])[:h]([0-5]\d)\b/;
 
-function cleanExternalText(value: string) {
-  return (value || "")
-    .replace(/[^\x20-\x7EÀ-ſ\n]/g, "")
-    .slice(0, MAX_EXTERNAL_TEXT_LENGTH);
+export interface ExternalNutritionMeal {
+  meal: string;
+  source_header: string | null;
+  time: string | null;
+  focus: string;
+  eat: string[];
+  go_easy: string[];
+  note: string | null;
+  source_lines: string[];
+}
+
+export interface ExternalNutritionTargets {
+  calories_kcal: number | null;
+  protein_g: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+  fiber_g: number | null;
+  water_ml: number | null;
+  water_ml_per_kg: number | null;
+}
+
+export interface ExternalNutritionDocument {
+  parser_version: "nutritionist-pdf-v2";
+  raw_text: string;
+  source_file_name: string | null;
+  lines: string[];
+  overview: string[];
+  meals: ExternalNutritionMeal[];
+  targets: ExternalNutritionTargets;
+  target_evidence: Partial<Record<keyof ExternalNutritionTargets, string>>;
+}
+
+function preserveExternalText(value: string) {
+  return String(value || "").replace(/\0/g, "");
 }
 
 function normalizeTime(value: string) {
@@ -14,39 +44,159 @@ function normalizeTime(value: string) {
   return match ? `${match[1].padStart(2, "0")}:${match[2]}` : null;
 }
 
-function normalizeMealLabel(value: string, index: number) {
-  const normalized = value
-    .replace(/^cafe\s+da\s+manha$/i, "Café da manhã")
-    .replace(/^café\s+da\s+manhã$/i, "Café da manhã")
-    .replace(/^cafe$/i, "Café da manhã")
-    .replace(/^café$/i, "Café da manhã")
-    .replace(/^almoco$/i, "Almoço")
-    .replace(/^pre[\s-]?treino$/i, "Pré-treino")
-    .replace(/^pos[\s-]?treino$/i, "Pós-treino")
-    .trim();
-  return normalized ? normalized.charAt(0).toLocaleUpperCase("pt-BR") + normalized.slice(1).toLocaleLowerCase("pt-BR") : `Refeição ${index + 1}`;
+function displayMealLabel(value: string, index: number) {
+  const text = value.replace(/[:\-–—\s]+$/, "").trim();
+  const known: Array<[RegExp, string]> = [
+    [/^(caf[eé]\s+da\s+manh[aã]|caf[eé]|desjejum)$/i, "Café da manhã"],
+    [/^cola[cç][aã]o$/i, "Colação"],
+    [/^almo[cç]o$/i, "Almoço"],
+    [/^lanche(?:\s+da\s+(?:manh[aã]|tarde))?$/i, text],
+    [/^pr[eé][\s-]?treino$/i, "Pré-treino"],
+    [/^p[oó]s[\s-]?treino$/i, "Pós-treino"],
+    [/^jantar$/i, "Jantar"],
+    [/^ceia$/i, "Ceia"],
+  ];
+  for (const [pattern, label] of known) {
+    if (pattern.test(text)) return label;
+  }
+  return text || `Refeição ${index + 1}`;
 }
 
-export function parseExternalDietText(rawText: string, expectedMeals: number) {
-  const lines = cleanExternalText(rawText)
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^[\s\-•*]+/, "").trim())
-    .filter(Boolean);
-  const meals: Array<{ meal: string; time: string | null; focus: string; eat: string[]; go_easy: string[]; note: string }> = [];
-  let current: { meal: string; time: string | null; items: string[] } | null = null;
+function parseDecimal(value: string) {
+  const parsed = Number(value.replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+type TargetExtraction = {
+  targets: ExternalNutritionTargets;
+  evidence: Partial<Record<keyof ExternalNutritionTargets, string>>;
+};
+
+const DAILY_TARGET_CUE_RE = /\b(meta|totais?|objetivo|valor\s+di[aá]rio|ao\s+dia|por\s+dia|di[aá]ri[oa]s?|\/\s*dia)\b/i;
+const FOOD_PORTION_TAIL_RE = /^\s*(?:de|do|da)\s+[a-zà-ÿ]/i;
+
+function metricFromLines(
+  lines: string[],
+  pattern: RegExp,
+  compactPattern: RegExp,
+): { value: number | null; evidence: string | null } {
+  for (const line of lines) {
+    const match = line.match(pattern);
+    const rawValue = match?.slice(1).find((value) => Boolean(value));
+    const parsed = rawValue ? parseDecimal(rawValue) : null;
+    if (parsed == null) continue;
+    const tail = line.slice((match.index ?? 0) + match[0].length);
+    // "PROTEÍNA: 120G DE FRANGO" descreve uma porção, não a meta proteica diária.
+    if (FOOD_PORTION_TAIL_RE.test(tail)) continue;
+    if (DAILY_TARGET_CUE_RE.test(line) || compactPattern.test(line.trim())) {
+      return { value: parsed, evidence: line };
+    }
+  }
+  return { value: null, evidence: null };
+}
+
+function extractTargetsWithEvidence(rawText: string): TargetExtraction {
+  const lines = preserveExternalText(rawText).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const number = "(\\d+(?:[.,]\\d+)?)";
+  const calories = metricFromLines(
+    lines,
+    new RegExp(`${number}\\s*kcal\\b`, "i"),
+    /^(?:(?:valor\s+energ[eé]tico|energia|calorias?|meta)\s*[:=\-]?\s*)?\d+(?:[.,]\d+)?\s*kcal(?:\s*(?:\/|por)\s*dia)?$/i,
+  );
+  const protein = metricFromLines(
+    lines,
+    new RegExp(`prote[ií]nas?\\s*[:=\\-]?\\s*${number}\\s*g\\b`, "i"),
+    /^prote[ií]nas?\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
+  );
+  const carbs = metricFromLines(
+    lines,
+    new RegExp(`(?:carboidratos?|carbo)\\s*[:=\\-]?\\s*${number}\\s*g\\b`, "i"),
+    /^(?:carboidratos?|carbo)\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
+  );
+  const fat = metricFromLines(
+    lines,
+    new RegExp(`(?:gorduras?|lip[ií]dios?)\\s*[:=\\-]?\\s*${number}\\s*g\\b`, "i"),
+    /^(?:gorduras?|lip[ií]dios?)\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
+  );
+  const fiber = metricFromLines(
+    lines,
+    new RegExp(`fibras?\\s*[:=\\-]?\\s*${number}\\s*g\\b`, "i"),
+    /^fibras?\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
+  );
+  const waterPerKg = metricFromLines(
+    lines,
+    new RegExp(`${number}\\s*ml\\s*(?:\\/|por|para\\s+cada)\\s*(?:kg|quilo)`, "i"),
+    /^\D*\d+(?:[.,]\d+)?\s*ml\s*(?:\/|por|para\s+cada)\s*(?:kg|quilo)\D*$/i,
+  );
+  const waterLiters = metricFromLines(
+    lines,
+    new RegExp(`(?:[aá]gua|hidrata[cç][aã]o)[^\\d]{0,24}${number}\\s*(?:l|litros?)\\b|${number}\\s*(?:l|litros?)\\s+(?:de\\s+)?[aá]gua\\b`, "i"),
+    /^(?:[aá]gua|hidrata[cç][aã]o)\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*(?:l|litros?)(?:\s*(?:\/|por)\s*dia)?$/i,
+  );
+  const waterMl = metricFromLines(
+    lines,
+    new RegExp(`(?:[aá]gua|hidrata[cç][aã]o)[^\\d]{0,24}${number}\\s*ml\\b|${number}\\s*ml\\s+(?:de\\s+)?[aá]gua\\b`, "i"),
+    /^(?:[aá]gua|hidrata[cç][aã]o)\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*ml(?:\s*(?:\/|por)\s*dia)?$/i,
+  );
+  const absoluteWater = waterMl.value ?? (waterLiters.value != null ? Math.round(waterLiters.value * 1000) : null);
+  const absoluteWaterEvidence = waterMl.evidence ?? waterLiters.evidence;
+  const evidence: TargetExtraction["evidence"] = {};
+  const extracted = {
+    calories_kcal: calories,
+    protein_g: protein,
+    carbs_g: carbs,
+    fat_g: fat,
+    fiber_g: fiber,
+    water_ml_per_kg: waterPerKg,
+  } as const;
+  for (const [key, metric] of Object.entries(extracted) as Array<[keyof typeof extracted, { value: number | null; evidence: string | null }]>) {
+    if (metric.evidence) evidence[key] = metric.evidence;
+  }
+  if (absoluteWaterEvidence) evidence.water_ml = absoluteWaterEvidence;
+  return {
+    targets: {
+      calories_kcal: calories.value,
+      protein_g: protein.value,
+      carbs_g: carbs.value,
+      fat_g: fat.value,
+      fiber_g: fiber.value,
+      water_ml: absoluteWater,
+      water_ml_per_kg: waterPerKg.value,
+    },
+    evidence,
+  };
+}
+
+export function extractExternalNutritionTargets(rawText: string): ExternalNutritionTargets {
+  return extractTargetsWithEvidence(rawText).targets;
+}
+
+function stripHeaderFromLine(line: string, header: RegExpMatchArray) {
+  return line.slice((header.index ?? 0) + header[0].length).trim();
+}
+
+export function parseExternalDietText(rawText: string, _expectedMeals = 0): ExternalNutritionMeal[] {
+  const raw = preserveExternalText(rawText);
+  if (raw.length > MAX_EXTERNAL_TEXT_LENGTH) {
+    throw new Error(`O documento excede o limite de ${MAX_EXTERNAL_TEXT_LENGTH} caracteres.`);
+  }
+
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const meals: ExternalNutritionMeal[] = [];
+  let current: { label: string; header: string | null; time: string | null; lines: string[] } | null = null;
 
   const pushCurrent = () => {
     if (!current) return;
-    const items = current.items
-      .map((item) => item.replace(externalMealHeaderRe, "").replace(externalTimeRe, "").replace(/^[\s:–—-]+/, "").trim())
-      .filter(Boolean);
+    const sourceLines = current.lines.filter(Boolean);
     meals.push({
-      meal: current.meal,
+      meal: current.label,
+      source_header: current.header,
       time: current.time,
-      focus: "Cardápio informado pelo nutricionista",
-      eat: items.length ? items : ["seguir o cardápio prescrito"],
+      focus: "Prescrição do nutricionista",
+      eat: sourceLines,
       go_easy: [],
-      note: "Siga as quantidades e substituições combinadas com seu nutricionista.",
+      note: null,
+      source_lines: sourceLines,
     });
   };
 
@@ -54,52 +204,57 @@ export function parseExternalDietText(rawText: string, expectedMeals: number) {
     const header = line.match(externalMealHeaderRe);
     if (header) {
       pushCurrent();
+      const remainder = stripHeaderFromLine(line, header);
       current = {
-        meal: normalizeMealLabel(header[1], meals.length),
+        label: displayMealLabel(header[1], meals.length),
+        header: line,
         time: normalizeTime(line),
-        items: [line.replace(header[0], "").trim()].filter(Boolean),
+        lines: remainder ? [remainder] : [],
       };
       continue;
     }
-    if (current) {
-      current.items.push(line);
-      if (!current.time) current.time = normalizeTime(line);
-    } else {
-      current = { meal: `Refeição ${meals.length + 1}`, time: normalizeTime(line), items: [line] };
+
+    if (!current) {
+      current = { label: "Cardápio completo", header: null, time: normalizeTime(line), lines: [] };
     }
+    current.lines.push(line);
+    if (!current.time) current.time = normalizeTime(line);
   }
   pushCurrent();
-
-  if (meals.length <= 1 && lines.length > 1) {
-    const target = Math.min(Math.max(Number(expectedMeals) || 3, 1), 8);
-    const chunkSize = Math.max(1, Math.ceil(lines.length / target));
-    return Array.from({ length: Math.min(target, Math.ceil(lines.length / chunkSize)) }).map((_, index) => {
-      const chunk = lines.slice(index * chunkSize, index * chunkSize + chunkSize);
-      return {
-        meal: `Refeição ${index + 1}`,
-        time: normalizeTime(chunk.join(" ")),
-        focus: "Cardápio informado pelo nutricionista",
-        eat: chunk.map((item) => item.replace(externalTimeRe, "").trim()).filter(Boolean),
-        go_easy: [],
-        note: "Siga as quantidades e substituições combinadas com seu nutricionista.",
-      };
-    });
-  }
-
   return meals;
 }
 
+export function buildExternalNutritionDocument(rawText: string, sourceFileName?: string | null): ExternalNutritionDocument {
+  const raw = preserveExternalText(rawText);
+  const meals = parseExternalDietText(raw);
+  const rawLines = raw.split(/\r?\n/);
+  const firstMealLine = meals.length > 0
+    ? rawLines.findIndex((line) => externalMealHeaderRe.test(line.trim()))
+    : -1;
+  const allLines = rawLines.map((line) => line.trim()).filter(Boolean);
+  const overview = firstMealLine > 0
+    ? rawLines.slice(0, firstMealLine).map((line) => line.trim()).filter(Boolean)
+    : [];
+  const targetExtraction = extractTargetsWithEvidence(raw);
+
+  return {
+    parser_version: "nutritionist-pdf-v2",
+    raw_text: raw,
+    source_file_name: sourceFileName?.trim().slice(0, 240) || null,
+    lines: allLines,
+    overview,
+    meals,
+    targets: targetExtraction.targets,
+    target_evidence: targetExtraction.evidence,
+  };
+}
+
+// Mantém compatibilidade com o contrato legado da edge sem truncar o conteúdo.
 export function sanitizeExternalMeals(meals: ReturnType<typeof parseExternalDietText>) {
-  return meals.slice(0, 10).map((meal, index) => ({
-    meal: typeof meal?.meal === "string" ? meal.meal.slice(0, 80) : `Refeição ${index + 1}`,
-    time: typeof meal?.time === "string" ? meal.time.slice(0, 12) : null,
-    focus: typeof meal?.focus === "string" ? meal.focus.slice(0, 180) : null,
-    eat: Array.isArray(meal?.eat)
-      ? meal.eat.filter((item) => typeof item === "string" && item.trim()).slice(0, 32).map((item) => item.slice(0, 260))
-      : [],
-    go_easy: Array.isArray(meal?.go_easy)
-      ? meal.go_easy.filter((item) => typeof item === "string" && item.trim()).slice(0, 12).map((item) => item.slice(0, 160))
-      : [],
-    note: typeof meal?.note === "string" ? meal.note.slice(0, 240) : null,
+  return meals.map((meal) => ({
+    ...meal,
+    eat: [...meal.eat],
+    go_easy: [...meal.go_easy],
+    source_lines: [...meal.source_lines],
   }));
 }

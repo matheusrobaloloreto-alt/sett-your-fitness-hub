@@ -1,4 +1,4 @@
-const WEEKEND_RESPONSE_DAYS = new Set(["Fri", "Sat"]);
+const NEXT_MONDAY_RESPONSE_DAYS = new Set(["Fri", "Sat", "Sun"]);
 
 export function preRegistrationResponseDeadline(now = new Date()): string {
   const weekday = new Intl.DateTimeFormat("en-US", {
@@ -6,9 +6,9 @@ export function preRegistrationResponseDeadline(now = new Date()): string {
     weekday: "short",
   }).format(now);
 
-  if (WEEKEND_RESPONSE_DAYS.has(weekday)) {
-    return "Vamos analisar o seu perfil e, se pudermos realmente te ajudar, você receberá um retorno nosso até segunda-feira.";
+  if (NEXT_MONDAY_RESPONSE_DAYS.has(weekday)) {
+    return "Você vai ouvir da gente já na segunda-feira.";
   }
 
-  return "Vamos analisar o seu perfil e, se pudermos realmente te ajudar, você receberá um retorno nosso em até 48 horas.";
+  return "Você vai ouvir da gente ainda hoje.";
 }

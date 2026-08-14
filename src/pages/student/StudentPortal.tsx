@@ -33,6 +33,8 @@ import { StudentHome } from "@/components/student/StudentHome";
 import { businessDateYmd } from "@/lib/businessDate";
 import { NutritionPlanView } from "@/components/student/NutritionPlanView";
 import { CardioPlanView } from "@/components/student/CardioPlanView";
+import { WearableIntegrations } from "@/components/student/WearableIntegrations";
+import { PlatformAdSlot } from "@/components/PlatformAdSlot";
 import { StudentCalendar } from "@/components/student/StudentCalendar";
 import { StudentHistory } from "@/components/student/StudentHistory";
 import { WorkoutHeader } from "@/components/student/WorkoutHeader";
@@ -52,7 +54,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
 
-type ActiveView = "home" | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo";
+type ActiveView = "home" | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
 
 
 interface WorkoutExercise {
@@ -783,6 +785,7 @@ export default function StudentPortal() {
     corrida: "CORRIDA",
     natacao: "NATAÇÃO",
     ciclismo: "CICLISMO",
+    integracoes: "INTEGRAÇÕES",
   };
 
 
@@ -850,6 +853,7 @@ export default function StudentPortal() {
           <div className="space-y-3">
           {user?.id && <PushBanner userId={user.id} companyId={companyId} />}
           {studentId && <CheckinCard studentId={studentId} companyId={companyId} />}
+          <PlatformAdSlot audience="student" placement="dashboard_banner" companyId={companyId} />
           <StudentHome
             studentName={studentName}
             enrollmentInfo={enrollmentInfo}
@@ -884,6 +888,7 @@ export default function StudentPortal() {
         {activeView === "corrida" && studentId && <CardioPlanView studentId={studentId} sport="corrida" />}
         {activeView === "natacao" && studentId && <CardioPlanView studentId={studentId} sport="natacao" />}
         {activeView === "ciclismo" && studentId && <CardioPlanView studentId={studentId} sport="ciclismo" />}
+        {activeView === "integracoes" && <WearableIntegrations />}
 
 
         {/* TREINO VIEW */}
@@ -1169,9 +1174,7 @@ export default function StudentPortal() {
         )}
           </motion.div>
         </AnimatePresence>
-
-
-
+        <PlatformAdSlot audience="student" placement="footer" companyId={companyId} className="mt-8" />
       </div>
 
       {/* Feedback pós-treino → WhatsApp do treinador */}

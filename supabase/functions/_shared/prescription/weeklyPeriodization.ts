@@ -28,6 +28,7 @@ const METHOD_LABELS: Record<string, string> = {
   superset: "Super-set",
   triset: "Tri-set",
   giantset: "Giant-set",
+  circuito: "Circuito técnico",
   dropset: "Drop-set",
   restpause: "Rest-pause",
   cluster: "Cluster-set",
@@ -35,6 +36,29 @@ const METHOD_LABELS: Record<string, string> = {
   pico_contracao: "Pico de contração",
   pico_alongamento: "Pico de alongamento",
 };
+
+const PREPARATION_PHASES = new Set([
+  "mobilidade",
+  "autoliberacao",
+  "alongamento",
+  "fisioterapia",
+  "controle_motor",
+  "ativacao_core",
+  "ativacao_especifica",
+]);
+
+// O bloco preparatório inteiro é técnico e de baixa fadiga. Agrupá-lo mantém
+// mobilidade -> controle motor -> core -> ativação específica na ordem BN e
+// evita que mobilidades/fisio virem exercícios soltos no treino do aluno.
+const GROUPABLE_PREPARATION_PHASES = new Set([
+  "mobilidade",
+  "autoliberacao",
+  "alongamento",
+  "fisioterapia",
+  "controle_motor",
+  "ativacao_core",
+  "ativacao_especifica",
+]);
 
 function resolveLevel(input: PrescriptionInput): "iniciante" | "intermediario" | "avancado" {
   const level = normalizeText(input.fitnessLevel);
@@ -69,10 +93,60 @@ function adjustedSets(exercise: TrainingExercise, rule: WeekRule, input: Prescri
 
 function methodInstruction(method: MethodId | null | undefined, base: string): string {
   if (method === "biset" || method === "superset") return "Execute em sequência com o exercício que tem a mesma marcação; descanse somente depois do par.";
+  if (method === "triset") return "Execute os três exercícios com a mesma marcação em sequência; descanse somente ao concluir a volta.";
+  if (method === "circuito") return "Complete os exercícios com a mesma marcação em circuito técnico, sem pressa e sem chegar à falha.";
   if (method === "dropset") return "Na última série, reduza a carga uma vez e continue com boa técnica, sem descanso.";
   if (method === "restpause") return "Na última série, pause 20 segundos e complete um bloco curto de repetições com técnica limpa.";
   if (method === "cluster") return "Divida a série em blocos curtos, com 15 segundos entre eles; interrompa se a velocidade ou a técnica cair.";
   return base;
+}
+
+function groupPreparationExercises(
+  exercises: PlannedExercise[],
+  sessionKey: string,
+  week: number,
+): PlannedExercise[] {
+  const preparationIndexes = exercises
+    .map((exercise, index) => GROUPABLE_PREPARATION_PHASES.has(exercise.phase) ? index : -1)
+    .filter((index) => index >= 0);
+  if (preparationIndexes.length < 2) return exercises;
+
+  const method: MethodId = preparationIndexes.length >= 4
+    ? "circuito"
+    : preparationIndexes.length === 3
+      ? "triset"
+      : "biset";
+  const grouped = new Set(preparationIndexes);
+  const groupId = `preparo-${sessionKey}-s${week}`;
+  return exercises.map((exercise, index) => grouped.has(index)
+    ? { ...exercise, method, group_id: groupId, method_seconds: null }
+    : exercise);
+}
+
+function buildSetTypes(
+  exercise: PlannedExercise,
+  sets: number,
+  rule: WeekRule,
+  input: PrescriptionInput,
+): Array<"warmup" | "normal" | "failure" | "drop"> {
+  const types: Array<"warmup" | "normal" | "failure" | "drop"> = Array.from(
+    { length: Math.max(1, sets) },
+    () => "normal",
+  );
+  if (PREPARATION_PHASES.has(exercise.phase)) return types;
+
+  const safeOnly = shouldHoldProgression(input) || Boolean(input.deload) || resolveLevel(input) === "iniciante";
+  if (exercise.phase === "forca_global" && types.length > 1) types[0] = "warmup";
+  if (safeOnly) return types;
+
+  if (exercise.method === "dropset") {
+    types[types.length - 1] = "drop";
+  } else if (exercise.method === "restpause") {
+    types[types.length - 1] = "failure";
+  } else if (rule.week >= 5 && exercise.phase === "forca_especifica") {
+    types[types.length - 1] = "failure";
+  }
+  return types;
 }
 
 function prescriptionForWeek(
@@ -80,10 +154,11 @@ function prescriptionForWeek(
   rule: WeekRule,
   input: PrescriptionInput,
 ): WeeklyExercisePrescription {
+  const sets = adjustedSets(exercise, rule, input);
   return {
     week: rule.week,
     block: rule.block,
-    sets: adjustedSets(exercise, rule, input),
+    sets,
     reps: exercise.reps,
     rir: rule.rir,
     rest_seconds: rule.week >= 5 && exercise.method ? Math.max(45, exercise.rest_seconds - 15) : exercise.rest_seconds,
@@ -91,6 +166,7 @@ function prescriptionForWeek(
     method: exercise.method ?? null,
     group_id: exercise.group_id ?? null,
     method_seconds: exercise.method_seconds ?? null,
+    set_types: buildSetTypes(exercise, sets, rule, input),
     instruction: methodInstruction(exercise.method, rule.instruction),
   };
 }
@@ -115,29 +191,37 @@ export function buildWeeklyPeriodization(
     }));
     const prescriptions = new Map<number, PlannedExercise[]>();
     for (const rule of rules) {
-      prescriptions.set(rule.week, planAdvancedMethods(methodReadyExercises, {
+      const planned = planAdvancedMethods(methodReadyExercises, {
         mesocycle: rule.block,
         level,
         microcycle: rule.block === "intensificacao" ? "choque" : "ordinario",
         week: rule.week,
         hasPain: blocked,
         sessionKey: `w${workoutIndex + 1}`,
-      }));
+      });
+      prescriptions.set(
+        rule.week,
+        groupPreparationExercises(planned, `w${workoutIndex + 1}`, rule.week),
+      );
     }
 
     return {
       ...workout,
-      exercises: workout.exercises.map((exercise, exerciseIndex) => ({
-        ...exercise,
-        method: null,
-        group_id: null,
-        method_seconds: null,
-        weekly_prescription: rules.map((rule) => {
+      exercises: workout.exercises.map((exercise, exerciseIndex) => {
+        const weeklyPrescription = rules.map((rule) => {
           const planned = prescriptions.get(rule.week)?.[exerciseIndex] || methodReadyExercises[exerciseIndex];
           if (planned.method) methodSets.get(rule.week)?.add(planned.method);
           return prescriptionForWeek(planned, rule, input);
-        }),
-      })),
+        });
+        return {
+          ...exercise,
+          method: null,
+          group_id: null,
+          method_seconds: null,
+          set_types: weeklyPrescription[0]?.set_types || exercise.set_types,
+          weekly_prescription: weeklyPrescription,
+        };
+      }),
     };
   });
 

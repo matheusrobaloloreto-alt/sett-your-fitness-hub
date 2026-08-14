@@ -4,7 +4,7 @@
 // schema inconsistente). Idempotente: se o plano já tem meals, devolve o que existe.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { parseExternalDietText, sanitizeExternalMeals } from "./external-plan.ts";
+import { buildExternalNutritionDocument, sanitizeExternalMeals } from "./external-plan.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -69,7 +69,7 @@ serve(async (req) => {
     const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     // Autorização: o próprio aluno (students.user_id = sub), master, ou staff da mesma empresa.
-    const { data: student } = await db.from("students").select("id, company_id, user_id").eq("id", student_id).maybeSingle();
+    const { data: student } = await db.from("students").select("id, company_id, user_id, weight_kg").eq("id", student_id).maybeSingle();
     if (!student) return json({ error: "Aluno não encontrado" }, 404);
     const isOwner = student.user_id === claims.sub;
     let allowed = isOwner;
@@ -85,7 +85,7 @@ serve(async (req) => {
     // Plano nutricional mais recente do aluno.
     const { data: plan } = await db
       .from("nutrition_plans")
-      .select("id, name, plan_name, goal, target_calories, target_protein_g, target_carbs_g, target_fat_g, target_water_ml, context_dietary_restrictions, ai_rationale, meals, start_date, end_date")
+      .select("id, name, plan_name, goal, target_calories, target_protein_g, target_carbs_g, target_fat_g, target_fiber_g, target_water_ml, context_dietary_restrictions, ai_rationale, meals, start_date, end_date, source_type, source_file_name, source_document")
       .eq("student_id", student_id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -101,43 +101,55 @@ serve(async (req) => {
     const mealsPerDay = Number(anamnese?.meals_per_day) || 5;
 
     if (action === "save_external_plan") {
-      const rawText = String(body?.raw_text || "").trim();
-      if (rawText.length < 10) return json({ error: "Cole o cardápio do nutricionista antes de salvar." }, 400);
+      const rawText = String(body?.raw_text || "");
+      if (rawText.trim().length < 10) return json({ error: "Cole o cardápio do nutricionista antes de salvar." }, 400);
 
-      const safeMeals = sanitizeExternalMeals(parseExternalDietText(rawText, mealsPerDay));
+      const document = buildExternalNutritionDocument(rawText, body?.source_file_name);
+      const safeMeals = sanitizeExternalMeals(document.meals);
       if (!safeMeals.length) return json({ error: "Não foi possível identificar refeições no cardápio informado." }, 422);
 
-      const planId = (plan as any)?.id || crypto.randomUUID();
+      const weightKg = Number((student as any)?.weight_kg) || 0;
+      const targetWaterMl = document.targets.water_ml_per_kg && weightKg > 0
+        ? Math.round(document.targets.water_ml_per_kg * weightKg)
+        : document.targets.water_ml;
       const persistencePayload = {
-        id: planId,
+        id: crypto.randomUUID(),
         company_id: student.company_id,
         student_id,
         name: "Cardápio do nutricionista",
         plan_name: "Cardápio do nutricionista",
-        goal: (plan as any)?.goal || "acompanhamento_nutricionista",
-        target_calories: (plan as any)?.target_calories ?? null,
-        target_protein_g: (plan as any)?.target_protein_g ?? null,
-        target_carbs_g: (plan as any)?.target_carbs_g ?? null,
-        target_fat_g: (plan as any)?.target_fat_g ?? null,
-        target_water_ml: (plan as any)?.target_water_ml ?? null,
-        total_calories: (plan as any)?.target_calories ?? null,
-        protein_g: (plan as any)?.target_protein_g ?? null,
-        carbs_g: (plan as any)?.target_carbs_g ?? null,
-        fat_g: (plan as any)?.target_fat_g ?? null,
-        context_dietary_restrictions: anamnese?.food_restrictions ?? (plan as any)?.context_dietary_restrictions ?? null,
+        goal: "acompanhamento_nutricionista",
+        target_calories: document.targets.calories_kcal,
+        target_protein_g: document.targets.protein_g,
+        target_carbs_g: document.targets.carbs_g,
+        target_fat_g: document.targets.fat_g,
+        target_fiber_g: document.targets.fiber_g,
+        target_water_ml: targetWaterMl,
+        total_calories: document.targets.calories_kcal,
+        protein_g: document.targets.protein_g,
+        carbs_g: document.targets.carbs_g,
+        fat_g: document.targets.fat_g,
+        context_dietary_restrictions: anamnese?.food_restrictions ?? null,
         meals: safeMeals,
-        ai_rationale: "Cardápio informado pelo aluno a partir do acompanhamento com nutricionista.",
-        observations: "Material organizado pelo app sem alterar a prescrição do nutricionista.",
-        start_date: (plan as any)?.start_date ?? new Date().toISOString().slice(0, 10),
-        end_date: (plan as any)?.end_date ?? null,
+        ai_rationale: null,
+        observations: "Prescrição externa preservada integralmente. A interface apenas organiza a leitura.",
+        start_date: new Date().toISOString().slice(0, 10),
+        end_date: null,
         status: "active",
+        source_type: "nutritionist_pdf",
+        source_file_name: document.source_file_name,
+        source_document: document,
       };
 
-      const write = (plan as any)?.id
-        ? await db.from("nutrition_plans").update(persistencePayload).eq("id", (plan as any).id).select("*").maybeSingle()
-        : await db.from("nutrition_plans").insert(persistencePayload).select("*").maybeSingle();
+      const write = await db.from("nutrition_plans").insert(persistencePayload).select("*").maybeSingle();
       if (write.error) throw write.error;
-      return json({ meals: safeMeals, cached: false, source: "nutritionist_upload", plan: write.data ?? persistencePayload });
+      return json({
+        meals: safeMeals,
+        cached: false,
+        source: "nutritionist_upload",
+        source_document: document,
+        plan: write.data ?? persistencePayload,
+      });
     }
 
     if (!plan) return json({ error: "Nenhum plano nutricional encontrado" }, 404);

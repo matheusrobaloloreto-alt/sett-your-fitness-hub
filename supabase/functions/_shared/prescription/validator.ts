@@ -238,7 +238,9 @@ export function validateTrainingProgram(args: {
     });
   }
 
-  if (/pliometr|salto|jump|hop/.test(exerciseText) && Number(args.input.blockNumber || 1) <= 1) {
+  const performanceObjective = /(performance|potencia|velocidade|esporte)/.test(normalizeText(args.input.objective));
+  const technicalPlyometricsAllowed = !level.includes("inic") && !shouldHoldProgression(args.input) && !args.input.deload && performanceObjective;
+  if (/pliometr|salto|jump|hop/.test(exerciseText) && Number(args.input.blockNumber || 1) <= 1 && !technicalPlyometricsAllowed) {
     add({
       severity: "warning",
       code: "plyometrics_in_block_1",

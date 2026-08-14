@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
 
 type ChatRole = "user" | "assistant";
-type StudentBnitoAction = "ask" | "brief" | "weekly_contact" | "contextual" | "report_pain";
+type StudentBnitoAction = "ask" | "brief" | "weekly_contact" | "contextual" | "report_pain" | "identity";
 
 interface AuthContext {
   authHeader: string;
@@ -73,6 +73,12 @@ const BN_AI_CONFIG: CompanyAiConfig = {
   communication_style: null,
   nutrition_scope: null,
   ethical_limits: null,
+};
+
+const DEFAULT_AI_CONFIG: CompanyAiConfig = {
+  ...BN_AI_CONFIG,
+  assistant_name: "Setty",
+  consultancy_name: "Set Training App",
 };
 
 const STUDENT_BNITO_SYSTEM = `
@@ -192,15 +198,60 @@ function compact(value: unknown, maxLength = 8000) {
   return JSON.stringify(value ?? null, null, 2).slice(0, maxLength);
 }
 
-async function loadCompanyAiConfig(companyId: string | null | undefined): Promise<CompanyAiConfig> {
-  if (!companyId) return BN_AI_CONFIG;
+function companyFallback(companyName?: string | null): CompanyAiConfig {
+  return /\bbn\b|bn performance/i.test(cleanText(companyName, 300))
+    ? BN_AI_CONFIG
+    : DEFAULT_AI_CONFIG;
+}
+
+async function loadCompanyAiConfig(
+  companyId: string | null | undefined,
+  companyName?: string | null,
+): Promise<CompanyAiConfig> {
+  const fallback = companyFallback(companyName);
+  if (!companyId) return fallback;
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("company_ai_config")
     .select("assistant_name, consultancy_name, methodology, plans_payment, tone, onboarding_completed, owner_credentials, niche_audience, exercise_preferences, progression_model, assessment_protocol, red_lines, communication_style, nutrition_scope, ethical_limits")
     .eq("company_id", companyId)
     .maybeSingle();
-  return data ? { ...BN_AI_CONFIG, ...data } : BN_AI_CONFIG;
+  if (error) console.error("[ai-student-bnito] company_ai_config", error.message);
+  return data ? { ...fallback, ...data } : fallback;
+}
+
+function contextVersion(studentContext: any) {
+  const source = JSON.stringify({
+    student_id: studentContext?.student?.id ?? null,
+    enrollment: studentContext?.enrollment ?? null,
+    active_cycle: studentContext?.active_cycle ?? null,
+    todays_workout: studentContext?.todays_workout ?? null,
+    workouts_in_cycle: studentContext?.workouts_in_cycle ?? [],
+    cardio_plans: studentContext?.cardio_plans ?? [],
+    nutrition_plan: studentContext?.nutrition_plan ?? null,
+    assessment: studentContext?.assessment ?? null,
+    wearable_devices: studentContext?.wearable_devices ?? [],
+    wearable_metrics: studentContext?.wearable_metrics ?? [],
+    wearable_workouts: studentContext?.wearable_workouts ?? [],
+  });
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `ctx-${(hash >>> 0).toString(36)}`;
+}
+
+function assistantIdentity(config: CompanyAiConfig, studentContext: any) {
+  return {
+    assistant_name: cleanText(config.assistant_name || "Setty", 120),
+    consultancy_name: cleanText(
+      config.consultancy_name || studentContext?.company?.name || "Set Training App",
+      200,
+    ),
+    company_id: studentContext?.student?.company_id ?? studentContext?.company?.id ?? null,
+    context_version: contextVersion(studentContext),
+  };
 }
 
 function companyAiSystem(config: CompanyAiConfig) {
@@ -369,6 +420,9 @@ function fallbackStudentContext(auth: AuthContext, pageContext?: Record<string, 
     body_measurements: [],
     recent_feedback: [],
     achievements_earned: [],
+    wearable_devices: [],
+    wearable_metrics: [],
+    wearable_workouts: [],
     auth_context: {
       user_id: auth.userId,
       email: auth.email,
@@ -431,6 +485,9 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
     { data: checkins },
     { data: cardioPlans },
     { data: nutritionPlans },
+    { data: wearableDevices },
+    { data: wearableMetrics },
+    { data: wearableWorkouts },
   ] =
     await Promise.all([
       supabase
@@ -524,6 +581,23 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
         .eq("student_id", student.id)
         .order("created_at", { ascending: false })
         .limit(1),
+      supabase
+        .from("wearable_devices")
+        .select("provider, device_name, is_active, last_sync_at, last_sync_status")
+        .eq("student_id", student.id)
+        .eq("is_active", true),
+      supabase
+        .from("wearable_data")
+        .select("date, metric, value, unit, source")
+        .eq("student_id", student.id)
+        .order("date", { ascending: false })
+        .limit(30),
+      supabase
+        .from("wearable_workouts")
+        .select("started_at, ended_at, duration_min, activity_type, distance_km, calories, avg_heart_rate, max_heart_rate, elevation_gain_m, avg_pace, source")
+        .eq("student_id", student.id)
+        .order("started_at", { ascending: false })
+        .limit(12),
     ]);
 
   let cycles: any[] = [];
@@ -602,6 +676,9 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
     recent_checkins: checkins || [],
     cardio_plans: cardioPlans || [],
     nutrition_plan: nutritionPlans?.[0] || null,
+    wearable_devices: wearableDevices || [],
+    wearable_metrics: wearableMetrics || [],
+    wearable_workouts: wearableWorkouts || [],
   };
 }
 
@@ -613,11 +690,11 @@ function pickModel(action: StudentBnitoAction, question: string) {
   return { model: FAST_MODEL, max_tokens: 900, tier: "haiku" };
 }
 
-function localGuard(question: string) {
+function localGuard(question: string, assistantName = "BNITO") {
   const injection = /(ignore|esque[çc]a|desconsidere|disregard)[^.]{0,40}(instru|regras|prompt|anterior|system)|system prompt|jailbreak|DAN mode|you are now|act as/i;
   if (!injection.test(question)) return null;
   return {
-    answer: "Eu sou o Bnito do aluno. Posso te ajudar com duvidas do seu treino, execucao, recuperacao e quando vale avisar a equipe.",
+    answer: `Eu sou o ${assistantName} do aluno. Posso te ajudar com duvidas do seu treino, execucao, recuperacao e quando vale avisar a equipe.`,
     topic: "outro",
     urgency: "normal",
     student_action: "Me conte sua duvida de treino em uma frase.",
@@ -626,10 +703,47 @@ function localGuard(question: string) {
   };
 }
 
-function localActionFallback(action: StudentBnitoAction, studentContext: any, pageContext?: Record<string, unknown>) {
+function latestRecoverySignal(studentContext: any) {
+  const metrics = Array.isArray(studentContext?.wearable_metrics)
+    ? studentContext.wearable_metrics
+    : [];
+  const relevant = metrics
+    .filter((metric: any) => /sleep|sono|readiness|prontidao|recovery|recuperacao/.test(normalizeText(metric?.metric)))
+    .map((metric: any) => ({
+      metric: cleanText(metric?.metric, 80),
+      value: Number(metric?.value),
+      unit: cleanText(metric?.unit, 30),
+      date: cleanText(metric?.date, 30),
+      source: cleanText(metric?.source, 40),
+    }))
+    .filter((metric: any) => Number.isFinite(metric.value));
+
+  const low = relevant.find((metric: any) => {
+    const normalizedMetric = normalizeText(metric.metric);
+    if (/duration|hours|horas/.test(normalizedMetric)) return metric.value > 0 && metric.value < 5;
+    const score = metric.value > 0 && metric.value <= 1 ? metric.value * 100 : metric.value;
+    return score >= 0 && score < 50;
+  });
+  if (!low) return null;
+
+  const label = /sleep|sono/.test(normalizeText(low.metric)) ? "sono" : "recuperação";
+  return {
+    ...low,
+    label,
+    studentGuidance: `Seu dado recente de ${label} veio abaixo do habitual. Comece mais leve, observe como o corpo responde e mantenha o treino prescrito sem aumentar carga por conta própria.`,
+  };
+}
+
+function localActionFallback(
+  action: StudentBnitoAction,
+  studentContext: any,
+  pageContext?: Record<string, unknown>,
+  assistantName = "BNITO",
+) {
   const pageLabel = cleanText(pageContext?.page_label || pageContext?.pathname || "esta tela", 120);
   const firstName = cleanText(studentContext?.student?.full_name || "", 120).split(/\s+/).filter(Boolean)[0] || null;
   const greeting = firstName ? `${firstName}, ` : "";
+  const recoverySignal = latestRecoverySignal(studentContext);
 
   if (action === "brief") {
     const workout = studentContext?.todays_workout;
@@ -637,10 +751,14 @@ function localActionFallback(action: StudentBnitoAction, studentContext: any, pa
       ? `olhe o treino "${cleanText(workout.title, 80)}" e faça a primeira execução com técnica limpa`
       : "abra seu treino do dia e faça a primeira execução com técnica limpa";
     return {
-      answer: `${greeting}missão rápida: ${focus}. Antes de aumentar carga ou ritmo, confira respiração, amplitude sem dor e controle do movimento.`,
-      topic: "treino",
-      urgency: "normal",
-      student_action: "Faça uma série mais leve e mande vídeo para a equipe se quiser correção.",
+      answer: recoverySignal
+        ? `${greeting}${recoverySignal.studentGuidance} No treino de hoje, confira respiração, amplitude sem dor e controle do movimento.`
+        : `${greeting}missão rápida: ${focus}. Antes de aumentar carga ou ritmo, confira respiração, amplitude sem dor e controle do movimento.`,
+      topic: recoverySignal ? "recuperacao" : "treino",
+      urgency: recoverySignal ? "cautela" : "normal",
+      student_action: recoverySignal
+        ? "Faça o aquecimento e uma primeira série leve; se houver dor ou mal-estar, pare e avise a equipe."
+        : "Faça uma série mais leve e mande vídeo para a equipe se quiser correção.",
       handoff_to_team: false,
       team_alert: { should_alert: false, title: null, message: null, severity: "info" },
       contextual_helper: null,
@@ -663,8 +781,29 @@ function localActionFallback(action: StudentBnitoAction, studentContext: any, pa
     };
   }
 
+  if (action === "ask") {
+    const workout = studentContext?.todays_workout;
+    return {
+      answer: recoverySignal
+        ? `${greeting}${recoverySignal.studentGuidance} Se houver dor, tontura ou mal-estar, pare e avise a equipe.`
+        : workout?.title
+        ? `${greeting}o ${assistantName} está usando o treino "${cleanText(workout.title, 80)}" como contexto. Técnica e amplitude sem dor vêm antes de aumentar carga; se a dúvida for sobre um exercício, me diga o nome e o que você sentiu.`
+        : `${greeting}o ${assistantName} está acompanhando seu plano. Me diga o exercício, a dúvida e o que você sentiu para eu orientar o próximo passo com segurança.`,
+      topic: recoverySignal ? "recuperacao" : "treino",
+      urgency: recoverySignal ? "cautela" : "normal",
+      student_action: recoverySignal
+        ? "Comece com esforço leve e registre como se sente antes de progredir."
+        : "Descreva o exercício e em que parte da execução surgiu a dúvida.",
+      handoff_to_team: false,
+      team_alert: { should_alert: false, title: null, message: null, severity: "info" },
+      contextual_helper: null,
+      weekly_contact_message: null,
+      follow_up_question: "Qual exercício ou parte do plano você quer entender?",
+    };
+  }
+
   return {
-    answer: `${greeting}passando para saber como foi o treino: teve alguma dificuldade ou quer mandar um vídeo para correção?`,
+    answer: `${greeting}o ${assistantName} está passando para saber como foi o treino: teve alguma dificuldade ou quer mandar um vídeo para correção?`,
     topic: "treino",
     urgency: "normal",
     student_action: "Responda com a maior dificuldade da semana ou envie um vídeo de execução.",
@@ -686,7 +825,11 @@ serve(async (req) => {
   try {
     const body = (await req.json()) as StudentBnitoRequest;
     const action: StudentBnitoAction =
-      body.action === "brief" || body.action === "weekly_contact" || body.action === "contextual" || body.action === "report_pain"
+      body.action === "brief"
+        || body.action === "weekly_contact"
+        || body.action === "contextual"
+        || body.action === "report_pain"
+        || body.action === "identity"
         ? body.action
         : "ask";
     const question = cleanText(
@@ -700,10 +843,7 @@ serve(async (req) => {
               : ""),
       1200,
     );
-    if (!question) return jsonResponse({ error: "Pergunta vazia" }, 400);
-
-    const guard = action === "ask" ? localGuard(question) : null;
-    if (guard) return jsonResponse({ result: guard, model_tier: "local_guard", generated_at: new Date().toISOString() });
+    if (!question && action !== "identity") return jsonResponse({ error: "Pergunta vazia" }, 400);
 
     const history = Array.isArray(body.history)
       ? body.history
@@ -713,9 +853,33 @@ serve(async (req) => {
       : [];
 
     const studentContext = await loadStudentContext(auth, {
-      allowMissingStudent: action === "brief" || action === "contextual",
+      allowMissingStudent: action === "brief" || action === "contextual" || action === "identity",
       pageContext: body.page_context,
     });
+    const aiConfig = await loadCompanyAiConfig(
+      studentContext.student?.company_id as string | undefined,
+      studentContext.company?.name as string | undefined,
+    );
+    const identity = assistantIdentity(aiConfig, studentContext);
+
+    if (action === "identity") {
+      return jsonResponse({
+        assistant_identity: identity,
+        model_tier: "deterministic",
+        generated_at: new Date().toISOString(),
+      });
+    }
+
+    const guard = action === "ask" ? localGuard(question, identity.assistant_name) : null;
+    if (guard) {
+      return jsonResponse({
+        result: guard,
+        assistant_identity: identity,
+        model_tier: "local_guard",
+        generated_at: new Date().toISOString(),
+      });
+    }
+
     if (action === "report_pain") {
       const result = {
         answer: "Entendi. Pegue mais leve ou pare o padrão doloroso agora. A equipe vai receber seu relato para orientar o próximo passo.",
@@ -736,6 +900,7 @@ serve(async (req) => {
         return jsonResponse({
           error: "Falha ao registrar alerta para a equipe.",
           result,
+          assistant_identity: identity,
           team_alert_created: false,
           team_alert_error: alertRecord?.error || "alert_not_created",
           model_tier: "deterministic",
@@ -744,6 +909,7 @@ serve(async (req) => {
       }
       return jsonResponse({
         result: { ...result, team_alert_created: true },
+        assistant_identity: identity,
         team_alert_created: true,
         team_alert: alertRecord,
         model_tier: "deterministic",
@@ -751,20 +917,25 @@ serve(async (req) => {
       });
     }
     if (!ANTHROPIC_API_KEY) {
-      if (action === "brief" || action === "contextual" || action === "weekly_contact") {
-        return jsonResponse({
-          result: localActionFallback(action, studentContext, body.page_context),
-          team_alert_created: false,
-          team_alert: null,
-          model_tier: "local_fallback",
-          fallback_reason: "ANTHROPIC_API_KEY not configured",
-          generated_at: new Date().toISOString(),
-        });
-      }
-      return jsonResponse({ error: "Assistente textual indisponível no momento." }, 503);
+      return jsonResponse({
+        result: localActionFallback(action, studentContext, body.page_context, identity.assistant_name),
+        assistant_identity: identity,
+        team_alert_created: false,
+        team_alert: null,
+        model_tier: "local_fallback",
+        fallback_reason: "ANTHROPIC_API_KEY not configured",
+        generated_at: new Date().toISOString(),
+        context_loaded: {
+          has_student: !!studentContext.student,
+          has_anamnese: !!studentContext.anamnese,
+          has_assessment: !!studentContext.assessment,
+          has_todays_workout: !!studentContext.todays_workout,
+          has_wearable_data: (studentContext.wearable_metrics?.length || 0) > 0,
+          context_version: identity.context_version,
+        },
+      });
     }
     const picked = pickModel(action, question);
-    const aiConfig = await loadCompanyAiConfig(studentContext.student?.company_id as string | undefined);
 
     const prompt = `
 ACAO:
@@ -793,6 +964,8 @@ INSTRUCOES:
 - Atue como o Bnito coracao do app: proativo, contextual e capaz de orientar por qualquer area do app.
 - Para planos, use primeiro o plano real do aluno e a lista real de planos da empresa. Se a pergunta for sobre plano comercial da plataforma, use o conhecimento fixo.
 - Se houver treino do dia, use os exercicios e observacoes dele antes de responder de forma generica.
+- Use dados de relogio/aplicativo apenas como contexto complementar de sono, recuperacao e atividade. Nunca diagnostique, nunca substitua avaliacao humana e nunca altere automaticamente carga, exercicio, volume ou pace por causa de um score.
+- Se sono/prontidao/recuperacao vierem baixos, oriente comecar mais leve, observar sinais reais do corpo e seguir o treino prescrito sem progressao autonoma. Informe data e fonte quando isso evitar ambiguidade.
 - Se a pergunta for de tecnica de exercicio, explique cue simples, erro comum e quando reduzir carga/amplitude.
 - Se a pergunta for dor ou sintoma, classifique cautela, nao diagnostique e diga quando parar/avisar.
 - Se houver dor/sintoma, nunca decida clinicamente: oriente pegar mais leve no proximo treino ou parar o padrao doloroso conforme gravidade, diga que a equipe sera avisada, marque handoff_to_team=true e preencha team_alert.
@@ -822,23 +995,24 @@ ${OUTPUT_SCHEMA}
 
     if (!response.ok) {
       const details = await response.text();
-      if (action === "brief" || action === "contextual" || action === "weekly_contact") {
-        return jsonResponse({
-          result: localActionFallback(action, studentContext, body.page_context),
-          team_alert_created: false,
-          team_alert: null,
-          model_tier: "local_fallback",
-          fallback_reason: `AI request failed: ${response.status}`,
-          generated_at: new Date().toISOString(),
-          context_loaded: {
-            has_student: !!studentContext.student,
-            has_anamnese: !!studentContext.anamnese,
-            has_assessment: !!studentContext.assessment,
-            has_todays_workout: !!studentContext.todays_workout,
-          },
-        });
-      }
-      return jsonResponse({ error: "AI request failed", details }, response.status);
+      console.error("[ai-student-bnito] AI request failed", response.status, details.slice(0, 500));
+      return jsonResponse({
+        result: localActionFallback(action, studentContext, body.page_context, identity.assistant_name),
+        assistant_identity: identity,
+        team_alert_created: false,
+        team_alert: null,
+        model_tier: "local_fallback",
+        fallback_reason: `AI request failed: ${response.status}`,
+        generated_at: new Date().toISOString(),
+        context_loaded: {
+          has_student: !!studentContext.student,
+          has_anamnese: !!studentContext.anamnese,
+          has_assessment: !!studentContext.assessment,
+          has_todays_workout: !!studentContext.todays_workout,
+          has_wearable_data: (studentContext.wearable_metrics?.length || 0) > 0,
+          context_version: identity.context_version,
+        },
+      });
     }
 
     const data = (await response.json()) as AnthropicResponse;
@@ -875,6 +1049,7 @@ ${OUTPUT_SCHEMA}
         return jsonResponse({
           error: "Falha ao registrar alerta para a equipe.",
           result,
+          assistant_identity: identity,
           team_alert_created: false,
           team_alert_error: alertRecord?.error || "alert_not_created",
           model_tier: picked.tier,
@@ -886,6 +1061,7 @@ ${OUTPUT_SCHEMA}
     return jsonResponse({
       result,
       raw: parsed.result ? undefined : parsed.raw,
+      assistant_identity: identity,
       team_alert_created: painReport ? !!alertRecord?.id : false,
       team_alert: alertRecord,
       model_tier: picked.tier,
@@ -895,6 +1071,8 @@ ${OUTPUT_SCHEMA}
         has_anamnese: !!studentContext.anamnese,
         has_assessment: !!studentContext.assessment,
         has_todays_workout: !!studentContext.todays_workout,
+        has_wearable_data: (studentContext.wearable_metrics?.length || 0) > 0,
+        context_version: identity.context_version,
       },
     });
   } catch (error) {
