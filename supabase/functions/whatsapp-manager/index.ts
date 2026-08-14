@@ -1,6 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   directWhatsAppJidVariants,
+  evolutionTextRecipient,
+  sameWhatsAppRecipient,
   storageObjectPathFromUrl,
 } from "../_shared/whatsappIdentity.ts";
 
@@ -15,6 +17,31 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function providerSendError(status: number) {
+  if (status === 400 || status === 404) {
+    return {
+      error: "O WhatsApp recusou o destinatário. Confirme o número vinculado à conversa e tente novamente.",
+      code: "whatsapp_recipient_rejected",
+    };
+  }
+  if (status === 401 || status === 403) {
+    return {
+      error: "A integração do WhatsApp perdeu a autorização. Reconecte a instância nas configurações.",
+      code: "whatsapp_provider_unauthorized",
+    };
+  }
+  if (status === 408 || status === 429) {
+    return {
+      error: "O provedor do WhatsApp está ocupado. Aguarde alguns instantes e tente novamente.",
+      code: "whatsapp_provider_busy",
+    };
+  }
+  return {
+    error: "O provedor do WhatsApp não conseguiu enviar a mensagem. Verifique a conexão da instância.",
+    code: "whatsapp_provider_failure",
+  };
 }
 
 function extractExternalMessageId(payload: any): string | null {
@@ -173,14 +200,21 @@ Deno.serve(async (req) => {
 
     // SECURITY (IDOR): when a chatId is supplied, ensure it belongs to this company
     // before any read/update/delete touches it (service-role bypasses RLS).
+    let boundChat: {
+      id: string;
+      remote_jid: string;
+      student_id: string | null;
+      contact_name: string | null;
+    } | null = null;
     if (body.chatId) {
       const { data: chatRow } = await adminClient
         .from("whatsapp_chats")
-        .select("id")
+        .select("id, remote_jid, student_id, contact_name")
         .eq("id", body.chatId)
         .eq("company_id", resolvedCompanyId)
         .maybeSingle();
       if (!chatRow) return json({ error: "Forbidden: chat not in company" }, 403);
+      boundChat = chatRow;
     }
 
     // Read/unread is application state and must not depend on the external
@@ -564,10 +598,43 @@ Deno.serve(async (req) => {
         studentId,
         contactName,
       } = body;
-      if (!remoteJid || !content) return json({ error: "remoteJid and content required" }, 400);
+      if (!remoteJid || !String(content).trim()) return json({ error: "remoteJid and content required" }, 400);
+
+      if (boundChat && !sameWhatsAppRecipient(remoteJid, boundChat.remote_jid)) {
+        return json({
+          error: "A conversa mudou de destinatário antes do envio. Reabra o contato e tente novamente.",
+          code: "whatsapp_recipient_mismatch",
+        }, 409);
+      }
+      if (boundChat?.student_id && studentId && boundChat.student_id !== studentId) {
+        return json({
+          error: "A conversa selecionada não pertence ao aluno informado.",
+          code: "whatsapp_student_mismatch",
+        }, 409);
+      }
+
+      const effectiveRemoteJid = boundChat?.remote_jid || String(remoteJid).trim();
+      if (!boundChat && studentId) {
+        const { data: student } = await adminClient
+          .from("students")
+          .select("id, phone, whatsapp")
+          .eq("id", studentId)
+          .eq("company_id", resolvedCompanyId)
+          .maybeSingle();
+        if (!student) return json({ error: "Aluno não encontrado nesta empresa." }, 404);
+        const matchesStudent = [student.whatsapp, student.phone]
+          .filter(Boolean)
+          .some((candidate) => sameWhatsAppRecipient(candidate, effectiveRemoteJid));
+        if (!matchesStudent) {
+          return json({
+            error: "O número informado não corresponde ao WhatsApp cadastrado para este aluno.",
+            code: "whatsapp_student_recipient_mismatch",
+          }, 409);
+        }
+      }
 
       const sendBody: Record<string, unknown> = {
-        number: remoteJid,
+        number: evolutionTextRecipient(effectiveRemoteJid),
         text: content,
       };
 
@@ -605,7 +672,7 @@ Deno.serve(async (req) => {
         const quoteFromMe = quotedSource === "outgoing" || quotedFromMe === true;
         const quotedMessage = buildQuotedMessage(quotedPreview, quotedType);
         const quoteKey = {
-          remoteJid,
+          remoteJid: effectiveRemoteJid,
           fromMe: quoteFromMe,
           id: quotedExternalId,
         };
@@ -618,7 +685,7 @@ Deno.serve(async (req) => {
         };
         sendBody.contextInfo = {
           stanzaId: quotedExternalId,
-          participant: quoteFromMe ? undefined : remoteJid,
+          participant: quoteFromMe ? undefined : effectiveRemoteJid,
           quotedMessage,
         };
       }
@@ -630,8 +697,15 @@ Deno.serve(async (req) => {
       });
 
       if (!sendRes.ok) {
-        const errText = await sendRes.text();
-        return json({ error: "Failed to send message", details: errText }, 502);
+        const details = (await sendRes.text()).replace(/\s+/g, " ").slice(0, 240);
+        const failure = providerSendError(sendRes.status);
+        console.error("WhatsApp sendText failed", JSON.stringify({
+          status: sendRes.status,
+          code: failure.code,
+          companyId: resolvedCompanyId,
+          chatId: boundChat?.id || null,
+        }));
+        return json({ ...failure, providerStatus: sendRes.status, details }, 502);
       }
 
       const sendData = await sendRes.json();
@@ -640,9 +714,9 @@ Deno.serve(async (req) => {
 
       let persistedChatId = chatId || null;
       if (!persistedChatId) {
-        const digits = String(remoteJid).replace(/\D/g, "");
-        const databaseRemoteJid = String(remoteJid).includes("@")
-          ? String(remoteJid)
+        const digits = effectiveRemoteJid.replace(/\D/g, "");
+        const databaseRemoteJid = effectiveRemoteJid.includes("@")
+          ? effectiveRemoteJid
           : `${digits}@s.whatsapp.net`;
         let existingChat: { id: string } | null = null;
         if (instanceRow?.id) {
@@ -738,6 +812,13 @@ Deno.serve(async (req) => {
     if (action === "send-media") {
       const { remoteJid, mediaUrl, caption, chatId, fileName, mediatype: clientMediaType, mimeType } = body;
       if (!remoteJid || !mediaUrl) return json({ error: "remoteJid and mediaUrl required" }, 400);
+      if (boundChat && !sameWhatsAppRecipient(remoteJid, boundChat.remote_jid)) {
+        return json({
+          error: "A conversa mudou de destinatário antes do envio. Reabra o contato e tente novamente.",
+          code: "whatsapp_recipient_mismatch",
+        }, 409);
+      }
+      const effectiveMediaRecipient = evolutionTextRecipient(boundChat?.remote_jid || remoteJid);
 
       // Determine Evolution API mediatype: image, video, audio, document
       let evoMediaType = clientMediaType || "document";
@@ -755,7 +836,7 @@ Deno.serve(async (req) => {
           method: "POST",
           headers: evoHeaders,
           body: JSON.stringify({
-            number: remoteJid,
+            number: effectiveMediaRecipient,
             audio: mediaUrl,
             encoding: true,
           }),
@@ -768,7 +849,7 @@ Deno.serve(async (req) => {
             method: "POST",
             headers: evoHeaders,
             body: JSON.stringify({
-              number: remoteJid,
+              number: effectiveMediaRecipient,
               media: mediaUrl,
               mediatype: "audio",
               caption: "",
@@ -780,7 +861,7 @@ Deno.serve(async (req) => {
           method: "POST",
           headers: evoHeaders,
           body: JSON.stringify({
-            number: remoteJid,
+            number: effectiveMediaRecipient,
             media: mediaUrl,
             mediatype: evoMediaType,
             caption: caption || "",
@@ -790,9 +871,15 @@ Deno.serve(async (req) => {
       }
 
       if (!sendRes.ok) {
-        const errText = await sendRes.text();
-        console.error("send-media error:", errText);
-        return json({ error: "Failed to send media", details: errText }, 502);
+        const details = (await sendRes.text()).replace(/\s+/g, " ").slice(0, 240);
+        const failure = providerSendError(sendRes.status);
+        console.error("WhatsApp sendMedia failed", JSON.stringify({
+          status: sendRes.status,
+          code: failure.code,
+          companyId: resolvedCompanyId,
+          chatId: boundChat?.id || null,
+        }));
+        return json({ ...failure, providerStatus: sendRes.status, details }, 502);
       }
 
       const sendData = await sendRes.json();
@@ -1150,13 +1237,20 @@ Deno.serve(async (req) => {
     if (action === "delete-message") {
       const { remoteJid, messageId: msgExtId, chatId: deleteChatId } = body;
       if (!remoteJid || !msgExtId) return json({ error: "remoteJid and messageId required" }, 400);
+      if (boundChat && !sameWhatsAppRecipient(remoteJid, boundChat.remote_jid)) {
+        return json({
+          error: "A conversa mudou de destinatário antes da exclusão. Reabra o contato e tente novamente.",
+          code: "whatsapp_recipient_mismatch",
+        }, 409);
+      }
+      const effectiveDeleteJid = boundChat?.remote_jid || remoteJid;
 
       const deleteRes = await fetch(`${evoUrl}/chat/deleteMessageForEveryone/${instanceName}`, {
         method: "DELETE",
         headers: evoHeaders,
         body: JSON.stringify({
           id: msgExtId,
-          remoteJid,
+          remoteJid: effectiveDeleteJid,
           fromMe: true,
         }),
       });

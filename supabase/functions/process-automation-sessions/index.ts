@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { evolutionTextRecipient } from "../_shared/whatsappIdentity.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -67,7 +68,7 @@ async function sendText(args: {
   const response = await fetch(`${args.evoUrl}/message/sendText/${args.instanceName}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: args.evoKey },
-    body: JSON.stringify({ number: args.remoteJid, text: args.text }),
+    body: JSON.stringify({ number: evolutionTextRecipient(args.remoteJid), text: args.text }),
   });
   if (!response.ok) {
     const details = (await response.text()).slice(0, 300);
@@ -121,6 +122,10 @@ async function processSession(admin: any, session: FlowSession, provider: { url:
   if (chatResult.error || !chatResult.data) throw new Error("Conversa da automação não encontrada.");
   const chat = chatResult.data;
   if (!chat.remote_jid) throw new Error("Conversa sem número remoto.");
+  const expectedStudentId = String(session.context?.student_id || "").trim();
+  if (expectedStudentId && expectedStudentId !== chat.student_id) {
+    throw new Error("A conversa vinculada mudou de aluno; envio automático bloqueado para revisão.");
+  }
 
   let instanceQuery = admin.from("whatsapp_instances")
     .select("instance_name, status")

@@ -37,6 +37,28 @@ export function directWhatsAppJidVariants(remoteJid: unknown): string[] {
   return [...variants];
 }
 
+export function sameWhatsAppRecipient(left: unknown, right: unknown): boolean {
+  const leftRaw = String(left || "").trim();
+  const rightRaw = String(right || "").trim();
+  if (!leftRaw || !rightRaw) return false;
+  if (leftRaw === rightRaw) return true;
+
+  const leftPhone = normalizeWhatsAppPhoneKey(leftRaw);
+  const rightPhone = normalizeWhatsAppPhoneKey(rightRaw);
+  return Boolean(leftPhone && rightPhone && leftPhone === rightPhone);
+}
+
+/**
+ * Evolution's sendText endpoint expects a phone number for direct contacts.
+ * Keep provider-only identifiers (LID) and group JIDs intact because they are
+ * not phone numbers and stripping their suffix changes the destination.
+ */
+export function evolutionTextRecipient(remoteJid: unknown): string {
+  const raw = String(remoteJid || "").trim();
+  if (raw.endsWith(DIRECT_JID_SUFFIX)) return raw.slice(0, -DIRECT_JID_SUFFIX.length);
+  return raw;
+}
+
 export function providerWhatsAppJidVariants(
   remoteJid: unknown,
   alternateJids: unknown[] = [],
