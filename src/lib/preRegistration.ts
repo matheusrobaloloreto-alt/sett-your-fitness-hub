@@ -29,6 +29,7 @@ export const PRE_REGISTRATION_ANSWER_LABELS: Record<string, string> = {
   days_cardio: "Dias de cardio",
   days_available: "Dias disponíveis",
   session_duration: "Duração por sessão",
+  endurance_session_duration: "Duração por sessão esportiva",
   session_duration_min: "Duração por sessão",
   training_location: "Local de treino",
   available_equipment: "Equipamentos disponíveis",
@@ -106,6 +107,7 @@ export const PRE_REGISTRATION_ANSWER_LABELS: Record<string, string> = {
   authorizes_plan: "Autorizou uso das informações",
   commits_communication: "Compromisso de comunicação",
   budget_range: "Investimento mensal em saúde",
+  preferred_contact_channel: "Forma preferida de contato",
   preferred_contact_period: "Melhor horário para contato",
   interest_strength: "Interesse em musculação",
   interest_running: "Interesse em corrida",
@@ -217,6 +219,10 @@ function formatPreRegistrationAnswerValue(key: string, value: unknown) {
       iniciante: "Iniciante",
       intermediario: "Intermediário",
       avancado: "Avançado",
+    },
+    preferred_contact_channel: {
+      whatsapp_message: "Mensagem pelo WhatsApp",
+      whatsapp_call: "Ligação pelo WhatsApp",
     },
   };
   if (valueLabels[last]?.[normalized]) return valueLabels[last][normalized];

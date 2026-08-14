@@ -59,16 +59,18 @@ const OBJECTIVE_OPTIONS = [
 ];
 
 const STEP_COPY: Record<AnamnesisStepId, { title: string; kicker: string; description: string }> = {
-  profile: { title: "Sobre você", kicker: "Início", description: "Contato, objetivo e o acompanhamento que você procura." },
+  profile: { title: "Dados básicos", kicker: "Início", description: "Contato, informações comuns e o objetivo que deve orientar todo o plano." },
+  experience: { title: "Modalidades atuais", kicker: "Seu ponto de partida", description: "Atividades que já fazem parte da sua rotina hoje." },
   services: { title: "O que você procura", kicker: "Prescrição e orientação", description: "Escolha somente as modalidades em que deseja nosso acompanhamento." },
-  experience: { title: "Experiência atual", kicker: "Seu ponto de partida", description: "Contexto físico e modalidades que já fazem parte da sua rotina." },
-  schedule: { title: "Sua semana", kicker: "Rotina", description: "Organize os treinos de segunda a domingo em uma única resposta." },
+  schedule: { title: "Sua semana", kicker: "Rotina", description: "Organize os treinos de segunda a domingo e conte a meta esportiva uma única vez." },
   strength: { title: "Musculação", kicker: "Treino de força", description: "Tempo, local e equipamentos disponíveis para esta modalidade." },
-  sports: { title: "Modalidades esportivas", kicker: "Esporte", description: "Corrida, natação e ciclismo, somente conforme suas escolhas." },
+  running: { title: "Corrida", kicker: "Modalidade", description: "Volume, local e referências atuais somente da corrida." },
+  swimming: { title: "Natação", kicker: "Modalidade", description: "Piscina, nível e referências atuais somente da natação." },
+  cycling: { title: "Ciclismo", kicker: "Modalidade", description: "Bicicleta, volume e potência somente do ciclismo." },
   health: { title: "Saúde e segurança", kicker: "Triagem", description: "Dores, lesões e condições que precisamos respeitar." },
   clinical: { title: "Triagem clínica", kicker: "Segurança", description: "Sinais de atenção e intensidade de dor antes de qualquer prescrição." },
   nutrition: { title: "Nutrição", kicker: "Orientação nutricional", description: "Hábitos e preferências para recomendações aplicáveis à sua rotina." },
-  recovery: { title: "Rotina e recuperação", kicker: "Contexto", description: "Trabalho, sono e recuperação fora do treino." },
+  recovery: { title: "Rotina e recuperação", kicker: "Contexto", description: "Trabalho, sono e como seu corpo está chegando para treinar." },
   finish: { title: "Objetivos e contato", kicker: "Finalização", description: "Expectativas e melhor momento para a nossa equipe falar com você." },
 };
 
@@ -91,6 +93,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [fullName, setFullName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [budgetRange, setBudgetRange] = useState("");
+  const [preferredContactChannel, setPreferredContactChannel] = useState("");
   const [preferredContactPeriod, setPreferredContactPeriod] = useState("");
   const [deadlineMessage, setDeadlineMessage] = useState("");
 
@@ -108,6 +111,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [modalityOther, setModalityOther] = useState("");
   const [trainingDays, setTrainingDays] = useState("");
   const [sessionDuration, setSessionDuration] = useState("");
+  const [enduranceSessionDuration, setEnduranceSessionDuration] = useState("");
   const [trainingLocation, setTrainingLocation] = useState("");
   const [equipment, setEquipment] = useState<string[]>([]);
   const [equipmentOther, setEquipmentOther] = useState("");
@@ -142,24 +146,21 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [bikeFtp, setBikeFtp] = useState("");
   const [bikePower, setBikePower] = useState(false);
   const [fuelingStrategy, setFuelingStrategy] = useState("");
-  const [medicalConditions, setMedicalConditions] = useState("");
   const [medications, setMedications] = useState("");
-  const [stressScore, setStressScore] = useState("");
-  const [sleepQuality, setSleepQuality] = useState("");
-  const [clinCardiac, setClinCardiac] = useState("nao");
-  const [clinChestPain, setClinChestPain] = useState("nao");
-  const [clinSurgery, setClinSurgery] = useState("nao");
+  const [clinCardiac, setClinCardiac] = useState("");
+  const [clinChestPain, setClinChestPain] = useState("");
+  const [clinSurgery, setClinSurgery] = useState("");
   const [clinSurgeryDetail, setClinSurgeryDetail] = useState("");
-  const [clinPregnant, setClinPregnant] = useState("na");
+  const [clinPregnant, setClinPregnant] = useState("");
   const [clinPregnantDetail, setClinPregnantDetail] = useState("");
-  const [clinSmoke, setClinSmoke] = useState("nao");
-  const [clinAcute, setClinAcute] = useState("nao");
+  const [clinSmoke, setClinSmoke] = useState("");
+  const [clinAcute, setClinAcute] = useState("");
   const [clinOther, setClinOther] = useState("");
-  const [evaTornozelo, setEvaTornozelo] = useState("0");
-  const [evaJoelho, setEvaJoelho] = useState("0");
-  const [evaQuadril, setEvaQuadril] = useState("0");
-  const [evaLombar, setEvaLombar] = useState("0");
-  const [evaOmbro, setEvaOmbro] = useState("0");
+  const [evaTornozelo, setEvaTornozelo] = useState("");
+  const [evaJoelho, setEvaJoelho] = useState("");
+  const [evaQuadril, setEvaQuadril] = useState("");
+  const [evaLombar, setEvaLombar] = useState("");
+  const [evaOmbro, setEvaOmbro] = useState("");
   const [mealsPerDay, setMealsPerDay] = useState("5");
   const [mealTimes, setMealTimes] = useState<string[]>(() => Array(7).fill(""));
   const [mealRoutine, setMealRoutine] = useState("");
@@ -243,6 +244,12 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
       : [...withoutNone, item]);
   };
 
+  const validZeroToTen = (value: string) => {
+    if (value.trim() === "") return "";
+    const score = Number(value);
+    return Number.isFinite(score) && score >= 0 && score <= 10 ? value : "";
+  };
+
   const getMissingFields = (targetStep: number) => {
     const targetStepId = activeSteps[targetStep - 1]?.id;
     if (targetStepId === "profile") {
@@ -252,6 +259,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
           [whatsapp.replace(/\D/g, "").length >= 10 ? whatsapp : "", "WhatsApp"],
         ] : []),
         [objective, "objetivo principal"],
+        [gender, "sexo"],
       ].filter(([value]) => !value).map(([, label]) => label);
     }
     if (targetStepId === "services") {
@@ -260,12 +268,17 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
     }
     if (targetStepId === "experience") {
       return [
-        [gender, "sexo"],
         [modalities.length > 0 ? "ok" : "", "modalidades praticadas atualmente"],
       ].filter(([value]) => !value).map(([, label]) => label);
     }
     if (targetStepId === "schedule") {
-      return [[trainingDays.trim(), "semana de treinos"]]
+      return [
+        [trainingDays.trim(), "semana de treinos"],
+        ...(hasEndurance ? [
+          [sportGoal.trim(), "meta nas modalidades esportivas"],
+          [enduranceSessionDuration, "tempo disponível para cada sessão esportiva"],
+        ] : []),
+      ]
         .filter(([value]) => !value).map(([, label]) => label);
     }
     if (targetStepId === "strength") {
@@ -274,21 +287,47 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         [trainingLocation, "local da musculação"],
       ].filter(([value]) => !value).map(([, label]) => label);
     }
-    if (targetStepId === "sports") {
+    if (targetStepId === "running") {
+      return [[runWhere, "local onde pratica corrida"]]
+        .filter(([value]) => !value).map(([, label]) => label);
+    }
+    if (targetStepId === "swimming") {
       return [
-        [sportGoal.trim(), "meta dentro das modalidades esportivas"],
-        ...(!wantsStrength ? [[sessionDuration, "tempo livre para as sessões esportivas"]] : []),
-        ...(wantsSwimming && swimPool === "outro"
-          ? [[swimPoolOther.trim(), "descrição da piscina"]]
-          : []),
+        [swimPool, "piscina onde pratica natação"],
+        [swimLevel, "nível atual na natação"],
+        ...(swimPool === "outro" ? [[swimPoolOther.trim(), "descrição da piscina"]] : []),
       ].filter(([value]) => !value).map(([, label]) => label);
+    }
+    if (targetStepId === "cycling") {
+      return [[bikeType, "tipo de bicicleta"]]
+        .filter(([value]) => !value).map(([, label]) => label);
     }
     if (targetStepId === "health") {
       return [
-        [diseases, "doenças ou remédios contínuos"],
+        [diseases, "condições médicas relevantes"],
+        [medications, "medicamentos de uso contínuo"],
         [injuries, "histórico de lesões"],
         [currentPain, "dor atual"],
       ].filter(([value]) => !value).map(([, label]) => label);
+    }
+    if (targetStepId === "clinical") {
+      return [
+        [clinCardiac, "problema cardíaco ou pressão alta"],
+        [clinChestPain, "dor no peito ou tontura ao esforço"],
+        [clinSurgery, "cirurgia recente"],
+        ...(clinSurgery === "sim" ? [[clinSurgeryDetail.trim(), "detalhes da cirurgia recente"]] : []),
+        ...(gender === "F" ? [[clinPregnant, "gestação ou pós-parto"]] : []),
+        ...(["gravida", "posparto"].includes(clinPregnant)
+          ? [[clinPregnantDetail.trim(), "tempo de gestação ou pós-parto"]]
+          : []),
+        [clinSmoke, "tabagismo"],
+        [clinAcute, "febre ou doença aguda"],
+        [validZeroToTen(evaTornozelo), "dor no tornozelo (0 a 10)"],
+        [validZeroToTen(evaJoelho), "dor no joelho (0 a 10)"],
+        [validZeroToTen(evaQuadril), "dor no quadril (0 a 10)"],
+        [validZeroToTen(evaLombar), "dor lombar (0 a 10)"],
+        [validZeroToTen(evaOmbro), "dor no ombro (0 a 10)"],
+      ].filter(([value]) => value === "" || value === null || value === undefined).map(([, label]) => label);
     }
     if (targetStepId === "nutrition") {
       return [
@@ -302,6 +341,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         [profession, "profissão e rotina"],
         [sleepHours, "horas de sono"],
         [restorativeSleep, "sono reparador"],
+        [validZeroToTen(perceivedRecovery), "recuperação percebida hoje (0 a 10)"],
         [awareOfTrilogy, "consciência sobre alimentação, treino e sono"],
       ].filter(([value]) => !value).map(([, label]) => label);
     }
@@ -311,6 +351,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
       [commitsCommunication, "compromisso de comunicação"],
       ...(isPreRegistration ? [
         [budgetRange, "investimento em saúde"],
+        [preferredContactChannel, "forma preferida de contato"],
         [preferredContactPeriod, "melhor horário para contato"],
       ] : []),
     ].filter(([value]) => !value).map(([, label]) => label);
@@ -359,7 +400,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         requested_services: desiredServices,
         training_days: trainingDays,
         available_days: availability.totalDays,
-        session_duration: sessionDuration,
+        session_duration: sessionDuration || enduranceSessionDuration,
+        endurance_session_duration: enduranceSessionDuration || null,
         training_location: trainingLocation,
         available_equipment: allEquipment,
         days_available: availability.totalDays,
@@ -401,15 +443,13 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         bike_ftp: bikeFtp,
         bike_power: bikePower,
         fueling_strategy: fuelingStrategy,
-        medical_conditions: medicalConditions,
+        medical_conditions: diseases,
         medications,
-        stress_score: stressScore ? Number(stressScore) : null,
-        sleep_quality: sleepQuality ? Number(sleepQuality) : null,
         clin_cardiac: clinCardiac,
         clin_chest_pain: clinChestPain,
         clin_surgery: clinSurgery,
         clin_surgery_detail: clinSurgeryDetail,
-        clin_pregnant: clinPregnant,
+        clin_pregnant: gender === "F" ? clinPregnant : "na",
         clin_pregnant_detail: clinPregnantDetail,
         clin_smoke: clinSmoke,
         clin_acute: clinAcute,
@@ -448,6 +488,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             answers: {
               ...answers,
               budget_range: budgetRange,
+              preferred_contact_channel: preferredContactChannel,
               preferred_contact_period: preferredContactPeriod,
             },
           },
@@ -510,6 +551,9 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
               <p className="rounded-xl bg-primary/10 px-4 py-3 font-sans font-semibold text-primary">
                 {deadlineMessage}
               </p>
+              <p className="text-sm leading-relaxed text-muted-foreground font-sans">
+                Nosso retorno será feito pelo WhatsApp informado, respeitando a forma e o horário que você escolheu.
+              </p>
               <p className="text-sm text-muted-foreground font-sans">
                 No próximo contato, faremos sua Avaliação de Movimento e escolheremos o plano ideal para alcançarmos o seu objetivo juntos.
               </p>
@@ -570,7 +614,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            {(["profile", "services", "experience", "schedule", "strength", "sports"] as AnamnesisStepId[]).includes(currentStep.id) && (
+            {(["profile", "services", "experience", "schedule", "strength", "running", "swimming", "cycling"] as AnamnesisStepId[]).includes(currentStep.id) && (
             <>
             {isPreRegistration && currentStep.id === "profile" && (
               <div className="space-y-4 rounded-xl border border-border bg-background/60 p-4">
@@ -592,11 +636,9 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 </div>
               </div>
             )}
-            {(currentStep.id === "profile" || currentStep.id === "experience") && (
+            {currentStep.id === "profile" && (
             <div className="space-y-4">
-              <h3 className="font-display text-lg text-primary">
-                {currentStep.id === "profile" ? "Seu objetivo" : "Experiência e contexto atual"}
-              </h3>
+              <h3 className="font-display text-lg text-primary">Informações básicas</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {currentStep.id === "profile" && (
                 <>
@@ -609,11 +651,14 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 </div>
                 </>
                 )}
-                {currentStep.id === "experience" && (
+                {currentStep.id === "profile" && (
                 <>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Idade</Label>
                   <Input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="Ex: 28" />
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Isso nos ajuda a ajustar volume, recuperação e segurança à sua fase de vida.
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label className="font-sans font-medium">Sexo *</Label>
@@ -687,23 +732,46 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             )}
 
             {currentStep.id === "schedule" && (
-            <div className="space-y-2">
-              <Label className="font-sans font-medium">Como será a sua semana de treinos? Diga cada modalidade que você vai praticar de segunda a domingo. *</Label>
-              <Textarea
-                value={trainingDays}
-                onChange={e => setTrainingDays(e.target.value)}
-                placeholder="Ex: segunda — musculação; terça — corrida; quarta — musculação; quinta — descanso; sexta — musculação; sábado — corrida; domingo — descanso"
-              />
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <Label className="font-sans font-medium">Como será a sua semana de treinos? Diga cada modalidade que você vai praticar de segunda a domingo. *</Label>
+                <Textarea
+                  value={trainingDays}
+                  onChange={e => setTrainingDays(e.target.value)}
+                  placeholder="Ex: segunda — musculação; terça — corrida; quarta — musculação; quinta — descanso; sexta — musculação; sábado — corrida; domingo — descanso"
+                />
+              </div>
+              {hasEndurance && (
+                <div className="space-y-4 rounded-xl border border-border bg-background/50 p-4">
+                  <h3 className="font-display text-lg text-primary">Meta esportiva comum</h3>
+                  <div className="space-y-2">
+                    <Label className="font-sans font-medium">Qual meta você quer atingir nas modalidades esportivas? *</Label>
+                    <Input value={sportGoal} onChange={e => setSportGoal(e.target.value)} placeholder="Ex: completar meu primeiro triathlon sprint em outubro" />
+                    <p className="text-xs leading-relaxed text-muted-foreground">Perguntamos uma única vez para alinhar corrida, natação e ciclismo ao mesmo objetivo.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-sans font-medium">Quanto tempo você tem para cada sessão esportiva? *</Label>
+                    <RadioGroup value={enduranceSessionDuration} onValueChange={setEnduranceSessionDuration}>
+                      {SESSION_DURATION_OPTIONS.map(option => (
+                        <div key={option} className="flex items-center gap-2">
+                          <RadioGroupItem value={option} id={`esd-${option}`} />
+                          <Label htmlFor={`esd-${option}`} className="cursor-pointer font-sans font-normal">{option}</Label>
+                        </div>
+                      ))}
+                    </RadioGroup>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-sans font-medium">Como você se alimenta nos treinos ou provas longas?</Label>
+                    <Input value={fuelingStrategy} onChange={e => setFuelingStrategy(e.target.value)} placeholder="Ex: gel a cada 40 min, isotônico; ou ainda não uso nada" />
+                  </div>
+                </div>
+              )}
             </div>
             )}
 
-            {(currentStep.id === "strength" || (currentStep.id === "sports" && !wantsStrength)) && (
+            {currentStep.id === "strength" && (
             <div className="space-y-2">
-              <Label className="font-sans font-medium">
-                {currentStep.id === "strength"
-                  ? "Quanto tempo você tem para cada sessão de musculação/força? *"
-                  : "Quanto tempo você tem para cada sessão esportiva? *"}
-              </Label>
+              <Label className="font-sans font-medium">Quanto tempo você tem para cada sessão de musculação/força? *</Label>
               <RadioGroup value={sessionDuration} onValueChange={setSessionDuration}>
                 {SESSION_DURATION_OPTIONS.map(o => (
                   <div key={o} className="flex items-center gap-2">
@@ -744,15 +812,10 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             </>
             )}
 
-            {currentStep.id === "sports" && (
-              <div className="space-y-4 rounded-lg border border-border p-4">
-                <h3 className="font-display text-lg text-primary">Dados das modalidades escolhidas</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2 sm:col-span-2">
-                    <Label className="font-sans font-medium">Qual meta você quer atingir dentro destas modalidades? *</Label>
-                    <Input value={sportGoal} onChange={e => setSportGoal(e.target.value)} placeholder="Ex: correr 5 km sem parar, completar uma meia maratona ou melhorar meu pace" />
-                  </div>
-                  {wantsRunning && (
+            {currentStep.id === "running" && (
+              <div className="space-y-4 rounded-lg border border-border bg-background/50 p-4">
+                <h3 className="font-display text-lg text-primary">Somente corrida</h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label className="font-sans font-medium">Volume atual da corrida</Label>
                     <div className="grid grid-cols-[minmax(0,1fr)_8.5rem] gap-2">
@@ -763,23 +826,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                       </select>
                     </div>
                   </div>
-                  )}
                   <div className="space-y-2">
-                    <Label className="font-sans font-medium">Recuperação percebida hoje (0-10)</Label>
-                    <Input type="number" min={0} max={10} value={perceivedRecovery} onChange={e => setPerceivedRecovery(e.target.value)} placeholder="Ex: 7" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="font-sans font-medium">FC máxima, se souber</Label>
-                    <Input type="number" value={fcmax} onChange={e => setFcmax(e.target.value)} placeholder="Ex: 190" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="font-sans font-medium">FC repouso, se souber</Label>
-                    <Input type="number" value={fcrep} onChange={e => setFcrep(e.target.value)} placeholder="Ex: 60" />
-                  </div>
-                  {wantsRunning && (
-                    <>
-                      <div className="space-y-2">
-                        <Label className="font-sans font-medium">Onde você pratica corrida?</Label>
+                        <Label className="font-sans font-medium">Onde você pratica corrida? *</Label>
                         <select value={runWhere} onChange={e => setRunWhere(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                           <option value="">Selecione...</option>
                           <option value="rua">Rua/asfalto</option>
@@ -787,17 +835,21 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                           <option value="trilha">Trilha</option>
                           <option value="pista">Pista</option>
                         </select>
-                      </div>
-                      <div className="space-y-2">
+                  </div>
+                  <div className="space-y-2">
                         <Label className="font-sans font-medium">Melhor tempo recente na corrida</Label>
                         <Input value={runBestTime} onChange={e => setRunBestTime(e.target.value)} placeholder="ex: 10k em 52min" />
-                      </div>
-                    </>
-                  )}
-                  {wantsSwimming && (
-                    <>
-                      <div className="space-y-2">
-                        <Label className="font-sans font-medium">Em qual piscina você pratica natação?</Label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currentStep.id === "swimming" && (
+              <div className="space-y-4 rounded-lg border border-border bg-background/50 p-4">
+                <h3 className="font-display text-lg text-primary">Somente natação</h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                        <Label className="font-sans font-medium">Em qual piscina você pratica natação? *</Label>
                         <select value={swimPool} onChange={e => setSwimPool(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                           <option value="">Selecione...</option>
                           <option value="25m">25m</option>
@@ -813,30 +865,34 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                             placeholder="Ex: piscina de 20 m"
                           />
                         )}
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="font-sans font-medium">Nível na natação</Label>
+                  </div>
+                  <div className="space-y-2">
+                        <Label className="font-sans font-medium">Nível na natação *</Label>
                         <select value={swimLevel} onChange={e => setSwimLevel(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                           <option value="">Selecione...</option>
                           <option value="iniciante">Iniciante</option>
                           <option value="intermediario">Intermediário</option>
                           <option value="avancado">Avançado</option>
                         </select>
-                      </div>
-                      <div className="space-y-2">
+                  </div>
+                  <div className="space-y-2">
                         <Label className="font-sans font-medium">Volume de natação</Label>
                         <Input value={swimVolume} onChange={e => setSwimVolume(e.target.value)} placeholder="ex: 3000m/sem ou 2x40min" />
-                      </div>
-                      <div className="space-y-2">
+                  </div>
+                  <div className="space-y-2">
                         <Label className="font-sans font-medium">Melhor tempo / pace recente</Label>
                         <Input value={swimBest} onChange={e => setSwimBest(e.target.value)} placeholder="ex: 400m em 8min, ou 100m em 1:50" />
-                      </div>
-                    </>
-                  )}
-                  {wantsCycling && (
-                    <>
-                      <div className="space-y-2">
-                        <Label className="font-sans font-medium">Qual tipo de bicicleta você usa no ciclismo?</Label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currentStep.id === "cycling" && (
+              <div className="space-y-4 rounded-lg border border-border bg-background/50 p-4">
+                <h3 className="font-display text-lg text-primary">Somente ciclismo</h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                        <Label className="font-sans font-medium">Qual tipo de bicicleta você usa no ciclismo? *</Label>
                         <select value={bikeType} onChange={e => setBikeType(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                           <option value="">Selecione...</option>
                           <option value="speed">Speed/estrada</option>
@@ -844,25 +900,19 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                           <option value="mtb">MTB</option>
                           <option value="indoor">Indoor/rolo</option>
                         </select>
-                      </div>
-                      <div className="space-y-2">
+                  </div>
+                  <div className="space-y-2">
                         <Label className="font-sans font-medium">Volume de bike</Label>
                         <Input value={bikeVolume} onChange={e => setBikeVolume(e.target.value)} placeholder="ex: 120km/sem" />
-                      </div>
-                      <div className="space-y-2">
+                  </div>
+                  <div className="space-y-2">
                         <Label className="font-sans font-medium">FTP ou potência média (W), se souber</Label>
                         <Input value={bikeFtp} onChange={e => setBikeFtp(e.target.value)} placeholder="ex: 220W" />
-                      </div>
-                      <label className="flex items-center gap-2 text-sm font-sans cursor-pointer sm:col-span-2">
+                  </div>
+                  <label className="flex cursor-pointer items-center gap-2 font-sans text-sm sm:col-span-2">
                         <Checkbox checked={bikePower} onCheckedChange={v => setBikePower(!!v)} />
                         Tenho medidor de potência
-                      </label>
-                    </>
-                  )}
-                  <div className="space-y-2 sm:col-span-2">
-                    <Label className="font-sans font-medium">Como você se alimenta nos treinos ou provas longas destas modalidades?</Label>
-                    <Input value={fuelingStrategy} onChange={e => setFuelingStrategy(e.target.value)} placeholder="ex: gel a cada 40min, isotônico, ou não uso nada" />
-                  </div>
+                  </label>
                 </div>
               </div>
             )}
@@ -874,18 +924,26 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             {currentStep.id === "health" && (
             <>
             <div className="space-y-2">
-              <Label className="font-sans font-medium">Possui alguma doença e/ou toma algum remédio contínuo? *</Label>
-              <Textarea value={diseases} onChange={e => setDiseases(e.target.value)} placeholder="Ex: não possuo; ou hipertensão controlada" />
+              <Label className="font-sans font-medium">Possui alguma condição médica diagnosticada? *</Label>
+              <Textarea value={diseases} onChange={e => setDiseases(e.target.value)} placeholder="Ex: hipertensão controlada; ou nenhuma" />
+              <p className="text-xs leading-relaxed text-muted-foreground">Isso nos ajuda a respeitar limites clínicos e definir quando é necessário pedir liberação profissional.</p>
             </div>
 
             <div className="space-y-2">
-              <Label className="font-sans font-medium">Histórico de lesões (se tiver): *</Label>
+              <Label className="font-sans font-medium">Usa algum medicamento continuamente? *</Label>
+              <Input value={medications} onChange={e => setMedications(e.target.value)} placeholder="Ex: losartana 50 mg; ou nenhum" />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="font-sans font-medium">Histórico de lesões *</Label>
               <Textarea value={injuries} onChange={e => setInjuries(e.target.value)} placeholder="Ex: entorse no tornozelo em 2024; ou nenhuma" />
+              <p className="text-xs leading-relaxed text-muted-foreground">Isso nos ajuda a montar sua Avaliação de Movimento e seu treino com segurança.</p>
             </div>
 
             <div className="space-y-2">
               <Label className="font-sans font-medium">Possui alguma dor atualmente? *</Label>
               <Textarea value={currentPain} onChange={e => setCurrentPain(e.target.value)} placeholder="Ex: dor no joelho ao agachar, intensidade 4/10; ou nenhuma" />
+              <p className="text-xs leading-relaxed text-muted-foreground">Conte onde dói, em qual movimento e a intensidade de 0 a 10. Se não houver dor, escreva “nenhuma”.</p>
             </div>
             </>
             )}
@@ -893,78 +951,69 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             {currentStep.id === "clinical" && (
             <div className="space-y-4 rounded-lg border border-border p-4">
               <h3 className="font-display text-lg text-primary">Triagem clínica</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">As respostas marcadas com * são essenciais para decidir se o treino pode começar com segurança. Nenhuma opção vem respondida por padrão.</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2 sm:col-span-2">
-                  <Label className="font-sans font-medium">Condições médicas relevantes</Label>
-                  <Textarea value={medicalConditions} onChange={e => setMedicalConditions(e.target.value)} placeholder="Ex: hipertensão, diabetes, asma..." />
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label className="font-sans font-medium">Medicamentos</Label>
-                  <Input value={medications} onChange={e => setMedications(e.target.value)} placeholder="Ex: losartana 50 mg; ou nenhum" />
-                </div>
                 <div className="space-y-2">
-                  <Label className="font-sans font-medium">Estresse atual (0-10)</Label>
-                  <Input type="number" min={0} max={10} value={stressScore} onChange={e => setStressScore(e.target.value)} placeholder="Ex: 6" />
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-sans font-medium">Qualidade do sono (0-10)</Label>
-                  <Input type="number" min={0} max={10} value={sleepQuality} onChange={e => setSleepQuality(e.target.value)} placeholder="Ex: 7" />
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-sans font-medium">Problema cardíaco / pressão alta?</Label>
+                  <Label className="font-sans font-medium">Problema cardíaco / pressão alta? *</Label>
                   <select value={clinCardiac} onChange={e => setClinCardiac(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                    <option value="">Selecione...</option>
                     <option value="nao">Não</option>
                     <option value="sim">Sim</option>
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-sans font-medium">Dor no peito / tontura ao esforço?</Label>
+                  <Label className="font-sans font-medium">Dor no peito / tontura ao esforço? *</Label>
                   <select value={clinChestPain} onChange={e => setClinChestPain(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                    <option value="">Selecione...</option>
                     <option value="nao">Não</option>
                     <option value="sim">Sim</option>
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-sans font-medium">Cirurgia nos últimos 6 meses?</Label>
+                  <Label className="font-sans font-medium">Cirurgia nos últimos 6 meses? *</Label>
                   <select value={clinSurgery} onChange={e => setClinSurgery(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                    <option value="">Selecione...</option>
                     <option value="nao">Não</option>
                     <option value="sim">Sim</option>
                   </select>
                 </div>
                 {clinSurgery === "sim" && (
                   <div className="space-y-2">
-                    <Label className="font-sans font-medium">Qual / quando?</Label>
+                    <Label className="font-sans font-medium">Qual cirurgia e quando? *</Label>
                     <Input value={clinSurgeryDetail} onChange={e => setClinSurgeryDetail(e.target.value)} placeholder="Ex: cirurgia no joelho em janeiro de 2026" />
                   </div>
                 )}
                 {gender === "F" && (
                   <>
                     <div className="space-y-2">
-                      <Label className="font-sans font-medium">Gestação / pós-parto?</Label>
+                      <Label className="font-sans font-medium">Gestação / pós-parto? *</Label>
                       <select value={clinPregnant} onChange={e => setClinPregnant(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                        <option value="">Selecione...</option>
                         <option value="na">Não se aplica</option>
                         <option value="gravida">Gestante</option>
                         <option value="posparto">Pós-parto recente</option>
                       </select>
                     </div>
-                    {clinPregnant !== "na" && (
+                    {clinPregnant && clinPregnant !== "na" && (
                       <div className="space-y-2">
-                        <Label className="font-sans font-medium">Semanas / meses</Label>
+                        <Label className="font-sans font-medium">Semanas / meses *</Label>
                         <Input value={clinPregnantDetail} onChange={e => setClinPregnantDetail(e.target.value)} placeholder="Ex: 20 semanas; ou 3 meses pós-parto" />
                       </div>
                     )}
                   </>
                 )}
                 <div className="space-y-2">
-                  <Label className="font-sans font-medium">Fuma?</Label>
+                  <Label className="font-sans font-medium">Fuma? *</Label>
                   <select value={clinSmoke} onChange={e => setClinSmoke(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                    <option value="">Selecione...</option>
                     <option value="nao">Não</option>
                     <option value="sim">Sim</option>
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-sans font-medium">Doente / com febre agora?</Label>
+                  <Label className="font-sans font-medium">Doente / com febre agora? *</Label>
                   <select value={clinAcute} onChange={e => setClinAcute(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                    <option value="">Selecione...</option>
                     <option value="nao">Não</option>
                     <option value="sim">Sim</option>
                   </select>
@@ -975,7 +1024,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 </div>
               </div>
               <div className="space-y-2">
-                <Label className="font-sans font-medium">Dor articular agora (0 = sem dor · 10 = dor máxima)</Label>
+                <Label className="font-sans font-medium">Dor articular agora (0 = sem dor · 10 = dor máxima) *</Label>
+                <p className="text-xs leading-relaxed text-muted-foreground">Preencha cada região. Assim evitamos interpretar um campo vazio como ausência de dor.</p>
                 <div className="grid grid-cols-5 gap-2">
                   {[
                     ["Tornozelo", evaTornozelo, setEvaTornozelo],
@@ -1186,6 +1236,27 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
               </RadioGroup>
             </div>
 
+            <div className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-4">
+              <Label className="font-sans font-medium">Recuperação percebida hoje (0-10) *</Label>
+              <Input type="number" min={0} max={10} value={perceivedRecovery} onChange={e => setPerceivedRecovery(e.target.value)} placeholder="Ex: 7" />
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                0 significa “exausto, dolorido ou sem condições de treinar”; 10 significa “totalmente descansado e pronto”. Isso orienta o ajuste de volume e intensidade.
+              </p>
+            </div>
+
+            {hasEndurance && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="font-sans font-medium">FC máxima, se souber</Label>
+                  <Input type="number" value={fcmax} onChange={e => setFcmax(e.target.value)} placeholder="Ex: 190" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-sans font-medium">FC de repouso, se souber</Label>
+                  <Input type="number" value={fcrep} onChange={e => setFcrep(e.target.value)} placeholder="Ex: 60" />
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label className="font-sans font-medium">Você tem consciência de que precisa ter alimentação + treino + sono alinhados para atingir os resultados? *</Label>
               <RadioGroup value={awareOfTrilogy} onValueChange={setAwareOfTrilogy}>
@@ -1217,15 +1288,36 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                       <option value="300_400">R$ 300 a R$ 400</option>
                       <option value="400_500">R$ 400 a R$ 500</option>
                     </select>
+                    <p className="text-xs leading-relaxed text-muted-foreground">Isso nos ajuda a indicar uma opção compatível com a sua realidade, sem oferecer um plano inadequado.</p>
                   </div>
                   <div className="space-y-2">
-                    <Label className="font-sans font-medium">Melhor horário para contato *</Label>
-                    <select value={preferredContactPeriod} onChange={e => setPreferredContactPeriod(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                    <Label className="font-sans font-medium">Forma preferida de contato *</Label>
+                    <select
+                      value={preferredContactChannel}
+                      onChange={event => {
+                        setPreferredContactChannel(event.target.value);
+                        setPreferredContactPeriod("");
+                      }}
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
                       <option value="">Selecione...</option>
-                      <option value="morning">Manhã</option>
-                      <option value="afternoon">Tarde</option>
-                      <option value="evening">Noite</option>
+                      <option value="whatsapp_message">Mensagem pelo WhatsApp</option>
+                      <option value="whatsapp_call">Ligação pelo WhatsApp</option>
                     </select>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="font-sans font-medium">Melhor horário para contato *</Label>
+                    <select value={preferredContactPeriod} onChange={e => setPreferredContactPeriod(e.target.value)} disabled={!preferredContactChannel} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60">
+                      <option value="">Selecione...</option>
+                      <option value="morning">Manhã (8h às 12h)</option>
+                      <option value="afternoon">Tarde (12h às 18h)</option>
+                      <option value="evening">Noite (após 18h)</option>
+                    </select>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {preferredContactChannel === "whatsapp_call"
+                        ? "Para ligação, escolha um período em que você possa atender com tranquilidade."
+                        : "Para mensagem, escolha quando costuma conseguir responder com mais facilidade."}
+                    </p>
                   </div>
                 </div>
               </div>

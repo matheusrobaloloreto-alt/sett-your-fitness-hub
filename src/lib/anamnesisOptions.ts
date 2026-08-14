@@ -18,7 +18,20 @@ export const PRESCRIPTION_SERVICE_OPTIONS = [
 
 export type SupportedTrainingModality = (typeof SUPPORTED_TRAINING_MODALITIES)[number];
 export type PrescriptionService = (typeof PRESCRIPTION_SERVICE_OPTIONS)[number]["value"];
-export type AnamnesisStepId = "profile" | "services" | "experience" | "schedule" | "strength" | "sports" | "health" | "clinical" | "nutrition" | "recovery" | "finish";
+export type AnamnesisStepId =
+  | "profile"
+  | "services"
+  | "experience"
+  | "recovery"
+  | "schedule"
+  | "strength"
+  | "running"
+  | "swimming"
+  | "cycling"
+  | "health"
+  | "clinical"
+  | "nutrition"
+  | "finish";
 
 export interface TrainingAvailability {
   totalDays: number | null;
@@ -119,16 +132,16 @@ export function resolvePrescriptionInterests(services: readonly string[]) {
 export function buildAnamnesisStepIds(services: readonly string[]): AnamnesisStepId[] {
   const { wantsStrength, wantsRunning, wantsSwimming, wantsCycling, wantsNutrition } =
     resolvePrescriptionInterests(services);
-  const hasEndurance = wantsRunning || wantsSwimming || wantsCycling;
-
   return [
     "profile",
-    "services",
     "experience",
+    "services",
     "recovery",
     "schedule",
     wantsStrength && "strength",
-    hasEndurance && "sports",
+    wantsRunning && "running",
+    wantsSwimming && "swimming",
+    wantsCycling && "cycling",
     "health",
     "clinical",
     wantsNutrition && "nutrition",

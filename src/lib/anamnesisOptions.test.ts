@@ -63,12 +63,15 @@ describe("resolvePrescriptionInterests", () => {
 });
 
 describe("buildAnamnesisStepIds", () => {
-  it("separates strength, sports and nutrition into conditional steps", () => {
+  it("separates every selected modality into its own conditional step", () => {
     expect(buildAnamnesisStepIds(["strength"])).toEqual([
-      "profile", "services", "experience", "recovery", "schedule", "strength", "health", "clinical", "finish",
+      "profile", "experience", "services", "recovery", "schedule", "strength", "health", "clinical", "finish",
     ]);
     expect(buildAnamnesisStepIds(["running", "nutrition"])).toEqual([
-      "profile", "services", "experience", "recovery", "schedule", "sports", "health", "clinical", "nutrition", "finish",
+      "profile", "experience", "services", "recovery", "schedule", "running", "health", "clinical", "nutrition", "finish",
+    ]);
+    expect(buildAnamnesisStepIds(["triathlon"])).toEqual([
+      "profile", "experience", "services", "recovery", "schedule", "running", "swimming", "cycling", "health", "clinical", "finish",
     ]);
   });
 });
