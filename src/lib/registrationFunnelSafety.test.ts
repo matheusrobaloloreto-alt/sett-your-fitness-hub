@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 
 const managerSource = readFileSync("src/pages/admin/RegistrationManager.tsx", "utf8");
 const edgeSource = readFileSync("supabase/functions/public-registration/index.ts", "utf8");
+const manualTransitionMigration = readFileSync(
+  "supabase/migrations/20260814120000_manual_payment_to_assessment_stage.sql",
+  "utf8",
+);
 
 function sourceBetween(source: string, start: string, end: string) {
   const startIndex = source.indexOf(start);
@@ -23,6 +27,21 @@ describe("registration funnel safety contracts", () => {
     expect(moveCardSource).not.toContain('action: "send-link"');
     expect(moveCardSource).not.toContain("openStudentChat(");
     expect(moveCardSource).toContain("Nenhuma mensagem foi enviada");
+  });
+
+  it("allows payment-to-assessment only through the audited paid-enrollment RPC", () => {
+    const moveCardSource = sourceBetween(
+      managerSource,
+      "const moveCardToStage = async",
+      "const createFiscalLinkForStudent",
+    );
+
+    expect(moveCardSource).toContain('targetStage === "active_onboarding"');
+    expect(moveCardSource).toContain('rpc("move_student_to_assessment_stage"');
+    expect(moveCardSource).not.toContain('sales_stage: "active_onboarding"');
+    expect(manualTransitionMigration).toContain("and e.payment_status = 'paid'");
+    expect(manualTransitionMigration).toContain("'manual_payment_reconciliation'");
+    expect(manualTransitionMigration).toContain("'message_sent', false");
   });
 
   it("prepares fiscal registration without sending a message", () => {
