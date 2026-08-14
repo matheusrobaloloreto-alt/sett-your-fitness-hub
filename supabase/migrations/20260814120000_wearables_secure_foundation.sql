@@ -1,7 +1,8 @@
 -- Secure and reproducible foundation for student wearable integrations.
--- This migration is intentionally additive for operational data, but removes the
--- legacy plaintext token columns. Existing connections must re-authorize after it
--- is applied because a database migration cannot safely access the server-side KEK.
+-- Legacy plaintext token columns, if present in an already-running database, are
+-- quarantined by column-level grants and never read by the new edge. Their removal
+-- is a separate operator-gated step after reauthorization because this migration
+-- cannot safely access the server-side KEK.
 
 create extension if not exists pgcrypto with schema extensions;
 
@@ -40,9 +41,6 @@ set company_id = s.company_id
 from public.students s
 where d.student_id = s.id and d.company_id is null;
 alter table public.wearable_devices alter column company_id set not null;
-alter table public.wearable_devices drop column if exists access_token;
-alter table public.wearable_devices drop column if exists refresh_token;
-alter table public.wearable_devices drop column if exists token_expires_at;
 
 create unique index if not exists wearable_devices_student_provider_uidx
   on public.wearable_devices (student_id, provider);
@@ -196,6 +194,78 @@ create unique index if not exists wearable_workouts_device_external_uidx
 create index if not exists wearable_workouts_student_started_idx
   on public.wearable_workouts (student_id, started_at desc);
 
+alter table public.wearable_oauth_states add column if not exists actor_user_id uuid references auth.users(id) on delete cascade;
+alter table public.wearable_oauth_states add column if not exists company_id uuid references public.companies(id) on delete cascade;
+alter table public.wearable_oauth_states add column if not exists requested_scopes text[] not null default '{}';
+
+-- Never trust denormalized tenant identifiers supplied by service code. The
+-- authoritative relationship is student -> company and device -> student/company.
+create or replace function public.enforce_wearable_tenant_integrity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  expected_student_id uuid;
+  expected_company_id uuid;
+  expected_provider text;
+  expected_user_id uuid;
+begin
+  if tg_table_name in ('wearable_devices', 'wearable_oauth_states') then
+    select s.company_id, s.user_id into expected_company_id, expected_user_id
+    from public.students s where s.id = new.student_id;
+    if expected_company_id is null then raise exception 'wearable_student_company_missing'; end if;
+    if new.company_id is not null and new.company_id <> expected_company_id then
+      raise exception 'wearable_company_mismatch';
+    end if;
+    new.company_id := expected_company_id;
+    if tg_table_name = 'wearable_oauth_states' then
+      if expected_user_id is null or new.actor_user_id is null or new.actor_user_id <> expected_user_id then
+        raise exception 'wearable_actor_mismatch';
+      end if;
+    end if;
+    return new;
+  end if;
+
+  select d.student_id, d.company_id, d.provider
+    into expected_student_id, expected_company_id, expected_provider
+  from public.wearable_devices d where d.id = new.device_id;
+  if expected_student_id is null then raise exception 'wearable_device_missing'; end if;
+  if new.student_id is not null and new.student_id <> expected_student_id then
+    raise exception 'wearable_student_mismatch';
+  end if;
+  if new.company_id is not null and new.company_id <> expected_company_id then
+    raise exception 'wearable_company_mismatch';
+  end if;
+  new.student_id := expected_student_id;
+  new.company_id := expected_company_id;
+  if tg_table_name = 'wearable_consents' then
+    if new.provider is not null and new.provider <> expected_provider then
+      raise exception 'wearable_provider_mismatch';
+    end if;
+    new.provider := expected_provider;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists wearable_devices_tenant_integrity on public.wearable_devices;
+create trigger wearable_devices_tenant_integrity before insert or update of student_id, company_id
+on public.wearable_devices for each row execute function public.enforce_wearable_tenant_integrity();
+drop trigger if exists wearable_oauth_states_tenant_integrity on public.wearable_oauth_states;
+create trigger wearable_oauth_states_tenant_integrity before insert or update of student_id, company_id, actor_user_id
+on public.wearable_oauth_states for each row execute function public.enforce_wearable_tenant_integrity();
+drop trigger if exists wearable_data_tenant_integrity on public.wearable_data;
+create trigger wearable_data_tenant_integrity before insert or update of device_id, student_id, company_id
+on public.wearable_data for each row execute function public.enforce_wearable_tenant_integrity();
+drop trigger if exists wearable_workouts_tenant_integrity on public.wearable_workouts;
+create trigger wearable_workouts_tenant_integrity before insert or update of device_id, student_id, company_id
+on public.wearable_workouts for each row execute function public.enforce_wearable_tenant_integrity();
+drop trigger if exists wearable_consents_tenant_integrity on public.wearable_consents;
+create trigger wearable_consents_tenant_integrity before insert or update of device_id, student_id, company_id, provider
+on public.wearable_consents for each row execute function public.enforce_wearable_tenant_integrity();
+
 alter table public.wearable_devices enable row level security;
 alter table public.wearable_credentials enable row level security;
 alter table public.wearable_consents enable row level security;
@@ -211,15 +281,21 @@ revoke all on public.wearable_leases from public, anon, authenticated;
 revoke all on public.wearable_events from public, anon, authenticated;
 grant all on public.wearable_credentials, public.wearable_sync_cursors, public.wearable_leases, public.wearable_events to service_role;
 
-revoke all on public.wearable_devices, public.wearable_consents, public.wearable_data, public.wearable_workouts from anon;
-grant select on public.wearable_devices, public.wearable_consents, public.wearable_data, public.wearable_workouts to authenticated;
+revoke all on public.wearable_devices, public.wearable_consents, public.wearable_data, public.wearable_workouts from anon, authenticated;
+-- Column grant deliberately excludes any legacy plaintext token columns that may
+-- still exist in a live database pending operator-gated reauthorization.
+grant select (id, student_id, company_id, provider, device_name, external_user_id, is_active,
+  connection_status, granted_scopes, required_scopes, last_sync_at, last_sync_status,
+  last_error_code, last_error, revocation_status, revoked_at, created_at, updated_at)
+on public.wearable_devices to authenticated;
+grant select on public.wearable_consents, public.wearable_data, public.wearable_workouts to authenticated;
 grant all on public.wearable_devices, public.wearable_consents, public.wearable_data, public.wearable_workouts to service_role;
 
 drop policy if exists "wearable devices tenant read" on public.wearable_devices;
 create policy "wearable devices tenant read" on public.wearable_devices
 for select to authenticated using (
   exists (select 1 from public.students s where s.id = student_id and s.user_id = auth.uid())
-  or company_id = public.get_user_company_id(auth.uid())
+  or public.is_company_staff(auth.uid(), company_id)
   or public.has_role(auth.uid(), 'master')
 );
 
@@ -227,7 +303,7 @@ drop policy if exists "wearable consents tenant read" on public.wearable_consent
 create policy "wearable consents tenant read" on public.wearable_consents
 for select to authenticated using (
   exists (select 1 from public.students s where s.id = student_id and s.user_id = auth.uid())
-  or company_id = public.get_user_company_id(auth.uid())
+  or public.is_company_staff(auth.uid(), company_id)
   or public.has_role(auth.uid(), 'master')
 );
 
@@ -235,7 +311,7 @@ drop policy if exists "wearable data tenant read" on public.wearable_data;
 create policy "wearable data tenant read" on public.wearable_data
 for select to authenticated using (
   exists (select 1 from public.students s where s.id = student_id and s.user_id = auth.uid())
-  or company_id = public.get_user_company_id(auth.uid())
+  or public.is_company_staff(auth.uid(), company_id)
   or public.has_role(auth.uid(), 'master')
 );
 
@@ -243,7 +319,7 @@ drop policy if exists "wearable workouts tenant read" on public.wearable_workout
 create policy "wearable workouts tenant read" on public.wearable_workouts
 for select to authenticated using (
   exists (select 1 from public.students s where s.id = student_id and s.user_id = auth.uid())
-  or company_id = public.get_user_company_id(auth.uid())
+  or public.is_company_staff(auth.uid(), company_id)
   or public.has_role(auth.uid(), 'master')
 );
 
@@ -257,7 +333,7 @@ as $$
   with consumed as (
     delete from public.wearable_oauth_states
     where state = p_state and consumed_at is null and expires_at > now()
-    returning student_id, provider, return_url, created_at
+    returning student_id, actor_user_id, company_id, provider, requested_scopes, return_url, created_at
   )
   select to_jsonb(consumed) from consumed;
 $$;
