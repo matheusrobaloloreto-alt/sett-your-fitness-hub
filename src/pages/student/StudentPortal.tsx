@@ -52,6 +52,12 @@ import type { Gender } from "@/components/student/BodyMeasurements";
 import { Megaphone, Activity } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import {
+  mergeWorkoutDraftLogs,
+  readWorkoutUiDraft,
+  workoutUiDraftKey,
+  writeWorkoutUiDraft,
+} from "@/lib/workoutDraft";
 
 
 type ActiveView = "home" | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
@@ -122,7 +128,7 @@ export default function StudentPortal() {
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
-  const [videoModal, setVideoModal] = useState<{ type: "path" | "url" | "loading"; value: string } | null>(null);
+  const [videoModal, setVideoModal] = useState<{ type: "path" | "url" | "loading"; value: string; title: string } | null>(null);
   // Feedback pós-treino — persiste no painel; WhatsApp é um canal adicional.
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
@@ -160,9 +166,52 @@ export default function StudentPortal() {
   const todayStr = businessDateYmd();
 
   const session = useWorkoutSession(studentId, companyId);
+  const workoutUiDraftStorageKey = studentId ? workoutUiDraftKey(studentId, todayStr) : null;
+  const workoutUiRestoredKeyRef = useRef<string | null>(null);
 
   // Mantém a tela acesa durante o treino (academia: evita destravar de mão suada).
   useWakeLock(session.isActive);
+
+  // A sessão ativa é a fonte mais forte ao retomar o app após bloqueio/suspensão.
+  useEffect(() => {
+    const activeWorkoutId = session.activeSession?.workoutId;
+    if (!activeWorkoutId || cycles.length === 0) return;
+    const cycle = cycles.find(item => item.workouts.some(workout => workout.id === activeWorkoutId));
+    if (!cycle) return;
+    setSelectedCycle(cycle);
+    setSelectedWorkoutId(activeWorkoutId);
+    setActiveView("treino");
+  }, [cycles, session.activeSession?.workoutId]);
+
+  // Mesmo sem iniciar o cronômetro, conserva Treino C, exercício aberto e séries extras.
+  useEffect(() => {
+    if (loading || !workoutUiDraftStorageKey || cycles.length === 0) return;
+    if (workoutUiRestoredKeyRef.current === workoutUiDraftStorageKey) return;
+    workoutUiRestoredKeyRef.current = workoutUiDraftStorageKey;
+    const draft = readWorkoutUiDraft(localStorage, workoutUiDraftStorageKey);
+    if (!draft) return;
+    const cycle = cycles.find(item => item.id === draft.cycleId)
+      || cycles.find(item => item.workouts.some(workout => workout.id === draft.workoutId));
+    if (!cycle || !cycle.workouts.some(workout => workout.id === draft.workoutId)) return;
+    setSelectedCycle(cycle);
+    setSelectedWorkoutId(draft.workoutId);
+    setExpandedExercise(draft.expandedExercise);
+    setExtraSets(draft.extraSets);
+    setActiveView("treino");
+  }, [cycles, loading, workoutUiDraftStorageKey]);
+
+  useEffect(() => {
+    if (!workoutUiDraftStorageKey || !selectedWorkoutId) return;
+    try {
+      writeWorkoutUiDraft(localStorage, workoutUiDraftStorageKey, {
+        cycleId: selectedCycle?.id ?? null,
+        workoutId: selectedWorkoutId,
+        expandedExercise,
+        activeView,
+        extraSets,
+      });
+    } catch { /* quota/private mode */ }
+  }, [activeView, expandedExercise, extraSets, selectedCycle?.id, selectedWorkoutId, workoutUiDraftStorageKey]);
 
   const { activeRest, startRest, clearRest } = useRestTimer();
 
@@ -497,27 +546,25 @@ export default function StudentPortal() {
   // ---- Autosave + backup local dos logs do dia (resiliência a wifi ruim / reload) ----
   const logsBackupKey = studentId ? `sett_logs_${studentId}_${todayStr}` : null;
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const logsRestoredRef = useRef(false);
+  const logsRestoredKeyRef = useRef<string | null>(null);
 
-  // Backup local a cada mudança (não grava vazio para não apagar um backup pendente de restore).
+  // Backup local a cada mudança. Espera o restore deste aluno/dia para não
+  // sobrescrever um rascunho offline com a versão antiga recém-lida do banco.
   useEffect(() => {
+    if (logsRestoredKeyRef.current !== logsBackupKey) return;
     if (!logsBackupKey || Object.keys(logs).length === 0) return;
     try { localStorage.setItem(logsBackupKey, JSON.stringify(logs)); } catch { /* quota */ }
   }, [logs, logsBackupKey]);
 
   // Restaura, uma vez após o load, entradas locais que o banco não trouxe (edições offline).
   useEffect(() => {
-    if (logsRestoredRef.current || loading || !logsBackupKey) return;
-    logsRestoredRef.current = true;
+    if (loading || !logsBackupKey || logsRestoredKeyRef.current === logsBackupKey) return;
+    logsRestoredKeyRef.current = logsBackupKey;
     try {
       const raw = localStorage.getItem(logsBackupKey);
       if (!raw) return;
       const local = JSON.parse(raw) as Record<string, WorkoutLog>;
-      setLogs(prev => {
-        const merged = { ...prev };
-        for (const [k, v] of Object.entries(local)) if (!merged[k]) merged[k] = v;
-        return merged;
-      });
+      setLogs(prev => mergeWorkoutDraftLogs(prev, local));
     } catch { /* ignore */ }
   }, [loading, logsBackupKey]);
 
@@ -535,6 +582,34 @@ export default function StudentPortal() {
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
   }, [logs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Safari pode congelar a aba sem dar tempo ao debounce. Grave o rascunho
+  // local imediatamente no pagehide/visibilitychange; o envio remoto retoma depois.
+  useEffect(() => {
+    const persistBeforeSuspend = (event: Event) => {
+      if (document.visibilityState !== "hidden" && event?.type !== "pagehide") return;
+      try {
+        if (logsBackupKey && Object.keys(logs).length > 0) {
+          localStorage.setItem(logsBackupKey, JSON.stringify(logs));
+        }
+        if (workoutUiDraftStorageKey && selectedWorkoutId) {
+          writeWorkoutUiDraft(localStorage, workoutUiDraftStorageKey, {
+            cycleId: selectedCycle?.id ?? null,
+            workoutId: selectedWorkoutId,
+            expandedExercise,
+            activeView,
+            extraSets,
+          });
+        }
+      } catch { /* quota/private mode */ }
+    };
+    document.addEventListener("visibilitychange", persistBeforeSuspend);
+    window.addEventListener("pagehide", persistBeforeSuspend);
+    return () => {
+      document.removeEventListener("visibilitychange", persistBeforeSuspend);
+      window.removeEventListener("pagehide", persistBeforeSuspend);
+    };
+  }, [activeView, expandedExercise, extraSets, logs, logsBackupKey, selectedCycle?.id, selectedWorkoutId, workoutUiDraftStorageKey]);
 
   const getStoragePublicUrl = (path: string) => {
     const { data } = supabase.storage.from("exercises-videos").getPublicUrl(path);
@@ -554,16 +629,16 @@ export default function StudentPortal() {
   };
 
   const openVideoForExercise = async (ex: WorkoutExercise) => {
-    if (ex.video_path) { setVideoModal({ type: "path", value: getStoragePublicUrl(ex.video_path) }); return; }
-    if (ex.video_url) { setVideoModal({ type: "url", value: ex.video_url }); return; }
-    if (ex.youtube_video_id) { setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${ex.youtube_video_id}` }); return; }
+    if (ex.video_path) { setVideoModal({ type: "path", value: getStoragePublicUrl(ex.video_path), title: ex.exercise_name }); return; }
+    if (ex.video_url) { setVideoModal({ type: "url", value: ex.video_url, title: ex.exercise_name }); return; }
+    if (ex.youtube_video_id) { setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${ex.youtube_video_id}`, title: ex.exercise_name }); return; }
     // Sem vídeo gravado → puxa um vídeo do YouTube pelo nome do exercício (resolvido/cacheado no servidor).
-    setVideoModal({ type: "loading", value: ex.exercise_name });
+    setVideoModal({ type: "loading", value: "", title: ex.exercise_name });
     const search = () => window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(ex.exercise_name + " execução técnica")}`, "_blank");
     try {
       const { data } = await supabase.functions.invoke("youtube-exercise-video", { body: { exercise_id: ex.exercise_id, name: ex.exercise_name } });
       const vid = (data as any)?.video_id as string | null;
-      if (vid) setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${vid}` });
+      if (vid) setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${vid}`, title: ex.exercise_name });
       else { search(); setVideoModal(null); }
     } catch {
       search(); setVideoModal(null);
@@ -1014,7 +1089,7 @@ export default function StudentPortal() {
                         })()}
 
                         <div className="flex items-center justify-between gap-2">
-                          <h3 className="text-lg text-foreground font-sans font-semibold truncate">{selectedWorkout.title}</h3>
+                          <h3 className="min-w-0 break-words text-lg font-semibold leading-snug text-foreground font-sans">{selectedWorkout.title}</h3>
                           <div className="flex items-center gap-2 shrink-0">
                             <Button size="sm" variant="outline" onClick={() => setWarmupOpen(true)}>
                               <Flame className="h-3.5 w-3.5 mr-1" />
@@ -1218,7 +1293,9 @@ export default function StudentPortal() {
       <Dialog open={!!videoModal} onOpenChange={() => setVideoModal(null)}>
         <DialogContent className="bg-card border-border max-w-lg sm:max-w-2xl p-2 sm:p-4">
           <DialogHeader>
-            <DialogTitle className="text-primary text-sm">DEMONSTRAÇÃO</DialogTitle>
+            <DialogTitle className="pr-8 text-left text-base leading-snug text-primary break-words">
+              {videoModal?.title || "Demonstração do exercício"}
+            </DialogTitle>
           </DialogHeader>
           {videoModal && (
             <div className="space-y-3">

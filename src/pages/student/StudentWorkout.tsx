@@ -68,7 +68,7 @@ export default function StudentWorkout() {
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
-  const [videoModal, setVideoModal] = useState<{ type: "path" | "url" | "loading"; value: string } | null>(null);
+  const [videoModal, setVideoModal] = useState<{ type: "path" | "url" | "loading"; value: string; title: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
@@ -161,7 +161,7 @@ export default function StudentWorkout() {
               videoMap[lib.id] = {
                 video_url: lib.video_url,
                 video_path: lib.video_path,
-                youtube_video_id: null,
+                youtube_video_id: lib.youtube_video_id ?? null,
               };
             });
           }
@@ -262,21 +262,21 @@ export default function StudentWorkout() {
   };
 
   const openVideoForExercise = async (ex: WorkoutExercise) => {
-    if (ex.video_path) { setVideoModal({ type: "path", value: getStoragePublicUrl(ex.video_path) }); return; }
-    if (ex.video_url) { setVideoModal({ type: "url", value: ex.video_url }); return; }
+    if (ex.video_path) { setVideoModal({ type: "path", value: getStoragePublicUrl(ex.video_path), title: ex.exercise_name }); return; }
+    if (ex.video_url) { setVideoModal({ type: "url", value: ex.video_url, title: ex.exercise_name }); return; }
     if (ex.youtube_video_id) {
-      setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${ex.youtube_video_id}` });
+      setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${ex.youtube_video_id}`, title: ex.exercise_name });
       return;
     }
     if (!ex.exercise_id) return;
-    setVideoModal({ type: "loading", value: ex.exercise_name });
+    setVideoModal({ type: "loading", value: "", title: ex.exercise_name });
     try {
       const { data, error } = await supabase.functions.invoke("youtube-exercise-video", {
         body: { exercise_id: ex.exercise_id, name: ex.exercise_name },
       });
       const videoId = (data as { video_id?: string } | null)?.video_id;
       if (error || !videoId) throw error || new Error("Vídeo não encontrado");
-      setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${videoId}` });
+      setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${videoId}`, title: ex.exercise_name });
     } catch {
       setVideoModal(null);
       window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(`${ex.exercise_name} execução técnica`)}`, "_blank");
@@ -492,7 +492,7 @@ export default function StudentWorkout() {
                                   {idx + 1}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <p className="font-sans font-medium text-foreground text-sm truncate">{ex.exercise_name}</p>
+                                  <p className="break-words font-sans text-sm font-medium leading-snug text-foreground">{ex.exercise_name}</p>
                                   <p className="text-xs text-muted-foreground font-sans">
                                     {ex.sets}×{ex.reps} · {ex.rest}
                                   </p>
@@ -600,7 +600,9 @@ export default function StudentWorkout() {
       <Dialog open={!!videoModal} onOpenChange={() => setVideoModal(null)}>
         <DialogContent className="bg-card border-border max-w-lg sm:max-w-2xl p-2 sm:p-4">
           <DialogHeader>
-            <DialogTitle className="text-primary text-sm">DEMONSTRAÇÃO</DialogTitle>
+            <DialogTitle className="pr-8 text-left text-base leading-snug text-primary break-words">
+              {videoModal?.title || "Demonstração do exercício"}
+            </DialogTitle>
           </DialogHeader>
           {videoModal && (
             <div className="space-y-3">
@@ -608,7 +610,7 @@ export default function StudentWorkout() {
                 {videoModal.type === "loading" ? (
                   <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
                     <Loader2 className="h-7 w-7 animate-spin text-primary" />
-                    <p className="text-sm">Buscando demonstração de {videoModal.value}…</p>
+                    <p className="text-sm">Buscando demonstração de {videoModal.title}…</p>
                   </div>
                 ) : videoModal.type === "path" ? (
                   <video src={videoModal.value} controls className="w-full h-full rounded-md" />

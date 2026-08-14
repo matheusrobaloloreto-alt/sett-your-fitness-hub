@@ -148,7 +148,7 @@ export function ExerciseCard({
             </span>
           </button>
           <div className="flex-1 min-w-0">
-            <p className="font-sans font-medium text-foreground text-sm truncate">{ex.exercise_name}</p>
+            <p className="break-words font-sans text-sm font-medium leading-snug text-foreground">{ex.exercise_name}</p>
             <div className="flex items-center gap-2">
               <p className="text-xs text-muted-foreground font-mono-data">{numSets}×{ex.reps} · {ex.rest}</p>
               {ex.method && !isGroupingMethod(ex.method) && (
