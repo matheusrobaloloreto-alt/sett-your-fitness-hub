@@ -79,16 +79,17 @@ Removido apenas o timestamp `generated_at`, os dois relatórios geraram o mesmo 
 
 1. Tenant e atividade validados de forma fail-closed.
 2. Matching determinístico por telefone/e-mail/nome exato único; contradições e ambiguidades bloqueiam.
-3. Somente fichas ativas; status desconhecido ou histórico concluído não entra.
+3. Somente fichas explicitamente ativas; status ausente/desconhecido ou histórico concluído não entra.
 4. Preserva sessões, ordem, séries, repetições, carga, descanso, cadência, observações, métodos, grupos/bi-sets, alternativas e mídia.
 5. Exige 100% de cobertura determinística do catálogo para o lote; não cria exercícios.
 6. Append-only com IDs determinísticos; não sobrescreve treino SETT materializado.
 7. Idempotência e divergência parcial cobertas por testes.
 8. Relatórios sanitizados, sem PII.
+9. Imediatamente antes de qualquer escrita, o migrador relê aluno e matrícula no banco vivo e bloqueia mudança de status, empresa ou ownership.
 
 ## Validações
 
-- `node --test scripts/mfit-active-workouts-migration.test.mjs`: **23/23 aprovados**.
+- `node --test scripts/mfit-active-workouts-migration.test.mjs`: **26/26 aprovados**.
 - Dois dry-runs reais idênticos no conteúdo operacional.
 - Extração reaberta e verificada após o falso bloqueio de sessões recolhidas pela interface.
 - Nenhuma mutação remota foi solicitada pelo migrador.

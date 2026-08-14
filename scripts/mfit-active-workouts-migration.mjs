@@ -627,7 +627,8 @@ function explicitlyInactive(row) {
   if (row.active === false || row.is_active === false || row.isActive === false) return true;
   if (row.active === true || row.is_active === true || row.isActive === true) return false;
   const status = cleanText(firstValue(row, ["status", "state", "situacao", "situação"])).toLowerCase();
-  if (!status) return false;
+  // Fail closed: a plan needs either an explicit active flag or a known active status.
+  if (!status) return true;
   return INACTIVE_PLAN_STATUSES.has(status) || !ACTIVE_PLAN_STATUSES.has(status);
 }
 
@@ -964,6 +965,14 @@ export function createSupabaseAdapter(client, schema) {
 
   return {
     normalizedSupport: { available: normalizedAvailable, has_id: normalizedHasId },
+    async getStudentsByIds(ids) {
+      return selectByIds(
+        "students",
+        "id,company_id,status",
+        "id",
+        ids,
+      );
+    },
     async getEnrollments(studentIds) {
       return selectByIds(
         "enrollments",
@@ -1149,6 +1158,28 @@ function operationAlreadyMaterialized(workouts, operation) {
 }
 
 async function applyOperation(db, operation) {
+  // Re-read live ownership immediately before any mutation. The input export is
+  // only a matching source and must not authorize an apply after status changes.
+  const liveStudent = (await db.getStudentsByIds([operation.cycle.student_id]))[0] || null;
+  if (!liveStudent || !ACTIVE_STUDENT_STATUSES.has(cleanText(liveStudent.status).toLowerCase())) {
+    return { status: "blocked", reason: "student_no_longer_active" };
+  }
+  if (liveStudent.company_id !== operation.cycle.company_id) {
+    return { status: "blocked", reason: "live_student_company_mismatch" };
+  }
+  const liveEnrollment = (await db.getEnrollments([operation.cycle.student_id]))
+    .find((row) => row.id === operation.cycle.enrollment_id) || null;
+  if (!liveEnrollment || !ACTIVE_ENROLLMENT_STATUSES.includes(cleanText(liveEnrollment.status).toLowerCase())) {
+    return { status: "blocked", reason: "enrollment_no_longer_active" };
+  }
+  if (
+    liveEnrollment.student_id !== liveStudent.id
+    || liveEnrollment.company_id !== liveStudent.company_id
+    || liveEnrollment.company_id !== operation.cycle.company_id
+  ) {
+    return { status: "blocked", reason: "live_enrollment_company_mismatch" };
+  }
+
   const currentCycles = await db.getCyclesByIds([operation.cycle.id]);
   let cycle = currentCycles[0] || null;
 

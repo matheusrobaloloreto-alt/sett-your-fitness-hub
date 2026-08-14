@@ -94,6 +94,7 @@ class MemoryDb {
     ],
     workoutExercises = [],
     normalizedAvailable = true,
+    students = [{ id: IDS.studentPhone, company_id: IDS.company, status: "active" }],
   } = {}) {
     this.enrollments = [{
       id: IDS.enrollment,
@@ -102,6 +103,7 @@ class MemoryDb {
       status: "active",
       created_at: "2026-08-01T00:00:00Z",
     }];
+    this.students = structuredClone(students);
     this.cycles = structuredClone(cycles);
     this.workouts = structuredClone(workouts);
     this.exercises = structuredClone(exercises);
@@ -112,6 +114,10 @@ class MemoryDb {
 
   async getEnrollments(studentIds) {
     return this.enrollments.filter((row) => studentIds.includes(row.student_id));
+  }
+
+  async getStudentsByIds(ids) {
+    return this.students.filter((row) => ids.includes(row.id));
   }
 
   async getCycles(enrollmentIds) {
@@ -263,6 +269,12 @@ test("contradictory phone and email identifiers are blocked", () => {
 test("unknown MFIT plan statuses fail closed", () => {
   const input = baseInput().mfitWorkoutsPayload;
   input.clients[0].fichas[0].status = "mystery-state";
+  assert.equal(normalizeMfitPlans(input)[0].active, false);
+});
+
+test("MFIT plans without status or explicit active flag fail closed", () => {
+  const input = baseInput().mfitWorkoutsPayload;
+  delete input.clients[0].fichas[0].status;
   assert.equal(normalizeMfitPlans(input)[0].active, false);
 });
 
@@ -430,6 +442,34 @@ test("a missing exercise blocks the whole batch and never changes the library", 
   assert.equal(report.results[0].reason, "exercise_not_in_catalog");
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
   assert.equal(db.exercises.length, 0);
+});
+
+test("apply rechecks the live student status immediately before writing", async () => {
+  const input = baseInput();
+  const db = new MemoryDb({
+    students: [{ id: IDS.studentPhone, company_id: IDS.company, status: "inactive" }],
+  });
+  const report = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.results[0].reason, "student_no_longer_active");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("apply rechecks live student and enrollment company ownership", async () => {
+  const input = baseInput();
+  const db = new MemoryDb({
+    students: [{
+      id: IDS.studentPhone,
+      company_id: "10000000-0000-4000-8000-000000000999",
+      status: "active",
+    }],
+  });
+  const report = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.results[0].reason, "live_student_company_mismatch");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
 });
 
 test("apply is append-only and a second identical run is a no-op", async () => {
