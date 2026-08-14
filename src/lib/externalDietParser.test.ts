@@ -42,6 +42,7 @@ describe("external diet parser", () => {
   it("extrai apenas metas explicitamente informadas", () => {
     const targets = extractExternalNutritionTargets([
       "META: 2100 KCAL",
+      "PROTEÍNA: 120G DE FRANGO",
       "PROTEÍNA: 140G",
       "CARBOIDRATOS: 230G",
       "GORDURAS: 65G",
@@ -60,5 +61,34 @@ describe("external diet parser", () => {
       water_ml_per_kg: 35,
     });
     expect(targets.water_ml).toBeNull();
+  });
+
+  it("não confunde porção de alimento com meta diária", () => {
+    const targets = extractExternalNutritionTargets([
+      "ALMOÇO",
+      "PROTEÍNA: 120G DE FRANGO",
+      "CARBOIDRATO: 80G DE ARROZ",
+      "GORDURA: 10G DE AZEITE",
+    ].join("\n"));
+
+    expect(targets).toMatchObject({
+      protein_g: null,
+      carbs_g: null,
+      fat_g: null,
+    });
+  });
+
+  it("registra a evidência da meta e preserva overview mesmo com linhas em branco", () => {
+    const document = buildExternalNutritionDocument([
+      "META DIÁRIA: PROTEÍNA 135G",
+      "",
+      "ORIENTAÇÃO SEM ALTERAÇÃO",
+      "",
+      "ALMOÇO",
+      "80G DE ARROZ",
+    ].join("\n"), "plano.pdf");
+
+    expect(document.overview).toEqual(["META DIÁRIA: PROTEÍNA 135G", "ORIENTAÇÃO SEM ALTERAÇÃO"]);
+    expect(document.target_evidence.protein_g).toBe("META DIÁRIA: PROTEÍNA 135G");
   });
 });

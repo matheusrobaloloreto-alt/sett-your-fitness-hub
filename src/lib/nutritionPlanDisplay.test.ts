@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { humanizeNutritionText, prepareImportedNutritionPlan } from "@/lib/nutritionPlanDisplay";
+import {
+  humanizeNutritionText,
+  prepareImportedNutritionPlan,
+  selectCurrentNutritionPlan,
+} from "@/lib/nutritionPlanDisplay";
 
 const importedMeals = [
   {
@@ -65,5 +69,26 @@ describe("prepareImportedNutritionPlan", () => {
     expect(result.rawText).toBe("ALMOÇO\n80G DE ARROZ");
     expect(result.overview).toEqual(["ORIENTAÇÃO EXATA"]);
     expect(result.meals[0].items[0].text).toBe("80G DE ARROZ");
+  });
+
+  it("define um único plano vigente por status, datas e recência", () => {
+    const current = selectCurrentNutritionPlan([
+      { status: "inactive", start_date: "2026-08-10", created_at: "2026-08-10T12:00:00Z" },
+      { status: "active", start_date: "2026-07-01", created_at: "2026-08-12T12:00:00Z" },
+      { status: "active", start_date: "2026-08-01", created_at: "2026-08-11T12:00:00Z" },
+      { status: "active", start_date: "2026-09-01", created_at: "2026-08-14T12:00:00Z" },
+    ], "2026-08-14");
+
+    expect(current).toMatchObject({ start_date: "2026-08-01" });
+  });
+
+  it("não exibe plano inativo e só usa registro sem status como legado", () => {
+    expect(selectCurrentNutritionPlan([
+      { status: "inactive", start_date: "2026-08-01" },
+      { status: null, start_date: null, created_at: "2026-07-01T12:00:00Z" },
+    ], "2026-08-14")).toMatchObject({ status: null });
+    expect(selectCurrentNutritionPlan([
+      { status: "inactive", start_date: "2026-08-01" },
+    ], "2026-08-14")).toBeNull();
   });
 });
