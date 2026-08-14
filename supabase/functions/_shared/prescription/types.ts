@@ -113,6 +113,7 @@ export interface TrainingExercise {
   method?: string | null;
   group_id?: string | null;
   method_seconds?: number | null;
+  set_types?: Array<"warmup" | "normal" | "failure" | "drop">;
   weekly_prescription?: WeeklyExercisePrescription[];
 }
 
@@ -127,6 +128,7 @@ export interface WeeklyExercisePrescription {
   method?: string | null;
   group_id?: string | null;
   method_seconds?: number | null;
+  set_types?: Array<"warmup" | "normal" | "failure" | "drop">;
   instruction: string;
 }
 

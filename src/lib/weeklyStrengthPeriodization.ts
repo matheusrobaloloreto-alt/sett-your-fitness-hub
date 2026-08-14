@@ -11,6 +11,7 @@ export interface StoredWeeklyExercisePrescription {
   method?: string | null;
   group_id?: string | null;
   method_seconds?: number | null;
+  set_types?: string[];
   instruction?: string;
 }
 
@@ -22,6 +23,7 @@ export interface WeeklyAwareExercise {
   method?: string | null;
   group_id?: string | null;
   method_seconds?: number | null;
+  set_types?: string[];
   weekly_prescription?: StoredWeeklyExercisePrescription[];
   tempo?: string | null;
   rir?: string | null;
@@ -111,6 +113,7 @@ export function resolveExerciseForWeek<T extends WeeklyAwareExercise>(exercise: 
     method: prescription.method ?? null,
     group_id: prescription.group_id ?? null,
     method_seconds: prescription.method_seconds ?? null,
+    set_types: Array.isArray(prescription.set_types) ? prescription.set_types : exercise.set_types,
     tempo: prescription.tempo || null,
     rir: prescription.rir || null,
     weekly_instruction: prescription.instruction || null,

@@ -40,6 +40,12 @@ import {
   selectCurrentCycle,
   type WhatsAppStatusFilter,
 } from "@/lib/whatsappAudience";
+import {
+  isUsableMediaUrl,
+  normalizeWhatsAppPhoneKey,
+  reconcileWhatsAppMessages,
+  upsertWhatsAppMessage,
+} from "@/lib/whatsappMessages";
 
 type Chat = {
   id: string;
@@ -52,6 +58,7 @@ type Chat = {
   contact_name: string | null;
   contact_photo: string | null;
   category: string | null;
+  history_synced_at: string | null;
   student?: {
     full_name: string;
     whatsapp: string | null;
@@ -78,6 +85,7 @@ type Message = {
   sender_id: string | null;
   media_url: string | null;
   media_type: string | null;
+  media_storage_path?: string | null;
   message_id_external: string | null;
   quoted_message_id?: string | null;
   quoted_message_external_id?: string | null;
@@ -186,17 +194,6 @@ const getMessageDateValue = (message: Pick<Message, "created_at" | "timestamp">)
   return Number.isNaN(parsed.getTime()) ? message.created_at : value;
 };
 
-const isDurableMediaUrl = (url: string | null | undefined) => {
-  if (!url) return false;
-  if (url.startsWith("data:") || url.startsWith("blob:")) return true;
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname.includes("supabase.co") || parsed.pathname.includes("/storage/v1/object");
-  } catch {
-    return !/^https?:\/\//i.test(url);
-  }
-};
-
 const isAdministrativeRole = (role: string | null) => (
   role === "admin" || role === "master" || role === "coordinator"
 );
@@ -235,6 +232,7 @@ export default function WhatsAppChat() {
   const messageRequestRef = useRef(0);
   const suppressMessageAutoScrollRef = useRef(false);
   const chatRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const historySyncAttemptsRef = useRef(new Set<string>());
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -495,11 +493,48 @@ export default function WhatsAppChat() {
       setMessagesError("Não foi possível carregar as mensagens.");
     } else {
       const page = (data || []) as Message[];
-      setMessages([...page].reverse());
+      setMessages(reconcileWhatsAppMessages([...page].reverse()));
       setHasOlderMessages(page.length === MESSAGE_PAGE_SIZE);
     }
     setMessagesLoading(false);
   }, [effectiveCompanyId]);
+
+  const syncChatHistory = useCallback(async (chat: Chat) => {
+    if (!effectiveCompanyId || !["admin", "master"].includes(userRole || "")) return;
+    if (historySyncAttemptsRef.current.has(chat.id)) return;
+    const lastSync = chat.history_synced_at ? new Date(chat.history_synced_at).getTime() : 0;
+    if (lastSync && Date.now() - lastSync < 15 * 60 * 1000) return;
+    historySyncAttemptsRef.current.add(chat.id);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-webhook`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({
+          action: "repair-sync",
+          companyId: effectiveCompanyId,
+          remoteJids: [chat.remote_jid],
+          days: 365,
+          limit: 500,
+          perChatLimit: 300,
+        }),
+      });
+      if (!response.ok) return;
+      const result = await response.json().catch(() => ({}));
+      if (result.inserted > 0 && selectedChatIdRef.current === chat.id) {
+        await loadMessages(chat.id);
+      }
+      await loadChats();
+    } catch (error) {
+      console.error("WhatsApp history reconciliation failed:", error);
+    }
+  }, [effectiveCompanyId, loadChats, loadMessages, userRole]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!selectedChatId || loadingOlderMessages || !hasOlderMessages || messages.length === 0) return;
@@ -520,7 +555,7 @@ export default function WhatsAppChat() {
     } else {
       const page = (data || []) as Message[];
       suppressMessageAutoScrollRef.current = true;
-      setMessages((prev) => [...page].reverse().concat(prev));
+      setMessages((prev) => reconcileWhatsAppMessages([...page].reverse().concat(prev)));
       setHasOlderMessages(page.length === MESSAGE_PAGE_SIZE);
     }
     setLoadingOlderMessages(false);
@@ -658,7 +693,7 @@ export default function WhatsAppChat() {
           chatId: selectedChatId,
           messageDbId: msg.id,
           messageId: msg.message_id_external,
-          remoteJid: chat?.remote_jid || undefined,
+          remoteJid: msg.source === "incoming" ? (msg.sender_id || chat?.remote_jid) : chat?.remote_jid,
           fromMe: msg.source === "outgoing",
           mimeType: msg.media_type,
         }),
@@ -693,14 +728,14 @@ export default function WhatsAppChat() {
       && msg.message_id_external
       && !mediaFallbacks[msg.id]
       && !failedMediaFetches[msg.id]
-      && (!msg.media_url || !isDurableMediaUrl(msg.media_url))
+      && (!msg.media_url || !isUsableMediaUrl(msg.media_url))
     )
   ), [failedMediaFetches, mediaFallbacks]);
 
   const getMediaSrc = (msg: Message) => {
     if (mediaFallbacks[msg.id]) return mediaFallbacks[msg.id];
     if (shouldHydrateMedia(msg)) return null;
-    if (failedMediaFetches[msg.id] && msg.media_url && !isDurableMediaUrl(msg.media_url)) return null;
+    if (failedMediaFetches[msg.id] && msg.media_url && !isUsableMediaUrl(msg.media_url)) return null;
     return msg.media_url;
   };
 
@@ -800,6 +835,7 @@ export default function WhatsAppChat() {
     setChats([]);
     setSelectedChatId(null);
     setDraftRecipient(null);
+    historySyncAttemptsRef.current.clear();
   }, [effectiveCompanyId]);
   useEffect(() => { loadChats(); loadSenderNames(); loadTemplates(); loadCategories(); loadAvailableLabels(); loadTeamMembers(); }, [loadChats, loadSenderNames, loadTemplates, loadCategories, loadAvailableLabels, loadTeamMembers]);
   useEffect(() => () => {
@@ -822,8 +858,9 @@ export default function WhatsAppChat() {
       ? chats.find((chat) => chat.student_id === pendingStudentIdRef.current)
       : null;
     const digits = (pendingPhoneRef.current || "").replace(/\D/g, "");
+    const phoneKey = normalizeWhatsAppPhoneKey(digits);
     const phoneChat = !requestedChat && !studentChat && digits
-      ? chats.find((chat) => chat.remote_jid.replace(/\D/g, "").endsWith(digits))
+      ? chats.find((chat) => normalizeWhatsAppPhoneKey(chat.remote_jid) === phoneKey)
       : null;
     const matchedChat = requestedChat || studentChat || phoneChat || null;
 
@@ -859,6 +896,10 @@ export default function WhatsAppChat() {
     }
   }, [selectedChatId, loadMessages]);
   useEffect(() => {
+    const selected = chats.find((chat) => chat.id === selectedChatId);
+    if (selected) void syncChatHistory(selected);
+  }, [chats, selectedChatId, syncChatHistory]);
+  useEffect(() => {
     if (suppressMessageAutoScrollRef.current) {
       suppressMessageAutoScrollRef.current = false;
       return;
@@ -888,8 +929,7 @@ export default function WhatsAppChat() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "whatsapp_messages", filter: `company_id=eq.${effectiveCompanyId}` }, (payload) => {
         const newMsg = payload.new as Message & { chat_id: string };
         if (newMsg.chat_id === selectedChatIdRef.current) {
-          // Dedupe: o realtime pode reenviar uma mensagem já carregada pelo loadMessages / inserção própria.
-          setMessages((prev) => (prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg]));
+          setMessages((prev) => upsertWhatsAppMessage(prev, newMsg));
         }
         scheduleChatsRefresh();
       })
@@ -959,12 +999,12 @@ export default function WhatsAppChat() {
       if (payload?.message && selectedChatId) {
         setMessages((prev) => {
           const hydrated = prev.map((msg) => (msg.id === tempId ? payload.message as Message : msg));
-          return hydrated.filter((msg, index, list) => list.findIndex((item) => item.id === msg.id) === index);
+          return reconcileWhatsAppMessages(hydrated);
         });
       } else if (payload?.messageId && selectedChatId) {
-        setMessages((prev) => prev.map((msg) => (
+        setMessages((prev) => reconcileWhatsAppMessages(prev.map((msg) => (
           msg.id === tempId ? { ...msg, message_id_external: payload.messageId } : msg
-        )));
+        ))));
       }
       if (payload?.persistenceWarning) {
         toast.warning("Mensagem enviada, mas o histórico pode demorar para sincronizar");
@@ -1908,6 +1948,8 @@ export default function WhatsAppChat() {
                       <div
                         role="button"
                         tabIndex={0}
+                        data-testid="whatsapp-chat-row"
+                        data-chat-id={chat.id}
                         aria-label={`Abrir conversa com ${getContactName(chat)}`}
                         onClick={() => { setSelectedChatId(chat.id); setEditingName(false); }}
                         onKeyDown={(event) => {
@@ -2314,7 +2356,12 @@ export default function WhatsAppChat() {
                               </span>
                             </div>
                           )}
-                        <div className="group flex w-full">
+                        <div
+                          className="group flex w-full"
+                          data-testid="whatsapp-message"
+                          data-message-id={msg.id}
+                          data-message-external-id={msg.message_id_external || undefined}
+                        >
                           <div className={cn(
                             "relative flex w-full min-w-0 items-center gap-1",
                             msg.source === "outgoing" ? "justify-end" : "justify-start",

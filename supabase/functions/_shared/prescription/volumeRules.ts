@@ -1,5 +1,11 @@
 import { normalizeText } from "./presets.ts";
-import type { MethodologyPreset, PrescriptionInput, TrainingProgram, VolumeReview } from "./types.ts";
+import type {
+  MethodologyPreset,
+  PrescriptionInput,
+  TrainingProgram,
+  TrainingWorkout,
+  VolumeReview,
+} from "./types.ts";
 import { LARGE_GROUPS, SMALL_GROUPS, VOLUME_RULES } from "./methodology.ts";
 import { classifyPainSeverity } from "./restrictionRules.ts";
 import { clinicalRiskText } from "./clinicalContext.ts";
@@ -107,6 +113,97 @@ export function countWeeklySets(program: Pick<TrainingProgram, "workouts">) {
     }
   }
   return out;
+}
+
+const REDUCTION_PRIORITY: Record<string, number> = {
+  forca_especifica: 100,
+  ativacao_especifica: 80,
+  fisioterapia: 70,
+  alongamento: 70,
+  autoliberacao: 70,
+  mobilidade: 60,
+  ativacao_core: 50,
+  controle_motor: 30,
+  pliometria: 20,
+  forca_global: 10,
+};
+
+export function enforceVolumeCaps(
+  workouts: TrainingWorkout[],
+  input: PrescriptionInput,
+): {
+  workouts: TrainingWorkout[];
+  adjustments: Array<{ muscle_group: string; before: number; after: number; cap: number }>;
+} {
+  const nextWorkouts = workouts.map((workout) => ({
+    ...workout,
+    exercises: workout.exercises.map((exercise) => ({
+      ...exercise,
+      set_types: exercise.set_types ? [...exercise.set_types] : undefined,
+    })),
+  }));
+  const candidatesByGroup = new Map<string, Array<{ workoutIndex: number; exerciseIndex: number }>>();
+
+  nextWorkouts.forEach((workout, workoutIndex) => {
+    workout.exercises.forEach((exercise, exerciseIndex) => {
+      const group = normalizeMuscleGroup(exercise.muscle_group);
+      const candidates = candidatesByGroup.get(group) || [];
+      candidates.push({ workoutIndex, exerciseIndex });
+      candidatesByGroup.set(group, candidates);
+    });
+  });
+
+  const adjustments: Array<{ muscle_group: string; before: number; after: number; cap: number }> = [];
+  for (const [muscleGroup, candidates] of candidatesByGroup) {
+    const cap = getVolumeRangeForGroup(muscleGroup, input.fitnessLevel, input).mrv;
+    const before = candidates.reduce((sum, candidate) => {
+      const exercise = nextWorkouts[candidate.workoutIndex].exercises[candidate.exerciseIndex];
+      return sum + Math.max(0, Number(exercise.sets) || 0);
+    }, 0);
+    let excess = Math.max(0, before - cap);
+    if (!excess) continue;
+
+    const sorted = [...candidates].sort((a, b) => {
+      const exerciseA = nextWorkouts[a.workoutIndex].exercises[a.exerciseIndex];
+      const exerciseB = nextWorkouts[b.workoutIndex].exercises[b.exerciseIndex];
+      return (REDUCTION_PRIORITY[exerciseB.phase] || 0) - (REDUCTION_PRIORITY[exerciseA.phase] || 0) ||
+        Number(exerciseB.sets || 0) - Number(exerciseA.sets || 0);
+    });
+
+    for (const candidate of sorted) {
+      if (!excess) break;
+      const exercise = nextWorkouts[candidate.workoutIndex].exercises[candidate.exerciseIndex];
+      const currentSets = Math.max(1, Number(exercise.sets) || 1);
+      const reduction = Math.min(excess, Math.max(0, currentSets - 1));
+      if (!reduction) continue;
+      exercise.sets = currentSets - reduction;
+      if (exercise.set_types) exercise.set_types = exercise.set_types.slice(0, exercise.sets);
+      excess -= reduction;
+    }
+
+    // Se cada exercício já chegou a uma série, removemos apenas acessórios isolados
+    // excedentes. Padrões globais e de controle motor nunca são descartados pelo clamp.
+    for (const candidate of sorted) {
+      if (!excess) break;
+      const workout = nextWorkouts[candidate.workoutIndex];
+      const exercise = workout.exercises[candidate.exerciseIndex];
+      if (!exercise || exercise.phase !== "forca_especifica") continue;
+      exercise.sets = 0;
+      exercise.set_types = [];
+      excess -= 1;
+    }
+    const after = Math.max(0, before - Math.max(0, before - cap - excess));
+    adjustments.push({ muscle_group: muscleGroup, before, after, cap });
+  }
+
+  nextWorkouts.forEach((workout) => {
+    workout.exercises = workout.exercises.filter((exercise) => exercise.sets > 0);
+    workout.exercises.forEach((exercise, index) => {
+      exercise.exercise_order = index + 1;
+    });
+  });
+
+  return { workouts: nextWorkouts, adjustments };
 }
 
 export function reviewVolume(program: Pick<TrainingProgram, "workouts">, input: PrescriptionInput, preset: MethodologyPreset): VolumeReview[] {

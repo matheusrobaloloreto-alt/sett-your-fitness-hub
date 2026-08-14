@@ -1,7 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Dumbbell, BarChart3, CalendarDays, History, Megaphone, Play, Moon, ArrowRight, Utensils, Footprints, Waves, Bike } from "lucide-react";
+import { Dumbbell, BarChart3, CalendarDays, History, Megaphone, Play, Moon, ArrowRight, Utensils, Footprints, Waves, Bike, Watch } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -41,7 +41,7 @@ interface StudentHomeProps {
 
 export type StudentNavView =
   | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas"
-  | "nutricao" | "corrida" | "natacao" | "ciclismo";
+  | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
 
 type NavItem = { view: StudentNavView; label: string; icon: typeof Dumbbell; sub?: string };
 
@@ -50,6 +50,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { view: "stats", label: "Estatísticas", icon: BarChart3, sub: "Volume e força" },
   { view: "calendario", label: "Calendário", icon: CalendarDays, sub: "Histórico mensal" },
   { view: "historico", label: "Histórico", icon: History },
+  { view: "integracoes", label: "Integrações", icon: Watch, sub: "Relógios e aplicativos" },
   // "Atividades" removido: cada modalidade prescrita (corrida/natação/ciclismo/nutrição) tem sua própria aba.
   // "Avisos" removido daqui: virou o sino no topo (AnnouncementsBell).
 ];

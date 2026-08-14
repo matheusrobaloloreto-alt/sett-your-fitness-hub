@@ -1,4 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  directWhatsAppJidVariants,
+  storageObjectPathFromUrl,
+} from "../_shared/whatsappIdentity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -640,20 +644,33 @@ Deno.serve(async (req) => {
         const databaseRemoteJid = String(remoteJid).includes("@")
           ? String(remoteJid)
           : `${digits}@s.whatsapp.net`;
-        const { data: createdChat, error: chatError } = await adminClient
-          .from("whatsapp_chats")
-          .upsert({
-            company_id: resolvedCompanyId,
-            instance_id: instanceRow?.id || null,
-            remote_jid: databaseRemoteJid,
-            contact_name: contactName || null,
-            student_id: studentId || null,
-            last_message: content,
-            last_message_at: new Date().toISOString(),
-            unread_count: 0,
-          }, { onConflict: "instance_id,remote_jid" })
-          .select("id")
-          .single();
+        let existingChat: { id: string } | null = null;
+        if (instanceRow?.id) {
+          const { data } = await adminClient
+            .from("whatsapp_chats")
+            .select("id")
+            .eq("company_id", resolvedCompanyId)
+            .eq("instance_id", instanceRow.id)
+            .in("remote_jid", directWhatsAppJidVariants(databaseRemoteJid))
+            .order("created_at", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          existingChat = data;
+        }
+        const chatPayload = {
+          company_id: resolvedCompanyId,
+          instance_id: instanceRow?.id || null,
+          remote_jid: databaseRemoteJid,
+          contact_name: contactName || null,
+          student_id: studentId || null,
+          last_message: content,
+          last_message_at: new Date().toISOString(),
+          unread_count: 0,
+        };
+        const chatQuery = existingChat
+          ? adminClient.from("whatsapp_chats").update(chatPayload).eq("id", existingChat.id).select("id").single()
+          : adminClient.from("whatsapp_chats").insert(chatPayload).select("id").single();
+        const { data: createdChat, error: chatError } = await chatQuery;
         if (chatError) {
           console.error("Failed to persist new WhatsApp chat:", chatError.message);
           persistenceWarning = true;
@@ -680,9 +697,18 @@ Deno.serve(async (req) => {
           origin: "panel_manual",
           timestamp: new Date().toISOString(),
         }).select("*").maybeSingle();
-        if (messageInsertError && messageInsertError.code !== "23505") {
-          persistenceWarning = true;
-          console.error("Failed to persist sent WhatsApp message:", messageInsertError.message);
+        if (messageInsertError) {
+          if (messageInsertError.code === "23505" && externalMessageId) {
+            const { data: racedRow } = await adminClient.from("whatsapp_messages")
+              .select("*")
+              .eq("chat_id", persistedChatId)
+              .eq("message_id_external", externalMessageId)
+              .maybeSingle();
+            if (racedRow) insertedMessage = racedRow;
+          } else {
+            persistenceWarning = true;
+            console.error("Failed to persist sent WhatsApp message:", messageInsertError.message);
+          }
         }
         if (insertedRow) insertedMessage = insertedRow;
 
@@ -777,6 +803,7 @@ Deno.serve(async (req) => {
       const dbType = evoMediaType === "image" ? "image" : evoMediaType === "video" ? "video" : evoMediaType === "audio" ? "audio" : "document";
       const dbMediaType = mimeType || (evoMediaType === "image" ? "image/jpeg" : evoMediaType === "video" ? "video/mp4" : evoMediaType === "audio" ? "audio/ogg" : "application/pdf");
       const defaultContent = evoMediaType === "image" ? "📷 Imagem" : evoMediaType === "video" ? "🎬 Vídeo" : evoMediaType === "audio" ? "🎤 Áudio" : `📎 ${fileName || "arquivo.pdf"}`;
+      const mediaStoragePath = storageObjectPathFromUrl(mediaUrl, "whatsapp-media");
 
       let insertedMediaMessage: Record<string, unknown> | null = null;
       if (chatId) {
@@ -791,12 +818,22 @@ Deno.serve(async (req) => {
           message_id_external: externalMessageId,
           media_url: mediaUrl,
           media_type: dbMediaType,
+          media_storage_path: mediaStoragePath,
           origin: "panel_manual",
           timestamp: new Date().toISOString(),
         }).select("*").maybeSingle();
-        if (messageInsertError && messageInsertError.code !== "23505") {
-          persistenceWarning = true;
-          console.error("Failed to persist sent WhatsApp media:", messageInsertError.message);
+        if (messageInsertError) {
+          if (messageInsertError.code === "23505" && externalMessageId) {
+            const { data: racedRow } = await adminClient.from("whatsapp_messages")
+              .select("*")
+              .eq("chat_id", chatId)
+              .eq("message_id_external", externalMessageId)
+              .maybeSingle();
+            if (racedRow) insertedMediaMessage = racedRow;
+          } else {
+            persistenceWarning = true;
+            console.error("Failed to persist sent WhatsApp media:", messageInsertError.message);
+          }
         }
         if (insertedMediaRow) insertedMediaMessage = insertedMediaRow;
 
@@ -886,6 +923,39 @@ Deno.serve(async (req) => {
       const { messageId, remoteJid: mediaJid, fromMe, chatId: mediaChatId, messageDbId, mimeType: requestedMimeType } = body;
       if (!messageId) return json({ error: "messageId required" }, 400);
 
+      if (mediaChatId && messageDbId) {
+        const { data: storedMessage } = await adminClient
+          .from("whatsapp_messages")
+          .select("media_storage_path, media_url, media_type")
+          .eq("id", messageDbId)
+          .eq("chat_id", mediaChatId)
+          .eq("company_id", resolvedCompanyId)
+          .maybeSingle();
+        const storagePath = storedMessage?.media_storage_path
+          || storageObjectPathFromUrl(storedMessage?.media_url, "whatsapp-media");
+        if (storagePath) {
+          const { data: signed, error: signError } = await adminClient.storage
+            .from("whatsapp-media")
+            .createSignedUrl(storagePath, 60 * 60 * 24 * 7);
+          if (!signError && signed?.signedUrl) {
+            await adminClient.from("whatsapp_messages")
+              .update({
+                media_url: signed.signedUrl,
+                media_storage_path: storagePath,
+              })
+              .eq("id", messageDbId)
+              .eq("chat_id", mediaChatId)
+              .eq("company_id", resolvedCompanyId);
+            return json({
+              base64: null,
+              mimetype: storedMessage?.media_type || requestedMimeType || null,
+              mediaUrl: signed.signedUrl,
+              source: "storage",
+            });
+          }
+        }
+      }
+
       const key: Record<string, unknown> = { id: messageId };
       if (mediaJid) key.remoteJid = mediaJid;
       if (typeof fromMe === "boolean") key.fromMe = fromMe;
@@ -931,7 +1001,7 @@ Deno.serve(async (req) => {
           if (mediaUrl) {
             const { error: updateError } = await adminClient
               .from("whatsapp_messages")
-              .update({ media_url: mediaUrl, media_type: mimetype })
+              .update({ media_url: mediaUrl, media_type: mimetype, media_storage_path: filePath })
               .eq("id", messageDbId)
               .eq("chat_id", mediaChatId)
               .eq("company_id", resolvedCompanyId);

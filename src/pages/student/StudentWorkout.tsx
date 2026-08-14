@@ -13,6 +13,7 @@ import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { businessDateYmd } from "@/lib/businessDate";
 import { MethodBadge } from "@/components/workout/MethodBadge";
 import { resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
+import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
 
 interface WorkoutExercise {
   exercise_id: string;
@@ -462,10 +463,24 @@ export default function StudentWorkout() {
                       <p className="text-sm text-muted-foreground font-sans">{selectedWorkout.description}</p>
                     )}
 
-                    <div className="space-y-2">
-                      {selectedWorkout.exercises.map((ex, idx) => {
-                        const isExpanded = expandedExercise === idx;
-                        return (
+                    <div className="space-y-3">
+                      {groupWorkoutExercises(selectedWorkout.exercises).map((group) => (
+                        <section
+                          key={group.key}
+                          className={group.grouping ? "rounded-lg border border-primary/30 bg-primary/[0.03] p-2" : undefined}
+                        >
+                          {group.grouping && group.method && (
+                            <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
+                              <MethodBadge method={group.method} tone="primary" />
+                              <p className="text-xs text-muted-foreground">
+                                {WORKOUT_METHODS[group.method as MethodId]?.hint || "Execute os exercícios deste bloco em sequência."}
+                              </p>
+                            </div>
+                          )}
+                          <div className="space-y-2">
+                            {group.items.map(({ ex, idx }) => {
+                              const isExpanded = expandedExercise === idx;
+                              return (
                           <Card
                             key={idx}
                             className="bg-card border-border overflow-hidden cursor-pointer"
@@ -555,8 +570,11 @@ export default function StudentWorkout() {
                               )}
                             </CardContent>
                           </Card>
-                        );
-                      })}
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ))}
                     </div>
                   </>
                 )}

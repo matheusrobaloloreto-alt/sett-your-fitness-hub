@@ -33,6 +33,7 @@ export interface StudentWorkoutExercise {
     method?: string | null;
     group_id?: string | null;
     method_seconds?: number | null;
+    set_types?: string[];
     instruction: string;
   }>;
 }
@@ -94,6 +95,7 @@ export function mapStrengthExercise(e: any): StudentWorkoutExercise {
         method: week.method ?? null,
         group_id: week.group_id ?? null,
         method_seconds: week.method_seconds ?? null,
+        set_types: Array.isArray(week.set_types) ? week.set_types : undefined,
         instruction: String(week.instruction || ""),
       }));
   }

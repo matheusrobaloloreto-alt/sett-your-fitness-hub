@@ -450,7 +450,9 @@ export default function AdminDashboard() {
                           className="text-left font-sans text-sm font-medium text-foreground hover:text-primary hover:underline"
                           onClick={(event) => {
                             event.stopPropagation();
-                            m.student_id && navigate(`/${routePrefix}/students/${m.student_id}`);
+                            if (m.student_id) {
+                              navigate(`/${routePrefix}/students/${m.student_id}`);
+                            }
                           }}
                         >
                           {m.student_name}

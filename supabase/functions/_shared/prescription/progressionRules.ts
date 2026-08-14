@@ -27,8 +27,10 @@ export function resolveDurationWeeks(input: PrescriptionInput) {
 export function buildPeriodizationBlocks(input: PrescriptionInput): PeriodizationBlock[] {
   const duration = resolveDurationWeeks(input);
   const level = normalizeText(input.fitnessLevel);
+  const objective = normalizeText(input.objective);
   const hold = shouldHoldProgression(input);
   const advancedAllowed = !hold && !level.includes("inic");
+  const technicalPlyometricsAllowed = advancedAllowed && !input.deload && /(performance|potencia|velocidade|esporte)/.test(objective);
 
   if (duration === 4) {
     return [
@@ -38,7 +40,7 @@ export function buildPeriodizationBlocks(input: PrescriptionInput): Periodizatio
   }
 
   return [
-    { weeks: PROGRESSION_BLOCKS.base.weeks, stimulus: PROGRESSION_BLOCKS.base.stimulus, methods: [...PROGRESSION_BLOCKS.base.methods], progression_rule: "RIR 3-4. Se RIR acima do alvo: subir reps; se bateu topo com RIR alvo: subir carga e voltar ao piso. Sem pliometria." },
+    { weeks: PROGRESSION_BLOCKS.base.weeks, stimulus: PROGRESSION_BLOCKS.base.stimulus, methods: [...PROGRESSION_BLOCKS.base.methods], progression_rule: technicalPlyometricsAllowed ? "RIR 3-4. Pliometria técnica de baixo volume, sempre antes da força e sem fadiga. Se a técnica cair, remover." : "RIR 3-4. Se RIR acima do alvo: subir reps; se bateu topo com RIR alvo: subir carga e voltar ao piso. Sem pliometria." },
     { weeks: PROGRESSION_BLOCKS.accumulation.weeks, stimulus: PROGRESSION_BLOCKS.accumulation.stimulus, methods: hold ? ["hold/regress por dor ou técnica"] : [...PROGRESSION_BLOCKS.accumulation.methods], progression_rule: hold ? "RIR 2-3. Dor > 3 ou técnica quebrou: manter/regredir." : "RIR 2-3. Adicionar reps antes de carga; +1 série apenas em exercício estável e sem dor." },
     { weeks: PROGRESSION_BLOCKS.intensification.weeks, stimulus: PROGRESSION_BLOCKS.intensification.stimulus, methods: advancedAllowed && !hold ? ["up-set ou piramide leve em exercicio estavel"] : ["sem metodos avancados"], progression_rule: hold ? "RIR 2. Manter ou regredir até dor <= 3 e técnica estável." : "RIR 2; método avançado só em exercício estável e sem dor." },
   ];

@@ -61,6 +61,13 @@ const CONTACT_PERIOD_LABELS: Record<string, string> = {
   evening: "noite",
 };
 
+const OBJECTIVE_MESSAGE_LABELS: Record<string, string> = {
+  emagrecimento: "emagrecimento",
+  hipertrofia: "ganho de massa",
+  performance: "performance esportiva",
+  saude: "saúde e bem-estar",
+};
+
 const WAIT_FILTERS: Record<string, { label: string; minHours: number }> = {
   "24h": { label: "24h+", minHours: 24 },
   "3d": { label: "3 dias+", minHours: 72 },
@@ -299,6 +306,48 @@ function findLeadAnswer(student: Pick<Student, "pre_registration_answers">, term
   })?.value || "";
 }
 
+function isUsefulLeadAnswer(value: string) {
+  const normalized = normalizeSearch(value).replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  return ![
+    "nao",
+    "nao tenho",
+    "nao tenho dor",
+    "nao possuo",
+    "nao possuo dor",
+    "nenhum",
+    "nenhuma",
+    "sem dor",
+    "sem dores",
+    "sem lesao",
+    "sem lesoes",
+    "nada",
+    "n a",
+    "na",
+  ].includes(normalized);
+}
+
+function usefulLeadAnswer(student: Pick<Student, "pre_registration_answers">, terms: string[]) {
+  const value = findLeadAnswer(student, terms);
+  return isUsefulLeadAnswer(value) ? value : "";
+}
+
+function sentenceCase(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? `${trimmed.charAt(0).toLowerCase()}${trimmed.slice(1)}` : "";
+}
+
+function answerForMessage(value: string) {
+  return OBJECTIVE_MESSAGE_LABELS[normalizeSearch(value)] || sentenceCase(value);
+}
+
+function leadGenderTone(student: Pick<Student, "pre_registration_answers">) {
+  const gender = normalizeSearch(findLeadAnswer(student, ["gender", "sexo", "genero", "gênero"]));
+  if (["f", "female", "feminino", "mulher"].some((term) => gender.includes(term))) return "tranquila";
+  if (["m", "male", "masculino", "homem"].some((term) => gender.includes(term))) return "tranquilo";
+  return "tranquilo(a)";
+}
+
 function leadSummaryRows(student: Student) {
   const rows = [
     ["Objetivo", findLeadAnswer(student, ["objective", "objetivo"])],
@@ -312,15 +361,24 @@ function leadSummaryRows(student: Student) {
 }
 
 function buildLeadFirstContactMessage(student: Student, trainerName: string) {
-  const pain = findLeadAnswer(student, ["current_pain", "injuries", "dor", "lesao", "lesão", "pain", "injury"]);
-  const limitation = findLeadAnswer(student, ["biggest_obstacle", "limita", "restric", "dificuldade", "obstacle"]);
-  const painPhrase = pain || "[dor/queixa específica citada no pré-cadastro]";
-  const limitationPhrase = limitation || "[situação que isso limita, citada no pré-cadastro]";
+  const pain = usefulLeadAnswer(student, ["current_pain", "injuries", "dor", "lesao", "lesão", "pain", "injury"]);
+  const difficulty = usefulLeadAnswer(student, ["biggest_obstacle", "limita", "restric", "dificuldade", "obstacle"]);
+  const objective = usefulLeadAnswer(student, ["objective", "objetivo", "goals", "metas", "feel_in_3_months", "desejos"]);
+  const concernPhrase = pain
+    ? `você relatou ${answerForMessage(pain)}`
+    : difficulty
+      ? `sua maior dificuldade é ${answerForMessage(difficulty)}`
+      : "[sua dor/problema ou dificuldade do pré-cadastro]";
+  const objectivePhrase = objective ? `para ${answerForMessage(objective)}` : "para seus objetivos";
+  const contextPhrase = pain && difficulty
+    ? `, principalmente quando ${answerForMessage(difficulty)}`
+    : ", principalmente quando isso já atrapalha sua constância";
+  const calmWord = leadGenderTone(student);
 
   return [
     `Oi ${firstName(student.full_name)}, tudo bem? Sou ${trainerName} da BN Performance Training.`,
     "",
-    `Vi na sua aplicação que ${painPhrase} e realmente, isso é algo que merece atenção, principalmente quando já ${limitationPhrase}. Fica tranquilo(a), você vai passar por uma Avaliação de Movimento completa antes de começar com a gente, pra termos certeza de tudo que você precisa.`,
+    `Vimos aqui no seu pré-cadastro que ${concernPhrase} e, realmente, isso é algo que merece atenção ${objectivePhrase}${contextPhrase}. Fica ${calmWord}, você vai passar por uma Avaliação de Movimento completa antes de começar com a gente, pra termos certeza de tudo que você precisa.`,
     "",
     "Prefere continuar por mensagens aqui ou marcar uma videochamada com a Bruna?",
   ].join("\n");
@@ -809,8 +867,8 @@ export default function RegistrationManager() {
         });
         if (error || !data?.id) throw new Error(data?.error || error?.message || "Não foi possível registrar o contato.");
         await loadPipeline();
-        await openChatWithStudent(student);
-        toast.success("Contato registrado. A conversa foi aberta sem enviar mensagem.");
+        await openChatWithStudent(student, buildLeadFirstContactMessage(student, currentTrainerName));
+        toast.success("Contato registrado. A conversa foi aberta com o roteiro em rascunho.");
         return;
       }
 
@@ -1436,12 +1494,13 @@ export default function RegistrationManager() {
                     <Button
                       type="button"
                       onClick={() => {
+                        const message = firstContactMessage;
                         setSelectedLead(null);
-                        void openChatWithStudent(selectedLead);
+                        void openChatWithStudent(selectedLead, message);
                       }}
                     >
                       <MessageCircle className="mr-2 h-4 w-4" />
-                      Abrir conversa sem enviar
+                      Abrir conversa com roteiro
                     </Button>
                   </div>
                 </div>

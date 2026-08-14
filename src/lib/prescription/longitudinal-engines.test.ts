@@ -200,4 +200,55 @@ describe("progressão longitudinal determinística", () => {
     expect(third.carb_cycling.high_day_carbs_g).toBeGreaterThan(first.carb_cycling.high_day_carbs_g);
     expect(third.general_notes).toContain("Continuidade longitudinal");
   });
+
+  it("nutrição usa refeições, restrições, estrutura disponível e orçamento da anamnese", () => {
+    const plan = buildNutritionProgram({
+      weight_kg: 68,
+      height_cm: 165,
+      age: 31,
+      gender: "F",
+      objective: "emagrecimento",
+      activity_level: "moderado",
+      meals_per_day: 7,
+      food_restrictions: "vegana e intolerante à lactose",
+      budget: "econômico",
+      has_microwave: false,
+      nutrition_context: "Horários habituais: 06:30, 09:30, 12:30, 15:30, 18:00, 20:30, 22:00",
+    });
+
+    expect(plan.meals).toHaveLength(7);
+    expect(plan.meals.map((meal) => meal.time)).toEqual(["06:30", "09:30", "12:30", "15:30", "18:00", "20:30", "22:00"]);
+    expect(JSON.stringify(plan.meals).toLowerCase()).not.toContain("iogurte");
+    expect(JSON.stringify(plan.meals).toLowerCase()).toContain("leguminosas");
+    expect(JSON.stringify(plan.meals).toLowerCase()).toContain("sanduíche");
+  });
+
+  it("nutrição torna energia e hidratação conservadoras quando sono, estresse e carga indicam baixa prontidão", () => {
+    const baseline = buildNutritionProgram({
+      weight_kg: 80,
+      height_cm: 178,
+      age: 35,
+      gender: "M",
+      objective: "emagrecimento",
+      activity_level: "moderado",
+    });
+    const constrained = buildNutritionProgram({
+      weight_kg: 80,
+      height_cm: 178,
+      age: 35,
+      gender: "M",
+      objective: "emagrecimento",
+      activity_level: "moderado",
+      stress_score: 9,
+      sleep_quality: 4,
+      training_hours_per_day: 2,
+      prescription_integration: { readiness: "baixa", risk_screening: { red_flags: ["dor severa"] } },
+    });
+
+    expect(constrained.energy_summary.deficit_surplus_percent).toBe(-10);
+    expect(constrained.total_calories).toBeGreaterThan(baseline.total_calories);
+    expect(constrained.energy_summary.hydration_ml).toBe(baseline.energy_summary.hydration_ml + 1000);
+    expect(constrained.warnings.join(" ")).toContain("estratégia calórica conservadora");
+    expect(constrained.supplementation[0].dose).toContain("nutricionista ou médico");
+  });
 });
