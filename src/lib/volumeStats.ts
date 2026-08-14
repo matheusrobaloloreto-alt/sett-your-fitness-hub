@@ -15,12 +15,21 @@ export interface VolumeLogLike {
 export interface ExerciseMeta {
   workoutId: string;
   index: number;
+  exerciseId?: string;
   name: string;
   muscleGroup: string;
 }
 
 export interface CycleLike {
-  workouts: { id: string; exercises: { exercise_name: string; muscle_group: string }[] }[];
+  workouts: { id: string; exercises: { exercise_id?: string; exerciseId?: string; exercise_name: string; muscle_group: string }[] }[];
+}
+
+export interface ExerciseMuscleTarget {
+  exerciseId: string;
+  muscleGroup: string;
+  role?: string | null;
+  isPrimary?: boolean | null;
+  volumePercentage?: number | null;
 }
 
 export interface WeeklyVolumePoint {
@@ -30,9 +39,9 @@ export interface WeeklyVolumePoint {
   sessions: number;  // nº de dias treinados na semana
 }
 
-export interface MuscleVolumePoint {
+export interface MuscleSeriesPoint {
   group: string;
-  volume: number;
+  sets: number;
 }
 
 const num = (v: unknown) => (typeof v === "number" ? v : Number(v)) || 0;
@@ -43,7 +52,13 @@ export function buildExerciseMeta(cycles: CycleLike[] | undefined | null): Exerc
   (cycles ?? []).forEach((c) =>
     c.workouts?.forEach((w) =>
       (w.exercises ?? []).forEach((ex, idx) =>
-        meta.push({ workoutId: w.id, index: idx, name: ex.exercise_name, muscleGroup: ex.muscle_group })
+        meta.push({
+          workoutId: w.id,
+          index: idx,
+          exerciseId: ex.exercise_id || ex.exerciseId,
+          name: ex.exercise_name,
+          muscleGroup: ex.muscle_group,
+        })
       )
     )
   );
@@ -73,18 +88,57 @@ export function volumeLoadByWeek(logs: VolumeLogLike[]): WeeklyVolumePoint[] {
     .sort((a, b) => (a.weekStart < b.weekStart ? -1 : 1));
 }
 
-/** Volume-load (kg) por grupamento muscular (para a pizza). */
-export function volumeByMuscleGroup(logs: VolumeLogLike[], meta: ExerciseMeta[]): MuscleVolumePoint[] {
-  const find = (wid?: string, idx?: number) =>
-    meta.find((m) => m.workoutId === wid && m.index === idx);
-  const v: Record<string, number> = {};
-  for (const l of logs) {
-    const m = find(l.workout_id, l.exercise_index);
-    if (!m?.muscleGroup) continue;
-    const vol = num(l.weight) * num(l.reps_done);
-    if (vol > 0) v[m.muscleGroup] = (v[m.muscleGroup] || 0) + vol;
+/** Normaliza a escala histórica mista: 0..1 = fração; >1 = percentual. */
+export function normalizeTargetWeight(target: Pick<ExerciseMuscleTarget, "role" | "isPrimary" | "volumePercentage">) {
+  if (target.role && target.isPrimary !== null && target.isPrimary !== undefined) {
+    const roleIsPrimary = target.role === "primary";
+    if (roleIsPrimary !== target.isPrimary) {
+      throw new TypeError("target role conflicts with isPrimary");
+    }
   }
-  return Object.entries(v)
-    .map(([group, volume]) => ({ group, volume: Math.round(volume) }))
-    .sort((a, b) => b.volume - a.volume);
+  const raw = target.volumePercentage;
+  if (raw !== null && raw !== undefined) {
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || raw > 100) {
+      throw new RangeError("volumePercentage must be a finite number between 0 and 100");
+    }
+    return raw <= 1 ? raw : raw / 100;
+  }
+  if (target.role === "primary" || target.isPrimary === true) return 1;
+  if (target.role === "secondary" || target.isPrimary === false) return 0.5;
+  throw new TypeError("target role is required when volumePercentage is absent");
+}
+
+/**
+ * Séries de trabalho concluídas, fracionadas pela exposição de cada alvo muscular.
+ * Cada workout_log representa uma série; LOAD externo permanece uma métrica separada.
+ */
+export function fractionalSetsByMuscleGroup(
+  logs: VolumeLogLike[],
+  meta: ExerciseMeta[],
+  targets: ExerciseMuscleTarget[] = [],
+): MuscleSeriesPoint[] {
+  const metaByLogKey = new Map(meta.map((item) => [`${item.workoutId}:${item.index}`, item]));
+  const targetsByExercise = new Map<string, ExerciseMuscleTarget[]>();
+  for (const target of targets) {
+    const current = targetsByExercise.get(target.exerciseId) || [];
+    current.push(target);
+    targetsByExercise.set(target.exerciseId, current);
+  }
+  const sets: Record<string, number> = {};
+  for (const log of logs) {
+    const exercise = metaByLogKey.get(`${log.workout_id}:${log.exercise_index}`);
+    if (!exercise) continue;
+    const exerciseTargets = exercise.exerciseId ? targetsByExercise.get(exercise.exerciseId) : undefined;
+    if (exerciseTargets?.length) {
+      for (const target of exerciseTargets) {
+        if (!target.muscleGroup) continue;
+        sets[target.muscleGroup] = (sets[target.muscleGroup] || 0) + normalizeTargetWeight(target);
+      }
+    } else if (exercise.muscleGroup) {
+      sets[exercise.muscleGroup] = (sets[exercise.muscleGroup] || 0) + 1;
+    }
+  }
+  return Object.entries(sets)
+    .map(([group, value]) => ({ group, sets: Math.round(value * 10) / 10 }))
+    .sort((a, b) => b.sets - a.sets);
 }

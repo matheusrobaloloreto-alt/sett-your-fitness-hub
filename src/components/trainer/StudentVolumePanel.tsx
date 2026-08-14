@@ -31,6 +31,7 @@ export function StudentVolumePanel({ studentId }: { studentId: string }) {
         workoutsShaped = (workoutsData ?? []).map((w: any) => ({
           id: w.id,
           exercises: ((w.exercises as any[]) ?? []).map((ex) => ({
+            exercise_id: ex.exercise_id || ex.exerciseId,
             exercise_name: ex.exercise_name,
             muscle_group: ex.muscle_group,
           })),

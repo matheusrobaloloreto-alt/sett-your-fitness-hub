@@ -9,6 +9,7 @@ import { MuscleRadar } from "@/components/student/MuscleRadar";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { normalizeTargetWeight } from "@/lib/volumeStats";
 
 interface Props {
   studentId: string;
@@ -18,7 +19,6 @@ interface MuscleGroupVolume {
   name: string;
   prescribedSets: number;
   executedSets: number;
-  totalVolume: number;
 }
 
 interface SessionSummary {
@@ -70,10 +70,17 @@ export function WorkoutAnalysis({ studentId }: Props) {
     }
 
     const enrollIds = enrollments.map(e => e.id);
+    const today = businessDateYmd();
     const { data: cyclesData } = await supabase
       .from("training_cycles")
-      .select("id")
-      .in("enrollment_id", enrollIds);
+      .select("id, start_date, end_date, created_at")
+      .in("enrollment_id", enrollIds)
+      .eq("status", "active")
+      .or(`start_date.is.null,start_date.lte.${today}`)
+      .or(`end_date.is.null,end_date.gte.${today}`)
+      .order("start_date", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .limit(1);
 
     if (!cyclesData || cyclesData.length === 0) {
       setMuscleData([]);
@@ -175,8 +182,25 @@ export function WorkoutAnalysis({ studentId }: Props) {
     // Load muscle group targets
     const { data: targets } = await supabase
       .from("exercise_muscle_targets")
-      .select("exercise_id, muscle_group_id, is_primary")
+      .select("exercise_id, muscle_group_id, role, is_primary, volume_percentage")
       .in("exercise_id", Array.from(exerciseIds));
+
+    const { data: student } = await supabase
+      .from("students")
+      .select("company_id")
+      .eq("id", studentId)
+      .maybeSingle();
+    const { data: overrides } = student?.company_id
+      ? await supabase
+          .from("company_exercise_volumes")
+          .select("exercise_id, muscle_group_id, role, volume_percentage")
+          .eq("company_id", student.company_id)
+          .in("exercise_id", Array.from(exerciseIds))
+      : { data: [] };
+    const overrideMap = new Map((overrides || []).map((override) => [
+      `${override.exercise_id}:${override.muscle_group_id}`,
+      override,
+    ]));
 
     const muscleGroupIds = new Set((targets || []).map(t => t.muscle_group_id));
     
@@ -199,12 +223,16 @@ export function WorkoutAnalysis({ studentId }: Props) {
     (targets || []).forEach(t => {
       const mgName = mgMap.get(t.muscle_group_id) || "Desconhecido";
       if (!mgData[mgName]) {
-        mgData[mgName] = { name: mgName, prescribedSets: 0, executedSets: 0, totalVolume: 0 };
+        mgData[mgName] = { name: mgName, prescribedSets: 0, executedSets: 0 };
       }
-      const factor = t.is_primary ? 1 : 0.5;
-      mgData[mgName].prescribedSets += Math.round((prescribedByExercise[t.exercise_id] || 0) * factor);
-      mgData[mgName].executedSets += Math.round((executedByExercise[t.exercise_id] || 0) * factor);
-      mgData[mgName].totalVolume += Math.round((volumeByExercise[t.exercise_id] || 0) * factor);
+      const override = overrideMap.get(`${t.exercise_id}:${t.muscle_group_id}`);
+      const factor = normalizeTargetWeight({
+        role: override?.role ?? t.role,
+        isPrimary: override ? undefined : t.is_primary,
+        volumePercentage: override?.volume_percentage ?? t.volume_percentage,
+      });
+      mgData[mgName].prescribedSets += (prescribedByExercise[t.exercise_id] || 0) * factor;
+      mgData[mgName].executedSets += (executedByExercise[t.exercise_id] || 0) * factor;
     });
 
     setMuscleData(Object.values(mgData).sort((a, b) => b.prescribedSets - a.prescribedSets));
@@ -313,7 +341,18 @@ export function WorkoutAnalysis({ studentId }: Props) {
               Distribuição Muscular
             </h3>
             <div className="w-full">
-              <MuscleRadar muscleVolumes={muscleData.map(mg => ({ muscleGroup: mg.name, volume: mg.totalVolume }))} />
+              <MuscleRadar muscleVolumes={muscleData.map(mg => ({ muscleGroup: mg.name, volume: mg.executedSets }))} />
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              {muscleData.map((mg) => (
+                <div key={mg.name} className="rounded-lg border border-border bg-secondary/30 p-3 text-xs font-sans">
+                  <p className="font-medium text-foreground">{mg.name}</p>
+                  <p className="text-muted-foreground">
+                    {mg.prescribedSets.toFixed(1)} séries prescritas/sem · {(mg.executedSets / (parseInt(period) / 7)).toFixed(1)} séries realizadas/sem
+                  </p>
+                </div>
+              ))}
             </div>
 
             {/* Alerts */}

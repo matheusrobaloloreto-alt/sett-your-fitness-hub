@@ -6,6 +6,7 @@ import { buildPrescriptionInputFromEdgePayload } from "../_shared/prescription/a
 import { adaptTrainingProgramForAiStrengthPlan } from "../_shared/prescription/adapters/outputAdapter.ts";
 import { generateTrainingProgram } from "../_shared/prescription/engine.ts";
 import { clinicalRiskText, prescriptionRiskText } from "../_shared/prescription/clinicalContext.ts";
+import { targetVolumeFactor } from "../_shared/prescription/volumeRules.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -538,7 +539,7 @@ function buildVolumeSummary(plan: unknown, catalog: ExerciseCatalog) {
         : [{ muscle_group: clean(exercise.muscle_group || catalogExercise?.muscle_group || "nao_informado"), role: null, volume_percentage: 100 }];
       for (const target of targets) {
         const group = target.muscle_group || "nao_informado";
-        const multiplier = typeof target.volume_percentage === "number" ? target.volume_percentage / 100 : 1;
+        const multiplier = targetVolumeFactor(target);
         weeklySets.set(group, (weeklySets.get(group) ?? 0) + sets * multiplier);
       }
     }
@@ -954,6 +955,7 @@ function fallbackExercise(
     exercise_name: exercise.name,
     library_exercise_name: exercise.name,
     muscle_group: exercise.muscle_group || exercise.targets[0]?.muscle_group || "geral",
+    targets: exercise.targets.map((target) => ({ ...target })),
     sets: params.sets,
     reps: params.reps,
     load_percent_1rm: null,

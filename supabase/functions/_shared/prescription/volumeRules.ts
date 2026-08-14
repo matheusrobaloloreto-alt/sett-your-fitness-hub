@@ -10,6 +10,26 @@ import { LARGE_GROUPS, SMALL_GROUPS, VOLUME_RULES } from "./methodology.ts";
 import { classifyPainSeverity } from "./restrictionRules.ts";
 import { clinicalRiskText } from "./clinicalContext.ts";
 
+/**
+ * Normalizes the two historical scales found in exercise_muscle_targets:
+ * 0..1 is a fraction and values above 1 are percentages (0..100).
+ * Missing values preserve the documented primary/secondary defaults.
+ */
+export function targetVolumeFactor(
+  target: { role?: string | null; volume_percentage?: number | null },
+) {
+  const raw = target.volume_percentage;
+  if (raw !== null && raw !== undefined) {
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || raw > 100) {
+      throw new RangeError("volume_percentage must be a finite number between 0 and 100");
+    }
+    return raw <= 1 ? raw : raw / 100;
+  }
+  if (target.role === "primary") return 1;
+  if (target.role === "secondary") return 0.5;
+  throw new TypeError("target role is required when volume_percentage is absent");
+}
+
 export const IMPORTANT_GROUPS = ["quadriceps", "posterior", "gluteos", "costas", "peitoral", "core"];
 
 export function normalizeMuscleGroup(group: unknown) {
@@ -108,8 +128,17 @@ export function countWeeklySets(program: Pick<TrainingProgram, "workouts">) {
   const out = new Map<string, number>();
   for (const workout of program.workouts || []) {
     for (const exercise of workout.exercises || []) {
-      const group = normalizeMuscleGroup(exercise.muscle_group);
-      out.set(group, (out.get(group) || 0) + Number(exercise.sets || 0));
+      const explicitTargets = exercise.targets?.filter((target) =>
+        target.role === "primary" || target.role === "secondary" || target.volume_percentage !== null && target.volume_percentage !== undefined
+      );
+      const targets = explicitTargets?.length
+        ? explicitTargets
+        : [{ muscle_group: exercise.muscle_group, role: "primary", volume_percentage: 1 }];
+      for (const target of targets) {
+        const group = normalizeMuscleGroup(target.muscle_group);
+        const contribution = Number(exercise.sets || 0) * targetVolumeFactor(target);
+        out.set(group, (out.get(group) || 0) + contribution);
+      }
     }
   }
   return out;
