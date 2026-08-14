@@ -5,6 +5,7 @@ export interface AnamnesisInviteAccess {
   student_id: string;
   company_id: string;
   expires_at?: string | null;
+  status?: string | null;
 }
 
 interface AccessDependencies<TClaims> {
@@ -37,6 +38,9 @@ export async function resolvePublicAnamnesisAccess<TClaims>(
   if (accessKey) {
     const invite = await deps.findInvite(accessKey);
     if (invite) {
+      if (invite.status !== "pending") {
+        throw new HttpError(409, "Este convite já foi utilizado ou não está mais disponível.");
+      }
       if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) {
         throw new HttpError(410, "Convite expirado.");
       }
@@ -67,4 +71,16 @@ export async function resolvePublicAnamnesisAccess<TClaims>(
     invite: null,
     source: "authenticated",
   };
+}
+
+export function assertInviteStudentTenant(
+  invite: AnamnesisInviteAccess,
+  student: { id: string; company_id: string | null } | null,
+): asserts student is { id: string; company_id: string } {
+  if (!student || student.id !== invite.student_id) {
+    throw new HttpError(404, "Aluno do convite não encontrado.");
+  }
+  if (!student.company_id || student.company_id !== invite.company_id) {
+    throw new HttpError(403, "Convite e aluno pertencem a empresas diferentes.");
+  }
 }

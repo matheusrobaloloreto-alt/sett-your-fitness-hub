@@ -2,7 +2,10 @@
 // resolving an opaque invite or an authenticated tenant/owner relationship.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { assertTenantAccess, HttpError } from "../_shared/tenant-auth.ts";
-import { resolvePublicAnamnesisAccess } from "../_shared/public-anamnesis-access.ts";
+import {
+  assertInviteStudentTenant,
+  resolvePublicAnamnesisAccess,
+} from "../_shared/public-anamnesis-access.ts";
 import { resolveAnamnesisDurations } from "../_shared/anamnesis-duration.ts";
 
 const corsHeaders = {
@@ -179,6 +182,8 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
     body.supplements && `Suplementos: ${cleanText(body.supplements)}`,
     ...cardioDetail,
     body.extra_comments && `Comentários: ${cleanText(body.extra_comments)}`,
+    body.preferred_contact_channel && `Contato preferido: ${cleanText(body.preferred_contact_channel, 80)}`,
+    body.preferred_contact_period && `Melhor período para contato: ${cleanText(body.preferred_contact_period, 80)}`,
     body.notes && cleanText(body.notes),
   ].filter(Boolean).join("\n");
 
@@ -240,6 +245,7 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
       swimming && "natacao",
       cycling && "ciclismo",
     ].filter(Boolean),
+    custom_answers: body.custom_answers,
     notes,
     updated_at: new Date().toISOString(),
   };
@@ -256,6 +262,57 @@ async function upsertStudioAnamnese(payload: Record<string, any>) {
     return await supabase.from("student_anamneses").update(payload).eq("id", existing.id).select("id").single();
   }
   return await supabase.from("student_anamneses").insert(payload).select("id").single();
+}
+
+function sanitizeStudentPatch(studentPatch: Record<string, any> | null | undefined) {
+  const allowed: Record<string, any> = {};
+  for (const key of ["full_name", "weight_kg", "height_cm", "gender"]) {
+    if (studentPatch?.[key] !== undefined && studentPatch[key] !== "") allowed[key] = studentPatch[key];
+  }
+  return allowed;
+}
+
+function sanitizeStudioAnamnese(
+  incoming: Record<string, any> | null | undefined,
+  student: { id: string; company_id: string },
+) {
+  const source = incoming ?? {};
+  const payload: Record<string, any> = {
+    student_id: student.id,
+    company_id: student.company_id,
+    updated_at: new Date().toISOString(),
+  };
+  for (const key of STUDIO_ANAMNESE_FIELDS) {
+    if (source[key] !== undefined) payload[key] = source[key];
+  }
+  if (source.custom_answers && typeof source.custom_answers === "object" && !Array.isArray(source.custom_answers)) {
+    const customAnswers: Record<string, any> = {};
+    for (const [key, rawValue] of Object.entries(source.custom_answers as Record<string, any>)) {
+      if (typeof key !== "string" || !rawValue || typeof rawValue !== "object") continue;
+      const label = typeof (rawValue as any).label === "string"
+        ? (rawValue as any).label.slice(0, 200)
+        : "";
+      let value: any = (rawValue as any).value;
+      if (Array.isArray(value)) value = value.slice(0, 50).map((item) => String(item).slice(0, 200));
+      else if (value != null) value = String(value).slice(0, 2000);
+      else value = "";
+      customAnswers[key.slice(0, 80)] = { label, value };
+    }
+    if (Object.keys(customAnswers).length) payload.custom_answers = customAnswers;
+  }
+  return payload;
+}
+
+async function submitInviteAtomic(
+  token: string,
+  studentPatch: Record<string, any>,
+  anamnesis: Record<string, any>,
+) {
+  return await supabase.rpc("submit_anamnesis_invite_atomic", {
+    _token: token,
+    _student_patch: studentPatch,
+    _anamnese: anamnesis,
+  });
 }
 
 async function getBranding(companyId: string | null) {
@@ -287,169 +344,61 @@ async function getAuthenticatedClaims(req: Request) {
   return { sub: data.user.id };
 }
 
+async function runStudioSideEffects(
+  incoming: Record<string, any>,
+  invite: { company_id: string; student_id: string },
+) {
+  try {
+    const race = incoming._race;
+    if (race && race.date) {
+      await supabase.from("student_goals").delete()
+        .eq("student_id", invite.student_id).eq("kind", "prova").is("created_by", null);
+      await supabase.from("student_goals").insert({
+        company_id: invite.company_id,
+        student_id: invite.student_id,
+        title: String(race.name || "Prova").slice(0, 120),
+        kind: "prova",
+        target_date: race.date,
+        status: "pending",
+        description: "Cadastrada pela anamnese",
+        created_by: null,
+      });
+    }
+    const pain = incoming._pain || {};
+    const severity = (score: number) => score >= 7 ? "severa" : score >= 4 ? "moderada" : "leve";
+    const painRows = Object.entries(pain)
+      .filter(([, value]) => Number(value) > 0)
+      .map(([region, value]) => ({
+        company_id: invite.company_id,
+        student_id: invite.student_id,
+        region,
+        type: "dor",
+        severity: severity(Number(value)),
+        note: `Dor relatada na anamnese (EVA ${value}/10)`,
+        source: "anamnese",
+      }));
+    await supabase.from("student_body_limitations").delete()
+      .eq("student_id", invite.student_id).eq("source", "anamnese");
+    if (painRows.length) await supabase.from("student_body_limitations").insert(painRows);
+  } catch (error) {
+    console.error("anamnese side-effects error", error);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
     const body = await req.json();
     const action = body?.action as string;
-
-    if (action === "studio_context") {
-      const invite = await getInvite(body?.token as string | undefined);
-      if (!invite) {
-        return new Response(JSON.stringify({ error: "Convite não encontrado" }), {
-          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) {
-        return new Response(JSON.stringify({ error: "Convite expirado" }), {
-          status: 410, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const { data: student } = await supabase
-        .from("students")
-        .select("id, full_name, gender, birth_date, weight_kg, height_cm")
-        .eq("id", invite.student_id)
-        .maybeSingle();
-      const branding = await getBranding(invite.company_id);
-      // Perguntas EXTRAS criadas pelo professor (custom, field_key null, ativas) — anônimo não lê
-      // form_fields direto (RLS), então mandamos aqui pelo edge (service role).
-      const { data: customFields } = await supabase
-        .from("form_fields")
-        .select("id, label, field_type, options, is_required, sort_order")
-        .eq("form_type", "anamnesis")
-        .is("field_key", null)
-        .eq("is_active", true)
-        .or(`company_id.eq.${invite.company_id},company_id.is.null`)
-        .order("sort_order", { ascending: true });
-      return new Response(JSON.stringify({
-        invite,
-        student,
-        branding,
-        custom_fields: (customFields || []).map((c: any) => ({ ...c, options: Array.isArray(c.options) ? c.options : [] })),
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    if (action === "studio_submit") {
-      const invite = await getInvite(body?.token as string | undefined);
-      if (!invite) {
-        return new Response(JSON.stringify({ error: "Convite não encontrado" }), {
-          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) {
-        return new Response(JSON.stringify({ error: "Convite expirado" }), {
-          status: 410, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const studentPatch = body?.student ?? {};
-      const allowedStudentPatch: Record<string, any> = {};
-      for (const key of ["full_name", "weight_kg", "height_cm", "gender"]) {
-        if (studentPatch[key] !== undefined) allowedStudentPatch[key] = studentPatch[key];
-      }
-      if (Object.keys(allowedStudentPatch).length > 0) {
-        await supabase.from("students").update(allowedStudentPatch).eq("id", invite.student_id);
-      }
-
-      const incoming = body?.anamnese ?? {};
-      const payload: Record<string, any> = {
-        student_id: invite.student_id,
-        company_id: invite.company_id,
-        updated_at: new Date().toISOString(),
-      };
-      for (const key of STUDIO_ANAMNESE_FIELDS) {
-        if (incoming[key] !== undefined) payload[key] = incoming[key];
-      }
-      // Respostas das perguntas extras (custom) → jsonb sanitizado { id: { label, value } }
-      if (incoming.custom_answers && typeof incoming.custom_answers === "object" && !Array.isArray(incoming.custom_answers)) {
-        const ca: Record<string, any> = {};
-        for (const [k, v] of Object.entries(incoming.custom_answers as Record<string, any>)) {
-          if (typeof k !== "string" || !v || typeof v !== "object") continue;
-          const label = typeof (v as any).label === "string" ? (v as any).label.slice(0, 200) : "";
-          let value: any = (v as any).value;
-          if (Array.isArray(value)) value = value.slice(0, 50).map((x) => String(x).slice(0, 200));
-          else if (value != null) value = String(value).slice(0, 2000);
-          else value = "";
-          ca[k.slice(0, 80)] = { label, value };
-        }
-        if (Object.keys(ca).length) payload.custom_answers = ca;
-      }
-
-      const { data: existing } = await supabase
-        .from("student_anamneses")
-        .select("id")
-        .eq("student_id", invite.student_id)
-        .maybeSingle();
-
-      let error;
-      if (existing) {
-        ({ error } = await supabase.from("student_anamneses").update(payload).eq("id", existing.id));
-      } else {
-        ({ error } = await supabase.from("student_anamneses").insert(payload));
-      }
-      if (error) {
-        return new Response(JSON.stringify({ error: error.message }), {
-          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      // P10 — snapshot append-only (histórico de versões da anamnese). Best-effort.
-      try {
-        const { count } = await supabase
-          .from("student_anamnesis_history")
-          .select("id", { count: "exact", head: true })
-          .eq("student_id", invite.student_id);
-        await supabase.from("student_anamnesis_history").insert({
-          student_id: invite.student_id,
-          company_id: invite.company_id,
-          version: (count || 0) + 1,
-          snapshot: payload,
-        });
-      } catch (_e) { /* histórico opcional, não bloqueia o submit */ }
-
-      await supabase
-        .from("anamnese_invites")
-        .update({ status: "completed", completed_at: new Date().toISOString() })
-        .eq("id", invite.id);
-
-      // Efeitos colaterais: prova → student_goals (calendário); dores (EVA) → boneco anatômico.
-      try {
-        const race = (incoming as any)._race;
-        if (race && race.date) {
-          await supabase.from("student_goals").delete()
-            .eq("student_id", invite.student_id).eq("kind", "prova").is("created_by", null);
-          await supabase.from("student_goals").insert({
-            company_id: invite.company_id, student_id: invite.student_id,
-            title: String(race.name || "Prova").slice(0, 120), kind: "prova",
-            target_date: race.date, status: "pending",
-            description: "Cadastrada pela anamnese", created_by: null,
-          });
-        }
-        const pain = (incoming as any)._pain || {};
-        const sev = (n: number) => (n >= 7 ? "severa" : n >= 4 ? "moderada" : "leve");
-        const painRows = Object.entries(pain)
-          .filter(([, v]) => Number(v) > 0)
-          .map(([region, v]) => ({
-            company_id: invite.company_id, student_id: invite.student_id,
-            region, type: "dor", severity: sev(Number(v)),
-            note: `Dor relatada na anamnese (EVA ${v}/10)`, source: "anamnese",
-          }));
-        await supabase.from("student_body_limitations").delete()
-          .eq("student_id", invite.student_id).eq("source", "anamnese");
-        if (painRows.length) await supabase.from("student_body_limitations").insert(painRows);
-      } catch (e) {
-        console.error("anamnese side-effects error", e);
-      }
-
-      return new Response(JSON.stringify({ ok: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
+    let cachedClaims: { sub: string } | null | undefined;
+    const loadClaims = async () => {
+      if (cachedClaims === undefined) cachedClaims = await getAuthenticatedClaims(req);
+      return cachedClaims;
+    };
     const access = await resolvePublicAnamnesisAccess(body, {
       findInvite: async (token) => await getInvite(token),
-      getAuthenticatedClaims: async () => await getAuthenticatedClaims(req),
+      getAuthenticatedClaims: loadClaims,
       assertStudentAccess: async (claims, requestedStudentId) => {
         const tenant = await assertTenantAccess(supabase, claims, { studentId: requestedStudentId });
         return { companyId: tenant.companyId };
@@ -462,15 +411,36 @@ Deno.serve(async (req) => {
       .eq("id", access.studentId)
       .eq("company_id", access.companyId)
       .maybeSingle();
-    if (!student) {
-      return new Response(JSON.stringify({ error: "Aluno não encontrado" }), {
-        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (access.invite) {
+      assertInviteStudentTenant(access.invite, student);
+      const claims = await loadClaims();
+      if (claims) {
+        await assertTenantAccess(supabase, claims, {
+          companyId: access.invite.company_id,
+          studentId: access.invite.student_id,
+        });
+      }
+    } else if (!student) {
+      throw new HttpError(404, "Aluno não encontrado");
     }
 
-    if (action === "context") {
+    if (action === "context" || action === "studio_context") {
+      if (action === "studio_context" && !access.invite) {
+        throw new HttpError(400, "O fluxo Studio exige um convite válido.");
+      }
       const branding = await getBranding(student.company_id);
+      const { data: customFields } = access.invite
+        ? await supabase
+          .from("form_fields")
+          .select("id, label, field_type, options, is_required, sort_order")
+          .eq("form_type", "anamnesis")
+          .is("field_key", null)
+          .eq("is_active", true)
+          .or(`company_id.eq.${student.company_id},company_id.is.null`)
+          .order("sort_order", { ascending: true })
+        : { data: [] };
       return new Response(JSON.stringify({
+        invite: access.invite ?? undefined,
         student: {
           id: student.id,
           full_name: student.full_name,
@@ -480,7 +450,29 @@ Deno.serve(async (req) => {
           height_cm: student.height_cm,
         },
         branding,
+        custom_fields: (customFields || []).map((field: any) => ({
+          ...field,
+          options: Array.isArray(field.options) ? field.options : [],
+        })),
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "studio_submit") {
+      if (!access.invite || typeof body?.token !== "string") {
+        throw new HttpError(400, "O fluxo Studio exige um convite válido.");
+      }
+      const incoming = body?.anamnese ?? {};
+      const payload = sanitizeStudioAnamnese(incoming, student);
+      const { data, error } = await submitInviteAtomic(
+        body.token,
+        sanitizeStudentPatch(body?.student),
+        payload,
+      );
+      if (error) throw new HttpError(409, error.message);
+      await runStudioSideEffects(incoming, access.invite);
+      return new Response(JSON.stringify({ ok: true, student_anamnese_id: data?.student_anamnese_id ?? null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     if (action === "submit") {
@@ -489,6 +481,20 @@ Deno.serve(async (req) => {
         company_id: student.company_id,
       };
       for (const k of ALLOWED_FIELDS) if (body[k] !== undefined) payload[k] = body[k];
+
+      const studentPatch = sanitizeStudentPatch(body);
+      const studioPayload = sanitizeStudioAnamnese(
+        mapLegacySubmitToStudioAnamnese(body, student),
+        student,
+      );
+      if (access.invite) {
+        const token = typeof body.accessKey === "string" ? body.accessKey : body.token;
+        const { data, error } = await submitInviteAtomic(token, studentPatch, studioPayload);
+        if (error) throw new HttpError(409, error.message);
+        return new Response(JSON.stringify({ ok: true, student_anamnese_id: data?.student_anamnese_id ?? null }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       const { data: existing } = await supabase
         .from("anamnesis").select("id, version").eq("student_id", student.id)
@@ -508,27 +514,15 @@ Deno.serve(async (req) => {
         });
       }
 
-      const studentPatch: Record<string, any> = {};
-      for (const key of ["weight_kg", "height_cm", "gender"]) {
-        if (body[key] !== undefined && body[key] !== "") studentPatch[key] = body[key];
-      }
       if (Object.keys(studentPatch).length > 0) {
         await supabase.from("students").update(studentPatch).eq("id", student.id);
       }
 
-      const studioPayload = mapLegacySubmitToStudioAnamnese(body, student);
       const { data: studioAnamnese, error: studioError } = await upsertStudioAnamnese(studioPayload);
       if (studioError) {
         return new Response(JSON.stringify({ error: studioError.message }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
-      }
-
-      if (access.invite) {
-        await supabase.from("anamnese_invites").update({
-          status: "completed",
-          completed_at: new Date().toISOString(),
-        }).eq("id", access.invite.id);
       }
 
       return new Response(JSON.stringify({ ok: true, student_anamnese_id: studioAnamnese?.id ?? null }), {

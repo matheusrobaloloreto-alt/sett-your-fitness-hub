@@ -78,9 +78,20 @@ interface PublicAnamnesisProps {
   mode?: "student" | "pre-registration";
 }
 
+interface CustomAnamnesisField {
+  id: string;
+  label: string;
+  field_type: string;
+  options: string[];
+  is_required: boolean;
+}
+
 export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisProps) {
-  const { studentId: accessKey, slug } = useParams<{ studentId?: string; slug?: string }>();
+  const { studentId, token, slug } = useParams<{ studentId?: string; token?: string; slug?: string }>();
+  const accessKey = studentId || token;
   const isPreRegistration = mode === "pre-registration";
+  const isInviteFlow = Boolean(token);
+  const requestsContactPreferences = isPreRegistration || isInviteFlow;
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
@@ -96,6 +107,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [preferredContactChannel, setPreferredContactChannel] = useState("");
   const [preferredContactPeriod, setPreferredContactPeriod] = useState("");
   const [deadlineMessage, setDeadlineMessage] = useState("");
+  const [customFields, setCustomFields] = useState<CustomAnamnesisField[]>([]);
+  const [customAnswers, setCustomAnswers] = useState<Record<string, string | string[]>>({});
 
   // Fields
   const [age, setAge] = useState("");
@@ -204,6 +217,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         const years = Math.floor((Date.now() - new Date(data.student.birth_date).getTime()) / 31557600000);
         if (Number.isFinite(years) && years > 0) setAge(String(years));
       }
+      setCustomFields(Array.isArray(data.custom_fields) ? data.custom_fields : []);
       setCompanyId(null); // backend handles company scoping
       if (data.branding) {
         if (data.branding.logo_url) setLogoSrc(data.branding.logo_url);
@@ -349,11 +363,17 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
       [feelIn3Months, "como quer se sentir em 3 meses"],
       [biggestObstacle, "principal obstáculo"],
       [commitsCommunication, "compromisso de comunicação"],
-      ...(isPreRegistration ? [
-        [budgetRange, "investimento em saúde"],
+      ...(isPreRegistration ? [[budgetRange, "investimento em saúde"]] : []),
+      ...(requestsContactPreferences ? [
         [preferredContactChannel, "forma preferida de contato"],
         [preferredContactPeriod, "melhor horário para contato"],
       ] : []),
+      ...customFields
+        .filter(field => field.is_required)
+        .map(field => {
+          const value = customAnswers[field.id];
+          return [Array.isArray(value) ? (value.length ? "ok" : "") : value, field.label];
+        }),
     ].filter(([value]) => !value).map(([, label]) => label);
     return [];
   };
@@ -473,6 +493,13 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         supplements,
         hydration,
         gi_sensitivities: giSensitivities,
+        preferred_contact_channel: preferredContactChannel || null,
+        preferred_contact_period: preferredContactPeriod || null,
+        custom_answers: Object.fromEntries(customFields.flatMap(field => {
+          const value = customAnswers[field.id];
+          if (value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) return [];
+          return [[field.id, { label: field.label, value }]];
+        })),
     };
 
     const { data, error } = isPreRegistration
@@ -1271,7 +1298,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
 
             {currentStep.id === "finish" && (
             <>
-            {isPreRegistration && (
+            {requestsContactPreferences && (
               <div className="space-y-4 rounded-xl border border-border bg-background/60 p-4">
                 <div>
                   <h3 className="font-display text-lg text-primary">Preferências para o atendimento</h3>
@@ -1280,7 +1307,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
+                  {isPreRegistration && <div className="space-y-2">
                     <Label className="font-sans font-medium">Quanto você está disposto(a) a investir na sua saúde? *</Label>
                     <select value={budgetRange} onChange={e => setBudgetRange(e.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                       <option value="">Selecione...</option>
@@ -1289,7 +1316,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                       <option value="400_500">R$ 400 a R$ 500</option>
                     </select>
                     <p className="text-xs leading-relaxed text-muted-foreground">Isso nos ajuda a indicar uma opção compatível com a sua realidade, sem oferecer um plano inadequado.</p>
-                  </div>
+                  </div>}
                   <div className="space-y-2">
                     <Label className="font-sans font-medium">Forma preferida de contato *</Label>
                     <select
@@ -1320,6 +1347,52 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                     </p>
                   </div>
                 </div>
+              </div>
+            )}
+            {customFields.length > 0 && (
+              <div className="space-y-4 rounded-xl border border-border bg-background/60 p-4">
+                <div>
+                  <h3 className="font-display text-lg text-primary">Perguntas do seu treinador</h3>
+                  <p className="mt-1 text-sm text-muted-foreground font-sans">
+                    Responda estas perguntas adicionais para completar o contexto da sua prescrição.
+                  </p>
+                </div>
+                {customFields.map(field => {
+                  const value = customAnswers[field.id];
+                  const setValue = (nextValue: string | string[]) => setCustomAnswers(current => ({
+                    ...current,
+                    [field.id]: nextValue,
+                  }));
+                  return (
+                    <div key={field.id} className="space-y-2">
+                      <Label className="font-sans font-medium">{field.label}{field.is_required ? " *" : ""}</Label>
+                      {field.field_type === "textarea" ? (
+                        <Textarea value={typeof value === "string" ? value : ""} onChange={event => setValue(event.target.value)} />
+                      ) : field.field_type === "number" || field.field_type === "date" ? (
+                        <Input type={field.field_type} value={typeof value === "string" ? value : ""} onChange={event => setValue(event.target.value)} />
+                      ) : field.field_type === "select" || field.field_type === "radio" ? (
+                        <select value={typeof value === "string" ? value : ""} onChange={event => setValue(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-base">
+                          <option value="">Selecione...</option>
+                          {field.options.map(option => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      ) : field.field_type === "checkbox" ? (
+                        <div className="space-y-2">
+                          {field.options.map(option => {
+                            const selected = Array.isArray(value) ? value : [];
+                            return (
+                              <label key={option} className="flex cursor-pointer items-center gap-2 font-sans text-sm">
+                                <Checkbox checked={selected.includes(option)} onCheckedChange={checked => setValue(checked ? [...selected, option] : selected.filter(item => item !== option))} />
+                                {option}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <Input value={typeof value === "string" ? value : ""} onChange={event => setValue(event.target.value)} />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
             <div className="space-y-2">
