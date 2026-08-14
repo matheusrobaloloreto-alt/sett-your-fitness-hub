@@ -1,6 +1,6 @@
-// Painel de volume: volume-load por semana (barras) + volume por grupamento (pizza).
-// Reutilizado no dashboard do aluno e na ficha do aluno no admin (mesmo shape do StatsCharts).
-import { useMemo, useState } from "react";
+// Painel de volume: LOAD externo por semana + séries fracionárias por grupamento.
+// As métricas ficam separadas para não atribuir percentuais biomecânicos à carga externa.
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { BarChart3, PieChart as PieIcon } from "lucide-react";
 import {
@@ -8,9 +8,11 @@ import {
   PieChart, Pie, Cell, Legend,
 } from "recharts";
 import {
-  buildExerciseMeta, volumeLoadByWeek, volumeByMuscleGroup, type CycleLike,
+  buildExerciseMeta, fractionalSetsByMuscleGroup, volumeLoadByWeek, type CycleLike,
+  type ExerciseMuscleTarget,
 } from "@/lib/volumeStats";
 import { businessDateYmd } from "@/lib/businessDate";
+import { supabase } from "@/integrations/supabase/client";
 
 interface VolumeInsightsProps {
   allLogs: any[];
@@ -26,6 +28,57 @@ const PIE_COLORS = [
 
 export function VolumeInsights({ allLogs, cycles, className }: VolumeInsightsProps) {
   const [range, setRange] = useState<"all" | "8w" | "4w">("all");
+  const [targets, setTargets] = useState<ExerciseMuscleTarget[]>([]);
+  const exerciseIds = useMemo(() => Array.from(new Set(
+    buildExerciseMeta(cycles).map((item) => item.exerciseId).filter((id): id is string => Boolean(id)),
+  )), [cycles]);
+  useEffect(() => {
+    let active = true;
+    if (exerciseIds.length === 0) {
+      setTargets([]);
+      return () => { active = false; };
+    }
+    (async () => {
+      const { data: targetRows } = await supabase
+        .from("exercise_muscle_targets")
+        .select("exercise_id, muscle_group_id, role, is_primary, volume_percentage")
+        .in("exercise_id", exerciseIds);
+      const { data: authData } = await supabase.auth.getUser();
+      const { data: companyId } = authData.user
+        ? await supabase.rpc("get_user_company_id", { _user_id: authData.user.id })
+        : { data: null };
+      const { data: overrideRows } = companyId
+        ? await supabase
+            .from("company_exercise_volumes")
+            .select("exercise_id, muscle_group_id, role, volume_percentage")
+            .eq("company_id", companyId)
+            .in("exercise_id", exerciseIds)
+        : { data: [] };
+      const overrideMap = new Map((overrideRows || []).map((override) => [
+        `${override.exercise_id}:${override.muscle_group_id}`,
+        override,
+      ]));
+      const groupIds = Array.from(new Set((targetRows || []).map((target) => target.muscle_group_id)));
+      const { data: groupRows } = groupIds.length
+        ? await supabase.from("muscle_groups").select("id, name").in("id", groupIds)
+        : { data: [] };
+      const groupMap = new Map((groupRows || []).map((group) => [group.id, group.name]));
+      if (active) {
+        setTargets((targetRows || []).flatMap((target) => {
+          const muscleGroup = groupMap.get(target.muscle_group_id);
+          const override = overrideMap.get(`${target.exercise_id}:${target.muscle_group_id}`);
+          return muscleGroup ? [{
+            exerciseId: target.exercise_id,
+            muscleGroup,
+            role: override?.role ?? target.role,
+            isPrimary: override ? undefined : target.is_primary,
+            volumePercentage: override?.volume_percentage ?? target.volume_percentage,
+          }] : [];
+        }));
+      }
+    })();
+    return () => { active = false; };
+  }, [exerciseIds]);
   const filteredLogs = useMemo(() => {
     if (range === "all") return allLogs || [];
     const days = range === "4w" ? 28 : 56;
@@ -36,8 +89,8 @@ export function VolumeInsights({ allLogs, cycles, className }: VolumeInsightsPro
   }, [allLogs, range]);
   const meta = useMemo(() => buildExerciseMeta(cycles), [cycles]);
   const weekly = useMemo(() => volumeLoadByWeek(filteredLogs), [filteredLogs]);
-  const byMuscle = useMemo(() => volumeByMuscleGroup(filteredLogs, meta), [filteredLogs, meta]);
-  const totalVol = useMemo(() => byMuscle.reduce((s, m) => s + m.volume, 0), [byMuscle]);
+  const byMuscle = useMemo(() => fractionalSetsByMuscleGroup(filteredLogs, meta, targets), [filteredLogs, meta, targets]);
+  const totalSets = useMemo(() => byMuscle.reduce((sum, item) => sum + item.sets, 0), [byMuscle]);
   const rangeTabs = [["all", "Tudo"], ["8w", "8 sem"], ["4w", "4 sem"]] as const;
 
   const hasData = weekly.length > 0 || byMuscle.length > 0;
@@ -108,7 +161,7 @@ export function VolumeInsights({ allLogs, cycles, className }: VolumeInsightsPro
           <div className="flex items-center gap-2 mb-3">
             <PieIcon className="h-4 w-4 text-primary" />
             <h3 className="text-sm font-mono-data font-semibold text-muted-foreground uppercase tracking-wider">
-              Volume por grupamento
+              Séries por grupamento
             </h3>
           </div>
           {byMuscle.length === 0 ? (
@@ -119,7 +172,7 @@ export function VolumeInsights({ allLogs, cycles, className }: VolumeInsightsPro
                 <PieChart>
                   <Pie
                     data={byMuscle}
-                    dataKey="volume"
+                    dataKey="sets"
                     nameKey="group"
                     cx="50%"
                     cy="50%"
@@ -135,7 +188,7 @@ export function VolumeInsights({ allLogs, cycles, className }: VolumeInsightsPro
                   <Tooltip
                     contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
                     formatter={(v: any, n: any) => [
-                      `${Number(v).toLocaleString("pt-BR")} kg (${totalVol > 0 ? Math.round((Number(v) / totalVol) * 100) : 0}%)`,
+                      `${Number(v).toLocaleString("pt-BR")} séries (${totalSets > 0 ? Math.round((Number(v) / totalSets) * 100) : 0}%)`,
                       n,
                     ]}
                   />

@@ -99,6 +99,8 @@ export interface TrainingExercise {
   exercise_name: string;
   library_exercise_name: string;
   muscle_group: string;
+  /** Multi-group contribution used by the volume engine. */
+  targets?: ExerciseTarget[];
   sets: number;
   reps: string;
   load_percent_1rm: number | null;

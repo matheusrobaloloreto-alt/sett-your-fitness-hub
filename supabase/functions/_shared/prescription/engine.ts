@@ -118,6 +118,7 @@ function exerciseToTrainingExercise(exercise: ExerciseCatalogEntry, spec: Exerci
     exercise_name: exercise.name,
     library_exercise_name: exercise.name,
     muscle_group: exercise.muscle_group || exercise.targets?.[0]?.muscle_group || spec.preferredMuscleGroup || "geral",
+    targets: (exercise.targets || []).map((target) => ({ ...target })),
     sets: deloadAdjustSets(spec.sets, input),
     reps: spec.reps || (isMain ? modifier.mainReps : modifier.accessoryReps),
     load_percent_1rm: null,

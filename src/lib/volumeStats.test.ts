@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { buildExerciseMeta, volumeLoadByWeek, volumeByMuscleGroup } from "./volumeStats";
+import { buildExerciseMeta, fractionalSetsByMuscleGroup, normalizeTargetWeight, volumeLoadByWeek } from "./volumeStats";
 
 const cycles = [
   {
     workouts: [
       { id: "w1", exercises: [
-        { exercise_name: "Supino", muscle_group: "peitoral" },
-        { exercise_name: "Agacho", muscle_group: "quadríceps" },
+        { exercise_id: "ex-supino", exercise_name: "Supino", muscle_group: "peitoral" },
+        { exercise_id: "ex-agacho", exercise_name: "Agacho", muscle_group: "quadríceps" },
       ] },
     ],
   },
@@ -38,16 +38,45 @@ describe("volumeLoadByWeek", () => {
   });
 });
 
-describe("volumeByMuscleGroup", () => {
-  it("agrega volume por grupamento via meta dos ciclos", () => {
+describe("fractionalSetsByMuscleGroup", () => {
+  it("conta séries fracionárias para múltiplos alvos sem repartir LOAD", () => {
     const meta = buildExerciseMeta(cycles);
     const logs = [
-      { weight: 100, reps_done: 10, session_date: "2026-06-08", workout_id: "w1", exercise_index: 0 }, // peitoral 1000
-      { weight: 60, reps_done: 10, session_date: "2026-06-08", workout_id: "w1", exercise_index: 1 },  // quadríceps 600
-      { weight: 40, reps_done: 5, session_date: "2026-06-10", workout_id: "w1", exercise_index: 0 },   // peitoral +200
+      { weight: 100, reps_done: 10, session_date: "2026-06-08", workout_id: "w1", exercise_index: 0 },
     ];
-    const out = volumeByMuscleGroup(logs, meta);
-    expect(out[0]).toEqual({ group: "peitoral", volume: 1200 });
-    expect(out[1]).toEqual({ group: "quadríceps", volume: 600 });
+    const out = fractionalSetsByMuscleGroup(logs, meta, [
+      { exerciseId: "ex-supino", muscleGroup: "Peitoral", role: "primary", volumePercentage: 1 },
+      { exerciseId: "ex-supino", muscleGroup: "Tríceps", role: "secondary", volumePercentage: 50 },
+    ]);
+    expect(out).toEqual([
+      { group: "Peitoral", sets: 1 },
+      { group: "Tríceps", sets: 0.5 },
+    ]);
+  });
+});
+
+describe("normalizeTargetWeight", () => {
+  it.each([
+    [1, 1],
+    [100, 1],
+    [0.5, 0.5],
+    [50, 0.5],
+    [20, 0.2],
+  ])("normaliza %s para %s", (volumePercentage, expected) => {
+    expect(normalizeTargetWeight({ volumePercentage })).toBe(expected);
+  });
+
+  it("usa defaults explícitos apenas quando o percentual está ausente", () => {
+    expect(normalizeTargetWeight({ role: "primary", volumePercentage: null })).toBe(1);
+    expect(normalizeTargetWeight({ role: "secondary", volumePercentage: null })).toBe(0.5);
+  });
+
+  it("rejeita papel ausente ou conflitante quando não há percentual", () => {
+    expect(() => normalizeTargetWeight({ volumePercentage: null })).toThrow(TypeError);
+    expect(() => normalizeTargetWeight({ role: "primary", isPrimary: false, volumePercentage: null })).toThrow(TypeError);
+  });
+
+  it.each([-1, 101, Number.NaN, Number.POSITIVE_INFINITY])("rejeita percentual inválido %s", (volumePercentage) => {
+    expect(() => normalizeTargetWeight({ volumePercentage })).toThrow(RangeError);
   });
 });

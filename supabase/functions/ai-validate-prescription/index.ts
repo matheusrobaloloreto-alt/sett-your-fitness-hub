@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantAccess, HttpError } from "../_shared/tenant-auth.ts";
+import { targetVolumeFactor } from "../_shared/prescription/volumeRules.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -30,7 +31,7 @@ interface ExerciseCatalogEntry {
   progressions: string[];
   equivalent_substitutes: string[];
   pain_limitation_tags: string[];
-  targets: Array<{ muscle_group: string; volume_percentage: number | null }>;
+  targets: Array<{ muscle_group: string; role: string | null; volume_percentage: number | null }>;
 }
 
 const clean = (value: unknown) => String(value ?? "").replace(/[^\x20-\x7E\u00C0-\u017F\n\r\t]/g, "");
@@ -113,7 +114,7 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
       ? selectByExerciseIdChunks(
           supabase,
           "exercise_muscle_targets",
-          "exercise_id, muscle_group_id, volume_percentage",
+          "exercise_id, muscle_group_id, role, volume_percentage",
           exerciseIds,
         )
       : Promise.resolve({ data: [], error: null }),
@@ -143,6 +144,7 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
     const targets = targetsByExercise.get(exerciseId) ?? [];
     targets.push({
       muscle_group: groupNames.get(target.muscle_group_id as string) ?? (target.muscle_group_id as string),
+      role: (target.role as string | null) ?? null,
       volume_percentage: (target.volume_percentage as number | null) ?? null,
     });
     targetsByExercise.set(exerciseId, targets);
@@ -216,9 +218,9 @@ function buildVolumeSummary(plan: unknown, catalog: ExerciseCatalogEntry[]) {
       const catalogExercise = exerciseMap.get(String(exercise.exercise_id || ""));
       const targets = catalogExercise?.targets?.length
         ? catalogExercise.targets
-        : [{ muscle_group: clean(exercise.muscle_group || catalogExercise?.muscle_group || "nao_informado"), volume_percentage: 100 }];
+        : [{ muscle_group: clean(exercise.muscle_group || catalogExercise?.muscle_group || "nao_informado"), role: "primary", volume_percentage: 100 }];
       for (const target of targets) {
-        const multiplier = typeof target.volume_percentage === "number" ? target.volume_percentage / 100 : 1;
+        const multiplier = targetVolumeFactor(target);
         weeklySets.set(target.muscle_group, (weeklySets.get(target.muscle_group) ?? 0) + sets * multiplier);
       }
     }
