@@ -28,6 +28,7 @@ export interface PrescriptionIntegration {
     strength_days: number | null;
     cardio_days: number | null;
     session_duration_min: number | null;
+    endurance_session_duration_min: number | null;
     equipment: string | null;
     endurance_athlete: boolean;
   };
@@ -138,6 +139,7 @@ export function buildPrescriptionIntegration({
     strength_days: numberValue(a.days_per_week_strength ?? a.available_days),
     cardio_days: numberValue(a.days_per_week_cardio),
     session_duration_min: numberValue(a.session_duration_min),
+    endurance_session_duration_min: numberValue(a.endurance_session_duration_min),
     equipment: textValue(a.equipment || a.available_equipment || null),
     endurance_athlete: Boolean(a.is_endurance_athlete || /corrida|triathlon|ciclismo|natacao|endurance/.test(textCorpus)),
   };

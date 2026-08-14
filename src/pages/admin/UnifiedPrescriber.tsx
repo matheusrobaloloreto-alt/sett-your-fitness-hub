@@ -39,7 +39,7 @@ interface Anamnese {
   is_endurance_athlete: boolean;
   training_modality: string;
   days_per_week_strength: string; days_per_week_cardio: string;
-  session_duration_min: string; equipment: string; experience_months: string;
+  session_duration_min: string; endurance_session_duration_min: string; equipment: string; experience_months: string;
   sport: string; fcmax: string; fcrep: string;
   current_volume_weekly: string; cardio_goal: string;
   stress_score: string; sleep_quality: string; injuries: string;
@@ -65,7 +65,7 @@ const DEFAULT_ANAMNESE: Anamnese = {
   age: "", body_fat_percent: "", objective: "performance",
   activity_level: "moderado", is_endurance_athlete: false,
   training_modality: "", days_per_week_strength: "3",
-  days_per_week_cardio: "0", session_duration_min: "60",
+  days_per_week_cardio: "0", session_duration_min: "60", endurance_session_duration_min: "60",
   equipment: "academia_completa", experience_months: "",
   sport: "corrida", fcmax: "", fcrep: "",
   current_volume_weekly: "", cardio_goal: "",
@@ -144,6 +144,9 @@ export default function UnifiedPrescriber() {
           days_per_week_strength: data.days_per_week_strength?.toString() ?? "3",
           days_per_week_cardio: data.days_per_week_cardio?.toString() ?? "0",
           session_duration_min: data.session_duration_min?.toString() ?? "60",
+          endurance_session_duration_min: data.endurance_session_duration_min?.toString()
+            ?? data.session_duration_min?.toString()
+            ?? "60",
           equipment: data.equipment ?? "academia_completa",
           experience_months: data.experience_months?.toString() ?? "",
           sport: data.sport ?? "corrida",
@@ -210,6 +213,7 @@ export default function UnifiedPrescriber() {
       days_per_week_strength: Number(anamnese.days_per_week_strength) || null,
       days_per_week_cardio: Number(anamnese.days_per_week_cardio) || null,
       session_duration_min: Number(anamnese.session_duration_min) || null,
+      endurance_session_duration_min: Number(anamnese.endurance_session_duration_min) || null,
       equipment: anamnese.equipment,
       experience_months: anamnese.experience_months ? Number(anamnese.experience_months) : null,
       sport: anamnese.sport, fcmax: anamnese.fcmax ? Number(anamnese.fcmax) : null,
@@ -375,7 +379,7 @@ export default function UnifiedPrescriber() {
             sport: anamnese.sport, goal: anamnese.cardio_goal || "Melhora de performance geral",
             duration_weeks: 6,
             days_per_week: Number(anamnese.days_per_week_cardio),
-            session_duration: Number(anamnese.session_duration_min),
+            session_duration: Number(anamnese.endurance_session_duration_min || anamnese.session_duration_min),
             current_volume: anamnese.current_volume_weekly ? Number(anamnese.current_volume_weekly) : null,
             fcmax: anamnese.fcmax ? Number(anamnese.fcmax) : null,
             fcrep: anamnese.fcrep ? Number(anamnese.fcrep) : null,
@@ -589,6 +593,7 @@ export default function UnifiedPrescriber() {
                     </F>
                     <F label="Objetivo / prova"><SI value={anamnese.cardio_goal} onChange={(e: any) => set("cardio_goal", e.target.value)} placeholder="Ex: Meia maratona em 8 sem." /></F>
                     <F label="Volume atual (km ou h/sem)"><SI type="number" value={anamnese.current_volume_weekly} onChange={(e: any) => set("current_volume_weekly", e.target.value)} /></F>
+                    <F label="Duração sessão endurance (min)"><SI type="number" value={anamnese.endurance_session_duration_min} onChange={(e: any) => set("endurance_session_duration_min", e.target.value)} /></F>
                     <F label="FC máx (bpm)"><SI type="number" value={anamnese.fcmax} onChange={(e: any) => set("fcmax", e.target.value)} placeholder="vazio = 220-idade" /></F>
                     <F label="FC repouso (bpm)"><SI type="number" value={anamnese.fcrep} onChange={(e: any) => set("fcrep", e.target.value)} placeholder="vazio = 65" /></F>
                   </Section>

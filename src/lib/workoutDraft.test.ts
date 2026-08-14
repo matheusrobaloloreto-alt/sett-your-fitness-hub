@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   mergeWorkoutDraftLogs,
   readWorkoutUiDraft,
+  resolveWorkoutResumeTarget,
   workoutUiDraftKey,
   writeWorkoutUiDraft,
 } from "./workoutDraft";
@@ -36,11 +37,40 @@ describe("workout draft persistence", () => {
 
   it("keeps the newer local value when the server still has the old set", () => {
     expect(mergeWorkoutDraftLogs(
-      { set1: { completed: false, weight: 20 }, set2: { completed: true, weight: 10 } },
-      { set1: { completed: true, weight: 22 } },
+      {
+        set1: { completed: false, weight: 20, revision: 1 },
+        set2: { completed: true, weight: 10, revision: 1 },
+      },
+      { set1: { completed: true, weight: 22, revision: 1, dirty: true } },
     )).toEqual({
-      set1: { completed: true, weight: 22 },
-      set2: { completed: true, weight: 10 },
+      set1: { completed: true, weight: 22, revision: 1, dirty: true },
+      set2: { completed: true, weight: 10, revision: 1 },
+    });
+  });
+
+  it("keeps a newer server revision instead of replaying an old local backup", () => {
+    expect(mergeWorkoutDraftLogs(
+      { set1: { completed: true, weight: 30, revision: 3, updated_at: "2026-08-14T12:00:00Z" } },
+      { set1: { completed: false, weight: 20, revision: 2, dirty: true, client_updated_at: "2026-08-14T13:00:00Z" } },
+    )).toEqual({
+      set1: { completed: true, weight: 30, revision: 3, updated_at: "2026-08-14T12:00:00Z" },
+    });
+  });
+
+  it("gives an active session precedence over an older draft from another workout", () => {
+    expect(resolveWorkoutResumeTarget("workout-active", {
+      cycleId: "cycle-old",
+      workoutId: "workout-old",
+      expandedExercise: 4,
+      activeView: "treino",
+      extraSets: { 4: 2 },
+      updatedAt: 100,
+    })).toEqual({
+      source: "active_session",
+      workoutId: "workout-active",
+      cycleId: null,
+      expandedExercise: null,
+      extraSets: {},
     });
   });
 

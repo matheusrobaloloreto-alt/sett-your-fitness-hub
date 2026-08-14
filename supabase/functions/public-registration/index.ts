@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { resolveAnamnesisDurations } from "../_shared/anamnesis-duration.ts";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
 import { preRegistrationResponseDeadline } from "../_shared/pre-registration-confirmation.ts";
 import {
@@ -108,17 +109,6 @@ function asArray(value: unknown): string[] {
 function includesAny(values: string[], needles: string[]) {
   const source = values.join(" ").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   return needles.some((needle) => source.includes(needle));
-}
-
-function parseSessionMinutes(body: Record<string, unknown>) {
-  const direct = numberOrNull(body.session_duration_min);
-  if (direct) return direct;
-  const label = cleanLongText(body.session_duration, 120).toLowerCase();
-  if (label.includes("30") && label.includes("45")) return 45;
-  if (label.includes("45") && label.includes("60")) return 60;
-  if (label.includes("60")) return 60;
-  if (label.includes("30")) return 30;
-  return null;
 }
 
 function buildClinicalText(body: Record<string, unknown>) {
@@ -372,6 +362,10 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
     ? true
     : boolValue(answers.interest_nutrition);
   const practicedEndurance = includesAny(modalities, ["corrida", "natacao", "natação", "bike", "ciclismo", "triathlon"]);
+  const durations = resolveAnamnesisDurations(answers, {
+    strength,
+    endurance: running || swimming || cycling,
+  });
   const clinicalText = buildClinicalText(answers);
   const cardioDetail = [
     running && `CORRIDA: ${[
@@ -423,7 +417,7 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
     days_per_week_cardio: (running || swimming || cycling)
       ? (numberOrNull(answers.days_cardio) ?? numberOrNull(answers.available_days))
       : null,
-    session_duration_min: parseSessionMinutes(answers),
+    ...durations,
     equipment: cleanLongText(answers.equipment || equipmentContext, 500) || null,
     experience_months: numberOrNull(answers.experience_months),
     sport: running ? "corrida" : swimming ? "natacao" : cycling ? "ciclismo" : null,

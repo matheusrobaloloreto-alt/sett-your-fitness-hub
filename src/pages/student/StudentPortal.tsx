@@ -55,6 +55,7 @@ import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import {
   mergeWorkoutDraftLogs,
   readWorkoutUiDraft,
+  resolveWorkoutResumeTarget,
   workoutUiDraftKey,
   writeWorkoutUiDraft,
 } from "@/lib/workoutDraft";
@@ -115,6 +116,11 @@ interface WorkoutLog {
   set_type?: string;
   rpe?: number;
   completed?: boolean;
+  revision?: number;
+  updated_at?: string;
+  created_at?: string;
+  client_updated_at?: string;
+  dirty?: boolean;
 }
 
 export default function StudentPortal() {
@@ -172,35 +178,30 @@ export default function StudentPortal() {
   // Mantém a tela acesa durante o treino (academia: evita destravar de mão suada).
   useWakeLock(session.isActive);
 
-  // A sessão ativa é a fonte mais forte ao retomar o app após bloqueio/suspensão.
+  // Restauração ordenada: espera a sessão local hidratar e resolve uma única
+  // fonte. Sessão ativa vence rascunho antigo; o rascunho só complementa a UI
+  // quando pertence ao mesmo treino iniciado.
   useEffect(() => {
-    const activeWorkoutId = session.activeSession?.workoutId;
-    if (!activeWorkoutId || cycles.length === 0) return;
-    const cycle = cycles.find(item => item.workouts.some(workout => workout.id === activeWorkoutId));
+    if (loading || !session.isHydrated || !workoutUiDraftStorageKey || cycles.length === 0) return;
+    const activeWorkoutId = session.activeSession?.workoutId ?? null;
+    const alreadyRestored = workoutUiRestoredKeyRef.current === workoutUiDraftStorageKey;
+    if (alreadyRestored && !activeWorkoutId) return;
+    const draft = readWorkoutUiDraft(localStorage, workoutUiDraftStorageKey);
+    const target = resolveWorkoutResumeTarget(activeWorkoutId, draft);
+    workoutUiRestoredKeyRef.current = workoutUiDraftStorageKey;
+    if (!target) return;
+    const cycle = cycles.find(item => item.id === target.cycleId && item.workouts.some(workout => workout.id === target.workoutId))
+      || cycles.find(item => item.workouts.some(workout => workout.id === target.workoutId));
     if (!cycle) return;
     setSelectedCycle(cycle);
-    setSelectedWorkoutId(activeWorkoutId);
+    setSelectedWorkoutId(target.workoutId);
+    setExpandedExercise(target.expandedExercise);
+    setExtraSets(target.extraSets);
     setActiveView("treino");
-  }, [cycles, session.activeSession?.workoutId]);
-
-  // Mesmo sem iniciar o cronômetro, conserva Treino C, exercício aberto e séries extras.
-  useEffect(() => {
-    if (loading || !workoutUiDraftStorageKey || cycles.length === 0) return;
-    if (workoutUiRestoredKeyRef.current === workoutUiDraftStorageKey) return;
-    workoutUiRestoredKeyRef.current = workoutUiDraftStorageKey;
-    const draft = readWorkoutUiDraft(localStorage, workoutUiDraftStorageKey);
-    if (!draft) return;
-    const cycle = cycles.find(item => item.id === draft.cycleId)
-      || cycles.find(item => item.workouts.some(workout => workout.id === draft.workoutId));
-    if (!cycle || !cycle.workouts.some(workout => workout.id === draft.workoutId)) return;
-    setSelectedCycle(cycle);
-    setSelectedWorkoutId(draft.workoutId);
-    setExpandedExercise(draft.expandedExercise);
-    setExtraSets(draft.extraSets);
-    setActiveView("treino");
-  }, [cycles, loading, workoutUiDraftStorageKey]);
+  }, [cycles, loading, session.activeSession?.workoutId, session.isHydrated, workoutUiDraftStorageKey]);
 
   useEffect(() => {
+    if (!session.isHydrated || workoutUiRestoredKeyRef.current !== workoutUiDraftStorageKey) return;
     if (!workoutUiDraftStorageKey || !selectedWorkoutId) return;
     try {
       writeWorkoutUiDraft(localStorage, workoutUiDraftStorageKey, {
@@ -211,7 +212,7 @@ export default function StudentPortal() {
         extraSets,
       });
     } catch { /* quota/private mode */ }
-  }, [activeView, expandedExercise, extraSets, selectedCycle?.id, selectedWorkoutId, workoutUiDraftStorageKey]);
+  }, [activeView, expandedExercise, extraSets, selectedCycle?.id, selectedWorkoutId, session.isHydrated, workoutUiDraftStorageKey]);
 
   const { activeRest, startRest, clearRest } = useRestTimer();
 
@@ -447,6 +448,8 @@ export default function StudentPortal() {
         weight: prev[key]?.weight ?? null,
         reps_done: prev[key]?.reps_done ?? null,
         [field]: value,
+        client_updated_at: new Date().toISOString(),
+        dirty: true,
       },
     }));
   };
@@ -473,7 +476,12 @@ export default function StudentPortal() {
         const oldKey = getLogKey(workoutId, exIdx, s);
         const newKey = getLogKey(workoutId, exIdx, s - 1);
         if (newLogs[oldKey]) {
-          newLogs[newKey] = { ...newLogs[oldKey], set_number: s - 1 };
+          newLogs[newKey] = {
+            ...newLogs[oldKey],
+            set_number: s - 1,
+            client_updated_at: new Date().toISOString(),
+            dirty: true,
+          };
           delete newLogs[oldKey];
         }
       }
@@ -493,12 +501,15 @@ export default function StudentPortal() {
     if (!silent) setSavingLogs(true);
     const workoutId = selectedWorkout.id;
     // Inclui séries marcadas como concluídas mesmo sem carga/reps (ex.: peso corporal, abdominal).
-    const logsToSave = Object.values(logs).filter(l => l.workout_id === workoutId && (l.weight > 0 || l.reps_done > 0 || l.completed));
+    const logsToSave = Object.values(logs).filter(l =>
+      l.workout_id === workoutId
+      && (l.weight > 0 || l.reps_done > 0 || l.completed)
+      && (l.dirty === true || !l.id)
+    );
 
     let hadError = false;
-    // Upsert idempotente: o índice único (student_id,workout_id,exercise_index,set_number,session_date)
-    // garante que reenviar a mesma série atualiza em vez de duplicar — à prova do autosave/online/finish
-    // disparando em paralelo (antes isso duplicava porque `allLogs` ficava stale após cada insert).
+    // O índice identifica a série; base_revision impede que um autosave antigo
+    // atualize essa série depois de outro aparelho já ter salvo uma revisão nova.
     const rows = logsToSave.map(log => ({
       student_id: studentId,
       workout_id: log.workout_id,
@@ -510,28 +521,60 @@ export default function StudentPortal() {
       set_type: log.set_type || 'normal',
       rpe: log.rpe || null,
       completed: log.completed || false,
+      base_revision: log.revision ?? null,
+      client_updated_at: log.client_updated_at ?? null,
     }));
     if (rows.length > 0) {
-      // Retry: soluços de rede/lock não devem assustar o aluno com "não foi salvo".
+      const sentByKey = new Map(rows.map(row => [getLogKey(row.workout_id, row.exercise_index, row.set_number), row]));
+      // RPC com compare-and-swap por revisão: outro dispositivo não pode ser
+      // sobrescrito por um autosave baseado numa versão antiga.
       let error: any = null;
+      let result: any = null;
       for (let attempt = 0; attempt < 3; attempt++) {
-        const res = await supabase
-          .from("workout_logs" as any)
-          .upsert(rows, { onConflict: "student_id,workout_id,exercise_index,set_number,session_date" });
+        const res = await (supabase as any).rpc("save_workout_logs_if_current", { _rows: rows });
         error = res.error;
+        result = res.data;
         if (!error) break;
         await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
       }
       if (error) { hadError = true; console.error("Erro ao salvar carga:", error); }
       else {
-        // Reflete o check-in na hora: mescla as linhas de hoje em allLogs (WeeklyBar/streak/trainedDays
-        // derivam disso). Sem isso, o dia só ficava verde após recarregar a página.
+        const savedRows = (Array.isArray(result?.saved) ? result.saved : [])
+          .filter((row: WorkoutLog | null) => !!row?.workout_id);
+        const rawConflicts = Array.isArray(result?.conflicts) ? result.conflicts : [];
+        const conflictRows = rawConflicts
+          .filter((row: WorkoutLog | null) => !!row?.workout_id);
+        if (rawConflicts.length > 0) hadError = true;
+        const authoritativeRows = [...savedRows, ...conflictRows] as WorkoutLog[];
+        setLogs(prev => {
+          const next = { ...prev };
+          for (const serverRow of authoritativeRows) {
+            const key = getLogKey(serverRow.workout_id, serverRow.exercise_index, serverRow.set_number);
+            const current = next[key];
+            const sent = sentByKey.get(key);
+            const wasEditedDuringSave = !!current?.client_updated_at
+              && current.client_updated_at !== sent?.client_updated_at;
+            const isConflict = conflictRows.some((row: WorkoutLog) =>
+              getLogKey(row.workout_id, row.exercise_index, row.set_number) === key
+            );
+            next[key] = wasEditedDuringSave && !isConflict
+              ? { ...current, id: serverRow.id, revision: serverRow.revision, updated_at: serverRow.updated_at, dirty: true }
+              : { ...serverRow, dirty: false };
+          }
+          return next;
+        });
         setAllLogs((prev) => {
           const keyOf = (r: any) => `${r.workout_id}|${r.exercise_index}|${r.set_number}|${r.session_date}`;
           const map = new Map((prev || []).map((r: any) => [keyOf(r), r]));
-          for (const r of rows) map.set(keyOf(r), { ...(map.get(keyOf(r)) || {}), ...r });
+          for (const r of authoritativeRows) map.set(keyOf(r), { ...(map.get(keyOf(r)) || {}), ...r });
           return Array.from(map.values());
         });
+        if (rawConflicts.length > 0 && silent) {
+          toast({
+            title: "Treino atualizado em outro dispositivo",
+            description: "Mantivemos a versão mais recente para evitar perder progresso.",
+          });
+        }
       }
     }
     if (!silent) setSavingLogs(false);

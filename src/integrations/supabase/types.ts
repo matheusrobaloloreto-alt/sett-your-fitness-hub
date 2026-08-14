@@ -1921,6 +1921,7 @@ export type Database = {
           days_per_week_cardio: number | null
           days_per_week_strength: number | null
           equipment: string | null
+          endurance_session_duration_min: number | null
           experience_months: number | null
           fcmax: number | null
           fcrep: number | null
@@ -1954,6 +1955,7 @@ export type Database = {
           days_per_week_cardio?: number | null
           days_per_week_strength?: number | null
           equipment?: string | null
+          endurance_session_duration_min?: number | null
           experience_months?: number | null
           fcmax?: number | null
           fcrep?: number | null
@@ -1987,6 +1989,7 @@ export type Database = {
           days_per_week_cardio?: number | null
           days_per_week_strength?: number | null
           equipment?: string | null
+          endurance_session_duration_min?: number | null
           experience_months?: number | null
           fcmax?: number | null
           fcrep?: number | null
@@ -2821,11 +2824,13 @@ export type Database = {
           id: string
           notes: string | null
           reps_done: number | null
+          revision: number
           rpe: number | null
           session_date: string | null
           set_number: number | null
           set_type: string | null
           student_id: string
+          updated_at: string
           weight: number | null
           workout_id: string
         }
@@ -2839,11 +2844,13 @@ export type Database = {
           id?: string
           notes?: string | null
           reps_done?: number | null
+          revision?: number
           rpe?: number | null
           session_date?: string | null
           set_number?: number | null
           set_type?: string | null
           student_id: string
+          updated_at?: string
           weight?: number | null
           workout_id: string
         }
@@ -2857,11 +2864,13 @@ export type Database = {
           id?: string
           notes?: string | null
           reps_done?: number | null
+          revision?: number
           rpe?: number | null
           session_date?: string | null
           set_number?: number | null
           set_type?: string | null
           student_id?: string
+          updated_at?: string
           weight?: number | null
           workout_id?: string
         }
@@ -3107,6 +3116,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      save_workout_logs_if_current: { Args: { _rows: Json }; Returns: Json }
       student_self_update_allowed: {
         Args: {
           _asaas_customer_id: string

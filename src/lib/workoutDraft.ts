@@ -7,6 +7,14 @@ export interface WorkoutUiDraft {
   updatedAt: number;
 }
 
+export interface WorkoutResumeTarget {
+  source: "active_session" | "draft";
+  workoutId: string;
+  cycleId: string | null;
+  expandedExercise: number | null;
+  extraSets: Record<number, number>;
+}
+
 interface StorageReader {
   getItem(key: string): string | null;
 }
@@ -41,10 +49,73 @@ export function writeWorkoutUiDraft(storage: StorageWriter, key: string, draft: 
   storage.setItem(key, JSON.stringify({ ...draft, updatedAt: Date.now() }));
 }
 
+/** A sessão iniciada sempre vence um rascunho de outro treino. */
+export function resolveWorkoutResumeTarget(
+  activeWorkoutId: string | null | undefined,
+  draft: WorkoutUiDraft | null,
+): WorkoutResumeTarget | null {
+  if (activeWorkoutId) {
+    const matchingDraft = draft?.workoutId === activeWorkoutId ? draft : null;
+    return {
+      source: "active_session",
+      workoutId: activeWorkoutId,
+      cycleId: matchingDraft?.cycleId ?? null,
+      expandedExercise: matchingDraft?.expandedExercise ?? null,
+      extraSets: matchingDraft?.extraSets ?? {},
+    };
+  }
+  if (!draft) return null;
+  return {
+    source: "draft",
+    workoutId: draft.workoutId,
+    cycleId: draft.cycleId,
+    expandedExercise: draft.expandedExercise,
+    extraSets: draft.extraSets,
+  };
+}
+
+export interface VersionedWorkoutLog {
+  revision?: number | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+  client_updated_at?: string | null;
+  dirty?: boolean;
+}
+
+function timestamp(value: VersionedWorkoutLog | undefined) {
+  const raw = value?.client_updated_at || value?.updated_at || value?.created_at;
+  if (!raw) return 0;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 /**
- * A cópia local representa a última interação do aluno. Quando o servidor
- * ainda tem a versão anterior da mesma série, o valor local precisa vencer.
+ * O rascunho local só vence quando é uma edição pendente baseada na mesma
+ * revisão do servidor. Uma revisão maior do servidor sempre vence.
  */
-export function mergeWorkoutDraftLogs<T>(serverLogs: Record<string, T>, localLogs: Record<string, T>) {
-  return { ...serverLogs, ...localLogs };
+export function mergeWorkoutDraftLogs<T extends VersionedWorkoutLog>(
+  serverLogs: Record<string, T>,
+  localLogs: Record<string, T>,
+) {
+  const merged: Record<string, T> = { ...serverLogs };
+  for (const [key, local] of Object.entries(localLogs)) {
+    const server = serverLogs[key];
+    if (!server) {
+      merged[key] = local;
+      continue;
+    }
+    const serverRevision = Number(server.revision ?? 0);
+    const localRevision = Number(local.revision ?? 0);
+    if (serverRevision > localRevision) continue;
+    if (localRevision > serverRevision) {
+      merged[key] = local;
+      continue;
+    }
+    if (local.dirty === true) {
+      merged[key] = local;
+      continue;
+    }
+    if (timestamp(local) > timestamp(server)) merged[key] = local;
+  }
+  return merged;
 }

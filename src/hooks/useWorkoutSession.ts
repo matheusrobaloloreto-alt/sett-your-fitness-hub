@@ -32,21 +32,35 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [summary, setSummary] = useState<SessionSummary | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const finishingRef = useRef(false); // A9 — evita conceder XP em dobro (double-click / corrida com autosave).
 
   // Restore from localStorage
   useEffect(() => {
-    if (!studentId) return;
-    const stored = localStorage.getItem(STORAGE_KEY(studentId));
-    if (stored) {
-      try {
+    setIsHydrated(false);
+    if (!studentId) {
+      setActiveSession(null);
+      setIsHydrated(true);
+      return;
+    }
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY(studentId));
+      if (stored) {
         const parsed: ActiveSession = JSON.parse(stored);
         setActiveSession(parsed);
         const now = Date.now();
         const newElapsed = Math.floor((now - parsed.startedAt) / 1000);
         setElapsed(newElapsed);
-      } catch { /* ignore */ }
+      } else {
+        setActiveSession(null);
+        setElapsed(0);
+      }
+    } catch {
+      setActiveSession(null);
+      setElapsed(0);
+    } finally {
+      setIsHydrated(true);
     }
   }, [studentId]);
 
@@ -209,6 +223,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
 
   return {
     activeSession,
+    isHydrated,
     elapsed,
     summary,
     startSession,

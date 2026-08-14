@@ -1,6 +1,9 @@
-// Public endpoint: load minimal student context (name + company branding) and
-// upsert anamnesis. Service role enforces scoping; client only sends studentId.
+// Public endpoint: load minimal student context and upsert anamnesis only after
+// resolving an opaque invite or an authenticated tenant/owner relationship.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { assertTenantAccess, HttpError } from "../_shared/tenant-auth.ts";
+import { resolvePublicAnamnesisAccess } from "../_shared/public-anamnesis-access.ts";
+import { resolveAnamnesisDurations } from "../_shared/anamnesis-duration.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,10 +11,9 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const supabase = createClient(
-  Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-);
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+const supabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
 const ALLOWED_FIELDS = [
   "modalities","training_days","available_days","session_duration","training_location",
@@ -23,7 +25,7 @@ const ALLOWED_FIELDS = [
 const STUDIO_ANAMNESE_FIELDS = [
   "age", "body_fat_percent", "objective", "activity_level", "is_endurance_athlete",
   "training_modality", "days_per_week_strength", "days_per_week_cardio",
-  "session_duration_min", "equipment", "experience_months", "sport", "fcmax",
+  "session_duration_min", "endurance_session_duration_min", "equipment", "experience_months", "sport", "fcmax",
   "fcrep", "current_volume_weekly", "current_volume_unit", "cardio_goal", "stress_score", "sleep_quality",
   "injuries", "food_restrictions", "nutrition_context", "budget_food",
   "meals_per_day", "has_kitchen", "notes",
@@ -60,17 +62,6 @@ function asArray(value: unknown): string[] {
 function includesAny(values: string[], needles: string[]) {
   const source = values.join(" ").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   return needles.some((needle) => source.includes(needle));
-}
-
-function parseSessionMinutes(body: Record<string, any>) {
-  const direct = numberOrNull(body.session_duration_min);
-  if (direct) return direct;
-  const label = cleanText(body.session_duration, 120).toLowerCase();
-  if (label.includes("30") && label.includes("45")) return 45;
-  if (label.includes("45") && label.includes("60")) return 60;
-  if (label.includes("60")) return 60;
-  if (label.includes("30")) return 30;
-  return null;
 }
 
 function buildClinicalText(body: Record<string, any>) {
@@ -149,6 +140,10 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
     ? true
     : boolValue(body.interest_nutrition);
   const practicedEndurance = includesAny(modalities, ["corrida", "natacao", "natação", "bike", "ciclismo", "triathlon"]);
+  const durations = resolveAnamnesisDurations(body, {
+    strength,
+    endurance: running || swimming || cycling,
+  });
   const clinicalText = buildClinicalText(body);
   const cardioDetail = [
     running && `CORRIDA: ${[
@@ -203,7 +198,7 @@ function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Rec
     days_per_week_cardio: (running || swimming || cycling)
       ? (numberOrNull(body.days_cardio) ?? numberOrNull(body.days_available ?? body.available_days))
       : null,
-    session_duration_min: parseSessionMinutes(body),
+    ...durations,
     equipment: cleanText(body.equipment || equipmentContext, 500),
     experience_months: numberOrNull(body.experience_months),
     sport: running ? "corrida" : swimming ? "natacao" : cycling ? "ciclismo" : cleanText(body.sport, 80) || null,
@@ -281,13 +276,23 @@ async function getInvite(token: string | undefined) {
   return data ?? null;
 }
 
+async function getAuthenticatedClaims(req: Request) {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data, error } = await client.auth.getUser(authHeader.slice("Bearer ".length));
+  if (error || !data?.user?.id) return null;
+  return { sub: data.user.id };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
     const body = await req.json();
     const action = body?.action as string;
-    const studentId = body?.studentId as string | undefined;
 
     if (action === "studio_context") {
       const invite = await getInvite(body?.token as string | undefined);
@@ -442,14 +447,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!studentId) {
-      return new Response(JSON.stringify({ error: "studentId obrigatório" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const access = await resolvePublicAnamnesisAccess(body, {
+      findInvite: async (token) => await getInvite(token),
+      getAuthenticatedClaims: async () => await getAuthenticatedClaims(req),
+      assertStudentAccess: async (claims, requestedStudentId) => {
+        const tenant = await assertTenantAccess(supabase, claims, { studentId: requestedStudentId });
+        return { companyId: tenant.companyId };
+      },
+    });
 
     const { data: student } = await supabase
-      .from("students").select("id, full_name, company_id, gender, birth_date, weight_kg, height_cm").eq("id", studentId).maybeSingle();
+      .from("students")
+      .select("id, full_name, company_id, gender, birth_date, weight_kg, height_cm")
+      .eq("id", access.studentId)
+      .eq("company_id", access.companyId)
+      .maybeSingle();
     if (!student) {
       return new Response(JSON.stringify({ error: "Aluno não encontrado" }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -512,6 +524,13 @@ Deno.serve(async (req) => {
         });
       }
 
+      if (access.invite) {
+        await supabase.from("anamnese_invites").update({
+          status: "completed",
+          completed_at: new Date().toISOString(),
+        }).eq("id", access.invite.id);
+      }
+
       return new Response(JSON.stringify({ ok: true, student_anamnese_id: studioAnamnese?.id ?? null }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -522,7 +541,8 @@ Deno.serve(async (req) => {
     });
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e?.message ?? "Erro interno" }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: e instanceof HttpError ? e.status : 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

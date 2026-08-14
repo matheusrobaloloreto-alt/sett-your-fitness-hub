@@ -621,7 +621,7 @@ export default function PrescriptionStudio() {
             student_id: studentId, student_name: student?.name, company_id: companyId,
             anamnese_id: a.id, sport: sportMap[modality], goal: a.cardio_goal || "Melhora de performance",
             duration_weeks: 6, days_per_week: Number(a.days_per_week_cardio) || 3,
-            session_duration: Number(a.session_duration_min) || 60,
+            session_duration: Number(a.endurance_session_duration_min ?? a.session_duration_min) || 60,
             current_volume: cycle.cycle_number === 1 ? a.current_volume_weekly : null,
             current_volume_unit: cycle.cycle_number === 1 ? a.current_volume_unit : null,
             fcmax: a.fcmax, fcrep: a.fcrep, experience_months: a.experience_months, injuries: a.injuries,

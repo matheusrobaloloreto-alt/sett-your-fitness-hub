@@ -79,7 +79,7 @@ interface PublicAnamnesisProps {
 }
 
 export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisProps) {
-  const { studentId, slug } = useParams<{ studentId?: string; slug?: string }>();
+  const { studentId: accessKey, slug } = useParams<{ studentId?: string; slug?: string }>();
   const isPreRegistration = mode === "pre-registration";
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -191,9 +191,9 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         }
         return;
       }
-      if (!studentId) { setNotFound(true); return; }
+      if (!accessKey) { setNotFound(true); return; }
       const { data, error } = await supabase.functions.invoke("public-anamnesis", {
-        body: { action: "context", studentId },
+        body: { action: "context", accessKey },
       });
       if (error || !data?.student) { setNotFound(true); return; }
       setStudentName(data.student.full_name);
@@ -212,7 +212,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
       }
     };
     init();
-  }, [isPreRegistration, slug, studentId]);
+  }, [accessKey, isPreRegistration, slug]);
 
   const toggleArrayItem = (arr: string[], item: string, setter: (v: string[]) => void) => {
     setter(arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item]);
@@ -400,7 +400,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         requested_services: desiredServices,
         training_days: trainingDays,
         available_days: availability.totalDays,
-        session_duration: sessionDuration || enduranceSessionDuration,
+        session_duration: sessionDuration || null,
         endurance_session_duration: enduranceSessionDuration || null,
         training_location: trainingLocation,
         available_equipment: allEquipment,
@@ -496,7 +496,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
       : await supabase.functions.invoke("public-anamnesis", {
           body: {
             action: "submit",
-            studentId: studentId!,
+            accessKey: accessKey!,
             ...answers,
           },
         });
@@ -526,7 +526,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             <p className="text-muted-foreground font-sans">
               {isPreRegistration
                 ? "Este link de pré-cadastro não está disponível. Fale com a equipe para receber o endereço correto."
-                : "O link de anamnese é inválido ou o aluno não existe."}
+                : "Este convite é inválido ou expirou. Peça um novo link à equipe e abra-o no mesmo navegador da sua conta."}
             </p>
           </CardContent>
         </Card>
