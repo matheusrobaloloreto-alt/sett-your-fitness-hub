@@ -109,6 +109,20 @@ function includesAny(value: string, terms: string[]): boolean {
   return terms.some((term) => value.includes(term));
 }
 
+function contextValueText(value: unknown, depth = 0): string {
+  if (depth > 5 || value == null) return "";
+  if (typeof value === "string") return value.toLowerCase();
+  if (typeof value === "number" || typeof value === "boolean") return String(value).toLowerCase();
+  if (Array.isArray(value)) return value.map((item) => contextValueText(item, depth + 1)).filter(Boolean).join(" ");
+  if (typeof value === "object") {
+    return Object.values(value as Record<string, unknown>)
+      .map((item) => contextValueText(item, depth + 1))
+      .filter(Boolean)
+      .join(" ");
+  }
+  return "";
+}
+
 function buildMeals(
   mealsPerDay: number,
   restrictions: string,
@@ -116,12 +130,13 @@ function buildMeals(
   hasMicrowave: boolean,
   times?: string[],
 ): any[] {
-  const veg = includesAny(restrictions, ["vegetarian", "vegano", "vegan"]);
-  const noEgg = includesAny(restrictions, ["ovo", "egg"]);
-  const noDairy = includesAny(restrictions, ["lactose", "leite", "milk", "lácteo", "lacteo"]);
+  const vegan = includesAny(restrictions, ["vegano", "vegana", "vegan"]);
+  const vegetarian = vegan || includesAny(restrictions, ["vegetarian"]);
+  const noEgg = vegan || includesAny(restrictions, ["ovo", "egg"]);
+  const noDairy = vegan || includesAny(restrictions, ["lactose", "leite", "milk", "lácteo", "lacteo"]);
   const economical = includesAny(budget, ["econom", "baixo", "200", "300"]);
-  const protein = veg
-    ? ["tofu", noEgg ? "leguminosas" : "ovos", "leguminosas (feijão, lentilha, grão-de-bico)", noDairy ? "tofu" : "iogurte/queijo"]
+  const protein = vegetarian
+    ? ["tofu", noEgg ? "leguminosas" : "ovos", "leguminosas (feijão, lentilha, grão-de-bico)", noDairy ? "tofu ou pasta de leguminosas" : "iogurte/queijo"]
     : [economical ? "frango ou ovos" : "frango", economical ? "ovos ou sardinha" : "peixe", economical ? "patinho ou frango" : "carne magra", noEgg ? "frango" : "ovos"];
   const breakfastProtein = noEgg ? (noDairy ? protein[0] : "iogurte") : "ovos";
   const portable = hasMicrowave ? "arroz/batata" : "sanduíche ou fruta com fonte de proteína";
@@ -177,17 +192,23 @@ export function buildNutritionProgram(input: NutritionInput): NutritionPlan {
   const female = isFemale(input.gender);
   const bf = num(input.body_fat_percent);
   const objective = String(input.objective || "performance");
-  const loadContext = JSON.stringify({
-    running: input.running_plan_context,
-    strength: input.strength_plan_context,
-    integration: input.prescription_integration,
-    anamnese: input.anamnese_context,
-  }).toLowerCase();
+  // Considera somente VALORES clínicos/operacionais. Serializar o objeto com
+  // as chaves fazia `running: null` e `red_flags: []` acionarem falsos positivos.
+  const loadContext = [
+    contextValueText(input.running_plan_context),
+    contextValueText(input.strength_plan_context),
+    contextValueText(input.prescription_integration),
+    contextValueText(input.anamnese_context),
+  ].filter(Boolean).join(" ");
   const endurance = !!input.is_endurance_athlete || /corr|run|triat|cicl|bike|nata|swim/.test(`${input.training_modality || ""} ${loadContext}`.toLowerCase());
   const stress = num(input.stress_score);
   const sleep = num(input.sleep_quality);
   const trainingHours = Math.max(0, num(input.training_hours_per_day) || 0);
   const restrictions = String(input.food_restrictions || "").toLowerCase();
+  const vegan = includesAny(restrictions, ["vegano", "vegana", "vegan"]);
+  const vegetarian = vegan || includesAny(restrictions, ["vegetarian"]);
+  const noDairy = vegan || includesAny(restrictions, ["lactose", "leite", "milk", "lácteo", "lacteo"]);
+  const noEgg = vegan || includesAny(restrictions, ["ovo", "egg"]);
   const budget = String(input.budget || "moderado").toLowerCase();
   const hasMicrowave = input.has_microwave === true || String(input.has_microwave).toLowerCase() === "true";
 
@@ -211,7 +232,7 @@ export function buildNutritionProgram(input: NutritionInput): NutritionPlan {
 
   const prof = macroProfile(objective, endurance);
   let effectiveAdjPct = prof.adjPct;
-  const lowReadiness = /low|baixa|vermelh|red.flag|recupera.{0,12}baixa|dor severa/.test(loadContext);
+  const lowReadiness = /\b(low|baixa|vermelh\w*|cautela)\b|recupera.{0,12}baixa|dor\s+severa/.test(loadContext);
   if (stress >= 8 || (sleep > 0 && sleep < 5) || lowReadiness) {
     effectiveAdjPct = prof.adjPct < 0 ? Math.max(prof.adjPct, -10) : Math.min(prof.adjPct, 5);
   }
@@ -261,12 +282,17 @@ export function buildNutritionProgram(input: NutritionInput): NutritionPlan {
     carb_cycling.note += " Na consolidação, reduza carboidrato junto da carga, mantendo proteína e hidratação.";
   }
 
+  const preProtein = vegan ? "pasta de grão-de-bico" : noEgg ? (noDairy ? "tofu" : "iogurte") : "ovos";
+  const mainProtein = vegan ? "tofu ou leguminosas" : vegetarian ? "ovos ou leguminosas" : "frango ou peixe";
+  const practicalProtein = vegan ? "proteína vegetal" : noDairy ? "ovos ou proteína sem leite" : "iogurte ou whey";
+  const nightProtein = vegan ? ["tofu", "pasta de leguminosas", "castanhas"]
+    : [noDairy ? "proteína sem leite" : "iogurte", noEgg ? "tofu" : "ovos", noDairy ? "castanhas" : "queijo branco"];
   const nutrition_tips = [
-    { title: "Pré-treino", timing: "60 a 120 min antes", goal: "Energia sem pesar o estômago.", how_much: "Porção moderada de carboidrato + pouca proteína; pouca gordura/fibra se o treino for intenso.", examples: ["banana com iogurte", "pão/tapioca com ovos", "arroz/batata com frango em porção leve"], avoid: ["muita gordura", "muita fibra"] },
-    { title: "Pós-treino", timing: "Até 2 h depois", goal: "Repor energia e apoiar a recuperação.", how_much: "Refeição completa: boa proteína + carboidrato proporcional ao treino + vegetais.", examples: ["arroz, feijão, frango e salada", "omelete com batata", "whey com fruta quando precisar de praticidade"], avoid: ["pular a refeição"] },
-    { title: "Antes de dormir", timing: "30 a 90 min antes", goal: "Evitar fome noturna e favorecer recuperação.", how_much: "Algo leve com proteína e pouca gordura.", examples: ["iogurte", "ovos", "queijo branco", "whey com fruta pequena"], avoid: ["refeição muito grande perto de deitar"] },
-    { title: "Dias de descanso", timing: "Ao longo do dia", goal: "Manter proteína e reduzir um pouco o carboidrato.", how_much: `Proteína em todas as refeições; carboidrato perto de ${carb_cycling.rest_day_carbs_g} g no dia.`, examples: ["carnes magras, ovos, legumes, saladas, frutas e carboidrato em porções menores"], avoid: ["exagero calórico em dia parado"] },
-    { title: "Hidratação", timing: "Dia todo", goal: "Manter a performance e a recuperação.", how_much: `~${hydration} ml/dia + 500–750 ml por hora de treino; eletrólitos se suar muito.`, examples: ["água", "isotônico nas sessões longas"], avoid: ["chegar ao treino desidratado"] },
+    { title: "Pré-treino", timing: "60 a 120 min antes", goal: "Energia sem pesar o estômago.", how_much: "Porção moderada de carboidrato + pouca proteína; pouca gordura/fibra se o treino for intenso.", examples: ["banana com aveia", `pão/tapioca com ${preProtein}`, `arroz/batata com ${mainProtein} em porção leve`], avoid: ["muita gordura", "muita fibra"] },
+    { title: "Pós-treino", timing: "Até 2 h depois", goal: "Repor energia e apoiar a recuperação.", how_much: "Refeição completa: boa proteína + carboidrato proporcional ao treino + vegetais.", examples: [`arroz, feijão, ${mainProtein} e salada`, `batata com ${mainProtein}`, `${practicalProtein} com fruta quando precisar de praticidade`], avoid: ["pular a refeição"] },
+    { title: "Antes de dormir", timing: "30 a 90 min antes", goal: "Evitar fome noturna e favorecer recuperação.", how_much: "Algo leve com proteína e pouca gordura.", examples: nightProtein, avoid: ["refeição muito grande perto de deitar"] },
+    { title: "Dias de descanso", timing: "Ao longo do dia", goal: "Manter proteína e reduzir um pouco o carboidrato.", how_much: `Proteína em todas as refeições; carboidrato perto de ${carb_cycling.rest_day_carbs_g} g no dia.`, examples: [`${mainProtein}, legumes, saladas, frutas e carboidrato em porções menores`], avoid: ["exagero calórico em dia parado"] },
+    { title: "Hidratação", timing: "Dia todo", goal: "Manter a performance e a recuperação.", how_much: `~${hydration} ml/dia${trainingHours > 0 ? " (já incluindo cerca de 500 ml por hora de treino informada)" : ""}; eletrólitos se suar muito.`, examples: ["água", "isotônico nas sessões longas"], avoid: ["chegar ao treino desidratado"] },
   ];
 
   if (stress >= 8 || (sleep > 0 && sleep < 5)) {
@@ -291,7 +317,7 @@ export function buildNutritionProgram(input: NutritionInput): NutritionPlan {
     supplementation: buildSupplements(),
     substitutions: [
       { original: "Arroz branco (carboidrato)", alternatives: ["batata doce", "macarrão", "mandioca", "cuscuz"] },
-      { original: includesAny(restrictions, ["vegetarian", "vegano", "vegan"]) ? "Tofu/leguminosas (proteína)" : "Frango (proteína)", alternatives: includesAny(restrictions, ["vegetarian", "vegano", "vegan"]) ? ["ovos", "tofu", "grão-de-bico", "lentilha"] : ["peixe", "ovos", "carne magra", "patinho"] },
+      { original: vegetarian ? "Tofu/leguminosas (proteína)" : "Frango (proteína)", alternatives: vegan ? ["tofu", "grão-de-bico", "lentilha", "feijão"] : vegetarian ? [noEgg ? "tofu" : "ovos", "tofu", "grão-de-bico", "lentilha"] : [noEgg ? "peixe" : "ovos", "peixe", "carne magra", "patinho"] },
       { original: "Fruta (carboidrato/vitaminas)", alternatives: ["banana", "maçã", "mamão", "laranja"] },
     ],
     periodized_blocks: [
@@ -300,7 +326,7 @@ export function buildNutritionProgram(input: NutritionInput): NutritionPlan {
       { weeks: "5-6", training_load: "consolidacao", nutrition_focus: "refinar timing e evitar queda de energia", carb_strategy: "manter carboidrato nos dias-chave, reduzir no deload", recovery_priority: "digestão, hidratação e feedback para o próximo ciclo" },
     ],
     meals: buildMeals(mealsPerDay, restrictions, budget, hasMicrowave, parseMealTimes(input.nutrition_context)),
-    pre_race_gi_protocol: "Nas 2–4 h antes de prova/corrida intensa: priorize carboidrato de fácil digestão (banana, pão branco, arroz branco, whey/malto). Evite FODMAPs (feijão, brócolis, couve, leite) e fibra insolúvel.",
+    pre_race_gi_protocol: `Nas 2–4 h antes de prova/corrida intensa: priorize carboidrato de fácil digestão (banana, pão branco, arroz branco, ${noDairy ? "proteína sem leite" : "whey"}/malto). Evite FODMAPs e fibra insolúvel conforme tolerância individual.`,
     intra_workout_protocol: endurance ? "Sessões > 75 min: 30–60 g de carboidrato/h; > 90 min: 60–90 g/h (2:1 malto:frutose). Hidratação com eletrólitos." : "Treinos de força: foque na hidratação; carboidrato intra só em sessões muito longas.",
     rest_day_adjustments: `Reduza o carboidrato para ~${carb_cycling.rest_day_carbs_g} g, mantenha a proteína (${proteinTotal} g) e a gordura pode subir um pouco para saúde hormonal.`,
     general_notes: `Orientações por momento (sem cardápio fechado nem gramas exatas no prato). Ajuste porções ao apetite e à rotina. Continuidade longitudinal: ciclo ${sequence.sequence_number}, fase ${sequence.phase}; proteína permanece estável e carboidrato acompanha a carga. Consistência > perfeição.`,

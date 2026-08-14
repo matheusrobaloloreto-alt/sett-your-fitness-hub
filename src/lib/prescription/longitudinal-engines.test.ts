@@ -218,9 +218,27 @@ describe("progressão longitudinal determinística", () => {
 
     expect(plan.meals).toHaveLength(7);
     expect(plan.meals.map((meal) => meal.time)).toEqual(["06:30", "09:30", "12:30", "15:30", "18:00", "20:30", "22:00"]);
-    expect(JSON.stringify(plan.meals).toLowerCase()).not.toContain("iogurte");
-    expect(JSON.stringify(plan.meals).toLowerCase()).toContain("leguminosas");
-    expect(JSON.stringify(plan.meals).toLowerCase()).toContain("sanduíche");
+    const serialized = JSON.stringify(plan).toLowerCase();
+    expect(serialized).not.toMatch(/iogurte|queijo|whey|ovos|frango|peixe|carne magra|patinho/);
+    expect(serialized).toContain("leguminosas");
+    expect(serialized).toContain("sanduíche");
+  });
+
+  it("nutrição não interpreta nomes de campos vazios como endurance ou baixa prontidão", () => {
+    const plan = buildNutritionProgram({
+      weight_kg: 80,
+      height_cm: 178,
+      age: 35,
+      gender: "M",
+      objective: "emagrecimento",
+      activity_level: "moderado",
+      running_plan_context: null,
+      prescription_integration: { readiness: null, risk_screening: { red_flags: [], yellow_flags: [] } },
+    });
+
+    expect(plan.energy_summary.carbs_g_per_kg).toBeLessThan(3);
+    expect(plan.energy_summary.deficit_surplus_percent).toBe(-20);
+    expect(plan.warnings.join(" ")).not.toContain("Baixa prontidão");
   });
 
   it("nutrição torna energia e hidratação conservadoras quando sono, estresse e carga indicam baixa prontidão", () => {
