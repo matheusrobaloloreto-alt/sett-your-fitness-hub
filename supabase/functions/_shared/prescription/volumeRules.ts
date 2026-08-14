@@ -212,18 +212,18 @@ export function enforceVolumeCaps(
       candidates.sort((a, b) => {
         const exerciseA = nextWorkouts[a.workoutIndex].exercises[a.exerciseIndex];
         const exerciseB = nextWorkouts[b.workoutIndex].exercises[b.exerciseIndex];
-        const removableA = exerciseA.sets > 1 || exerciseA.phase === "forca_especifica" ? 1 : 0;
-        const removableB = exerciseB.sets > 1 || exerciseB.phase === "forca_especifica" ? 1 : 0;
-        return removableB - removableA
+        const reducibleWithoutRemovalA = exerciseA.sets > 1 ? 1 : 0;
+        const reducibleWithoutRemovalB = exerciseB.sets > 1 ? 1 : 0;
+        return reducibleWithoutRemovalB - reducibleWithoutRemovalA
           || (REDUCTION_PRIORITY[exerciseB.phase] || 0) - (REDUCTION_PRIORITY[exerciseA.phase] || 0)
           || b.factor - a.factor
           || exerciseB.sets - exerciseA.sets;
       });
 
-      const candidate = candidates.find(({ workoutIndex, exerciseIndex }) => {
-        const exercise = nextWorkouts[workoutIndex].exercises[exerciseIndex];
-        return exercise.sets > 1 || exercise.phase === "forca_especifica";
-      });
+      // Prefer reducing a multi-set exercise, but if every contributor has one
+      // set, remove the highest-priority contributor deterministically. A cap
+      // function must not report success while returning a value above the cap.
+      const candidate = candidates[0];
       if (!candidate) continue;
       const exercise = nextWorkouts[candidate.workoutIndex].exercises[candidate.exerciseIndex];
       exercise.sets -= 1;

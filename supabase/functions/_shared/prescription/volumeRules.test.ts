@@ -98,3 +98,42 @@ Deno.test("enforceVolumeCaps reduces weighted secondary exposure above the cap",
   assertEquals(capped.workouts[0].exercises.reduce((sum, exercise) => sum + exercise.sets, 0) < 28, true);
   assertEquals(capped.adjustments.some((item) => item.muscle_group === "costas"), true);
 });
+
+Deno.test("enforceVolumeCaps removes one-set contributors when needed to honor the cap", () => {
+  const exercises = Array.from({ length: 13 }, (_, index) => ({
+    phase: "forca_global",
+    exercise_id: `single-${index}`,
+    exercise_name: `Single ${index}`,
+    library_exercise_name: `Single ${index}`,
+    muscle_group: "Costas",
+    sets: 1,
+    reps: "8",
+    load_percent_1rm: null,
+    rir: "2",
+    rest_seconds: 90,
+    tempo: "3010",
+    exercise_order: index + 1,
+    cues: "",
+    biomechanical_note: "",
+    targets: [{ muscle_group: "Costas", role: "primary", volume_percentage: 100 }],
+  }));
+  const capped = enforceVolumeCaps([{
+    name: "A",
+    day_of_week: 1,
+    duration_min: 60,
+    split_focus: "upper",
+    volume_load_estimate: "n/a",
+    notes: "",
+    exercises,
+  }], {
+    catalog: [],
+    fitnessLevel: "iniciante",
+    objective: "hipertrofia",
+    daysPerWeek: 3,
+  });
+  const after = countWeeklySets({ workouts: capped.workouts }).get("costas") || 0;
+
+  assertEquals(after <= 12, true);
+  assertEquals(capped.workouts[0].exercises.length, 12);
+  assertEquals(capped.adjustments[0], { muscle_group: "costas", before: 13, after: 12, cap: 12 });
+});

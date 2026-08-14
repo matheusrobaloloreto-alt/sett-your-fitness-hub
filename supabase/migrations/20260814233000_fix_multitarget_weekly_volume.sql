@@ -255,11 +255,7 @@ begin
   end if;
   if auth.role() <> 'service_role'
      and auth.uid() is distinct from v_student_user_id
-     and not public.has_role(auth.uid(), 'master'::app_role)
-     and not exists (
-       select 1 from public.company_members cm
-       where cm.user_id = auth.uid() and cm.company_id = v_company_id
-     ) then
+     and not public.is_company_staff(auth.uid(), v_company_id) then
     raise exception 'Acesso negado ao aluno informado' using errcode = '42501';
   end if;
 
