@@ -19,6 +19,16 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 const clean = (s: string) => (s || "").replace(/[^\x20-\x7EÀ-ſ\n]/g, "").slice(0, 4000);
+const businessDateYmd = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+};
 
 async function getClaims(req: Request) {
   const auth = req.headers.get("Authorization");
@@ -82,15 +92,6 @@ serve(async (req) => {
     }
     if (!allowed) return json({ error: "Forbidden" }, 403);
 
-    // Plano nutricional mais recente do aluno.
-    const { data: plan } = await db
-      .from("nutrition_plans")
-      .select("id, name, plan_name, goal, target_calories, target_protein_g, target_carbs_g, target_fat_g, target_fiber_g, target_water_ml, context_dietary_restrictions, ai_rationale, meals, start_date, end_date, source_type, source_file_name, source_document")
-      .eq("student_id", student_id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
     // Anamnese (nº de refeições, horários, treino).
     const { data: anamnese } = await (db as any)
       .from("student_anamneses")
@@ -99,6 +100,7 @@ serve(async (req) => {
       .maybeSingle();
 
     const mealsPerDay = Number(anamnese?.meals_per_day) || 5;
+    const today = businessDateYmd();
 
     if (action === "save_external_plan") {
       const rawText = String(body?.raw_text || "");
@@ -133,7 +135,7 @@ serve(async (req) => {
         meals: safeMeals,
         ai_rationale: null,
         observations: "Prescrição externa preservada integralmente. A interface apenas organiza a leitura.",
-        start_date: new Date().toISOString().slice(0, 10),
+        start_date: today,
         end_date: null,
         status: "active",
         source_type: "nutritionist_pdf",
@@ -143,13 +145,56 @@ serve(async (req) => {
 
       const write = await db.from("nutrition_plans").insert(persistencePayload).select("*").maybeSingle();
       if (write.error) throw write.error;
+      const savedId = (write.data as any)?.id || persistencePayload.id;
+      // Um único plano pode ser vigente. Os anteriores continuam íntegros e
+      // auditáveis; apenas deixam de disputar a visualização atual.
+      const retired = await db.from("nutrition_plans")
+        .update({ status: "inactive", end_date: today })
+        .eq("student_id", student_id)
+        .eq("status", "active")
+        .neq("id", savedId);
+      if (retired.error) {
+        console.warn("ai-nutrition-meals: unable to retire previous active plans", retired.error.message);
+      }
       return json({
         meals: safeMeals,
         cached: false,
         source: "nutritionist_upload",
         source_document: document,
+        supersession_warning: retired.error ? "previous_active_plans_not_retired" : null,
         plan: write.data ?? persistencePayload,
       });
+    }
+
+    const planFields = "id, name, plan_name, goal, status, target_calories, target_protein_g, target_carbs_g, target_fat_g, target_fiber_g, target_water_ml, context_dietary_restrictions, ai_rationale, meals, start_date, end_date, source_type, source_file_name, source_document, created_at";
+    // Vigente = ativo e dentro da janela de datas. Duplicidades legadas são
+    // resolvidas por início mais recente e, em seguida, created_at.
+    let { data: plan, error: planError } = await db
+      .from("nutrition_plans")
+      .select(planFields)
+      .eq("student_id", student_id)
+      .eq("status", "active")
+      .or(`start_date.is.null,start_date.lte.${today}`)
+      .or(`end_date.is.null,end_date.gte.${today}`)
+      .order("start_date", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (planError) throw planError;
+    if (!plan) {
+      const legacy = await db
+        .from("nutrition_plans")
+        .select(planFields)
+        .eq("student_id", student_id)
+        .is("status", null)
+        .or(`start_date.is.null,start_date.lte.${today}`)
+        .or(`end_date.is.null,end_date.gte.${today}`)
+        .order("start_date", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (legacy.error) throw legacy.error;
+      plan = legacy.data;
     }
 
     if (!plan) return json({ error: "Nenhum plano nutricional encontrado" }, 404);
