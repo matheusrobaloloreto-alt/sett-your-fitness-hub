@@ -10,6 +10,7 @@ import { businessDateYmd } from "@/lib/businessDate";
 import { extractDietPdfText } from "@/lib/dietPdf";
 import {
   prepareImportedNutritionPlan,
+  selectCurrentNutritionPlan,
   type ExternalNutritionDocumentLike,
   type ImportedNutritionItem,
 } from "@/lib/nutritionPlanDisplay";
@@ -47,6 +48,7 @@ interface NutritionRow {
   source_type?: string | null;
   source_file_name?: string | null;
   source_document?: ExternalNutritionDocumentLike | null;
+  created_at?: string | null;
 }
 interface StudentNutritionContext {
   wants_nutrition?: boolean | null;
@@ -167,24 +169,15 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
           .from("nutrition_plans")
           .select("*")
           .eq("student_id", studentId)
-          .lte("start_date", today)
-          .or(`end_date.is.null,end_date.gte.${today}`)
           .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
+          .limit(20),
           (supabase as any)
             .from("student_anamneses")
             .select("wants_nutrition, has_nutritionist, nutrition_context, meals_per_day")
             .eq("student_id", studentId)
             .maybeSingle(),
         ]);
-        let visible = data;
-        if (!visible) {
-          const { data: legacy } = await (supabase as any).from("nutrition_plans").select("*")
-            .eq("student_id", studentId).is("start_date", null)
-            .order("created_at", { ascending: false }).limit(1).maybeSingle();
-          visible = legacy;
-        }
+        const visible = selectCurrentNutritionPlan((data as NutritionRow[] | null) ?? [], today);
         if (!active) return;
         setAnamnese((anamneseRow as StudentNutritionContext) ?? null);
         setRow((visible as NutritionRow) ?? null);
