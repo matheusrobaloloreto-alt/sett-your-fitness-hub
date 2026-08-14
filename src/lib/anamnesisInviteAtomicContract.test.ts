@@ -40,4 +40,12 @@ describe("atomic anamnesis invite submission", () => {
     expect(migration).toContain("to service_role");
     expect(edge).toContain('supabase.rpc("submit_anamnesis_invite_atomic"');
   });
+
+  it("validates invite submissions before the atomic consume callback", () => {
+    const validationOffset = edge.indexOf("consumeValidatedAnamnesisInvite(");
+    const consumeOffset = edge.indexOf("async () => await submitInviteAtomic(", validationOffset);
+    expect(validationOffset).toBeGreaterThan(0);
+    expect(consumeOffset).toBeGreaterThan(validationOffset);
+    expect(edge).toContain("getCustomFields(student.company_id, true)");
+  });
 });

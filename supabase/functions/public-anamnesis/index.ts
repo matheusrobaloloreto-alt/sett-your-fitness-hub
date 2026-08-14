@@ -7,6 +7,10 @@ import {
   resolvePublicAnamnesisAccess,
 } from "../_shared/public-anamnesis-access.ts";
 import { resolveAnamnesisDurations } from "../_shared/anamnesis-duration.ts";
+import {
+  consumeValidatedAnamnesisInvite,
+  type RequiredAnamnesisField,
+} from "../_shared/public-anamnesis-validation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -323,6 +327,23 @@ async function getBranding(companyId: string | null) {
   return data ?? null;
 }
 
+async function getCustomFields(companyId: string, requiredOnly = false) {
+  let query = supabase
+    .from("form_fields")
+    .select("id, label, field_type, options, is_required, sort_order")
+    .eq("form_type", "anamnesis")
+    .is("field_key", null)
+    .eq("is_active", true)
+    .or(`company_id.eq.${companyId},company_id.is.null`);
+  if (requiredOnly) query = query.eq("is_required", true);
+  const { data, error } = await query.order("sort_order", { ascending: true });
+  if (error) throw new HttpError(500, `Falha ao validar perguntas da anamnese: ${error.message}`);
+  return (data || []).map((field: any) => ({
+    ...field,
+    options: Array.isArray(field.options) ? field.options : [],
+  }));
+}
+
 async function getInvite(token: string | undefined) {
   if (!token) return null;
   const { data } = await supabase
@@ -429,16 +450,7 @@ Deno.serve(async (req) => {
         throw new HttpError(400, "O fluxo Studio exige um convite válido.");
       }
       const branding = await getBranding(student.company_id);
-      const { data: customFields } = access.invite
-        ? await supabase
-          .from("form_fields")
-          .select("id, label, field_type, options, is_required, sort_order")
-          .eq("form_type", "anamnesis")
-          .is("field_key", null)
-          .eq("is_active", true)
-          .or(`company_id.eq.${student.company_id},company_id.is.null`)
-          .order("sort_order", { ascending: true })
-        : { data: [] };
+      const customFields = access.invite ? await getCustomFields(student.company_id) : [];
       return new Response(JSON.stringify({
         invite: access.invite ?? undefined,
         student: {
@@ -450,10 +462,7 @@ Deno.serve(async (req) => {
           height_cm: student.height_cm,
         },
         branding,
-        custom_fields: (customFields || []).map((field: any) => ({
-          ...field,
-          options: Array.isArray(field.options) ? field.options : [],
-        })),
+        custom_fields: customFields,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -463,10 +472,15 @@ Deno.serve(async (req) => {
       }
       const incoming = body?.anamnese ?? {};
       const payload = sanitizeStudioAnamnese(incoming, student);
-      const { data, error } = await submitInviteAtomic(
-        body.token,
-        sanitizeStudentPatch(body?.student),
-        payload,
+      const requiredCustomFields = await getCustomFields(student.company_id, true) as RequiredAnamnesisField[];
+      const { data, error } = await consumeValidatedAnamnesisInvite(
+        incoming,
+        requiredCustomFields,
+        async () => await submitInviteAtomic(
+          body.token,
+          sanitizeStudentPatch(body?.student),
+          payload,
+        ),
       );
       if (error) throw new HttpError(409, error.message);
       await runStudioSideEffects(incoming, access.invite);
@@ -489,7 +503,12 @@ Deno.serve(async (req) => {
       );
       if (access.invite) {
         const token = typeof body.accessKey === "string" ? body.accessKey : body.token;
-        const { data, error } = await submitInviteAtomic(token, studentPatch, studioPayload);
+        const requiredCustomFields = await getCustomFields(student.company_id, true) as RequiredAnamnesisField[];
+        const { data, error } = await consumeValidatedAnamnesisInvite(
+          body,
+          requiredCustomFields,
+          async () => await submitInviteAtomic(token, studentPatch, studioPayload),
+        );
         if (error) throw new HttpError(409, error.message);
         return new Response(JSON.stringify({ ok: true, student_anamnese_id: data?.student_anamnese_id ?? null }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
