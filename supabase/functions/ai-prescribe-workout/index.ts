@@ -332,7 +332,7 @@ async function loadExerciseCatalog(
       ? selectByExerciseIdChunks(
           supabase,
           "company_exercise_volumes",
-          "exercise_id, muscle_group_id, volume_percentage",
+          "exercise_id, muscle_group_id, role, volume_percentage",
           exerciseIds,
           { companyId },
         )
@@ -359,11 +359,14 @@ async function loadExerciseCatalog(
     groupNames.set(group.id as string, group.name as string);
   }
 
-  const volumeOverrides = new Map<string, number>();
+  const volumeOverrides = new Map<string, { role: string | null; volume_percentage: number }>();
   for (const override of ((overridesResult.data ?? []) as any[])) {
     volumeOverrides.set(
       `${override.exercise_id as string}:${override.muscle_group_id as string}`,
-      override.volume_percentage as number,
+      {
+        role: (override.role as string | null) ?? null,
+        volume_percentage: override.volume_percentage as number,
+      },
     );
   }
 
@@ -371,12 +374,13 @@ async function loadExerciseCatalog(
   for (const target of ((targetsResult.data ?? []) as any[])) {
     const exerciseId = target.exercise_id as string;
     const muscleGroupId = target.muscle_group_id as string;
+    const override = volumeOverrides.get(`${exerciseId}:${muscleGroupId}`);
     const targets = targetsByExercise.get(exerciseId) ?? [];
     targets.push({
       muscle_group: groupNames.get(muscleGroupId) ?? muscleGroupId,
-      role: (target.role as string | null) ?? null,
+      role: override?.role ?? ((target.role as string | null) ?? null),
       volume_percentage:
-        volumeOverrides.get(`${exerciseId}:${muscleGroupId}`) ??
+        override?.volume_percentage ??
         ((target.volume_percentage as number | null) ?? null),
     });
     targetsByExercise.set(exerciseId, targets);

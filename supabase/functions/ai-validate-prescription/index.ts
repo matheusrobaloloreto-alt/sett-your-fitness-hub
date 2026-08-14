@@ -64,10 +64,18 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-async function selectByExerciseIdChunks(supabase: any, table: string, columns: string, exerciseIds: string[]) {
+async function selectByExerciseIdChunks(
+  supabase: any,
+  table: string,
+  columns: string,
+  exerciseIds: string[],
+  options: { companyId?: string | null } = {},
+) {
   const rows: any[] = [];
   for (const ids of chunkArray(exerciseIds, 80)) {
-    const { data, error } = await supabase.from(table).select(columns).in("exercise_id", ids);
+    let query = supabase.from(table).select(columns).in("exercise_id", ids);
+    if (options.companyId) query = query.eq("company_id", options.companyId);
+    const { data, error } = await query;
     if (error) return { data: rows, error };
     rows.push(...((data ?? []) as any[]));
   }
@@ -109,7 +117,7 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
     if (page.length < CATALOG_PAGE_SIZE) break;
   }
   const exerciseIds = exerciseRows.map((exercise) => exercise.id as string).filter(Boolean);
-  const [targetsResult, groupsResult, metadataResult] = await Promise.all([
+  const [targetsResult, groupsResult, overridesResult, metadataResult] = await Promise.all([
     exerciseIds.length
       ? selectByExerciseIdChunks(
           supabase,
@@ -119,6 +127,15 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
         )
       : Promise.resolve({ data: [], error: null }),
     supabase.from("muscle_groups").select("id, name"),
+    companyId && exerciseIds.length
+      ? selectByExerciseIdChunks(
+          supabase,
+          "company_exercise_volumes",
+          "exercise_id, muscle_group_id, role, volume_percentage",
+          exerciseIds,
+          { companyId },
+        )
+      : Promise.resolve({ data: [], error: null }),
     exerciseIds.length
       ? selectByExerciseIdChunks(
           supabase,
@@ -131,6 +148,7 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
 
   if (targetsResult.error) throw new Error(`Falha ao carregar alvos musculares: ${targetsResult.error.message}`);
   if (groupsResult.error) throw new Error(`Falha ao carregar grupos musculares: ${groupsResult.error.message}`);
+  if (overridesResult.error) throw new Error(`Falha ao carregar volumes da empresa: ${overridesResult.error.message}`);
   if (metadataResult.error) {
     console.warn("exercise_metadata skipped:", metadataResult.error.message);
   }
@@ -138,14 +156,24 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
   const groupNames = new Map<string, string>();
   for (const group of ((groupsResult.data ?? []) as any[])) groupNames.set(group.id as string, group.name as string);
 
+  const volumeOverrides = new Map<string, { role: string | null; volume_percentage: number }>();
+  for (const override of ((overridesResult.data ?? []) as any[])) {
+    volumeOverrides.set(`${override.exercise_id}:${override.muscle_group_id}`, {
+      role: (override.role as string | null) ?? null,
+      volume_percentage: override.volume_percentage as number,
+    });
+  }
+
   const targetsByExercise = new Map<string, ExerciseCatalogEntry["targets"]>();
   for (const target of ((targetsResult.data ?? []) as any[])) {
     const exerciseId = target.exercise_id as string;
+    const muscleGroupId = target.muscle_group_id as string;
+    const override = volumeOverrides.get(`${exerciseId}:${muscleGroupId}`);
     const targets = targetsByExercise.get(exerciseId) ?? [];
     targets.push({
-      muscle_group: groupNames.get(target.muscle_group_id as string) ?? (target.muscle_group_id as string),
-      role: (target.role as string | null) ?? null,
-      volume_percentage: (target.volume_percentage as number | null) ?? null,
+      muscle_group: groupNames.get(muscleGroupId) ?? muscleGroupId,
+      role: override?.role ?? ((target.role as string | null) ?? null),
+      volume_percentage: override?.volume_percentage ?? ((target.volume_percentage as number | null) ?? null),
     });
     targetsByExercise.set(exerciseId, targets);
   }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Plus, Search, Pencil, Trash2, Play, Globe, Building2, Upload, Loader2, Dumbbell } from "lucide-react";
 import { exerciseThumb } from "@/lib/exerciseCover";
 import { useMaster } from "@/contexts/MasterContext";
+import { buildExerciseTargetPayload, replaceExerciseMuscleTargets } from "@/lib/exerciseTargetConfig";
 
 interface Exercise {
   id: string;
@@ -115,9 +116,7 @@ export default function ExerciseLibrary() {
 
   const isMaster = role === "master";
 
-  useEffect(() => { loadExercises(); }, [effectiveCompanyId]);
-
-  const loadExercises = async () => {
+  const loadExercises = useCallback(async () => {
     const { data, error } = await supabase
       .from("exercise_library")
       .select("*")
@@ -167,7 +166,9 @@ export default function ExerciseLibrary() {
       map[t.exercise_id].push(eff);
     });
     setTargetsByExercise(map);
-  };
+  }, [effectiveCompanyId]);
+
+  useEffect(() => { void loadExercises(); }, [loadExercises]);
 
   const getStoragePublicUrl = (path: string) => {
     const { data } = supabase.storage.from("exercises-videos").getPublicUrl(path);
@@ -187,34 +188,22 @@ export default function ExerciseLibrary() {
   };
 
   const saveMuscleTargets = async (exerciseId: string) => {
-    await (supabase as any).from("exercise_muscle_targets").delete().eq("exercise_id", exerciseId);
-    
-    const inserts: any[] = [];
-    primaryMuscleIds.forEach(mgId => {
-      inserts.push({
-        exercise_id: exerciseId,
-        muscle_group_id: mgId,
-        role: "primary",
-        volume_percentage: 100,
-      });
-    });
-    secondaryMuscleIds.forEach(mgId => {
-      if (!primaryMuscleIds.includes(mgId)) {
-        inserts.push({
-          exercise_id: exerciseId,
-          muscle_group_id: mgId,
-          role: "secondary",
-          volume_percentage: 50,
-        });
-      }
-    });
-    if (inserts.length > 0) {
-      await (supabase as any).from("exercise_muscle_targets").insert(inserts);
-    }
+    const targets = buildExerciseTargetPayload(primaryMuscleIds, secondaryMuscleIds);
+    await replaceExerciseMuscleTargets(supabase as any, exerciseId, targets);
   };
 
   const handleSave = async () => {
     if (!form.name) return;
+    try {
+      buildExerciseTargetPayload(primaryMuscleIds, secondaryMuscleIds);
+    } catch (error) {
+      toast({
+        title: "Configuração muscular incompleta",
+        description: error instanceof Error ? error.message : "Selecione os alvos musculares.",
+        variant: "destructive",
+      });
+      return;
+    }
     setUploading(true);
 
     let videoPath: string | null = editing?.video_path || null;
@@ -253,20 +242,29 @@ export default function ExerciseLibrary() {
       const { error } = await supabase.from("exercise_library").update(payload).eq("id", editing.id);
       if (error) { toast({ title: "Erro", description: error.message, variant: "destructive" }); setUploading(false); return; }
       exerciseId = editing.id;
-      toast({ title: "Exercício atualizado!" });
     } else {
       const { data, error } = await supabase.from("exercise_library").insert(payload).select("id").single();
       if (error) { toast({ title: "Erro", description: error.message, variant: "destructive" }); setUploading(false); return; }
       exerciseId = data.id;
-      toast({ title: "Exercício criado!" });
     }
 
     // Save muscle targets
-    if (exerciseId) {
-      await saveMuscleTargets(exerciseId);
-      await saveCompanyVolumes(exerciseId);
+    try {
+      if (exerciseId) {
+        await saveMuscleTargets(exerciseId);
+        await saveCompanyVolumes(exerciseId);
+      }
+    } catch (error) {
+      toast({
+        title: "Exercício salvo, mas a configuração muscular falhou",
+        description: error instanceof Error ? error.message : "Revise os alvos e tente novamente.",
+        variant: "destructive",
+      });
+      setUploading(false);
+      return;
     }
 
+    toast({ title: editing ? "Exercício atualizado!" : "Exercício criado!" });
     setUploading(false);
     resetForm();
     loadExercises();
@@ -307,9 +305,10 @@ export default function ExerciseLibrary() {
         volume_percentage: pct,
       }));
     if (rows.length > 0) {
-      await (supabase as any)
+      const { error } = await (supabase as any)
         .from("company_exercise_volumes")
         .upsert(rows, { onConflict: "company_id,exercise_id,muscle_group_id" });
+      if (error) throw new Error(error.message || "Falha ao salvar percentuais da empresa.");
     }
   };
 

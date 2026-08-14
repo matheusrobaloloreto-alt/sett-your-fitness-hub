@@ -86,7 +86,14 @@ O LOAD não é repartido entre músculos: não há dados cinéticos suficientes 
 - Migration local substitui `get_weekly_volume`, aplica overrides por empresa, normaliza a escala e agrega aliases em grupos canônicos.
 - A migration deduplica pai/filho/alias por ocorrência de exercício usando a maior exposição, evitando dupla contagem.
 - Constraints locais `NOT VALID` passam a bloquear novos percentuais fora de 0..100 e roles fora de `primary|secondary`, sem reescrever a base atual.
+- A coerência `role` ↔ `is_primary` também é exigida para novos alvos; secundários são persistidos com `is_primary=false`.
+- A edição de alvos usa um único RPC transacional: valida todo o payload antes do `DELETE` e qualquer falha no `INSERT` restaura o estado anterior.
+- As telas de aluno e treinadora obtêm alvos efetivos por RPC vinculado ao `student_id`; o override é sempre filtrado pela empresa viva do aluno, sem consulta direta cross-tenant.
+- A análise da treinadora considera somente logs `completed=true` e usa a interseção entre período solicitado, início/fim do ciclo e hoje como denominador efetivo.
+- O limitador de volume recalcula todas as exposições ponderadas após remover cada série física, inclusive quando o excesso existe apenas em alvo secundário.
+- Prescrição e validação aplicam, em paridade, `role` e `volume_percentage` dos overrides por empresa.
 - Script read-only `scripts/audit-exercise-engine-coverage.mjs` torna a auditoria agregada reproduzível sem imprimir nomes ou PII.
+- Antes de aceitar service role, o auditor exige exatamente a origem HTTPS `zshrcgbyhzxpnlccssyz.supabase.co`, sem porta, caminho, query ou credenciais embutidas.
 
 ## Taxonomia e próximos dados
 
@@ -117,6 +124,17 @@ Próximo lote de dados recomendado:
 
 A ausência de thumbnail persistida não significa ausência de vídeo, pois a UI pode derivá-la do YouTube. Os 72 IDs compartilhados exigem QA editorial: podem representar variações legítimas do mesmo movimento, mas também podem esconder demonstração incorreta.
 
+Essas contagens comprovam **cobertura de referência**, não playback validado. Nenhum dos 926 vídeos foi declarado reproduzível ou semanticamente correto apenas por possuir URL/ID.
+
+Plano de QA de mídia antes de considerar a biblioteca validada:
+
+1. abrir no app uma amostra estratificada dos 144 MP4 CloudFront, 21 URLs diretas YouTube e IDs YouTube da biblioteca;
+2. revisar 100% dos 72 clusters de ID duplicado, comparando nome/variação do exercício com a demonstração;
+3. verificar carregamento, play, mute, seek, retorno após suspensão e comportamento móvel;
+4. conferir título completo, execução demonstrada, equipamento, lateralidade e variação;
+5. registrar por exercício `approved|rejected|needs_review`, revisor, data e motivo;
+6. corrigir somente após relatório de diff e autorização, sem substituir IDs em massa por similaridade de nome.
+
 Foi identificado ainda um bug de integração: a tela do aluno consultava `youtube_video_id`, mas o descartava ao montar `videoMap`. A frente de UX corrigiu isso no commit `ad9a99a`, com teste de integração, além de preservar o título completo no modal/cartão.
 
 ## Parecer técnico
@@ -126,13 +144,14 @@ A revisão especializada aprovou a normalização apenas como **modelo de exposi
 ## Validações locais
 
 - auditoria read-only executada novamente: reproduziu 926 exercícios, 1.390 alvos e todas as contagens deste relatório;
-- `npx vitest run src/lib/volumeStats.test.ts`: **14/14**;
-- `deno test .../volumeRules.test.ts`: **3/3**;
+- testes-alvo Vitest (`volumeStats`, configuração atômica de alvos, segurança de integração e paridade de overrides): **23/23**;
+- teste do auditor Node: **1/1**;
+- `deno test .../volumeRules.test.ts`: **4/4**;
 - `npx tsc --noEmit`: aprovado;
 - `deno check` das funções `ai-prescribe-workout` e `ai-validate-prescription`: aprovado;
 - `npm run build` (inclui `verify:backend`): aprovado;
-- ESLint dos arquivos alterados: zero erros; permanece um warning preexistente de dependência do `useEffect` em `WorkoutAnalysis`;
-- suíte completa: **329/330 testes aprovados**. A única falha de asserção (`deload` exigindo RIR `4-5` em todos os exercícios) foi reproduzida sem estas mudanças no commit-base `2a2a9f9`; não é regressão deste lote. O teste `dietPdf` também não carrega no worktree por restrição do Vite ao `node_modules` compartilhado, enquanto o build completo passa.
+- ESLint dos arquivos alterados: zero erros e zero warnings;
+- suíte completa: **337/338 testes executados aprovados**, em 46 arquivos aprovados. A única falha de asserção (`deload` exigindo RIR `4-5` em todos os exercícios) foi reproduzida sem estas mudanças no commit-base `2a2a9f9`; não é regressão deste lote. Uma suíte adicional (`dietPdf`) não chegou a carregar no worktree por restrição do Vite ao `node_modules` compartilhado, enquanto o build completo passa.
 
 A migration recebeu revisão estática e não foi aplicada a banco local ou remoto; sua execução permanece condicionada a autorização e validação em ambiente de homologação.
 

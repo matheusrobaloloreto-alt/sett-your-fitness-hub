@@ -17,6 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 interface VolumeInsightsProps {
   allLogs: any[];
   cycles: CycleLike[];
+  studentId: string;
   className?: string;
 }
 
@@ -26,7 +27,7 @@ const PIE_COLORS = [
   "#f59e0b", "#ec4899", "#84cc16", "#06b6d4", "#a855f7", "#ef4444", "#22c55e",
 ];
 
-export function VolumeInsights({ allLogs, cycles, className }: VolumeInsightsProps) {
+export function VolumeInsights({ allLogs, cycles, studentId, className }: VolumeInsightsProps) {
   const [range, setRange] = useState<"all" | "8w" | "4w">("all");
   const [targets, setTargets] = useState<ExerciseMuscleTarget[]>([]);
   const exerciseIds = useMemo(() => Array.from(new Set(
@@ -39,53 +40,37 @@ export function VolumeInsights({ allLogs, cycles, className }: VolumeInsightsPro
       return () => { active = false; };
     }
     (async () => {
-      const { data: targetRows } = await supabase
-        .from("exercise_muscle_targets")
-        .select("exercise_id, muscle_group_id, role, is_primary, volume_percentage")
-        .in("exercise_id", exerciseIds);
-      const { data: authData } = await supabase.auth.getUser();
-      const { data: companyId } = authData.user
-        ? await supabase.rpc("get_user_company_id", { _user_id: authData.user.id })
-        : { data: null };
-      const { data: overrideRows } = companyId
-        ? await supabase
-            .from("company_exercise_volumes")
-            .select("exercise_id, muscle_group_id, role, volume_percentage")
-            .eq("company_id", companyId)
-            .in("exercise_id", exerciseIds)
-        : { data: [] };
-      const overrideMap = new Map((overrideRows || []).map((override) => [
-        `${override.exercise_id}:${override.muscle_group_id}`,
-        override,
-      ]));
-      const groupIds = Array.from(new Set((targetRows || []).map((target) => target.muscle_group_id)));
-      const { data: groupRows } = groupIds.length
-        ? await supabase.from("muscle_groups").select("id, name").in("id", groupIds)
-        : { data: [] };
-      const groupMap = new Map((groupRows || []).map((group) => [group.id, group.name]));
+      const { data: targetRows, error } = await (supabase as any).rpc("get_effective_exercise_targets", {
+        p_student_id: studentId,
+        p_exercise_ids: exerciseIds,
+      });
       if (active) {
+        if (error) {
+          console.error("effective exercise targets:", error.message);
+          setTargets([]);
+          return;
+        }
         setTargets((targetRows || []).flatMap((target) => {
-          const muscleGroup = groupMap.get(target.muscle_group_id);
-          const override = overrideMap.get(`${target.exercise_id}:${target.muscle_group_id}`);
-          return muscleGroup ? [{
+          return target.muscle_group_name ? [{
             exerciseId: target.exercise_id,
-            muscleGroup,
-            role: override?.role ?? target.role,
-            isPrimary: override ? undefined : target.is_primary,
-            volumePercentage: override?.volume_percentage ?? target.volume_percentage,
+            muscleGroup: target.muscle_group_name,
+            role: target.role,
+            isPrimary: target.is_primary,
+            volumePercentage: target.volume_percentage,
           }] : [];
         }));
       }
     })();
     return () => { active = false; };
-  }, [exerciseIds]);
+  }, [exerciseIds, studentId]);
   const filteredLogs = useMemo(() => {
-    if (range === "all") return allLogs || [];
+    const completedLogs = (allLogs || []).filter((log: any) => log?.completed === true);
+    if (range === "all") return completedLogs;
     const days = range === "4w" ? 28 : 56;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
     const cut = businessDateYmd(cutoff);
-    return (allLogs || []).filter((l: any) => (l?.session_date || "") >= cut);
+    return completedLogs.filter((l: any) => (l?.session_date || "") >= cut);
   }, [allLogs, range]);
   const meta = useMemo(() => buildExerciseMeta(cycles), [cycles]);
   const weekly = useMemo(() => volumeLoadByWeek(filteredLogs), [filteredLogs]);

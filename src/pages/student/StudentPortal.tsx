@@ -1124,7 +1124,7 @@ export default function StudentPortal() {
         {/* STATS VIEW */}
         {activeView === "stats" && (
           <div className="space-y-4">
-            <VolumeInsights allLogs={allLogs} cycles={cycles} />
+            <VolumeInsights allLogs={allLogs} cycles={cycles} studentId={studentId} />
             <StatsCharts allLogs={allLogs} cycles={cycles} todayStr={todayStr} />
           </div>
         )}

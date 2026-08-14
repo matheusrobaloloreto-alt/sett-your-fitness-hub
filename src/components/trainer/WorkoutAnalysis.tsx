@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,7 @@ import { MuscleRadar } from "@/components/student/MuscleRadar";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
-import { normalizeTargetWeight } from "@/lib/volumeStats";
+import { effectiveCoverageWindow, normalizeTargetWeight } from "@/lib/volumeStats";
 
 interface Props {
   studentId: string;
@@ -33,29 +33,11 @@ export function WorkoutAnalysis({ studentId }: Props) {
   const [period, setPeriod] = useState("30");
   const [muscleData, setMuscleData] = useState<MuscleGroupVolume[]>([]);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary>({ total: 0, completed: 0, abandoned: 0, avgDuration: 0, totalVolume: 0 });
+  const [coveredWeeks, setCoveredWeeks] = useState(1);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadAnalysis();
-  }, [studentId, period]);
-
-  const loadAnalysis = async () => {
+  const loadAnalysis = useCallback(async () => {
     setLoading(true);
-
-    const daysAgo = new Date();
-    daysAgo.setDate(daysAgo.getDate() - parseInt(period));
-    const sinceDate = businessDateYmd(daysAgo);
-
-    // Load sessions (if any)
-    const { data: sessions } = await supabase
-      .from("workout_sessions")
-      .select("*")
-      .eq("student_id", studentId)
-      .gte("created_at", daysAgo.toISOString());
-
-    const allSessions = sessions || [];
-    const completedSessions = allSessions.filter(s => s.status === "completed");
-    const abandonedSessions = allSessions.filter(s => s.status === "abandoned");
 
     // Load all workouts for this student (via enrollments -> cycles -> workouts)
     const { data: enrollments } = await supabase
@@ -88,6 +70,26 @@ export function WorkoutAnalysis({ studentId }: Props) {
       return;
     }
 
+    const activeCycle = cyclesData[0];
+    const coverage = effectiveCoverageWindow({
+      today,
+      requestedDays: parseInt(period),
+      cycleStart: activeCycle.start_date,
+      cycleEnd: activeCycle.end_date,
+    });
+    setCoveredWeeks(coverage.coveredWeeks);
+
+    // Sessions and logs use the same effective cycle window.
+    const { data: sessions } = await supabase
+      .from("workout_sessions")
+      .select("*")
+      .eq("student_id", studentId)
+      .gte("session_date", coverage.start)
+      .lte("session_date", coverage.end);
+    const allSessions = sessions || [];
+    const completedSessions = allSessions.filter(s => s.status === "completed");
+    const abandonedSessions = allSessions.filter(s => s.status === "abandoned");
+
     const cycleIds = cyclesData.map(c => c.id);
     const { data: workouts } = await supabase
       .from("workouts")
@@ -100,10 +102,12 @@ export function WorkoutAnalysis({ studentId }: Props) {
     // Load workout logs for this period - use session_date for filtering
     const { data: logs } = await supabase
       .from("workout_logs")
-      .select("workout_id, exercise_index, weight, reps_done, set_number, session_date")
+      .select("workout_id, exercise_index, weight, reps_done, set_number, session_date, completed")
       .eq("student_id", studentId)
       .in("workout_id", workoutIds)
-      .gte("session_date", sinceDate);
+      .eq("completed", true)
+      .gte("session_date", coverage.start)
+      .lte("session_date", coverage.end);
 
     const filteredLogs = logs || [];
 
@@ -179,57 +183,29 @@ export function WorkoutAnalysis({ studentId }: Props) {
       return;
     }
 
-    // Load muscle group targets
-    const { data: targets } = await supabase
-      .from("exercise_muscle_targets")
-      .select("exercise_id, muscle_group_id, role, is_primary, volume_percentage")
-      .in("exercise_id", Array.from(exerciseIds));
-
-    const { data: student } = await supabase
-      .from("students")
-      .select("company_id")
-      .eq("id", studentId)
-      .maybeSingle();
-    const { data: overrides } = student?.company_id
-      ? await supabase
-          .from("company_exercise_volumes")
-          .select("exercise_id, muscle_group_id, role, volume_percentage")
-          .eq("company_id", student.company_id)
-          .in("exercise_id", Array.from(exerciseIds))
-      : { data: [] };
-    const overrideMap = new Map((overrides || []).map((override) => [
-      `${override.exercise_id}:${override.muscle_group_id}`,
-      override,
-    ]));
-
-    const muscleGroupIds = new Set((targets || []).map(t => t.muscle_group_id));
-    
-    if (muscleGroupIds.size === 0) {
+    const { data: targets, error: targetsError } = await (supabase as any).rpc("get_effective_exercise_targets", {
+      p_student_id: studentId,
+      p_exercise_ids: Array.from(exerciseIds),
+    });
+    if (targetsError || !targets?.length) {
+      if (targetsError) console.error("effective exercise targets:", targetsError.message);
       setMuscleData([]);
       setLoading(false);
       return;
     }
 
-    const { data: muscleGroups } = await supabase
-      .from("muscle_groups")
-      .select("id, name")
-      .in("id", Array.from(muscleGroupIds));
-
-    const mgMap = new Map((muscleGroups || []).map(mg => [mg.id, mg.name]));
-
     // Aggregate by muscle group
     const mgData: Record<string, MuscleGroupVolume> = {};
 
     (targets || []).forEach(t => {
-      const mgName = mgMap.get(t.muscle_group_id) || "Desconhecido";
+      const mgName = t.muscle_group_name || "Desconhecido";
       if (!mgData[mgName]) {
         mgData[mgName] = { name: mgName, prescribedSets: 0, executedSets: 0 };
       }
-      const override = overrideMap.get(`${t.exercise_id}:${t.muscle_group_id}`);
       const factor = normalizeTargetWeight({
-        role: override?.role ?? t.role,
-        isPrimary: override ? undefined : t.is_primary,
-        volumePercentage: override?.volume_percentage ?? t.volume_percentage,
+        role: t.role,
+        isPrimary: t.is_primary,
+        volumePercentage: t.volume_percentage,
       });
       mgData[mgName].prescribedSets += (prescribedByExercise[t.exercise_id] || 0) * factor;
       mgData[mgName].executedSets += (executedByExercise[t.exercise_id] || 0) * factor;
@@ -237,7 +213,11 @@ export function WorkoutAnalysis({ studentId }: Props) {
 
     setMuscleData(Object.values(mgData).sort((a, b) => b.prescribedSets - a.prescribedSets));
     setLoading(false);
-  };
+  }, [period, studentId]);
+
+  useEffect(() => {
+    void loadAnalysis();
+  }, [loadAnalysis]);
 
   const adherencePercent = sessionSummary.total > 0
     ? Math.round((sessionSummary.completed / sessionSummary.total) * 100)
@@ -250,8 +230,7 @@ export function WorkoutAnalysis({ studentId }: Props) {
   };
 
   const getVolumeAlert = (mg: MuscleGroupVolume) => {
-    const weeksInPeriod = parseInt(period) / 7;
-    const weeklyExecuted = weeksInPeriod > 0 ? mg.executedSets / weeksInPeriod : 0;
+    const weeklyExecuted = coveredWeeks > 0 ? mg.executedSets / coveredWeeks : 0;
     if (weeklyExecuted < 10 && mg.prescribedSets > 0) return "sub";
     if (weeklyExecuted > 20) return "over";
     return "ok";
@@ -349,7 +328,7 @@ export function WorkoutAnalysis({ studentId }: Props) {
                 <div key={mg.name} className="rounded-lg border border-border bg-secondary/30 p-3 text-xs font-sans">
                   <p className="font-medium text-foreground">{mg.name}</p>
                   <p className="text-muted-foreground">
-                    {mg.prescribedSets.toFixed(1)} séries prescritas/sem · {(mg.executedSets / (parseInt(period) / 7)).toFixed(1)} séries realizadas/sem
+                    {mg.prescribedSets.toFixed(1)} séries prescritas/sem · {(mg.executedSets / coveredWeeks).toFixed(1)} séries realizadas/sem
                   </p>
                 </div>
               ))}
@@ -361,13 +340,13 @@ export function WorkoutAnalysis({ studentId }: Props) {
                 {muscleData.filter(mg => getVolumeAlert(mg) === "sub").map(mg => (
                   <div key={mg.name} className="flex items-center gap-2 p-2 rounded-lg bg-warning/10 border border-warning/20 text-xs font-sans">
                     <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
-                    <span className="text-warning"><strong>{mg.name}</strong>: sub-treinado ({(mg.executedSets / (parseInt(period) / 7)).toFixed(1)} séries/semana — recomendado ≥10)</span>
+                    <span className="text-warning"><strong>{mg.name}</strong>: sub-treinado ({(mg.executedSets / coveredWeeks).toFixed(1)} séries/semana — recomendado ≥10)</span>
                   </div>
                 ))}
                 {muscleData.filter(mg => getVolumeAlert(mg) === "over").map(mg => (
                   <div key={mg.name} className="flex items-center gap-2 p-2 rounded-lg bg-destructive/10 border border-destructive/20 text-xs font-sans">
                     <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
-                    <span className="text-destructive"><strong>{mg.name}</strong>: volume excessivo ({(mg.executedSets / (parseInt(period) / 7)).toFixed(1)} séries/semana — recomendado ≤20)</span>
+                    <span className="text-destructive"><strong>{mg.name}</strong>: volume excessivo ({(mg.executedSets / coveredWeeks).toFixed(1)} séries/semana — recomendado ≤20)</span>
                   </div>
                 ))}
               </div>

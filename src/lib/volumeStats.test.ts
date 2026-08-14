@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildExerciseMeta, fractionalSetsByMuscleGroup, normalizeTargetWeight, volumeLoadByWeek } from "./volumeStats";
+import { buildExerciseMeta, effectiveCoverageWindow, fractionalSetsByMuscleGroup, normalizeTargetWeight, volumeLoadByWeek } from "./volumeStats";
 
 const cycles = [
   {
@@ -35,6 +35,29 @@ describe("volumeLoadByWeek", () => {
       { weight: 10, reps_done: 10, session_date: "lixo", workout_id: "w1", exercise_index: 0 },
     ]);
     expect(out).toHaveLength(0);
+  });
+});
+
+describe("effectiveCoverageWindow", () => {
+  it("uses the newer cycle start instead of a full 30-day denominator", () => {
+    expect(effectiveCoverageWindow({
+      today: "2026-08-14",
+      requestedDays: 30,
+      cycleStart: "2026-08-10",
+    })).toEqual({
+      start: "2026-08-10",
+      end: "2026-08-14",
+      coveredDays: 5,
+      coveredWeeks: 5 / 7,
+    });
+  });
+
+  it("keeps the requested window when the cycle is older", () => {
+    expect(effectiveCoverageWindow({
+      today: "2026-08-14",
+      requestedDays: 7,
+      cycleStart: "2026-01-01",
+    }).coveredDays).toBe(7);
   });
 });
 
