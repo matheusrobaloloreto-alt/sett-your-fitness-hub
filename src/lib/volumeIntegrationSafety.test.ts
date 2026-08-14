@@ -17,6 +17,7 @@ describe("volume integration safety contracts", () => {
     expect(trainerView).toContain('rpc("get_effective_exercise_targets"');
     expect(migration).toContain("auth.uid() is distinct from v_student_user_id");
     expect(migration).toContain("public.is_company_staff(auth.uid(), v_company_id)");
+    expect(migration).not.toContain("select 1 from public.company_members cm");
     expect(migration).toContain("el.is_global or el.company_id = v_company_id");
   });
 

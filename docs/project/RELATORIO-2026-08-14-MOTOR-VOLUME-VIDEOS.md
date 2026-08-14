@@ -91,6 +91,7 @@ O LOAD não é repartido entre músculos: não há dados cinéticos suficientes 
 - As telas de aluno e treinadora obtêm alvos efetivos por RPC vinculado ao `student_id`; o override é sempre filtrado pela empresa viva do aluno, sem consulta direta cross-tenant.
 - A análise da treinadora considera somente logs `completed=true` e usa a interseção entre período solicitado, início/fim do ciclo e hoje como denominador efetivo.
 - O limitador de volume recalcula todas as exposições ponderadas após remover cada série física, inclusive quando o excesso existe apenas em alvo secundário.
+- Se todos os exercícios contribuintes tiverem apenas uma série, o limitador remove o contribuinte de maior prioridade de redução até cumprir o teto; ele não declara ajuste mantendo `after > cap`.
 - Prescrição e validação aplicam, em paridade, `role` e `volume_percentage` dos overrides por empresa.
 - Script read-only `scripts/audit-exercise-engine-coverage.mjs` torna a auditoria agregada reproduzível sem imprimir nomes ou PII.
 - Antes de aceitar service role, o auditor exige exatamente a origem HTTPS `zshrcgbyhzxpnlccssyz.supabase.co`, sem porta, caminho, query ou credenciais embutidas.
@@ -146,7 +147,7 @@ A revisão especializada aprovou a normalização apenas como **modelo de exposi
 - auditoria read-only executada novamente: reproduziu 926 exercícios, 1.390 alvos e todas as contagens deste relatório;
 - testes-alvo Vitest (`volumeStats`, configuração atômica de alvos, segurança de integração e paridade de overrides): **23/23**;
 - teste do auditor Node: **1/1**;
-- `deno test .../volumeRules.test.ts`: **4/4**;
+- `deno test .../volumeRules.test.ts`: **5/5**;
 - `npx tsc --noEmit`: aprovado;
 - `deno check` das funções `ai-prescribe-workout` e `ai-validate-prescription`: aprovado;
 - `npm run build` (inclui `verify:backend`): aprovado;
