@@ -288,7 +288,14 @@ export default function WhatsAppCRM() {
           dias_restantes: r.daysRemaining != null ? String(r.daysRemaining) : "",
         });
         try {
-          const res = await fetch(url, { method: "POST", headers, body: JSON.stringify({ action: "send-message", companyId: effectiveCompanyId, remoteJid, content, chatId: r.chatId }) });
+          const res = await fetch(url, { method: "POST", headers, body: JSON.stringify({
+            action: "send-message",
+            companyId: effectiveCompanyId,
+            remoteJid,
+            content,
+            chatId: r.chatId,
+            studentId: r.id,
+          }) });
           if (res.ok) sent++; else failed++;
         } catch { failed++; }
         setBroadcastSent((n) => n + 1);

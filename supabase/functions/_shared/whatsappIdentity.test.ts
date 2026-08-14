@@ -1,7 +1,9 @@
 import {
   directWhatsAppJidVariants,
+  evolutionTextRecipient,
   normalizeWhatsAppPhoneKey,
   providerWhatsAppJidVariants,
+  sameWhatsAppRecipient,
   storageObjectPathFromUrl,
 } from "./whatsappIdentity.ts";
 
@@ -49,4 +51,25 @@ Deno.test("extracts the private storage object path from signed URLs", () => {
     "whatsapp-media",
   );
   if (path !== "company/chat/audio.ogg") throw new Error("path");
+});
+
+Deno.test("binds equivalent direct recipients but rejects a different phone", () => {
+  if (!sameWhatsAppRecipient("5548991432057@s.whatsapp.net", "+55 (48) 99143-2057")) {
+    throw new Error("equivalent direct recipient rejected");
+  }
+  if (sameWhatsAppRecipient("5548991432057@s.whatsapp.net", "5511999999999@s.whatsapp.net")) {
+    throw new Error("different recipient accepted");
+  }
+});
+
+Deno.test("formats only direct phone JIDs for Evolution sendText", () => {
+  if (evolutionTextRecipient("5548991432057@s.whatsapp.net") !== "5548991432057") {
+    throw new Error("direct recipient");
+  }
+  if (evolutionTextRecipient("247961464385638@lid") !== "247961464385638@lid") {
+    throw new Error("lid recipient");
+  }
+  if (evolutionTextRecipient("120363012345678@g.us") !== "120363012345678@g.us") {
+    throw new Error("group recipient");
+  }
 });

@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   directWhatsAppJidVariants,
+  evolutionTextRecipient,
   normalizeWhatsAppPhoneKey,
   providerWhatsAppJidVariants,
 } from "../_shared/whatsappIdentity.ts";
@@ -446,7 +447,7 @@ async function sendText(
   try {
     const res = await fetch(`${evoUrl}/message/sendText/${instanceName}`, {
       method: "POST", headers: evoHeaders,
-      body: JSON.stringify({ number: remoteJid, text }),
+      body: JSON.stringify({ number: evolutionTextRecipient(remoteJid), text }),
     });
     if (res.ok) {
       const d = await res.json();
