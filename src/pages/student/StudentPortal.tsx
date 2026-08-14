@@ -63,6 +63,7 @@ import {
 
 
 type ActiveView = "home" | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
+const MAX_EXTRA_SETS = 5;
 
 
 interface WorkoutExercise {
@@ -461,7 +462,17 @@ export default function StudentPortal() {
   };
 
   const handleAddSet = (exIdx: number) => {
-    setExtraSets(prev => ({ ...prev, [exIdx]: (prev[exIdx] || 0) + 1 }));
+    setExtraSets(prev => {
+      const current = prev[exIdx] || 0;
+      if (current >= MAX_EXTRA_SETS) {
+        toast({
+          title: "Limite de séries extras atingido",
+          description: "Você pode adicionar até 5 séries além da prescrição.",
+        });
+        return prev;
+      }
+      return { ...prev, [exIdx]: current + 1 };
+    });
   };
 
   const handleRemoveSet = (exIdx: number, setNum: number) => {

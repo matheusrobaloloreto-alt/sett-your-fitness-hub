@@ -4,6 +4,18 @@ alter table public.workout_logs
   add column if not exists revision bigint not null default 1,
   add column if not exists updated_at timestamptz not null default now();
 
+-- NOT VALID preserva possíveis linhas históricas legadas, mas já impede novas
+-- identidades parciais (que burlariam a unicidade porque NULL <> NULL).
+alter table public.workout_logs
+  add constraint workout_logs_identity_fields_required
+  check (
+    student_id is not null
+    and workout_id is not null
+    and exercise_index is not null
+    and set_number is not null
+    and session_date is not null
+  ) not valid;
+
 create or replace function public.touch_workout_log_revision()
 returns trigger
 language plpgsql
@@ -41,6 +53,11 @@ declare
   item_rpe smallint;
   item_set_type text;
   item_completed boolean;
+  workout_exercises jsonb;
+  exercise_definition jsonb;
+  base_set_count integer;
+  weekly_set_count integer;
+  max_set_number integer;
   saved jsonb := '[]'::jsonb;
   conflicts jsonb := '[]'::jsonb;
 begin
@@ -69,11 +86,17 @@ begin
     item_completed := coalesce(nullif(item->>'completed', '')::boolean, false);
     expected_revision := nullif(item->>'base_revision', '')::bigint;
 
-    if item_exercise_index < 0 or item_exercise_index > 500 then
-      raise exception 'exercise_index out of range';
+    if item_student_id is null or item_workout_id is null then
+      raise exception 'student_id and workout_id are required';
     end if;
-    if item_set_number < 1 or item_set_number > 100 then
-      raise exception 'set_number out of range';
+    if item_exercise_index is null then
+      raise exception 'exercise_index is required';
+    end if;
+    if item_set_number is null then
+      raise exception 'set_number is required';
+    end if;
+    if item_session_date is null then
+      raise exception 'session_date is required';
     end if;
     if item_weight < 0 or item_weight > 2000 then
       raise exception 'weight out of range';
@@ -93,17 +116,52 @@ begin
     if expected_revision is not null and expected_revision < 1 then
       raise exception 'base_revision out of range';
     end if;
-    if not exists (
-      select 1
+    select w.exercises into workout_exercises
       from public.workouts w
       join public.training_cycles tc on tc.id = w.cycle_id
       join public.students s on s.id = item_student_id
       where w.id = item_workout_id
         and tc.student_id = s.id
         and tc.company_id = s.company_id
-        and w.company_id = s.company_id
-    ) then
+        and w.company_id = s.company_id;
+    if not found then
       raise exception 'workout does not belong to student tenant';
+    end if;
+    if workout_exercises is null or jsonb_typeof(workout_exercises) <> 'array' then
+      raise exception 'workout exercises must be a JSON array';
+    end if;
+    if item_exercise_index < 0
+      or item_exercise_index >= jsonb_array_length(workout_exercises) then
+      raise exception 'exercise_index out of workout range';
+    end if;
+
+    exercise_definition := workout_exercises -> item_exercise_index;
+    if exercise_definition is null or jsonb_typeof(exercise_definition) <> 'object' then
+      raise exception 'workout exercise entry must be a JSON object';
+    end if;
+    base_set_count := case
+      when coalesce(exercise_definition->>'sets', '') ~ '^[0-9]+'
+        and substring(exercise_definition->>'sets' from '^[0-9]+')::integer between 1 and 20
+        then substring(exercise_definition->>'sets' from '^[0-9]+')::integer
+      else 3
+    end;
+    select coalesce(max(
+      case when coalesce(week_item->>'sets', '') ~ '^[0-9]+'
+        then substring(week_item->>'sets' from '^[0-9]+')::integer
+        else 0
+      end
+    ), 0) into weekly_set_count
+    from jsonb_array_elements(
+      case when jsonb_typeof(exercise_definition->'weekly_prescription') = 'array'
+        then exercise_definition->'weekly_prescription'
+        else '[]'::jsonb
+      end
+    ) as weekly_entries(week_item);
+    -- O portal permite no máximo cinco séries adicionadas pelo aluno. O teto
+    -- absoluto evita que uma prescrição corrompida abra espaço para logs fantasmas.
+    max_set_number := least(greatest(base_set_count, weekly_set_count, 1) + 5, 25);
+    if item_set_number < 1 or item_set_number > max_set_number then
+      raise exception 'set_number exceeds prescribed sets plus five extras';
     end if;
 
     select * into current_row
