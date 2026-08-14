@@ -95,14 +95,20 @@ class MemoryDb {
     workoutExercises = [],
     normalizedAvailable = true,
     students = [{ id: IDS.studentPhone, company_id: IDS.company, status: "active" }],
-  } = {}) {
-    this.enrollments = [{
+    enrollments = [{
       id: IDS.enrollment,
       student_id: IDS.studentPhone,
       company_id: IDS.company,
       status: "active",
       created_at: "2026-08-01T00:00:00Z",
-    }];
+    }],
+    enrollmentsAfterFirstRead = null,
+  } = {}) {
+    this.enrollments = structuredClone(enrollments);
+    this.enrollmentsAfterFirstRead = enrollmentsAfterFirstRead
+      ? structuredClone(enrollmentsAfterFirstRead)
+      : null;
+    this.enrollmentReads = 0;
     this.students = structuredClone(students);
     this.cycles = structuredClone(cycles);
     this.workouts = structuredClone(workouts);
@@ -113,7 +119,11 @@ class MemoryDb {
   }
 
   async getEnrollments(studentIds) {
-    return this.enrollments.filter((row) => studentIds.includes(row.student_id));
+    this.enrollmentReads += 1;
+    const rows = this.enrollmentsAfterFirstRead && this.enrollmentReads > 1
+      ? this.enrollmentsAfterFirstRead
+      : this.enrollments;
+    return rows.filter((row) => studentIds.includes(row.student_id));
   }
 
   async getStudentsByIds(ids) {
@@ -469,6 +479,42 @@ test("apply rechecks live student and enrollment company ownership", async () =>
 
   assert.equal(report.summary.blocked, 1);
   assert.equal(report.results[0].reason, "live_student_company_mismatch");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("apply blocks an enrollment that became inactive before writing", async () => {
+  const input = baseInput();
+  const db = new MemoryDb({
+    enrollmentsAfterFirstRead: [{
+      id: IDS.enrollment,
+      student_id: IDS.studentPhone,
+      company_id: IDS.company,
+      status: "inactive",
+      created_at: "2026-08-01T00:00:00Z",
+    }],
+  });
+  const report = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.results[0].reason, "enrollment_no_longer_active");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("apply blocks an enrollment transferred to another company before writing", async () => {
+  const input = baseInput();
+  const db = new MemoryDb({
+    enrollmentsAfterFirstRead: [{
+      id: IDS.enrollment,
+      student_id: IDS.studentPhone,
+      company_id: "10000000-0000-4000-8000-000000000999",
+      status: "active",
+      created_at: "2026-08-01T00:00:00Z",
+    }],
+  });
+  const report = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.results[0].reason, "live_enrollment_company_mismatch");
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
 });
 

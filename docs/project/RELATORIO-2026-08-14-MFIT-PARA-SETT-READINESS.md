@@ -89,7 +89,7 @@ Após o hardening fail-closed de status e a releitura pré-apply, o dry-run foi 
 
 ## Validações
 
-- `node --test scripts/mfit-active-workouts-migration.test.mjs`: **26/26 aprovados**.
+- `node --test scripts/mfit-active-workouts-migration.test.mjs`: **28/28 aprovados**, incluindo mudança viva de status e empresa da matrícula entre planejamento e escrita.
 - Dois dry-runs reais idênticos no conteúdo operacional.
 - Extração reaberta e verificada após o falso bloqueio de sessões recolhidas pela interface.
 - Nenhuma mutação remota foi solicitada pelo migrador.
