@@ -42,6 +42,162 @@ begin
 end
 $$;
 
+create or replace function public.replace_exercise_muscle_targets(
+  p_exercise_id uuid,
+  p_targets jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_company_id uuid;
+  v_is_global boolean;
+begin
+  select el.company_id, el.is_global into v_company_id, v_is_global
+  from public.exercise_library el
+  where el.id = p_exercise_id;
+  if not found then
+    raise exception 'Exercício não encontrado' using errcode = 'P0002';
+  end if;
+  if auth.role() <> 'service_role'
+     and not public.has_role(auth.uid(), 'master'::public.app_role)
+     and (v_is_global or not public.is_company_staff(auth.uid(), v_company_id)) then
+    raise exception 'Acesso negado ao exercício informado' using errcode = '42501';
+  end if;
+  if p_targets is null or jsonb_typeof(p_targets) <> 'array' or jsonb_array_length(p_targets) = 0 then
+    raise exception 'Ao menos um alvo muscular é obrigatório' using errcode = '22023';
+  end if;
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_targets) as target(
+      muscle_group_id uuid,
+      role text,
+      is_primary boolean,
+      volume_percentage numeric
+    )
+    where target.muscle_group_id is null
+       or target.role is null
+       or target.role not in ('primary', 'secondary')
+       or target.is_primary is null
+       or target.is_primary is distinct from (target.role = 'primary')
+       or target.volume_percentage is null
+       or target.volume_percentage < 0
+       or target.volume_percentage > 100
+  ) then
+    raise exception 'Alvo muscular inválido ou role/is_primary incoerente' using errcode = '22023';
+  end if;
+  if not exists (
+    select 1
+    from jsonb_to_recordset(p_targets) as target(role text)
+    where target.role = 'primary'
+  ) then
+    raise exception 'Ao menos um alvo primário é obrigatório' using errcode = '22023';
+  end if;
+  if exists (
+    select target.muscle_group_id
+    from jsonb_to_recordset(p_targets) as target(muscle_group_id uuid)
+    group by target.muscle_group_id
+    having count(*) > 1
+  ) then
+    raise exception 'Grupamento muscular duplicado' using errcode = '23505';
+  end if;
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_targets) as target(muscle_group_id uuid)
+    left join public.muscle_groups mg on mg.id = target.muscle_group_id
+    where mg.id is null
+  ) then
+    raise exception 'Grupamento muscular inexistente' using errcode = '23503';
+  end if;
+
+  -- A função inteira é uma única transação RPC: qualquer falha no INSERT
+  -- restaura automaticamente as linhas removidas pelo DELETE.
+  delete from public.exercise_muscle_targets
+  where exercise_id = p_exercise_id;
+
+  insert into public.exercise_muscle_targets (
+    exercise_id,
+    muscle_group_id,
+    role,
+    is_primary,
+    volume_percentage
+  )
+  select
+    p_exercise_id,
+    target.muscle_group_id,
+    target.role,
+    target.is_primary,
+    target.volume_percentage
+  from jsonb_to_recordset(p_targets) as target(
+    muscle_group_id uuid,
+    role text,
+    is_primary boolean,
+    volume_percentage numeric
+  );
+end;
+$$;
+
+revoke all on function public.replace_exercise_muscle_targets(uuid, jsonb) from public, anon;
+grant execute on function public.replace_exercise_muscle_targets(uuid, jsonb) to authenticated, service_role;
+
+create or replace function public.get_effective_exercise_targets(
+  p_student_id uuid,
+  p_exercise_ids uuid[]
+)
+returns table(
+  exercise_id uuid,
+  muscle_group_id uuid,
+  muscle_group_name text,
+  role text,
+  is_primary boolean,
+  volume_percentage numeric
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_company_id uuid;
+  v_student_user_id uuid;
+begin
+  select s.company_id, s.user_id into v_company_id, v_student_user_id
+  from public.students s
+  where s.id = p_student_id;
+  if v_company_id is null then
+    raise exception 'Aluno não encontrado' using errcode = 'P0002';
+  end if;
+  if auth.role() <> 'service_role'
+     and auth.uid() is distinct from v_student_user_id
+     and not public.is_company_staff(auth.uid(), v_company_id) then
+    raise exception 'Acesso negado ao aluno informado' using errcode = '42501';
+  end if;
+
+  return query
+  select
+    emt.exercise_id,
+    emt.muscle_group_id,
+    mg.name,
+    coalesce(cev.role, emt.role),
+    coalesce(cev.role, emt.role) = 'primary',
+    coalesce(cev.volume_percentage, emt.volume_percentage)::numeric
+  from public.exercise_muscle_targets emt
+  join public.exercise_library el on el.id = emt.exercise_id
+  join public.muscle_groups mg on mg.id = emt.muscle_group_id
+  left join public.company_exercise_volumes cev
+    on cev.company_id = v_company_id
+   and cev.exercise_id = emt.exercise_id
+   and cev.muscle_group_id = emt.muscle_group_id
+  where emt.exercise_id = any(coalesce(p_exercise_ids, '{}'::uuid[]))
+    and (el.is_global or el.company_id = v_company_id);
+end;
+$$;
+
+revoke all on function public.get_effective_exercise_targets(uuid, uuid[]) from public, anon;
+grant execute on function public.get_effective_exercise_targets(uuid, uuid[]) to authenticated, service_role;
+
 create or replace function public.canonical_volume_muscle_group(p_group text)
 returns text
 language plpgsql

@@ -1,10 +1,11 @@
 // Agregações de volume de treino reutilizáveis (aluno e admin leem do mesmo jeito).
 // Fonte: workout_logs (weight * reps_done = volume-load). O muscle_group vem dos ciclos
 // (workout_id + exercise_index → exercise.muscle_group), igual ao StatsCharts.
-import { parseISO, startOfWeek, format } from "date-fns";
+import { differenceInCalendarDays, format, parseISO, startOfWeek, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 export interface VolumeLogLike {
+  completed?: boolean | null;
   weight?: number | string | null;
   reps_done?: number | string | null;
   session_date?: string | null;
@@ -45,6 +46,32 @@ export interface MuscleSeriesPoint {
 }
 
 const num = (v: unknown) => (typeof v === "number" ? v : Number(v)) || 0;
+
+export function effectiveCoverageWindow(args: {
+  today: string;
+  requestedDays: number;
+  cycleStart?: string | null;
+  cycleEnd?: string | null;
+}) {
+  const today = parseISO(args.today);
+  if (Number.isNaN(today.getTime())) throw new Error("Invalid coverage date");
+  const requestedStart = subDays(today, Math.max(1, args.requestedDays) - 1);
+  const parsedCycleStart = args.cycleStart ? parseISO(args.cycleStart) : null;
+  const parsedCycleEnd = args.cycleEnd ? parseISO(args.cycleEnd) : null;
+  const start = parsedCycleStart && !Number.isNaN(parsedCycleStart.getTime()) && parsedCycleStart > requestedStart
+    ? parsedCycleStart
+    : requestedStart;
+  const end = parsedCycleEnd && !Number.isNaN(parsedCycleEnd.getTime()) && parsedCycleEnd < today
+    ? parsedCycleEnd
+    : today;
+  const coveredDays = Math.max(1, differenceInCalendarDays(end, start) + 1);
+  return {
+    start: format(start, "yyyy-MM-dd"),
+    end: format(end, "yyyy-MM-dd"),
+    coveredDays,
+    coveredWeeks: coveredDays / 7,
+  };
+}
 
 /** Constrói o índice (workout_id, exercise_index) → metadados, a partir dos ciclos. */
 export function buildExerciseMeta(cycles: CycleLike[] | undefined | null): ExerciseMeta[] {

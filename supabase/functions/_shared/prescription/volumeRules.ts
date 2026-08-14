@@ -128,20 +128,30 @@ export function countWeeklySets(program: Pick<TrainingProgram, "workouts">) {
   const out = new Map<string, number>();
   for (const workout of program.workouts || []) {
     for (const exercise of workout.exercises || []) {
-      const explicitTargets = exercise.targets?.filter((target) =>
-        target.role === "primary" || target.role === "secondary" || target.volume_percentage !== null && target.volume_percentage !== undefined
-      );
-      const targets = explicitTargets?.length
-        ? explicitTargets
-        : [{ muscle_group: exercise.muscle_group, role: "primary", volume_percentage: 1 }];
-      for (const target of targets) {
-        const group = normalizeMuscleGroup(target.muscle_group);
-        const contribution = Number(exercise.sets || 0) * targetVolumeFactor(target);
+      for (const [group, factor] of exerciseGroupFactors(exercise)) {
+        const contribution = Number(exercise.sets || 0) * factor;
         out.set(group, (out.get(group) || 0) + contribution);
       }
     }
   }
   return out;
+}
+
+function exerciseGroupFactors(exercise: TrainingWorkout["exercises"][number]) {
+  const explicitTargets = exercise.targets?.filter((target) =>
+    target.role === "primary" || target.role === "secondary" || target.volume_percentage !== null && target.volume_percentage !== undefined
+  );
+  const targets = explicitTargets?.length
+    ? explicitTargets
+    : [{ muscle_group: exercise.muscle_group, role: "primary", volume_percentage: 1 }];
+  const factors = new Map<string, number>();
+  for (const target of targets) {
+    const group = normalizeMuscleGroup(target.muscle_group);
+    // Parent/child aliases that collapse to the same reporting group represent
+    // one exposure for the set, not two independent sets.
+    factors.set(group, Math.max(factors.get(group) || 0, targetVolumeFactor(target)));
+  }
+  return factors;
 }
 
 const REDUCTION_PRIORITY: Record<string, number> = {
@@ -171,58 +181,57 @@ export function enforceVolumeCaps(
       set_types: exercise.set_types ? [...exercise.set_types] : undefined,
     })),
   }));
-  const candidatesByGroup = new Map<string, Array<{ workoutIndex: number; exerciseIndex: number }>>();
+  const beforeCounts = countWeeklySets({ workouts: nextWorkouts });
+  const totalInitialSets = nextWorkouts.flatMap((workout) => workout.exercises)
+    .reduce((sum, exercise) => sum + Math.max(0, Number(exercise.sets) || 0), 0);
 
-  nextWorkouts.forEach((workout, workoutIndex) => {
-    workout.exercises.forEach((exercise, exerciseIndex) => {
-      const group = normalizeMuscleGroup(exercise.muscle_group);
-      const candidates = candidatesByGroup.get(group) || [];
-      candidates.push({ workoutIndex, exerciseIndex });
-      candidatesByGroup.set(group, candidates);
-    });
-  });
+  // Reduce one physical set per iteration, then recompute every affected target.
+  // This prevents a secondary target from remaining above its cap after its
+  // exercise's primary group has already been processed.
+  for (let iteration = 0; iteration < totalInitialSets; iteration += 1) {
+    const counts = countWeeklySets({ workouts: nextWorkouts });
+    const overGroups = [...counts.entries()]
+      .map(([group, count]) => ({
+        group,
+        count,
+        cap: getVolumeRangeForGroup(group, input.fitnessLevel, input).mrv,
+      }))
+      .filter((item) => item.count > item.cap + 1e-9)
+      .sort((a, b) => (b.count - b.cap) - (a.count - a.cap));
+    if (!overGroups.length) break;
 
-  const adjustments: Array<{ muscle_group: string; before: number; after: number; cap: number }> = [];
-  for (const [muscleGroup, candidates] of candidatesByGroup) {
-    const cap = getVolumeRangeForGroup(muscleGroup, input.fitnessLevel, input).mrv;
-    const before = candidates.reduce((sum, candidate) => {
+    let reduced = false;
+    for (const over of overGroups) {
+      const candidates: Array<{ workoutIndex: number; exerciseIndex: number; factor: number }> = [];
+      nextWorkouts.forEach((workout, workoutIndex) => {
+        workout.exercises.forEach((exercise, exerciseIndex) => {
+          const factor = exerciseGroupFactors(exercise).get(over.group) || 0;
+          if (factor > 0 && exercise.sets > 0) candidates.push({ workoutIndex, exerciseIndex, factor });
+        });
+      });
+      candidates.sort((a, b) => {
+        const exerciseA = nextWorkouts[a.workoutIndex].exercises[a.exerciseIndex];
+        const exerciseB = nextWorkouts[b.workoutIndex].exercises[b.exerciseIndex];
+        const removableA = exerciseA.sets > 1 || exerciseA.phase === "forca_especifica" ? 1 : 0;
+        const removableB = exerciseB.sets > 1 || exerciseB.phase === "forca_especifica" ? 1 : 0;
+        return removableB - removableA
+          || (REDUCTION_PRIORITY[exerciseB.phase] || 0) - (REDUCTION_PRIORITY[exerciseA.phase] || 0)
+          || b.factor - a.factor
+          || exerciseB.sets - exerciseA.sets;
+      });
+
+      const candidate = candidates.find(({ workoutIndex, exerciseIndex }) => {
+        const exercise = nextWorkouts[workoutIndex].exercises[exerciseIndex];
+        return exercise.sets > 1 || exercise.phase === "forca_especifica";
+      });
+      if (!candidate) continue;
       const exercise = nextWorkouts[candidate.workoutIndex].exercises[candidate.exerciseIndex];
-      return sum + Math.max(0, Number(exercise.sets) || 0);
-    }, 0);
-    let excess = Math.max(0, before - cap);
-    if (!excess) continue;
-
-    const sorted = [...candidates].sort((a, b) => {
-      const exerciseA = nextWorkouts[a.workoutIndex].exercises[a.exerciseIndex];
-      const exerciseB = nextWorkouts[b.workoutIndex].exercises[b.exerciseIndex];
-      return (REDUCTION_PRIORITY[exerciseB.phase] || 0) - (REDUCTION_PRIORITY[exerciseA.phase] || 0) ||
-        Number(exerciseB.sets || 0) - Number(exerciseA.sets || 0);
-    });
-
-    for (const candidate of sorted) {
-      if (!excess) break;
-      const exercise = nextWorkouts[candidate.workoutIndex].exercises[candidate.exerciseIndex];
-      const currentSets = Math.max(1, Number(exercise.sets) || 1);
-      const reduction = Math.min(excess, Math.max(0, currentSets - 1));
-      if (!reduction) continue;
-      exercise.sets = currentSets - reduction;
+      exercise.sets -= 1;
       if (exercise.set_types) exercise.set_types = exercise.set_types.slice(0, exercise.sets);
-      excess -= reduction;
+      reduced = true;
+      break;
     }
-
-    // Se cada exercício já chegou a uma série, removemos apenas acessórios isolados
-    // excedentes. Padrões globais e de controle motor nunca são descartados pelo clamp.
-    for (const candidate of sorted) {
-      if (!excess) break;
-      const workout = nextWorkouts[candidate.workoutIndex];
-      const exercise = workout.exercises[candidate.exerciseIndex];
-      if (!exercise || exercise.phase !== "forca_especifica") continue;
-      exercise.sets = 0;
-      exercise.set_types = [];
-      excess -= 1;
-    }
-    const after = Math.max(0, before - Math.max(0, before - cap - excess));
-    adjustments.push({ muscle_group: muscleGroup, before, after, cap });
+    if (!reduced) break;
   }
 
   nextWorkouts.forEach((workout) => {
@@ -230,6 +239,13 @@ export function enforceVolumeCaps(
     workout.exercises.forEach((exercise, index) => {
       exercise.exercise_order = index + 1;
     });
+  });
+
+  const afterCounts = countWeeklySets({ workouts: nextWorkouts });
+  const adjustments = [...beforeCounts.entries()].flatMap(([muscle_group, before]) => {
+    const cap = getVolumeRangeForGroup(muscle_group, input.fitnessLevel, input).mrv;
+    if (before <= cap) return [];
+    return [{ muscle_group, before, after: afterCounts.get(muscle_group) || 0, cap }];
   });
 
   return { workouts: nextWorkouts, adjustments };

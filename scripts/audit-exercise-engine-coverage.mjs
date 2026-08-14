@@ -1,18 +1,16 @@
 #!/usr/bin/env node
 import { createClient } from "@supabase/supabase-js";
+import { assertCanonicalSupabaseUrl } from "./lib/canonical-supabase-url.mjs";
 
-const CANONICAL_REF = "zshrcgbyhzxpnlccssyz";
 const url = process.env.AUDIT_SUPABASE_URL || "";
 const key = process.env.AUDIT_SUPABASE_SERVICE_ROLE_KEY || "";
 
 if (!url || !key) {
   throw new Error("Export AUDIT_SUPABASE_URL and AUDIT_SUPABASE_SERVICE_ROLE_KEY for this read-only audit.");
 }
-if (!url.includes(CANONICAL_REF)) {
-  throw new Error(`Refusing non-canonical Supabase project; expected ${CANONICAL_REF}.`);
-}
+const canonicalUrl = assertCanonicalSupabaseUrl(url);
 
-const supabase = createClient(url, key, {
+const supabase = createClient(canonicalUrl, key, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 

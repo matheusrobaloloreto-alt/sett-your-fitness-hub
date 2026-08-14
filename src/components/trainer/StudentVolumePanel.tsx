@@ -17,8 +17,9 @@ export function StudentVolumePanel({ studentId }: { studentId: string }) {
       setLoading(true);
       const { data: logRows } = await supabase
         .from("workout_logs")
-        .select("weight, reps_done, session_date, workout_id, exercise_index")
-        .eq("student_id", studentId);
+        .select("weight, reps_done, session_date, workout_id, exercise_index, completed")
+        .eq("student_id", studentId)
+        .eq("completed", true);
       const rows = logRows ?? [];
       // Carrega só os workouts realmente referenciados pelos logs → mapeia muscle_group.
       const workoutIds = Array.from(new Set(rows.map((l: any) => l.workout_id).filter(Boolean)));
@@ -49,5 +50,5 @@ export function StudentVolumePanel({ studentId }: { studentId: string }) {
   if (loading) {
     return <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
   }
-  return <VolumeInsights allLogs={logs} cycles={cycles} />;
+  return <VolumeInsights allLogs={logs} cycles={cycles} studentId={studentId} />;
 }
