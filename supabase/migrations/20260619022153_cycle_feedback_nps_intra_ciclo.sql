@@ -12,6 +12,18 @@ CREATE TABLE IF NOT EXISTS public.cycle_feedback (
   applied boolean NOT NULL DEFAULT false,   -- o professor já aplicou/revisou na próxima prescrição
   created_at timestamptz NOT NULL DEFAULT now()
 );
+-- `cycle_feedback` already existed in the original schema with the legacy
+-- rating fields. Reconcile the NPS extension when CREATE TABLE is a no-op.
+ALTER TABLE public.cycle_feedback
+  ADD COLUMN IF NOT EXISTS cycle_id uuid REFERENCES public.training_cycles(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS nps smallint,
+  ADD COLUMN IF NOT EXISTS goals_aligned boolean,
+  ADD COLUMN IF NOT EXISTS wants_adjustment boolean,
+  ADD COLUMN IF NOT EXISTS adjustment_notes text,
+  ADD COLUMN IF NOT EXISTS effort_score smallint,
+  ADD COLUMN IF NOT EXISTS answers jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS applied boolean NOT NULL DEFAULT false;
+
 ALTER TABLE public.cycle_feedback ENABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS idx_cycle_feedback_student ON public.cycle_feedback (student_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cycle_feedback_company ON public.cycle_feedback (company_id, created_at DESC);
