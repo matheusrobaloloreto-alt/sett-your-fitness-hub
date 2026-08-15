@@ -23,6 +23,7 @@ export const WEARABLE_STATUS_LABELS: Record<string, string> = {
   error: "Erro de sincronização",
   revoked: "Desconectado",
   revocation_pending: "Revogação pendente",
+  reauthorization_required: "Reconexão necessária",
   config_required: "Configuração pendente",
   partial_scope: "Permissões incompletas",
 };

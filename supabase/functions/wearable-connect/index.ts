@@ -13,6 +13,7 @@ import {
   exchangeAuthorizationCode,
   missingScopes,
   refreshProviderToken,
+  registerPolarUser,
   REQUIRED_SCOPES,
   resolveGrantedScopes,
   revokeProviderToken,
@@ -22,6 +23,7 @@ import {
   type SyncDevice,
   syncOura,
   type SyncResult,
+  syncStrava,
   syncWhoop,
 } from "../_shared/wearables/providers.ts";
 import type {
@@ -105,7 +107,7 @@ async function requireStudent(req: Request) {
   const { data: authData, error: authError } = await client.auth.getUser();
   if (authError || !authData.user) return null;
   const { data, error } = await admin.from("students").select(
-    "id, company_id, user_id",
+    "id, company_id, user_id, status",
   ).eq("user_id", authData.user.id).order("created_at", { ascending: false })
     .limit(1).maybeSingle();
   dbError(error, "student_lookup_failed");
@@ -175,7 +177,7 @@ async function loadCredentials(deviceId: string) {
 
 async function acquireLease(
   deviceId: string,
-  purpose: "sync" | "refresh",
+  purpose: "sync" | "refresh" | "maintenance",
   holder: string,
   seconds = 90,
 ) {
@@ -191,7 +193,7 @@ async function acquireLease(
 
 async function releaseLease(
   deviceId: string,
-  purpose: "sync" | "refresh",
+  purpose: "sync" | "refresh" | "maintenance",
   holder: string,
 ) {
   const { error } = await admin.rpc("release_wearable_lease", {
@@ -243,30 +245,14 @@ async function validAccessToken(device: SyncDevice, holder: string) {
 async function syncLegacyProvider(
   device: SyncDevice,
   token: string,
+  heartbeat?: () => Promise<void>,
 ): Promise<SyncResult> {
-  if (device.provider === "polar") {
-    try {
-      await requestJson("https://www.polaraccesslink.com/v3/users", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ "member-id": device.student_id }),
-      });
-    } catch (error) {
-      if (!(error instanceof WearableHttpError) || error.status !== 409) {
-        throw error;
-      }
-    }
-  }
-  const url = device.provider === "strava"
-    ? "https://www.strava.com/api/v3/athlete/activities?per_page=50&page=1"
-    : "https://www.polaraccesslink.com/v3/exercises";
+  if (device.provider !== "polar") throw new Error("provider_not_supported");
+  const url = "https://www.polaraccesslink.com/v3/exercises";
   const activities = await requestJson<Record<string, any>[]>(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
+  if (heartbeat) await heartbeat();
   const workouts = (Array.isArray(activities) ? activities : []).flatMap(
     (item) => {
       const startedAt = String(item.start_date ?? item.start_time ?? "");
@@ -287,9 +273,7 @@ async function syncLegacyProvider(
         activity_type: String(
           item.sport_type ?? item.type ?? item.sport ?? "activity",
         ),
-        duration_min: device.provider === "strava"
-          ? Math.round(durationSeconds / 60)
-          : null,
+        duration_min: null,
         distance_km: item.distance == null
           ? null
           : Number(item.distance) / 1000,
@@ -311,32 +295,6 @@ async function syncLegacyProvider(
     workouts,
     watermarks: { [device.provider]: new Date().toISOString() },
   };
-}
-
-async function persistSync(device: SyncDevice, result: SyncResult) {
-  if (result.metrics.length) {
-    const { error } = await admin.from("wearable_data").upsert(result.metrics, {
-      onConflict: "device_id,date,metric",
-    });
-    dbError(error, "metric_upsert_failed");
-  }
-  if (result.workouts.length) {
-    const { error } = await admin.from("wearable_workouts").upsert(
-      result.workouts,
-      { onConflict: "device_id,external_id" },
-    );
-    dbError(error, "workout_upsert_failed");
-  }
-  for (const [resource, watermark] of Object.entries(result.watermarks)) {
-    const { error } = await admin.from("wearable_sync_cursors").upsert({
-      device_id: device.id,
-      resource,
-      watermark,
-      last_success_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "device_id,resource" });
-    dbError(error, "cursor_upsert_failed");
-  }
 }
 
 async function handleCallback(url: URL) {
@@ -366,6 +324,8 @@ async function handleCallback(url: URL) {
   ) {
     return Response.redirect(appendQuery(returnUrl, "wearable", "denied"), 302);
   }
+  let issuedTokens: TokenBundle | null = null;
+  let issuedExternalUserId: string | null = null;
   try {
     const connectable = provider as ConnectableProvider;
     const secrets = providerSecrets(connectable);
@@ -379,19 +339,6 @@ async function handleCallback(url: URL) {
     if (requested.join(" ") !== REQUIRED_SCOPES[connectable].join(" ")) {
       throw new Error("oauth_scope_state_mismatch");
     }
-    const tokens = await exchangeAuthorizationCode(
-      connectable,
-      code,
-      secrets.clientId,
-      secrets.clientSecret,
-      CALLBACK_URL,
-    );
-    const granted = resolveGrantedScopes(
-      connectable,
-      tokens.scopes,
-      url.searchParams.get("scope"),
-    );
-    const missing = missingScopes(connectable, granted);
     const { data: currentStudent, error: studentError } = await admin.from(
       "students",
     ).select("id").eq("id", oauthState.student_id).eq(
@@ -401,6 +348,28 @@ async function handleCallback(url: URL) {
       .maybeSingle();
     dbError(studentError, "oauth_actor_revalidation_failed");
     if (!currentStudent) throw new Error("oauth_actor_no_longer_active");
+
+    issuedTokens = await exchangeAuthorizationCode(
+      connectable,
+      code,
+      secrets.clientId,
+      secrets.clientSecret,
+      CALLBACK_URL,
+    );
+    const granted = resolveGrantedScopes(
+      connectable,
+      issuedTokens.scopes,
+      url.searchParams.get("scope"),
+    );
+    const missing = missingScopes(connectable, granted);
+    issuedExternalUserId = issuedTokens.externalUserId;
+    if (connectable === "polar") {
+      issuedExternalUserId = await registerPolarUser(
+        issuedTokens.accessToken,
+        oauthState.student_id,
+        issuedTokens.externalUserId,
+      );
+    }
     const { data: existingDevice, error: existingError } = await admin.from(
       "wearable_devices",
     ).select("id").eq("student_id", oauthState.student_id).eq(
@@ -410,7 +379,7 @@ async function handleCallback(url: URL) {
     dbError(existingError, "device_lookup_failed");
     const deviceId = existingDevice?.id ?? crypto.randomUUID();
     const envelope = await encryptTokens(
-      { ...tokens, scopes: granted },
+      { ...issuedTokens, scopes: granted },
       configuration.keyring,
       configuration.activeKeyId,
       deviceId,
@@ -423,6 +392,7 @@ async function handleCallback(url: URL) {
         p_actor_user_id: oauthState.actor_user_id,
         p_company_id: oauthState.company_id,
         p_provider: connectable,
+        p_external_user_id: issuedExternalUserId,
         p_granted_scopes: granted,
         p_required_scopes: REQUIRED_SCOPES[connectable],
         p_key_id: envelope.keyId,
@@ -430,8 +400,8 @@ async function handleCallback(url: URL) {
         p_access_iv: envelope.accessToken.iv,
         p_refresh_ciphertext: envelope.refreshToken?.ciphertext ?? null,
         p_refresh_iv: envelope.refreshToken?.iv ?? null,
-        p_token_expires_at: tokens.expiresAt,
-        p_token_type: tokens.tokenType,
+        p_token_expires_at: issuedTokens.expiresAt,
+        p_token_type: issuedTokens.tokenType,
         p_privacy_version: PRIVACY_VERSION,
       },
     );
@@ -447,6 +417,25 @@ async function handleCallback(url: URL) {
     );
   } catch (error) {
     const safeCode = sanitizeError(error);
+    if (
+      issuedTokens && provider &&
+      CONNECTABLE.includes(provider as ConnectableProvider)
+    ) {
+      try {
+        const connectable = provider as ConnectableProvider;
+        await revokeProviderToken(
+          connectable,
+          issuedTokens.accessToken,
+          providerSecrets(connectable).clientId,
+          issuedExternalUserId,
+        );
+      } catch (revokeError) {
+        console.error("wearable callback compensating revoke failed", {
+          provider,
+          code: sanitizeError(revokeError),
+        });
+      }
+    }
     console.error("wearable callback failed", { code: safeCode, provider });
     return Response.redirect(
       appendQuery(
@@ -479,10 +468,11 @@ serve(async (req) => {
   const provider = parseProvider(body.provider);
 
   if (action === "status") {
-    const [devices, metrics, workouts] = await Promise.all([
+    const [devices, credentials, metrics, workouts] = await Promise.all([
       admin.from("wearable_devices").select(
         "id,provider,device_name,is_active,connection_status,granted_scopes,required_scopes,last_sync_at,last_sync_status,last_error_code,last_error,revocation_status,revoked_at",
       ).eq("student_id", student.id),
+      admin.from("wearable_credentials").select("device_id"),
       admin.from("wearable_data").select(
         "date,recorded_at,metric,value,unit,score_state,source",
       ).eq("student_id", student.id).order("date", { ascending: false }).limit(
@@ -494,6 +484,7 @@ serve(async (req) => {
         .limit(20),
     ]);
     dbError(devices.error, "device_status_failed");
+    dbError(credentials.error, "credential_status_failed");
     dbError(metrics.error, "metric_status_failed");
     dbError(workouts.error, "workout_status_failed");
     const configured = Object.fromEntries(CONNECTABLE.map((item) => {
@@ -506,14 +497,27 @@ serve(async (req) => {
       ];
     }));
     const now = Date.now();
+    const encryptedDeviceIds = new Set(
+      (credentials.data ?? []).map((credential) => credential.device_id),
+    );
     return json({
-      devices: (devices.data ?? []).map((device) => ({
-        ...device,
-        connection_status: device.is_active && device.last_sync_at &&
-            now - new Date(device.last_sync_at).getTime() > 36 * 60 * 60 * 1000
-          ? "stale"
-          : device.connection_status,
-      })),
+      devices: (devices.data ?? []).map((device) => {
+        const missingEnvelope = !encryptedDeviceIds.has(device.id) &&
+          ["connected", "syncing", "stale", "error"].includes(
+            device.connection_status,
+          );
+        return {
+          ...device,
+          connection_status: missingEnvelope
+            ? "reauthorization_required"
+            : device.connection_status === "connected" && device.is_active &&
+                device.last_sync_at &&
+                now - new Date(device.last_sync_at).getTime() >
+                  36 * 60 * 60 * 1000
+            ? "stale"
+            : device.connection_status,
+        };
+      }),
       metrics: metrics.data ?? [],
       workouts: workouts.data ?? [],
       configuration: configured,
@@ -539,6 +543,9 @@ serve(async (req) => {
       return json({ error: "provider_invalid" }, 400);
     }
     const connectable = provider as ConnectableProvider;
+    if (student.status !== "active") {
+      return json({ error: "student_inactive" }, 403);
+    }
     const secrets = providerSecrets(connectable);
     if (!secrets.clientId || !secrets.clientSecret || !tokenConfiguration()) {
       return json({
@@ -574,7 +581,7 @@ serve(async (req) => {
       return json({ error: "provider_invalid" }, 400);
     }
     const { data, error } = await admin.from("wearable_devices").select(
-      "id,student_id,company_id,provider,granted_scopes,required_scopes,is_active",
+      "id,student_id,company_id,provider,granted_scopes,required_scopes,is_active,connection_status",
     ).eq("student_id", student.id).eq("provider", provider).eq(
       "is_active",
       true,
@@ -593,17 +600,25 @@ serve(async (req) => {
       return json({ error: "sync_in_progress" }, 409);
     }
     try {
-      await admin.from("wearable_devices").update({
-        connection_status: "syncing",
-        last_sync_status: "syncing",
-        last_error: null,
-        last_error_code: null,
-      }).eq("id", data.id);
+      const { data: begunDevice, error: beginError } = await admin.rpc(
+        "begin_wearable_sync",
+        {
+          p_device_id: data.id,
+          p_student_id: student.id,
+          p_actor_user_id: student.actor_user_id,
+          p_holder: holder,
+        },
+      );
+      dbError(beginError, "sync_begin_failed");
+      if (!begunDevice) throw new Error("sync_begin_failed");
       const device = data as SyncDevice;
       const token = await validAccessToken(device, holder);
-      const { data: cursor } = await admin.from("wearable_sync_cursors").select(
+      const { data: cursor, error: cursorError } = await admin.from(
+        "wearable_sync_cursors",
+      ).select(
         "watermark",
       ).eq("device_id", data.id).eq("resource", provider).maybeSingle();
+      dbError(cursorError, "cursor_load_failed");
       const heartbeat = async () => {
         if (!await acquireLease(data.id, "sync", holder, 180)) {
           throw new Error("sync_lease_lost");
@@ -613,19 +628,29 @@ serve(async (req) => {
         ? await syncOura(device, token, cursor?.watermark ?? null, heartbeat)
         : provider === "whoop"
         ? await syncWhoop(device, token, cursor?.watermark ?? null, heartbeat)
-        : await syncLegacyProvider(device, token);
-      await persistSync(device, result);
+        : provider === "strava"
+        ? await syncStrava(device, token, cursor?.watermark ?? null, heartbeat)
+        : await syncLegacyProvider(device, token, heartbeat);
       const completedAt = new Date().toISOString();
-      await admin.from("wearable_devices").update({
-        connection_status: "connected",
-        last_sync_at: completedAt,
-        last_sync_status: "success",
-        last_error: null,
-        last_error_code: null,
-      }).eq("id", data.id);
+      const { data: imported, error: commitError } = await admin.rpc(
+        "commit_wearable_sync",
+        {
+          p_device_id: data.id,
+          p_student_id: student.id,
+          p_holder: holder,
+          p_metrics: result.metrics,
+          p_workouts: result.workouts,
+          p_watermarks: result.watermarks,
+          p_completed_at: completedAt,
+        },
+      );
+      dbError(commitError, "sync_commit_failed");
+      if (imported === null || imported === undefined) {
+        throw new Error("sync_commit_failed");
+      }
       return json({
         ok: true,
-        imported: result.metrics.length + result.workouts.length,
+        imported: Number(imported),
         metrics: result.metrics.length,
         workouts: result.workouts.length,
         synced_at: completedAt,
@@ -634,16 +659,27 @@ serve(async (req) => {
       const code = sanitizeError(error);
       const revoked = error instanceof WearableHttpError &&
         error.status === 401;
-      await admin.from("wearable_devices").update({
-        connection_status: revoked
-          ? "revoked"
-          : code === "config_required"
-          ? "config_required"
-          : "error",
-        last_sync_status: "error",
-        last_error_code: code,
-        last_error: code,
-      }).eq("id", data.id);
+      const failureStatus = revoked
+        ? "revoked"
+        : code === "config_required"
+        ? "config_required"
+        : "error";
+      const { data: failurePersisted, error: failureError } = await admin.rpc(
+        "fail_wearable_sync",
+        {
+          p_device_id: data.id,
+          p_holder: holder,
+          p_status: failureStatus,
+          p_error_code: code,
+        },
+      );
+      if (failureError) {
+        console.error("wearable sync failure state persistence failed", {
+          code: failureError.code,
+        });
+        return json({ error: "sync_failure_state_not_persisted" }, 503);
+      }
+      if (!failurePersisted) return json({ error: "sync_lease_lost" }, 409);
       return json(
         { error: code },
         revoked ? 401 : code === "config_required" ? 503 : 502,
@@ -658,72 +694,60 @@ serve(async (req) => {
       return json({ error: "provider_invalid" }, 400);
     }
     const { data: device, error } = await admin.from("wearable_devices").select(
-      "id,provider",
+      "id,provider,external_user_id",
     ).eq("student_id", student.id).eq("provider", provider).maybeSingle();
     dbError(error, "device_lookup_failed");
     if (!device) return json({ ok: true, revocation_status: "not_connected" });
+    const holder = crypto.randomUUID();
+    if (!await acquireLease(device.id, "maintenance", holder, 300)) {
+      return json({ error: "device_busy" }, 409);
+    }
     let revocationStatus = "succeeded";
+    let revocationError: string | null = null;
     try {
-      const credentials = await loadCredentials(device.id);
-      const secrets = providerSecrets(provider as ConnectableProvider);
-      await revokeProviderToken(
-        provider as ConnectableProvider,
-        credentials.accessToken,
-        secrets.clientId,
+      try {
+        const credentials = await loadCredentials(device.id);
+        const secrets = providerSecrets(provider as ConnectableProvider);
+        await revokeProviderToken(
+          provider as ConnectableProvider,
+          credentials.accessToken,
+          secrets.clientId,
+          device.external_user_id,
+        );
+      } catch (revokeError) {
+        revocationStatus = "pending";
+        revocationError = sanitizeError(revokeError);
+        console.error("wearable revoke failed", {
+          provider,
+          code: revocationError,
+        });
+      }
+      const { data: persistedStatus, error: persistError } = await admin.rpc(
+        "complete_wearable_disconnect",
+        {
+          p_device_id: device.id,
+          p_student_id: student.id,
+          p_actor_user_id: student.actor_user_id,
+          p_holder: holder,
+          p_revocation_succeeded: revocationStatus === "succeeded",
+          p_error_code: revocationError,
+          p_privacy_version: PRIVACY_VERSION,
+        },
       );
-    } catch (error) {
-      revocationStatus = "pending";
-      console.error("wearable revoke failed", {
-        provider,
-        code: sanitizeError(error),
-      });
-    }
-    const now = new Date();
-    if (revocationStatus === "succeeded") {
-      await admin.from("wearable_credentials").delete().eq(
-        "device_id",
-        device.id,
+      dbError(persistError, "disconnect_commit_failed");
+      if (persistedStatus !== revocationStatus) {
+        throw new Error("disconnect_commit_mismatch");
+      }
+      return json(
+        {
+          ok: revocationStatus === "succeeded",
+          revocation_status: revocationStatus,
+        },
+        revocationStatus === "succeeded" ? 200 : 202,
       );
+    } finally {
+      await releaseLease(device.id, "maintenance", holder);
     }
-    await admin.from("wearable_devices").update({
-      is_active: false,
-      connection_status: revocationStatus === "succeeded"
-        ? "revoked"
-        : "revocation_pending",
-      revocation_status: revocationStatus,
-      revoked_at: revocationStatus === "succeeded" ? now.toISOString() : null,
-      revocation_retry_after: revocationStatus === "pending"
-        ? new Date(now.getTime() + 60 * 60 * 1000).toISOString()
-        : null,
-      credential_delete_after: revocationStatus === "pending"
-        ? new Date(now.getTime() + 30 * 86_400_000).toISOString()
-        : null,
-      last_error_code: revocationStatus === "pending"
-        ? "provider_revocation_failed"
-        : null,
-      last_error: revocationStatus === "pending"
-        ? "provider_revocation_failed"
-        : null,
-    }).eq("id", device.id);
-    if (revocationStatus === "succeeded") {
-      await admin.from("wearable_consents").insert({
-        device_id: device.id,
-        student_id: student.id,
-        company_id: student.company_id,
-        provider,
-        event_type: "revoked",
-        scopes: [],
-        privacy_version: PRIVACY_VERSION,
-        metadata: { provider_revocation: revocationStatus },
-      });
-    }
-    return json(
-      {
-        ok: revocationStatus === "succeeded",
-        revocation_status: revocationStatus,
-      },
-      revocationStatus === "succeeded" ? 200 : 202,
-    );
   }
 
   if (action === "delete_data") {
@@ -738,35 +762,33 @@ serve(async (req) => {
     ).eq("student_id", student.id).eq("provider", provider).maybeSingle();
     dbError(error, "device_lookup_failed");
     if (!device) return json({ ok: true, deleted: 0 });
-    const [metrics, workouts] = await Promise.all([
-      admin.from("wearable_data").delete().eq("device_id", device.id).select(
-        "id",
-      ),
-      admin.from("wearable_workouts").delete().eq("device_id", device.id)
-        .select("id"),
-    ]);
-    dbError(metrics.error, "metric_delete_failed");
-    dbError(workouts.error, "workout_delete_failed");
-    await admin.from("wearable_sync_cursors").delete().eq(
-      "device_id",
-      device.id,
-    );
-    await admin.from("wearable_events").delete().eq("device_id", device.id);
-    await admin.from("wearable_consents").insert({
-      device_id: device.id,
-      student_id: student.id,
-      company_id: student.company_id,
-      provider,
-      event_type: "data_deleted",
-      scopes: [],
-      privacy_version: PRIVACY_VERSION,
-      metadata: { actor_user_id: student.actor_user_id },
-    });
-    return json({
-      ok: true,
-      deleted: (metrics.data?.length ?? 0) + (workouts.data?.length ?? 0),
-      retained: ["consent_ledger", "connection_status"],
-    });
+    const holder = crypto.randomUUID();
+    if (!await acquireLease(device.id, "maintenance", holder, 300)) {
+      return json({ error: "device_busy" }, 409);
+    }
+    try {
+      const { data: deleted, error: deleteError } = await admin.rpc(
+        "delete_wearable_provider_data",
+        {
+          p_device_id: device.id,
+          p_student_id: student.id,
+          p_actor_user_id: student.actor_user_id,
+          p_holder: holder,
+          p_privacy_version: PRIVACY_VERSION,
+        },
+      );
+      dbError(deleteError, "data_delete_commit_failed");
+      if (deleted === null || deleted === undefined) {
+        throw new Error("data_delete_commit_failed");
+      }
+      return json({
+        ok: true,
+        deleted: Number(deleted),
+        retained: ["consent_ledger", "connection_status"],
+      });
+    } finally {
+      await releaseLease(device.id, "maintenance", holder);
+    }
   }
 
   return json({ error: "action_invalid" }, 400);

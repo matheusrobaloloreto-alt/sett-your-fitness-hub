@@ -21,6 +21,7 @@ describe("wearable UI contracts", () => {
       "error",
       "revoked",
       "revocation_pending",
+      "reauthorization_required",
       "config_required",
       "partial_scope",
     ]));

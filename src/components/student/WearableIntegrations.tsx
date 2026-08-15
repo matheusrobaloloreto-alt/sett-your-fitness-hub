@@ -242,11 +242,12 @@ export function WearableIntegrations() {
       <section className="overflow-hidden rounded-lg border border-border bg-card">
         {PROVIDERS.map((provider, index) => {
           const device = connectedByProvider.get(provider.id);
-          const connected = Boolean(device?.is_active && !["revoked", "revocation_pending", "config_required", "partial_scope"].includes(device.connection_status));
+          const hasHistory = status.metrics.some((metric) => metric.source === provider.id) || status.workouts.some((workout) => workout.source === provider.id);
           const Icon = provider.icon;
           const busy = busyProvider === provider.id;
           const configured = status.configuration[provider.id] !== false;
           const state = device?.connection_status || (!configured ? "config_required" : null);
+          const connected = Boolean(device?.is_active && state && !["revoked", "revocation_pending", "reauthorization_required", "config_required", "partial_scope"].includes(state));
           return (
             <div
               key={provider.id}
@@ -263,7 +264,7 @@ export function WearableIntegrations() {
                       <Badge variant="outline" className={cn(
                         state === "connected" && "border-emerald-300 text-emerald-700",
                         ["error", "revoked", "revocation_pending"].includes(state) && "border-destructive/40 text-destructive",
-                        ["stale", "partial_scope", "config_required"].includes(state) && "border-amber-300 text-amber-700",
+                        ["stale", "partial_scope", "reauthorization_required", "config_required"].includes(state) && "border-amber-300 text-amber-700",
                       )}>{WEARABLE_STATUS_LABELS[state] || state}</Badge>
                     )}
                   </div>
@@ -271,6 +272,7 @@ export function WearableIntegrations() {
                   {state === "partial_scope" && <p className="mt-1 text-xs text-amber-700">Reconecte e autorize todas as permissões solicitadas.</p>}
                   {state === "config_required" && <p className="mt-1 text-xs text-amber-700">Configuração segura do servidor pendente.</p>}
                   {state === "revocation_pending" && <p className="mt-1 text-xs text-destructive">Acesso local bloqueado; tente revogar novamente.</p>}
+                  {state === "reauthorization_required" && <p className="mt-1 text-xs text-amber-700">A conexão antiga não será usada até você autorizar novamente.</p>}
                   {device?.last_error && <p className="mt-1 text-xs text-destructive">{device.last_error}</p>}
                 </div>
               </div>
@@ -284,14 +286,16 @@ export function WearableIntegrations() {
                     <Button variant="ghost" size="icon" onClick={() => void disconnect(provider.id)} disabled={busy} title="Desconectar" aria-label={`Desconectar ${provider.name}`}>
                       <Unplug className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => void deleteData(provider.id)} disabled={busy} title="Excluir dados importados" aria-label={`Excluir dados de ${provider.name}`}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
                   </>
                 ) : (
                   <Button size="sm" onClick={() => void (state === "revocation_pending" ? disconnect(provider.id) : connect(provider.id))} disabled={busy || state === "config_required"}>
                     {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : state === "revocation_pending" ? <Unplug className="h-4 w-4" /> : <CloudCog className="h-4 w-4" />}
                     <span className="ml-2">{state === "revocation_pending" ? "Tentar revogar" : "Conectar"}</span>
+                  </Button>
+                )}
+                {hasHistory && (
+                  <Button variant="ghost" size="icon" onClick={() => void deleteData(provider.id)} disabled={busy} title="Excluir dados importados" aria-label={`Excluir dados de ${provider.name}`}>
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 )}
               </div>
