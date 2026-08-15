@@ -10,6 +10,7 @@ import {
   Loader2,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   Unplug,
   Watch,
   Waves,
@@ -19,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { wearableMetricDisplay, WEARABLE_STATUS_LABELS } from "@/lib/wearables";
 
 type ProviderId = "oura" | "apple_health" | "garmin" | "strava" | "polar" | "whoop";
 
@@ -27,6 +29,9 @@ interface WearableDevice {
   provider: ProviderId;
   device_name: string | null;
   is_active: boolean;
+  connection_status: string;
+  granted_scopes: string[];
+  required_scopes: string[];
   last_sync_at: string | null;
   last_sync_status: string | null;
   last_error: string | null;
@@ -34,9 +39,11 @@ interface WearableDevice {
 
 interface WearableMetric {
   date: string;
+  recorded_at: string | null;
   metric: string;
-  value: number;
+  value: number | null;
   unit: string | null;
+  score_state: string | null;
   source: ProviderId;
 }
 
@@ -53,6 +60,7 @@ interface WearableStatus {
   devices: WearableDevice[];
   metrics: WearableMetric[];
   workouts: WearableWorkout[];
+  configuration: Partial<Record<ProviderId, boolean>>;
 }
 
 const PROVIDERS: Array<{
@@ -92,7 +100,7 @@ function formatDate(value: string | null) {
 
 export function WearableIntegrations() {
   const { toast } = useToast();
-  const [status, setStatus] = useState<WearableStatus>({ devices: [], metrics: [], workouts: [] });
+  const [status, setStatus] = useState<WearableStatus>({ devices: [], metrics: [], workouts: [], configuration: {} });
   const [loading, setLoading] = useState(true);
   const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
 
@@ -110,15 +118,22 @@ export function WearableIntegrations() {
       devices: Array.isArray(data?.devices) ? data.devices : [],
       metrics: Array.isArray(data?.metrics) ? data.metrics : [],
       workouts: Array.isArray(data?.workouts) ? data.workouts : [],
+      configuration: data?.configuration && typeof data.configuration === "object" ? data.configuration : {},
     });
   }, [toast]);
 
   useEffect(() => {
     const result = new URLSearchParams(window.location.search).get("wearable");
     if (result === "connected") toast({ title: "Integração conectada", description: "Agora sincronize para trazer seus dados mais recentes." });
-    if (result === "error" || result === "expired") toast({
+    if (["error", "expired", "partial_scope", "config_required"].includes(result || "")) toast({
       title: "A conexão não foi concluída",
-      description: result === "expired" ? "A autorização expirou. Tente conectar novamente." : "O provedor recusou ou interrompeu a autorização.",
+      description: result === "expired"
+        ? "A autorização expirou. Tente conectar novamente."
+        : result === "partial_scope"
+        ? "O provedor não concedeu todas as permissões necessárias. Reconecte e revise o consentimento."
+        : result === "config_required"
+        ? "A integração ainda precisa ser configurada pela equipe."
+        : "O provedor recusou ou interrompeu a autorização.",
       variant: "destructive",
     });
     if (result) {
@@ -131,7 +146,7 @@ export function WearableIntegrations() {
   }, [loadStatus, toast]);
 
   const connectedByProvider = useMemo(
-    () => new Map(status.devices.filter((device) => device.is_active).map((device) => [device.provider, device])),
+    () => new Map(status.devices.map((device) => [device.provider, device])),
     [status.devices],
   );
 
@@ -179,8 +194,9 @@ export function WearableIntegrations() {
   };
 
   const disconnect = async (provider: ProviderId) => {
+    if (!window.confirm("Desconectar este provedor? O acesso será revogado e será preciso autorizar novamente.")) return;
     setBusyProvider(provider);
-    const { error } = await supabase.functions.invoke("wearable-connect", {
+    const { data, error } = await supabase.functions.invoke("wearable-connect", {
       body: { action: "disconnect", provider },
     });
     setBusyProvider(null);
@@ -188,6 +204,24 @@ export function WearableIntegrations() {
       toast({ title: "Não foi possível desconectar", description: error.message, variant: "destructive" });
       return;
     }
+    if (data?.revocation_status === "pending") {
+      toast({ title: "Revogação pendente", description: "O provedor não respondeu. O acesso local foi bloqueado e a equipe poderá tentar novamente sem perder a credencial cifrada." });
+    }
+    await loadStatus();
+  };
+
+  const deleteData = async (provider: ProviderId) => {
+    if (!window.confirm("Excluir do SETT todas as métricas e atividades já importadas deste provedor? A conexão e o registro de consentimento serão mantidos.")) return;
+    setBusyProvider(provider);
+    const { data, error } = await supabase.functions.invoke("wearable-connect", {
+      body: { action: "delete_data", provider, confirm_phrase: "EXCLUIR DADOS" },
+    });
+    setBusyProvider(null);
+    if (error || data?.error) {
+      toast({ title: "Não foi possível excluir os dados", description: data?.error || error?.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Dados importados excluídos", description: "O registro de consentimento foi preservado para auditoria." });
     await loadStatus();
   };
 
@@ -208,8 +242,11 @@ export function WearableIntegrations() {
       <section className="overflow-hidden rounded-lg border border-border bg-card">
         {PROVIDERS.map((provider, index) => {
           const device = connectedByProvider.get(provider.id);
+          const connected = Boolean(device?.is_active && !["revoked", "revocation_pending", "config_required", "partial_scope"].includes(device.connection_status));
           const Icon = provider.icon;
           const busy = busyProvider === provider.id;
+          const configured = status.configuration[provider.id] !== false;
+          const state = device?.connection_status || (!configured ? "config_required" : null);
           return (
             <div
               key={provider.id}
@@ -222,27 +259,39 @@ export function WearableIntegrations() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold text-foreground">{provider.name}</h3>
-                    {device && <Badge variant="outline" className="border-emerald-300 text-emerald-700">Conectado</Badge>}
+                    {state && (
+                      <Badge variant="outline" className={cn(
+                        state === "connected" && "border-emerald-300 text-emerald-700",
+                        ["error", "revoked", "revocation_pending"].includes(state) && "border-destructive/40 text-destructive",
+                        ["stale", "partial_scope", "config_required"].includes(state) && "border-amber-300 text-amber-700",
+                      )}>{WEARABLE_STATUS_LABELS[state] || state}</Badge>
+                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground">{device ? `Última sincronização: ${formatDate(device.last_sync_at)}` : provider.detail}</p>
+                  <p className="text-xs text-muted-foreground">{device?.last_sync_at ? `Última sincronização: ${formatDate(device.last_sync_at)}` : provider.detail}</p>
+                  {state === "partial_scope" && <p className="mt-1 text-xs text-amber-700">Reconecte e autorize todas as permissões solicitadas.</p>}
+                  {state === "config_required" && <p className="mt-1 text-xs text-amber-700">Configuração segura do servidor pendente.</p>}
+                  {state === "revocation_pending" && <p className="mt-1 text-xs text-destructive">Acesso local bloqueado; tente revogar novamente.</p>}
                   {device?.last_error && <p className="mt-1 text-xs text-destructive">{device.last_error}</p>}
                 </div>
               </div>
               <div className="flex gap-2 sm:justify-end">
-                {device ? (
+                {connected ? (
                   <>
-                    <Button variant="outline" size="sm" onClick={() => void sync(provider.id)} disabled={busy}>
+                    <Button variant="outline" size="sm" onClick={() => void sync(provider.id)} disabled={busy || state === "syncing"}>
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                       <span className="ml-2">Sincronizar</span>
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => void disconnect(provider.id)} disabled={busy} title="Desconectar" aria-label={`Desconectar ${provider.name}`}>
                       <Unplug className="h-4 w-4" />
                     </Button>
+                    <Button variant="ghost" size="icon" onClick={() => void deleteData(provider.id)} disabled={busy} title="Excluir dados importados" aria-label={`Excluir dados de ${provider.name}`}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </>
                 ) : (
-                  <Button size="sm" onClick={() => void connect(provider.id)} disabled={busy}>
-                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudCog className="h-4 w-4" />}
-                    <span className="ml-2">Conectar</span>
+                  <Button size="sm" onClick={() => void (state === "revocation_pending" ? disconnect(provider.id) : connect(provider.id))} disabled={busy || state === "config_required"}>
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : state === "revocation_pending" ? <Unplug className="h-4 w-4" /> : <CloudCog className="h-4 w-4" />}
+                    <span className="ml-2">{state === "revocation_pending" ? "Tentar revogar" : "Conectar"}</span>
                   </Button>
                 )}
               </div>
@@ -258,7 +307,10 @@ export function WearableIntegrations() {
             {latestMetrics.map((metric) => (
               <div key={`${metric.source}-${metric.metric}`} className="rounded-lg border border-border bg-card p-4">
                 <p className="text-xs text-muted-foreground">{METRIC_LABELS[metric.metric] || metric.metric.replaceAll("_", " ")}</p>
-                <p className="mt-1 font-mono-data text-2xl text-primary">{Math.round(metric.value)}<span className="ml-1 text-xs text-muted-foreground">{metric.unit === "score" ? "/100" : metric.unit}</span></p>
+                {(() => {
+                  const display = wearableMetricDisplay(metric);
+                  return <p className="mt-1 font-mono-data text-2xl text-primary">{display.value}<span className="ml-1 text-xs text-muted-foreground">{display.unit}</span></p>;
+                })()}
                 <p className="mt-1 text-[11px] uppercase text-muted-foreground">{metric.source} · {metric.date}</p>
               </div>
             ))}

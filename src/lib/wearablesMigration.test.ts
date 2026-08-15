@@ -6,6 +6,7 @@ const sql = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260814120000_wearables_secure_foundation.sql"),
   "utf8",
 ).toLowerCase();
+const edge = readFileSync(resolve(process.cwd(), "supabase/functions/wearable-connect/index.ts"), "utf8").toLowerCase();
 
 describe("wearables migration security contract", () => {
   it("creates every reproducibility table", () => {
@@ -31,6 +32,9 @@ describe("wearables migration security contract", () => {
     expect(sql).not.toContain("drop column if exists access_token");
     expect(sql).not.toContain("drop column if exists refresh_token");
     expect(sql).toContain("column grant deliberately excludes any legacy plaintext token");
+    const deviceColumnGrant = sql.match(/grant select \(([^;]+)\)\s*on public\.wearable_devices to authenticated;/)?.[1] ?? "";
+    expect(deviceColumnGrant).not.toContain("access_token");
+    expect(deviceColumnGrant).not.toContain("refresh_token");
     expect(sql).toContain("delete from public.wearable_oauth_states");
     expect(sql).toContain("function public.acquire_wearable_lease");
   });
@@ -49,5 +53,36 @@ describe("wearables migration security contract", () => {
     expect(sql).toContain("wearable_actor_mismatch");
     expect(sql).toContain("wearable_provider_mismatch");
     expect(sql).toContain("requested_scopes text[]");
+    expect(sql).toContain("function public.commit_wearable_connection");
+    expect(sql).toContain("wearable_actor_no_longer_active");
+    expect(sql).toContain("coalesce(v_student.status, '') <> 'active'");
+  });
+
+  it("rejects expired/replayed OAuth state and binds requested scopes", () => {
+    expect(sql).toContain("expires_at > now()");
+    expect(sql).toContain("delete from public.wearable_oauth_states");
+    expect(edge.indexOf("consume_wearable_oauth_state")).toBeLessThan(edge.indexOf("await exchangeauthorizationcode"));
+    expect(edge).toContain("oauth_scope_state_mismatch");
+    expect(edge).toContain("actor_user_id");
+  });
+
+  it("serializes rotating refresh and persists with compare-and-swap", () => {
+    expect(edge).toContain('acquirelease(device.id, "refresh"');
+    expect(edge).toContain('.eq("version", version)');
+    expect(edge).toContain("refresh_version_conflict");
+  });
+
+  it("keeps webhooks fail-closed and data deletion explicit", () => {
+    expect(edge).toContain('"webhooks_disabled"');
+    expect(edge).toContain('confirm_phrase !== "excluir dados"');
+    expect(edge).toContain("revokeprovidertoken");
+    expect(edge).toContain('connection_status: revocationstatus === "succeeded"');
+    expect(edge).toContain("credential_delete_after");
+  });
+
+  it("adds revocation_pending to both fresh and existing device schemas", () => {
+    expect(sql.match(/revocation_pending/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(sql).toContain("drop constraint if exists wearable_devices_connection_status_check");
+    expect(sql).toContain("add constraint wearable_devices_connection_status_check");
   });
 });

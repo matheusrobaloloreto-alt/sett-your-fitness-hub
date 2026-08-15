@@ -15,7 +15,7 @@ create table if not exists public.wearable_devices (
   external_user_id text,
   is_active boolean not null default true,
   connection_status text not null default 'connected'
-    check (connection_status in ('connected', 'syncing', 'stale', 'error', 'revoked', 'config_required', 'partial_scope')),
+    check (connection_status in ('connected', 'syncing', 'stale', 'error', 'revoked', 'revocation_pending', 'config_required', 'partial_scope')),
   granted_scopes text[] not null default '{}',
   required_scopes text[] not null default '{}',
   last_sync_at timestamptz,
@@ -23,6 +23,8 @@ create table if not exists public.wearable_devices (
   last_error_code text,
   last_error text,
   revocation_status text,
+  revocation_retry_after timestamptz,
+  credential_delete_after timestamptz,
   revoked_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -35,7 +37,12 @@ alter table public.wearable_devices add column if not exists granted_scopes text
 alter table public.wearable_devices add column if not exists required_scopes text[] not null default '{}';
 alter table public.wearable_devices add column if not exists last_error_code text;
 alter table public.wearable_devices add column if not exists revocation_status text;
+alter table public.wearable_devices add column if not exists revocation_retry_after timestamptz;
+alter table public.wearable_devices add column if not exists credential_delete_after timestamptz;
 alter table public.wearable_devices add column if not exists revoked_at timestamptz;
+alter table public.wearable_devices drop constraint if exists wearable_devices_connection_status_check;
+alter table public.wearable_devices add constraint wearable_devices_connection_status_check
+  check (connection_status in ('connected', 'syncing', 'stale', 'error', 'revoked', 'revocation_pending', 'config_required', 'partial_scope'));
 update public.wearable_devices d
 set company_id = s.company_id
 from public.students s
@@ -286,7 +293,8 @@ revoke all on public.wearable_devices, public.wearable_consents, public.wearable
 -- still exist in a live database pending operator-gated reauthorization.
 grant select (id, student_id, company_id, provider, device_name, external_user_id, is_active,
   connection_status, granted_scopes, required_scopes, last_sync_at, last_sync_status,
-  last_error_code, last_error, revocation_status, revoked_at, created_at, updated_at)
+  last_error_code, last_error, revocation_status, revocation_retry_after,
+  credential_delete_after, revoked_at, created_at, updated_at)
 on public.wearable_devices to authenticated;
 grant select on public.wearable_consents, public.wearable_data, public.wearable_workouts to authenticated;
 grant all on public.wearable_devices, public.wearable_consents, public.wearable_data, public.wearable_workouts to service_role;
@@ -322,6 +330,121 @@ for select to authenticated using (
   or public.is_company_staff(auth.uid(), company_id)
   or public.has_role(auth.uid(), 'master')
 );
+
+-- Final OAuth persistence is one transaction and revalidates the actor against
+-- the current active student row. Ciphertext is already AES-GCM protected by the
+-- edge; the database never receives the plaintext token or the KEK.
+create or replace function public.commit_wearable_connection(
+  p_device_id uuid,
+  p_student_id uuid,
+  p_actor_user_id uuid,
+  p_company_id uuid,
+  p_provider text,
+  p_granted_scopes text[],
+  p_required_scopes text[],
+  p_key_id text,
+  p_access_ciphertext text,
+  p_access_iv text,
+  p_refresh_ciphertext text,
+  p_refresh_iv text,
+  p_token_expires_at timestamptz,
+  p_token_type text,
+  p_privacy_version text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_student public.students%rowtype;
+  v_device_id uuid;
+  v_partial boolean;
+begin
+  select * into v_student from public.students where id = p_student_id for update;
+  if not found
+     or v_student.user_id is distinct from p_actor_user_id
+     or v_student.company_id is distinct from p_company_id
+     or coalesce(v_student.status, '') <> 'active' then
+    raise exception 'wearable_actor_no_longer_active';
+  end if;
+  if p_provider not in ('oura', 'strava', 'polar', 'whoop') then
+    raise exception 'wearable_provider_invalid';
+  end if;
+  v_partial := not (coalesce(p_granted_scopes, '{}') @> coalesce(p_required_scopes, '{}'));
+
+  insert into public.wearable_devices (
+    id, student_id, company_id, provider, device_name, is_active,
+    connection_status, granted_scopes, required_scopes, last_sync_status,
+    last_error_code, last_error, revoked_at, revocation_status,
+    revocation_retry_after, credential_delete_after
+  ) values (
+    p_device_id, p_student_id, p_company_id, p_provider, upper(p_provider), true,
+    case when v_partial then 'partial_scope' else 'connected' end,
+    coalesce(p_granted_scopes, '{}'), coalesce(p_required_scopes, '{}'), 'connected',
+    case when v_partial then 'partial_scope' else null end,
+    case when v_partial then 'Escopos obrigatorios ausentes' else null end,
+    null, null, null, null
+  )
+  on conflict (student_id, provider) do update set
+    company_id = excluded.company_id,
+    device_name = excluded.device_name,
+    is_active = true,
+    connection_status = excluded.connection_status,
+    granted_scopes = excluded.granted_scopes,
+    required_scopes = excluded.required_scopes,
+    last_sync_status = excluded.last_sync_status,
+    last_error_code = excluded.last_error_code,
+    last_error = excluded.last_error,
+    revoked_at = null,
+    revocation_status = null,
+    revocation_retry_after = null,
+    credential_delete_after = null,
+    updated_at = now()
+  where public.wearable_devices.id = excluded.id
+  returning id into v_device_id;
+
+  if v_device_id is null then raise exception 'wearable_device_race_retry'; end if;
+
+  insert into public.wearable_credentials (
+    device_id, key_id, access_token_ciphertext, access_token_iv,
+    refresh_token_ciphertext, refresh_token_iv, token_expires_at, token_type
+  ) values (
+    v_device_id, p_key_id, p_access_ciphertext, p_access_iv,
+    p_refresh_ciphertext, p_refresh_iv, p_token_expires_at, p_token_type
+  )
+  on conflict (device_id) do update set
+    key_id = excluded.key_id,
+    access_token_ciphertext = excluded.access_token_ciphertext,
+    access_token_iv = excluded.access_token_iv,
+    refresh_token_ciphertext = excluded.refresh_token_ciphertext,
+    refresh_token_iv = excluded.refresh_token_iv,
+    token_expires_at = excluded.token_expires_at,
+    token_type = excluded.token_type,
+    version = public.wearable_credentials.version + 1,
+    rotated_at = now(),
+    updated_at = now();
+
+  insert into public.wearable_consents (
+    device_id, student_id, company_id, provider, event_type, scopes,
+    privacy_version, metadata
+  ) values (
+    v_device_id, p_student_id, p_company_id, p_provider, 'granted',
+    coalesce(p_granted_scopes, '{}'), p_privacy_version,
+    jsonb_build_object('actor_user_id', p_actor_user_id)
+  );
+  return v_device_id;
+end;
+$$;
+
+revoke all on function public.commit_wearable_connection(
+  uuid, uuid, uuid, uuid, text, text[], text[], text, text, text, text,
+  text, timestamptz, text, text
+) from public, anon, authenticated;
+grant execute on function public.commit_wearable_connection(
+  uuid, uuid, uuid, uuid, text, text[], text[], text, text, text, text,
+  text, timestamptz, text, text
+) to service_role;
 
 -- Consume exactly once. The DELETE makes expiry and replay handling atomic.
 create or replace function public.consume_wearable_oauth_state(p_state text)
