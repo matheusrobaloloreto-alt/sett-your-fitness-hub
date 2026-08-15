@@ -58,7 +58,7 @@ describe("workout log optimistic concurrency", () => {
       "supabase/migrations/20260814220000_lock_down_workout_log_dml.sql",
       "utf8",
     );
-    expect(accessMigration).toContain("revoke insert, update, delete on public.workout_logs from anon, authenticated");
+    expect(accessMigration).toContain("revoke insert, update, delete on public.workout_logs from public, anon, authenticated");
     expect(accessMigration).toContain('drop policy if exists "Student manages own logs"');
     expect(accessMigration).toContain('drop policy if exists "Company staff manage workout logs"');
     expect(accessMigration).toContain('drop policy if exists "Master full access"');

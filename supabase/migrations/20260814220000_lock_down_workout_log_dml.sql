@@ -10,7 +10,7 @@ drop policy if exists "Admin company delete" on public.workout_logs;
 drop policy if exists "Student manages own logs" on public.workout_logs;
 drop policy if exists "Company staff manage workout logs" on public.workout_logs;
 
-revoke insert, update, delete on public.workout_logs from anon, authenticated;
+revoke insert, update, delete on public.workout_logs from public, anon, authenticated;
 grant select on public.workout_logs to authenticated;
 grant all on public.workout_logs to service_role;
 

@@ -87,6 +87,8 @@ describe("server-side public anamnesis validation", () => {
     [{ weight_kg: "muito" }, "peso"],
     [{ shown_blocks: ["dados", "tenant-secreto"] }, "blocos exibidos"],
     [{ bike_power: "sim" }, "medidor de potência"],
+    [{ requested_services: ["strength"], run_where: { injected: true } }, "local da corrida"],
+    [{ requested_services: ["strength"], has_nutritionist: "nao" }, "acompanhamento com nutricionista"],
   ])("rejects malformed typed payload %# before invite consumption", async (change, label) => {
     const consume = vi.fn();
     const payload = { ...completePayload, ...change };

@@ -24,6 +24,12 @@ const RUN_LOCATIONS = new Set(["rua", "esteira", "trilha", "pista"]);
 const SWIM_LEVELS = new Set(["iniciante", "intermediario", "avancado"]);
 const BIKE_TYPES = new Set(["speed", "gravel", "mtb", "indoor"]);
 const VOLUME_UNITS = new Set(["km_week", "hours_week"]);
+const ACTIVITY_LEVELS = new Set(["sedentario", "leve", "moderado", "muito_ativo", "extremo"]);
+const SLEEP_RANGES = new Set(["4h", "4h - 6h", "6h - 8h", "8h +"]);
+const MEAL_ROUTINES = new Set(["fixa", "varia", "muda"]);
+const FASTED_OPTIONS = new Set(["nunca", "asvezes", "sempre"]);
+const APPETITE_OPTIONS = new Set(["faminto", "normal", "sem_fome", "enjoo"]);
+const FOOD_BUDGETS = new Set(["economico", "moderado", "premium"]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -99,6 +105,10 @@ export function validateInviteAnamnesis(body: Record<string, unknown>, customFie
   const requireEnum = (key: string, label: string, allowed: Set<string>) => {
     if (typeof body[key] !== "string" || !allowed.has(body[key] as string)) add(label);
   };
+  const optionalEnum = (key: string, label: string, allowed: Set<string>) => {
+    if (body[key] !== null && body[key] !== undefined && body[key] !== ""
+      && (typeof body[key] !== "string" || !allowed.has(body[key] as string))) add(label);
+  };
 
   requireText("objective", "objetivo principal", 300);
   requireEnum("gender", "sexo", GENDERS);
@@ -131,21 +141,32 @@ export function validateInviteAnamnesis(body: Record<string, unknown>, customFie
   const endurance = running || swimming || cycling;
 
   for (const [key, label, max] of [
-    ["activity_level", "nível de atividade", 80], ["training_history", "histórico de treino", 2000],
+    ["training_history", "histórico de treino", 2000],
     ["goals", "metas", 1000], ["sport_goal", "meta esportiva", 300],
     ["run_best_time", "melhor tempo na corrida", 120], ["swim_pool", "piscina da natação", 120],
     ["swim_volume", "volume da natação", 120], ["swim_best", "melhor tempo na natação", 120],
     ["bike_volume", "volume do ciclismo", 120], ["bike_ftp", "potência no ciclismo", 80],
     ["fueling_strategy", "estratégia de alimentação esportiva", 500],
     ["medical_conditions", "condições médicas", 2000], ["nutrition", "alimentação atual", 4000],
-    ["meal_routine", "rotina das refeições", 40], ["train_time", "horário de treino", 40],
-    ["train_fasted", "treino em jejum", 40], ["appetite_wake", "apetite ao acordar", 40],
+    ["train_time", "horário de treino", 40],
     ["food_likes", "alimentos preferidos", 2000], ["food_dislikes", "alimentos evitados", 2000],
     ["food_restrictions", "restrições alimentares", 2000], ["budget_food", "orçamento alimentar", 80],
     ["supplements", "suplementos", 1000], ["hydration", "hidratação", 200],
     ["gi_sensitivities", "sensibilidades digestivas", 1000], ["extra_comments", "comentários adicionais", 2000],
   ] as const) optionalText(key, label, max);
   for (let meal = 1; meal <= 7; meal += 1) optionalText(`meal_t${meal}`, `horário da ${meal}ª refeição`, 20);
+  optionalEnum("activity_level", "nível de atividade", ACTIVITY_LEVELS);
+  optionalEnum("session_duration", "tempo da sessão de musculação", SESSION_DURATIONS);
+  optionalEnum("endurance_session_duration", "tempo da sessão esportiva", SESSION_DURATIONS);
+  optionalEnum("training_location", "local da musculação", TRAINING_LOCATIONS);
+  optionalEnum("run_where", "local da corrida", RUN_LOCATIONS);
+  optionalEnum("swim_level", "nível da natação", SWIM_LEVELS);
+  optionalEnum("bike_type", "tipo de bicicleta", BIKE_TYPES);
+  optionalEnum("clin_pregnant", "gestação ou pós-parto", new Set(["na", "gravida", "posparto"]));
+  optionalEnum("meal_routine", "rotina das refeições", MEAL_ROUTINES);
+  optionalEnum("train_fasted", "treino em jejum", FASTED_OPTIONS);
+  optionalEnum("appetite_wake", "apetite ao acordar", APPETITE_OPTIONS);
+  optionalEnum("budget_food", "orçamento alimentar", FOOD_BUDGETS);
   for (const [key, label] of [
     ["interest_strength", "interesse em musculação"], ["interest_running", "interesse em corrida"],
     ["interest_swimming", "interesse em natação"], ["interest_cycling", "interesse em ciclismo"],
@@ -153,7 +174,7 @@ export function validateInviteAnamnesis(body: Record<string, unknown>, customFie
   ]) optionalBoolean(key, label);
 
   requireText("profession", "profissão e rotina", 500);
-  requireText("sleep_hours", "horas de sono", 80);
+  requireEnum("sleep_hours", "horas de sono", SLEEP_RANGES);
   requireBoolean("restorative_sleep", "sono reparador");
   if (!isFiniteNumber(body.perceived_recovery, 0, 10)) add("recuperação percebida hoje (0 a 10)");
   requireBoolean("aware_of_trilogy", "consciência sobre alimentação, treino e sono");
@@ -175,6 +196,7 @@ export function validateInviteAnamnesis(body: Record<string, unknown>, customFie
   if (cycling) requireEnum("bike_type", "tipo de bicicleta", BIKE_TYPES);
   if (body.current_volume_unit !== undefined) requireEnum("current_volume_unit", "unidade do volume atual", VOLUME_UNITS);
   optionalBoolean("bike_power", "medidor de potência");
+  optionalBoolean("has_nutritionist", "acompanhamento com nutricionista");
 
   for (const [key, label, max] of [
     ["diseases", "condições médicas relevantes", 2000], ["medications", "medicamentos de uso contínuo", 1000],
@@ -184,12 +206,14 @@ export function validateInviteAnamnesis(body: Record<string, unknown>, customFie
   requireEnum("clin_chest_pain", "dor no peito ou tontura ao esforço", YES_NO);
   requireEnum("clin_surgery", "cirurgia recente", YES_NO);
   if (body.clin_surgery === "sim") requireText("clin_surgery_detail", "detalhes da cirurgia recente", 500);
+  else optionalText("clin_surgery_detail", "detalhes da cirurgia recente", 500);
   if (body.gender === "F") {
     requireEnum("clin_pregnant", "gestação ou pós-parto", new Set(["na", "gravida", "posparto"]));
     if (body.clin_pregnant === "gravida" || body.clin_pregnant === "posparto") {
       requireText("clin_pregnant_detail", "tempo de gestação ou pós-parto", 300);
-    }
+    } else optionalText("clin_pregnant_detail", "tempo de gestação ou pós-parto", 300);
   }
+  if (body.gender !== "F") optionalText("clin_pregnant_detail", "tempo de gestação ou pós-parto", 300);
   requireEnum("clin_smoke", "tabagismo", YES_NO);
   requireEnum("clin_acute", "febre ou doença aguda", YES_NO);
   optionalText("clin_other", "outra condição clínica", 2000);
