@@ -433,6 +433,10 @@ using (exists (
   where s.id = prescription_bundle_items.student_id and s.user_id = auth.uid()
 ));
 -- Backfill cycle ownership from its authoritative enrollment.
+alter table public.training_cycles
+  add column if not exists student_id uuid references public.students(id) on delete cascade,
+  add column if not exists company_id uuid references public.companies(id) on delete cascade;
+
 update public.training_cycles tc
 set student_id = e.student_id,
     company_id = e.company_id
