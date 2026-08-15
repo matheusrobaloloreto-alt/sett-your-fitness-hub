@@ -19,6 +19,10 @@ const watermarkCastFix = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260815170922_fix_wearable_sync_watermark_cast.sql"),
   "utf8",
 ).toLowerCase();
+const deterministicWatermarkFix = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20260815174923_replace_wearable_sync_deterministically.sql"),
+  "utf8",
+).toLowerCase();
 const oauthMigration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260805150000_wearable_connections.sql"),
   "utf8",
@@ -37,6 +41,10 @@ describe("wearables migration security contract", () => {
     expect(watermarkCastFix).toContain("nullif(item.value, '''')::timestamptz");
     expect(watermarkCastFix).toContain("refusing an unverified patch");
     expect(watermarkCastFix).toContain("revoke all on function public.commit_wearable_sync");
+    expect(deterministicWatermarkFix).toContain("create or replace function public.commit_wearable_sync");
+    expect(deterministicWatermarkFix).toContain("nullif(item.value, '')::timestamptz");
+    expect(deterministicWatermarkFix).toContain("unexpected commit_wearable_sync overload");
+    expect(deterministicWatermarkFix).not.toContain("pg_get_functiondef");
   });
 
   it("creates every reproducibility table", () => {

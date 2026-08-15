@@ -23,8 +23,8 @@
 
 ## Validation evidence
 
-- Complete empty-database replay: **PASS on all 160 migrations**, including the cloud-discovered wearable watermark fix.
-- Cloud migration ledger: **160 local / 160 remote, exact match**.
+- Complete empty-database replay: **PASS on all 161 migrations**, including the cloud-discovered wearable watermark fix and its deterministic replacement.
+- Cloud migration ledger: **161 local / 161 remote, exact match**.
 - Transactional reapplication of both terminal migrations: **PASS**.
 - Synthetic RLS matrix: **PASS**.
   - 5 actor profiles (Student A, Student B in the same company, staff A, cross-tenant staff B, master).

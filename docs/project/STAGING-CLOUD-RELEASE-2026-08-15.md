@@ -12,8 +12,8 @@ This release follows ATENA skill 1098, **Checklist de Qualidade Antes da Entrega
 ## Applied state
 
 - Pre-migration logical schema backup stored outside the repository.
-- Full schema applied to an initially empty cloud project: **160 migrations**.
-- Cloud and local migration ledgers match exactly: **160/160**.
+- Full schema applied to an initially empty cloud project: **161 migrations**.
+- Cloud and local migration ledgers match exactly: **161/161**.
 - Supabase types regenerated from the validated cloud schema; the only generated delta was the PostgREST version metadata.
 - Eleven required Edge Functions deployed and active:
   - `ai-bnito-coach`
@@ -45,7 +45,7 @@ This release follows ATENA skill 1098, **Checklist de Qualidade Antes da Entrega
 
 ## Cloud-discovered fix
 
-The first wearable cloud test exposed a real P0 defect: `commit_wearable_sync` attempted to insert JSON text directly into a `timestamptz` watermark column, which rejected every sync commit, including an empty watermark object. Migration `20260815170922_fix_wearable_sync_watermark_cast.sql` applies a fail-closed definition patch, restores the service-role-only grant and is covered by the focused test and the cloud concurrency script.
+The first wearable cloud test exposed a real P0 defect: `commit_wearable_sync` attempted to insert JSON text directly into a `timestamptz` watermark column, which rejected every sync commit, including an empty watermark object. Migration `20260815170922_fix_wearable_sync_watermark_cast.sql` repaired the staging RPC immediately. Following independent review, `20260815174923_replace_wearable_sync_deterministically.sql` now recreates the complete reviewed definition, rejects unexpected overloads and restores the service-role-only grant without preserving remote body drift. The cloud test persists and verifies a non-empty ISO watermark.
 
 ## Draft-only frontend boundary
 

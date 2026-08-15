@@ -3,27 +3,27 @@
 do $$
 declare
   issue_count integer;
-  actual_security_definer_browser_functions text[];
-  expected_security_definer_browser_functions constant text[] := array[
-    'award_xp',
-    'check_and_unlock_achievements',
-    'get_active_platform_ads',
-    'get_company_ai_identity',
-    'get_effective_exercise_targets',
-    'get_monthly_leaderboard',
-    'get_student_rank',
-    'get_user_company_id',
-    'get_user_role',
-    'has_role',
-    'is_company_staff',
-    'is_student_company_staff',
-    'mark_training_cycle_viewed',
-    'move_student_to_assessment_stage',
-    'recalculate_training_cycles',
-    'replace_exercise_muscle_targets',
-    'reschedule_training_cycles_from',
-    'save_workout_logs_if_current',
-    'sync_prescription_cycles'
+  actual_security_definer_browser_signatures text[];
+  expected_security_definer_browser_signatures constant text[] := array[
+    'award_xp(uuid,text,integer,uuid,text)',
+    'check_and_unlock_achievements(uuid)',
+    'get_active_platform_ads(text,text,uuid)',
+    'get_company_ai_identity(uuid)',
+    'get_effective_exercise_targets(uuid,uuid[])',
+    'get_monthly_leaderboard(uuid,date)',
+    'get_student_rank(uuid)',
+    'get_user_company_id(uuid)',
+    'get_user_role(uuid)',
+    'has_role(uuid,app_role)',
+    'is_company_staff(uuid,uuid)',
+    'is_student_company_staff(uuid,uuid)',
+    'mark_training_cycle_viewed(uuid)',
+    'move_student_to_assessment_stage(uuid,text)',
+    'recalculate_training_cycles(uuid,date)',
+    'replace_exercise_muscle_targets(uuid,jsonb)',
+    'reschedule_training_cycles_from(uuid,uuid,date)',
+    'save_workout_logs_if_current(jsonb)',
+    'sync_prescription_cycles(uuid,date)'
   ]::text[];
 begin
   select count(*) into issue_count
@@ -85,8 +85,8 @@ begin
     raise exception '% SECURITY DEFINER functions lack an explicit search_path', issue_count;
   end if;
 
-  select coalesce(array_agg(distinct p.proname order by p.proname), '{}'::text[])
-  into actual_security_definer_browser_functions
+  select coalesce(array_agg(p.oid::regprocedure::text order by p.oid::regprocedure::text), '{}'::text[])
+  into actual_security_definer_browser_signatures
   from pg_catalog.pg_proc p
   join pg_catalog.pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public'
@@ -95,10 +95,10 @@ begin
       pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE')
       or pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE')
     );
-  if actual_security_definer_browser_functions
-      is distinct from expected_security_definer_browser_functions then
+  if actual_security_definer_browser_signatures
+      is distinct from expected_security_definer_browser_signatures then
     raise exception 'SECURITY DEFINER browser allowlist changed: %',
-      actual_security_definer_browser_functions;
+      actual_security_definer_browser_signatures;
   end if;
 
   select count(*) into issue_count

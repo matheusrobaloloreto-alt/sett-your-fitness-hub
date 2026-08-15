@@ -36,7 +36,17 @@ const forbiddenFragments = [
   "cxesecxyrndveookvlzz",
   "sb_publishable_okMxda",
 ];
-const textExtensions = new Set([".css", ".html", ".js", ".json", ".mjs"]);
+const textExtensions = new Set([
+  ".css",
+  ".html",
+  ".js",
+  ".json",
+  ".map",
+  ".mjs",
+  ".svg",
+  ".txt",
+  ".webmanifest",
+]);
 
 const collectFiles = (path) => {
   if (!statSync(path).isDirectory()) return [path];

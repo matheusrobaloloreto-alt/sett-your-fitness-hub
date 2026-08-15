@@ -178,10 +178,20 @@ begin
     holder_two,
     '[]'::jsonb,
     '[]'::jsonb,
-    '{}'::jsonb,
+    '{"daily":"2026-08-15T00:00:00Z"}'::jsonb,
     now()
   ) <> 0 then
     raise exception 'empty synthetic sync imported rows';
+  end if;
+
+  if not exists (
+    select 1
+    from public.wearable_sync_cursors cursor_row
+    where cursor_row.device_id = device
+      and cursor_row.resource = 'daily'
+      and cursor_row.watermark = '2026-08-15T00:00:00Z'::timestamptz
+  ) then
+    raise exception 'provider watermark was not cast and persisted exactly';
   end if;
 
   if public.acquire_wearable_lease(device, 'maintenance', holder_one, 60) then
