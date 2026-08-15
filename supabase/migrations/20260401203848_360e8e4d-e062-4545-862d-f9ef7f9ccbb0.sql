@@ -1,8 +1,12 @@
--- Insert muscle targets for all exercises in the student's workouts
+-- Insert muscle targets for all exercises in the student's workouts.
+-- A fresh schema does not contain the historical exercise catalog, so only
+-- seed rows whose exercise and muscle-group parents are already present.
 -- Peito exercises
-INSERT INTO public.exercise_muscle_targets (exercise_id, muscle_group_id, role, volume_percentage, is_primary) VALUES
+INSERT INTO public.exercise_muscle_targets (exercise_id, muscle_group_id, role, volume_percentage, is_primary)
+SELECT seed.exercise_id, seed.muscle_group_id, seed.role, seed.volume_percentage, seed.is_primary
+FROM (VALUES
 -- Supino Inclinado Halteres → Peitoral (primary), Deltoide Anterior (secondary), Tríceps (secondary)
-('5c3558f8-01c1-43a4-bf9b-0d6993c80b80', '835ef882-94b4-4911-9202-d6ebc143192d', 'primary', 100, true),
+('5c3558f8-01c1-43a4-bf9b-0d6993c80b80'::uuid, '835ef882-94b4-4911-9202-d6ebc143192d'::uuid, 'primary'::text, 100::numeric, true),
 ('5c3558f8-01c1-43a4-bf9b-0d6993c80b80', '22b24c2d-1841-4dc9-bc60-34469abd2e18', 'secondary', 30, false),
 ('5c3558f8-01c1-43a4-bf9b-0d6993c80b80', '6b925fc8-cf05-40aa-a5f8-18418d7439c4', 'secondary', 30, false),
 -- Supino Reto Barra → Peitoral (primary), Deltoide Anterior (secondary), Tríceps (secondary)
@@ -84,4 +88,11 @@ INSERT INTO public.exercise_muscle_targets (exercise_id, muscle_group_id, role, 
 ('c452607e-7dff-463d-adb2-a712059a8d26', '77d093d5-0a62-4b1f-b47f-b981e8af19fa', 'secondary', 30, false),
 -- Panturrilha Sentado Máquina → Panturrilha (primary)
 ('7bc7e3ba-a138-4a2b-b069-e6eb642ebe90', '5f32c4c4-b043-4dd5-a65b-a22ecdb64573', 'primary', 100, true)
+) AS seed(exercise_id, muscle_group_id, role, volume_percentage, is_primary)
+WHERE EXISTS (
+  SELECT 1 FROM public.exercise_library exercise WHERE exercise.id = seed.exercise_id
+)
+AND EXISTS (
+  SELECT 1 FROM public.muscle_groups muscle_group WHERE muscle_group.id = seed.muscle_group_id
+)
 ON CONFLICT DO NOTHING;
