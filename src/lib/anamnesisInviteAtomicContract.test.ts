@@ -8,6 +8,7 @@ describe("atomic anamnesis invite submission", () => {
     "utf8",
   );
   const app = readFileSync("src/App.tsx", "utf8");
+  const publicForm = readFileSync("src/pages/PublicAnamnesis.tsx", "utf8");
 
   it("routes both Studio operations through the shared access resolver", () => {
     const resolverOffset = edge.indexOf("await resolvePublicAnamnesisAccess(body");
@@ -46,6 +47,24 @@ describe("atomic anamnesis invite submission", () => {
     const consumeOffset = edge.indexOf("async () => await submitInviteAtomic(", validationOffset);
     expect(validationOffset).toBeGreaterThan(0);
     expect(consumeOffset).toBeGreaterThan(validationOffset);
-    expect(edge).toContain("getCustomFields(student.company_id, true)");
+    expect(edge).toContain("getCustomFields(student.company_id)");
+  });
+
+  it("persists pain and race effects before consuming the invite", () => {
+    const effectsOffset = migration.indexOf("delete from public.student_body_limitations");
+    const goalOffset = migration.indexOf("insert into public.student_goals", effectsOffset);
+    const consumeOffset = migration.indexOf("update public.anamnese_invites", effectsOffset);
+    expect(effectsOffset).toBeGreaterThan(0);
+    expect(goalOffset).toBeGreaterThan(effectsOffset);
+    expect(consumeOffset).toBeGreaterThan(goalOffset);
+    expect(migration).toContain("source = 'anamnese'");
+    expect(migration).toContain("'articular'");
+    expect(migration).toContain("'Cadastrada pela anamnese'");
+    expect(migration).toContain("on conflict (student_id, region) do update");
+    expect(edge).toContain("buildInviteEffects(body)");
+    expect(edge).not.toContain("runStudioSideEffects");
+    expect(publicForm).toContain("race_name: raceName || null");
+    expect(publicForm).toContain("race_date: raceDate || null");
+    expect(publicForm).toContain("a prova entra no calendário do seu acompanhamento");
   });
 });

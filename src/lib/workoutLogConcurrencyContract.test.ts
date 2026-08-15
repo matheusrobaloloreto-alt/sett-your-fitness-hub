@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 describe("workout log optimistic concurrency", () => {
@@ -30,8 +31,12 @@ describe("workout log optimistic concurrency", () => {
     expect(migration).toContain("set_number exceeds prescribed sets plus five extras");
     expect(migration).toContain("rpe out of range");
     expect(migration).toContain("session_date out of range");
-    expect(migration).toContain("security invoker");
-    expect(migration).toContain("to authenticated");
+    expect(migration).toContain("security definer");
+    expect(migration).toContain("owner_user_id is distinct from caller_user_id");
+    expect(migration).toContain("public.is_company_staff(caller_user_id, owner_company_id)");
+    expect(migration).toContain("caller_role <> 'service_role'");
+    expect(migration).toContain("actor cannot write workout logs for this student tenant");
+    expect(migration).toContain("to authenticated, service_role");
   });
 
   it("keeps the valid path bounded to real exercise JSON and five UI extras", () => {
@@ -46,5 +51,31 @@ describe("workout log optimistic concurrency", () => {
     expect(migration).toContain("saved := saved || jsonb_build_array(to_jsonb(current_row))");
     expect(portal).toContain("const MAX_EXTRA_SETS = 5");
     expect(portal).toContain("current >= MAX_EXTRA_SETS");
+  });
+
+  it("denies direct browser DML while preserving tenant reads and the guarded RPC", () => {
+    const accessMigration = readFileSync(
+      "supabase/migrations/20260814220000_lock_down_workout_log_dml.sql",
+      "utf8",
+    );
+    expect(accessMigration).toContain("revoke insert, update, delete on public.workout_logs from anon, authenticated");
+    expect(accessMigration).toContain('drop policy if exists "Student manages own logs"');
+    expect(accessMigration).toContain('drop policy if exists "Company staff manage workout logs"');
+    expect(accessMigration).toContain('drop policy if exists "Master full access"');
+    expect(accessMigration).toContain('create policy "Students read own workout logs"');
+    expect(accessMigration).toContain('create policy "Company staff read workout logs"');
+    expect(accessMigration).toContain("grant all on public.workout_logs to service_role");
+    expect(accessMigration).toContain("grant execute on function public.save_workout_logs_if_current(jsonb)");
+  });
+
+  it("has no runtime direct writer outside the guarded RPC", () => {
+    const matches = execFileSync("rg", [
+      "-l", "workout_logs", "src", "supabase/functions", "--glob", "*.ts", "--glob", "*.tsx",
+    ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    expect(matches).toContain("src/pages/student/StudentPortal.tsx");
+    for (const file of matches) {
+      const source = readFileSync(file, "utf8");
+      expect(source).not.toMatch(/from\(["']workout_logs["']\)\s*\.(insert|update|delete|upsert)\s*\(/s);
+    }
   });
 });

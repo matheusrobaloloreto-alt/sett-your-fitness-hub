@@ -142,6 +142,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [extraComments, setExtraComments] = useState("");
   const [commitsCommunication, setCommitsCommunication] = useState("");
   const [sportGoal, setSportGoal] = useState("");
+  const [raceName, setRaceName] = useState("");
+  const [raceDate, setRaceDate] = useState("");
   const [currentVolumeWeekly, setCurrentVolumeWeekly] = useState("");
   const [currentVolumeUnit, setCurrentVolumeUnit] = useState("km_week");
   const [fcmax, setFcmax] = useState("");
@@ -291,6 +293,10 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         ...(hasEndurance ? [
           [sportGoal.trim(), "meta nas modalidades esportivas"],
           [enduranceSessionDuration, "tempo disponível para cada sessão esportiva"],
+          ...((raceName.trim() || raceDate) ? [
+            [raceName.trim(), "nome da prova"],
+            [raceDate, "data da prova"],
+          ] : []),
         ] : []),
       ]
         .filter(([value]) => !value).map(([, label]) => label);
@@ -403,7 +409,6 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
     }
     setSaving(true);
 
-    const allModalities = [...modalities, ...(modalityOther ? [modalityOther] : [])];
     const allEquipment = [...equipment, ...(equipmentOther ? [equipmentOther] : [])];
     const availability = deriveTrainingAvailability(trainingDays);
 
@@ -416,7 +421,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         objective,
         activity_level: activityLevel,
         experience_months: experienceMonths ? Number(experienceMonths) : null,
-        modalities: allModalities,
+        modalities,
+        modality_other: modalityOther || null,
         requested_services: desiredServices,
         training_days: trainingDays,
         available_days: availability.totalDays,
@@ -447,6 +453,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         interest_cycling: wantsCycling,
         interest_nutrition: wantsNutrition,
         sport_goal: sportGoal,
+        race_name: raceName || null,
+        race_date: raceDate || null,
         current_volume_weekly: currentVolumeWeekly ? Number(currentVolumeWeekly) : null,
         current_volume_unit: currentVolumeUnit,
         fcmax: fcmax ? Number(fcmax) : null,
@@ -495,6 +503,14 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         gi_sensitivities: giSensitivities,
         preferred_contact_channel: preferredContactChannel || null,
         preferred_contact_period: preferredContactPeriod || null,
+        shown_blocks: [
+          "dados", "objetivo", "treino", "saude", "clinica",
+          wantsNutrition && "nutricao",
+          wantsStrength && "musculacao",
+          wantsRunning && "corrida",
+          wantsSwimming && "natacao",
+          wantsCycling && "ciclismo",
+        ].filter(Boolean),
         custom_answers: Object.fromEntries(customFields.flatMap(field => {
           const value = customAnswers[field.id];
           if (value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) return [];
@@ -786,6 +802,17 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                         </div>
                       ))}
                     </RadioGroup>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="font-sans font-medium">Nome da prova-alvo (se houver)</Label>
+                      <Input value={raceName} onChange={event => setRaceName(event.target.value)} placeholder="Ex: Meia Maratona de Floripa" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-sans font-medium">Data da prova</Label>
+                      <Input type="date" value={raceDate} onChange={event => setRaceDate(event.target.value)} />
+                    </div>
+                    <p className="text-xs leading-relaxed text-muted-foreground sm:col-span-2">Ao informar nome e data, a prova entra no calendário do seu acompanhamento.</p>
                   </div>
                   <div className="space-y-2">
                     <Label className="font-sans font-medium">Como você se alimenta nos treinos ou provas longas?</Label>

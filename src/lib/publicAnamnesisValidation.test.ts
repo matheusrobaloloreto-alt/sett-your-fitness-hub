@@ -77,4 +77,39 @@ describe("server-side public anamnesis validation", () => {
       .resolves.toEqual({ ok: true });
     expect(consume).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    [{ gender: "X" }, "sexo"],
+    [{ modalities: ["Musculação / Funcional", { injected: true }] }, "modalidades praticadas atualmente"],
+    [{ requested_services: ["strength", "unknown"] }, "modalidades para prescrição ou orientação"],
+    [{ age: Number.POSITIVE_INFINITY }, "idade"],
+    [{ height_cm: 30 }, "altura"],
+    [{ weight_kg: "muito" }, "peso"],
+    [{ shown_blocks: ["dados", "tenant-secreto"] }, "blocos exibidos"],
+    [{ bike_power: "sim" }, "medidor de potência"],
+  ])("rejects malformed typed payload %# before invite consumption", async (change, label) => {
+    const consume = vi.fn();
+    const payload = { ...completePayload, ...change };
+    expect(validateInviteAnamnesis(payload, [])).toContain(label);
+    await expect(consumeValidatedAnamnesisInvite(payload, [], consume)).rejects.toMatchObject({ status: 422 });
+    expect(consume).not.toHaveBeenCalled();
+  });
+
+  it("validates structured custom answers and race pairs", () => {
+    const fields = [{
+      id: "choice", label: "Escolha", is_required: true, field_type: "select", options: ["A", "B"],
+    }];
+    const payload = {
+      ...completePayload,
+      race_name: "Meia Maratona",
+      custom_answers: { choice: { label: "Escolha", value: "C" } },
+    };
+    expect(validateInviteAnamnesis(payload, fields)).toEqual(expect.arrayContaining(["nome e data da prova", "Escolha"]));
+
+    expect(validateInviteAnamnesis({
+      ...payload,
+      race_date: "2026-10-18",
+      custom_answers: { choice: { label: "Escolha", value: "A" } },
+    }, fields)).toEqual([]);
+  });
 });

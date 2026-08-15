@@ -126,6 +126,8 @@ function buildNutritionContext(body: Record<string, any>) {
 
 function mapLegacySubmitToStudioAnamnese(body: Record<string, any>, student: Record<string, any>) {
   const modalities = asArray(body.modalities);
+  const otherModality = cleanText(body.modality_other, 120);
+  if (otherModality) modalities.push(otherModality);
   const allEquipment = asArray(body.available_equipment);
   const equipmentContext = [
     cleanText(body.training_location, 160),
@@ -311,12 +313,29 @@ async function submitInviteAtomic(
   token: string,
   studentPatch: Record<string, any>,
   anamnesis: Record<string, any>,
+  effects: Record<string, any>,
 ) {
   return await supabase.rpc("submit_anamnesis_invite_atomic", {
     _token: token,
     _student_patch: studentPatch,
     _anamnese: anamnesis,
+    _effects: effects,
   });
+}
+
+function buildInviteEffects(incoming: Record<string, any>) {
+  return {
+    race: incoming.race_date
+      ? { name: cleanText(incoming.race_name || "Prova", 120), date: incoming.race_date }
+      : null,
+    pain: {
+      tornozelo: Number(incoming.eva_tornozelo),
+      joelho: Number(incoming.eva_joelho),
+      quadril: Number(incoming.eva_quadril),
+      lombar: Number(incoming.eva_lombar),
+      ombro: Number(incoming.eva_ombro),
+    },
+  };
 }
 
 async function getBranding(companyId: string | null) {
@@ -327,15 +346,14 @@ async function getBranding(companyId: string | null) {
   return data ?? null;
 }
 
-async function getCustomFields(companyId: string, requiredOnly = false) {
-  let query = supabase
+async function getCustomFields(companyId: string) {
+  const query = supabase
     .from("form_fields")
     .select("id, label, field_type, options, is_required, sort_order")
     .eq("form_type", "anamnesis")
     .is("field_key", null)
     .eq("is_active", true)
     .or(`company_id.eq.${companyId},company_id.is.null`);
-  if (requiredOnly) query = query.eq("is_required", true);
   const { data, error } = await query.order("sort_order", { ascending: true });
   if (error) throw new HttpError(500, `Falha ao validar perguntas da anamnese: ${error.message}`);
   return (data || []).map((field: any) => ({
@@ -363,47 +381,6 @@ async function getAuthenticatedClaims(req: Request) {
   const { data, error } = await client.auth.getUser(authHeader.slice("Bearer ".length));
   if (error || !data?.user?.id) return null;
   return { sub: data.user.id };
-}
-
-async function runStudioSideEffects(
-  incoming: Record<string, any>,
-  invite: { company_id: string; student_id: string },
-) {
-  try {
-    const race = incoming._race;
-    if (race && race.date) {
-      await supabase.from("student_goals").delete()
-        .eq("student_id", invite.student_id).eq("kind", "prova").is("created_by", null);
-      await supabase.from("student_goals").insert({
-        company_id: invite.company_id,
-        student_id: invite.student_id,
-        title: String(race.name || "Prova").slice(0, 120),
-        kind: "prova",
-        target_date: race.date,
-        status: "pending",
-        description: "Cadastrada pela anamnese",
-        created_by: null,
-      });
-    }
-    const pain = incoming._pain || {};
-    const severity = (score: number) => score >= 7 ? "severa" : score >= 4 ? "moderada" : "leve";
-    const painRows = Object.entries(pain)
-      .filter(([, value]) => Number(value) > 0)
-      .map(([region, value]) => ({
-        company_id: invite.company_id,
-        student_id: invite.student_id,
-        region,
-        type: "dor",
-        severity: severity(Number(value)),
-        note: `Dor relatada na anamnese (EVA ${value}/10)`,
-        source: "anamnese",
-      }));
-    await supabase.from("student_body_limitations").delete()
-      .eq("student_id", invite.student_id).eq("source", "anamnese");
-    if (painRows.length) await supabase.from("student_body_limitations").insert(painRows);
-  } catch (error) {
-    console.error("anamnese side-effects error", error);
-  }
 }
 
 Deno.serve(async (req) => {
@@ -472,7 +449,7 @@ Deno.serve(async (req) => {
       }
       const incoming = body?.anamnese ?? {};
       const payload = sanitizeStudioAnamnese(incoming, student);
-      const requiredCustomFields = await getCustomFields(student.company_id, true) as RequiredAnamnesisField[];
+      const requiredCustomFields = await getCustomFields(student.company_id) as RequiredAnamnesisField[];
       const { data, error } = await consumeValidatedAnamnesisInvite(
         incoming,
         requiredCustomFields,
@@ -480,10 +457,10 @@ Deno.serve(async (req) => {
           body.token,
           sanitizeStudentPatch(body?.student),
           payload,
+          buildInviteEffects(incoming),
         ),
       );
       if (error) throw new HttpError(409, error.message);
-      await runStudioSideEffects(incoming, access.invite);
       return new Response(JSON.stringify({ ok: true, student_anamnese_id: data?.student_anamnese_id ?? null }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -503,11 +480,11 @@ Deno.serve(async (req) => {
       );
       if (access.invite) {
         const token = typeof body.accessKey === "string" ? body.accessKey : body.token;
-        const requiredCustomFields = await getCustomFields(student.company_id, true) as RequiredAnamnesisField[];
+        const requiredCustomFields = await getCustomFields(student.company_id) as RequiredAnamnesisField[];
         const { data, error } = await consumeValidatedAnamnesisInvite(
           body,
           requiredCustomFields,
-          async () => await submitInviteAtomic(token, studentPatch, studioPayload),
+          async () => await submitInviteAtomic(token, studentPatch, studioPayload, buildInviteEffects(body)),
         );
         if (error) throw new HttpError(409, error.message);
         return new Response(JSON.stringify({ ok: true, student_anamnese_id: data?.student_anamnese_id ?? null }), {

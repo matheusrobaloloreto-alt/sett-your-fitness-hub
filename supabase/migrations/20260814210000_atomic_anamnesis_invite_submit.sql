@@ -7,7 +7,8 @@ alter table public.student_anamneses
 create or replace function public.submit_anamnesis_invite_atomic(
   _token text,
   _student_patch jsonb default '{}'::jsonb,
-  _anamnese jsonb default '{}'::jsonb
+  _anamnese jsonb default '{}'::jsonb,
+  _effects jsonb default '{}'::jsonb
 )
 returns jsonb
 language plpgsql
@@ -19,12 +20,16 @@ declare
   student_row public.students%rowtype;
   saved_row public.student_anamneses%rowtype;
   next_version integer;
+  pain_entry record;
+  pain_score numeric;
+  race_payload jsonb;
 begin
   if _token is null or length(btrim(_token)) < 16 then
     raise exception 'invalid anamnesis invite';
   end if;
   if jsonb_typeof(coalesce(_student_patch, '{}'::jsonb)) <> 'object'
-    or jsonb_typeof(coalesce(_anamnese, '{}'::jsonb)) <> 'object' then
+    or jsonb_typeof(coalesce(_anamnese, '{}'::jsonb)) <> 'object'
+    or jsonb_typeof(coalesce(_effects, '{}'::jsonb)) <> 'object' then
     raise exception 'invalid anamnesis payload';
   end if;
 
@@ -172,6 +177,79 @@ begin
     student_row.id, student_row.company_id, next_version, to_jsonb(saved_row)
   );
 
+  -- BodyMap/AtRisk read this table directly. Replace only limitations created
+  -- by anamnesis, keeping the snapshot and its effects in the same transaction.
+  delete from public.student_body_limitations
+  where student_id = student_row.id
+    and company_id = student_row.company_id
+    and source = 'anamnese';
+
+  if _effects ? 'pain' then
+    if jsonb_typeof(_effects->'pain') <> 'object' then
+      raise exception 'invalid anamnesis pain effects';
+    end if;
+    for pain_entry in select key, value from jsonb_each(_effects->'pain')
+    loop
+      if pain_entry.key not in ('tornozelo', 'joelho', 'quadril', 'lombar', 'ombro')
+        or jsonb_typeof(pain_entry.value) <> 'number' then
+        raise exception 'invalid anamnesis pain region';
+      end if;
+      pain_score := (pain_entry.value #>> '{}')::numeric;
+      if pain_score < 0 or pain_score > 10 then
+        raise exception 'invalid anamnesis pain score';
+      end if;
+      if pain_score > 0 then
+        insert into public.student_body_limitations (
+          company_id, student_id, region, type, severity, note, source, updated_at
+        ) values (
+          student_row.company_id,
+          student_row.id,
+          pain_entry.key,
+          'articular',
+          case when pain_score >= 7 then 'severa'
+               when pain_score >= 4 then 'moderada' else 'leve' end,
+          format('Dor relatada na anamnese (EVA %s/10)', pain_score),
+          'anamnese',
+          now()
+        )
+        on conflict (student_id, region) do update set
+          type = excluded.type,
+          severity = excluded.severity,
+          note = excluded.note,
+          source = excluded.source,
+          company_id = excluded.company_id,
+          updated_at = now();
+      end if;
+    end loop;
+  end if;
+
+  race_payload := _effects->'race';
+  if race_payload is not null and race_payload <> 'null'::jsonb then
+    if jsonb_typeof(race_payload) <> 'object'
+      or length(btrim(coalesce(race_payload->>'name', ''))) not between 1 and 120
+      or coalesce(race_payload->>'date', '') !~ '^\d{4}-\d{2}-\d{2}$' then
+      raise exception 'invalid anamnesis race effect';
+    end if;
+    delete from public.student_goals
+    where student_id = student_row.id
+      and company_id = student_row.company_id
+      and kind = 'prova'
+      and created_by is null
+      and description = 'Cadastrada pela anamnese';
+    insert into public.student_goals (
+      company_id, student_id, title, kind, target_date, status, description, created_by
+    ) values (
+      student_row.company_id,
+      student_row.id,
+      btrim(race_payload->>'name'),
+      'prova',
+      (race_payload->>'date')::date,
+      'pending',
+      'Cadastrada pela anamnese',
+      null
+    );
+  end if;
+
   update public.anamnese_invites
   set status = 'completed', completed_at = now()
   where id = invite_row.id
@@ -191,7 +269,7 @@ begin
 end;
 $$;
 
-revoke all on function public.submit_anamnesis_invite_atomic(text, jsonb, jsonb)
+revoke all on function public.submit_anamnesis_invite_atomic(text, jsonb, jsonb, jsonb)
   from public, anon, authenticated;
-grant execute on function public.submit_anamnesis_invite_atomic(text, jsonb, jsonb)
+grant execute on function public.submit_anamnesis_invite_atomic(text, jsonb, jsonb, jsonb)
   to service_role;

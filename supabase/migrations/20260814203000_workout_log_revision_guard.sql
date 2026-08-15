@@ -36,7 +36,7 @@ for each row execute function public.touch_workout_log_revision();
 create or replace function public.save_workout_logs_if_current(_rows jsonb)
 returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = public, pg_temp
 as $$
 declare
@@ -58,6 +58,10 @@ declare
   base_set_count integer;
   weekly_set_count integer;
   max_set_number integer;
+  owner_user_id uuid;
+  owner_company_id uuid;
+  caller_user_id uuid := auth.uid();
+  caller_role text := coalesce(auth.role(), '');
   saved jsonb := '[]'::jsonb;
   conflicts jsonb := '[]'::jsonb;
 begin
@@ -116,7 +120,8 @@ begin
     if expected_revision is not null and expected_revision < 1 then
       raise exception 'base_revision out of range';
     end if;
-    select w.exercises into workout_exercises
+    select w.exercises, s.user_id, s.company_id
+      into workout_exercises, owner_user_id, owner_company_id
       from public.workouts w
       join public.training_cycles tc on tc.id = w.cycle_id
       join public.students s on s.id = item_student_id
@@ -126,6 +131,11 @@ begin
         and w.company_id = s.company_id;
     if not found then
       raise exception 'workout does not belong to student tenant';
+    end if;
+    if caller_role <> 'service_role'
+      and owner_user_id is distinct from caller_user_id
+      and not public.is_company_staff(caller_user_id, owner_company_id) then
+      raise exception 'actor cannot write workout logs for this student tenant';
     end if;
     if workout_exercises is null or jsonb_typeof(workout_exercises) <> 'array' then
       raise exception 'workout exercises must be a JSON array';
@@ -234,4 +244,4 @@ end;
 $$;
 
 revoke all on function public.save_workout_logs_if_current(jsonb) from public, anon;
-grant execute on function public.save_workout_logs_if_current(jsonb) to authenticated;
+grant execute on function public.save_workout_logs_if_current(jsonb) to authenticated, service_role;
