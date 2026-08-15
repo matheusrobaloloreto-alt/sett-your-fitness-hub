@@ -3,9 +3,9 @@
 ## Decision
 
 - **Isolated Supabase staging:** GO for QA. The target is healthy, distinct from production/legacy, and remains on the Free plan.
-- **Netlify draft:** deployed to the isolated staging site; stable staging URL is not promoted.
+- **Netlify staging:** independent QA returned `GO`; the exact audited draft payload was promoted to the isolated stable staging URL and passed the post-promotion smoke.
 - **Production, MFIT, real users and providers:** NO-GO and untouched.
-- **Next gate:** independent QA must return `GO` before any promotion of the isolated staging site.
+- **Next gate:** authenticated workflow QA may continue only with synthetic staging accounts. Production remains separately gated.
 
 This release follows ATENA skill 1098, **Checklist de Qualidade Antes da Entrega**.
 
@@ -47,11 +47,20 @@ This release follows ATENA skill 1098, **Checklist de Qualidade Antes da Entrega
 
 The first wearable cloud test exposed a real P0 defect: `commit_wearable_sync` attempted to insert JSON text directly into a `timestamptz` watermark column, which rejected every sync commit, including an empty watermark object. Migration `20260815170922_fix_wearable_sync_watermark_cast.sql` repaired the staging RPC immediately. Following independent review, `20260815174923_replace_wearable_sync_deterministically.sql` now recreates the complete reviewed definition, rejects unexpected overloads and restores the service-role-only grant without preserving remote body drift. The cloud test persists and verifies a non-empty ISO watermark.
 
-## Draft-only frontend boundary
+## Frontend boundary
 
 The generated recording pages are an operator-only production artifact. They embed production backend coordinates and an operational upload token by design, so the staging postbuild step omits `dist/gravacao` without altering its source. The postbuild then scans the deploy output and fails unless the isolated staging backend is present and blocked backend/key fragments are absent.
 
-The draft smoke confirms that requesting a recording-page URL returns only the SPA shell and exposes none of the recording artifact.
+The draft and stable-staging smokes confirm that requesting a recording-page URL returns only the SPA shell and exposes none of the recording artifact. On the stable staging URL, 10/10 routes and 6/6 entry assets passed; the remote bundle contains the staging backend and zero production/legacy backend references.
+
+## Independent QA
+
+Final verdict: **GO for the isolated stable staging URL only**.
+
+- P0: 0.
+- P1: 0 after corrective commit `0fd4b6b`.
+- Confirmed independently: ledger 161/161, exact RPC definition/ACL, 19 exact browser-executable definer signatures, cloud watermark test with zero synthetic persistence, public types byte-identical, 11 active Edge Functions, fail-closed anonymous smokes and audited frontend payload.
+- Residual P2: the lease exclusion test uses sequential operations in one transaction and is not a true multissession race test.
 
 ## Known nonblocking debt
 
@@ -63,4 +72,4 @@ The draft smoke confirms that requesting a recording-page URL returns only the S
 
 - Database: the target was empty before migration and has an external logical schema backup; rollback is project disposal/recreation or migration repair within isolated staging, never production.
 - Edge Functions: all deployments are staging-only version 1 and can be removed/redeployed without affecting production.
-- Frontend: the current deployment is a draft and can be abandoned without changing the stable staging URL.
+- Frontend: Netlify retains the immutable draft and unique deploy URLs; the isolated staging site can roll back to a prior deploy without touching the production SETT site.

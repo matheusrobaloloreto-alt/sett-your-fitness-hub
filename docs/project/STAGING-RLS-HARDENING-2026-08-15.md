@@ -74,4 +74,4 @@ Backlog that does not block fresh staging:
 
 ## Release boundary
 
-The cloud checkpoint is limited to isolated staging. Eleven required Edge Functions are active without provider credentials, OAuth remains synthetic, webhooks fail closed, and the frontend exists only as a Netlify draft. Promotion to the stable staging URL remains blocked until independent QA returns `GO`. Production remains a separate operator-gated release after the legacy-data preflight.
+The cloud checkpoint is limited to isolated staging. Eleven required Edge Functions are active without provider credentials, OAuth remains synthetic, and webhooks fail closed. Independent QA returned `GO` with P0=0/P1=0, after which the exact audited frontend payload was promoted to the stable isolated staging URL and passed the post-promotion smoke. Production remains a separate operator-gated release after the legacy-data preflight.
