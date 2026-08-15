@@ -22,7 +22,20 @@ begin
   end if;
 end $$;
 
-alter table public.prescription_bundles
-  drop constraint if exists prescription_bundles_training_cycle_id_fkey,
-  add constraint prescription_bundles_training_cycle_id_fkey
-    foreign key (training_cycle_id) references public.training_cycles(id) on delete cascade;
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'prescription_bundles'
+      and column_name = 'training_cycle_id'
+  ) then
+    alter table public.prescription_bundles
+      drop constraint if exists prescription_bundles_training_cycle_id_fkey,
+      add constraint prescription_bundles_training_cycle_id_fkey
+        foreign key (training_cycle_id) references public.training_cycles(id) on delete cascade;
+  else
+    raise notice 'Skipping prescription_bundles.training_cycle_id cascade: column is not present yet.';
+  end if;
+end $$;
