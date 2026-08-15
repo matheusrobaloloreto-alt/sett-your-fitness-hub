@@ -1,4 +1,18 @@
 
+DO $$
+DECLARE
+  v_company_id uuid := 'c051e80e-c10c-4522-a88a-e5da26a74d82';
+  v_plan_id uuid := '88faf03c-c488-421f-af1d-d406fb4bb70f';
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.companies WHERE id = v_company_id
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.plans WHERE id = v_plan_id AND company_id = v_company_id
+  ) THEN
+    RAISE NOTICE 'Skipping historical student seed: required company or plan is absent.';
+    RETURN;
+  END IF;
+
 -- Inserir aluna Ludmila com mesmo ID do Asaas externalReference
 INSERT INTO public.students (
   id, company_id, full_name, email, phone, whatsapp,
@@ -57,3 +71,4 @@ INSERT INTO public.payments (
   6, 'cus_000172243938',
   now(), CURRENT_DATE
 );
+END $$;
