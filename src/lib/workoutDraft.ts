@@ -80,6 +80,59 @@ export interface VersionedWorkoutLog {
   created_at?: string | null;
   client_updated_at?: string | null;
   dirty?: boolean;
+  deleted?: boolean;
+}
+
+export interface MutableWorkoutSetLog extends VersionedWorkoutLog {
+  id?: string;
+  workout_id: string;
+  exercise_index: number;
+  set_number: number;
+  [key: string]: unknown;
+}
+
+export const workoutLogTombstoneKey = (key: string) => `__deleted__:${key}`;
+
+/**
+ * Removes a visible set, keeps CAS tombstones for every old server key and
+ * turns shifted rows into inserts under their authoritative new set numbers.
+ */
+export function removeAndRenumberWorkoutSet<T extends MutableWorkoutSetLog>(
+  logs: Record<string, T>,
+  workoutId: string,
+  exerciseIndex: number,
+  removedSetNumber: number,
+  totalSets: number,
+  clientUpdatedAt: string,
+) {
+  const next: Record<string, T> = { ...logs };
+  const keyFor = (setNumber: number) => `${workoutId}-${exerciseIndex}-${setNumber}`;
+  for (let setNumber = removedSetNumber; setNumber <= totalSets; setNumber += 1) {
+    const oldKey = keyFor(setNumber);
+    const current = next[oldKey];
+    if (!current) continue;
+    next[workoutLogTombstoneKey(oldKey)] = {
+      ...current,
+      deleted: true,
+      dirty: true,
+      client_updated_at: clientUpdatedAt,
+    };
+    delete next[oldKey];
+    if (setNumber > removedSetNumber) {
+      const shifted = { ...current };
+      delete shifted.id;
+      delete shifted.revision;
+      delete shifted.updated_at;
+      next[keyFor(setNumber - 1)] = {
+        ...shifted,
+        set_number: setNumber - 1,
+        deleted: false,
+        dirty: true,
+        client_updated_at: clientUpdatedAt,
+      } as T;
+    }
+  }
+  return next;
 }
 
 function timestamp(value: VersionedWorkoutLog | undefined) {
@@ -101,6 +154,14 @@ export function mergeWorkoutDraftLogs<T extends VersionedWorkoutLog>(
   for (const [key, local] of Object.entries(localLogs)) {
     const server = serverLogs[key];
     if (!server) {
+      merged[key] = local;
+      continue;
+    }
+    // A replacement created by renumbering intentionally targets a key that
+    // still exists on the server until its paired CAS tombstone is applied.
+    // Keep both pieces of that local transaction together across reloads.
+    const pairedTombstone = localLogs[workoutLogTombstoneKey(key)];
+    if (local.dirty === true && pairedTombstone?.deleted === true) {
       merged[key] = local;
       continue;
     }

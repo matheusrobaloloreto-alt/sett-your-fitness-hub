@@ -10,11 +10,12 @@ describe("atomic anamnesis invite submission", () => {
   const app = readFileSync("src/App.tsx", "utf8");
   const publicForm = readFileSync("src/pages/PublicAnamnesis.tsx", "utf8");
 
-  it("routes both Studio operations through the shared access resolver", () => {
+  it("removes the obsolete public Studio actions", () => {
     const resolverOffset = edge.indexOf("await resolvePublicAnamnesisAccess(body");
     expect(resolverOffset).toBeGreaterThan(0);
-    expect(edge.indexOf('action === "studio_context"')).toBeGreaterThan(resolverOffset);
-    expect(edge.indexOf('action === "studio_submit"')).toBeGreaterThan(resolverOffset);
+    expect(edge).not.toContain('action === "studio_context"');
+    expect(edge).not.toContain('action === "studio_submit"');
+    expect(edge).not.toContain("body?.anamnese");
     expect(edge).toContain("assertInviteStudentTenant(access.invite, student)");
     expect(edge).toContain("companyId: access.invite.company_id");
     expect(edge).toContain("studentId: access.invite.student_id");
@@ -52,10 +53,16 @@ describe("atomic anamnesis invite submission", () => {
 
   it("persists pain and race effects before consuming the invite", () => {
     const effectsOffset = migration.indexOf("delete from public.student_body_limitations");
+    const raceReadOffset = migration.indexOf("race_payload := _effects->'race'", effectsOffset);
+    const goalDeleteOffset = migration.indexOf("delete from public.student_goals", raceReadOffset);
+    const optionalRaceOffset = migration.indexOf("if race_payload is not null", raceReadOffset);
     const goalOffset = migration.indexOf("insert into public.student_goals", effectsOffset);
     const consumeOffset = migration.indexOf("update public.anamnese_invites", effectsOffset);
     expect(effectsOffset).toBeGreaterThan(0);
-    expect(goalOffset).toBeGreaterThan(effectsOffset);
+    expect(goalDeleteOffset).toBeGreaterThan(raceReadOffset);
+    expect(optionalRaceOffset).toBeGreaterThan(goalDeleteOffset);
+    expect(goalOffset).toBeGreaterThan(goalDeleteOffset);
+    expect(migration.match(/delete from public\.student_goals/g)).toHaveLength(1);
     expect(consumeOffset).toBeGreaterThan(goalOffset);
     expect(migration).toContain("source = 'anamnese'");
     expect(migration).toContain("'articular'");

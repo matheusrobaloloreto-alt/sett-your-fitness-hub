@@ -62,6 +62,8 @@ declare
   owner_company_id uuid;
   caller_user_id uuid := auth.uid();
   caller_role text := coalesce(auth.role(), '');
+  is_deleted boolean;
+  target_has_tombstone boolean;
   saved jsonb := '[]'::jsonb;
   conflicts jsonb := '[]'::jsonb;
 begin
@@ -72,11 +74,179 @@ begin
     raise exception '_rows exceeds the 200 item limit';
   end if;
 
+  -- Tombstones are preflighted as a group before any mutation. Locking the
+  -- workout serializes same-workout saves, so a stale device cannot delete a
+  -- newer row between CAS validation, deletion and the renumbering upserts.
   for item in select value from jsonb_array_elements(_rows)
   loop
     if jsonb_typeof(item) <> 'object' then
       raise exception 'each workout log must be a JSON object';
     end if;
+    if item ? 'deleted' and jsonb_typeof(item->'deleted') <> 'boolean' then
+      raise exception 'deleted must be a boolean';
+    end if;
+    is_deleted := coalesce((item->>'deleted')::boolean, false);
+    if not is_deleted then continue; end if;
+
+    item_student_id := (item->>'student_id')::uuid;
+    item_workout_id := (item->>'workout_id')::uuid;
+    item_exercise_index := (item->>'exercise_index')::integer;
+    item_set_number := (item->>'set_number')::integer;
+    item_session_date := (item->>'session_date')::date;
+    expected_revision := nullif(item->>'base_revision', '')::bigint;
+    if item_student_id is null or item_workout_id is null
+      or item_exercise_index is null or item_set_number is null or item_session_date is null then
+      raise exception 'tombstone identity fields are required';
+    end if;
+    if item_session_date < current_date - 3650 or item_session_date > current_date + 1 then
+      raise exception 'session_date out of range';
+    end if;
+    if expected_revision is not null and expected_revision < 1 then
+      raise exception 'base_revision out of range';
+    end if;
+
+    select w.exercises, s.user_id, s.company_id
+      into workout_exercises, owner_user_id, owner_company_id
+      from public.workouts w
+      join public.training_cycles tc on tc.id = w.cycle_id
+      join public.students s on s.id = item_student_id
+      where w.id = item_workout_id
+        and tc.student_id = s.id
+        and tc.company_id = s.company_id
+        and w.company_id = s.company_id
+      for update of w;
+    if not found then raise exception 'workout does not belong to student tenant'; end if;
+    if caller_role <> 'service_role'
+      and owner_user_id is distinct from caller_user_id
+      and not public.is_company_staff(caller_user_id, owner_company_id) then
+      raise exception 'actor cannot delete workout logs for this student tenant';
+    end if;
+    if workout_exercises is null or jsonb_typeof(workout_exercises) <> 'array'
+      or item_exercise_index < 0 or item_exercise_index >= jsonb_array_length(workout_exercises) then
+      raise exception 'tombstone exercise_index out of workout range';
+    end if;
+    exercise_definition := workout_exercises -> item_exercise_index;
+    if exercise_definition is null or jsonb_typeof(exercise_definition) <> 'object' then
+      raise exception 'workout exercise entry must be a JSON object';
+    end if;
+    base_set_count := case
+      when coalesce(exercise_definition->>'sets', '') ~ '^[0-9]+'
+        and substring(exercise_definition->>'sets' from '^[0-9]+')::integer between 1 and 20
+        then substring(exercise_definition->>'sets' from '^[0-9]+')::integer
+      else 3
+    end;
+    select coalesce(max(
+      case when coalesce(week_item->>'sets', '') ~ '^[0-9]+'
+        then substring(week_item->>'sets' from '^[0-9]+')::integer
+        else 0
+      end
+    ), 0) into weekly_set_count
+    from jsonb_array_elements(
+      case when jsonb_typeof(exercise_definition->'weekly_prescription') = 'array'
+        then exercise_definition->'weekly_prescription'
+        else '[]'::jsonb
+      end
+    ) as weekly_entries(week_item);
+    max_set_number := least(greatest(base_set_count, weekly_set_count, 1) + 5, 25);
+    if item_set_number < 1 or item_set_number > max_set_number then
+      raise exception 'tombstone set_number exceeds prescribed sets plus five extras';
+    end if;
+
+    select * into current_row from public.workout_logs
+    where student_id = item_student_id and workout_id = item_workout_id
+      and exercise_index = item_exercise_index and set_number = item_set_number
+      and session_date = item_session_date;
+    if found and (expected_revision is null or current_row.revision <> expected_revision) then
+      conflicts := conflicts || jsonb_build_array(
+        to_jsonb(current_row) || jsonb_build_object('requested_deleted', true)
+      );
+    end if;
+  end loop;
+
+  for item in select value from jsonb_array_elements(_rows)
+  loop
+    is_deleted := coalesce((item->>'deleted')::boolean, false);
+    if is_deleted then continue; end if;
+    item_student_id := (item->>'student_id')::uuid;
+    item_workout_id := (item->>'workout_id')::uuid;
+    item_exercise_index := (item->>'exercise_index')::integer;
+    item_set_number := (item->>'set_number')::integer;
+    item_session_date := (item->>'session_date')::date;
+    expected_revision := nullif(item->>'base_revision', '')::bigint;
+    if item_student_id is null or item_workout_id is null
+      or item_exercise_index is null or item_set_number is null or item_session_date is null then
+      raise exception 'workout log identity fields are required';
+    end if;
+    select w.exercises, s.user_id, s.company_id
+      into workout_exercises, owner_user_id, owner_company_id
+      from public.workouts w
+      join public.training_cycles tc on tc.id = w.cycle_id
+      join public.students s on s.id = item_student_id
+      where w.id = item_workout_id and tc.student_id = s.id
+        and tc.company_id = s.company_id and w.company_id = s.company_id
+      for update of w;
+    if not found then raise exception 'workout does not belong to student tenant'; end if;
+    if caller_role <> 'service_role'
+      and owner_user_id is distinct from caller_user_id
+      and not public.is_company_staff(caller_user_id, owner_company_id) then
+      raise exception 'actor cannot write workout logs for this student tenant';
+    end if;
+    select exists (
+      select 1 from jsonb_array_elements(_rows) deletion(item)
+      where coalesce((deletion.item->>'deleted')::boolean, false)
+        and deletion.item->>'student_id' = item_student_id::text
+        and deletion.item->>'workout_id' = item_workout_id::text
+        and (deletion.item->>'exercise_index')::integer = item_exercise_index
+        and (deletion.item->>'set_number')::integer = item_set_number
+        and (deletion.item->>'session_date')::date = item_session_date
+    ) into target_has_tombstone;
+    if target_has_tombstone then continue; end if;
+    select * into current_row from public.workout_logs
+    where student_id = item_student_id and workout_id = item_workout_id
+      and exercise_index = item_exercise_index and set_number = item_set_number
+      and session_date = item_session_date;
+    if found and (expected_revision is null or current_row.revision <> expected_revision) then
+      conflicts := conflicts || jsonb_build_array(to_jsonb(current_row));
+    elsif not found and expected_revision is not null then
+      conflicts := conflicts || jsonb_build_array(item || jsonb_build_object('server_missing', true));
+    end if;
+  end loop;
+
+  if jsonb_array_length(conflicts) > 0 then
+    return jsonb_build_object('saved', saved, 'conflicts', conflicts);
+  end if;
+
+  for item in select value from jsonb_array_elements(_rows)
+  loop
+    is_deleted := coalesce((item->>'deleted')::boolean, false);
+    if not is_deleted then continue; end if;
+    item_student_id := (item->>'student_id')::uuid;
+    item_workout_id := (item->>'workout_id')::uuid;
+    item_exercise_index := (item->>'exercise_index')::integer;
+    item_set_number := (item->>'set_number')::integer;
+    item_session_date := (item->>'session_date')::date;
+    expected_revision := nullif(item->>'base_revision', '')::bigint;
+
+    delete from public.workout_logs
+    where student_id = item_student_id and workout_id = item_workout_id
+      and exercise_index = item_exercise_index and set_number = item_set_number
+      and session_date = item_session_date
+      and revision = expected_revision
+    returning * into current_row;
+    if found then
+      saved := saved || jsonb_build_array(to_jsonb(current_row) || jsonb_build_object('deleted', true));
+    else
+      saved := saved || jsonb_build_array(item || jsonb_build_object('deleted', true));
+    end if;
+  end loop;
+
+  for item in select value from jsonb_array_elements(_rows)
+  loop
+    if jsonb_typeof(item) <> 'object' then
+      raise exception 'each workout log must be a JSON object';
+    end if;
+    is_deleted := coalesce((item->>'deleted')::boolean, false);
+    if is_deleted then continue; end if;
 
     item_student_id := (item->>'student_id')::uuid;
     item_workout_id := (item->>'workout_id')::uuid;
@@ -128,7 +298,8 @@ begin
       where w.id = item_workout_id
         and tc.student_id = s.id
         and tc.company_id = s.company_id
-        and w.company_id = s.company_id;
+        and w.company_id = s.company_id
+      for update of w;
     if not found then
       raise exception 'workout does not belong to student tenant';
     end if;
@@ -210,6 +381,10 @@ begin
         conflicts := conflicts || jsonb_build_array(to_jsonb(current_row));
       end if;
     else
+      if expected_revision is not null then
+        conflicts := conflicts || jsonb_build_array(item || jsonb_build_object('server_missing', true));
+        continue;
+      end if;
       begin
         insert into public.workout_logs (
           student_id, workout_id, exercise_index, set_number, session_date,

@@ -3,9 +3,11 @@ import {
   mergeWorkoutDraftLogs,
   readWorkoutUiDraft,
   reconcileWorkoutLogResponse,
+  removeAndRenumberWorkoutSet,
   resolveWorkoutResumeTarget,
   workoutUiDraftKey,
   writeWorkoutUiDraft,
+  workoutLogTombstoneKey,
 } from "./workoutDraft";
 
 describe("workout draft persistence", () => {
@@ -109,5 +111,32 @@ describe("workout draft persistence", () => {
   it("ignores corrupt or incomplete drafts", () => {
     expect(readWorkoutUiDraft({ getItem: () => "{" }, "draft")).toBeNull();
     expect(readWorkoutUiDraft({ getItem: () => JSON.stringify({ cycleId: "cycle" }) }, "draft")).toBeNull();
+  });
+
+  it("persists removal and renumbering as CAS tombstones plus clean inserts", () => {
+    const logs = {
+      "workout-1-0-1": { id: "one", workout_id: "workout-1", exercise_index: 0, set_number: 1, revision: 2, weight: 10 },
+      "workout-1-0-4": { id: "four", workout_id: "workout-1", exercise_index: 0, set_number: 4, revision: 4, weight: 20 },
+      "workout-1-0-5": { id: "five", workout_id: "workout-1", exercise_index: 0, set_number: 5, revision: 1, weight: 30 },
+    };
+    const next = removeAndRenumberWorkoutSet(logs, "workout-1", 0, 4, 5, "2026-08-14T12:00:00Z");
+    expect(next[workoutLogTombstoneKey("workout-1-0-4")]).toMatchObject({ deleted: true, revision: 4 });
+    expect(next[workoutLogTombstoneKey("workout-1-0-5")]).toMatchObject({ deleted: true, revision: 1 });
+    expect(next["workout-1-0-4"]).toMatchObject({ set_number: 4, weight: 30, dirty: true, deleted: false });
+    expect(next["workout-1-0-4"]).not.toHaveProperty("id");
+    expect(next["workout-1-0-4"]).not.toHaveProperty("revision");
+  });
+
+  it("keeps a pending delete plus renumber transaction together after reload", () => {
+    const server = {
+      "workout-1-0-4": { id: "four", workout_id: "workout-1", exercise_index: 0, set_number: 4, revision: 4, weight: 20 },
+      "workout-1-0-5": { id: "five", workout_id: "workout-1", exercise_index: 0, set_number: 5, revision: 1, weight: 30 },
+    };
+    const local = removeAndRenumberWorkoutSet(server, "workout-1", 0, 4, 5, "2026-08-14T12:00:00Z");
+    const restored = mergeWorkoutDraftLogs(server, local);
+
+    expect(restored[workoutLogTombstoneKey("workout-1-0-4")]).toMatchObject({ deleted: true, revision: 4 });
+    expect(restored[workoutLogTombstoneKey("workout-1-0-5")]).toMatchObject({ deleted: true, revision: 1 });
+    expect(restored["workout-1-0-4"]).toMatchObject({ weight: 30, set_number: 4, dirty: true });
   });
 });

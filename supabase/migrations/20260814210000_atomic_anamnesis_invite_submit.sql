@@ -224,18 +224,18 @@ begin
   end if;
 
   race_payload := _effects->'race';
+  delete from public.student_goals
+  where student_id = student_row.id
+    and company_id = student_row.company_id
+    and kind = 'prova'
+    and created_by is null
+    and description = 'Cadastrada pela anamnese';
   if race_payload is not null and race_payload <> 'null'::jsonb then
     if jsonb_typeof(race_payload) <> 'object'
       or length(btrim(coalesce(race_payload->>'name', ''))) not between 1 and 120
       or coalesce(race_payload->>'date', '') !~ '^\d{4}-\d{2}-\d{2}$' then
       raise exception 'invalid anamnesis race effect';
     end if;
-    delete from public.student_goals
-    where student_id = student_row.id
-      and company_id = student_row.company_id
-      and kind = 'prova'
-      and created_by is null
-      and description = 'Cadastrada pela anamnese';
     insert into public.student_goals (
       company_id, student_id, title, kind, target_date, status, description, created_by
     ) values (

@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { resolveAnamnesisDurations } from "../_shared/anamnesis-duration.ts";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
 import { preRegistrationResponseDeadline } from "../_shared/pre-registration-confirmation.ts";
+import { validatePreRegistrationSubmission } from "../_shared/pre-registration-validation.ts";
 import {
   buildFiscalRegistrationMessage,
   buildPaymentLinkMessage,
@@ -252,9 +253,6 @@ async function requireCompanyStaff(req: Request, companyId: unknown) {
   return { userId, companyId: tenant.companyId };
 }
 
-const INVESTMENT_RANGES = new Set(["200_300", "300_400", "400_500"]);
-const CONTACT_PERIODS = new Set(["morning", "afternoon", "evening"]);
-
 async function preRegister(body: Record<string, unknown>) {
   const company = await resolveCompanyById(body.companyId) || await resolveCompany(cleanText(body.slug) || null);
   if (!company) throw new HttpError(400, "Empresa inválida.");
@@ -262,14 +260,7 @@ async function preRegister(body: Record<string, unknown>) {
   const phone = onlyDigits(body.whatsapp);
   const budgetRange = cleanText(body.budgetRange);
   const preferredContactPeriod = cleanText(body.preferredContactPeriod);
-  const answers = body.answers && typeof body.answers === "object"
-    ? body.answers as Record<string, unknown>
-    : {};
-  if (fullName.length < 3) throw new HttpError(422, "Informe seu nome completo.");
-  if (phone.length < 10) throw new HttpError(422, "Informe um WhatsApp válido.");
-  if (!INVESTMENT_RANGES.has(budgetRange)) throw new HttpError(422, "Selecione a faixa de investimento.");
-  if (!CONTACT_PERIODS.has(preferredContactPeriod)) throw new HttpError(422, "Selecione o melhor horário para contato.");
-  if (!cleanText(answers.objective)) throw new HttpError(422, "Informe seu objetivo principal.");
+  const answers = validatePreRegistrationSubmission(body);
 
   const submittedAt = new Date().toISOString();
   const leadPayload = {

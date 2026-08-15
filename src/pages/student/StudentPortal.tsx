@@ -56,9 +56,11 @@ import {
   mergeWorkoutDraftLogs,
   readWorkoutUiDraft,
   reconcileWorkoutLogResponse,
+  removeAndRenumberWorkoutSet,
   resolveWorkoutResumeTarget,
   workoutUiDraftKey,
   writeWorkoutUiDraft,
+  workoutLogTombstoneKey,
 } from "@/lib/workoutDraft";
 
 
@@ -123,6 +125,7 @@ interface WorkoutLog {
   created_at?: string;
   client_updated_at?: string;
   dirty?: boolean;
+  deleted?: boolean;
 }
 
 export default function StudentPortal() {
@@ -479,32 +482,15 @@ export default function StudentPortal() {
     if (!selectedWorkout) return;
     const workoutId = selectedWorkout.id;
     const total = getTotalSets(exIdx);
-    if (total <= 1) return;
-
-    setLogs(prev => {
-      const newLogs = { ...prev };
-      delete newLogs[getLogKey(workoutId, exIdx, setNum)];
-      for (let s = setNum + 1; s <= total; s++) {
-        const oldKey = getLogKey(workoutId, exIdx, s);
-        const newKey = getLogKey(workoutId, exIdx, s - 1);
-        if (newLogs[oldKey]) {
-          newLogs[newKey] = {
-            ...newLogs[oldKey],
-            set_number: s - 1,
-            client_updated_at: new Date().toISOString(),
-            dirty: true,
-          };
-          delete newLogs[oldKey];
-        }
-      }
-      return newLogs;
-    });
-
     const baseSets = parseInt(selectedWorkout.exercises[exIdx]?.sets || "3") || 3;
     const currentExtra = extraSets[exIdx] || 0;
-    if (currentExtra > 0) {
-      setExtraSets(prev => ({ ...prev, [exIdx]: currentExtra - 1 }));
-    }
+    if (total <= 1 || currentExtra <= 0 || setNum <= baseSets) return;
+
+    setLogs(prev => removeAndRenumberWorkoutSet(
+      prev, workoutId, exIdx, setNum, total, new Date().toISOString(),
+    ));
+
+    setExtraSets(prev => ({ ...prev, [exIdx]: currentExtra - 1 }));
   };
 
   const saveCurrentLogs = async (opts?: { silent?: boolean }) => {
@@ -515,7 +501,7 @@ export default function StudentPortal() {
     // Inclui séries marcadas como concluídas mesmo sem carga/reps (ex.: peso corporal, abdominal).
     const logsToSave = Object.values(logs).filter(l =>
       l.workout_id === workoutId
-      && (l.weight > 0 || l.reps_done > 0 || l.completed)
+      && (l.deleted === true || l.weight > 0 || l.reps_done > 0 || l.completed)
       && (l.dirty === true || !l.id)
     );
 
@@ -535,9 +521,10 @@ export default function StudentPortal() {
       completed: log.completed || false,
       base_revision: log.revision ?? null,
       client_updated_at: log.client_updated_at ?? null,
+      deleted: log.deleted === true,
     }));
     if (rows.length > 0) {
-      const sentByKey = new Map(rows.map(row => [getLogKey(row.workout_id, row.exercise_index, row.set_number), row]));
+      const sentByKey = new Map(rows.filter(row => !row.deleted).map(row => [getLogKey(row.workout_id, row.exercise_index, row.set_number), row]));
       // RPC com compare-and-swap por revisão: outro dispositivo não pode ser
       // sobrescrito por um autosave baseado numa versão antiga.
       let error: any = null;
@@ -551,29 +538,44 @@ export default function StudentPortal() {
       }
       if (error) { hadError = true; console.error("Erro ao salvar carga:", error); }
       else {
-        const savedRows = (Array.isArray(result?.saved) ? result.saved : [])
+        const allSavedRows = (Array.isArray(result?.saved) ? result.saved : [])
           .filter((row: WorkoutLog | null) => !!row?.workout_id);
+        const deletedRows = allSavedRows.filter((row: WorkoutLog) => row.deleted === true);
+        const savedRows = allSavedRows.filter((row: WorkoutLog) => row.deleted !== true);
         const rawConflicts = Array.isArray(result?.conflicts) ? result.conflicts : [];
+        const deletionConflict = rawConflicts.some((row: WorkoutLog & { requested_deleted?: boolean }) => row?.requested_deleted === true);
         const conflictRows = rawConflicts
           .filter((row: WorkoutLog | null) => !!row?.workout_id);
         if (rawConflicts.length > 0) hadError = true;
         const authoritativeRows = [...savedRows, ...conflictRows] as WorkoutLog[];
-        setLogs(prev => {
-          const next = { ...prev };
-          for (const serverRow of authoritativeRows) {
-            const key = getLogKey(serverRow.workout_id, serverRow.exercise_index, serverRow.set_number);
-            const current = next[key];
-            const sent = sentByKey.get(key);
-            next[key] = reconcileWorkoutLogResponse(current, sent, serverRow);
-          }
-          return next;
-        });
-        setAllLogs((prev) => {
-          const keyOf = (r: any) => `${r.workout_id}|${r.exercise_index}|${r.set_number}|${r.session_date}`;
-          const map = new Map((prev || []).map((r: any) => [keyOf(r), r]));
-          for (const r of authoritativeRows) map.set(keyOf(r), { ...(map.get(keyOf(r)) || {}), ...r });
-          return Array.from(map.values());
-        });
+        if (deletionConflict) {
+          // Não permita que um reload imediato reaplique a transação local que
+          // acabou de perder o CAS para uma edição mais nova de outro aparelho.
+          if (logsBackupKey) localStorage.removeItem(logsBackupKey);
+          await loadStudentData();
+        } else {
+          setLogs(prev => {
+            const next = { ...prev };
+            for (const deletedRow of deletedRows) {
+              const key = getLogKey(deletedRow.workout_id, deletedRow.exercise_index, deletedRow.set_number);
+              delete next[workoutLogTombstoneKey(key)];
+            }
+            for (const serverRow of authoritativeRows) {
+              const key = getLogKey(serverRow.workout_id, serverRow.exercise_index, serverRow.set_number);
+              const current = next[key];
+              const sent = sentByKey.get(key);
+              next[key] = reconcileWorkoutLogResponse(current, sent, serverRow);
+            }
+            return next;
+          });
+          setAllLogs((prev) => {
+            const keyOf = (r: any) => `${r.workout_id}|${r.exercise_index}|${r.set_number}|${r.session_date}`;
+            const map = new Map((prev || []).map((r: any) => [keyOf(r), r]));
+            for (const r of deletedRows) map.delete(keyOf(r));
+            for (const r of authoritativeRows) map.set(keyOf(r), { ...(map.get(keyOf(r)) || {}), ...r });
+            return Array.from(map.values());
+          });
+        }
         if (rawConflicts.length > 0 && silent) {
           toast({
             title: "Treino atualizado em outro dispositivo",

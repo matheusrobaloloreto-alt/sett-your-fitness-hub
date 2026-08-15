@@ -29,6 +29,7 @@ describe("workout log optimistic concurrency", () => {
     expect(migration).toContain("exercise_index out of workout range");
     expect(migration).toContain("greatest(base_set_count, weekly_set_count, 1) + 5");
     expect(migration).toContain("set_number exceeds prescribed sets plus five extras");
+    expect(migration).toContain("tombstone set_number exceeds prescribed sets plus five extras");
     expect(migration).toContain("rpe out of range");
     expect(migration).toContain("session_date out of range");
     expect(migration).toContain("security definer");
@@ -51,6 +52,30 @@ describe("workout log optimistic concurrency", () => {
     expect(migration).toContain("saved := saved || jsonb_build_array(to_jsonb(current_row))");
     expect(portal).toContain("const MAX_EXTRA_SETS = 5");
     expect(portal).toContain("current >= MAX_EXTRA_SETS");
+  });
+
+  it("persists deletion and renumbering as one revision-guarded transaction", () => {
+    const portal = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");
+    const card = readFileSync("src/components/student/ExerciseCard.tsx", "utf8");
+    const migration = readFileSync(
+      "supabase/migrations/20260814203000_workout_log_revision_guard.sql",
+      "utf8",
+    );
+    const conflictGate = migration.indexOf("if jsonb_array_length(conflicts) > 0 then");
+    const deleteOffset = migration.indexOf("delete from public.workout_logs", conflictGate);
+    const upsertOffset = migration.indexOf("insert into public.workout_logs", deleteOffset);
+
+    expect(portal).toContain("removeAndRenumberWorkoutSet(");
+    expect(portal).toContain("deleted: log.deleted === true");
+    expect(portal).toContain("if (deletionConflict)");
+    expect(card).toContain("onRemoveSet(idx, s + 1)");
+    expect(migration).toContain("deleted must be a boolean");
+    expect(migration).toContain("requested_deleted");
+    expect(migration).toContain("target_has_tombstone");
+    expect(migration).toContain("for update of w");
+    expect(conflictGate).toBeGreaterThan(0);
+    expect(deleteOffset).toBeGreaterThan(conflictGate);
+    expect(upsertOffset).toBeGreaterThan(deleteOffset);
   });
 
   it("denies direct browser DML while preserving tenant reads and the guarded RPC", () => {

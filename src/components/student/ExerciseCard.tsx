@@ -74,6 +74,7 @@ export function ExerciseCard({
   activeRest, onSetComplete, onRestComplete, totalSets, onAddSet, onRemoveSet,
 }: ExerciseCardProps) {
   const numSets = totalSets;
+  const prescribedSets = parseInt(ex.sets || "3", 10) || 3;
   // Sempre há demonstração: vídeo gravado próprio OU fallback do YouTube pelo nome do exercício.
   const hasVideo = !!(ex.video_path || ex.video_url || ex.exercise_name);
   const cover = exerciseThumb(ex);
@@ -191,12 +192,13 @@ export function ExerciseCard({
 
             <div className="space-y-1">
               {/* Header */}
-              <div className="grid grid-cols-[36px_1fr_1fr_1fr_40px_28px] gap-1.5 text-[10px] text-muted-foreground font-sans font-medium uppercase tracking-wide px-0.5">
+              <div className="grid grid-cols-[36px_1fr_1fr_1fr_40px_28px_24px] gap-1 text-[10px] text-muted-foreground font-sans font-medium uppercase tracking-wide px-0.5">
                 <span>Série</span>
                 <span>Anterior</span>
                 <span>Kg</span>
                 <span>Reps</span>
                 <span className="text-center">Dific.</span>
+                <span></span>
                 <span></span>
               </div>
 
@@ -222,7 +224,7 @@ export function ExerciseCard({
 
                 return (
                   <div key={s} className="space-y-1">
-                    <div className={`grid grid-cols-[36px_1fr_1fr_1fr_40px_28px] gap-1.5 items-center rounded-md px-0.5 py-0.5 ${isCompleted ? 'bg-green-500/5' : ''}`}>
+                    <div className={`grid grid-cols-[36px_1fr_1fr_1fr_40px_28px_24px] gap-1 items-center rounded-md px-0.5 py-0.5 ${isCompleted ? 'bg-green-500/5' : ''}`}>
                       {/* Set type badge */}
                       {/* Tipo de série (definido pelo treinador) — só leitura; toque explica o que é */}
                       <button
@@ -314,6 +316,19 @@ export function ExerciseCard({
                         }}
                       >
                         <Check className="h-3.5 w-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
+                        aria-label={`Remover série ${s + 1}`}
+                        disabled={numSets <= 1 || s + 1 <= prescribedSets}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRemoveSet(idx, s + 1);
+                        }}
+                      >
+                        <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
 

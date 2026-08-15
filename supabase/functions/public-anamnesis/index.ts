@@ -422,10 +422,7 @@ Deno.serve(async (req) => {
       throw new HttpError(404, "Aluno não encontrado");
     }
 
-    if (action === "context" || action === "studio_context") {
-      if (action === "studio_context" && !access.invite) {
-        throw new HttpError(400, "O fluxo Studio exige um convite válido.");
-      }
+    if (action === "context") {
       const branding = await getBranding(student.company_id);
       const customFields = access.invite ? await getCustomFields(student.company_id) : [];
       return new Response(JSON.stringify({
@@ -441,29 +438,6 @@ Deno.serve(async (req) => {
         branding,
         custom_fields: customFields,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    if (action === "studio_submit") {
-      if (!access.invite || typeof body?.token !== "string") {
-        throw new HttpError(400, "O fluxo Studio exige um convite válido.");
-      }
-      const incoming = body?.anamnese ?? {};
-      const payload = sanitizeStudioAnamnese(incoming, student);
-      const requiredCustomFields = await getCustomFields(student.company_id) as RequiredAnamnesisField[];
-      const { data, error } = await consumeValidatedAnamnesisInvite(
-        incoming,
-        requiredCustomFields,
-        async () => await submitInviteAtomic(
-          body.token,
-          sanitizeStudentPatch(body?.student),
-          payload,
-          buildInviteEffects(incoming),
-        ),
-      );
-      if (error) throw new HttpError(409, error.message);
-      return new Response(JSON.stringify({ ok: true, student_anamnese_id: data?.student_anamnese_id ?? null }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
     }
 
     if (action === "submit") {
