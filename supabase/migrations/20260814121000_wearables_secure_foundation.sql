@@ -638,12 +638,20 @@ begin
   from public.wearable_leases
   where device_id = p_device_id and purpose = 'sync'
   for update;
-  select d, s.company_id, s.user_id, s.status
-    into v_device, v_student_company_id, v_student_user_id, v_student_status
+  perform 1
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
   for update of d, s;
+  select d.* into v_device
+  from public.wearable_devices d
+  where d.id = p_device_id and d.student_id = p_student_id
+  for update;
+  select s.company_id, s.user_id, s.status
+    into v_student_company_id, v_student_user_id, v_student_status
+  from public.students s
+  where s.id = v_device.student_id
+  for update;
   if v_lease.device_id is null
      or v_lease.purpose is distinct from 'sync'
      or v_lease.holder is distinct from p_holder
@@ -704,12 +712,20 @@ begin
   from public.wearable_leases
   where device_id = p_device_id and purpose = 'sync'
   for update;
-  select d, s.company_id, s.user_id, s.status
-    into v_device, v_student_company_id, v_student_user_id, v_student_status
+  perform 1
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
   for update of d, s;
+  select d.* into v_device
+  from public.wearable_devices d
+  where d.id = p_device_id and d.student_id = p_student_id
+  for update;
+  select s.company_id, s.user_id, s.status
+    into v_student_company_id, v_student_user_id, v_student_status
+  from public.students s
+  where s.id = v_device.student_id
+  for update;
   if v_lease.device_id is null
      or v_lease.purpose is distinct from 'sync'
      or v_lease.holder is distinct from p_holder
@@ -839,12 +855,20 @@ begin
   from public.wearable_leases
   where device_id = p_device_id and purpose = 'sync'
   for update;
-  select d, s.company_id, s.user_id, s.status
-    into v_device, v_student_company_id, v_student_user_id, v_student_status
+  perform 1
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
   for update of d, s;
+  select d.* into v_device
+  from public.wearable_devices d
+  where d.id = p_device_id and d.student_id = p_student_id
+  for update;
+  select s.company_id, s.user_id, s.status
+    into v_student_company_id, v_student_user_id, v_student_status
+  from public.students s
+  where s.id = v_device.student_id
+  for update;
   if v_lease.device_id is null
      or v_lease.purpose is distinct from 'sync'
      or v_lease.holder is distinct from p_holder
@@ -896,12 +920,20 @@ begin
   from public.wearable_leases
   where device_id = p_device_id and purpose = 'maintenance'
   for update;
-  select d, s.company_id, s.user_id, s.status
-    into v_device, v_student_company_id, v_student_user_id, v_student_status
+  perform 1
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
   for update of d, s;
+  select d.* into v_device
+  from public.wearable_devices d
+  where d.id = p_device_id and d.student_id = p_student_id
+  for update;
+  select s.company_id, s.user_id, s.status
+    into v_student_company_id, v_student_user_id, v_student_status
+  from public.students s
+  where s.id = v_device.student_id
+  for update;
   if v_lease.device_id is null
      or v_lease.purpose is distinct from 'maintenance'
      or v_lease.holder is distinct from p_holder
@@ -980,12 +1012,20 @@ begin
   from public.wearable_leases
   where device_id = p_device_id and purpose = 'maintenance'
   for update;
-  select d, s.company_id, s.user_id, s.status
-    into v_device, v_student_company_id, v_student_user_id, v_student_status
+  perform 1
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
   for update of d, s;
+  select d.* into v_device
+  from public.wearable_devices d
+  where d.id = p_device_id and d.student_id = p_student_id
+  for update;
+  select s.company_id, s.user_id, s.status
+    into v_student_company_id, v_student_user_id, v_student_status
+  from public.students s
+  where s.id = v_device.student_id
+  for update;
   if v_lease.device_id is null
      or v_lease.purpose is distinct from 'maintenance'
      or v_lease.holder is distinct from p_holder

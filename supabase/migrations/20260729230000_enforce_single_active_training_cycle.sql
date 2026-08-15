@@ -7,7 +7,11 @@ with ranked_active_cycles as (
     row_number() over (
       partition by tc.enrollment_id
       order by
-        case when tc.bundle_id is not null then 0 else 1 end,
+        case when exists (
+          select 1
+          from public.prescription_bundles pb
+          where pb.training_cycle_id = tc.id
+        ) then 0 else 1 end,
         case when current_date between tc.start_date and tc.end_date then 0 else 1 end,
         tc.cycle_number desc,
         tc.created_at desc

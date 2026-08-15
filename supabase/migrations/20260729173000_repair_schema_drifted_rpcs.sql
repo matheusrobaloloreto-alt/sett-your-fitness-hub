@@ -555,7 +555,9 @@ security definer
 set search_path = public
 as $$
 declare
-  v_template public.workout_templates%rowtype;
+  -- RECORD keeps this repair migration replayable even when the optional
+  -- normalized template module was never installed in this environment.
+  v_template record;
   v_company_id uuid;
   v_student_user_id uuid;
   v_enrollment_id uuid;
@@ -565,6 +567,14 @@ declare
   v_json_workout jsonb;
   v_exercises jsonb;
 begin
+  if to_regclass('public.workout_templates') is null
+     or to_regclass('public.template_workouts') is null
+     or to_regclass('public.template_workout_exercises') is null
+     or to_regclass('public.workout_exercises') is null then
+    raise exception 'Módulo normalizado de templates não está disponível neste ambiente'
+      using errcode = '55000';
+  end if;
+
   select s.company_id, s.user_id into v_company_id, v_student_user_id
   from public.students s where s.id = p_student_id;
   if v_company_id is null then

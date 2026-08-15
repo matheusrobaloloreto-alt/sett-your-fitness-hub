@@ -138,76 +138,120 @@ alter table public.enrollments
   add constraint enrollments_trainer_id_fkey
   foreign key (trainer_id) references auth.users(id) on delete set null;
 
--- Empty cycles are planning placeholders, not active prescriptions.
-update public.training_cycles tc
-set status = 'pending',
-    delivery_status = coalesce(tc.delivery_status, 'pending')
-where lower(coalesce(tc.status, '')) = 'active'
-  and (tc.start_date is null or tc.start_date <= current_date)
-  and tc.prescribed_offline_at is null
-  and (
-    tc.workouts is null
-    or jsonb_typeof(tc.workouts) <> 'array'
-    or jsonb_array_length(tc.workouts) = 0
-  )
-  and not exists (
-    select 1 from public.workouts w where w.cycle_id = tc.id
-  );
+-- Empty cycles are planning placeholders, not active prescriptions. Some
+-- historical environments stored an additional JSON snapshot directly on the
+-- cycle; preserve it when that drift-only column exists.
+do $empty_cycles$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'training_cycles'
+      and column_name = 'workouts'
+  ) then
+    execute $sql$
+      update public.training_cycles tc
+      set status = 'pending',
+          delivery_status = coalesce(tc.delivery_status, 'pending')
+      where lower(coalesce(tc.status, '')) = 'active'
+        and (tc.start_date is null or tc.start_date <= current_date)
+        and tc.prescribed_offline_at is null
+        and (
+          tc.workouts is null
+          or jsonb_typeof(tc.workouts) <> 'array'
+          or jsonb_array_length(tc.workouts) = 0
+        )
+        and not exists (
+          select 1 from public.workouts w where w.cycle_id = tc.id
+        )
+    $sql$;
+  else
+    update public.training_cycles tc
+    set status = 'pending',
+        delivery_status = coalesce(tc.delivery_status, 'pending')
+    where lower(coalesce(tc.status, '')) = 'active'
+      and (tc.start_date is null or tc.start_date <= current_date)
+      and tc.prescribed_offline_at is null
+      and not exists (
+        select 1 from public.workouts w where w.cycle_id = tc.id
+      );
+  end if;
+end;
+$empty_cycles$;
 
 -- Canonical internal projection. Current production workouts use exercises
--- JSON; normalized rows remain supported for future writes.
-create or replace view public.workout_exercise_entries
-with (security_invoker = true)
-as
-select
-  we.workout_id,
-  we.exercise_id,
-  coalesce(we.exercise_name, el.name) as exercise_name,
-  coalesce(we.sets, 0)::numeric as sets,
-  coalesce(we.exercise_order, 0)::integer as exercise_order,
-  el.muscle_group as direct_muscle_group
-from public.workout_exercises we
-left join public.exercise_library el on el.id = we.exercise_id
+-- JSON; normalized rows remain supported only where that optional table was
+-- actually installed. Dynamic DDL avoids making a fresh replay depend on
+-- production-only schema drift.
+do $workout_entries$
+declare
+  v_normalized_select text := '';
+  v_json_filter text := '';
+begin
+  if to_regclass('public.workout_exercises') is not null then
+    v_normalized_select := $sql$
+      select
+        we.workout_id,
+        we.exercise_id,
+        coalesce(we.exercise_name, el.name) as exercise_name,
+        coalesce(we.sets, 0)::numeric as sets,
+        coalesce(we.exercise_order, 0)::integer as exercise_order,
+        el.muscle_group as direct_muscle_group
+      from public.workout_exercises we
+      left join public.exercise_library el on el.id = we.exercise_id
+      union all
+    $sql$;
+    v_json_filter := $sql$
+      where not exists (
+        select 1 from public.workout_exercises normalized
+        where normalized.workout_id = w.id
+      )
+    $sql$;
+  end if;
 
-union all
-
-select
-  w.id as workout_id,
-  case
-    when item.exercise->>'exercise_id'
-      ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-      then (item.exercise->>'exercise_id')::uuid
-    else null
-  end as exercise_id,
-  coalesce(
-    item.exercise->>'exercise_name',
-    item.exercise->>'name',
-    el.name
-  ) as exercise_name,
-  coalesce(
-    nullif(substring(coalesce(item.exercise->>'sets', '') from '[0-9]+'), '')::numeric,
-    0
-  ) as sets,
-  (item.ordinality - 1)::integer as exercise_order,
-  coalesce(item.exercise->>'muscle_group', el.muscle_group) as direct_muscle_group
-from public.workouts w
-cross join lateral jsonb_array_elements(
-  case
-    when jsonb_typeof(w.exercises) = 'array' then w.exercises
-    else '[]'::jsonb
-  end
-) with ordinality as item(exercise, ordinality)
-left join public.exercise_library el
-  on el.id = case
-    when item.exercise->>'exercise_id'
-      ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-      then (item.exercise->>'exercise_id')::uuid
-    else null
-  end
-where not exists (
-  select 1 from public.workout_exercises normalized
-  where normalized.workout_id = w.id
-);
+  execute
+    'create or replace view public.workout_exercise_entries '
+    || 'with (security_invoker = true) as '
+    || v_normalized_select
+    || $sql$
+      select
+        w.id as workout_id,
+        case
+          when item.exercise->>'exercise_id'
+            ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            then (item.exercise->>'exercise_id')::uuid
+          else null
+        end as exercise_id,
+        coalesce(
+          item.exercise->>'exercise_name',
+          item.exercise->>'name',
+          el.name
+        ) as exercise_name,
+        coalesce(
+          nullif(substring(coalesce(item.exercise->>'sets', '') from '[0-9]+'), '')::numeric,
+          0
+        ) as sets,
+        (item.ordinality - 1)::integer as exercise_order,
+        coalesce(item.exercise->>'muscle_group', el.muscle_group) as direct_muscle_group
+      from public.workouts w
+      cross join lateral jsonb_array_elements(
+        case
+          when jsonb_typeof(w.exercises) = 'array' then w.exercises
+          else '[]'::jsonb
+        end
+      ) with ordinality as item(exercise, ordinality)
+      left join public.exercise_library el
+        on el.id = case
+          when item.exercise->>'exercise_id'
+            ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            then (item.exercise->>'exercise_id')::uuid
+          else null
+        end
+    $sql$
+    || v_json_filter;
+end;
+$workout_entries$;
 
 revoke all on public.workout_exercise_entries from public, anon, authenticated;
 grant select on public.workout_exercise_entries to service_role;
@@ -221,18 +265,27 @@ as $$
 declare
   v_base text;
   v_candidate text;
+  v_attempt integer;
 begin
   v_base := upper(regexp_replace(coalesce(p_full_name, ''), '[^[:alnum:]]', '', 'g'));
   v_base := rpad(left(v_base, 4), 4, 'X');
 
   for v_attempt in 1..20 loop
     v_candidate := v_base || lpad(floor(random() * 10000)::integer::text, 4, '0');
-    if not exists (
-      select 1 from public.referrals r where r.referral_code = v_candidate
-      union all
-      select 1 from public.students s where s.referral_code = v_candidate
-    ) then
-      return v_candidate;
+    if to_regclass('public.referrals') is null then
+      if not exists (
+        select 1 from public.students s where s.referral_code = v_candidate
+      ) then
+        return v_candidate;
+      end if;
+    else
+      if not exists (
+        select 1 from public.referrals r where r.referral_code = v_candidate
+        union all
+        select 1 from public.students s where s.referral_code = v_candidate
+      ) then
+        return v_candidate;
+      end if;
     end if;
   end loop;
 

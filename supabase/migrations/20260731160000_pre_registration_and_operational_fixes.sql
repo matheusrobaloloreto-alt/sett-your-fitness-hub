@@ -12,6 +12,25 @@ alter table public.staff_sessions
     'trainer'::app_role
   ));
 
+-- Production originally received this table outside the migration ledger.
+-- Define the smallest durable contract used by the registration funnel so a
+-- fresh environment does not depend on that historical schema drift.
+create table if not exists public.leads (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  full_name text not null,
+  phone text,
+  email text,
+  source text,
+  stage text not null default 'interested',
+  budget_range text,
+  assigned_to uuid references auth.users(id) on delete set null,
+  last_contact_at timestamptz,
+  converted_to_student_id uuid references public.students(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table public.leads
   add column if not exists pre_registration_answers jsonb not null default '{}'::jsonb,
   add column if not exists preferred_contact_period text,

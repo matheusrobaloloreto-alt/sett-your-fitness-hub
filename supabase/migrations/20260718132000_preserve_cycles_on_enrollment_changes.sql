@@ -52,8 +52,7 @@ begin
     from public.training_cycles tc
     where tc.enrollment_id = new.id
       and (
-        tc.bundle_id is not null
-        or exists (select 1 from public.workouts w where w.cycle_id = tc.id)
+        exists (select 1 from public.workouts w where w.cycle_id = tc.id)
         or exists (select 1 from public.prescription_bundles pb where pb.training_cycle_id = tc.id)
         or exists (select 1 from public.ai_strength_plans sp where sp.training_cycle_id = tc.id)
         or exists (select 1 from public.running_plans rp where rp.training_cycle_id = tc.id)
