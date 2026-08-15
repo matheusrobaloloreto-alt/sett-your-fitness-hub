@@ -53,6 +53,7 @@ import { Megaphone, Activity } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import {
+  inferExtraSetsFromPersistedLogs,
   mergeWorkoutDraftLogs,
   readWorkoutUiDraft,
   reconcileWorkoutLogResponse,
@@ -179,6 +180,8 @@ export default function StudentPortal() {
   const session = useWorkoutSession(studentId, companyId);
   const workoutUiDraftStorageKey = studentId ? workoutUiDraftKey(studentId, todayStr) : null;
   const workoutUiRestoredKeyRef = useRef<string | null>(null);
+  const extraSetsWorkoutRef = useRef<string | null>(null);
+  const extraSetsByWorkoutRef = useRef<Record<string, Record<number, number>>>({});
 
   // Mantém a tela acesa durante o treino (academia: evita destravar de mão suada).
   useWakeLock(session.isActive);
@@ -201,6 +204,8 @@ export default function StudentPortal() {
     setSelectedCycle(cycle);
     setSelectedWorkoutId(target.workoutId);
     setExpandedExercise(target.expandedExercise);
+    extraSetsWorkoutRef.current = target.workoutId;
+    extraSetsByWorkoutRef.current[target.workoutId] = target.extraSets;
     setExtraSets(target.extraSets);
     setActiveView("treino");
   }, [cycles, loading, session.activeSession?.workoutId, session.isHydrated, workoutUiDraftStorageKey]);
@@ -218,6 +223,34 @@ export default function StudentPortal() {
       });
     } catch { /* quota/private mode */ }
   }, [activeView, expandedExercise, extraSets, selectedCycle?.id, selectedWorkoutId, session.isHydrated, workoutUiDraftStorageKey]);
+
+  // Em um aparelho novo não há rascunho de UI. O maior set_number persistido
+  // hoje reconstrói as séries extras de cada exercício, sempre limitado a 5.
+  useEffect(() => {
+    if (!selectedWorkout) return;
+    const workoutId = selectedWorkout.id;
+    const inferred = inferExtraSetsFromPersistedLogs(allLogs, workoutId, selectedWorkout.exercises, todayStr);
+    setExtraSets(current => {
+      const previousWorkoutId = extraSetsWorkoutRef.current;
+      if (previousWorkoutId && previousWorkoutId !== workoutId) {
+        extraSetsByWorkoutRef.current[previousWorkoutId] = current;
+      }
+      const cached = extraSetsByWorkoutRef.current[workoutId]
+        ?? (previousWorkoutId === workoutId ? current : {});
+      const merged = { ...inferred };
+      for (const [index, count] of Object.entries(cached)) {
+        const exerciseIndex = Number(index);
+        merged[exerciseIndex] = Math.min(MAX_EXTRA_SETS, Math.max(merged[exerciseIndex] || 0, count));
+      }
+      extraSetsWorkoutRef.current = workoutId;
+      extraSetsByWorkoutRef.current[workoutId] = merged;
+      const currentKeys = Object.keys(current);
+      const mergedKeys = Object.keys(merged);
+      if (currentKeys.length === mergedKeys.length
+        && mergedKeys.every(key => current[Number(key)] === merged[Number(key)])) return current;
+      return merged;
+    });
+  }, [allLogs, selectedWorkout, todayStr]);
 
   const { activeRest, startRest, clearRest } = useRestTimer();
 
@@ -465,6 +498,8 @@ export default function StudentPortal() {
   };
 
   const handleAddSet = (exIdx: number) => {
+    if (!selectedWorkout) return;
+    const workoutId = selectedWorkout.id;
     setExtraSets(prev => {
       const current = prev[exIdx] || 0;
       if (current >= MAX_EXTRA_SETS) {
@@ -474,7 +509,10 @@ export default function StudentPortal() {
         });
         return prev;
       }
-      return { ...prev, [exIdx]: current + 1 };
+      const next = { ...prev, [exIdx]: current + 1 };
+      extraSetsWorkoutRef.current = workoutId;
+      extraSetsByWorkoutRef.current[workoutId] = next;
+      return next;
     });
   };
 
@@ -490,7 +528,12 @@ export default function StudentPortal() {
       prev, workoutId, exIdx, setNum, total, new Date().toISOString(),
     ));
 
-    setExtraSets(prev => ({ ...prev, [exIdx]: currentExtra - 1 }));
+    setExtraSets(prev => {
+      const next = { ...prev, [exIdx]: currentExtra - 1 };
+      extraSetsWorkoutRef.current = workoutId;
+      extraSetsByWorkoutRef.current[workoutId] = next;
+      return next;
+    });
   };
 
   const saveCurrentLogs = async (opts?: { silent?: boolean }) => {

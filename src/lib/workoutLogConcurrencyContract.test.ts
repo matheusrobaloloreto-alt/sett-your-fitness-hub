@@ -52,6 +52,8 @@ describe("workout log optimistic concurrency", () => {
     expect(migration).toContain("saved := saved || jsonb_build_array(to_jsonb(current_row))");
     expect(portal).toContain("const MAX_EXTRA_SETS = 5");
     expect(portal).toContain("current >= MAX_EXTRA_SETS");
+    expect(portal).toContain("inferExtraSetsFromPersistedLogs(allLogs, workoutId, selectedWorkout.exercises, todayStr)");
+    expect(portal).toContain("extraSetsByWorkoutRef.current[workoutId]");
   });
 
   it("persists deletion and renumbering as one revision-guarded transaction", () => {
@@ -76,6 +78,25 @@ describe("workout log optimistic concurrency", () => {
     expect(conflictGate).toBeGreaterThan(0);
     expect(deleteOffset).toBeGreaterThan(conflictGate);
     expect(upsertOffset).toBeGreaterThan(deleteOffset);
+  });
+
+  it("rejects duplicate identities before DML and only permits a tombstone replacement pair", () => {
+    const migration = readFileSync(
+      "supabase/migrations/20260814203000_workout_log_revision_guard.sql",
+      "utf8",
+    );
+    const fn = migration.slice(migration.indexOf("create or replace function public.save_workout_logs_if_current"));
+    const uniquenessGate = fn.indexOf("duplicate workout log identity in batch");
+    const firstDelete = fn.indexOf("delete from public.workout_logs");
+    const firstUpdate = fn.indexOf("update public.workout_logs");
+    const firstInsert = fn.indexOf("insert into public.workout_logs");
+
+    expect(fn).toContain("count(*) = 2");
+    expect(fn).toContain("count(*) filter (where coalesce((item->>'deleted')::boolean, false)) = 1");
+    expect(uniquenessGate).toBeGreaterThan(0);
+    expect(firstDelete).toBeGreaterThan(uniquenessGate);
+    expect(firstUpdate).toBeGreaterThan(uniquenessGate);
+    expect(firstInsert).toBeGreaterThan(uniquenessGate);
   });
 
   it("denies direct browser DML while preserving tenant reads and the guarded RPC", () => {

@@ -74,6 +74,32 @@ begin
     raise exception '_rows exceeds the 200 item limit';
   end if;
 
+  -- Validate shape before grouping. The uniqueness gate runs before locks and
+  -- before every DML statement, so a rejected batch leaves zero mutations.
+  for item in select value from jsonb_array_elements(_rows)
+  loop
+    if jsonb_typeof(item) <> 'object' then
+      raise exception 'each workout log must be a JSON object';
+    end if;
+    if item ? 'deleted' and jsonb_typeof(item->'deleted') <> 'boolean' then
+      raise exception 'deleted must be a boolean';
+    end if;
+  end loop;
+
+  if exists (
+    select 1
+    from jsonb_array_elements(_rows) as batch(item)
+    group by item->>'student_id', item->>'workout_id', item->>'exercise_index',
+      item->>'set_number', item->>'session_date'
+    having count(*) > 1
+      and not (
+        count(*) = 2
+        and count(*) filter (where coalesce((item->>'deleted')::boolean, false)) = 1
+      )
+  ) then
+    raise exception 'duplicate workout log identity in batch';
+  end if;
+
   -- Tombstones are preflighted as a group before any mutation. Locking the
   -- workout serializes same-workout saves, so a stale device cannot delete a
   -- newer row between CAS validation, deletion and the renumbering upserts.

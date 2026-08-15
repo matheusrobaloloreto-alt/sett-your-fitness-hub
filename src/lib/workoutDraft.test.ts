@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  inferExtraSetsFromPersistedLogs,
   mergeWorkoutDraftLogs,
   readWorkoutUiDraft,
   reconcileWorkoutLogResponse,
@@ -58,6 +59,41 @@ describe("workout draft persistence", () => {
     )).toEqual({
       set1: { completed: true, weight: 30, revision: 3, updated_at: "2026-08-14T12:00:00Z" },
     });
+  });
+
+  it("drops a clean local row that the server deleted", () => {
+    expect(mergeWorkoutDraftLogs({}, {
+      set1: { id: "old", revision: 2, completed: true, dirty: false },
+    })).toEqual({});
+  });
+
+  it("replaces an old clean local id with the new server row for the same key", () => {
+    expect(mergeWorkoutDraftLogs(
+      { set1: { id: "new", revision: 1, weight: 30 } },
+      { set1: { id: "old", revision: 9, weight: 20, dirty: false } },
+    )).toEqual({ set1: { id: "new", revision: 1, weight: 30 } });
+  });
+
+  it("keeps an absent local row only while an edit or tombstone is pending", () => {
+    expect(mergeWorkoutDraftLogs({}, {
+      dirty: { id: "draft", dirty: true },
+      tombstone: { id: "deleted", deleted: true, dirty: true },
+      clean: { id: "old", dirty: false },
+    })).toEqual({
+      dirty: { id: "draft", dirty: true },
+      tombstone: { id: "deleted", deleted: true, dirty: true },
+    });
+  });
+
+  it("reconstructs extra sets per workout, exercise and date with a hard ceiling", () => {
+    const logs = [
+      { workout_id: "w1", exercise_index: 0, set_number: 5, session_date: "2026-08-14" },
+      { workout_id: "w1", exercise_index: 1, set_number: 99, session_date: "2026-08-14" },
+      { workout_id: "w1", exercise_index: 0, set_number: 8, session_date: "2026-08-13" },
+      { workout_id: "w2", exercise_index: 0, set_number: 8, session_date: "2026-08-14" },
+    ];
+    expect(inferExtraSetsFromPersistedLogs(logs, "w1", [{ sets: "3" }, { sets: "4" }], "2026-08-14"))
+      .toEqual({ 0: 2, 1: 5 });
   });
 
   it("rebases an edit made during a conflicting request and keeps it dirty for retry", () => {

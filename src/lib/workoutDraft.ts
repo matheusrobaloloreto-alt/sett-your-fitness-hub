@@ -75,6 +75,7 @@ export function resolveWorkoutResumeTarget(
 }
 
 export interface VersionedWorkoutLog {
+  id?: string | null;
   revision?: number | null;
   updated_at?: string | null;
   created_at?: string | null;
@@ -84,14 +85,48 @@ export interface VersionedWorkoutLog {
 }
 
 export interface MutableWorkoutSetLog extends VersionedWorkoutLog {
-  id?: string;
+  id?: string | null;
   workout_id: string;
   exercise_index: number;
   set_number: number;
   [key: string]: unknown;
 }
 
+export interface PersistedWorkoutSetIdentity {
+  workout_id: string;
+  exercise_index: number;
+  set_number: number;
+  session_date: string;
+}
+
+export interface WorkoutExerciseSetDefinition {
+  sets?: string | number | null;
+}
+
 export const workoutLogTombstoneKey = (key: string) => `__deleted__:${key}`;
+
+/** Reconstructs persisted extra rows on a fresh device, bounded to the UI limit. */
+export function inferExtraSetsFromPersistedLogs(
+  logs: PersistedWorkoutSetIdentity[],
+  workoutId: string,
+  exercises: WorkoutExerciseSetDefinition[],
+  sessionDate: string,
+  maxExtraSets = 5,
+) {
+  const extras: Record<number, number> = {};
+  for (let exerciseIndex = 0; exerciseIndex < exercises.length; exerciseIndex += 1) {
+    const match = String(exercises[exerciseIndex]?.sets ?? "3").match(/^\d+/);
+    const prescribed = match ? Math.max(1, Math.min(20, Number(match[0]))) : 3;
+    const maxPersisted = logs.reduce((max, log) => {
+      if (log.workout_id !== workoutId || log.exercise_index !== exerciseIndex || log.session_date !== sessionDate) return max;
+      if (!Number.isInteger(log.set_number) || log.set_number < 1) return max;
+      return Math.max(max, log.set_number);
+    }, 0);
+    const extra = Math.min(maxExtraSets, Math.max(0, maxPersisted - prescribed));
+    if (extra > 0) extras[exerciseIndex] = extra;
+  }
+  return extras;
+}
 
 /**
  * Removes a visible set, keeps CAS tombstones for every old server key and
@@ -154,7 +189,7 @@ export function mergeWorkoutDraftLogs<T extends VersionedWorkoutLog>(
   for (const [key, local] of Object.entries(localLogs)) {
     const server = serverLogs[key];
     if (!server) {
-      merged[key] = local;
+      if (local.dirty === true || local.deleted === true) merged[key] = local;
       continue;
     }
     // A replacement created by renumbering intentionally targets a key that
@@ -163,6 +198,9 @@ export function mergeWorkoutDraftLogs<T extends VersionedWorkoutLog>(
     const pairedTombstone = localLogs[workoutLogTombstoneKey(key)];
     if (local.dirty === true && pairedTombstone?.deleted === true) {
       merged[key] = local;
+      continue;
+    }
+    if (server.id && local.id && server.id !== local.id && local.dirty !== true && local.deleted !== true) {
       continue;
     }
     const serverRevision = Number(server.revision ?? 0);

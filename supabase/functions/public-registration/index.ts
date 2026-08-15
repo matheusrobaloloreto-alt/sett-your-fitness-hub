@@ -254,13 +254,10 @@ async function requireCompanyStaff(req: Request, companyId: unknown) {
 }
 
 async function preRegister(body: Record<string, unknown>) {
+  const validated = validatePreRegistrationSubmission(body);
   const company = await resolveCompanyById(body.companyId) || await resolveCompany(cleanText(body.slug) || null);
   if (!company) throw new HttpError(400, "Empresa inválida.");
-  const fullName = cleanText(body.fullName);
-  const phone = onlyDigits(body.whatsapp);
-  const budgetRange = cleanText(body.budgetRange);
-  const preferredContactPeriod = cleanText(body.preferredContactPeriod);
-  const answers = validatePreRegistrationSubmission(body);
+  const { fullName, phone, budgetRange, preferredContactPeriod, answers } = validated;
 
   const submittedAt = new Date().toISOString();
   const leadPayload = {
