@@ -68,6 +68,7 @@ Deno.test("Polar persists its external user id and revokes the registered user p
     "polar",
     "sensitive-token",
     "client-id",
+    "client-secret",
     "2278512",
   );
   assertEquals(
@@ -78,6 +79,27 @@ Deno.test("Polar persists its external user id and revokes the registered user p
   assertEquals(
     (request.init.headers as Record<string, string>).Authorization,
     "Bearer sensitive-token",
+  );
+});
+
+Deno.test("Strava revocation uses the documented Basic-auth form contract", () => {
+  const request = providerRevocationRequest(
+    "strava",
+    "sensitive-token",
+    "client-id",
+    "client-secret",
+  );
+  const headers = request.init.headers as Record<string, string>;
+  assertEquals(request.url, "https://www.strava.com/oauth/revoke");
+  assertEquals(request.init.method, "POST");
+  assertEquals(
+    headers.Authorization,
+    `Basic ${btoa("client-id:client-secret")}`,
+  );
+  assertEquals(headers["Content-Type"], "application/x-www-form-urlencoded");
+  assertEquals(
+    new URLSearchParams(String(request.init.body)).get("token"),
+    "sensitive-token",
   );
 });
 
