@@ -8,6 +8,7 @@ Status em 2026-08-14: implementação local concluída; **nenhuma migration, con
 - `wearable_credentials` contém envelope AES-256-GCM (`ciphertext`, IV de 96 bits, `key_id`) e não concede acesso a `anon` nem `authenticated`. O AAD vincula cada token ao `device_id`.
 - `WEARABLE_TOKEN_KEYS` é um JSON de chaves base64 por identificador; `WEARABLE_TOKEN_ACTIVE_KEY_ID` seleciona a chave usada em novas gravações. Ambos são secrets exclusivos da Edge Function. Nunca colocar valores reais no Git, frontend, logs ou documentação.
 - A conexão OAuth só é finalizada pela RPC transacional `commit_wearable_connection`, que revalida imediatamente `actor_user_id -> student ativo -> company`, grava device + credencial cifrada + consentimento ou não grava nada.
+- A finalização OAuth participa da mesma ordem global de locks do sync/maintenance. Se houver lease ativo de sync, refresh ou manutenção — inclusive retomado enquanto o callback aguardava — retorna `device_busy`; a Edge entra no caminho já existente de revogação compensatória do token emitido.
 - O state OAuth tem 256 bits, expira em 10 minutos, registra ator/tenant/provedor/escopos e é consumido por `DELETE ... RETURNING` uma única vez. Oura e WHOOP documentam o fluxo server-side com state, mas não anunciam PKCE nesse contrato; não foi inventado um parâmetro não documentado.
 - Refresh tokens rotativos/single-use são protegidos por lease atômico e compare-and-swap de versão. O sync tem lease próprio, renovado a cada página. Aquisição, renovação, release e os RPCs de lifecycle usam a mesma ordem global por device: advisory lock → row lock do lease → row locks de device/aluno → revalidação com `clock_timestamp()` → DML. Um holder antigo nunca persiste depois que o lease expira e é retomado.
 - Disconnect e exclusão usam lease de manutenção incompatível com sync/refresh. Persistência/finalização do sync, disconnect e exclusão são RPCs transacionais que revalidam lease, aluno e device.
@@ -98,9 +99,9 @@ Não executar migration, OAuth real, deploy ou push como parte desses checks.
 
 Última execução local desta branch:
 
-- testes dedicados: Deno `17/17`, Vitest `22/22`;
+- testes dedicados: Deno `17/17`, Vitest `23/23`;
 - Deno check das duas edges, TypeScript, lint dos arquivos alterados, backend guard e build: aprovados;
-- suíte global: `342/343`; a única falha é o teste preexistente de RIR do deload em `prescription/engine.test.ts`, reproduzido sem esta branch no checkout canônico `2a2a9f9` (`49/50`);
+- suíte global: `343/344`; a única falha é o teste preexistente de RIR do deload em `prescription/engine.test.ts`, reproduzido sem esta branch no checkout canônico `2a2a9f9` (`49/50`);
 - lint global: 8 erros preexistentes em `supabase/functions/ai-nutrition-meals/*` e 50 warnings históricos; os arquivos desta frente passam isoladamente.
 
 Não corrigir esses dois baselines dentro da branch de wearables; pertencem às frentes de prescrição/nutrição.

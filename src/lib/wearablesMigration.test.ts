@@ -139,6 +139,18 @@ describe("wearables migration security contract", () => {
     expect(canPersist(reclaimedLease, "new-holder", 150)).toBe(true);
   });
 
+  it("blocks an OAuth callback during sync, maintenance or a reclaimed lease", () => {
+    const callbackCanCommit = (
+      leases: Array<{ purpose: "sync" | "refresh" | "maintenance"; lockedUntil: number }>,
+      at: number,
+    ) => !leases.some((lease) => lease.lockedUntil > at);
+
+    expect(callbackCanCommit([{ purpose: "sync", lockedUntil: 200 }], 150)).toBe(false);
+    expect(callbackCanCommit([{ purpose: "maintenance", lockedUntil: 200 }], 150)).toBe(false);
+    expect(callbackCanCommit([{ purpose: "sync", lockedUntil: 100 }], 150)).toBe(true);
+    expect(callbackCanCommit([{ purpose: "sync", lockedUntil: 300 }], 150)).toBe(false);
+  });
+
   it("keeps the tenant-integrity trigger function unavailable to browser roles", () => {
     expect(sql).toContain(
       "revoke all on function public.enforce_wearable_tenant_integrity() from public, anon, authenticated",
@@ -238,6 +250,33 @@ describe("wearables migration security contract", () => {
         "pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0))",
       );
     }
+
+    const connection = rpcSource("commit_wearable_connection");
+    const advisory = connection.indexOf("pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0))");
+    const leaseLock = connection.indexOf("from public.wearable_leases", advisory);
+    const leaseForUpdate = connection.indexOf("for update;", leaseLock);
+    const deviceLock = connection.indexOf("from public.wearable_devices", leaseForUpdate);
+    const deviceForUpdate = connection.indexOf("for update;", deviceLock);
+    const studentLock = connection.indexOf("from public.students", deviceForUpdate);
+    const studentForUpdate = connection.indexOf("for update;", studentLock);
+    const busyCheck = connection.indexOf("locked_until > clock_timestamp()", studentForUpdate);
+    const actorCheck = connection.indexOf("v_student.user_id is distinct from p_actor_user_id", busyCheck);
+    const statusCheck = connection.indexOf("coalesce(v_student.status, '') <> 'active'", actorCheck);
+    const companyCheck = connection.indexOf("v_student.company_id is distinct from p_company_id", busyCheck);
+    const firstDml = connection.indexOf("insert into public.wearable_devices", statusCheck);
+    expect(leaseLock).toBeGreaterThan(advisory);
+    expect(leaseForUpdate).toBeGreaterThan(leaseLock);
+    expect(deviceLock).toBeGreaterThan(leaseForUpdate);
+    expect(deviceForUpdate).toBeGreaterThan(deviceLock);
+    expect(studentLock).toBeGreaterThan(deviceForUpdate);
+    expect(studentForUpdate).toBeGreaterThan(studentLock);
+    expect(busyCheck).toBeGreaterThan(studentForUpdate);
+    expect(actorCheck).toBeGreaterThan(busyCheck);
+    expect(companyCheck).toBeGreaterThan(busyCheck);
+    expect(statusCheck).toBeGreaterThan(actorCheck);
+    expect(firstDml).toBeGreaterThan(statusCheck);
+    expect(firstDml).toBeGreaterThan(companyCheck);
+    expect(connection).toContain("raise exception 'device_busy'");
   });
 
   it("requires active authorization, live pre-exchange recheck and compensating revoke", () => {

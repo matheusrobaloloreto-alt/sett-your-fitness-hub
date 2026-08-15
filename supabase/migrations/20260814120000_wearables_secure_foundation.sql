@@ -403,20 +403,64 @@ set search_path = public
 as $$
 declare
   v_student public.students%rowtype;
+  v_device public.wearable_devices%rowtype;
   v_device_id uuid;
   v_partial boolean;
 begin
-  select * into v_student from public.students where id = p_student_id for update;
-  if not found
+  if p_provider not in ('oura', 'strava', 'polar', 'whoop') then
+    raise exception 'wearable_provider_invalid';
+  end if;
+  v_partial := not (coalesce(p_granted_scopes, '{}') @> coalesce(p_required_scopes, '{}'));
+
+  -- OAuth finalization participates in the same device-global order as sync
+  -- and maintenance: advisory -> leases -> existing device -> student -> DML.
+  perform pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0));
+  perform 1
+  from public.wearable_leases
+  where device_id = p_device_id
+  for update;
+  select * into v_device
+  from public.wearable_devices
+  where id = p_device_id
+  for update;
+  if v_device.id is not null
+     and (v_device.student_id is distinct from p_student_id
+       or v_device.provider is distinct from p_provider) then
+    raise exception 'wearable_device_race_retry';
+  end if;
+  -- A stale callback that encrypted for another device id must fail and let
+  -- the edge perform compensating revocation; never rebind its ciphertext.
+  if v_device.id is null and exists (
+    select 1 from public.wearable_devices
+    where student_id = p_student_id and provider = p_provider
+  ) then
+    raise exception 'wearable_device_race_retry';
+  end if;
+  select * into v_student
+  from public.students
+  where id = p_student_id
+  for update;
+  if exists (
+    select 1 from public.wearable_leases
+    where device_id = p_device_id
+      and locked_until > clock_timestamp()
+  ) then
+    raise exception 'device_busy';
+  end if;
+  if v_student.id is null
      or v_student.user_id is distinct from p_actor_user_id
      or v_student.company_id is distinct from p_company_id
      or coalesce(v_student.status, '') <> 'active' then
     raise exception 'wearable_actor_no_longer_active';
   end if;
-  if p_provider not in ('oura', 'strava', 'polar', 'whoop') then
-    raise exception 'wearable_provider_invalid';
+  -- If another first-time callback inserted while this transaction waited for
+  -- the student, detect it without taking device-after-student locks.
+  if v_device.id is null and exists (
+    select 1 from public.wearable_devices
+    where student_id = p_student_id and provider = p_provider
+  ) then
+    raise exception 'wearable_device_race_retry';
   end if;
-  v_partial := not (coalesce(p_granted_scopes, '{}') @> coalesce(p_required_scopes, '{}'));
 
   insert into public.wearable_devices (
     id, student_id, company_id, provider, device_name, external_user_id, is_active,
