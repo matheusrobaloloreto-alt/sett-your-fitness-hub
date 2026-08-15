@@ -1,6 +1,9 @@
 -- Longitudinal prescription schedule: every enrollment is split into dated
 -- 6-week cycles, and every modality can be attached to the same cycle.
 
+alter table public.training_cycles
+  add column if not exists duration_weeks integer,
+  add column if not exists name text;
 alter table public.ai_strength_plans
   add column if not exists training_cycle_id uuid references public.training_cycles(id) on delete set null,
   add column if not exists previous_plan_id uuid references public.ai_strength_plans(id) on delete set null,
@@ -9,14 +12,19 @@ alter table public.ai_strength_plans
 alter table public.running_plans
   add column if not exists training_cycle_id uuid references public.training_cycles(id) on delete set null,
   add column if not exists previous_plan_id uuid references public.running_plans(id) on delete set null,
+  add column if not exists start_date date,
+  add column if not exists end_date date,
   add column if not exists sequence_number integer,
   add column if not exists sequence_phase text;
 alter table public.nutrition_plans
   add column if not exists training_cycle_id uuid references public.training_cycles(id) on delete set null,
   add column if not exists previous_plan_id uuid references public.nutrition_plans(id) on delete set null,
+  add column if not exists start_date date,
   add column if not exists end_date date,
   add column if not exists sequence_number integer,
   add column if not exists sequence_phase text;
+alter table public.prescription_bundles
+  add column if not exists training_cycle_id uuid references public.training_cycles(id) on delete set null;
 create unique index if not exists training_cycles_enrollment_number_uidx
   on public.training_cycles(enrollment_id, cycle_number)
   where enrollment_id is not null;
