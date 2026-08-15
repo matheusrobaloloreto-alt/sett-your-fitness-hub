@@ -11,6 +11,8 @@ describe("workout log optimistic concurrency", () => {
     );
 
     expect(portal).toContain('rpc("save_workout_logs_if_current"');
+    expect(portal).toContain("canonicalizeWorkoutLogBatchRows(rows)");
+    expect(portal).toContain("{ _rows: canonicalRows }");
     expect(portal).not.toContain('.upsert(rows, { onConflict: "student_id,workout_id,exercise_index,set_number,session_date" })');
     expect(migration).toContain("where id = current_row.id and revision = expected_revision");
     expect(migration).toContain("current_row.revision <> expected_revision");
@@ -87,11 +89,20 @@ describe("workout log optimistic concurrency", () => {
     );
     const fn = migration.slice(migration.indexOf("create or replace function public.save_workout_logs_if_current"));
     const uniquenessGate = fn.indexOf("duplicate workout log identity in batch");
+    const canonicalAssignment = fn.indexOf("_rows := canonical_rows");
+    const firstWorkoutLock = fn.indexOf("for update of w");
     const firstDelete = fn.indexOf("delete from public.workout_logs");
     const firstUpdate = fn.indexOf("update public.workout_logs");
     const firstInsert = fn.indexOf("insert into public.workout_logs");
 
     expect(fn).toContain("count(*) = 2");
+    expect(fn).toContain("canonical_rows jsonb := '[]'::jsonb");
+    expect(fn).toContain("'exercise_index', item_exercise_index");
+    expect(fn).toContain("'set_number', item_set_number");
+    expect(fn).toContain("'session_date', to_char(item_session_date, 'YYYY-MM-DD')");
+    expect(canonicalAssignment).toBeGreaterThan(0);
+    expect(canonicalAssignment).toBeLessThan(uniquenessGate);
+    expect(canonicalAssignment).toBeLessThan(firstWorkoutLock);
     expect(fn).toContain("count(*) filter (where coalesce((item->>'deleted')::boolean, false)) = 1");
     expect(fn).toContain("replacement paired with tombstone must be a new insert");
     expect(fn).toContain("item ? 'base_revision' and jsonb_typeof(item->'base_revision') <> 'null'");

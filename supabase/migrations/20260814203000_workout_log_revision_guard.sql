@@ -64,6 +64,7 @@ declare
   caller_role text := coalesce(auth.role(), '');
   is_deleted boolean;
   target_has_tombstone boolean;
+  canonical_rows jsonb := '[]'::jsonb;
   saved jsonb := '[]'::jsonb;
   conflicts jsonb := '[]'::jsonb;
 begin
@@ -74,8 +75,8 @@ begin
     raise exception '_rows exceeds the 200 item limit';
   end if;
 
-  -- Validate shape before grouping. The uniqueness gate runs before locks and
-  -- before every DML statement, so a rejected batch leaves zero mutations.
+  -- Stage canonical typed identities before grouping, locks or DML. Equivalent
+  -- JSON spellings such as 4 and "04" must resolve to one database identity.
   for item in select value from jsonb_array_elements(_rows)
   loop
     if jsonb_typeof(item) <> 'object' then
@@ -84,7 +85,38 @@ begin
     if item ? 'deleted' and jsonb_typeof(item->'deleted') <> 'boolean' then
       raise exception 'deleted must be a boolean';
     end if;
+    if coalesce(item->>'session_date', '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then
+      raise exception 'invalid workout log identity in batch';
+    end if;
+    begin
+      item_student_id := (item->>'student_id')::uuid;
+      item_workout_id := (item->>'workout_id')::uuid;
+      item_exercise_index := (item->>'exercise_index')::integer;
+      item_set_number := (item->>'set_number')::integer;
+      item_session_date := (item->>'session_date')::date;
+    exception
+      when invalid_text_representation or numeric_value_out_of_range
+        or datetime_field_overflow or invalid_datetime_format then
+        raise exception 'invalid workout log identity in batch';
+    end;
+    if item_student_id is null or item_workout_id is null
+      or item_exercise_index is null or item_exercise_index < 0
+      or item_set_number is null or item_set_number < 1
+      or item_session_date is null then
+      raise exception 'invalid workout log identity in batch';
+    end if;
+    canonical_rows := canonical_rows || jsonb_build_array(
+      item || jsonb_build_object(
+        'student_id', item_student_id::text,
+        'workout_id', item_workout_id::text,
+        'exercise_index', item_exercise_index,
+        'set_number', item_set_number,
+        'session_date', to_char(item_session_date, 'YYYY-MM-DD')
+      )
+    );
   end loop;
+
+  _rows := canonical_rows;
 
   if exists (
     select 1

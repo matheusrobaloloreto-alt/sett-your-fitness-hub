@@ -52,7 +52,7 @@ import type { Gender } from "@/components/student/BodyMeasurements";
 import { Megaphone, Activity } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
-import { workoutLogBatchPairError } from "@/lib/workoutLogBatch";
+import { canonicalizeWorkoutLogBatchRows } from "@/lib/workoutLogBatch";
 import {
   inferExtraSetsFromPersistedLogs,
   mergeWorkoutDraftLogs,
@@ -567,23 +567,24 @@ export default function StudentPortal() {
       client_updated_at: log.client_updated_at ?? null,
       deleted: log.deleted === true,
     }));
-    const batchPairError = workoutLogBatchPairError(rows);
-    if (batchPairError) {
-      console.error("Lote de séries rejeitado antes do envio:", batchPairError);
+    const canonicalBatch = canonicalizeWorkoutLogBatchRows(rows);
+    if (canonicalBatch.error) {
+      console.error("Lote de séries rejeitado antes do envio:", canonicalBatch.error);
       if (!silent) {
         setSavingLogs(false);
         toast({ title: "As séries não foram salvas", description: "Recarregue o treino e tente novamente.", variant: "destructive" });
       }
       return;
     }
-    if (rows.length > 0) {
-      const sentByKey = new Map(rows.filter(row => !row.deleted).map(row => [getLogKey(row.workout_id, row.exercise_index, row.set_number), row]));
+    const canonicalRows = canonicalBatch.rows;
+    if (canonicalRows.length > 0) {
+      const sentByKey = new Map(canonicalRows.filter(row => !row.deleted).map(row => [getLogKey(row.workout_id, row.exercise_index, row.set_number), row]));
       // RPC com compare-and-swap por revisão: outro dispositivo não pode ser
       // sobrescrito por um autosave baseado numa versão antiga.
       let error: any = null;
       let result: any = null;
       for (let attempt = 0; attempt < 3; attempt++) {
-        const res = await (supabase as any).rpc("save_workout_logs_if_current", { _rows: rows });
+        const res = await (supabase as any).rpc("save_workout_logs_if_current", { _rows: canonicalRows });
         error = res.error;
         result = res.data;
         if (!error) break;
