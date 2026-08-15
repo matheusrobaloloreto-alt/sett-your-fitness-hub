@@ -46,7 +46,7 @@ alter table public.wearable_devices add constraint wearable_devices_connection_s
 update public.wearable_devices d
 set company_id = s.company_id
 from public.students s
-where d.student_id = s.id and d.company_id is null;
+where d.student_id = s.id and d.company_id is distinct from s.company_id;
 alter table public.wearable_devices alter column company_id set not null;
 
 create unique index if not exists wearable_devices_student_provider_uidx
@@ -147,9 +147,13 @@ alter table public.wearable_data add column if not exists external_id text;
 alter table public.wearable_data add column if not exists updated_at timestamptz not null default now();
 alter table public.wearable_data alter column value drop not null;
 update public.wearable_data w
-set company_id = s.company_id
-from public.students s
-where w.student_id = s.id and w.company_id is null;
+set student_id = d.student_id,
+    company_id = s.company_id
+from public.wearable_devices d
+join public.students s on s.id = d.student_id
+where w.device_id = d.id
+  and (w.student_id is distinct from d.student_id
+    or w.company_id is distinct from s.company_id);
 alter table public.wearable_data alter column company_id set not null;
 
 create unique index if not exists wearable_data_daily_uidx
@@ -193,10 +197,15 @@ alter table public.wearable_workouts add column if not exists timezone_offset_mi
 alter table public.wearable_workouts add column if not exists strain numeric;
 alter table public.wearable_workouts add column if not exists updated_at timestamptz not null default now();
 update public.wearable_workouts w
-set company_id = s.company_id,
+set student_id = d.student_id,
+    company_id = s.company_id,
     local_date = coalesce(w.local_date, (w.started_at at time zone 'UTC')::date)
-from public.students s
-where w.student_id = s.id and (w.company_id is null or w.local_date is null);
+from public.wearable_devices d
+join public.students s on s.id = d.student_id
+where w.device_id = d.id
+  and (w.student_id is distinct from d.student_id
+    or w.company_id is distinct from s.company_id
+    or w.local_date is null);
 alter table public.wearable_workouts alter column company_id set not null;
 alter table public.wearable_workouts alter column local_date set not null;
 
@@ -208,6 +217,17 @@ create index if not exists wearable_workouts_student_started_idx
 alter table public.wearable_oauth_states add column if not exists actor_user_id uuid references auth.users(id) on delete cascade;
 alter table public.wearable_oauth_states add column if not exists company_id uuid references public.companies(id) on delete cascade;
 alter table public.wearable_oauth_states add column if not exists requested_scopes text[] not null default '{}';
+
+update public.wearable_consents c
+set student_id = d.student_id,
+    company_id = s.company_id,
+    provider = d.provider
+from public.wearable_devices d
+join public.students s on s.id = d.student_id
+where c.device_id = d.id
+  and (c.student_id is distinct from d.student_id
+    or c.company_id is distinct from s.company_id
+    or c.provider is distinct from d.provider);
 
 -- Existing devices may contain legacy plaintext columns but have no encrypted
 -- credential row. Never read those tokens automatically: quarantine the device
@@ -253,9 +273,11 @@ begin
     return new;
   end if;
 
-  select d.student_id, d.company_id, d.provider
+  select d.student_id, s.company_id, d.provider
     into expected_student_id, expected_company_id, expected_provider
-  from public.wearable_devices d where d.id = new.device_id;
+  from public.wearable_devices d
+  join public.students s on s.id = d.student_id
+  where d.id = new.device_id;
   if expected_student_id is null then raise exception 'wearable_device_missing'; end if;
   if new.student_id is not null and new.student_id <> expected_student_id then
     raise exception 'wearable_student_mismatch';
@@ -274,6 +296,8 @@ begin
   return new;
 end;
 $$;
+
+revoke all on function public.enforce_wearable_tenant_integrity() from public, anon, authenticated;
 
 drop trigger if exists wearable_devices_tenant_integrity on public.wearable_devices;
 create trigger wearable_devices_tenant_integrity before insert or update of student_id, company_id
@@ -323,7 +347,7 @@ drop policy if exists "wearable devices tenant read" on public.wearable_devices;
 create policy "wearable devices tenant read" on public.wearable_devices
 for select to authenticated using (
   exists (select 1 from public.students s where s.id = student_id and s.user_id = auth.uid())
-  or public.is_company_staff(auth.uid(), company_id)
+  or public.is_student_company_staff(auth.uid(), student_id)
   or public.has_role(auth.uid(), 'master')
 );
 
@@ -331,7 +355,7 @@ drop policy if exists "wearable consents tenant read" on public.wearable_consent
 create policy "wearable consents tenant read" on public.wearable_consents
 for select to authenticated using (
   exists (select 1 from public.students s where s.id = student_id and s.user_id = auth.uid())
-  or public.is_company_staff(auth.uid(), company_id)
+  or public.is_student_company_staff(auth.uid(), student_id)
   or public.has_role(auth.uid(), 'master')
 );
 
@@ -339,7 +363,7 @@ drop policy if exists "wearable data tenant read" on public.wearable_data;
 create policy "wearable data tenant read" on public.wearable_data
 for select to authenticated using (
   exists (select 1 from public.students s where s.id = student_id and s.user_id = auth.uid())
-  or public.is_company_staff(auth.uid(), company_id)
+  or public.is_student_company_staff(auth.uid(), student_id)
   or public.has_role(auth.uid(), 'master')
 );
 
@@ -347,7 +371,7 @@ drop policy if exists "wearable workouts tenant read" on public.wearable_workout
 create policy "wearable workouts tenant read" on public.wearable_workouts
 for select to authenticated using (
   exists (select 1 from public.students s where s.id = student_id and s.user_id = auth.uid())
-  or public.is_company_staff(auth.uid(), company_id)
+  or public.is_student_company_staff(auth.uid(), student_id)
   or public.has_role(auth.uid(), 'master')
 );
 
@@ -570,6 +594,7 @@ begin
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
     and s.user_id = p_actor_user_id and coalesce(s.status, '') = 'active'
+    and d.company_id = s.company_id
     and d.is_active
     and d.connection_status in ('connected', 'stale', 'error', 'syncing')
   for update of d;
@@ -585,9 +610,15 @@ $$;
 revoke all on function public.begin_wearable_sync(uuid, uuid, uuid, uuid) from public, anon, authenticated;
 grant execute on function public.begin_wearable_sync(uuid, uuid, uuid, uuid) to service_role;
 
+-- Remove the earlier RPC shape so an already-staged draft cannot retain an
+-- overload that commits without the live actor/tenant snapshot checks below.
+drop function if exists public.commit_wearable_sync(uuid, uuid, uuid, jsonb, jsonb, jsonb, timestamptz);
+
 create or replace function public.commit_wearable_sync(
   p_device_id uuid,
   p_student_id uuid,
+  p_actor_user_id uuid,
+  p_expected_company_id uuid,
   p_holder uuid,
   p_metrics jsonb,
   p_workouts jsonb,
@@ -601,6 +632,9 @@ set search_path = public
 as $$
 declare
   v_device public.wearable_devices%rowtype;
+  v_student_company_id uuid;
+  v_student_user_id uuid;
+  v_student_status text;
   v_imported integer := 0;
 begin
   if not exists (
@@ -610,18 +644,27 @@ begin
   ) then
     raise exception 'sync_lease_lost';
   end if;
-  select * into v_device from public.wearable_devices
-  where id = p_device_id and student_id = p_student_id and is_active
-    and connection_status = 'syncing'
-  for update;
+  select d, s.company_id, s.user_id, s.status
+    into v_device, v_student_company_id, v_student_user_id, v_student_status
+  from public.wearable_devices d
+  join public.students s on s.id = d.student_id
+  where d.id = p_device_id and d.student_id = p_student_id
+    and d.is_active and d.connection_status = 'syncing'
+  for update of d, s;
   if not found then raise exception 'sync_device_not_active'; end if;
+  if v_student_user_id is distinct from p_actor_user_id
+     or coalesce(v_student_status, '') <> 'active'
+     or v_student_company_id is distinct from p_expected_company_id
+     or v_device.company_id is distinct from v_student_company_id then
+    raise exception 'sync_tenant_changed';
+  end if;
 
   insert into public.wearable_data (
     student_id, company_id, device_id, date, recorded_at,
     timezone_offset_minutes, metric, value, unit, score_state, source,
     external_id, metadata, updated_at
   )
-  select v_device.student_id, v_device.company_id, v_device.id,
+  select v_device.student_id, v_student_company_id, v_device.id,
     r.date::date, nullif(r.recorded_at, '')::timestamptz,
     r.timezone_offset_minutes, r.metric, r.value, r.unit, r.score_state,
     r.source, r.external_id, coalesce(r.metadata, '{}'::jsonb), now()
@@ -631,6 +674,8 @@ begin
     external_id text, metadata jsonb
   )
   on conflict (device_id, date, metric) do update set
+    student_id = excluded.student_id,
+    company_id = excluded.company_id,
     recorded_at = excluded.recorded_at,
     timezone_offset_minutes = excluded.timezone_offset_minutes,
     value = excluded.value, unit = excluded.unit,
@@ -645,7 +690,7 @@ begin
     calories, avg_heart_rate, max_heart_rate, elevation_gain_m, avg_pace,
     strain, source, external_id, metadata, updated_at
   )
-  select v_device.student_id, v_device.company_id, v_device.id,
+  select v_device.student_id, v_student_company_id, v_device.id,
     r.started_at::timestamptz, nullif(r.ended_at, '')::timestamptz,
     r.local_date::date, r.timezone_offset_minutes, r.activity_type,
     r.duration_min, r.distance_km, r.calories, r.avg_heart_rate,
@@ -659,6 +704,7 @@ begin
     strain numeric, source text, external_id text, metadata jsonb
   )
   on conflict (device_id, external_id) do update set
+    student_id = excluded.student_id, company_id = excluded.company_id,
     started_at = excluded.started_at, ended_at = excluded.ended_at,
     local_date = excluded.local_date,
     timezone_offset_minutes = excluded.timezone_offset_minutes,
@@ -689,11 +735,17 @@ begin
 end;
 $$;
 
-revoke all on function public.commit_wearable_sync(uuid, uuid, uuid, jsonb, jsonb, jsonb, timestamptz) from public, anon, authenticated;
-grant execute on function public.commit_wearable_sync(uuid, uuid, uuid, jsonb, jsonb, jsonb, timestamptz) to service_role;
+revoke all on function public.commit_wearable_sync(uuid, uuid, uuid, uuid, uuid, jsonb, jsonb, jsonb, timestamptz) from public, anon, authenticated;
+grant execute on function public.commit_wearable_sync(uuid, uuid, uuid, uuid, uuid, jsonb, jsonb, jsonb, timestamptz) to service_role;
+
+-- Likewise, failure persistence must not leave the old unchecked overload.
+drop function if exists public.fail_wearable_sync(uuid, uuid, text, text);
 
 create or replace function public.fail_wearable_sync(
   p_device_id uuid,
+  p_student_id uuid,
+  p_actor_user_id uuid,
+  p_expected_company_id uuid,
   p_holder uuid,
   p_status text,
   p_error_code text
@@ -703,6 +755,8 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_device public.wearable_devices%rowtype;
 begin
   if p_status not in ('error', 'revoked', 'config_required') then
     raise exception 'sync_failure_status_invalid';
@@ -714,6 +768,17 @@ begin
   ) then
     return false;
   end if;
+  select d.* into v_device
+  from public.wearable_devices d
+  join public.students s on s.id = d.student_id
+  where d.id = p_device_id
+    and d.student_id = p_student_id
+    and d.company_id = p_expected_company_id
+    and s.company_id = p_expected_company_id
+    and s.user_id = p_actor_user_id
+    and coalesce(s.status, '') = 'active'
+  for update of d, s;
+  if not found then return false; end if;
   update public.wearable_devices
   set connection_status = p_status, last_sync_status = 'error',
       last_error_code = p_error_code, last_error = p_error_code,
@@ -723,8 +788,8 @@ begin
 end;
 $$;
 
-revoke all on function public.fail_wearable_sync(uuid, uuid, text, text) from public, anon, authenticated;
-grant execute on function public.fail_wearable_sync(uuid, uuid, text, text) to service_role;
+revoke all on function public.fail_wearable_sync(uuid, uuid, uuid, uuid, uuid, text, text) from public, anon, authenticated;
+grant execute on function public.fail_wearable_sync(uuid, uuid, uuid, uuid, uuid, text, text) to service_role;
 
 create or replace function public.complete_wearable_disconnect(
   p_device_id uuid,
@@ -742,13 +807,14 @@ set search_path = public
 as $$
 declare
   v_device public.wearable_devices%rowtype;
+  v_student_company_id uuid;
 begin
   if not exists (
     select 1 from public.wearable_leases
     where device_id = p_device_id and purpose = 'maintenance'
       and holder = p_holder and locked_until > now()
   ) then raise exception 'maintenance_lease_lost'; end if;
-  select d.* into v_device
+  select d, s.company_id into v_device, v_student_company_id
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
@@ -768,7 +834,7 @@ begin
       device_id, student_id, company_id, provider, event_type, scopes,
       privacy_version, metadata
     ) values (
-      v_device.id, v_device.student_id, v_device.company_id,
+      v_device.id, v_device.student_id, v_student_company_id,
       v_device.provider, 'revoked', '{}', p_privacy_version,
       jsonb_build_object('actor_user_id', p_actor_user_id, 'provider_revocation', 'succeeded')
     );
@@ -805,6 +871,7 @@ set search_path = public
 as $$
 declare
   v_device public.wearable_devices%rowtype;
+  v_student_company_id uuid;
   v_count integer := 0;
   v_rows integer := 0;
 begin
@@ -813,7 +880,7 @@ begin
     where device_id = p_device_id and purpose = 'maintenance'
       and holder = p_holder and locked_until > now()
   ) then raise exception 'maintenance_lease_lost'; end if;
-  select d.* into v_device
+  select d, s.company_id into v_device, v_student_company_id
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
@@ -833,7 +900,7 @@ begin
     device_id, student_id, company_id, provider, event_type, scopes,
     privacy_version, metadata
   ) values (
-    v_device.id, v_device.student_id, v_device.company_id,
+    v_device.id, v_device.student_id, v_student_company_id,
     v_device.provider, 'data_deleted', '{}', p_privacy_version,
     jsonb_build_object('actor_user_id', p_actor_user_id)
   );

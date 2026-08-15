@@ -200,12 +200,14 @@ export async function revokeProviderToken(
   provider: ConnectableProvider,
   accessToken: string,
   clientId: string,
+  clientSecret: string,
   externalUserId: string | null = null,
 ) {
   const request = providerRevocationRequest(
     provider,
     accessToken,
     clientId,
+    clientSecret,
     externalUserId,
   );
   await requestJson(request.url, request.init, { attempts: 2 });
@@ -215,6 +217,7 @@ export function providerRevocationRequest(
   provider: ConnectableProvider,
   accessToken: string,
   clientId: string,
+  clientSecret: string,
   externalUserId: string | null = null,
 ): { url: string; init: RequestInit } {
   if (provider === "oura") {
@@ -237,12 +240,24 @@ export function providerRevocationRequest(
       } satisfies RequestInit,
     };
   }
-  const endpoint = provider === "whoop"
-    ? {
-      url: "https://api.prod.whoop.com/developer/v2/user/access",
-      method: "DELETE",
-    }
-    : { url: "https://www.strava.com/oauth/deauthorize", method: "POST" };
+  if (provider === "strava") {
+    if (!clientId || !clientSecret) throw new Error("provider_config_missing");
+    return {
+      url: "https://www.strava.com/oauth/revoke",
+      init: {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ token: accessToken }),
+      } satisfies RequestInit,
+    };
+  }
+  const endpoint = {
+    url: "https://api.prod.whoop.com/developer/v2/user/access",
+    method: "DELETE",
+  };
   return {
     url: endpoint.url,
     init: {

@@ -11,6 +11,8 @@ Status em 2026-08-14: implementação local concluída; **nenhuma migration, con
 - O state OAuth tem 256 bits, expira em 10 minutos, registra ator/tenant/provedor/escopos e é consumido por `DELETE ... RETURNING` uma única vez. Oura e WHOOP documentam o fluxo server-side com state, mas não anunciam PKCE nesse contrato; não foi inventado um parâmetro não documentado.
 - Refresh tokens rotativos/single-use são protegidos por lease atômico e compare-and-swap de versão. O sync tem lease próprio, renovado a cada página.
 - Disconnect e exclusão usam lease de manutenção incompatível com sync/refresh. Persistência/finalização do sync, disconnect e exclusão são RPCs transacionais que revalidam lease, aluno e device.
+- A autorização de staff deriva sempre de `students.company_id` no momento da leitura; ela nunca confia no `company_id` denormalizado do registro wearable. Se um aluno mudar da empresa A para B, a equipe A perde acesso imediatamente e a equipe B passa a ver também o histórico desse aluno.
+- A migration reconcilia todos os `company_id` divergentes em devices, métricas, workouts e consentimentos. Uma transferência posterior invalida qualquer sync iniciado em A: `commit_wearable_sync` trava e reconsulta aluno/device, compara ator, status e tenant com o snapshot do início e falha com `sync_tenant_changed` antes de gravar. O device precisa de reconciliação explícita para B antes do próximo sync; não há correção silenciosa cross-tenant.
 - Métricas e workouts são idempotentes. Quando há vários sleeps/naps no mesmo dia, a normalização escolhe explicitamente registro `SCORED`, sono principal e maior duração; pending/unscorable continua `null`, nunca zero.
 - WHOOP strain usa escala `0..21`; recovery relaciona `cycle_id`/`sleep_id` para obter data local e offset do evento.
 - Webhooks permanecem fail-closed (`webhooks_disabled`). Não há endpoint ativo até existir implementação comprovada de assinatura, timestamp, replay e deduplicação para o contrato vigente de cada provedor.
@@ -71,7 +73,7 @@ Não existe remoção automática de chave antiga nem job silencioso de rewrap n
 
 - `sync`: pull incremental com sobreposição de 24h, paginação, timeout, retry exponencial para 429/5xx e falha fechada em 401.
 - Strava usa `after` em epoch, `page`/`per_page=100`, heartbeat por página e upsert idempotente por atividade.
-- `disconnect`: tenta a revogação oficial. Em sucesso apaga a credencial cifrada e registra consentimento revogado. Em falha bloqueia uso local, marca `revocation_pending`, preserva ciphertext apenas para retry e define `credential_delete_after` em 30 dias. Hoje o retry é manual pela UI; não existe cron oculto.
+- `disconnect`: tenta a revogação oficial. Para Strava usa `POST /oauth/revoke`, Basic auth do cliente e corpo form-urlencoded `token`, sem registrar o token. Em sucesso apaga a credencial cifrada e registra consentimento revogado. Em falha bloqueia uso local, marca `revocation_pending`, preserva ciphertext apenas para retry e define `credential_delete_after` em 30 dias. Hoje o retry é manual pela UI; não existe cron oculto.
 - Ao atingir o prazo com revogação ainda pendente, a decisão de apagar a última credencial e aceitar uma autorização externa possivelmente órfã é um gate de operador, com registro do incidente.
 - `delete_data`: exige usuário autenticado dono e confirmação explícita `EXCLUIR DADOS`; apaga métricas, workouts, cursores e eventos daquele provider. Mantém ledger de consentimento e estado da conexão para auditoria.
 - Desconectar não apaga automaticamente histórico já importado. O aluno escolhe a exclusão separadamente.
@@ -95,9 +97,9 @@ Não executar migration, OAuth real, deploy ou push como parte desses checks.
 
 Última execução local desta branch:
 
-- testes dedicados: Deno `16/16`, Vitest `17/17`;
+- testes dedicados: Deno `17/17`, Vitest `20/20`;
 - Deno check das duas edges, TypeScript, lint dos arquivos alterados, backend guard e build: aprovados;
-- suíte global: `337/338`; a única falha é o teste preexistente de RIR do deload em `prescription/engine.test.ts`, reproduzido sem esta branch no checkout canônico `2a2a9f9` (`49/50`);
+- suíte global: `340/341`; a única falha é o teste preexistente de RIR do deload em `prescription/engine.test.ts`, reproduzido sem esta branch no checkout canônico `2a2a9f9` (`49/50`);
 - lint global: 8 erros preexistentes em `supabase/functions/ai-nutrition-meals/*` e 50 warnings históricos; os arquivos desta frente passam isoladamente.
 
 Não corrigir esses dois baselines dentro da branch de wearables; pertencem às frentes de prescrição/nutrição.
@@ -115,3 +117,4 @@ Não corrigir esses dois baselines dentro da branch de wearables; pertencem às 
 - WHOOP workout: https://developer.whoop.com/docs/developing/user-data/workout/
 - Polar AccessLink OAuth, registro e DELETE de usuário: https://www.polar.com/accesslink-api/
 - Strava List Athlete Activities (`after`, `page`, `per_page`): https://developers.strava.com/docs/reference/#api-Activities-getLoggedInAthleteActivities
+- Strava OAuth/revogação (`POST /oauth/revoke`, Basic auth e formulário): https://developers.strava.com/docs/authentication/

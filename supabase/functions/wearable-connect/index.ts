@@ -427,6 +427,7 @@ async function handleCallback(url: URL) {
           connectable,
           issuedTokens.accessToken,
           providerSecrets(connectable).clientId,
+          providerSecrets(connectable).clientSecret,
           issuedExternalUserId,
         );
       } catch (revokeError) {
@@ -637,6 +638,8 @@ serve(async (req) => {
         {
           p_device_id: data.id,
           p_student_id: student.id,
+          p_actor_user_id: student.actor_user_id,
+          p_expected_company_id: data.company_id,
           p_holder: holder,
           p_metrics: result.metrics,
           p_workouts: result.workouts,
@@ -668,6 +671,9 @@ serve(async (req) => {
         "fail_wearable_sync",
         {
           p_device_id: data.id,
+          p_student_id: student.id,
+          p_actor_user_id: student.actor_user_id,
+          p_expected_company_id: data.company_id,
           p_holder: holder,
           p_status: failureStatus,
           p_error_code: code,
@@ -712,6 +718,7 @@ serve(async (req) => {
           provider as ConnectableProvider,
           credentials.accessToken,
           secrets.clientId,
+          secrets.clientSecret,
           device.external_user_id,
         );
       } catch (revokeError) {

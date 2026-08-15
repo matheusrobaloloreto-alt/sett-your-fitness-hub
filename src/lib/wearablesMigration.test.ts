@@ -66,7 +66,8 @@ describe("wearables migration security contract", () => {
   it("enforces own-student, staff and master reads without raw membership", () => {
     expect(sql.match(/enable row level security/g)?.length).toBeGreaterThanOrEqual(8);
     expect(sql).toContain("s.user_id = auth.uid()");
-    expect(sql).toContain("public.is_company_staff(auth.uid(), company_id)");
+    expect(sql.match(/public\.is_student_company_staff\(auth\.uid\(\), student_id\)/g)?.length).toBe(4);
+    expect(sql).not.toContain("public.is_company_staff(auth.uid(), company_id)");
     expect(sql).not.toContain("get_user_company_id(auth.uid())");
     expect(sql).toContain("public.has_role(auth.uid(), 'master')");
   });
@@ -80,6 +81,47 @@ describe("wearables migration security contract", () => {
     expect(sql).toContain("function public.commit_wearable_connection");
     expect(sql).toContain("wearable_actor_no_longer_active");
     expect(sql).toContain("coalesce(v_student.status, '') <> 'active'");
+  });
+
+  it("reconciles every denormalized tenant and blocks stale sync after reassignment", () => {
+    expect(sql).toContain("d.company_id is distinct from s.company_id");
+    for (const table of ["wearable_data", "wearable_workouts", "wearable_consents"]) {
+      expect(sql).toContain(`update public.${table}`);
+    }
+    expect(sql.match(/company_id is distinct from s\.company_id/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(sql).toContain("and d.company_id = s.company_id");
+    expect(sql).toContain("p_expected_company_id uuid");
+    expect(sql).toContain("for update of d, s");
+    expect(sql).toContain("sync_tenant_changed");
+    expect(sql).toContain("student_id = excluded.student_id");
+    expect(sql).toContain("company_id = excluded.company_id");
+    expect(edge).toContain("p_actor_user_id: student.actor_user_id");
+    expect(edge).toContain("p_expected_company_id: data.company_id");
+    expect(sql).toMatch(
+      /function public\.fail_wearable_sync\([\s\S]*?p_expected_company_id uuid[\s\S]*?for update of d, s/,
+    );
+  });
+
+  it("simulates reassignment A to B without staff-A visibility or stale-lease commit", () => {
+    const leaseSnapshot = { actor: "student-user", company: "company-a" };
+    const currentStudent = { actor: "student-user", company: "company-b", status: "active" };
+    const canStaffRead = (staffCompany: string) => staffCompany === currentStudent.company;
+    const canCommit = leaseSnapshot.actor === currentStudent.actor &&
+      leaseSnapshot.company === currentStudent.company &&
+      currentStudent.status === "active";
+
+    expect(canStaffRead("company-a")).toBe(false);
+    expect(canStaffRead("company-b")).toBe(true);
+    expect(canCommit).toBe(false);
+  });
+
+  it("keeps the tenant-integrity trigger function unavailable to browser roles", () => {
+    expect(sql).toContain(
+      "revoke all on function public.enforce_wearable_tenant_integrity() from public, anon, authenticated",
+    );
+    expect(sql).not.toMatch(
+      /grant execute on function public\.enforce_wearable_tenant_integrity\(\)[^;]*(authenticated|anon)/,
+    );
   });
 
   it("rejects expired/replayed OAuth state and binds requested scopes", () => {
