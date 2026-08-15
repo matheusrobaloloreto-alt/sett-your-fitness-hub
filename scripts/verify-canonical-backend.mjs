@@ -2,9 +2,23 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
-const EXPECTED_PROJECT_REF = "zshrcgbyhzxpnlccssyz";
-const EXPECTED_URL = `https://${EXPECTED_PROJECT_REF}.supabase.co`;
-const EXPECTED_PUBLISHABLE_KEY_SHA256 = "3d887e5373f274d113cb3b6dd9f5b654ecce3bcfc3255bcb7d76c21498caf60c";
+const BACKENDS = {
+  production: {
+    projectRef: "zshrcgbyhzxpnlccssyz",
+    publishableKeySha256: "3d887e5373f274d113cb3b6dd9f5b654ecce3bcfc3255bcb7d76c21498caf60c",
+  },
+  staging: {
+    projectRef: "ifymocggowdlqqcxugko",
+    publishableKeySha256: "b527094a4d6713e7bce1e82c5d4c4899ba08f9e249518f6aef8d281458673cd8",
+  },
+};
+const DEPLOY_TARGET = process.env.SETT_DEPLOY_TARGET || "production";
+const EXPECTED_BACKEND = BACKENDS[DEPLOY_TARGET];
+const EXPECTED_PROJECT_REF = EXPECTED_BACKEND?.projectRef;
+const EXPECTED_URL = EXPECTED_PROJECT_REF
+  ? `https://${EXPECTED_PROJECT_REF}.supabase.co`
+  : undefined;
+const EXPECTED_PUBLISHABLE_KEY_SHA256 = EXPECTED_BACKEND?.publishableKeySha256;
 const RETIRED_PROJECT_REF = "cxesec" + "xyrndveookvlzz";
 const REJECTED_PUBLISHABLE_KEY_PREFIX = "sb_publishable_" + "okMxda";
 
@@ -31,6 +45,10 @@ const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const validateValues = (values, source, { requireAll = false } = {}) => {
   const errors = [];
   const required = ["VITE_SUPABASE_PROJECT_ID", "VITE_SUPABASE_URL", "VITE_SUPABASE_PUBLISHABLE_KEY"];
+
+  if (!EXPECTED_BACKEND) {
+    return [`SETT_DEPLOY_TARGET invalido: ${DEPLOY_TARGET}. Use production ou staging.`];
+  }
 
   if (requireAll) {
     for (const key of required) {
@@ -76,7 +94,17 @@ const errors = [];
 
 for (const envFile of [".env", ".env.local"]) {
   if (!existsSync(envFile)) continue;
-  errors.push(...validateValues(parseEnv(readFileSync(envFile, "utf8")), envFile, { requireAll: envFile === ".env" }));
+  const envValues = parseEnv(readFileSync(envFile, "utf8"));
+  if (DEPLOY_TARGET === "production") {
+    errors.push(...validateValues(envValues, envFile, { requireAll: envFile === ".env" }));
+  } else {
+    // The tracked .env remains production-safe. In staging, process variables
+    // must provide the complete isolated backend and take precedence in Vite.
+    for (const [key, value] of Object.entries(envValues)) {
+      if (value.includes(RETIRED_PROJECT_REF)) errors.push(`${envFile}: ${key} ainda referencia o Supabase aposentado.`);
+      if (value.startsWith(REJECTED_PUBLISHABLE_KEY_PREFIX)) errors.push(`${envFile}: ${key} usa a chave publishable de outro projeto.`);
+    }
+  }
 }
 
 const processValues = Object.fromEntries(
@@ -84,8 +112,8 @@ const processValues = Object.fromEntries(
     .filter((key) => process.env[key])
     .map((key) => [key, process.env[key]]),
 );
-if (Object.keys(processValues).length > 0) {
-  errors.push(...validateValues(processValues, "ambiente do build"));
+if (Object.keys(processValues).length > 0 || DEPLOY_TARGET === "staging") {
+  errors.push(...validateValues(processValues, "ambiente do build", { requireAll: DEPLOY_TARGET === "staging" }));
 }
 
 for (const file of [...runtimeRoots.flatMap(collectFiles), ...runtimeFiles.flatMap(collectFiles)]) {
@@ -102,4 +130,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`Backend canônico confirmado: ${EXPECTED_PROJECT_REF}.`);
+console.log(`Backend ${DEPLOY_TARGET} confirmado: ${EXPECTED_PROJECT_REF}.`);
