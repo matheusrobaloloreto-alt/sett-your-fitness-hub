@@ -1,6 +1,6 @@
 # SETT/BN — auditoria do motor, volume e mídia dos 926 exercícios
 
-**Data:** 2026-08-14  
+**Data:** 2026-08-14
 **Escopo:** auditoria read-only do Supabase canônico e correções locais de cálculo. Nenhum dado remoto, migration, deploy ou bulk update foi aplicado.
 
 ## Decisão executiva

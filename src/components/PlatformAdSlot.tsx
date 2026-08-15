@@ -52,11 +52,11 @@ export function PlatformAdSlot({ audience, placement, companyId, className }: Pl
         className,
       )}
     >
-      <div className={cn("min-w-0", placement === "dashboard_banner" ? "p-5 sm:p-6" : "flex-1")}> 
+      <div className={cn("min-w-0", placement === "dashboard_banner" ? "p-5 sm:p-6" : "flex-1")}>
         <p className="text-eyebrow flex items-center gap-2">
           <Megaphone className="h-3.5 w-3.5" /> Em destaque
         </p>
-        <h3 className={cn("font-display text-foreground", placement === "dashboard_banner" ? "mt-2 text-2xl" : "text-lg")}> 
+        <h3 className={cn("font-display text-foreground", placement === "dashboard_banner" ? "mt-2 text-2xl" : "text-lg")}>
           {ad.title}
         </h3>
         {ad.body && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{ad.body}</p>}
