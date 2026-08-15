@@ -91,19 +91,26 @@ export function allocateDeloadSetCounts(values: number[]): DeloadSetAllocation {
   // Cada exercício preserva ao menos uma série; quando isso torna a faixa
   // matematicamente impossível, o resultado sinaliza a restrição explicitamente.
   const targetTotal = Math.ceil(originalTotal * DELOAD_RULES.volumeReduction);
-  const sets = original.map((count) => Math.max(1, Math.floor(count * DELOAD_RULES.volumeReduction)));
-  let allocatedTotal = sets.reduce((sum, count) => sum + count, 0);
-  const order = original
+  const minimumTotal = original.length;
+  const allocatedTarget = Math.max(targetTotal, minimumTotal);
+  const totalCapacity = originalTotal - minimumTotal;
+  const remainingBudget = allocatedTarget - minimumTotal;
+  const shares = original
     .map((count, index) => ({
       index,
-      remainder: count * DELOAD_RULES.volumeReduction - Math.floor(count * DELOAD_RULES.volumeReduction),
-    }))
+      exactExtra: totalCapacity > 0 ? remainingBudget * (count - 1) / totalCapacity : 0,
+    }));
+  const sets = shares.map(({ exactExtra }) => 1 + Math.floor(exactExtra));
+  let allocatedTotal = sets.reduce((sum, count) => sum + count, 0);
+  const order = shares
     .filter(({ index }) => sets[index] < original[index])
-    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+    .sort((a, b) =>
+      (b.exactExtra - Math.floor(b.exactExtra)) - (a.exactExtra - Math.floor(a.exactExtra)) ||
+      a.index - b.index
+    );
 
-  while (allocatedTotal < targetTotal) {
-    const candidate = order.find(({ index }) => sets[index] < original[index]);
-    if (!candidate) break;
+  for (const candidate of order) {
+    if (allocatedTotal >= targetTotal) break;
     sets[candidate.index] += 1;
     allocatedTotal += 1;
   }
@@ -115,6 +122,6 @@ export function allocateDeloadSetCounts(values: number[]): DeloadSetAllocation {
     targetTotal,
     allocatedTotal,
     reductionRatio,
-    constrainedByMinimum: reductionRatio < 0.4,
+    constrainedByMinimum: minimumTotal > targetTotal,
   };
 }

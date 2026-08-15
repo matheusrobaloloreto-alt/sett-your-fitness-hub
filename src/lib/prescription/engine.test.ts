@@ -402,8 +402,10 @@ describe("BN Prescription Engine v1", () => {
 
   it("aloca o orçamento global de deload deterministicamente e sinaliza mínimos impossíveis", () => {
     const balanced = allocateDeloadSetCounts([3, 3]);
+    const exactMinimum = allocateDeloadSetCounts([4, 1, 1]);
     const constrained = allocateDeloadSetCounts([2, 1]);
     const allMinimum = allocateDeloadSetCounts([1, 1, 1]);
+    const monotonic = allocateDeloadSetCounts([5, 4, 3, 2, 1]);
     const empty = allocateDeloadSetCounts([]);
 
     expect(balanced).toMatchObject({
@@ -414,9 +416,17 @@ describe("BN Prescription Engine v1", () => {
       reductionRatio: 0.5,
       constrainedByMinimum: false,
     });
+    expect(exactMinimum).toMatchObject({
+      sets: [1, 1, 1],
+      originalTotal: 6,
+      targetTotal: 3,
+      allocatedTotal: 3,
+      reductionRatio: 0.5,
+      constrainedByMinimum: false,
+    });
     expect(constrained.sets).toEqual([1, 1]);
     expect(constrained.reductionRatio).toBeCloseTo(1 / 3);
-    expect(constrained.constrainedByMinimum).toBe(true);
+    expect(constrained.constrainedByMinimum).toBe(false);
     expect(allMinimum).toMatchObject({
       sets: [1, 1, 1],
       targetTotal: 2,
@@ -424,6 +434,10 @@ describe("BN Prescription Engine v1", () => {
       reductionRatio: 0,
       constrainedByMinimum: true,
     });
+    expect(allocateDeloadSetCounts([5, 4, 3, 2, 1])).toEqual(monotonic);
+    expect(monotonic.allocatedTotal).toBe(monotonic.targetTotal);
+    expect(monotonic.sets.every((sets, index) => sets >= 1 && sets <= [5, 4, 3, 2, 1][index])).toBe(true);
+    expect(monotonic.sets.every((sets, index) => index === 0 || monotonic.sets[index - 1] >= sets)).toBe(true);
     expect(empty).toMatchObject({ sets: [], originalTotal: 0, allocatedTotal: 0, constrainedByMinimum: false });
   });
 
