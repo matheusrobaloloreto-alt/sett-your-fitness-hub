@@ -10,6 +10,7 @@ Status em 2026-08-14: implementação local concluída; **nenhuma migration, con
 - A conexão OAuth só é finalizada pela RPC transacional `commit_wearable_connection`, que revalida imediatamente `actor_user_id -> student ativo -> company`, grava device + credencial cifrada + consentimento ou não grava nada.
 - O state OAuth tem 256 bits, expira em 10 minutos, registra ator/tenant/provedor/escopos e é consumido por `DELETE ... RETURNING` uma única vez. Oura e WHOOP documentam o fluxo server-side com state, mas não anunciam PKCE nesse contrato; não foi inventado um parâmetro não documentado.
 - Refresh tokens rotativos/single-use são protegidos por lease atômico e compare-and-swap de versão. O sync tem lease próprio, renovado a cada página.
+- Disconnect e exclusão usam lease de manutenção incompatível com sync/refresh. Persistência/finalização do sync, disconnect e exclusão são RPCs transacionais que revalidam lease, aluno e device.
 - Métricas e workouts são idempotentes. Quando há vários sleeps/naps no mesmo dia, a normalização escolhe explicitamente registro `SCORED`, sono principal e maior duração; pending/unscorable continua `null`, nunca zero.
 - WHOOP strain usa escala `0..21`; recovery relaciona `cycle_id`/`sleep_id` para obter data local e offset do evento.
 - Webhooks permanecem fail-closed (`webhooks_disabled`). Não há endpoint ativo até existir implementação comprovada de assinatura, timestamp, replay e deduplicação para o contrato vigente de cada provedor.
@@ -54,9 +55,22 @@ O callback valida os escopos retornados. Strava pode devolvê-los no callback; o
 
 Os tipos gerados de Supabase não foram editados nem regenerados: nenhuma migration foi aplicada a um banco local/remoto nesta frente. Regenerar apenas a partir do schema aprovado depois da aplicação.
 
+A migration histórica de julho agora condiciona as policies de wearable à existência das tabelas, que só são criadas em agosto. `node scripts/check-wearables-migration-order.mjs` valida essa ordem sem aplicar SQL. Um replay comportamental completo ainda precisa ser executado em um projeto Supabase efêmero aprovado; ele não foi feito nesta frente porque a autorização proíbe aplicar migrations, inclusive localmente.
+
+### Rotação segura do keyring
+
+1. Inventariar apenas contagens por `key_id` em `wearable_credentials`; nunca exportar ciphertext, IV ou tokens para relatório.
+2. Adicionar a nova chave ao `WEARABLE_TOKEN_KEYS` e mudar `WEARABLE_TOKEN_ACTIVE_KEY_ID` somente após confirmar que a Edge consegue ler chaves antiga e nova.
+3. Reembrulhar cada credencial no servidor: ler e decifrar com a chave antiga, cifrar com a ativa e atualizar com compare-and-swap em `version`. Conflito de versão deve ser reprocessado, nunca sobrescrito.
+4. Repetir o inventário até a cobertura da chave nova ser 100% para todos os devices que ainda podem sincronizar ou concluir revogação pendente.
+5. Executar um sync e um disconnect de teste em staging. Remover a chave antiga somente depois desses testes e de uma segunda confirmação de cobertura por `key_id`.
+
+Não existe remoção automática de chave antiga nem job silencioso de rewrap nesta entrega; ambos exigem gate operacional e trilha de auditoria.
+
 ## Operação, revogação e retenção
 
 - `sync`: pull incremental com sobreposição de 24h, paginação, timeout, retry exponencial para 429/5xx e falha fechada em 401.
+- Strava usa `after` em epoch, `page`/`per_page=100`, heartbeat por página e upsert idempotente por atividade.
 - `disconnect`: tenta a revogação oficial. Em sucesso apaga a credencial cifrada e registra consentimento revogado. Em falha bloqueia uso local, marca `revocation_pending`, preserva ciphertext apenas para retry e define `credential_delete_after` em 30 dias. Hoje o retry é manual pela UI; não existe cron oculto.
 - Ao atingir o prazo com revogação ainda pendente, a decisão de apagar a última credencial e aceitar uma autorização externa possivelmente órfã é um gate de operador, com registro do incidente.
 - `delete_data`: exige usuário autenticado dono e confirmação explícita `EXCLUIR DADOS`; apaga métricas, workouts, cursores e eventos daquele provider. Mantém ledger de consentimento e estado da conexão para auditoria.
@@ -68,6 +82,7 @@ Os tipos gerados de Supabase não foram editados nem regenerados: nenhuma migrat
 ```bash
 npx -y deno@latest test --no-lock supabase/functions/_shared/wearables/*.test.ts
 npx -y deno@latest check --no-lock supabase/functions/wearable-connect/index.ts supabase/functions/ai-student-bnito/index.ts
+node scripts/check-wearables-migration-order.mjs
 npm run test -- --run src/lib/wearablesMigration.test.ts src/lib/wearables.test.ts
 npx tsc --noEmit
 npm run lint
@@ -80,9 +95,9 @@ Não executar migration, OAuth real, deploy ou push como parte desses checks.
 
 Última execução local desta branch:
 
-- testes dedicados: Deno `12/12`, Vitest `12/12`;
+- testes dedicados: Deno `16/16`, Vitest `17/17`;
 - Deno check das duas edges, TypeScript, lint dos arquivos alterados, backend guard e build: aprovados;
-- suíte global: `332/333`; a única falha é o teste preexistente de RIR do deload em `prescription/engine.test.ts`, reproduzido sem esta branch no checkout canônico `2a2a9f9` (`49/50`);
+- suíte global: `337/338`; a única falha é o teste preexistente de RIR do deload em `prescription/engine.test.ts`, reproduzido sem esta branch no checkout canônico `2a2a9f9` (`49/50`);
 - lint global: 8 erros preexistentes em `supabase/functions/ai-nutrition-meals/*` e 50 warnings históricos; os arquivos desta frente passam isoladamente.
 
 Não corrigir esses dois baselines dentro da branch de wearables; pertencem às frentes de prescrição/nutrição.
@@ -98,3 +113,5 @@ Não corrigir esses dois baselines dentro da branch de wearables; pertencem às 
 - WHOOP sleep: https://developer.whoop.com/docs/developing/user-data/sleep/
 - WHOOP cycle: https://developer.whoop.com/docs/developing/user-data/cycle/
 - WHOOP workout: https://developer.whoop.com/docs/developing/user-data/workout/
+- Polar AccessLink OAuth, registro e DELETE de usuário: https://www.polar.com/accesslink-api/
+- Strava List Athlete Activities (`after`, `page`, `per_page`): https://developers.strava.com/docs/reference/#api-Activities-getLoggedInAthleteActivities
