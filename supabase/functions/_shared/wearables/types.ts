@@ -7,6 +7,7 @@ export interface TokenBundle {
   expiresAt: string | null;
   tokenType: string | null;
   scopes: string[];
+  externalUserId: string | null;
 }
 
 export interface EncryptedValue {

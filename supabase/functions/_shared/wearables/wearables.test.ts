@@ -7,15 +7,19 @@ import { isFreshScoredMetric, sanitizeWearablesForPrompt } from "./context.ts";
 import {
   authorizeUrl,
   missingScopes,
+  polarExternalUserId,
+  providerRevocationRequest,
   REQUIRED_SCOPES,
   resolveGrantedScopes,
 } from "./oauth.ts";
+import { syncStrava } from "./providers.ts";
 import {
   dedupeMetrics,
   localDate,
   normalizeWhoopRecord,
   normalizeWhoopWorkout,
   timezoneOffsetMinutes,
+  whoopSleepDurationHours,
 } from "./normalize.ts";
 
 const device = {
@@ -55,6 +59,26 @@ Deno.test("Strava callback and Polar documented response preserve granted scopes
     "accesslink.read_all",
   ]);
   assertEquals(resolveGrantedScopes("oura", [], null), []);
+});
+
+Deno.test("Polar persists its external user id and revokes the registered user path", () => {
+  assertEquals(polarExternalUserId({ "polar-user-id": 2278512 }), "2278512");
+  assertEquals(polarExternalUserId({ x_user_id: 10579 }), "10579");
+  const request = providerRevocationRequest(
+    "polar",
+    "sensitive-token",
+    "client-id",
+    "2278512",
+  );
+  assertEquals(
+    request.url,
+    "https://www.polaraccesslink.com/v3/users/2278512",
+  );
+  assertEquals(request.init.method, "DELETE");
+  assertEquals(
+    (request.init.headers as Record<string, string>).Authorization,
+    "Bearer sensitive-token",
+  );
 });
 
 Deno.test("pagination follows provider next tokens without duplicating pages", async () => {
@@ -117,6 +141,59 @@ Deno.test("WHOOP recovery inherits cycle local time instead of UTC creation date
   }, { start: "2026-03-09T02:30:00Z", timezone_offset: "-04:00" });
   assertEquals(recovery[0].date, "2026-03-08");
   assertEquals(recovery[0].timezone_offset_minutes, -240);
+});
+
+Deno.test("WHOOP sleep duration sums sleep stages and excludes awake/no-data in-bed time", () => {
+  assertEquals(
+    whoopSleepDurationHours({
+      total_in_bed_time_milli: 9 * 3_600_000,
+      total_awake_time_milli: 60 * 60_000,
+      total_no_data_time_milli: 30 * 60_000,
+      total_light_sleep_time_milli: 4 * 3_600_000,
+      total_slow_wave_sleep_time_milli: 90 * 60_000,
+      total_rem_sleep_time_milli: 2 * 3_600_000,
+    }),
+    7.5,
+  );
+  assertEquals(
+    whoopSleepDurationHours({ total_in_bed_time_milli: 1000 }),
+    null,
+  );
+});
+
+Deno.test("Strava sync paginates with after cursor and heartbeats every page", async () => {
+  const urls: string[] = [];
+  let heartbeats = 0;
+  const firstPage = Array.from({ length: 100 }, (_, index) => ({
+    id: index + 1,
+    start_date: "2026-08-14T10:00:00Z",
+    start_date_local: "2026-08-14T07:00:00",
+    moving_time: 600,
+    distance: 1000,
+    type: "Run",
+  }));
+  const result = await syncStrava(
+    { ...device, provider: "strava" },
+    "token",
+    "2026-08-13T12:00:00Z",
+    async () => {
+      heartbeats += 1;
+    },
+    async (url) => {
+      urls.push(url);
+      return urls.length === 1 ? firstPage : [{
+        id: 101,
+        start_date: "2026-08-14T11:00:00Z",
+        moving_time: 300,
+        distance: 500,
+        type: "Run",
+      }];
+    },
+  );
+  assertEquals(result.workouts.length, 101);
+  assertEquals(heartbeats, 2);
+  assertEquals(new URL(urls[0]).searchParams.get("after"), "1786536000");
+  assertEquals(new URL(urls[1]).searchParams.get("page"), "2");
 });
 
 Deno.test("daily metric dedupe prefers scored main sleep over nap and pending records", () => {
