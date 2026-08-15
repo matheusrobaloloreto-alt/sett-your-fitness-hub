@@ -82,7 +82,8 @@ function metricFromLines(
 ): { value: number | null; evidence: string | null } {
   for (const line of lines) {
     const match = line.match(pattern);
-    const rawValue = match?.slice(1).find((value) => Boolean(value));
+    if (!match) continue;
+    const rawValue = match.slice(1).find((value) => Boolean(value));
     const parsed = rawValue ? parseDecimal(rawValue) : null;
     if (parsed == null) continue;
     const tail = line.slice((match.index ?? 0) + match[0].length);
@@ -101,27 +102,27 @@ function extractTargetsWithEvidence(rawText: string): TargetExtraction {
   const calories = metricFromLines(
     lines,
     new RegExp(`${number}\\s*kcal\\b`, "i"),
-    /^(?:(?:valor\s+energ[eé]tico|energia|calorias?|meta)\s*[:=\-]?\s*)?\d+(?:[.,]\d+)?\s*kcal(?:\s*(?:\/|por)\s*dia)?$/i,
+    /^(?:(?:valor\s+energ[eé]tico|energia|calorias?|meta)\s*[-:=]?\s*)?\d+(?:[.,]\d+)?\s*kcal(?:\s*(?:\/|por)\s*dia)?$/i,
   );
   const protein = metricFromLines(
     lines,
-    new RegExp(`prote[ií]nas?\\s*[:=\\-]?\\s*${number}\\s*g\\b`, "i"),
-    /^prote[ií]nas?\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
+    new RegExp(`prote[ií]nas?\\s*[-:=]?\\s*${number}\\s*g\\b`, "i"),
+    /^prote[ií]nas?\s*[-:=]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
   );
   const carbs = metricFromLines(
     lines,
-    new RegExp(`(?:carboidratos?|carbo)\\s*[:=\\-]?\\s*${number}\\s*g\\b`, "i"),
-    /^(?:carboidratos?|carbo)\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
+    new RegExp(`(?:carboidratos?|carbo)\\s*[-:=]?\\s*${number}\\s*g\\b`, "i"),
+    /^(?:carboidratos?|carbo)\s*[-:=]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
   );
   const fat = metricFromLines(
     lines,
-    new RegExp(`(?:gorduras?|lip[ií]dios?)\\s*[:=\\-]?\\s*${number}\\s*g\\b`, "i"),
-    /^(?:gorduras?|lip[ií]dios?)\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
+    new RegExp(`(?:gorduras?|lip[ií]dios?)\\s*[-:=]?\\s*${number}\\s*g\\b`, "i"),
+    /^(?:gorduras?|lip[ií]dios?)\s*[-:=]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
   );
   const fiber = metricFromLines(
     lines,
-    new RegExp(`fibras?\\s*[:=\\-]?\\s*${number}\\s*g\\b`, "i"),
-    /^fibras?\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
+    new RegExp(`fibras?\\s*[-:=]?\\s*${number}\\s*g\\b`, "i"),
+    /^fibras?\s*[-:=]?\s*\d+(?:[.,]\d+)?\s*g(?:\s*(?:\/|por)\s*dia)?$/i,
   );
   const waterPerKg = metricFromLines(
     lines,
@@ -131,12 +132,12 @@ function extractTargetsWithEvidence(rawText: string): TargetExtraction {
   const waterLiters = metricFromLines(
     lines,
     new RegExp(`(?:[aá]gua|hidrata[cç][aã]o)[^\\d]{0,24}${number}\\s*(?:l|litros?)\\b|${number}\\s*(?:l|litros?)\\s+(?:de\\s+)?[aá]gua\\b`, "i"),
-    /^(?:[aá]gua|hidrata[cç][aã]o)\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*(?:l|litros?)(?:\s*(?:\/|por)\s*dia)?$/i,
+    /^(?:[aá]gua|hidrata[cç][aã]o)\s*[-:=]?\s*\d+(?:[.,]\d+)?\s*(?:l|litros?)(?:\s*(?:\/|por)\s*dia)?$/i,
   );
   const waterMl = metricFromLines(
     lines,
     new RegExp(`(?:[aá]gua|hidrata[cç][aã]o)[^\\d]{0,24}${number}\\s*ml\\b|${number}\\s*ml\\s+(?:de\\s+)?[aá]gua\\b`, "i"),
-    /^(?:[aá]gua|hidrata[cç][aã]o)\s*[:=\-]?\s*\d+(?:[.,]\d+)?\s*ml(?:\s*(?:\/|por)\s*dia)?$/i,
+    /^(?:[aá]gua|hidrata[cç][aã]o)\s*[-:=]?\s*\d+(?:[.,]\d+)?\s*ml(?:\s*(?:\/|por)\s*dia)?$/i,
   );
   const absoluteWater = waterMl.value ?? (waterLiters.value != null ? Math.round(waterLiters.value * 1000) : null);
   const absoluteWaterEvidence = waterMl.evidence ?? waterLiters.evidence;

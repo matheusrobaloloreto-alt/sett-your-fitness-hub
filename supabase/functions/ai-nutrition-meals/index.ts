@@ -169,7 +169,7 @@ serve(async (req) => {
     const planFields = "id, name, plan_name, goal, status, target_calories, target_protein_g, target_carbs_g, target_fat_g, target_fiber_g, target_water_ml, context_dietary_restrictions, ai_rationale, meals, start_date, end_date, source_type, source_file_name, source_document, created_at";
     // Vigente = ativo e dentro da janela de datas. Duplicidades legadas são
     // resolvidas por início mais recente e, em seguida, created_at.
-    let { data: plan, error: planError } = await db
+    const { data: activePlan, error: planError } = await db
       .from("nutrition_plans")
       .select(planFields)
       .eq("student_id", student_id)
@@ -181,6 +181,7 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
     if (planError) throw planError;
+    let plan = activePlan;
     if (!plan) {
       const legacy = await db
         .from("nutrition_plans")
