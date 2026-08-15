@@ -1,4 +1,5 @@
 import { planAdvancedMethods, type MethodId } from "./advancedMethods.ts";
+import { DELOAD_RULES } from "./methodology.ts";
 import { normalizeText } from "./presets.ts";
 import { resolveDurationWeeks, shouldHoldProgression } from "./progressionRules.ts";
 import { deriveRestrictionRules, exerciseConflictsWithRestrictions } from "./restrictionRules.ts";
@@ -69,24 +70,28 @@ function resolveLevel(input: PrescriptionInput): "iniciante" | "intermediario" |
 
 function weekRules(input: PrescriptionInput): WeekRule[] {
   const duration = resolveDurationWeeks(input);
-  const safeOnly = shouldHoldProgression(input) || Boolean(input.deload) || resolveLevel(input) === "iniciante";
+  const deload = Boolean(input.deload);
+  const safeOnly = shouldHoldProgression(input) || deload || resolveLevel(input) === "iniciante";
+  const safeRir = (fallback: string) => deload ? DELOAD_RULES.rir : fallback;
   const finalMethod = safeOnly
     ? "Sem método avançado; evoluir somente com execução estável."
     : "Bi-set e técnica de intensidade em acessórios estáveis; nunca em padrão doloroso.";
   const rules: WeekRule[] = [
-    { week: 1, block: "base", stimulus: "Aprender o treino e calibrar cargas", rir: input.deload ? "4-5" : "3-4", volume_percent: input.deload ? 50 : 80, tempo_focus: "3-1-1-0", method_focus: "Séries retas", instruction: "Controle três segundos na descida, faça uma pausa curta e termine cada série com técnica limpa." },
-    { week: 2, block: "base", stimulus: "Consolidar técnica e alcançar o topo das repetições", rir: input.deload ? "4-5" : "3-4", volume_percent: input.deload ? 50 : 90, tempo_focus: "3-0-1-1", method_focus: "Séries retas", instruction: "Mantenha a carga e tente avançar dentro da faixa de repetições sem perder a cadência." },
-    { week: 3, block: "acumulacao", stimulus: "Aumentar volume útil com controle", rir: safeOnly ? "3" : "2-3", volume_percent: input.deload ? 50 : 100, tempo_focus: "3-0-1-0", method_focus: safeOnly ? "Séries retas" : "Rest-pause em um acessório", instruction: safeOnly ? "Progrida repetições apenas se não houver dor ou quebra técnica." : "Nos acessórios marcados, use rest-pause somente na última série." },
-    { week: 4, block: "acumulacao", stimulus: "Acumular repetições de qualidade", rir: safeOnly ? "3" : "2-3", volume_percent: input.deload ? 50 : 105, tempo_focus: "2-1-1-0", method_focus: safeOnly ? "Séries retas" : "Drop-set em um acessório", instruction: safeOnly ? "Mantenha o volume e refine a execução antes de subir carga." : "Nos acessórios marcados, faça um único drop apenas na última série." },
-    { week: 5, block: "intensificacao", stimulus: "Elevar densidade sem sacrificar execução", rir: safeOnly ? "3" : "2", volume_percent: input.deload ? 50 : 105, tempo_focus: "2-0-1-0", method_focus: safeOnly ? "Séries retas" : "Bi-set seguro", instruction: safeOnly ? "Sem falha e sem técnicas avançadas; respeite o limite técnico do dia." : "Faça os exercícios com a mesma marcação de bi-set em sequência e descanse ao terminar o par." },
-    { week: 6, block: "intensificacao", stimulus: "Consolidar o bloco com intensidade controlada", rir: safeOnly ? "3-4" : "2", volume_percent: input.deload ? 50 : 100, tempo_focus: "2-0-1-0", method_focus: finalMethod, instruction: safeOnly ? "Consolide o treino sem forçar progressão; o feedback desta semana orienta o próximo ciclo." : "A técnica marcada vale somente para o acessório indicado e para na primeira perda de execução." },
+    { week: 1, block: "base", stimulus: "Aprender o treino e calibrar cargas", rir: safeRir("3-4"), volume_percent: deload ? 50 : 80, tempo_focus: "3-1-1-0", method_focus: "Séries retas", instruction: "Controle três segundos na descida, faça uma pausa curta e termine cada série com técnica limpa." },
+    { week: 2, block: "base", stimulus: "Consolidar técnica e alcançar o topo das repetições", rir: safeRir("3-4"), volume_percent: deload ? 50 : 90, tempo_focus: "3-0-1-1", method_focus: "Séries retas", instruction: "Mantenha a carga e tente avançar dentro da faixa de repetições sem perder a cadência." },
+    { week: 3, block: "acumulacao", stimulus: "Aumentar volume útil com controle", rir: safeRir(safeOnly ? "3" : "2-3"), volume_percent: deload ? 50 : 100, tempo_focus: "3-0-1-0", method_focus: safeOnly ? "Séries retas" : "Rest-pause em um acessório", instruction: safeOnly ? "Progrida repetições apenas se não houver dor ou quebra técnica." : "Nos acessórios marcados, use rest-pause somente na última série." },
+    { week: 4, block: "acumulacao", stimulus: "Acumular repetições de qualidade", rir: safeRir(safeOnly ? "3" : "2-3"), volume_percent: deload ? 50 : 105, tempo_focus: "2-1-1-0", method_focus: safeOnly ? "Séries retas" : "Drop-set em um acessório", instruction: safeOnly ? "Mantenha o volume e refine a execução antes de subir carga." : "Nos acessórios marcados, faça um único drop apenas na última série." },
+    { week: 5, block: "intensificacao", stimulus: "Elevar densidade sem sacrificar execução", rir: safeRir(safeOnly ? "3" : "2"), volume_percent: deload ? 50 : 105, tempo_focus: "2-0-1-0", method_focus: safeOnly ? "Séries retas" : "Bi-set seguro", instruction: safeOnly ? "Sem falha e sem técnicas avançadas; respeite o limite técnico do dia." : "Faça os exercícios com a mesma marcação de bi-set em sequência e descanse ao terminar o par." },
+    { week: 6, block: "intensificacao", stimulus: "Consolidar o bloco com intensidade controlada", rir: safeRir(safeOnly ? "3-4" : "2"), volume_percent: deload ? 50 : 100, tempo_focus: "2-0-1-0", method_focus: finalMethod, instruction: safeOnly ? "Consolide o treino sem forçar progressão; o feedback desta semana orienta o próximo ciclo." : "A técnica marcada vale somente para o acessório indicado e para na primeira perda de execução." },
   ];
   return rules.slice(0, duration);
 }
 
 function adjustedSets(exercise: TrainingExercise, rule: WeekRule, input: PrescriptionInput): number {
   const base = Math.max(1, Number(exercise.sets) || 1);
-  if (input.deload) return Math.max(1, Math.ceil(base * 0.5));
+  // O volume de deload já foi reduzido quando o exercício-base foi criado.
+  // Reduzir novamente aqui faria o treino publicado cair para ~25% do volume normal.
+  if (input.deload) return base;
   if (rule.week === 1 && /forca_/.test(exercise.phase)) return Math.max(1, base - 1);
   return base;
 }
@@ -201,7 +206,7 @@ export function buildWeeklyPeriodization(
       });
       prescriptions.set(
         rule.week,
-        groupPreparationExercises(planned, `w${workoutIndex + 1}`, rule.week),
+        input.deload ? planned : groupPreparationExercises(planned, `w${workoutIndex + 1}`, rule.week),
       );
     }
 

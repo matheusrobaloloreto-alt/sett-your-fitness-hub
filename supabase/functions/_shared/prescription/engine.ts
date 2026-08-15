@@ -7,6 +7,7 @@ import { applyRestrictionRules, deriveRestrictionRules } from "./restrictionRule
 import { validateTrainingProgram } from "./validator.ts";
 import { enforceVolumeCaps } from "./volumeRules.ts";
 import { buildWeeklyPeriodization } from "./weeklyPeriodization.ts";
+import { DELOAD_RULES } from "./methodology.ts";
 import type {
   ExerciseCatalogEntry,
   PrescriptionInput,
@@ -122,7 +123,7 @@ function exerciseToTrainingExercise(exercise: ExerciseCatalogEntry, spec: Exerci
     sets: deloadAdjustSets(spec.sets, input),
     reps: spec.reps || (isMain ? modifier.mainReps : modifier.accessoryReps),
     load_percent_1rm: null,
-    rir: spec.rir,
+    rir: input.deload ? DELOAD_RULES.rir : spec.rir,
     rest_seconds: input.deload ? Math.max(90, spec.rest) : spec.rest,
     tempo: spec.tempo || "3010",
     exercise_order: order,
@@ -307,13 +308,13 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
   const weekly = buildWeeklyPeriodization(workouts, normalizedInput);
   const periodization = buildPeriodizationBlocks(normalizedInput);
   const split = resolveSplit(normalizedInput);
-  const advancedAllowed = !shouldHoldProgression(normalizedInput) && !normalizeText(normalizedInput.fitnessLevel).includes("inic");
+  const advancedAllowed = !normalizedInput.deload && !shouldHoldProgression(normalizedInput) && !normalizeText(normalizedInput.fitnessLevel).includes("inic");
   const explanations = [
     ...explanationsFromRestrictions(restrictions),
     ...enduranceExplanation(Boolean(normalizedInput.isEnduranceAthlete || normalizedInput.runningDaysContext)),
     ...frequencyDowngradeExplanation(split.downgraded, split.requestedDays, split.structuredDays),
     ...deloadExplanation(Boolean(normalizedInput.deload)),
-    progressionExplanation(advancedAllowed),
+    ...(!normalizedInput.deload ? [progressionExplanation(advancedAllowed)] : []),
     longitudinal.explanation,
     {
       rule_id: "BN_WEEKLY_PERIODIZATION_EXECUTABLE",

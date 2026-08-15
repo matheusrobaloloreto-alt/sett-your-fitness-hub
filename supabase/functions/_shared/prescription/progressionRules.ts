@@ -29,8 +29,18 @@ export function buildPeriodizationBlocks(input: PrescriptionInput): Periodizatio
   const level = normalizeText(input.fitnessLevel);
   const objective = normalizeText(input.objective);
   const hold = shouldHoldProgression(input);
-  const advancedAllowed = !hold && !level.includes("inic");
+  const advancedAllowed = !input.deload && !hold && !level.includes("inic");
   const technicalPlyometricsAllowed = advancedAllowed && !input.deload && /(performance|potencia|velocidade|esporte)/.test(objective);
+
+  if (input.deload) {
+    const blocks = duration === 4 ? ["1-2", "3-4"] : ["1-2", "3-4", "5-6"];
+    return blocks.map((weeks) => ({
+      weeks,
+      stimulus: "deload/regeneracao tecnica",
+      methods: [...DELOAD_RULES.methods],
+      progression_rule: `RIR ${DELOAD_RULES.rir}. Manter carga e padrões técnicos sem progressão até encerrar o deload.`,
+    }));
+  }
 
   if (duration === 4) {
     return [

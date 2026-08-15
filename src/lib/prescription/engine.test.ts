@@ -341,12 +341,26 @@ describe("BN Prescription Engine v1", () => {
     const normal = generateTrainingProgram(baseInput());
     const deload = generateTrainingProgram(baseInput({ deload: true }));
     const normalSets = normal.workouts.flatMap((w) => w.exercises).reduce((sum, e) => sum + e.sets, 0);
-    const deloadSets = deload.workouts.flatMap((w) => w.exercises).reduce((sum, e) => sum + e.sets, 0);
+    const deloadExercises = deload.workouts.flatMap((w) => w.exercises);
+    const deloadSets = deloadExercises.reduce((sum, e) => sum + e.sets, 0);
 
     expect(deloadSets).toBeLessThan(normalSets);
-    expect(deload.workouts.flatMap((w) => w.exercises).every((e) => e.rir === "4-5")).toBe(true);
+    expect(deloadExercises.every((exercise) => exercise.rir === "4-5")).toBe(true);
+    expect(deloadExercises.every((exercise) => exercise.method === null)).toBe(true);
+    expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.rir === "4-5"))).toBe(true);
+    expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.sets === exercise.sets))).toBe(true);
+    expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.method === null))).toBe(true);
+    expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) =>
+      week.set_types?.every((setType) => setType !== "failure" && setType !== "drop")
+    ))).toBe(true);
+    expect(deload.weekly_periodization.every((week) =>
+      week.rir === "4-5" && week.volume_percent === 50 && week.methods.length === 0
+    )).toBe(true);
+    expect(JSON.stringify(deload.periodization_blocks).toLowerCase()).not.toMatch(/drop|cluster|rest-pause|up-set|piramide/);
+    expect(deload.periodization_blocks.every((block) => block.progression_rule.includes("RIR 4-5"))).toBe(true);
     expect(deload.progression_protocol.toLowerCase()).toContain("deload");
     expect(deload.explanations.some((e) => e.category === "deload")).toBe(true);
+    expect(deload.explanations.some((e) => e.rule_id === "metodo_avancado_controlado")).toBe(false);
   });
 
   it("retorna contrato de saída compatível com Studio/PDF/publicação", () => {
