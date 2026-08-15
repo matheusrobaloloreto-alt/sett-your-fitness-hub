@@ -3,7 +3,7 @@ import {
   assertRejects,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { collectPages, requestJson, WearableHttpError } from "./http.ts";
-import { isFreshScoredMetric } from "./context.ts";
+import { isFreshScoredMetric, sanitizeWearablesForPrompt } from "./context.ts";
 import {
   authorizeUrl,
   missingScopes,
@@ -214,4 +214,42 @@ Deno.test("BNITO accepts only recent scored non-null wearable signals", () => {
     }, now),
     false,
   );
+});
+
+Deno.test("BNITO Anthropic prompt context excludes stale, null and unscored metrics before serialization", () => {
+  const sanitized = sanitizeWearablesForPrompt({
+    student: { id: "student" },
+    wearable_metrics: [
+      {
+        recorded_at: "2026-08-14T11:00:00Z",
+        value: 61,
+        score_state: "SCORED",
+        marker: "fresh",
+      },
+      {
+        recorded_at: "2026-08-10T11:00:00Z",
+        value: 45,
+        score_state: "SCORED",
+        marker: "stale",
+      },
+      {
+        recorded_at: "2026-08-14T11:00:00Z",
+        value: null,
+        score_state: "SCORED",
+        marker: "null",
+      },
+      {
+        recorded_at: "2026-08-14T11:00:00Z",
+        value: 0,
+        score_state: "PENDING_SCORE",
+        marker: "pending",
+      },
+    ],
+  }, new Date("2026-08-14T12:00:00Z"));
+  const anthropicPromptContext = JSON.stringify(sanitized);
+  assertEquals(sanitized.wearable_metrics?.length, 1);
+  assertEquals(anthropicPromptContext.includes("fresh"), true);
+  assertEquals(anthropicPromptContext.includes("stale"), false);
+  assertEquals(anthropicPromptContext.includes("pending"), false);
+  assertEquals(anthropicPromptContext.includes('"marker":"null"'), false);
 });

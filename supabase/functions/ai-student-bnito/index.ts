@@ -1,7 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
-import { isFreshScoredMetric } from "../_shared/wearables/context.ts";
+import {
+  isFreshScoredMetric,
+  sanitizeWearablesForPrompt,
+} from "../_shared/wearables/context.ts";
 
 type ChatRole = "user" | "assistant";
 type StudentBnitoAction = "ask" | "brief" | "weekly_contact" | "contextual" | "report_pain" | "identity";
@@ -854,10 +857,12 @@ serve(async (req) => {
           .map((message) => ({ role: message.role as ChatRole, content: cleanText(message.content, 700) }))
       : [];
 
-    const studentContext = await loadStudentContext(auth, {
-      allowMissingStudent: action === "brief" || action === "contextual" || action === "identity",
-      pageContext: body.page_context,
-    });
+    const studentContext = sanitizeWearablesForPrompt(
+      await loadStudentContext(auth, {
+        allowMissingStudent: action === "brief" || action === "contextual" || action === "identity",
+        pageContext: body.page_context,
+      }),
+    );
     const aiConfig = await loadCompanyAiConfig(
       studentContext.student?.company_id as string | undefined,
       studentContext.company?.name as string | undefined,

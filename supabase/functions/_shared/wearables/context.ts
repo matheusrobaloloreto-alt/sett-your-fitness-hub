@@ -5,6 +5,11 @@ export interface ContextMetric {
   score_state?: string | null;
 }
 
+export interface WearablePromptContext {
+  wearable_metrics?: ContextMetric[] | null;
+  [key: string]: unknown;
+}
+
 export function isFreshScoredMetric(
   metric: ContextMetric,
   now = new Date(),
@@ -20,4 +25,21 @@ export function isFreshScoredMetric(
   if (!Number.isFinite(time)) return false;
   const age = now.getTime() - time;
   return age >= 0 && age <= maxAgeHours * 60 * 60 * 1000;
+}
+
+/**
+ * Sanitizes wearable metrics before the context is hashed, reported as loaded,
+ * or serialized into an LLM prompt. This is intentionally a boundary helper so
+ * stale/unscored/null provider values cannot leak through another prompt path.
+ */
+export function sanitizeWearablesForPrompt<T extends WearablePromptContext>(
+  context: T,
+  now = new Date(),
+): T {
+  const metrics = Array.isArray(context.wearable_metrics)
+    ? context.wearable_metrics.filter((metric) =>
+      isFreshScoredMetric(metric, now)
+    )
+    : [];
+  return { ...context, wearable_metrics: metrics };
 }
