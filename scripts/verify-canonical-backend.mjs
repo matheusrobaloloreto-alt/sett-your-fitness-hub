@@ -14,6 +14,10 @@ const BACKENDS = {
 };
 const DEPLOY_TARGET = process.env.SETT_DEPLOY_TARGET || "production";
 const EXPECTED_BACKEND = BACKENDS[DEPLOY_TARGET];
+if (!EXPECTED_BACKEND) {
+  console.error(`SETT_DEPLOY_TARGET invalido: ${DEPLOY_TARGET}. Use production ou staging.`);
+  process.exit(1);
+}
 const EXPECTED_PROJECT_REF = EXPECTED_BACKEND?.projectRef;
 const EXPECTED_URL = EXPECTED_PROJECT_REF
   ? `https://${EXPECTED_PROJECT_REF}.supabase.co`
@@ -45,10 +49,6 @@ const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const validateValues = (values, source, { requireAll = false } = {}) => {
   const errors = [];
   const required = ["VITE_SUPABASE_PROJECT_ID", "VITE_SUPABASE_URL", "VITE_SUPABASE_PUBLISHABLE_KEY"];
-
-  if (!EXPECTED_BACKEND) {
-    return [`SETT_DEPLOY_TARGET invalido: ${DEPLOY_TARGET}. Use production ou staging.`];
-  }
 
   if (requireAll) {
     for (const key of required) {
