@@ -7,6 +7,7 @@
     "dev": "vite",
     "prebuild": "npm run verify:backend",
     "build": "vite build",
+    "postbuild": "node scripts/prepare-staging-deploy.mjs",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",

@@ -2,9 +2,9 @@
 
 ## Verdict
 
-- **Local/fresh staging: GO.** The complete migration chain replays from an empty database and the final RLS/ACL catalog passes the security gate.
+- **Cloud/fresh staging: GO for independent QA.** The complete migration chain replays from an empty database and the final RLS/ACL catalog passes the security gate in the isolated Free-plan staging project.
 - **Production: NO-GO until a read-only legacy-data preflight is run.** Existing rows with null or divergent tenant/reference fields can become invisible under the new fail-closed policies or fail later updates.
-- No cloud project, production data, Netlify site, OAuth provider, webhook, MFIT account, or external integration was changed.
+- The isolated Supabase and draft Netlify staging targets were changed. Production, real data, OAuth providers, webhooks, MFIT and external integrations were not touched.
 
 ## Delivered
 
@@ -18,10 +18,13 @@
 - Restricted trigger functions and privileged RPCs; rebuilt explicit Data API grants for fresh Supabase projects.
 - Restricted application policies to `authenticated`, kept the one intentional anonymous table read (`platform_settings`) and one anonymous RPC (`get_active_platform_ads`).
 - Regenerated local Supabase TypeScript types only after the final schema was green.
+- Fixed `commit_wearable_sync` to cast provider JSON watermark strings to `timestamptz`; the cloud concurrency test exposed that the prior expression made every sync commit fail.
+- Added reproducible cloud catalog and wearable concurrency test scripts.
 
 ## Validation evidence
 
-- Complete empty-database replay: **PASS twice on the frozen final migrations** (159 migrations, including `20260815061954` and `20260815062126`).
+- Complete empty-database replay: **PASS on all 160 migrations**, including the cloud-discovered wearable watermark fix.
+- Cloud migration ledger: **160 local / 160 remote, exact match**.
 - Transactional reapplication of both terminal migrations: **PASS**.
 - Synthetic RLS matrix: **PASS**.
   - 5 actor profiles (Student A, Student B in the same company, staff A, cross-tenant staff B, master).
@@ -34,15 +37,17 @@
   - 0 public tables without RLS.
   - 0 `SECURITY DEFINER` functions without an explicit `search_path`.
   - Anonymous table grants: 1 `SELECT`; authenticated grants are policy-backed; service role retains complete backend access.
-- Supabase security advisors at WARN/ERROR: **0 issues**.
+- Supabase security advisors: **20 WARN entries, all accounted for by an exact allowlist of 19 reviewed browser-executable `SECURITY DEFINER` RPCs**; one RPC is reported once for `anon` and once for `authenticated`. The catalog gate rejects any unreviewed definer function.
 - Security INFO: 9 intentionally fail-closed backend/internal tables with RLS and no browser policies.
 - Wearable migration order checker: **PASS**.
 - `git diff --check`: **PASS**.
 - TypeScript (`tsc --noEmit`): **PASS**.
 - ESLint: **PASS with 48 pre-existing warnings and 0 errors**.
 - Vitest excluding the environment-blocked PDF suite: **61 files / 448 tests PASS**.
-- Focused wearable security contracts: **20/20 PASS**.
+- Focused wearable security contracts: **21/21 PASS**.
 - Production build, including backend provenance verification: **PASS**.
+- Staging build and postbuild provenance/sanitization gate: **PASS**.
+- Draft HTTP/SPA smoke: **10/10 routes and 6/6 static assets PASS**; the operator-only recording artifact is absent.
 
 The complete test command has one environment-only failure in `dietPdf.test.ts`: this worktree's `node_modules` is a symlink outside the Vite filesystem allowlist, so the PDF worker import is denied. The application build does resolve and bundle the same worker successfully. No test or safety assertion was weakened.
 
@@ -65,8 +70,8 @@ Backlog that does not block fresh staging:
 - Bind `admin_alerts.enrollment_id` to `admin_alerts.student_id` when both are present.
 - Move membership/role helper functions behind private-schema wrappers to reduce metadata oracle surface.
 - Add domain/range constraints for student gender and height.
-- Triage the 449 historical performance-advisor warnings (213 init-plan, 234 multiple-permissive-policy, 2 duplicate-index); these are not security-advisor failures.
+- Triage the 455 performance-advisor warnings (215 auth init-plan, 238 multiple-permissive-policy, 2 duplicate-index); these are nonblocking for isolated staging but remain release debt.
 
 ## Release boundary
 
-This checkpoint is local and committed only. Cloud migration/deploy remains a separate, operator-gated action after the production preflight.
+The cloud checkpoint is limited to isolated staging. Eleven required Edge Functions are active without provider credentials, OAuth remains synthetic, webhooks fail closed, and the frontend exists only as a Netlify draft. Promotion to the stable staging URL remains blocked until independent QA returns `GO`. Production remains a separate operator-gated release after the legacy-data preflight.

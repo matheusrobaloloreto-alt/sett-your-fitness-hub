@@ -15,6 +15,10 @@ const legacyHardening = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260718121000_harden_extended_student_modules.sql"),
   "utf8",
 ).toLowerCase();
+const watermarkCastFix = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20260815170922_fix_wearable_sync_watermark_cast.sql"),
+  "utf8",
+).toLowerCase();
 const oauthMigration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260805150000_wearable_connections.sql"),
   "utf8",
@@ -29,6 +33,12 @@ const rpcSource = (name: string) => {
 };
 
 describe("wearables migration security contract", () => {
+  it("casts provider watermark JSON strings before writing timestamptz cursors", () => {
+    expect(watermarkCastFix).toContain("nullif(item.value, '''')::timestamptz");
+    expect(watermarkCastFix).toContain("refusing an unverified patch");
+    expect(watermarkCastFix).toContain("revoke all on function public.commit_wearable_sync");
+  });
+
   it("creates every reproducibility table", () => {
     for (const table of [
       "wearable_devices",
