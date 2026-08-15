@@ -350,14 +350,29 @@ using (public.has_role(auth.uid(), 'master'::public.app_role))
 with check (public.has_role(auth.uid(), 'master'::public.app_role));
 -- Preserve legacy columns for remote compatibility while copying their values
 -- into the restricted billing table.
-insert into public.company_billing(company_id, stripe_customer_id, stripe_subscription_id)
-select id, stripe_customer_id, stripe_subscription_id
-from public.companies
-where stripe_customer_id is not null or stripe_subscription_id is not null
-on conflict (company_id) do update set
-  stripe_customer_id = coalesce(excluded.stripe_customer_id, company_billing.stripe_customer_id),
-  stripe_subscription_id = coalesce(excluded.stripe_subscription_id, company_billing.stripe_subscription_id),
-  updated_at = now();
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'companies' and column_name = 'stripe_customer_id'
+  ) and exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'companies' and column_name = 'stripe_subscription_id'
+  ) then
+    execute $copy_legacy_billing$
+      insert into public.company_billing(company_id, stripe_customer_id, stripe_subscription_id)
+      select id, stripe_customer_id, stripe_subscription_id
+      from public.companies
+      where stripe_customer_id is not null or stripe_subscription_id is not null
+      on conflict (company_id) do update set
+        stripe_customer_id = coalesce(excluded.stripe_customer_id, company_billing.stripe_customer_id),
+        stripe_subscription_id = coalesce(excluded.stripe_subscription_id, company_billing.stripe_subscription_id),
+        updated_at = now()
+    $copy_legacy_billing$;
+  else
+    raise notice 'Skipping legacy company billing copy: source columns were already removed.';
+  end if;
+end $$;
 alter table public.anamnese_invites
   add column if not exists expires_at timestamptz;
 update public.anamnese_invites
