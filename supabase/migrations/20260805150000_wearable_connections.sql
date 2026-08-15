@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS public.wearable_oauth_states (
 ALTER TABLE public.wearable_oauth_states ENABLE ROW LEVEL SECURITY;
 
 -- OAuth states and provider tokens are handled only by the service-role edge function.
-REVOKE ALL ON public.wearable_oauth_states FROM anon, authenticated;
+REVOKE ALL ON public.wearable_oauth_states FROM public, anon, authenticated;
+GRANT ALL ON public.wearable_oauth_states TO service_role;
 
 CREATE INDEX IF NOT EXISTS wearable_oauth_states_expiry_idx
   ON public.wearable_oauth_states (expires_at)

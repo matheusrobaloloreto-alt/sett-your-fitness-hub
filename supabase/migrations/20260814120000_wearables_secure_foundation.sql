@@ -15,7 +15,7 @@ create table if not exists public.wearable_devices (
   external_user_id text,
   is_active boolean not null default true,
   connection_status text not null default 'connected'
-    check (connection_status in ('connected', 'syncing', 'stale', 'error', 'revoked', 'revocation_pending', 'config_required', 'partial_scope')),
+    check (connection_status in ('connected', 'syncing', 'stale', 'error', 'revoked', 'revocation_pending', 'reauthorization_required', 'config_required', 'partial_scope')),
   granted_scopes text[] not null default '{}',
   required_scopes text[] not null default '{}',
   last_sync_at timestamptz,
@@ -42,7 +42,7 @@ alter table public.wearable_devices add column if not exists credential_delete_a
 alter table public.wearable_devices add column if not exists revoked_at timestamptz;
 alter table public.wearable_devices drop constraint if exists wearable_devices_connection_status_check;
 alter table public.wearable_devices add constraint wearable_devices_connection_status_check
-  check (connection_status in ('connected', 'syncing', 'stale', 'error', 'revoked', 'revocation_pending', 'config_required', 'partial_scope'));
+  check (connection_status in ('connected', 'syncing', 'stale', 'error', 'revoked', 'revocation_pending', 'reauthorization_required', 'config_required', 'partial_scope'));
 update public.wearable_devices d
 set company_id = s.company_id
 from public.students s
@@ -97,12 +97,16 @@ create table if not exists public.wearable_sync_cursors (
 
 create table if not exists public.wearable_leases (
   device_id uuid not null references public.wearable_devices(id) on delete cascade,
-  purpose text not null check (purpose in ('sync', 'refresh')),
+  purpose text not null check (purpose in ('sync', 'refresh', 'maintenance')),
   holder uuid not null,
   locked_until timestamptz not null,
   created_at timestamptz not null default now(),
   primary key (device_id, purpose)
 );
+
+alter table public.wearable_leases drop constraint if exists wearable_leases_purpose_check;
+alter table public.wearable_leases add constraint wearable_leases_purpose_check
+  check (purpose in ('sync', 'refresh', 'maintenance'));
 
 create table if not exists public.wearable_events (
   provider text not null,
@@ -205,6 +209,20 @@ alter table public.wearable_oauth_states add column if not exists actor_user_id 
 alter table public.wearable_oauth_states add column if not exists company_id uuid references public.companies(id) on delete cascade;
 alter table public.wearable_oauth_states add column if not exists requested_scopes text[] not null default '{}';
 
+-- Existing devices may contain legacy plaintext columns but have no encrypted
+-- credential row. Never read those tokens automatically: quarantine the device
+-- until the student reauthorizes through the new envelope flow.
+update public.wearable_devices d
+set is_active = false,
+    connection_status = 'reauthorization_required',
+    last_sync_status = 'reauthorization_required',
+    last_error_code = 'reauthorization_required',
+    last_error = 'Reautorizacao segura necessaria',
+    updated_at = now()
+where not exists (
+  select 1 from public.wearable_credentials c where c.device_id = d.id
+);
+
 -- Never trust denormalized tenant identifiers supplied by service code. The
 -- authoritative relationship is student -> company and device -> student/company.
 create or replace function public.enforce_wearable_tenant_integrity()
@@ -281,14 +299,16 @@ alter table public.wearable_leases enable row level security;
 alter table public.wearable_events enable row level security;
 alter table public.wearable_data enable row level security;
 alter table public.wearable_workouts enable row level security;
+alter table public.wearable_oauth_states enable row level security;
 
+revoke all on public.wearable_oauth_states from public, anon, authenticated;
 revoke all on public.wearable_credentials from public, anon, authenticated;
 revoke all on public.wearable_sync_cursors from public, anon, authenticated;
 revoke all on public.wearable_leases from public, anon, authenticated;
 revoke all on public.wearable_events from public, anon, authenticated;
-grant all on public.wearable_credentials, public.wearable_sync_cursors, public.wearable_leases, public.wearable_events to service_role;
+grant all on public.wearable_oauth_states, public.wearable_credentials, public.wearable_sync_cursors, public.wearable_leases, public.wearable_events to service_role;
 
-revoke all on public.wearable_devices, public.wearable_consents, public.wearable_data, public.wearable_workouts from anon, authenticated;
+revoke all on public.wearable_devices, public.wearable_consents, public.wearable_data, public.wearable_workouts from public, anon, authenticated;
 -- Column grant deliberately excludes any legacy plaintext token columns that may
 -- still exist in a live database pending operator-gated reauthorization.
 grant select (id, student_id, company_id, provider, device_name, external_user_id, is_active,
@@ -340,6 +360,7 @@ create or replace function public.commit_wearable_connection(
   p_actor_user_id uuid,
   p_company_id uuid,
   p_provider text,
+  p_external_user_id text,
   p_granted_scopes text[],
   p_required_scopes text[],
   p_key_id text,
@@ -374,12 +395,12 @@ begin
   v_partial := not (coalesce(p_granted_scopes, '{}') @> coalesce(p_required_scopes, '{}'));
 
   insert into public.wearable_devices (
-    id, student_id, company_id, provider, device_name, is_active,
+    id, student_id, company_id, provider, device_name, external_user_id, is_active,
     connection_status, granted_scopes, required_scopes, last_sync_status,
     last_error_code, last_error, revoked_at, revocation_status,
     revocation_retry_after, credential_delete_after
   ) values (
-    p_device_id, p_student_id, p_company_id, p_provider, upper(p_provider), true,
+    p_device_id, p_student_id, p_company_id, p_provider, upper(p_provider), p_external_user_id, true,
     case when v_partial then 'partial_scope' else 'connected' end,
     coalesce(p_granted_scopes, '{}'), coalesce(p_required_scopes, '{}'), 'connected',
     case when v_partial then 'partial_scope' else null end,
@@ -389,6 +410,7 @@ begin
   on conflict (student_id, provider) do update set
     company_id = excluded.company_id,
     device_name = excluded.device_name,
+    external_user_id = excluded.external_user_id,
     is_active = true,
     connection_status = excluded.connection_status,
     granted_scopes = excluded.granted_scopes,
@@ -438,11 +460,11 @@ end;
 $$;
 
 revoke all on function public.commit_wearable_connection(
-  uuid, uuid, uuid, uuid, text, text[], text[], text, text, text, text,
+  uuid, uuid, uuid, uuid, text, text, text[], text[], text, text, text, text,
   text, timestamptz, text, text
 ) from public, anon, authenticated;
 grant execute on function public.commit_wearable_connection(
-  uuid, uuid, uuid, uuid, text, text[], text[], text, text, text, text,
+  uuid, uuid, uuid, uuid, text, text, text[], text[], text, text, text, text,
   text, timestamptz, text, text
 ) to service_role;
 
@@ -464,7 +486,8 @@ $$;
 revoke all on function public.consume_wearable_oauth_state(text) from public, anon, authenticated;
 grant execute on function public.consume_wearable_oauth_state(text) to service_role;
 
--- One atomic lease is shared by refresh and sync. Expired leases can be reclaimed.
+-- Lease acquisition is serialized per device. Maintenance is incompatible with
+-- sync/refresh so disconnect and deletion cannot race provider persistence.
 create or replace function public.acquire_wearable_lease(
   p_device_id uuid,
   p_purpose text,
@@ -479,7 +502,19 @@ as $$
 declare
   affected_rows integer := 0;
 begin
-  if p_purpose not in ('sync', 'refresh') or p_ttl_seconds < 5 or p_ttl_seconds > 300 then
+  if p_purpose not in ('sync', 'refresh', 'maintenance') or p_ttl_seconds < 5 or p_ttl_seconds > 300 then
+    return false;
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0));
+  delete from public.wearable_leases
+  where device_id = p_device_id and locked_until <= now();
+  if exists (
+    select 1 from public.wearable_leases
+    where device_id = p_device_id
+      and locked_until > now()
+      and holder <> p_holder
+      and (purpose = 'maintenance' or p_purpose = 'maintenance')
+  ) then
     return false;
   end if;
   insert into public.wearable_leases(device_id, purpose, holder, locked_until)
@@ -508,3 +543,303 @@ $$;
 
 revoke all on function public.release_wearable_lease(uuid, text, uuid) from public, anon, authenticated;
 grant execute on function public.release_wearable_lease(uuid, text, uuid) to service_role;
+
+create or replace function public.begin_wearable_sync(
+  p_device_id uuid,
+  p_student_id uuid,
+  p_actor_user_id uuid,
+  p_holder uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_device public.wearable_devices%rowtype;
+begin
+  if not exists (
+    select 1 from public.wearable_leases
+    where device_id = p_device_id and purpose = 'sync' and holder = p_holder
+      and locked_until > now()
+  ) then
+    raise exception 'sync_lease_lost';
+  end if;
+  select d.* into v_device
+  from public.wearable_devices d
+  join public.students s on s.id = d.student_id
+  where d.id = p_device_id and d.student_id = p_student_id
+    and s.user_id = p_actor_user_id and coalesce(s.status, '') = 'active'
+    and d.is_active
+    and d.connection_status in ('connected', 'stale', 'error', 'syncing')
+  for update of d;
+  if not found then raise exception 'sync_device_not_active'; end if;
+  update public.wearable_devices
+  set connection_status = 'syncing', last_sync_status = 'syncing',
+      last_error = null, last_error_code = null, updated_at = now()
+  where id = p_device_id;
+  return to_jsonb(v_device);
+end;
+$$;
+
+revoke all on function public.begin_wearable_sync(uuid, uuid, uuid, uuid) from public, anon, authenticated;
+grant execute on function public.begin_wearable_sync(uuid, uuid, uuid, uuid) to service_role;
+
+create or replace function public.commit_wearable_sync(
+  p_device_id uuid,
+  p_student_id uuid,
+  p_holder uuid,
+  p_metrics jsonb,
+  p_workouts jsonb,
+  p_watermarks jsonb,
+  p_completed_at timestamptz
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_device public.wearable_devices%rowtype;
+  v_imported integer := 0;
+begin
+  if not exists (
+    select 1 from public.wearable_leases
+    where device_id = p_device_id and purpose = 'sync' and holder = p_holder
+      and locked_until > now()
+  ) then
+    raise exception 'sync_lease_lost';
+  end if;
+  select * into v_device from public.wearable_devices
+  where id = p_device_id and student_id = p_student_id and is_active
+    and connection_status = 'syncing'
+  for update;
+  if not found then raise exception 'sync_device_not_active'; end if;
+
+  insert into public.wearable_data (
+    student_id, company_id, device_id, date, recorded_at,
+    timezone_offset_minutes, metric, value, unit, score_state, source,
+    external_id, metadata, updated_at
+  )
+  select v_device.student_id, v_device.company_id, v_device.id,
+    r.date::date, nullif(r.recorded_at, '')::timestamptz,
+    r.timezone_offset_minutes, r.metric, r.value, r.unit, r.score_state,
+    r.source, r.external_id, coalesce(r.metadata, '{}'::jsonb), now()
+  from jsonb_to_recordset(coalesce(p_metrics, '[]'::jsonb)) as r(
+    date text, recorded_at text, timezone_offset_minutes integer, metric text,
+    value numeric, unit text, score_state text, source text,
+    external_id text, metadata jsonb
+  )
+  on conflict (device_id, date, metric) do update set
+    recorded_at = excluded.recorded_at,
+    timezone_offset_minutes = excluded.timezone_offset_minutes,
+    value = excluded.value, unit = excluded.unit,
+    score_state = excluded.score_state, source = excluded.source,
+    external_id = excluded.external_id, metadata = excluded.metadata,
+    updated_at = now();
+  v_imported := v_imported + jsonb_array_length(coalesce(p_metrics, '[]'::jsonb));
+
+  insert into public.wearable_workouts (
+    student_id, company_id, device_id, started_at, ended_at, local_date,
+    timezone_offset_minutes, activity_type, duration_min, distance_km,
+    calories, avg_heart_rate, max_heart_rate, elevation_gain_m, avg_pace,
+    strain, source, external_id, metadata, updated_at
+  )
+  select v_device.student_id, v_device.company_id, v_device.id,
+    r.started_at::timestamptz, nullif(r.ended_at, '')::timestamptz,
+    r.local_date::date, r.timezone_offset_minutes, r.activity_type,
+    r.duration_min, r.distance_km, r.calories, r.avg_heart_rate,
+    r.max_heart_rate, r.elevation_gain_m, r.avg_pace, r.strain,
+    r.source, r.external_id, coalesce(r.metadata, '{}'::jsonb), now()
+  from jsonb_to_recordset(coalesce(p_workouts, '[]'::jsonb)) as r(
+    started_at text, ended_at text, local_date text,
+    timezone_offset_minutes integer, activity_type text, duration_min integer,
+    distance_km numeric, calories numeric, avg_heart_rate numeric,
+    max_heart_rate numeric, elevation_gain_m numeric, avg_pace text,
+    strain numeric, source text, external_id text, metadata jsonb
+  )
+  on conflict (device_id, external_id) do update set
+    started_at = excluded.started_at, ended_at = excluded.ended_at,
+    local_date = excluded.local_date,
+    timezone_offset_minutes = excluded.timezone_offset_minutes,
+    activity_type = excluded.activity_type, duration_min = excluded.duration_min,
+    distance_km = excluded.distance_km, calories = excluded.calories,
+    avg_heart_rate = excluded.avg_heart_rate,
+    max_heart_rate = excluded.max_heart_rate,
+    elevation_gain_m = excluded.elevation_gain_m,
+    avg_pace = excluded.avg_pace, strain = excluded.strain,
+    source = excluded.source, metadata = excluded.metadata, updated_at = now();
+  v_imported := v_imported + jsonb_array_length(coalesce(p_workouts, '[]'::jsonb));
+
+  insert into public.wearable_sync_cursors (
+    device_id, resource, watermark, last_success_at, updated_at
+  )
+  select v_device.id, item.key, item.value, p_completed_at, now()
+  from jsonb_each_text(coalesce(p_watermarks, '{}'::jsonb)) item
+  on conflict (device_id, resource) do update set
+    watermark = excluded.watermark, last_success_at = excluded.last_success_at,
+    updated_at = now();
+
+  update public.wearable_devices
+  set connection_status = 'connected', last_sync_at = p_completed_at,
+      last_sync_status = 'success', last_error = null,
+      last_error_code = null, updated_at = now()
+  where id = v_device.id;
+  return v_imported;
+end;
+$$;
+
+revoke all on function public.commit_wearable_sync(uuid, uuid, uuid, jsonb, jsonb, jsonb, timestamptz) from public, anon, authenticated;
+grant execute on function public.commit_wearable_sync(uuid, uuid, uuid, jsonb, jsonb, jsonb, timestamptz) to service_role;
+
+create or replace function public.fail_wearable_sync(
+  p_device_id uuid,
+  p_holder uuid,
+  p_status text,
+  p_error_code text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_status not in ('error', 'revoked', 'config_required') then
+    raise exception 'sync_failure_status_invalid';
+  end if;
+  if not exists (
+    select 1 from public.wearable_leases
+    where device_id = p_device_id and purpose = 'sync' and holder = p_holder
+      and locked_until > now()
+  ) then
+    return false;
+  end if;
+  update public.wearable_devices
+  set connection_status = p_status, last_sync_status = 'error',
+      last_error_code = p_error_code, last_error = p_error_code,
+      updated_at = now()
+  where id = p_device_id and is_active and connection_status = 'syncing';
+  return found;
+end;
+$$;
+
+revoke all on function public.fail_wearable_sync(uuid, uuid, text, text) from public, anon, authenticated;
+grant execute on function public.fail_wearable_sync(uuid, uuid, text, text) to service_role;
+
+create or replace function public.complete_wearable_disconnect(
+  p_device_id uuid,
+  p_student_id uuid,
+  p_actor_user_id uuid,
+  p_holder uuid,
+  p_revocation_succeeded boolean,
+  p_error_code text,
+  p_privacy_version text
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_device public.wearable_devices%rowtype;
+begin
+  if not exists (
+    select 1 from public.wearable_leases
+    where device_id = p_device_id and purpose = 'maintenance'
+      and holder = p_holder and locked_until > now()
+  ) then raise exception 'maintenance_lease_lost'; end if;
+  select d.* into v_device
+  from public.wearable_devices d
+  join public.students s on s.id = d.student_id
+  where d.id = p_device_id and d.student_id = p_student_id
+    and s.user_id = p_actor_user_id
+  for update of d;
+  if not found then raise exception 'wearable_actor_mismatch'; end if;
+
+  if p_revocation_succeeded then
+    delete from public.wearable_credentials where device_id = v_device.id;
+    update public.wearable_devices
+    set is_active = false, connection_status = 'revoked',
+        revocation_status = 'succeeded', revoked_at = now(),
+        revocation_retry_after = null, credential_delete_after = null,
+        last_error_code = null, last_error = null, updated_at = now()
+    where id = v_device.id;
+    insert into public.wearable_consents (
+      device_id, student_id, company_id, provider, event_type, scopes,
+      privacy_version, metadata
+    ) values (
+      v_device.id, v_device.student_id, v_device.company_id,
+      v_device.provider, 'revoked', '{}', p_privacy_version,
+      jsonb_build_object('actor_user_id', p_actor_user_id, 'provider_revocation', 'succeeded')
+    );
+    return 'succeeded';
+  end if;
+
+  update public.wearable_devices
+  set is_active = false, connection_status = 'revocation_pending',
+      revocation_status = 'pending', revoked_at = null,
+      revocation_retry_after = now() + interval '1 hour',
+      credential_delete_after = now() + interval '30 days',
+      last_error_code = coalesce(nullif(p_error_code, ''), 'provider_revocation_failed'),
+      last_error = coalesce(nullif(p_error_code, ''), 'provider_revocation_failed'),
+      updated_at = now()
+  where id = v_device.id;
+  return 'pending';
+end;
+$$;
+
+revoke all on function public.complete_wearable_disconnect(uuid, uuid, uuid, uuid, boolean, text, text) from public, anon, authenticated;
+grant execute on function public.complete_wearable_disconnect(uuid, uuid, uuid, uuid, boolean, text, text) to service_role;
+
+create or replace function public.delete_wearable_provider_data(
+  p_device_id uuid,
+  p_student_id uuid,
+  p_actor_user_id uuid,
+  p_holder uuid,
+  p_privacy_version text
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_device public.wearable_devices%rowtype;
+  v_count integer := 0;
+  v_rows integer := 0;
+begin
+  if not exists (
+    select 1 from public.wearable_leases
+    where device_id = p_device_id and purpose = 'maintenance'
+      and holder = p_holder and locked_until > now()
+  ) then raise exception 'maintenance_lease_lost'; end if;
+  select d.* into v_device
+  from public.wearable_devices d
+  join public.students s on s.id = d.student_id
+  where d.id = p_device_id and d.student_id = p_student_id
+    and s.user_id = p_actor_user_id
+  for update of d;
+  if not found then raise exception 'wearable_actor_mismatch'; end if;
+
+  delete from public.wearable_data where device_id = v_device.id;
+  get diagnostics v_rows = row_count;
+  v_count := v_count + v_rows;
+  delete from public.wearable_workouts where device_id = v_device.id;
+  get diagnostics v_rows = row_count;
+  v_count := v_count + v_rows;
+  delete from public.wearable_sync_cursors where device_id = v_device.id;
+  delete from public.wearable_events where device_id = v_device.id;
+  insert into public.wearable_consents (
+    device_id, student_id, company_id, provider, event_type, scopes,
+    privacy_version, metadata
+  ) values (
+    v_device.id, v_device.student_id, v_device.company_id,
+    v_device.provider, 'data_deleted', '{}', p_privacy_version,
+    jsonb_build_object('actor_user_id', p_actor_user_id)
+  );
+  return v_count;
+end;
+$$;
+
+revoke all on function public.delete_wearable_provider_data(uuid, uuid, uuid, uuid, text) from public, anon, authenticated;
+grant execute on function public.delete_wearable_provider_data(uuid, uuid, uuid, uuid, text) to service_role;

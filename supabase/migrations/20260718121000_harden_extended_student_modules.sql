@@ -68,21 +68,27 @@ drop policy if exists "Company staff read training streaks" on public.training_s
 create policy "Company staff read training streaks" on public.training_streaks
 for select to authenticated
 using (public.is_student_company_staff(auth.uid(), student_id));
-drop policy if exists "staff_read_wearable_data" on public.wearable_data;
-drop policy if exists "Company staff read wearable data" on public.wearable_data;
-create policy "Company staff read wearable data" on public.wearable_data
-for select to authenticated
-using (public.is_student_company_staff(auth.uid(), student_id));
-drop policy if exists "staff_read_devices" on public.wearable_devices;
-drop policy if exists "Company staff read wearable devices" on public.wearable_devices;
-create policy "Company staff read wearable devices" on public.wearable_devices
-for select to authenticated
-using (public.is_student_company_staff(auth.uid(), student_id));
-drop policy if exists "staff_read_wearable_workouts" on public.wearable_workouts;
-drop policy if exists "Company staff read wearable workouts" on public.wearable_workouts;
-create policy "Company staff read wearable workouts" on public.wearable_workouts
-for select to authenticated
-using (public.is_student_company_staff(auth.uid(), student_id));
+-- Wearable tables were introduced in a later migration. Keep fresh-schema replay
+-- safe while preserving this hardening for databases where they already exist.
+do $$
+begin
+  if to_regclass('public.wearable_data') is not null then
+    execute 'drop policy if exists "staff_read_wearable_data" on public.wearable_data';
+    execute 'drop policy if exists "Company staff read wearable data" on public.wearable_data';
+    execute 'create policy "Company staff read wearable data" on public.wearable_data for select to authenticated using (public.is_student_company_staff(auth.uid(), student_id))';
+  end if;
+  if to_regclass('public.wearable_devices') is not null then
+    execute 'drop policy if exists "staff_read_devices" on public.wearable_devices';
+    execute 'drop policy if exists "Company staff read wearable devices" on public.wearable_devices';
+    execute 'create policy "Company staff read wearable devices" on public.wearable_devices for select to authenticated using (public.is_student_company_staff(auth.uid(), student_id))';
+  end if;
+  if to_regclass('public.wearable_workouts') is not null then
+    execute 'drop policy if exists "staff_read_wearable_workouts" on public.wearable_workouts';
+    execute 'drop policy if exists "Company staff read wearable workouts" on public.wearable_workouts';
+    execute 'create policy "Company staff read wearable workouts" on public.wearable_workouts for select to authenticated using (public.is_student_company_staff(auth.uid(), student_id))';
+  end if;
+end;
+$$;
 drop policy if exists "staff_adjustments" on public.workout_adjustments;
 drop policy if exists "Company staff manage workout adjustments" on public.workout_adjustments;
 create policy "Company staff manage workout adjustments" on public.workout_adjustments
