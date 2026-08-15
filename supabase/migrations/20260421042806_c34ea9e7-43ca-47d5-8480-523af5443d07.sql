@@ -228,6 +228,24 @@ DECLARE
   v_start_date date := CURRENT_DATE - INTERVAL '28 days';
   v_dow_offsets int[] := ARRAY[0, 2, 4, 6];
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.companies WHERE id = v_company_id
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.students WHERE id = v_student_id AND company_id = v_company_id
+  ) OR EXISTS (
+    SELECT 1
+    FROM unnest(v_workouts) AS required_workout(id)
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM public.workouts workout
+      WHERE workout.id = required_workout.id
+        AND workout.company_id = v_company_id
+    )
+  ) THEN
+    RAISE NOTICE 'Skipping historical real-session seed: required student, company, or workout is absent.';
+    RETURN;
+  END IF;
+
   FOR v_session_idx IN 0..15 LOOP
     v_week := v_session_idx / 4;
     v_session_in_week := v_session_idx % 4;
