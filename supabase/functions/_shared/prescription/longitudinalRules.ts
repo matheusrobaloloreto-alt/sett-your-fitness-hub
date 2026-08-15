@@ -1,4 +1,5 @@
 import { normalizeText } from "./presets.ts";
+import { DELOAD_RULES } from "./methodology.ts";
 import type { PrescriptionExplanation, PrescriptionInput, TrainingWorkout } from "./types.ts";
 
 export type LongitudinalPhase = "base" | "acumulacao" | "intensificacao" | "consolidacao";
@@ -38,12 +39,15 @@ export function applyLongitudinalProgression(workouts: TrainingWorkout[], input:
   const sequenceNumber = resolveSequenceNumber(input);
   const plannedPhase = resolveLongitudinalPhase(input);
   const hold = performanceRequiresHold(input);
-  const phase: LongitudinalPhase = hold ? "consolidacao" : plannedPhase;
+  const phase: LongitudinalPhase = input.deload || hold ? "consolidacao" : plannedPhase;
 
   for (const workout of workouts) {
     for (const exercise of workout.exercises) {
       const main = exercise.phase === "forca_global" || exercise.phase === "forca_especifica";
-      if (phase === "acumulacao" && main) {
+      if (input.deload) {
+        exercise.rir = DELOAD_RULES.rir;
+        exercise.biomechanical_note = `${exercise.biomechanical_note} Deload: manter o orçamento reduzido e a execução técnica.`;
+      } else if (phase === "acumulacao" && main) {
         exercise.sets += 1;
         exercise.rir = "2-3";
         exercise.biomechanical_note = `${exercise.biomechanical_note} Progressão longitudinal: mais uma série, preservando técnica e EVA <= 3.`;
@@ -60,20 +64,28 @@ export function applyLongitudinalProgression(workouts: TrainingWorkout[], input:
     }
   }
 
-  const ruleId = hold ? "BN_LONGITUDINAL_HOLD_BY_FEEDBACK" : `BN_LONGITUDINAL_${phase.toUpperCase()}`;
+  const ruleId = input.deload
+    ? "BN_LONGITUDINAL_DELOAD"
+    : hold
+      ? "BN_LONGITUDINAL_HOLD_BY_FEEDBACK"
+      : `BN_LONGITUDINAL_${phase.toUpperCase()}`;
   const explanation: PrescriptionExplanation = {
     rule_id: ruleId,
     category: phase === "consolidacao" ? "deload" : "progressao",
     source: hold ? "feedback_aluno" : "objetivo",
     target: `ciclo_${sequenceNumber}`,
-    action: phase === "base"
+    action: input.deload
+      ? `Manter o orçamento global reduzido e RIR ${DELOAD_RULES.rir} em todo o ciclo.`
+      : phase === "base"
       ? "Manter exercícios-chave e recalibrar a execução para o novo mesociclo."
       : phase === "acumulacao"
         ? "Preservar exercícios estáveis e elevar o volume de forma limitada."
         : phase === "intensificacao"
           ? "Preservar os padrões principais e elevar a intensidade com margem técnica."
           : "Reduzir fadiga, manter competência técnica e preparar a próxima evolução.",
-    reason: hold
+    reason: input.deload
+      ? "O deload solicitado prevalece sobre a fase longitudinal para reduzir fadiga sem elevar volume ou intensidade."
+      : hold
       ? "Dor, baixa aderência ou quebra técnica no ciclo anterior impedem progressão automática."
       : `O ciclo ${sequenceNumber} segue a onda longitudinal BN base -> acúmulo -> intensificação -> consolidação.`,
     severity: hold ? "moderada" : "leve",
@@ -99,4 +111,3 @@ export function previousExerciseIds(input: PrescriptionInput, phase?: string, mu
   }
   return ids;
 }
-

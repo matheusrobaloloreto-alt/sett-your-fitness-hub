@@ -38,7 +38,7 @@ export function buildPeriodizationBlocks(input: PrescriptionInput): Periodizatio
       weeks,
       stimulus: "deload/regeneracao tecnica",
       methods: [...DELOAD_RULES.methods],
-      progression_rule: `RIR ${DELOAD_RULES.rir}. Manter carga e padrões técnicos sem progressão até encerrar o deload.`,
+      progression_rule: `RIR ${DELOAD_RULES.rir}. Manter carga e padrões técnicos durante todo o deload.`,
     }));
   }
 
@@ -64,7 +64,57 @@ export function progressionProtocol(input: PrescriptionInput) {
     : "Progredir reps antes de carga; usar métodos avançados apenas no bloco final e em padrões estáveis.";
 }
 
-export function deloadAdjustSets(sets: number, input: PrescriptionInput) {
-  if (!input.deload) return sets;
-  return Math.max(1, Math.round(sets * DELOAD_RULES.volumeReduction));
+export interface DeloadSetAllocation {
+  sets: number[];
+  originalTotal: number;
+  targetTotal: number;
+  allocatedTotal: number;
+  reductionRatio: number;
+  constrainedByMinimum: boolean;
+}
+
+export function allocateDeloadSetCounts(values: number[]): DeloadSetAllocation {
+  const original = values.map((value) => Math.max(1, Math.round(Number(value) || 1)));
+  const originalTotal = original.reduce((sum, sets) => sum + sets, 0);
+  if (originalTotal === 0) {
+    return {
+      sets: [],
+      originalTotal: 0,
+      targetTotal: 0,
+      allocatedTotal: 0,
+      reductionRatio: 0,
+      constrainedByMinimum: false,
+    };
+  }
+
+  // ceil mantém a redução real na faixa de 40-50% quando o total é ímpar.
+  // Cada exercício preserva ao menos uma série; quando isso torna a faixa
+  // matematicamente impossível, o resultado sinaliza a restrição explicitamente.
+  const targetTotal = Math.ceil(originalTotal * DELOAD_RULES.volumeReduction);
+  const sets = original.map((count) => Math.max(1, Math.floor(count * DELOAD_RULES.volumeReduction)));
+  let allocatedTotal = sets.reduce((sum, count) => sum + count, 0);
+  const order = original
+    .map((count, index) => ({
+      index,
+      remainder: count * DELOAD_RULES.volumeReduction - Math.floor(count * DELOAD_RULES.volumeReduction),
+    }))
+    .filter(({ index }) => sets[index] < original[index])
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+
+  while (allocatedTotal < targetTotal) {
+    const candidate = order.find(({ index }) => sets[index] < original[index]);
+    if (!candidate) break;
+    sets[candidate.index] += 1;
+    allocatedTotal += 1;
+  }
+
+  const reductionRatio = (originalTotal - allocatedTotal) / originalTotal;
+  return {
+    sets,
+    originalTotal,
+    targetTotal,
+    allocatedTotal,
+    reductionRatio,
+    constrainedByMinimum: reductionRatio < 0.4,
+  };
 }

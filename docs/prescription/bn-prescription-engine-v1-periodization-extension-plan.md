@@ -19,7 +19,7 @@
    - **1–2:** "base técnica + MEV", **RIR 3–4**, sem pliometria.
    - **3–4:** "acúmulo até MAV", **RIR 2–3**, progressão reps→carga; hold/regride se dor>3/técnica.
    - **5–6:** "consolidação/intensificação controlada", **RIR 2**; método avançado só se `!pain && !iniciante`.
-3. **Deload/regenerativo:** `DELOAD_RULES` (volume −50%, **RIR 4–5**, sem falha/avançado) + `deloadAdjustSets()`
+3. **Deload/regenerativo:** `DELOAD_RULES` (volume −50%, **RIR 4–5**, sem falha/avançado) + orçamento global determinístico via `allocateDeloadSetCounts()`
    + `progressionProtocol()` quando `input.deload`.
 4. **RIR:** por bloco (`PROGRESSION_BLOCKS.*.rir`) e por fase de workout (`spec.rir`, ajustado em deload).
 5. **Progressão:** `progressionProtocol()` + `progression_rule` por bloco + `progression_protocol` no contrato.

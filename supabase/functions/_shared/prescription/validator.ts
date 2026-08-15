@@ -21,6 +21,17 @@ function hasAdvancedMethod(program: TrainingProgram) {
   return /(drop[- ]?set|cluster[- ]?set|piramide|up[- ]?set|rest[- ]?pause)/.test(normalizeText(program));
 }
 
+function hasStructuredDeloadMethod(program: TrainingProgram) {
+  if (program.weekly_periodization.some((week) => week.methods.length > 0)) return true;
+  return program.workouts.some((workout) => workout.exercises.some((exercise) => {
+    if (exercise.method) return true;
+    if (exercise.set_types?.some((setType) => setType === "failure" || setType === "drop")) return true;
+    return exercise.weekly_prescription?.some((week) =>
+      Boolean(week.method) || week.set_types?.some((setType) => setType === "failure" || setType === "drop")
+    );
+  }));
+}
+
 function exerciseOnlyText(program: TrainingProgram) {
   return normalizeText(program.workouts.flatMap((workout) =>
     workout.exercises.map((exercise) => [
@@ -156,7 +167,6 @@ export function validateTrainingProgram(args: {
 
   const clinicalContext = clinicalRiskText(args.input);
   const context = `${normalizeText(args.input.objective)} ${prescriptionRiskText(args.input)}`;
-  const planText = normalizeText(args.program);
   const exerciseText = exerciseOnlyText(args.program);
   if (/(dor|lesao|lesões|joelho|lombar|ombro|retorno|reabilit)/.test(clinicalContext)) {
     add({
@@ -250,7 +260,7 @@ export function validateTrainingProgram(args: {
     });
   }
 
-  if (args.input.deload && /(falha|drop|cluster|piramide|up-set|rest-pause)/.test(planText)) {
+  if (args.input.deload && hasStructuredDeloadMethod(args.program)) {
     add({
       severity: "warning",
       code: "deload_with_advanced_method",

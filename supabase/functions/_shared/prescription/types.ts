@@ -121,7 +121,7 @@ export interface TrainingExercise {
 
 export interface WeeklyExercisePrescription {
   week: number;
-  block: "base" | "acumulacao" | "intensificacao";
+  block: "base" | "acumulacao" | "intensificacao" | "deload";
   sets: number;
   reps: string;
   rir: string;
@@ -136,7 +136,7 @@ export interface WeeklyExercisePrescription {
 
 export interface WeeklyPeriodizationWeek {
   week: number;
-  block: "base" | "acumulacao" | "intensificacao";
+  block: "base" | "acumulacao" | "intensificacao" | "deload";
   stimulus: string;
   rir: string;
   volume_percent: number;

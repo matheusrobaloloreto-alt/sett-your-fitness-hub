@@ -136,7 +136,7 @@ preservado e o teste "contrato compatível com Studio/PDF/publicação" passa.
 | Critério | Resultado |
 |---|---|
 | Regra/receita de deload existe no plano | **PASS** (`DELOAD_RULES`, `progression_protocol` ramo deload, explicação `deload_reduz_volume`) |
-| Volume reduz 40–50% | **PASS** (`volumeReduction: 0.5` via `deloadAdjustSets`; teste: deloadSets < normalSets) |
+| Volume reduz 40–50% | **PASS** (`volumeReduction: 0.5` via orçamento global `allocateDeloadSetCounts`; fixture canônica 52→26 séries + sinalização quando o mínimo de 1 série torna a faixa impossível) |
 | RIR 4–5 | **PASS** (teste: todo exercício `rir === "4-5"` no deload) |
 | Sem falha/método avançado | **PASS** (warning `deload_with_advanced_method` + methods do deload) |
 | Não exige agendamento real no calendário (Fase A) | **PASS** (dispara por `input.deload`; sem dependência de calendário — conforme decidido) |

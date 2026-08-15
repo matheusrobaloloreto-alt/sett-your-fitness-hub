@@ -3,6 +3,8 @@ import { buildWorkoutRows } from "@/lib/publishStrengthPlan";
 import { resolveWorkoutForCycleWeek } from "@/lib/weeklyStrengthPeriodization";
 import { groupWorkoutExercises } from "@/lib/workoutMethods";
 import { generateTrainingProgram } from "./engine";
+import { allocateDeloadSetCounts } from "./progressionRules";
+import { validateTrainingProgram } from "./validator";
 import { getVolumeRangeForGroup } from "./volumeRules";
 import type { ExerciseCatalogEntry, PrescriptionInput } from "./types";
 
@@ -343,9 +345,17 @@ describe("BN Prescription Engine v1", () => {
     const normalSets = normal.workouts.flatMap((w) => w.exercises).reduce((sum, e) => sum + e.sets, 0);
     const deloadExercises = deload.workouts.flatMap((w) => w.exercises);
     const deloadSets = deloadExercises.reduce((sum, e) => sum + e.sets, 0);
+    const reductionRatio = (normalSets - deloadSets) / normalSets;
 
+    expect(normalSets).toBe(52);
+    expect(deloadSets).toBe(26);
+    expect(reductionRatio).toBeGreaterThanOrEqual(0.4);
+    expect(reductionRatio).toBeLessThanOrEqual(0.5);
     expect(deloadSets).toBeLessThan(normalSets);
     expect(deloadExercises.every((exercise) => exercise.rir === "4-5")).toBe(true);
+    expect(deloadExercises.every((exercise) =>
+      !/progred|aument|subir|intensific/i.test(exercise.progression || "")
+    )).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.method === null)).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.rir === "4-5"))).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.sets === exercise.sets))).toBe(true);
@@ -354,13 +364,87 @@ describe("BN Prescription Engine v1", () => {
       week.set_types?.every((setType) => setType !== "failure" && setType !== "drop")
     ))).toBe(true);
     expect(deload.weekly_periodization.every((week) =>
-      week.rir === "4-5" && week.volume_percent === 50 && week.methods.length === 0
+      week.block === "deload" && week.rir === "4-5" && week.volume_percent === 50 && week.methods.length === 0
+    )).toBe(true);
+    expect(JSON.stringify(deload.weekly_periodization).toLowerCase()).not.toMatch(/alcan[cç]ar|aument|progred|acumulacao|intensificacao/);
+    expect(deload.workouts.every((workout) =>
+      workout.volume_load_estimate.includes("RIR 4-5") && !/RIR 2(?:-|\b)/.test(workout.volume_load_estimate)
     )).toBe(true);
     expect(JSON.stringify(deload.periodization_blocks).toLowerCase()).not.toMatch(/drop|cluster|rest-pause|up-set|piramide/);
     expect(deload.periodization_blocks.every((block) => block.progression_rule.includes("RIR 4-5"))).toBe(true);
     expect(deload.progression_protocol.toLowerCase()).toContain("deload");
     expect(deload.explanations.some((e) => e.category === "deload")).toBe(true);
     expect(deload.explanations.some((e) => e.rule_id === "metodo_avancado_controlado")).toBe(false);
+    expect(deload.validator.pre_save.warnings.some((warning) => warning.code === "deload_with_advanced_method")).toBe(false);
+  });
+
+  it("deload prevalece sobre uma fase longitudinal de intensificação", () => {
+    const deload = generateTrainingProgram(baseInput({
+      deload: true,
+      fitnessLevel: "avancado",
+      programSequence: { sequence_number: 3, total_cycles: 4, phase: "intensificacao" },
+    }));
+    const exercises = deload.workouts.flatMap((workout) => workout.exercises);
+
+    expect(deload.engineMeta.sequence_phase).toBe("consolidacao");
+    expect(exercises.every((exercise) => exercise.rir === "4-5")).toBe(true);
+    expect(exercises.every((exercise) =>
+      !/progress[aã]o longitudinal|maior intensidade|mais uma s[eé]rie/i.test(exercise.biomechanical_note)
+    )).toBe(true);
+    expect(deload.weekly_periodization.every((week) => week.block === "deload" && week.rir === "4-5")).toBe(true);
+    expect(deload.methodology_preset.rules.rir).toBe("4-5");
+    expect(deload.methodology_preset.rules.target_weekly_sets).toContain("50%");
+    expect(deload.methodology_preset.rules.methods_by_block).toEqual({
+      deload: ["sem falha", "sem método avançado", "manter padrões técnicos"],
+    });
+    expect(deload.explanations.some((explanation) => explanation.rule_id === "BN_LONGITUDINAL_DELOAD")).toBe(true);
+  });
+
+  it("aloca o orçamento global de deload deterministicamente e sinaliza mínimos impossíveis", () => {
+    const balanced = allocateDeloadSetCounts([3, 3]);
+    const constrained = allocateDeloadSetCounts([2, 1]);
+    const allMinimum = allocateDeloadSetCounts([1, 1, 1]);
+    const empty = allocateDeloadSetCounts([]);
+
+    expect(balanced).toMatchObject({
+      sets: [2, 1],
+      originalTotal: 6,
+      targetTotal: 3,
+      allocatedTotal: 3,
+      reductionRatio: 0.5,
+      constrainedByMinimum: false,
+    });
+    expect(constrained.sets).toEqual([1, 1]);
+    expect(constrained.reductionRatio).toBeCloseTo(1 / 3);
+    expect(constrained.constrainedByMinimum).toBe(true);
+    expect(allMinimum).toMatchObject({
+      sets: [1, 1, 1],
+      targetTotal: 2,
+      allocatedTotal: 3,
+      reductionRatio: 0,
+      constrainedByMinimum: true,
+    });
+    expect(empty).toMatchObject({ sets: [], originalTotal: 0, allocatedTotal: 0, constrainedByMinimum: false });
+  });
+
+  it("valida métodos de deload pelo contrato estruturado, não por frases negadas", () => {
+    const input = baseInput({ deload: true });
+    const clean = generateTrainingProgram(input);
+    expect(clean.progression_protocol.toLowerCase()).toContain("sem falha");
+    expect(clean.validator.pre_save.warnings.some((warning) => warning.code === "deload_with_advanced_method")).toBe(false);
+
+    const contaminated = structuredClone(clean);
+    const firstWeek = contaminated.workouts[0].exercises[0].weekly_prescription?.[0];
+    expect(firstWeek).toBeDefined();
+    if (firstWeek) firstWeek.method = "dropset";
+    const validation = validateTrainingProgram({
+      program: contaminated,
+      input,
+      preset: contaminated.methodology_preset.rules,
+      catalog,
+    });
+
+    expect(validation.warnings.some((warning) => warning.code === "deload_with_advanced_method")).toBe(true);
   });
 
   it("retorna contrato de saída compatível com Studio/PDF/publicação", () => {

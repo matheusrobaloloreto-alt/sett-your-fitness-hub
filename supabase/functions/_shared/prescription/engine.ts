@@ -1,7 +1,7 @@
 import { pickCatalogExercise } from "./exerciseScoring.ts";
 import { correctionsToExplanations, deloadExplanation, enduranceExplanation, explanationsFromRestrictions, frequencyDowngradeExplanation, progressionExplanation } from "./explanations.ts";
 import { normalizeText, objectiveModifier, resolveSplit, selectMethodologyPreset } from "./presets.ts";
-import { buildPeriodizationBlocks, deloadAdjustSets, progressionProtocol, resolveDurationWeeks, shouldHoldProgression } from "./progressionRules.ts";
+import { allocateDeloadSetCounts, buildPeriodizationBlocks, progressionProtocol, resolveDurationWeeks, shouldHoldProgression } from "./progressionRules.ts";
 import { applyLongitudinalProgression, previousExerciseIds, resolveSequenceNumber } from "./longitudinalRules.ts";
 import { applyRestrictionRules, deriveRestrictionRules } from "./restrictionRules.ts";
 import { validateTrainingProgram } from "./validator.ts";
@@ -120,7 +120,7 @@ function exerciseToTrainingExercise(exercise: ExerciseCatalogEntry, spec: Exerci
     library_exercise_name: exercise.name,
     muscle_group: exercise.muscle_group || exercise.targets?.[0]?.muscle_group || spec.preferredMuscleGroup || "geral",
     targets: (exercise.targets || []).map((target) => ({ ...target })),
-    sets: deloadAdjustSets(spec.sets, input),
+    sets: spec.sets,
     reps: spec.reps || (isMain ? modifier.mainReps : modifier.accessoryReps),
     load_percent_1rm: null,
     rir: input.deload ? DELOAD_RULES.rir : spec.rir,
@@ -130,8 +130,10 @@ function exerciseToTrainingExercise(exercise: ExerciseCatalogEntry, spec: Exerci
     cues: spec.cue,
     biomechanical_note: spec.note,
     regression: exercise.regressions?.[0] || "Reduzir amplitude/carga e manter dor <= 3.",
-    progression: exercise.progressions?.[0] || "Progredir reps antes de carga, mantendo técnica.",
-    set_types: Array.from({ length: Math.max(1, deloadAdjustSets(spec.sets, input)) }, () => "normal" as const),
+    progression: input.deload
+      ? `Manter carga e repetições, encerrando cada série com RIR ${DELOAD_RULES.rir}.`
+      : exercise.progressions?.[0] || "Progredir reps antes de carga, mantendo técnica.",
+    set_types: Array.from({ length: Math.max(1, spec.sets) }, () => "normal" as const),
   };
 }
 
@@ -260,13 +262,37 @@ function buildWorkouts(input: PrescriptionInput) {
       duration_min: 50,
       split_focus: template.focus,
       exercises: picked.exercises,
-      volume_load_estimate: input.isEnduranceAthlete || input.runningDaysContext
+      volume_load_estimate: input.deload
+        ? `Deload regenerativo; volume global reduzido; usar RIR ${DELOAD_RULES.rir}.`
+        : input.isEnduranceAthlete || input.runningDaysContext
         ? "Conservador; volume de MMII reduzido por endurance; usar RIR 2-3."
         : "Conservador; usar RIR 2-4 e dor <= 3.",
       notes: "Gerado pelo BN Prescription Engine v1. Revisar casos clínicos complexos antes de publicar.",
     };
   });
   return { workouts, gaps };
+}
+
+function applyDeloadVolumeBudget(workouts: TrainingWorkout[], input: PrescriptionInput) {
+  if (!input.deload) return { workouts, allocation: null };
+  const allocation = allocateDeloadSetCounts(
+    workouts.flatMap((workout) => workout.exercises.map((exercise) => exercise.sets)),
+  );
+  let allocationIndex = 0;
+  return {
+    allocation,
+    workouts: workouts.map((workout) => ({
+      ...workout,
+      exercises: workout.exercises.map((exercise) => {
+        const sets = allocation.sets[allocationIndex++] ?? 1;
+        return {
+          ...exercise,
+          sets,
+          set_types: Array.from({ length: sets }, () => "normal" as const),
+        };
+      }),
+    })),
+  };
 }
 
 function applySimpleCorrections(program: TrainingProgram, input: PrescriptionInput) {
@@ -302,8 +328,9 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
   const durationWeeks = resolveDurationWeeks(normalizedInput);
   const built = buildWorkouts(normalizedInput);
   const capped = enforceVolumeCaps(built.workouts, normalizedInput);
+  const deloadBudget = applyDeloadVolumeBudget(capped.workouts, normalizedInput);
   const gaps = built.gaps;
-  const workouts = capped.workouts;
+  const workouts = deloadBudget.workouts;
   const longitudinal = applyLongitudinalProgression(workouts, normalizedInput);
   const weekly = buildWeeklyPeriodization(workouts, normalizedInput);
   const periodization = buildPeriodizationBlocks(normalizedInput);
@@ -381,6 +408,15 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
     });
   }
 
+  const outputPreset = normalizedInput.deload
+    ? {
+        ...preset,
+        target_weekly_sets: "50% do volume global de referência, com mínimo de 1 série por exercício",
+        rir: DELOAD_RULES.rir,
+        methods_by_block: { deload: [...DELOAD_RULES.methods] },
+      }
+    : preset;
+
   const program: TrainingProgram = {
     schemaVersion: "bn-prescription-v1",
     engineMeta: {
@@ -411,7 +447,7 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
       key: preset.key,
       label: preset.label,
       why_selected: "Selecionado por objetivo, nível, dias disponíveis, restrições e contexto de endurance.",
-      rules: preset,
+      rules: outputPreset,
     },
     generated_by: "bn_prescription_engine_v1",
     biomechanical_notes: restrictions.length
@@ -427,7 +463,12 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
     weekly_periodization: weekly.weeks,
     weekly_structure: `${workouts.length} sessões/semana (${split.label}) distribuídas em dias alternados quando possível.`,
     progression_protocol: `${progressionProtocol(normalizedInput)} Continuidade entre ciclos: ${longitudinal.phase}; o próximo bloco deve partir deste resultado e do feedback real do aluno.`,
-    warnings: gaps.length ? ["Biblioteca incompleta para alguns padrões; nenhum exercício foi inventado."] : [],
+    warnings: [
+      ...(gaps.length ? ["Biblioteca incompleta para alguns padrões; nenhum exercício foi inventado."] : []),
+      ...(deloadBudget.allocation?.constrainedByMinimum
+        ? [`Deload limitado pelo mínimo de uma série por exercício; redução global possível: ${Math.round(deloadBudget.allocation.reductionRatio * 100)}%.`]
+        : []),
+    ],
     validator: {
       pre_save: {
         status: "ok",
