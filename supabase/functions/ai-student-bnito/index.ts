@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
+import { isFreshScoredMetric } from "../_shared/wearables/context.ts";
 
 type ChatRole = "user" | "assistant";
 type StudentBnitoAction = "ask" | "brief" | "weekly_contact" | "contextual" | "report_pain" | "identity";
@@ -588,7 +589,7 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
         .eq("is_active", true),
       supabase
         .from("wearable_data")
-        .select("date, metric, value, unit, source")
+        .select("date, recorded_at, metric, value, unit, score_state, source")
         .eq("student_id", student.id)
         .order("date", { ascending: false })
         .limit(30),
@@ -709,6 +710,7 @@ function latestRecoverySignal(studentContext: any) {
     : [];
   const relevant = metrics
     .filter((metric: any) => /sleep|sono|readiness|prontidao|recovery|recuperacao/.test(normalizeText(metric?.metric)))
+    .filter((metric: any) => isFreshScoredMetric(metric))
     .map((metric: any) => ({
       metric: cleanText(metric?.metric, 80),
       value: Number(metric?.value),
