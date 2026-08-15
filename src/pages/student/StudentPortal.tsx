@@ -52,6 +52,7 @@ import type { Gender } from "@/components/student/BodyMeasurements";
 import { Megaphone, Activity } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { workoutLogBatchPairError } from "@/lib/workoutLogBatch";
 import {
   inferExtraSetsFromPersistedLogs,
   mergeWorkoutDraftLogs,
@@ -566,6 +567,15 @@ export default function StudentPortal() {
       client_updated_at: log.client_updated_at ?? null,
       deleted: log.deleted === true,
     }));
+    const batchPairError = workoutLogBatchPairError(rows);
+    if (batchPairError) {
+      console.error("Lote de séries rejeitado antes do envio:", batchPairError);
+      if (!silent) {
+        setSavingLogs(false);
+        toast({ title: "As séries não foram salvas", description: "Recarregue o treino e tente novamente.", variant: "destructive" });
+      }
+      return;
+    }
     if (rows.length > 0) {
       const sentByKey = new Map(rows.filter(row => !row.deleted).map(row => [getLogKey(row.workout_id, row.exercise_index, row.set_number), row]));
       // RPC com compare-and-swap por revisão: outro dispositivo não pode ser

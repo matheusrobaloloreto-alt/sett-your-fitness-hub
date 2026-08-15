@@ -100,6 +100,26 @@ begin
     raise exception 'duplicate workout log identity in batch';
   end if;
 
+  if exists (
+    select 1
+    from jsonb_array_elements(_rows) as batch(item)
+    group by item->>'student_id', item->>'workout_id', item->>'exercise_index',
+      item->>'set_number', item->>'session_date'
+    having count(*) = 2
+      and count(*) filter (where coalesce((item->>'deleted')::boolean, false)) = 1
+      and count(*) filter (
+        where not coalesce((item->>'deleted')::boolean, false)
+          and (
+            (item ? 'base_revision' and jsonb_typeof(item->'base_revision') <> 'null')
+            or (item ? 'id' and jsonb_typeof(item->'id') <> 'null')
+            or (item ? 'base_id' and jsonb_typeof(item->'base_id') <> 'null')
+            or (item ? 'revision' and jsonb_typeof(item->'revision') <> 'null')
+          )
+      ) > 0
+  ) then
+    raise exception 'replacement paired with tombstone must be a new insert';
+  end if;
+
   -- Tombstones are preflighted as a group before any mutation. Locking the
   -- workout serializes same-workout saves, so a stale device cannot delete a
   -- newer row between CAS validation, deletion and the renumbering upserts.

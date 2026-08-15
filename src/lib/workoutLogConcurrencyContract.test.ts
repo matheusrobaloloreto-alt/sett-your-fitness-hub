@@ -93,6 +93,10 @@ describe("workout log optimistic concurrency", () => {
 
     expect(fn).toContain("count(*) = 2");
     expect(fn).toContain("count(*) filter (where coalesce((item->>'deleted')::boolean, false)) = 1");
+    expect(fn).toContain("replacement paired with tombstone must be a new insert");
+    expect(fn).toContain("item ? 'base_revision' and jsonb_typeof(item->'base_revision') <> 'null'");
+    expect(fn).toContain("item ? 'id' and jsonb_typeof(item->'id') <> 'null'");
+    expect(fn.indexOf("replacement paired with tombstone must be a new insert")).toBeLessThan(fn.indexOf("for update of w"));
     expect(uniquenessGate).toBeGreaterThan(0);
     expect(firstDelete).toBeGreaterThan(uniquenessGate);
     expect(firstUpdate).toBeGreaterThan(uniquenessGate);
