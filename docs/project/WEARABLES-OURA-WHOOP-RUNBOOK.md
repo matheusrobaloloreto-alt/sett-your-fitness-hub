@@ -1,0 +1,100 @@
+# Wearables SETT/BN — Oura e WHOOP
+
+Status em 2026-08-14: implementação local concluída; **nenhuma migration, configuração externa, conexão real, deploy ou push foi executado**.
+
+## Arquitetura e segurança
+
+- `wearable_devices` contém apenas estado operacional e escopos.
+- `wearable_credentials` contém envelope AES-256-GCM (`ciphertext`, IV de 96 bits, `key_id`) e não concede acesso a `anon` nem `authenticated`. O AAD vincula cada token ao `device_id`.
+- `WEARABLE_TOKEN_KEYS` é um JSON de chaves base64 por identificador; `WEARABLE_TOKEN_ACTIVE_KEY_ID` seleciona a chave usada em novas gravações. Ambos são secrets exclusivos da Edge Function. Nunca colocar valores reais no Git, frontend, logs ou documentação.
+- A conexão OAuth só é finalizada pela RPC transacional `commit_wearable_connection`, que revalida imediatamente `actor_user_id -> student ativo -> company`, grava device + credencial cifrada + consentimento ou não grava nada.
+- O state OAuth tem 256 bits, expira em 10 minutos, registra ator/tenant/provedor/escopos e é consumido por `DELETE ... RETURNING` uma única vez. Oura e WHOOP documentam o fluxo server-side com state, mas não anunciam PKCE nesse contrato; não foi inventado um parâmetro não documentado.
+- Refresh tokens rotativos/single-use são protegidos por lease atômico e compare-and-swap de versão. O sync tem lease próprio, renovado a cada página.
+- Métricas e workouts são idempotentes. Quando há vários sleeps/naps no mesmo dia, a normalização escolhe explicitamente registro `SCORED`, sono principal e maior duração; pending/unscorable continua `null`, nunca zero.
+- WHOOP strain usa escala `0..21`; recovery relaciona `cycle_id`/`sleep_id` para obter data local e offset do evento.
+- Webhooks permanecem fail-closed (`webhooks_disabled`). Não há endpoint ativo até existir implementação comprovada de assinatura, timestamp, replay e deduplicação para o contrato vigente de cada provedor.
+
+## Configuração necessária
+
+Secrets server-side, sem valores neste documento:
+
+- `WEARABLE_TOKEN_KEYS`
+- `WEARABLE_TOKEN_ACTIVE_KEY_ID`
+- `OURA_CLIENT_ID` / `OURA_CLIENT_SECRET`
+- `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET`
+- já preservados: `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET`, `POLAR_CLIENT_ID` / `POLAR_CLIENT_SECRET`
+- `APP_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+
+Callback único esperado pelo código:
+
+`https://<project-ref>.supabase.co/functions/v1/wearable-connect/callback`
+
+Não registrar apps, alterar redirect URIs ou preencher secrets sem aprovação explícita. Ausência ou keyring inválido retorna `config_required` e não inicia OAuth.
+
+Escopos mínimos:
+
+| Provedor | Escopos | Uso |
+|---|---|---|
+| Oura | `daily workout` | scores diários, sono detalhado (RHR/HRV/duração) e workouts |
+| WHOOP | `read:recovery read:cycles read:workout read:sleep offline` | recovery/RHR/HRV, strain, sono, workouts e refresh |
+| Strava | `read activity:read_all` | preservação das atividades existentes |
+| Polar | `accesslink.read_all` | preservação AccessLink |
+
+O callback valida os escopos retornados. Strava pode devolvê-los no callback; o token Polar documentado não ecoa `scope`, então o único escopo solicitado é registrado como concedido. Oura/WHOOP sem confirmação ficam `partial_scope`.
+
+## Ordem segura de ativação futura
+
+1. Fazer backup e produzir relatório dos devices legados que ainda possuem tokens em texto, sem exportar os tokens.
+2. Criar o keyring fora do repositório e cadastrar os secrets aprovados.
+3. Revisar a migration `20260814120000_wearables_secure_foundation.sql` em staging. Ela não aplica automaticamente nada.
+4. Aplicar a migration em janela aprovada e validar grants/RLS/RPCs antes do deploy da edge.
+5. Deployar `wearable-connect` e `ai-student-bnito`; validar `config_required`, OAuth negado/expirado/replay, uma conta de teste autorizada e disconnect.
+6. Solicitar reautorização dos devices legados. As antigas colunas plaintext ficam em quarentena por grants de coluna e não são lidas pelo código novo.
+7. Somente após confirmar que todos os devices ativos possuem registro cifrado, criar uma migration separada, aprovada e com rollback, para remover as colunas legadas. Não executar esse passo junto da migration foundation.
+
+Os tipos gerados de Supabase não foram editados nem regenerados: nenhuma migration foi aplicada a um banco local/remoto nesta frente. Regenerar apenas a partir do schema aprovado depois da aplicação.
+
+## Operação, revogação e retenção
+
+- `sync`: pull incremental com sobreposição de 24h, paginação, timeout, retry exponencial para 429/5xx e falha fechada em 401.
+- `disconnect`: tenta a revogação oficial. Em sucesso apaga a credencial cifrada e registra consentimento revogado. Em falha bloqueia uso local, marca `revocation_pending`, preserva ciphertext apenas para retry e define `credential_delete_after` em 30 dias. Hoje o retry é manual pela UI; não existe cron oculto.
+- Ao atingir o prazo com revogação ainda pendente, a decisão de apagar a última credencial e aceitar uma autorização externa possivelmente órfã é um gate de operador, com registro do incidente.
+- `delete_data`: exige usuário autenticado dono e confirmação explícita `EXCLUIR DADOS`; apaga métricas, workouts, cursores e eventos daquele provider. Mantém ledger de consentimento e estado da conexão para auditoria.
+- Desconectar não apaga automaticamente histórico já importado. O aluno escolhe a exclusão separadamente.
+- BNITO só considera métricas `SCORED`, não nulas e com no máximo 48h. Dados antigos/pending/unscorable nunca viram zero recente.
+
+## Validação local
+
+```bash
+npx -y deno@latest test --no-lock supabase/functions/_shared/wearables/*.test.ts
+npx -y deno@latest check --no-lock supabase/functions/wearable-connect/index.ts supabase/functions/ai-student-bnito/index.ts
+npm run test -- --run src/lib/wearablesMigration.test.ts src/lib/wearables.test.ts
+npx tsc --noEmit
+npm run lint
+npm run test
+npm run verify:backend
+npm run build
+```
+
+Não executar migration, OAuth real, deploy ou push como parte desses checks.
+
+Última execução local desta branch:
+
+- testes dedicados: Deno `12/12`, Vitest `12/12`;
+- Deno check das duas edges, TypeScript, lint dos arquivos alterados, backend guard e build: aprovados;
+- suíte global: `332/333`; a única falha é o teste preexistente de RIR do deload em `prescription/engine.test.ts`, reproduzido sem esta branch no checkout canônico `2a2a9f9` (`49/50`);
+- lint global: 8 erros preexistentes em `supabase/functions/ai-nutrition-meals/*` e 50 warnings históricos; os arquivos desta frente passam isoladamente.
+
+Não corrigir esses dois baselines dentro da branch de wearables; pertencem às frentes de prescrição/nutrição.
+
+## Referências oficiais consultadas
+
+- Oura OAuth/authentication: https://cloud.ouraring.com/docs/authentication
+- Oura API v2/scopes/resources: https://cloud.ouraring.com/v2/docs
+- WHOOP OAuth/refresh/revoke: https://developer.whoop.com/docs/developing/oauth/
+- WHOOP API v2 (cycle, recovery, sleep, workout e revoke): https://developer.whoop.com/api/
+- WHOOP paginação: https://developer.whoop.com/docs/developing/pagination/
+- WHOOP recovery: https://developer.whoop.com/docs/developing/user-data/recovery/
+- WHOOP sleep: https://developer.whoop.com/docs/developing/user-data/sleep/
+- WHOOP cycle: https://developer.whoop.com/docs/developing/user-data/cycle/
+- WHOOP workout: https://developer.whoop.com/docs/developing/user-data/workout/
