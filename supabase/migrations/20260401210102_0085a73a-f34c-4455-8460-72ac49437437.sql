@@ -46,6 +46,24 @@ DECLARE
   v_total_volume numeric;
   v_total_sets integer;
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.companies WHERE id = v_company_id
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.students WHERE id = v_student_id AND company_id = v_company_id
+  ) OR EXISTS (
+    SELECT 1
+    FROM unnest(v_workouts) AS required_workout(id)
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM public.workouts workout
+      WHERE workout.id = required_workout.id::uuid
+        AND workout.company_id = v_company_id
+    )
+  ) THEN
+    RAISE NOTICE 'Skipping historical workout-session seed: required student, company, or workout is absent.';
+    RETURN;
+  END IF;
+
   -- Generate 20 sessions over last 30 days (roughly 5x/week)
   FOR v_day IN 1..30 LOOP
     -- Skip some days to simulate rest days
