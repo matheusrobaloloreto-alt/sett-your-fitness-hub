@@ -383,6 +383,7 @@ alter table public.anamnese_invites
 alter table public.prescription_bundles
   add column if not exists strength_plan_id uuid references public.ai_strength_plans(id) on delete set null,
   add column if not exists assessment_id uuid references public.functional_assessments(id) on delete set null,
+  add column if not exists nutrition_plan_id uuid references public.nutrition_plans(id) on delete set null,
   add column if not exists generation_error text,
   add column if not exists updated_at timestamptz not null default now();
 drop trigger if exists update_prescription_bundles_updated_at on public.prescription_bundles;
