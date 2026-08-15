@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const sql = readFileSync(
-  resolve(process.cwd(), "supabase/migrations/20260814120000_wearables_secure_foundation.sql"),
+  resolve(process.cwd(), "supabase/migrations/20260814121000_wearables_secure_foundation.sql"),
   "utf8",
 ).toLowerCase();
 const edge = readFileSync(resolve(process.cwd(), "supabase/functions/wearable-connect/index.ts"), "utf8").toLowerCase();

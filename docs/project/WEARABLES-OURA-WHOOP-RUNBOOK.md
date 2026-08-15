@@ -50,7 +50,7 @@ O callback valida os escopos retornados. Strava pode devolvê-los no callback; o
 
 1. Fazer backup e produzir relatório dos devices legados que ainda possuem tokens em texto, sem exportar os tokens.
 2. Criar o keyring fora do repositório e cadastrar os secrets aprovados.
-3. Revisar a migration `20260814120000_wearables_secure_foundation.sql` em staging. Ela não aplica automaticamente nada.
+3. Revisar a migration `20260814121000_wearables_secure_foundation.sql` em staging. Ela não aplica automaticamente nada.
 4. Aplicar a migration em janela aprovada e validar grants/RLS/RPCs antes do deploy da edge.
 5. Deployar `wearable-connect` e `ai-student-bnito`; validar `config_required`, OAuth negado/expirado/replay, uma conta de teste autorizada e disconnect.
 6. Solicitar reautorização dos devices legados. As antigas colunas plaintext ficam em quarentena por grants de coluna e não são lidas pelo código novo.
