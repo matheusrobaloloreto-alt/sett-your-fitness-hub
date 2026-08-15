@@ -9,7 +9,7 @@ Status em 2026-08-14: implementação local concluída; **nenhuma migration, con
 - `WEARABLE_TOKEN_KEYS` é um JSON de chaves base64 por identificador; `WEARABLE_TOKEN_ACTIVE_KEY_ID` seleciona a chave usada em novas gravações. Ambos são secrets exclusivos da Edge Function. Nunca colocar valores reais no Git, frontend, logs ou documentação.
 - A conexão OAuth só é finalizada pela RPC transacional `commit_wearable_connection`, que revalida imediatamente `actor_user_id -> student ativo -> company`, grava device + credencial cifrada + consentimento ou não grava nada.
 - O state OAuth tem 256 bits, expira em 10 minutos, registra ator/tenant/provedor/escopos e é consumido por `DELETE ... RETURNING` uma única vez. Oura e WHOOP documentam o fluxo server-side com state, mas não anunciam PKCE nesse contrato; não foi inventado um parâmetro não documentado.
-- Refresh tokens rotativos/single-use são protegidos por lease atômico e compare-and-swap de versão. O sync tem lease próprio, renovado a cada página.
+- Refresh tokens rotativos/single-use são protegidos por lease atômico e compare-and-swap de versão. O sync tem lease próprio, renovado a cada página. Aquisição, renovação, release e os RPCs de lifecycle usam a mesma ordem global por device: advisory lock → row lock do lease → row locks de device/aluno → revalidação com `clock_timestamp()` → DML. Um holder antigo nunca persiste depois que o lease expira e é retomado.
 - Disconnect e exclusão usam lease de manutenção incompatível com sync/refresh. Persistência/finalização do sync, disconnect e exclusão são RPCs transacionais que revalidam lease, aluno e device.
 - A autorização de staff deriva sempre de `students.company_id` no momento da leitura; ela nunca confia no `company_id` denormalizado do registro wearable. Se um aluno mudar da empresa A para B, a equipe A perde acesso imediatamente e a equipe B passa a ver também o histórico desse aluno.
 - A migration reconcilia todos os `company_id` divergentes em devices, métricas, workouts e consentimentos. Uma transferência posterior invalida qualquer sync iniciado em A: `commit_wearable_sync` trava e reconsulta aluno/device, compara ator, status e tenant com o snapshot do início e falha com `sync_tenant_changed` antes de gravar. O device precisa de reconciliação explícita para B antes do próximo sync; não há correção silenciosa cross-tenant.
@@ -76,6 +76,7 @@ Não existe remoção automática de chave antiga nem job silencioso de rewrap n
 - `disconnect`: tenta a revogação oficial. Para Strava usa `POST /oauth/revoke`, Basic auth do cliente e corpo form-urlencoded `token`, sem registrar o token. Em sucesso apaga a credencial cifrada e registra consentimento revogado. Em falha bloqueia uso local, marca `revocation_pending`, preserva ciphertext apenas para retry e define `credential_delete_after` em 30 dias. Hoje o retry é manual pela UI; não existe cron oculto.
 - Ao atingir o prazo com revogação ainda pendente, a decisão de apagar a última credencial e aceitar uma autorização externa possivelmente órfã é um gate de operador, com registro do incidente.
 - `delete_data`: exige usuário autenticado dono e confirmação explícita `EXCLUIR DADOS`; apaga métricas, workouts, cursores e eventos daquele provider. Mantém ledger de consentimento e estado da conexão para auditoria.
+- Disconnect e `delete_data` continuam disponíveis para o aluno dono após inativação; o RPC trava e revalida a linha atual de aluno, status e company, mas não exige `status=active` para impedir que inativação elimine o direito de revogar ou apagar dados.
 - Desconectar não apaga automaticamente histórico já importado. O aluno escolhe a exclusão separadamente.
 - BNITO só considera métricas `SCORED`, não nulas e com no máximo 48h. Dados antigos/pending/unscorable nunca viram zero recente.
 
@@ -97,9 +98,9 @@ Não executar migration, OAuth real, deploy ou push como parte desses checks.
 
 Última execução local desta branch:
 
-- testes dedicados: Deno `17/17`, Vitest `20/20`;
+- testes dedicados: Deno `17/17`, Vitest `22/22`;
 - Deno check das duas edges, TypeScript, lint dos arquivos alterados, backend guard e build: aprovados;
-- suíte global: `340/341`; a única falha é o teste preexistente de RIR do deload em `prescription/engine.test.ts`, reproduzido sem esta branch no checkout canônico `2a2a9f9` (`49/50`);
+- suíte global: `342/343`; a única falha é o teste preexistente de RIR do deload em `prescription/engine.test.ts`, reproduzido sem esta branch no checkout canônico `2a2a9f9` (`49/50`);
 - lint global: 8 erros preexistentes em `supabase/functions/ai-nutrition-meals/*` e 50 warnings históricos; os arquivos desta frente passam isoladamente.
 
 Não corrigir esses dois baselines dentro da branch de wearables; pertencem às frentes de prescrição/nutrição.

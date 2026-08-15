@@ -20,6 +20,14 @@ const oauthMigration = readFileSync(
   "utf8",
 ).toLowerCase();
 
+const rpcSource = (name: string) => {
+  const start = sql.indexOf(`create or replace function public.${name}`);
+  const end = sql.indexOf("\n$$;", start);
+  expect(start, `${name} must exist`).toBeGreaterThanOrEqual(0);
+  expect(end, `${name} must have a complete body`).toBeGreaterThan(start);
+  return sql.slice(start, end + 4);
+};
+
 describe("wearables migration security contract", () => {
   it("creates every reproducibility table", () => {
     for (const table of [
@@ -89,7 +97,7 @@ describe("wearables migration security contract", () => {
       expect(sql).toContain(`update public.${table}`);
     }
     expect(sql.match(/company_id is distinct from s\.company_id/g)?.length).toBeGreaterThanOrEqual(4);
-    expect(sql).toContain("and d.company_id = s.company_id");
+    expect(sql).toContain("v_device.company_id is distinct from v_student_company_id");
     expect(sql).toContain("p_expected_company_id uuid");
     expect(sql).toContain("for update of d, s");
     expect(sql).toContain("sync_tenant_changed");
@@ -113,6 +121,22 @@ describe("wearables migration security contract", () => {
     expect(canStaffRead("company-a")).toBe(false);
     expect(canStaffRead("company-b")).toBe(true);
     expect(canCommit).toBe(false);
+  });
+
+  it("simulates an expired lease reclaimed by a new holder", () => {
+    const canPersist = (
+      lease: { holder: string; purpose: string; lockedUntil: number },
+      expectedHolder: string,
+      at: number,
+    ) => lease.holder === expectedHolder &&
+      lease.purpose === "sync" &&
+      lease.lockedUntil > at;
+    const expiredLease = { holder: "old-holder", purpose: "sync", lockedUntil: 100 };
+    const reclaimedLease = { holder: "new-holder", purpose: "sync", lockedUntil: 300 };
+
+    expect(canPersist(expiredLease, "old-holder", 101)).toBe(false);
+    expect(canPersist(reclaimedLease, "old-holder", 150)).toBe(false);
+    expect(canPersist(reclaimedLease, "new-holder", 150)).toBe(true);
   });
 
   it("keeps the tenant-integrity trigger function unavailable to browser roles", () => {
@@ -174,8 +198,46 @@ describe("wearables migration security contract", () => {
       expect(edge).toContain(`"${rpc}"`);
     }
     expect(sql).toContain("connection_status = 'syncing'");
-    expect(sql).toContain("and locked_until > now()");
+    expect(sql).toContain("locked_until > clock_timestamp()");
     expect(sql).toContain("delete from public.wearable_credentials where device_id = v_device.id");
+  });
+
+  it("uses one deadlock-safe lock order and revalidates a reclaimed lease under lock", () => {
+    const lifecycleRpcs: Record<string, string> = {
+      begin_wearable_sync: "update public.wearable_devices",
+      commit_wearable_sync: "insert into public.wearable_data",
+      fail_wearable_sync: "update public.wearable_devices",
+      complete_wearable_disconnect: "delete from public.wearable_credentials",
+      delete_wearable_provider_data: "delete from public.wearable_data",
+    };
+    for (const [rpc, firstDmlMarker] of Object.entries(lifecycleRpcs)) {
+      const body = rpcSource(rpc);
+      const advisory = body.indexOf("pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0))");
+      const leaseLock = body.indexOf("from public.wearable_leases", advisory);
+      const leaseForUpdate = body.indexOf("for update;", leaseLock);
+      const entityLock = body.indexOf("for update of d, s", leaseForUpdate);
+      const liveLeaseCheck = body.indexOf("v_lease.locked_until <= clock_timestamp()", entityLock);
+      const actorCheck = body.indexOf("v_student_user_id is distinct from p_actor_user_id", liveLeaseCheck);
+      const statusCheck = body.indexOf("coalesce(v_student_status", actorCheck);
+      const companyCheck = body.indexOf("v_student_company_id", statusCheck);
+      const firstDml = body.indexOf(firstDmlMarker, companyCheck);
+      expect(advisory, `${rpc}: advisory lock`).toBeGreaterThanOrEqual(0);
+      expect(leaseLock, `${rpc}: lease row after advisory`).toBeGreaterThan(advisory);
+      expect(leaseForUpdate, `${rpc}: lease FOR UPDATE`).toBeGreaterThan(leaseLock);
+      expect(entityLock, `${rpc}: device/student after lease`).toBeGreaterThan(leaseForUpdate);
+      expect(liveLeaseCheck, `${rpc}: live expiry check after all locks`).toBeGreaterThan(entityLock);
+      expect(actorCheck, `${rpc}: current actor check`).toBeGreaterThan(liveLeaseCheck);
+      expect(statusCheck, `${rpc}: current student status check`).toBeGreaterThan(actorCheck);
+      expect(companyCheck, `${rpc}: current company check`).toBeGreaterThan(statusCheck);
+      expect(firstDml, `${rpc}: checks precede DML`).toBeGreaterThan(companyCheck);
+      expect(body).toContain("v_lease.holder is distinct from p_holder");
+      expect(body).toContain("v_lease.purpose is distinct from");
+    }
+    for (const rpc of ["acquire_wearable_lease", "release_wearable_lease"]) {
+      expect(rpcSource(rpc)).toContain(
+        "pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0))",
+      );
+    }
   });
 
   it("requires active authorization, live pre-exchange recheck and compensating revoke", () => {

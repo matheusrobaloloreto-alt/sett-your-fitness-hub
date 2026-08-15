@@ -531,21 +531,21 @@ begin
   end if;
   perform pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0));
   delete from public.wearable_leases
-  where device_id = p_device_id and locked_until <= now();
+  where device_id = p_device_id and locked_until <= clock_timestamp();
   if exists (
     select 1 from public.wearable_leases
     where device_id = p_device_id
-      and locked_until > now()
+      and locked_until > clock_timestamp()
       and holder <> p_holder
       and (purpose = 'maintenance' or p_purpose = 'maintenance')
   ) then
     return false;
   end if;
   insert into public.wearable_leases(device_id, purpose, holder, locked_until)
-  values (p_device_id, p_purpose, p_holder, now() + make_interval(secs => p_ttl_seconds))
+  values (p_device_id, p_purpose, p_holder, clock_timestamp() + make_interval(secs => p_ttl_seconds))
   on conflict (device_id, purpose) do update
-    set holder = excluded.holder, locked_until = excluded.locked_until, created_at = now()
-    where public.wearable_leases.locked_until <= now()
+    set holder = excluded.holder, locked_until = excluded.locked_until, created_at = clock_timestamp()
+    where public.wearable_leases.locked_until <= clock_timestamp()
        or public.wearable_leases.holder = excluded.holder;
   get diagnostics affected_rows = row_count;
   return affected_rows > 0;
@@ -557,12 +557,15 @@ grant execute on function public.acquire_wearable_lease(uuid, text, uuid, intege
 
 create or replace function public.release_wearable_lease(p_device_id uuid, p_purpose text, p_holder uuid)
 returns void
-language sql
+language plpgsql
 security definer
 set search_path = public
 as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0));
   delete from public.wearable_leases
   where device_id = p_device_id and purpose = p_purpose and holder = p_holder;
+end;
 $$;
 
 revoke all on function public.release_wearable_lease(uuid, text, uuid) from public, anon, authenticated;
@@ -581,24 +584,38 @@ set search_path = public
 as $$
 declare
   v_device public.wearable_devices%rowtype;
+  v_lease public.wearable_leases%rowtype;
+  v_student_company_id uuid;
+  v_student_user_id uuid;
+  v_student_status text;
 begin
-  if not exists (
-    select 1 from public.wearable_leases
-    where device_id = p_device_id and purpose = 'sync' and holder = p_holder
-      and locked_until > now()
-  ) then
-    raise exception 'sync_lease_lost';
-  end if;
-  select d.* into v_device
+  perform pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0));
+  select * into v_lease
+  from public.wearable_leases
+  where device_id = p_device_id and purpose = 'sync'
+  for update;
+  select d, s.company_id, s.user_id, s.status
+    into v_device, v_student_company_id, v_student_user_id, v_student_status
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
-    and s.user_id = p_actor_user_id and coalesce(s.status, '') = 'active'
-    and d.company_id = s.company_id
-    and d.is_active
-    and d.connection_status in ('connected', 'stale', 'error', 'syncing')
-  for update of d;
-  if not found then raise exception 'sync_device_not_active'; end if;
+  for update of d, s;
+  if v_lease.device_id is null
+     or v_lease.purpose is distinct from 'sync'
+     or v_lease.holder is distinct from p_holder
+     or v_lease.locked_until <= clock_timestamp() then
+    raise exception 'sync_lease_lost';
+  end if;
+  if v_device.id is null
+     or not v_device.is_active
+     or v_device.connection_status not in ('connected', 'stale', 'error', 'syncing') then
+    raise exception 'sync_device_not_active';
+  end if;
+  if v_student_user_id is distinct from p_actor_user_id
+     or coalesce(v_student_status, '') <> 'active'
+     or v_device.company_id is distinct from v_student_company_id then
+    raise exception 'sync_tenant_changed';
+  end if;
   update public.wearable_devices
   set connection_status = 'syncing', last_sync_status = 'syncing',
       last_error = null, last_error_code = null, updated_at = now()
@@ -632,26 +649,34 @@ set search_path = public
 as $$
 declare
   v_device public.wearable_devices%rowtype;
+  v_lease public.wearable_leases%rowtype;
   v_student_company_id uuid;
   v_student_user_id uuid;
   v_student_status text;
   v_imported integer := 0;
 begin
-  if not exists (
-    select 1 from public.wearable_leases
-    where device_id = p_device_id and purpose = 'sync' and holder = p_holder
-      and locked_until > now()
-  ) then
-    raise exception 'sync_lease_lost';
-  end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0));
+  select * into v_lease
+  from public.wearable_leases
+  where device_id = p_device_id and purpose = 'sync'
+  for update;
   select d, s.company_id, s.user_id, s.status
     into v_device, v_student_company_id, v_student_user_id, v_student_status
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
-    and d.is_active and d.connection_status = 'syncing'
   for update of d, s;
-  if not found then raise exception 'sync_device_not_active'; end if;
+  if v_lease.device_id is null
+     or v_lease.purpose is distinct from 'sync'
+     or v_lease.holder is distinct from p_holder
+     or v_lease.locked_until <= clock_timestamp() then
+    raise exception 'sync_lease_lost';
+  end if;
+  if v_device.id is null
+     or not v_device.is_active
+     or v_device.connection_status <> 'syncing' then
+    raise exception 'sync_device_not_active';
+  end if;
   if v_student_user_id is distinct from p_actor_user_id
      or coalesce(v_student_status, '') <> 'active'
      or v_student_company_id is distinct from p_expected_company_id
@@ -757,28 +782,38 @@ set search_path = public
 as $$
 declare
   v_device public.wearable_devices%rowtype;
+  v_lease public.wearable_leases%rowtype;
+  v_student_company_id uuid;
+  v_student_user_id uuid;
+  v_student_status text;
 begin
   if p_status not in ('error', 'revoked', 'config_required') then
     raise exception 'sync_failure_status_invalid';
   end if;
-  if not exists (
-    select 1 from public.wearable_leases
-    where device_id = p_device_id and purpose = 'sync' and holder = p_holder
-      and locked_until > now()
-  ) then
-    return false;
-  end if;
-  select d.* into v_device
+  perform pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0));
+  select * into v_lease
+  from public.wearable_leases
+  where device_id = p_device_id and purpose = 'sync'
+  for update;
+  select d, s.company_id, s.user_id, s.status
+    into v_device, v_student_company_id, v_student_user_id, v_student_status
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
-  where d.id = p_device_id
-    and d.student_id = p_student_id
-    and d.company_id = p_expected_company_id
-    and s.company_id = p_expected_company_id
-    and s.user_id = p_actor_user_id
-    and coalesce(s.status, '') = 'active'
+  where d.id = p_device_id and d.student_id = p_student_id
   for update of d, s;
-  if not found then return false; end if;
+  if v_lease.device_id is null
+     or v_lease.purpose is distinct from 'sync'
+     or v_lease.holder is distinct from p_holder
+     or v_lease.locked_until <= clock_timestamp()
+     or v_device.id is null
+     or not v_device.is_active
+     or v_device.connection_status <> 'syncing'
+     or v_student_user_id is distinct from p_actor_user_id
+     or coalesce(v_student_status, '') <> 'active'
+     or v_student_company_id is distinct from p_expected_company_id
+     or v_device.company_id is distinct from v_student_company_id then
+    return false;
+  end if;
   update public.wearable_devices
   set connection_status = p_status, last_sync_status = 'error',
       last_error_code = p_error_code, last_error = p_error_code,
@@ -807,25 +842,42 @@ set search_path = public
 as $$
 declare
   v_device public.wearable_devices%rowtype;
+  v_lease public.wearable_leases%rowtype;
   v_student_company_id uuid;
+  v_student_user_id uuid;
+  v_student_status text;
 begin
-  if not exists (
-    select 1 from public.wearable_leases
-    where device_id = p_device_id and purpose = 'maintenance'
-      and holder = p_holder and locked_until > now()
-  ) then raise exception 'maintenance_lease_lost'; end if;
-  select d, s.company_id into v_device, v_student_company_id
+  perform pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0));
+  select * into v_lease
+  from public.wearable_leases
+  where device_id = p_device_id and purpose = 'maintenance'
+  for update;
+  select d, s.company_id, s.user_id, s.status
+    into v_device, v_student_company_id, v_student_user_id, v_student_status
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
-    and s.user_id = p_actor_user_id
-  for update of d;
-  if not found then raise exception 'wearable_actor_mismatch'; end if;
+  for update of d, s;
+  if v_lease.device_id is null
+     or v_lease.purpose is distinct from 'maintenance'
+     or v_lease.holder is distinct from p_holder
+     or v_lease.locked_until <= clock_timestamp() then
+    raise exception 'maintenance_lease_lost';
+  end if;
+  -- Revocation remains available after a student becomes inactive. We still
+  -- require the current owned student row, explicit status and current company.
+  if v_device.id is null
+     or v_student_user_id is distinct from p_actor_user_id
+     or coalesce(v_student_status, '') = ''
+     or v_student_company_id is null then
+    raise exception 'wearable_actor_mismatch';
+  end if;
 
   if p_revocation_succeeded then
     delete from public.wearable_credentials where device_id = v_device.id;
     update public.wearable_devices
-    set is_active = false, connection_status = 'revoked',
+    set company_id = v_student_company_id,
+        is_active = false, connection_status = 'revoked',
         revocation_status = 'succeeded', revoked_at = now(),
         revocation_retry_after = null, credential_delete_after = null,
         last_error_code = null, last_error = null, updated_at = now()
@@ -842,7 +894,8 @@ begin
   end if;
 
   update public.wearable_devices
-  set is_active = false, connection_status = 'revocation_pending',
+  set company_id = v_student_company_id,
+      is_active = false, connection_status = 'revocation_pending',
       revocation_status = 'pending', revoked_at = null,
       revocation_retry_after = now() + interval '1 hour',
       credential_delete_after = now() + interval '30 days',
@@ -871,22 +924,38 @@ set search_path = public
 as $$
 declare
   v_device public.wearable_devices%rowtype;
+  v_lease public.wearable_leases%rowtype;
   v_student_company_id uuid;
+  v_student_user_id uuid;
+  v_student_status text;
   v_count integer := 0;
   v_rows integer := 0;
 begin
-  if not exists (
-    select 1 from public.wearable_leases
-    where device_id = p_device_id and purpose = 'maintenance'
-      and holder = p_holder and locked_until > now()
-  ) then raise exception 'maintenance_lease_lost'; end if;
-  select d, s.company_id into v_device, v_student_company_id
+  perform pg_advisory_xact_lock(hashtextextended(p_device_id::text, 0));
+  select * into v_lease
+  from public.wearable_leases
+  where device_id = p_device_id and purpose = 'maintenance'
+  for update;
+  select d, s.company_id, s.user_id, s.status
+    into v_device, v_student_company_id, v_student_user_id, v_student_status
   from public.wearable_devices d
   join public.students s on s.id = d.student_id
   where d.id = p_device_id and d.student_id = p_student_id
-    and s.user_id = p_actor_user_id
-  for update of d;
-  if not found then raise exception 'wearable_actor_mismatch'; end if;
+  for update of d, s;
+  if v_lease.device_id is null
+     or v_lease.purpose is distinct from 'maintenance'
+     or v_lease.holder is distinct from p_holder
+     or v_lease.locked_until <= clock_timestamp() then
+    raise exception 'maintenance_lease_lost';
+  end if;
+  -- Data deletion remains available after deactivation under the same current
+  -- ownership/status/company checks used by disconnect.
+  if v_device.id is null
+     or v_student_user_id is distinct from p_actor_user_id
+     or coalesce(v_student_status, '') = ''
+     or v_student_company_id is null then
+    raise exception 'wearable_actor_mismatch';
+  end if;
 
   delete from public.wearable_data where device_id = v_device.id;
   get diagnostics v_rows = row_count;
