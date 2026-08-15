@@ -9,6 +9,17 @@ DECLARE
   cid uuid := '6fe83096-69d8-4460-b516-1bd2209ef303';
   comp uuid := 'c051e80e-c10c-4522-a88a-e5da26a74d82';
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.companies WHERE id = comp
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.students WHERE id = sid AND company_id = comp
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.training_cycles WHERE id = cid AND company_id = comp
+  ) THEN
+    RAISE NOTICE 'Skipping historical workout seed: required student, cycle, or company is absent.';
+    RETURN;
+  END IF;
+
   -- Treino A
   INSERT INTO public.workouts (id, cycle_id, company_id, name, title, sort_order, exercises) VALUES
   (wa_id, cid, comp, 'A', 'Peito + Tríceps', 0,
