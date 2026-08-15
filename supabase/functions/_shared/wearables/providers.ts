@@ -205,3 +205,73 @@ export async function syncWhoop(
     watermarks: { whoop: new Date().toISOString() },
   };
 }
+
+export async function syncStrava(
+  device: SyncDevice,
+  token: string,
+  watermark: string | null,
+  heartbeat?: () => Promise<void>,
+  loadPage: (url: string) => Promise<Record<string, any>[]> = (url) =>
+    requestJson(url, { headers: auth(token) }),
+): Promise<SyncResult> {
+  const after = Math.floor(incrementalStart(watermark).getTime() / 1000);
+  const perPage = 100;
+  const workouts: WearableWorkoutRow[] = [];
+  for (let page = 1; page <= 40; page += 1) {
+    const url = new URL("https://www.strava.com/api/v3/athlete/activities");
+    url.searchParams.set("after", String(after));
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("per_page", String(perPage));
+    const activities = await loadPage(url.toString());
+    if (heartbeat) await heartbeat();
+    if (!Array.isArray(activities)) throw new Error("strava_payload_invalid");
+    for (const item of activities) {
+      const startedAt = String(item.start_date ?? "");
+      const externalId = String(item.id ?? "");
+      if (!startedAt || !externalId) continue;
+      const durationSeconds = Number(item.moving_time ?? 0);
+      workouts.push({
+        student_id: device.student_id,
+        company_id: device.company_id,
+        device_id: device.id,
+        started_at: startedAt,
+        ended_at: Number.isFinite(durationSeconds) && durationSeconds > 0
+          ? new Date(new Date(startedAt).getTime() + durationSeconds * 1000)
+            .toISOString()
+          : null,
+        local_date: String(item.start_date_local ?? startedAt).slice(0, 10),
+        timezone_offset_minutes: null,
+        activity_type: String(item.sport_type ?? item.type ?? "activity"),
+        duration_min: Number.isFinite(durationSeconds)
+          ? Math.round(durationSeconds / 60)
+          : null,
+        distance_km: item.distance == null
+          ? null
+          : Number(item.distance) / 1000,
+        calories: item.calories == null ? null : Number(item.calories),
+        avg_heart_rate: item.average_heartrate == null
+          ? null
+          : Number(item.average_heartrate),
+        max_heart_rate: item.max_heartrate == null
+          ? null
+          : Number(item.max_heartrate),
+        elevation_gain_m: item.total_elevation_gain == null
+          ? null
+          : Number(item.total_elevation_gain),
+        avg_pace: null,
+        strain: null,
+        source: "strava",
+        external_id: externalId,
+        metadata: {},
+      });
+    }
+    if (activities.length < perPage) {
+      return {
+        metrics: [],
+        workouts,
+        watermarks: { strava: new Date().toISOString() },
+      };
+    }
+  }
+  throw new Error("provider_pagination_limit");
+}

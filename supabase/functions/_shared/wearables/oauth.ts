@@ -1,4 +1,4 @@
-import { requestJson } from "./http.ts";
+import { requestJson, WearableHttpError } from "./http.ts";
 import type { ConnectableProvider, TokenBundle } from "./types.ts";
 
 export const REQUIRED_SCOPES: Record<ConnectableProvider, string[]> = {
@@ -96,7 +96,45 @@ function tokenBundle(payload: Record<string, unknown>): TokenBundle {
       : null,
     tokenType: payload.token_type ? String(payload.token_type) : null,
     scopes: grantedScopes(payload),
+    externalUserId: polarExternalUserId(payload),
   };
+}
+
+export function polarExternalUserId(payload: Record<string, unknown>) {
+  const value = payload["polar-user-id"] ?? payload.x_user_id;
+  return value === null || value === undefined || value === ""
+    ? null
+    : String(value);
+}
+
+export async function registerPolarUser(
+  accessToken: string,
+  memberId: string,
+  tokenExternalUserId: string | null,
+) {
+  try {
+    const payload = await requestJson<Record<string, unknown>>(
+      "https://www.polaraccesslink.com/v3/users",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ "member-id": memberId }),
+      },
+    );
+    const externalUserId = polarExternalUserId(payload ?? {});
+    if (!externalUserId) throw new Error("polar_user_id_missing");
+    return externalUserId;
+  } catch (error) {
+    if (
+      error instanceof WearableHttpError && error.status === 409 &&
+      tokenExternalUserId
+    ) return tokenExternalUserId;
+    throw error;
+  }
 }
 
 export async function exchangeAuthorizationCode(
@@ -162,33 +200,57 @@ export async function revokeProviderToken(
   provider: ConnectableProvider,
   accessToken: string,
   clientId: string,
+  externalUserId: string | null = null,
 ) {
+  const request = providerRevocationRequest(
+    provider,
+    accessToken,
+    clientId,
+    externalUserId,
+  );
+  await requestJson(request.url, request.init, { attempts: 2 });
+}
+
+export function providerRevocationRequest(
+  provider: ConnectableProvider,
+  accessToken: string,
+  clientId: string,
+  externalUserId: string | null = null,
+): { url: string; init: RequestInit } {
   if (provider === "oura") {
     const url = new URL("https://api.ouraring.com/oauth/revoke");
     url.searchParams.set("access_token", accessToken);
-    await requestJson(url.toString(), { method: "POST" }, { attempts: 2 });
-    return;
+    return {
+      url: url.toString(),
+      init: { method: "POST" } satisfies RequestInit,
+    };
   }
-  const endpoints: Record<
-    Exclude<ConnectableProvider, "oura">,
-    { url: string; method: string }
-  > = {
-    whoop: {
+  if (provider === "polar") {
+    if (!externalUserId || !/^\d+$/.test(externalUserId)) {
+      throw new Error("polar_user_id_missing");
+    }
+    return {
+      url: `https://www.polaraccesslink.com/v3/users/${externalUserId}`,
+      init: {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      } satisfies RequestInit,
+    };
+  }
+  const endpoint = provider === "whoop"
+    ? {
       url: "https://api.prod.whoop.com/developer/v2/user/access",
       method: "DELETE",
-    },
-    strava: { url: "https://www.strava.com/oauth/deauthorize", method: "POST" },
-    polar: {
-      url: "https://www.polaraccesslink.com/v3/users",
-      method: "DELETE",
-    },
+    }
+    : { url: "https://www.strava.com/oauth/deauthorize", method: "POST" };
+  return {
+    url: endpoint.url,
+    init: {
+      method: endpoint.method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "X-Client-Id": clientId,
+      },
+    } satisfies RequestInit,
   };
-  const endpoint = endpoints[provider];
-  await requestJson(endpoint.url, {
-    method: endpoint.method,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "X-Client-Id": clientId,
-    },
-  }, { attempts: 2 });
 }

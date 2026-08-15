@@ -185,15 +185,27 @@ export function normalizeWhoopRecord(
       recordedAt,
       offset,
       "sleep_duration",
-      finite(score.stage_summary?.total_in_bed_time_milli) === null
-        ? null
-        : Number(score.stage_summary.total_in_bed_time_milli) / 3_600_000,
+      whoopSleepDurationHours(score.stage_summary),
       "hours",
       state,
       external,
       { nap: Boolean(item.nap) },
     ),
   ];
+}
+
+export function whoopSleepDurationHours(stageSummary: unknown) {
+  const summary = stageSummary && typeof stageSummary === "object"
+    ? stageSummary as Record<string, unknown>
+    : {};
+  const stages = [
+    finite(summary.total_light_sleep_time_milli),
+    finite(summary.total_slow_wave_sleep_time_milli),
+    finite(summary.total_rem_sleep_time_milli),
+  ];
+  if (stages.every((value) => value === null)) return null;
+  return stages.reduce<number>((sum, value) => sum + (value ?? 0), 0) /
+    3_600_000;
 }
 
 export function normalizeWhoopWorkout(
