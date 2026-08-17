@@ -5,7 +5,7 @@
 
 ## Decisão executiva
 
-**NO-GO para aplicar.** A extração das fichas ativas e o dry-run real foram concluídos e são reproduzíveis, porém somente **131 de 313 nomes distintos de exercícios (41,85%)** encontraram correspondência exata e inequívoca no catálogo SETT. O catálogo tem 926 exercícios, mas 180 nomes MFIT ainda precisam de aliases auditados e 2 nomes têm correspondência ambígua. O migrador falhou fechado, como projetado: **46 planos bloqueados, zero operações candidatas e zero escrita**.
+**NO-GO para aplicar.** A extração das fichas ativas e o dry-run real foram concluídos e são reproduzíveis. A baseline encontrou **131 de 313 nomes distintos (41,85%)** por correspondência exata. A revisão de 2026-08-17 aprovou somente 51 aliases de alta confiança e elevou a cobertura para **182 de 313 (58,15%)**. Permanecem 129 nomes ausentes e 2 nomes ambíguos. O migrador continua falhando fechado: **46 planos bloqueados, zero operações candidatas e zero escrita**.
 
 Não é seguro trocar a regra por fuzzy match: sem um mapa revisado, exercícios semanticamente diferentes podem ser associados silenciosamente.
 
@@ -75,6 +75,36 @@ O migrador foi executado duas vezes, sem `--apply`, com data de referência fixa
 
 Após o hardening fail-closed de status e a releitura pré-apply, o dry-run foi repetido mais duas vezes. Removido apenas o timestamp `generated_at`, ambos geraram o mesmo SHA-256: `deaa32881fa8d83cf4014d8d3bd64b0d45a831d00e06f8503daabc9c370a98ad`.
 
+## Atualização de aliases — 2026-08-17
+
+O mapa versionado `docs/project/mfit-exercise-aliases.v1.json` contém somente nomes de exercícios e declara `contains_pii: false`. A primeira rodada conservadora classificou os 182 itens que não possuíam match exato:
+
+| Classe | Quantidade | Decisão |
+|---|---:|---|
+| Alta confiança | 51 | Alias aprovado para dry-run |
+| Média confiança | 39 | Bloqueado até conferência visual/técnica adicional |
+| Baixa confiança | 27 | Bloqueado |
+| Sem candidato sustentável | 63 | Bloqueado |
+| Match exato ambíguo | 2 | Bloqueado até deduplicação/decisão humana |
+
+O migrador aceita o mapa somente por `--exercise-aliases`. Cada alias executável precisa estar marcado como `approved` e `high`, ter fonte única após normalização e apontar para um `exercise_id` visível cujo nome ainda corresponda exatamente ao nome alvo versionado. Alias removido, renomeado, invisível ou fora do contrato bloqueia o lote.
+
+Dois novos dry-runs read-only, com a mesma fonte e a mesma data de referência, produziram resultados operacionais idênticos:
+
+| Resultado | Dry-run alias 1 | Dry-run alias 2 |
+|---|---:|---:|
+| Nomes necessários | 313 | 313 |
+| Matches exatos + aliases | 182 | 182 |
+| Matches por alias aprovado | 51 | 51 |
+| Ausentes | 129 | 129 |
+| Ambíguos | 2 | 2 |
+| Aliases inválidos | 0 | 0 |
+| Cobertura | 58,15% | 58,15% |
+| Planos bloqueados | 46 | 46 |
+| Operações candidatas | 0 | 0 |
+
+Removido apenas `generated_at`, os dois relatórios geraram o mesmo SHA-256: `54dee439f6c6255be0671e8d0fffb5ccb84512dba799837787db14965a018652`. Os arquivos operacionais continuam fora do Git e com permissão `0600`.
+
 ## Garantias já implementadas no migrador
 
 1. Tenant e atividade validados de forma fail-closed.
@@ -89,13 +119,13 @@ Após o hardening fail-closed de status e a releitura pré-apply, o dry-run foi 
 
 ## Validações
 
-- `node --test scripts/mfit-active-workouts-migration.test.mjs`: **28/28 aprovados**, incluindo mudança viva de status e empresa da matrícula entre planejamento e escrita.
+- `node --test scripts/mfit-active-workouts-migration.test.mjs`: **31/31 aprovados**, incluindo mudança viva de status/empresa, validação do mapa e bloqueio de alias obsoleto ou invisível.
 - Dois dry-runs reais idênticos no conteúdo operacional.
 - Extração reaberta e verificada após o falso bloqueio de sessões recolhidas pela interface.
 - Nenhuma mutação remota foi solicitada pelo migrador.
 
 ## Riscos e próxima ação
 
-Risco principal: os nomes usados no MFIT diferem do catálogo SETT apesar de os movimentos provavelmente existirem. O próximo passo é produzir um **mapa explícito de alias MFIT → exercício SETT**, com revisão humana/técnica para os 180 ausentes e decisão manual para os 2 ambíguos. O mapa deve ser testado, versionado e manter bloqueio para qualquer item não resolvido.
+Risco principal: 131 nomes ainda não têm resolução segura — 39 candidatos médios, 27 baixos, 63 sem candidato e 2 exatos ambíguos. O próximo passo é conferir os candidatos médios por vídeo/execução e decidir se faltam variantes reais no catálogo; itens sem evidência permanecem bloqueados.
 
 Somente depois de obter 100% de cobertura e repetir o dry-run devem ser avaliados backup e aplicação em lotes pequenos. Qualquer `--apply` continua condicionado a autorização explícita.

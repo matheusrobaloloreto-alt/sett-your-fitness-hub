@@ -803,6 +803,56 @@ function normalizeCatalogName(value) {
     .trim();
 }
 
+export function buildExerciseAliasIndex(payload = { schema_version: 1, contains_pii: false, aliases: [] }) {
+  const source = asObject(payload);
+  if (!source || source.schema_version !== 1 || !Array.isArray(source.aliases)) {
+    throw new Error("Exercise alias map must use schema_version 1 and an aliases array");
+  }
+  if (source.contains_pii !== false) {
+    throw new Error("Exercise alias map must explicitly declare contains_pii=false");
+  }
+
+  const aliases = new Map();
+  for (const raw of source.aliases) {
+    const row = asObject(raw);
+    const sourceName = cleanText(row?.source_name);
+    const targetExerciseId = cleanText(row?.target_exercise_id);
+    const targetName = cleanText(row?.target_name);
+    const normalizedSource = normalizeCatalogName(sourceName);
+    if (!normalizedSource || !targetName) throw new Error("Exercise alias names cannot be empty");
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(targetExerciseId)) {
+      throw new Error("Exercise alias target_exercise_id must be a UUID");
+    }
+    if (row.status !== "approved" || row.confidence !== "high") {
+      throw new Error("Only explicitly approved high-confidence exercise aliases are executable");
+    }
+    if (aliases.has(normalizedSource)) throw new Error("Exercise alias sources must be unique after normalization");
+    aliases.set(normalizedSource, {
+      source_name: sourceName,
+      target_exercise_id: targetExerciseId,
+      target_name: targetName,
+    });
+  }
+  return aliases;
+}
+
+function resolveCatalogExercise(catalog, companyId, sourceName, aliasIndex) {
+  const exact = catalogCandidates(catalog, companyId, sourceName);
+  if (exact.length === 1) return { status: "matched", id: exact[0].id, match_method: "exact" };
+
+  const alias = aliasIndex.get(normalizeCatalogName(sourceName));
+  if (!alias) return { status: exact.length > 1 ? "ambiguous" : "missing" };
+  const visibleTargets = [...new Map(catalog
+    .filter((row) => row.id === alias.target_exercise_id)
+    .filter((row) => row.is_global === true || row.company_id === companyId)
+    .map((row) => [row.id, row])).values()];
+  if (visibleTargets.length !== 1) return { status: "invalid_alias", alias_reason: "target_not_visible" };
+  if (normalizeCatalogName(visibleTargets[0].name) !== normalizeCatalogName(alias.target_name)) {
+    return { status: "invalid_alias", alias_reason: "target_name_mismatch" };
+  }
+  return { status: "matched", id: visibleTargets[0].id, match_method: "approved_alias" };
+}
+
 function chooseReusableEmptyCycle(enrollmentCycles, workoutsByCycle, startDate, endDate, today) {
   const closedStatuses = new Set([
     "cancelled",
@@ -1257,6 +1307,7 @@ export async function runMigration({
   settPayload,
   mfitClientsPayload,
   mfitWorkoutsPayload,
+  exerciseAliasPayload = { schema_version: 1, contains_pii: false, aliases: [] },
   db,
   companyId,
   apply = false,
@@ -1276,6 +1327,7 @@ export async function runMigration({
   const clients = normalizeMfitClients(mfitClientsPayload);
   const allPlans = normalizeMfitPlans(mfitWorkoutsPayload);
   const plans = allPlans.filter((plan) => plan.active);
+  const exerciseAliasIndex = buildExerciseAliasIndex(exerciseAliasPayload);
   const clientMatches = matchMfitClientsToSett(clients, activeStudents);
   const clientLookup = buildMfitClientLookup(clients);
   const results = [];
@@ -1342,17 +1394,20 @@ export async function runMigration({
       const normalizedName = normalizeCatalogName(exercise.name);
       const key = `${candidate.company_id}\u0000${normalizedName}`;
       if (exerciseResolution.has(key)) continue;
-      const matches = catalogCandidates(catalog, candidate.company_id, exercise.name);
-      exerciseResolution.set(key, matches.length === 1
-        ? { status: "matched", id: matches[0].id }
-        : { status: matches.length > 1 ? "ambiguous" : "missing" });
+      exerciseResolution.set(
+        key,
+        resolveCatalogExercise(catalog, candidate.company_id, exercise.name, exerciseAliasIndex),
+      );
     }
   }
   const exerciseCoverage = [...exerciseResolution.values()];
   const catalogMatched = exerciseCoverage.filter((item) => item.status === "matched").length;
   const catalogMissing = exerciseCoverage.filter((item) => item.status === "missing").length;
   const catalogAmbiguous = exerciseCoverage.filter((item) => item.status === "ambiguous").length;
-  const catalogCoverageBlocked = catalogMissing > 0 || catalogAmbiguous > 0;
+  const catalogInvalidAliases = exerciseCoverage.filter((item) => item.status === "invalid_alias").length;
+  const catalogAliasMatched = exerciseCoverage
+    .filter((item) => item.status === "matched" && item.match_method === "approved_alias").length;
+  const catalogCoverageBlocked = catalogMissing > 0 || catalogAmbiguous > 0 || catalogInvalidAliases > 0;
   const cyclesByEnrollment = new Map();
   const cyclesById = new Map(cycles.map((cycle) => [cycle.id, cycle]));
   const workoutsByCycle = new Map();
@@ -1383,11 +1438,13 @@ export async function runMigration({
       const planResolutions = plan.sessions
         .flatMap((session) => session.exercises)
         .map((exercise) => exerciseResolution.get(`${companyId}\u0000${normalizeCatalogName(exercise.name)}`));
-      const reason = planResolutions.some((item) => item?.status === "missing")
-        ? "exercise_not_in_catalog"
-        : planResolutions.some((item) => item?.status === "ambiguous")
-          ? "ambiguous_exact_exercise_name"
-          : "migration_batch_catalog_gate";
+      const reason = planResolutions.some((item) => item?.status === "invalid_alias")
+        ? "exercise_alias_invalid"
+        : planResolutions.some((item) => item?.status === "missing")
+          ? "exercise_not_in_catalog"
+          : planResolutions.some((item) => item?.status === "ambiguous")
+            ? "ambiguous_exact_exercise_name"
+            : "migration_batch_catalog_gate";
       results.push({ ref: candidate.ref, status: "blocked", reason, match_method: candidate.match_method, sessions: plan.sessions.length });
       continue;
     }
@@ -1613,6 +1670,7 @@ export async function runMigration({
       "only one unambiguous empty overlapping cycle can be reused",
       "same marker and payload hash are a no-op",
       "exercise matching is accent/case tolerant within the visible company/global catalog",
+      "only versioned high-confidence aliases with an exact visible target id and name are accepted",
       "100% deterministic exercise-catalog coverage is required for the whole batch",
       "exercise-library rows are never created or modified by this migration",
       "only assigned active prescription plans are imported; completed-session history is out of scope",
@@ -1628,6 +1686,9 @@ export async function runMigration({
       exercise_catalog_matched: catalogMatched,
       exercise_catalog_missing: catalogMissing,
       exercise_catalog_ambiguous: catalogAmbiguous,
+      exercise_catalog_invalid_aliases: catalogInvalidAliases,
+      exercise_catalog_alias_matched: catalogAliasMatched,
+      exercise_aliases_loaded: exerciseAliasIndex.size,
       exercise_catalog_coverage_percent: exerciseCoverage.length
         ? Number(((catalogMatched / exerciseCoverage.length) * 100).toFixed(2))
         : 100,
@@ -1700,6 +1761,7 @@ export function parseArgs(argv) {
     settStudents: "",
     mfitClients: "",
     mfitWorkouts: "",
+    exerciseAliases: "",
     companyId: "",
     report: "",
     confirmProject: "",
@@ -1710,6 +1772,7 @@ export function parseArgs(argv) {
     ["--sett-students", "settStudents"],
     ["--mfit-clients", "mfitClients"],
     ["--mfit-workouts", "mfitWorkouts"],
+    ["--exercise-aliases", "exerciseAliases"],
     ["--company-id", "companyId"],
     ["--report", "report"],
     ["--confirm-project", "confirmProject"],
@@ -1749,6 +1812,7 @@ Usage:
     --sett-students <sett-students.json> \\
     --mfit-clients <mfit-clients.json> \\
     --mfit-workouts <mfit-active-workouts.json> \\
+    [--exercise-aliases <mfit-exercise-aliases.v1.json>] \\
     --company-id <canonical-bn-company-uuid> \\
     [--report <sanitized-report.json>] [--today YYYY-MM-DD] [--duration-weeks 6]
     [--apply --confirm-project ${EXPECTED_SUPABASE_PROJECT_REF}]
@@ -1782,10 +1846,13 @@ export async function main(argv = process.argv.slice(2)) {
     throw new Error("--sett-students, --mfit-clients, --mfit-workouts and --company-id are required");
   }
 
-  const [settPayload, mfitClientsPayload, mfitWorkoutsPayload] = await Promise.all([
+  const [settPayload, mfitClientsPayload, mfitWorkoutsPayload, exerciseAliasPayload] = await Promise.all([
     readJson(options.settStudents, "SETT students input"),
     readJson(options.mfitClients, "MFIT clients input"),
     readJson(options.mfitWorkouts, "MFIT workouts input"),
+    options.exerciseAliases
+      ? readJson(options.exerciseAliases, "MFIT exercise aliases input")
+      : Promise.resolve({ schema_version: 1, contains_pii: false, aliases: [] }),
   ]);
   const config = loadSupabaseConfig();
   assertCanonicalSupabaseTarget(config.url);
@@ -1800,6 +1867,7 @@ export async function main(argv = process.argv.slice(2)) {
     settPayload,
     mfitClientsPayload,
     mfitWorkoutsPayload,
+    exerciseAliasPayload,
     db,
     companyId: options.companyId,
     apply: options.apply,

@@ -6,6 +6,7 @@ import {
   EXPECTED_SUPABASE_PROJECT_REF,
   MARKER_PREFIX,
   assertCanonicalSupabaseTarget,
+  buildExerciseAliasIndex,
   matchMfitClientsToSett,
   normalizeMfitClients,
   normalizeMfitPlans,
@@ -204,9 +205,11 @@ test("CLI remains dry-run unless --apply is explicit", () => {
     "--sett-students", "sett.json",
     "--mfit-clients", "clients.json",
     "--mfit-workouts", "workouts.json",
+    "--exercise-aliases", "aliases.json",
     "--company-id", IDS.company,
   ]);
   assert.equal(dryRun.apply, false);
+  assert.equal(dryRun.exerciseAliases, "aliases.json");
   assert.throws(
     () => parseArgs(["--apply", "--sett-students=a", "--mfit-clients=b", "--mfit-workouts=c"]),
     /requires --confirm-project/,
@@ -452,6 +455,78 @@ test("a missing exercise blocks the whole batch and never changes the library", 
   assert.equal(report.results[0].reason, "exercise_not_in_catalog");
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
   assert.equal(db.exercises.length, 0);
+});
+
+test("only approved high-confidence aliases with unique sources are accepted", () => {
+  const valid = {
+    schema_version: 1,
+    contains_pii: false,
+    aliases: [{
+      source_name: "Supino legado",
+      target_exercise_id: "60000000-0000-4000-8000-000000000099",
+      target_name: "Supino MFIT Exato",
+      status: "approved",
+      confidence: "high",
+    }],
+  };
+  assert.equal(buildExerciseAliasIndex(valid).size, 1);
+  assert.throws(
+    () => buildExerciseAliasIndex({ ...valid, aliases: [{ ...valid.aliases[0], confidence: "medium" }] }),
+    /approved high-confidence/,
+  );
+  assert.throws(
+    () => buildExerciseAliasIndex({ ...valid, aliases: [valid.aliases[0], { ...valid.aliases[0], source_name: "SÚPINO LEGADO" }] }),
+    /unique after normalization/,
+  );
+  assert.throws(() => buildExerciseAliasIndex({ ...valid, contains_pii: true }), /contains_pii=false/);
+});
+
+test("an approved alias resolves only to its exact visible catalog id and name", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Supino legado";
+  input.exerciseAliasPayload = {
+    schema_version: 1,
+    contains_pii: false,
+    aliases: [{
+      source_name: "Supino legado",
+      target_exercise_id: "60000000-0000-4000-8000-000000000099",
+      target_name: "Supino MFIT Exato",
+      status: "approved",
+      confidence: "high",
+    }],
+  };
+  const db = new MemoryDb();
+  const report = await runMigration({ ...input, db, today: "2026-08-10" });
+
+  assert.equal(report.summary.exercise_catalog_coverage_percent, 100);
+  assert.equal(report.summary.exercise_catalog_alias_matched, 1);
+  assert.equal(report.summary.exercise_aliases_loaded, 1);
+  assert.equal(report.summary.planned, 1);
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("a stale or invisible alias target fails closed", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Supino legado";
+  input.exerciseAliasPayload = {
+    schema_version: 1,
+    contains_pii: false,
+    aliases: [{
+      source_name: "Supino legado",
+      target_exercise_id: "60000000-0000-4000-8000-000000000099",
+      target_name: "Nome antigo divergente",
+      status: "approved",
+      confidence: "high",
+    }],
+  };
+  const db = new MemoryDb();
+  const report = await runMigration({ ...input, db, today: "2026-08-10" });
+
+  assert.equal(report.summary.exercise_catalog_invalid_aliases, 1);
+  assert.equal(report.summary.exercise_catalog_coverage_percent, 0);
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.results[0].reason, "exercise_alias_invalid");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
 });
 
 test("apply rechecks the live student status immediately before writing", async () => {
