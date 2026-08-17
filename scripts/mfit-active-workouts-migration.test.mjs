@@ -457,7 +457,7 @@ test("a missing exercise blocks the whole batch and never changes the library", 
   assert.equal(db.exercises.length, 0);
 });
 
-test("only approved high-confidence aliases with unique sources are accepted", () => {
+test("only approved high-confidence aliases are executable and reviewed rows stay inert", () => {
   const valid = {
     schema_version: 1,
     contains_pii: false,
@@ -470,9 +470,9 @@ test("only approved high-confidence aliases with unique sources are accepted", (
     }],
   };
   assert.equal(buildExerciseAliasIndex(valid).size, 1);
-  assert.throws(
-    () => buildExerciseAliasIndex({ ...valid, aliases: [{ ...valid.aliases[0], confidence: "medium" }] }),
-    /approved high-confidence/,
+  assert.equal(
+    buildExerciseAliasIndex({ ...valid, aliases: [{ ...valid.aliases[0], status: "needs_review", confidence: "medium" }] }).size,
+    0,
   );
   assert.throws(
     () => buildExerciseAliasIndex({ ...valid, aliases: [valid.aliases[0], { ...valid.aliases[0], source_name: "SÚPINO LEGADO" }] }),

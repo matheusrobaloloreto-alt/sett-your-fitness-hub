@@ -5,7 +5,7 @@
 
 ## Decisão executiva
 
-**NO-GO para aplicar.** A extração das fichas ativas e o dry-run real foram concluídos e são reproduzíveis. A baseline encontrou **131 de 313 nomes distintos (41,85%)** por correspondência exata. A revisão de 2026-08-17 aprovou somente 51 aliases de alta confiança e elevou a cobertura para **182 de 313 (58,15%)**. Permanecem 129 nomes ausentes e 2 nomes ambíguos. O migrador continua falhando fechado: **46 planos bloqueados, zero operações candidatas e zero escrita**.
+**NO-GO para aplicar.** A extração das fichas ativas e o dry-run real foram concluídos e são reproduzíveis. A baseline encontrou **131 de 313 nomes distintos (41,85%)** por correspondência exata. Após reconciliação com o QA biomecânico, somente **37 aliases** permaneceram em alta confiança, elevando a cobertura para **168 de 313 (53,67%)**. Permanecem 143 nomes ausentes e 2 nomes ambíguos. O migrador continua falhando fechado: **46 planos bloqueados, zero operações candidatas e zero escrita**.
 
 Não é seguro trocar a regra por fuzzy match: sem um mapa revisado, exercícios semanticamente diferentes podem ser associados silenciosamente.
 
@@ -77,33 +77,33 @@ Após o hardening fail-closed de status e a releitura pré-apply, o dry-run foi 
 
 ## Atualização de aliases — 2026-08-17
 
-O mapa versionado `docs/project/mfit-exercise-aliases.v1.json` contém somente nomes de exercícios e declara `contains_pii: false`. A primeira rodada conservadora classificou os 182 itens que não possuíam match exato:
+O mapa versionado `docs/project/mfit-exercise-aliases.v1.json` contém somente nomes de exercícios e declara `contains_pii: false`. A revisão nominal inicial marcou 51 candidatos como `high`; a reconciliação biomecânica rebaixou 13 para média e bloqueou 1 como baixa. Os 14 rebaixamentos cobrem 34 ocorrências e permanecem inertes no mapa para auditoria:
 
 | Classe | Quantidade | Decisão |
 |---|---:|---|
-| Alta confiança | 51 | Alias aprovado para dry-run |
-| Média confiança | 39 | Bloqueado até conferência visual/técnica adicional |
-| Baixa confiança | 27 | Bloqueado |
+| Alta confiança | 37 | Alias aprovado para dry-run |
+| Média confiança | 52 | Bloqueado até conferência visual/técnica adicional |
+| Baixa confiança | 28 | Bloqueado |
 | Sem candidato sustentável | 63 | Bloqueado |
 | Match exato ambíguo | 2 | Bloqueado até deduplicação/decisão humana |
 
-O migrador aceita o mapa somente por `--exercise-aliases`. Cada alias executável precisa estar marcado como `approved` e `high`, ter fonte única após normalização e apontar para um `exercise_id` visível cujo nome ainda corresponda exatamente ao nome alvo versionado. Alias removido, renomeado, invisível ou fora do contrato bloqueia o lote.
+O migrador aceita o mapa somente por `--exercise-aliases`. Cada alias executável precisa estar marcado como `approved` e `high`, ter fonte única após normalização e apontar para um `exercise_id` visível cujo nome ainda corresponda exatamente ao nome alvo versionado. Linhas `needs_review`/`blocked` são ignoradas e não entram no índice executável. Alias aprovado removido, renomeado, invisível ou fora do contrato bloqueia o lote.
 
 Dois novos dry-runs read-only, com a mesma fonte e a mesma data de referência, produziram resultados operacionais idênticos:
 
 | Resultado | Dry-run alias 1 | Dry-run alias 2 |
 |---|---:|---:|
 | Nomes necessários | 313 | 313 |
-| Matches exatos + aliases | 182 | 182 |
-| Matches por alias aprovado | 51 | 51 |
-| Ausentes | 129 | 129 |
+| Matches exatos + aliases | 168 | 168 |
+| Matches por alias aprovado | 37 | 37 |
+| Ausentes | 143 | 143 |
 | Ambíguos | 2 | 2 |
 | Aliases inválidos | 0 | 0 |
-| Cobertura | 58,15% | 58,15% |
+| Cobertura | 53,67% | 53,67% |
 | Planos bloqueados | 46 | 46 |
 | Operações candidatas | 0 | 0 |
 
-Removido apenas `generated_at`, os dois relatórios geraram o mesmo SHA-256: `54dee439f6c6255be0671e8d0fffb5ccb84512dba799837787db14965a018652`. Os arquivos operacionais continuam fora do Git e com permissão `0600`.
+Removido apenas `generated_at`, os dois relatórios pós-QA geraram o mesmo SHA-256: `9010427ebe269b4869c92ab56c341f154a107e111c7bcc4f04c4b3f48ac50f46`. Os arquivos operacionais continuam fora do Git e com permissão `0600`.
 
 ## Garantias já implementadas no migrador
 
@@ -119,13 +119,13 @@ Removido apenas `generated_at`, os dois relatórios geraram o mesmo SHA-256: `54
 
 ## Validações
 
-- `node --test scripts/mfit-active-workouts-migration.test.mjs`: **31/31 aprovados**, incluindo mudança viva de status/empresa, validação do mapa e bloqueio de alias obsoleto ou invisível.
+- `node --test scripts/mfit-active-workouts-migration.test.mjs`: **31/31 aprovados**, incluindo mudança viva de status/empresa, linhas de revisão inertes, validação do mapa e bloqueio de alias obsoleto ou invisível.
 - Dois dry-runs reais idênticos no conteúdo operacional.
 - Extração reaberta e verificada após o falso bloqueio de sessões recolhidas pela interface.
 - Nenhuma mutação remota foi solicitada pelo migrador.
 
 ## Riscos e próxima ação
 
-Risco principal: 131 nomes ainda não têm resolução segura — 39 candidatos médios, 27 baixos, 63 sem candidato e 2 exatos ambíguos. O próximo passo é conferir os candidatos médios por vídeo/execução e decidir se faltam variantes reais no catálogo; itens sem evidência permanecem bloqueados.
+Risco principal: 145 nomes ainda não têm resolução segura — 52 candidatos médios, 28 baixos, 63 sem candidato e 2 exatos ambíguos. O próximo passo é conferir os candidatos médios por vídeo/execução e decidir se faltam variantes reais no catálogo; itens sem evidência permanecem bloqueados. A inconsistência grave dos targets de `Rosca Scott Barra` deve ser corrigida/inspecionada antes de qualquer reconsideração desse alias.
 
 Somente depois de obter 100% de cobertura e repetir o dry-run devem ser avaliados backup e aplicação em lotes pequenos. Qualquer `--apply` continua condicionado a autorização explícita.

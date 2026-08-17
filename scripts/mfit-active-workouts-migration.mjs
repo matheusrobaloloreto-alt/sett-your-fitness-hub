@@ -823,9 +823,7 @@ export function buildExerciseAliasIndex(payload = { schema_version: 1, contains_
     if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(targetExerciseId)) {
       throw new Error("Exercise alias target_exercise_id must be a UUID");
     }
-    if (row.status !== "approved" || row.confidence !== "high") {
-      throw new Error("Only explicitly approved high-confidence exercise aliases are executable");
-    }
+    if (row.status !== "approved" || row.confidence !== "high") continue;
     if (aliases.has(normalizedSource)) throw new Error("Exercise alias sources must be unique after normalization");
     aliases.set(normalizedSource, {
       source_name: sourceName,

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "2026-08-17-high-confidence-v1",
+  "version": "2026-08-17-biomechanical-qa-v2",
   "contains_pii": false,
   "execution_scope": "dry_run_only_until_full_coverage_and_independent_QA",
   "source_snapshot": {
@@ -9,17 +9,17 @@
     "exact_unambiguous": 131
   },
   "policy": {
-    "accepted": "high confidence with deterministic movement and implement equivalence",
+    "accepted": "high confidence only when movement, implement, grip or width, support, posture, laterality and machine configuration are preserved",
     "blocked": "medium, low, no-candidate and ambiguous entries require additional visual or human evidence",
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 51,
-    "pending_medium": 39,
-    "blocked_low": 27,
+    "approved_aliases": 37,
+    "pending_medium": 52,
+    "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 2,
-    "unresolved_total": 131
+    "unresolved_total": 145
   },
   "aliases": [
     {
@@ -71,10 +71,10 @@
       "source_name": "Afundo Alternado no Smith",
       "target_exercise_id": "1682b804-b531-426d-bb6b-93e5b9b7ceda",
       "target_name": "Afundo Smith",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 1,
-      "rationale": "Movimento e equipamento Smith preservados; alternância é protocolo, não outro exercício."
+      "rationale": "QA biomecânico: alternado define sequência/lateralidade; o target pode representar afundo estático unilateral."
     },
     {
       "source_name": "Agachamento com Halter na Frente",
@@ -89,10 +89,10 @@
       "source_name": "Barra Fixa Gráviton (Pegada Aberta)",
       "target_exercise_id": "6cf6f6ed-9022-459c-b5ae-cbe499ba4b33",
       "target_name": "Graviton Pronado",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 1,
-      "rationale": "Gráviton e pegada aberta/pronada preservados."
+      "rationale": "QA biomecânico: pronação não preserva necessariamente a largura aberta."
     },
     {
       "source_name": "Búlgaro Inclinado para Frente",
@@ -143,10 +143,10 @@
       "source_name": "Deslocamento Lateral com Elástico",
       "target_exercise_id": "e6a748f5-2993-4f31-9e58-cb68e6ed8381",
       "target_name": "Caminhada lateral com mini band",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 5,
-      "rationale": "Equivalência técnica: deslocamento/caminhada lateral com elástico/mini band."
+      "rationale": "QA biomecânico: elástico é genérico; mini band fixa implemento e configuração específicos."
     },
     {
       "source_name": "Elevacão Lateral Sentado com Halteres",
@@ -251,10 +251,10 @@
       "source_name": "Prancha Isometrica com Trx",
       "target_exercise_id": "185147fa-6622-4a7d-a7f2-cc61dffe2c45",
       "target_name": "Prancha com pés no TRX",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 1,
-      "rationale": "Prancha e implemento TRX preservados; isometria é implícita."
+      "rationale": "QA biomecânico: a origem não informa se pés ou mãos ficam suspensos; o target fixa apoio mecanicamente distinto."
     },
     {
       "source_name": "Prancha Isométrica na Bola Suíça",
@@ -269,10 +269,10 @@
       "source_name": "Pulldown Barra Reta",
       "target_exercise_id": "afbe8bbe-2cf2-4404-a609-7c9647ec3eeb",
       "target_name": "Pulldown barra",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 4,
-      "rationale": "Movimento e barra preservados."
+      "rationale": "QA biomecânico: o formato reto da barra desaparece no target genérico."
     },
     {
       "source_name": "Pulldown com Corda",
@@ -296,19 +296,19 @@
       "source_name": "Puxada Neutra triangulo",
       "target_exercise_id": "3b59a032-f393-479c-b31f-e9059390c3da",
       "target_name": "Puxada Neutra Polia",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 9,
-      "rationale": "Triângulo implica pegada neutra e o SETT confirma polia/costas."
+      "rationale": "QA biomecânico: pegada neutra não garante triângulo nem largura fechada."
     },
     {
       "source_name": "Remada Alta com Barra W",
       "target_exercise_id": "b222ffd2-a90e-47a2-9924-a63381446069",
       "target_name": "Remada Alta Barra",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 1,
-      "rationale": "Movimento e barra preservados; formato W é detalhe do implemento."
+      "rationale": "QA biomecânico: barra W altera orientação de punho/antebraço e não é detalhe descartável."
     },
     {
       "source_name": "Remada Baixa (Pegada Pronada)",
@@ -323,28 +323,28 @@
       "source_name": "Remada Baixa Triangulo",
       "target_exercise_id": "0db0d50d-5d72-4ade-97f2-3ec1c64218d8",
       "target_name": "Remada Baixa Neutra",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 4,
-      "rationale": "Triângulo implica pegada neutra; movimento preservado."
+      "rationale": "QA biomecânico: neutralidade não garante o puxador triangular/fechado."
     },
     {
       "source_name": "Remada Curvada com Barra Reta (Pegada Pronada)",
       "target_exercise_id": "8fb786df-8ccc-4223-bbea-5fec0fb06c49",
       "target_name": "Remada Curvada Pronada Barra",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 2,
-      "rationale": "Movimento, barra e pegada pronada preservados."
+      "rationale": "QA biomecânico: pegada preservada, mas o formato reto da barra não está confirmado."
     },
     {
       "source_name": "Remada Curvada com Barra Reta (Pegada Supinada)",
       "target_exercise_id": "15e3ad55-f384-4e29-be43-b63cb85a9a5c",
       "target_name": "Remada Curvada Supinada Barra",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 2,
-      "rationale": "Movimento, barra e pegada supinada preservados."
+      "rationale": "QA biomecânico: pegada preservada, mas o formato reto da barra não está confirmado."
     },
     {
       "source_name": "Remada Curvada com Halteres (Pegada Neutra)",
@@ -377,10 +377,10 @@
       "source_name": "Rosca Alternada com Halteres",
       "target_exercise_id": "e1000001-0000-0000-0000-000000000009",
       "target_name": "Rosca Alternada",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 1,
-      "rationale": "Movimento alternado preservado; halteres são implícitos no candidato."
+      "rationale": "QA biomecânico: o target não confirma halteres; alternância também pode existir em cabos independentes."
     },
     {
       "source_name": "Rosca Direta com Halteres",
@@ -395,10 +395,10 @@
       "source_name": "Rosca Direta na Polia (Barra Reta)",
       "target_exercise_id": "d154f0c1-5df4-4fd4-a487-3cfcaee43988",
       "target_name": "Rosca Direta Polia Barra",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 1,
-      "rationale": "Movimento, polia e barra preservados."
+      "rationale": "QA biomecânico: polia preservada, mas o formato reto da barra não está confirmado."
     },
     {
       "source_name": "Rosca Martelo com Halteres",
@@ -413,10 +413,10 @@
       "source_name": "Rosca Scott Barra H",
       "target_exercise_id": "bf33e722-9da1-4e32-af62-546bb5176c3a",
       "target_name": "Rosca Scott Barra",
-      "status": "approved",
-      "confidence": "high",
+      "status": "blocked",
+      "confidence": "low",
       "occurrences": 1,
-      "rationale": "Movimento Scott e barra preservados; formato H é detalhe."
+      "rationale": "QA biomecânico: barra H implica pegada neutra/paralela, ausente no target; targets musculares do exercício SETT também são incompatíveis e exigem correção/inspeção."
     },
     {
       "source_name": "Stiff Sumô com Barra",
@@ -467,10 +467,10 @@
       "source_name": "Tríceps na Polia com Barra Reta",
       "target_exercise_id": "d06f7cc9-380d-4fb1-9b60-5bd92a25dc22",
       "target_name": "Tríceps Polia Barra",
-      "status": "approved",
-      "confidence": "high",
+      "status": "needs_review",
+      "confidence": "medium",
       "occurrences": 1,
-      "rationale": "Movimento, polia e barra preservados."
+      "rationale": "QA biomecânico: barra reta pode ser substituída por V/W no target genérico, alterando punho e trajetória."
     },
     {
       "source_name": "Tríceps na Polia com Corda",
