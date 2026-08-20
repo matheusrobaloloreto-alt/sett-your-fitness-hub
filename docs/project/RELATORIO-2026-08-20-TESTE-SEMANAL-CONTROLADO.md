@@ -39,3 +39,14 @@ Nenhuma cadência precisa ser restaurada, pois o pacote não a modifica. Se a se
 ## Bloqueio externo atual
 
 O staging não possui o aluno autorizado nem um destinatário/provedor controlado. Por isso nenhum seed real foi criado e nenhum envio foi tentado. Copiar telefone ou conversa de produção para staging seria uma prática insegura; o próximo passo é cadastrar um número de teste controlado no staging ou comprovar que o bundle seguro está implantado em produção antes do canário com Renan.
+
+## Evidência viva de staging
+
+Verificação read-only posterior ao commit confirmou:
+
+- `process-automation-sessions` está ativa na versão 3;
+- o bundle de staging corresponde byte a byte ao HEAD seguro anterior ao modo controlado (`f69eb00`), portanto ainda não contém este novo caminho;
+- `AUTOMATION_CRON_SECRET`, `AUTOMATION_TEST_SECRET`, `EVOLUTION_API_URL` e `EVOLUTION_API_KEY` estão ausentes no staging;
+- nenhum secret, telefone, JID ou identificador privado foi impresso no relatório.
+
+Assim, o staging atual não consegue disparar a automação — o bloqueio ocorre antes do provedor — e ainda precisa de configuração controlada para o canário.
