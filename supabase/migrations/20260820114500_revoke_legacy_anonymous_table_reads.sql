@@ -1,6 +1,12 @@
 -- Production retained direct anonymous SELECT grants on internal student and
 -- workout tables. Browser reads for these relations require an authenticated
 -- user and tenant-bound RLS; server-side public flows use service_role.
+-- Remove the production default that would otherwise grant SELECT to anon on
+-- every future table created by the migration owner. Intentionally public
+-- relations such as platform_settings keep their explicit grants.
+alter default privileges for role postgres in schema public
+  revoke all on tables from anon;
+
 revoke select on table
   public.student_anamneses,
   public.workout_logs,
