@@ -118,6 +118,7 @@ export default function TeamManager() {
   const [editUserEmail, setEditUserEmail] = useState("");
   const [editAuthExists, setEditAuthExists] = useState<boolean | undefined>(undefined);
   const [editRoles, setEditRoles] = useState<string[]>([]);
+  const [editFullDashboard, setEditFullDashboard] = useState(false);
 
   // Performance tab
   const [trainerPerformance, setTrainerPerformance] = useState<TrainerPerformance[]>([]);
@@ -149,7 +150,7 @@ export default function TeamManager() {
   const [allCompanyStudents, setAllCompanyStudents] = useState<Array<{ id: string; full_name: string }>>([]);
 
   const { toast } = useToast();
-  const { companyId, role } = useAuth();
+  const { user, companyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
   // Aba Atividade: só admin/master enxergam entradas/saídas/tempo online dos colaboradores.
@@ -865,13 +866,23 @@ export default function TeamManager() {
     setPasswordDialogOpen(true);
   };
 
-  const openEditDialog = (member: TeamMember) => {
+  const openEditDialog = async (member: TeamMember) => {
     setEditUserId(member.user_id);
     setEditUserName(member.full_name || "");
     setEditUserEmail(member.email || "");
     setEditAuthExists(member.auth_exists);
     setEditRoles([...member.roles]);
+    setEditFullDashboard(false);
     setEditDialogOpen(true);
+    if (!effectiveCompanyId) return;
+    const { data } = await supabase
+      .from("staff_permissions" as any)
+      .select("enabled")
+      .eq("company_id", effectiveCompanyId)
+      .eq("user_id", member.user_id)
+      .eq("permission", "company_dashboard_full")
+      .maybeSingle();
+    setEditFullDashboard(data?.enabled === true);
   };
 
   const toggleEditRole = (role: string) => {
@@ -906,6 +917,22 @@ export default function TeamManager() {
     }
     for (const roleToAdd of rolesToAdd) {
       await supabase.from("user_roles").insert({ user_id: editUserId, role: roleToAdd as Role });
+    }
+    if (effectiveCompanyId && user) {
+      const { error: permissionError } = await supabase
+        .from("staff_permissions" as any)
+        .upsert({
+          company_id: effectiveCompanyId,
+          user_id: editUserId,
+          permission: "company_dashboard_full",
+          enabled: editRoles.includes("trainer") && editFullDashboard,
+          granted_by: user.id,
+        }, { onConflict: "company_id,user_id,permission" });
+      if (permissionError) {
+        setLoading(false);
+        toast({ title: "Papéis salvos, mas a visão empresarial falhou", description: permissionError.message, variant: "destructive" });
+        return;
+      }
     }
     setLoading(false);
     toast({ title: "Membro atualizado!" });
@@ -1119,6 +1146,21 @@ export default function TeamManager() {
                         ))}
                       </div>
                     </div>
+                    {editRoles.includes("trainer") && (
+                      <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-background p-3">
+                        <div>
+                          <Label htmlFor="trainer-company-dashboard" className="font-sans">Visão completa da empresa</Label>
+                          <p className="mt-1 text-xs text-muted-foreground font-sans">
+                            Concessão individual: permite ver matrículas e alertas de toda a empresa. Não altera os demais treinadores.
+                          </p>
+                        </div>
+                        <Switch
+                          id="trainer-company-dashboard"
+                          checked={editFullDashboard}
+                          onCheckedChange={setEditFullDashboard}
+                        />
+                      </div>
+                    )}
                     <Button onClick={handleSaveEdit} className="w-full" disabled={loading || editRoles.length === 0}>
                       {loading ? "Salvando..." : "Salvar Alterações"}
                     </Button>
