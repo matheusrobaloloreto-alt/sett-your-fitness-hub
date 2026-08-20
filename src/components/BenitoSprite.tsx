@@ -1,16 +1,19 @@
 /* eslint-disable react-refresh/only-export-components -- deterministic sprite contracts are intentionally co-located for consumers and tests. */
 
 import {
+  useCallback,
   useEffect,
   useRef,
-  useState,
   useSyncExternalStore,
   type CSSProperties,
 } from "react";
 import { BrainCircuit } from "lucide-react";
 
 export const BENITO_ATLAS_PATH = "/pets/benito-v2/spritesheet.webp";
+export const BENITO_COMPACT_ATLAS_PATH = "/pets/benito-v2/spritesheet-compact.webp";
 export const BENITO_FALLBACK_LABEL = "Benito";
+export const BENITO_COMPACT_MAX_WIDTH = 48;
+export const BENITO_STATIC_ICON_MAX_WIDTH = 28;
 
 export const BENITO_ATLAS = {
   columns: 8,
@@ -134,6 +137,12 @@ export function getBenitoDisplayHeight(width: number): number {
   return width * (BENITO_ATLAS.cellHeight / BENITO_ATLAS.cellWidth);
 }
 
+export function getBenitoAtlasPath(width: number): string {
+  return width <= BENITO_COMPACT_MAX_WIDTH
+    ? BENITO_COMPACT_ATLAS_PATH
+    : BENITO_ATLAS_PATH;
+}
+
 export function getBenitoSpriteStyle({
   state,
   frame,
@@ -143,11 +152,12 @@ export function getBenitoSpriteStyle({
   const height = getBenitoDisplayHeight(safeWidth);
   const animation = BENITO_ANIMATIONS[state];
   const safeFrame = Math.max(0, Math.trunc(frame)) % animation.frameCount;
+  const atlasPath = getBenitoAtlasPath(safeWidth);
 
   return {
     width: safeWidth,
     height,
-    backgroundImage: `url("${BENITO_ATLAS_PATH}")`,
+    backgroundImage: `url("${atlasPath}")`,
     backgroundRepeat: "no-repeat",
     backgroundSize: `${safeWidth * BENITO_ATLAS.columns}px ${height * BENITO_ATLAS.rows}px`,
     backgroundPosition: `${-safeFrame * safeWidth}px ${-animation.row * height}px`,
@@ -156,10 +166,10 @@ export function getBenitoSpriteStyle({
 
 type AtlasStatus = "idle" | "loading" | "loaded" | "error";
 
-let atlasStatus: AtlasStatus = "idle";
-let atlasRetryCount = 0;
 const MAX_ATLAS_RETRIES = 2;
 const atlasListeners = new Set<() => void>();
+const atlasStatuses = new Map<string, AtlasStatus>();
+const atlasRetryCounts = new Map<string, number>();
 
 function emitAtlasStatus(): void {
   atlasListeners.forEach((listener) => listener());
@@ -170,40 +180,121 @@ function subscribeToAtlas(listener: () => void): () => void {
   return () => atlasListeners.delete(listener);
 }
 
-function getAtlasStatus(): AtlasStatus {
-  return atlasStatus;
+function getAtlasStatus(path: string): AtlasStatus {
+  return atlasStatuses.get(path) ?? "idle";
 }
 
 function getServerAtlasStatus(): AtlasStatus {
   return "loading";
 }
 
-function preloadAtlas(): void {
+function preloadAtlas(path: string): void {
   if (typeof window === "undefined" || typeof window.Image === "undefined") return;
-  if (atlasStatus !== "idle") return;
+  if (getAtlasStatus(path) !== "idle") return;
 
-  atlasStatus = "loading";
+  atlasStatuses.set(path, "loading");
   emitAtlasStatus();
 
   const image = new window.Image();
   image.onload = () => {
-    atlasRetryCount = 0;
-    atlasStatus = "loaded";
+    atlasRetryCounts.set(path, 0);
+    atlasStatuses.set(path, "loaded");
     emitAtlasStatus();
   };
   image.onerror = () => {
-    atlasStatus = "error";
+    atlasStatuses.set(path, "error");
     emitAtlasStatus();
   };
-  image.src = BENITO_ATLAS_PATH;
+  image.src = path;
 }
 
-function retryAtlas(): void {
-  if (atlasStatus !== "error" || atlasRetryCount >= MAX_ATLAS_RETRIES) return;
-  atlasRetryCount += 1;
-  atlasStatus = "idle";
+function retryAtlas(path: string): void {
+  const retryCount = atlasRetryCounts.get(path) ?? 0;
+  if (getAtlasStatus(path) !== "error" || retryCount >= MAX_ATLAS_RETRIES) return;
+  atlasRetryCounts.set(path, retryCount + 1);
+  atlasStatuses.set(path, "idle");
   emitAtlasStatus();
-  preloadAtlas();
+  preloadAtlas(path);
+}
+
+const FRAME_CLOCK_INTERVAL_MS = 100;
+const frameClockListeners = new Set<() => void>();
+let frameClockNow = Date.now();
+let frameClockTimer: ReturnType<typeof setTimeout> | undefined;
+
+function stopFrameClock(): void {
+  if (frameClockTimer !== undefined) clearTimeout(frameClockTimer);
+  frameClockTimer = undefined;
+}
+
+function scheduleFrameClock(): void {
+  if (frameClockTimer !== undefined || frameClockListeners.size === 0) return;
+  frameClockTimer = setTimeout(() => {
+    frameClockTimer = undefined;
+    frameClockNow = Date.now();
+    frameClockListeners.forEach((listener) => listener());
+    scheduleFrameClock();
+  }, FRAME_CLOCK_INTERVAL_MS);
+}
+
+function subscribeToFrameClock(listener: () => void): () => void {
+  frameClockListeners.add(listener);
+  scheduleFrameClock();
+  return () => {
+    frameClockListeners.delete(listener);
+    if (frameClockListeners.size === 0) stopFrameClock();
+  };
+}
+
+function getFrameClockSnapshot(): number {
+  return frameClockNow;
+}
+
+function getServerFrameClockSnapshot(): number {
+  return 0;
+}
+
+function subscribeToStaticClock(): () => void {
+  return () => undefined;
+}
+
+function getStaticClockSnapshot(): number {
+  return 0;
+}
+
+function useBenitoAnimationClock(enabled: boolean): number {
+  return useSyncExternalStore(
+    enabled ? subscribeToFrameClock : subscribeToStaticClock,
+    enabled ? getFrameClockSnapshot : getStaticClockSnapshot,
+    getServerFrameClockSnapshot,
+  );
+}
+
+export function getBenitoFrameAtElapsedTime(
+  state: BenitoState,
+  elapsedMs: number,
+): number {
+  const animation = BENITO_ANIMATIONS[state];
+  const totalDuration = animation.durations.reduce((sum, duration) => sum + duration, 0);
+  let cursor = Math.max(0, elapsedMs) % totalDuration;
+
+  for (let frame = 0; frame < animation.frameCount; frame += 1) {
+    const duration = animation.durations[frame];
+    if (cursor < duration) return frame;
+    cursor -= duration;
+  }
+
+  return 0;
+}
+
+/** Test-only reset for module-level preload and shared-clock state. */
+export function resetBenitoRuntimeForTests(): void {
+  stopFrameClock();
+  frameClockListeners.clear();
+  atlasListeners.clear();
+  atlasStatuses.clear();
+  atlasRetryCounts.clear();
+  frameClockNow = Date.now();
 }
 
 function subscribeToReducedMotion(listener: () => void): () => void {
@@ -266,71 +357,61 @@ export function BenitoSprite({
   );
   const label = ariaLabelAttribute ?? ariaLabel ?? alt ?? BENITO_FALLBACK_LABEL;
   const decorative = label === "";
+  const safeDisplayWidth =
+    Number.isFinite(displayWidth) && displayWidth > 0 ? displayWidth : BENITO_ATLAS.cellWidth;
+  const atlasPath = getBenitoAtlasPath(safeDisplayWidth);
+  const getSelectedAtlasStatus = useCallback(() => getAtlasStatus(atlasPath), [atlasPath]);
   const atlas = useSyncExternalStore(
     subscribeToAtlas,
-    getAtlasStatus,
+    getSelectedAtlasStatus,
     getServerAtlasStatus,
   );
   const prefersReducedMotion = useReducedMotion(reducedMotion);
-  const [frame, setFrame] = useState(0);
-  const frameRef = useRef(0);
-  const previousStateRef = useRef(state);
+  const animationEnabled =
+    atlas === "loaded" &&
+    safeDisplayWidth > BENITO_STATIC_ICON_MAX_WIDTH &&
+    shouldAnimateBenito({ paused, reducedMotion: prefersReducedMotion });
+  const clock = useBenitoAnimationClock(animationEnabled);
+  const animationOriginRef = useRef({
+    state,
+    atlasPath,
+    enabled: animationEnabled,
+    startedAt: clock,
+  });
 
   useEffect(() => {
-    preloadAtlas();
-  }, []);
+    preloadAtlas(atlasPath);
+  }, [atlasPath]);
 
   useEffect(() => {
-    if (atlas !== "error" || atlasRetryCount >= MAX_ATLAS_RETRIES) return;
-    const retryTimer = window.setTimeout(retryAtlas, 1200);
+    const retryCount = atlasRetryCounts.get(atlasPath) ?? 0;
+    if (atlas !== "error" || retryCount >= MAX_ATLAS_RETRIES) return;
+    const retryTimer = window.setTimeout(() => retryAtlas(atlasPath), 1200);
     return () => window.clearTimeout(retryTimer);
-  }, [atlas]);
+  }, [atlas, atlasPath]);
 
-  useEffect(() => {
-    const animation = BENITO_ANIMATIONS[state];
-    const stateChanged = previousStateRef.current !== state;
-    previousStateRef.current = state;
-
-    if (stateChanged && restartOnStateChange) {
-      frameRef.current = 0;
-      setFrame(0);
-    } else if (frameRef.current >= animation.frameCount) {
-      frameRef.current %= animation.frameCount;
-      setFrame(frameRef.current);
-    }
-
-    if (prefersReducedMotion) {
-      frameRef.current = 0;
-      setFrame(0);
-      return;
-    }
-
-    if (atlas !== "loaded") return;
-    if (!shouldAnimateBenito({ paused, reducedMotion: prefersReducedMotion })) return;
-
-    let active = true;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-
-    const scheduleNextFrame = () => {
-      const currentFrame = frameRef.current % animation.frameCount;
-      timeout = setTimeout(() => {
-        if (!active) return;
-        frameRef.current = (currentFrame + 1) % animation.frameCount;
-        setFrame(frameRef.current);
-        scheduleNextFrame();
-      }, animation.durations[currentFrame]);
+  const origin = animationOriginRef.current;
+  const stateChanged = origin.state !== state || origin.atlasPath !== atlasPath;
+  const animationStarted = !origin.enabled && animationEnabled;
+  if ((stateChanged && restartOnStateChange) || animationStarted) {
+    animationOriginRef.current = {
+      state,
+      atlasPath,
+      enabled: animationEnabled,
+      startedAt: clock,
     };
+  } else {
+    origin.state = state;
+    origin.atlasPath = atlasPath;
+    origin.enabled = animationEnabled;
+  }
 
-    scheduleNextFrame();
-
-    return () => {
-      active = false;
-      if (timeout !== undefined) clearTimeout(timeout);
-    };
-  }, [atlas, paused, prefersReducedMotion, restartOnStateChange, state]);
-
-  const safeDisplayWidth =
-    Number.isFinite(displayWidth) && displayWidth > 0 ? displayWidth : BENITO_ATLAS.cellWidth;
+  const frame = animationEnabled
+    ? getBenitoFrameAtElapsedTime(
+        state,
+        Math.max(0, clock - animationOriginRef.current.startedAt),
+      )
+    : 0;
   const commonProps = decorative
     ? { "aria-hidden": true as const }
     : { role: "img", "aria-label": label };

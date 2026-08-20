@@ -1,5 +1,7 @@
 {
-  "ok": true,
+  "ok": false,
+  "deterministicValidationOk": true,
+  "releaseGate": "pending_independent_visual_rereview",
   "spriteVersionNumber": 2,
   "run_dir": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final",
   "spritesheet": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/final/spritesheet-extended.webp",
@@ -10,6 +12,7 @@
   "direction_semantics": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/direction-semantics.json",
   "blind_direction_validation": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/direction-blind-validation.json",
   "blind_review_resolution": null,
+  "independent_review_request": "docs/qa/benito-v2/independent-review-request.json",
   "continuity": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/look-continuity.json",
   "review": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/review.json",
   "package": "/Users/macbookpro/.codex/pets/benito"

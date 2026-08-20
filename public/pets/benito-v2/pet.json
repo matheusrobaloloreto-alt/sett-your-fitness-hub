@@ -3,5 +3,7 @@
   "displayName": "Benito",
   "description": "Mascote-halter 3D azul-marinho, creme e dourado, companheiro técnico de professores e alunos do SETT.",
   "spriteVersionNumber": 2,
-  "spritesheetPath": "spritesheet.webp"
+  "spritesheetPath": "spritesheet.webp",
+  "compactSpritesheetPath": "spritesheet-compact.webp",
+  "compactMaxDisplayWidth": 48
 }

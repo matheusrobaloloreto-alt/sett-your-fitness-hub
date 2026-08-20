@@ -1,15 +1,56 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BENITO_ANIMATIONS,
   BENITO_ATLAS,
   BENITO_ATLAS_PATH,
+  BENITO_COMPACT_ATLAS_PATH,
   BenitoSprite,
+  getBenitoAtlasPath,
   getBenitoDisplayHeight,
+  getBenitoFrameAtElapsedTime,
   getBenitoSpriteStyle,
+  resetBenitoRuntimeForTests,
   shouldAnimateBenito,
   type BenitoState,
 } from "./BenitoSprite";
+
+class MockImage {
+  static instances: MockImage[] = [];
+
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  src = "";
+
+  constructor() {
+    MockImage.instances.push(this);
+  }
+}
+
+const RealImage = window.Image;
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-08-20T12:00:00.000Z"));
+  MockImage.instances = [];
+  resetBenitoRuntimeForTests();
+  Object.defineProperty(window, "Image", {
+    configurable: true,
+    writable: true,
+    value: MockImage,
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  resetBenitoRuntimeForTests();
+  Object.defineProperty(window, "Image", {
+    configurable: true,
+    writable: true,
+    value: RealImage,
+  });
+  vi.useRealTimers();
+});
 
 describe("BENITO_ANIMATIONS", () => {
   it("maps product states to the exact hatch-pet standard rows", () => {
@@ -100,6 +141,19 @@ describe("getBenitoSpriteStyle", () => {
       backgroundPosition: "-192px -1664px",
     });
   });
+
+  it("selects the compact atlas for 16–48px placements", () => {
+    expect(getBenitoAtlasPath(16)).toBe(BENITO_COMPACT_ATLAS_PATH);
+    expect(getBenitoAtlasPath(42)).toBe(BENITO_COMPACT_ATLAS_PATH);
+    expect(getBenitoAtlasPath(48)).toBe(BENITO_COMPACT_ATLAS_PATH);
+    expect(getBenitoAtlasPath(49)).toBe(BENITO_ATLAS_PATH);
+
+    expect(getBenitoSpriteStyle({ state: "waiting", frame: 2, width: 42 })).toMatchObject({
+      backgroundImage: `url("${BENITO_COMPACT_ATLAS_PATH}")`,
+      backgroundSize: "336px 500.5px",
+      backgroundPosition: "-84px -273px",
+    });
+  });
 });
 
 describe("animation and fallback contracts", () => {
@@ -126,5 +180,87 @@ describe("animation and fallback contracts", () => {
       "aria-hidden",
       "true",
     );
+  });
+
+  it("switches from loading fallback to the decoded compact atlas on load", () => {
+    const { container } = render(
+      <BenitoSprite state="greeting" width={42} alt="Benito saudando" />,
+    );
+
+    expect(MockImage.instances).toHaveLength(1);
+    expect(MockImage.instances[0].src).toBe(BENITO_COMPACT_ATLAS_PATH);
+    expect(container.querySelector('[data-benito-fallback="loading"]')).toBeInTheDocument();
+
+    act(() => MockImage.instances[0].onload?.());
+
+    expect(container.querySelector("[data-benito-fallback]")).not.toBeInTheDocument();
+    expect(container.querySelector('[data-benito-frame="0"]')).toBeInTheDocument();
+  });
+
+  it("uses one shared timer for multiple animated sprites", () => {
+    const { container } = render(
+      <>
+        <BenitoSprite state="greeting" width={42} alt="Benito um" />
+        <BenitoSprite state="greeting" width={42} alt="Benito dois" />
+      </>,
+    );
+
+    expect(MockImage.instances).toHaveLength(1);
+    act(() => MockImage.instances[0].onload?.());
+    expect(vi.getTimerCount()).toBe(1);
+
+    act(() => vi.advanceTimersByTime(300));
+    expect(container.querySelectorAll('[data-benito-frame="2"]')).toHaveLength(2);
+  });
+
+  it("keeps 16px and 28px secondary icons static without a clock", () => {
+    const { container } = render(
+      <>
+        <BenitoSprite state="processing" width={16} alt="Benito pequeno" />
+        <BenitoSprite state="alert" width={28} alt="Benito alerta" />
+      </>,
+    );
+
+    act(() => MockImage.instances[0].onload?.());
+
+    expect(container.querySelectorAll('[data-benito-frame="0"]')).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("restarts at frame zero when the state changes", () => {
+    const { container, rerender } = render(
+      <BenitoSprite state="greeting" width={42} alt="Benito" />,
+    );
+    act(() => MockImage.instances[0].onload?.());
+    act(() => vi.advanceTimersByTime(200));
+    expect(container.querySelector('[data-benito-frame="1"]')).toBeInTheDocument();
+
+    rerender(<BenitoSprite state="success" width={42} alt="Benito" />);
+    expect(container.querySelector('[data-benito-frame="0"]')).toBeInTheDocument();
+  });
+
+  it("retries atlas errors twice and then keeps an explicit error fallback", () => {
+    const { container } = render(
+      <BenitoSprite state="idle" width={42} alt="Benito" />,
+    );
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      act(() => MockImage.instances[attempt].onerror?.());
+      if (attempt < 2) {
+        act(() => vi.advanceTimersByTime(1200));
+      }
+    }
+
+    expect(MockImage.instances).toHaveLength(3);
+    expect(container.querySelector('[data-benito-fallback="error"]')).toBeInTheDocument();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("calculates variable-duration frames deterministically", () => {
+    expect(getBenitoFrameAtElapsedTime("greeting", 0)).toBe(0);
+    expect(getBenitoFrameAtElapsedTime("greeting", 139)).toBe(0);
+    expect(getBenitoFrameAtElapsedTime("greeting", 140)).toBe(1);
+    expect(getBenitoFrameAtElapsedTime("greeting", 420)).toBe(3);
+    expect(getBenitoFrameAtElapsedTime("greeting", 700)).toBe(0);
   });
 });
