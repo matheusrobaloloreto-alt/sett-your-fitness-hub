@@ -89,6 +89,20 @@ UUID. The rollback-only staging contract proves:
    backend provenance before deployment.
 7. Run authenticated staff/student smoke tests and provider fail-closed checks.
 
+## Frozen-package validation before independent QA
+
+- TypeScript: PASS, 0 errors.
+- ESLint: PASS, 0 errors / 48 historical warnings.
+- Vitest excluding the known symlink/Vite allowlist PDF-worker environment
+  failure: **61 files / 449 tests PASS**.
+- The unfiltered run reaches the same 449 passing tests and fails only while
+  importing `dietPdf.test.ts` from the shared external `node_modules` symlink;
+  the production build resolves and bundles that worker successfully.
+- Production-backend provenance build: PASS.
+- Isolated-staging provenance/sanitization build: PASS.
+- Cloud staging contracts: RLS, security catalog/ACL, wearable concurrency and
+  trainer-history drift guard all PASS with rollback-clean synthetic data.
+
 ## Rollback
 
 - Database: preserve the pre-release logical backup and prior definitions. For
