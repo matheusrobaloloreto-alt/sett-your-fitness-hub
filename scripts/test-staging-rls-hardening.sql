@@ -2,16 +2,15 @@
 
 begin;
 
-create or replace function pg_temp.assert_tenant_count(
-  expected_count integer,
-  actor_label text
-) returns void
-language plpgsql
-set search_path = pg_catalog, pg_temp
-as $$
+create temporary table rls_baseline_counts (
+  table_name text primary key,
+  row_count integer not null
+) on commit drop;
+
+do $$
 declare
   table_name text;
-  actual_count integer;
+  baseline_count integer;
 begin
   foreach table_name in array array[
     'students',
@@ -32,10 +31,57 @@ begin
     'enrollments'
   ] loop
     execute format('select count(*) from public.%I', table_name)
+      into baseline_count;
+    insert into rls_baseline_counts values (table_name, baseline_count);
+  end loop;
+end;
+$$;
+
+grant select on rls_baseline_counts to authenticated;
+
+create or replace function pg_temp.assert_tenant_count(
+  expected_count integer,
+  actor_label text,
+  include_baseline boolean default false
+) returns void
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+  current_table_name text;
+  actual_count integer;
+  effective_expected integer;
+begin
+  foreach current_table_name in array array[
+    'students',
+    'student_anamneses',
+    'functional_assessments',
+    'assessment_frames',
+    'running_plans',
+    'ai_strength_plans',
+    'nutrition_plans',
+    'prescription_bundles',
+    'student_goals',
+    'cycle_feedback',
+    'body_measurements',
+    'external_activities',
+    'workout_feedback',
+    'student_checkins',
+    'workout_sessions',
+    'enrollments'
+  ] loop
+    execute format('select count(*) from public.%I', current_table_name)
       into actual_count;
-    if actual_count <> expected_count then
+    effective_expected := expected_count;
+    if include_baseline then
+      select effective_expected + baseline.row_count
+        into effective_expected
+      from rls_baseline_counts baseline
+      where baseline.table_name = current_table_name;
+    end if;
+    if actual_count <> effective_expected then
       raise exception '% expected % visible rows in %, got %',
-        actor_label, expected_count, table_name, actual_count;
+        actor_label, effective_expected, current_table_name, actual_count;
     end if;
   end loop;
 end;
@@ -210,7 +256,7 @@ select pg_temp.assert_tenant_count(1, 'staff B');
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"10000000-0000-0000-0000-000000000006","role":"authenticated"}', true);
-select pg_temp.assert_tenant_count(3, 'master');
+select pg_temp.assert_tenant_count(3, 'master', true);
 
 -- Direct student self-service updates remain functional, but protected columns
 -- and Student B UUID poisoning are rejected.
