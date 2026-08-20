@@ -1,9 +1,12 @@
 import {
   allowedOrigins,
   ApiError,
+  assertPersistentUploadQuota,
+  expiredReservationNames,
   isAllowedOrigin,
   MAX_RECORDING_BYTES,
   parseRecordingSignInput,
+  recordingRemovalPaths,
   ReplayGuard,
   requireAuthenticatedUser,
   safeSecretEqual,
@@ -196,4 +199,51 @@ Deno.test("service secret comparison is fail-closed", async () => {
   assert(await safeSecretEqual("same-secret", "same-secret"));
   assert(!await safeSecretEqual("same-secret", "different-secret"));
   assert(!await safeSecretEqual("", ""));
+});
+
+Deno.test("quota persistente continua bloqueando depois que a fila bruta foi drenada", async () => {
+  const now = Date.parse("2026-08-20T12:00:00.000Z");
+  const attempts = Array.from({ length: 401 }, (_, index) => ({
+    name: `${String(index).padStart(8, "0")}-0000-4000-8000-000000000000.mp4`,
+    created_at: "2026-08-20T11:30:00.000Z",
+  }));
+
+  await expectApiError(
+    () => assertPersistentUploadQuota(attempts, 0, now),
+    429,
+    "upload_quota_exceeded",
+  );
+});
+
+Deno.test("quota falha fechada quando o storage não informa timestamp confiável", async () => {
+  await expectApiError(
+    () =>
+      assertPersistentUploadQuota([{
+        name: "11111111-1111-4111-8111-111111111111.mp4",
+        created_at: null,
+      }], 0),
+    503,
+    "quota_ledger_invalid",
+  );
+});
+
+Deno.test("limpeza explícita do ledger remove apenas reservas órfãs expiradas", () => {
+  const now = Date.parse("2026-08-20T12:00:00.000Z");
+  const expired = "11111111-1111-4111-8111-111111111111.mp4";
+  const recent = "22222222-2222-4222-8222-222222222222.mp4";
+  const names = expiredReservationNames([
+    { name: expired, created_at: "2026-08-11T11:59:59.000Z" },
+    { name: recent, created_at: "2026-08-20T11:00:00.000Z" },
+    { name: "não-é-reserva.txt", created_at: "2026-08-01T00:00:00.000Z" },
+  ], now);
+
+  assert(names.length === 1);
+  assert(names[0] === expired);
+});
+
+Deno.test("drenagem da triagem preserva a reserva do ledger", () => {
+  const raw = "001__0123456789abcdef__11111111-1111-4111-8111-111111111111.mp4";
+  const paths = recordingRemovalPaths([raw]);
+  assert(paths.length === 1);
+  assert(paths[0] === raw);
 });

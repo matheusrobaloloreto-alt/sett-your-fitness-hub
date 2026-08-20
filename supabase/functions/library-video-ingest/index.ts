@@ -11,11 +11,14 @@ import recordingExerciseAllowlist from "./recording-exercise-allowlist.json" wit
 import {
   allowedOrigins,
   ApiError,
+  assertPersistentUploadQuota,
   corsHeaders,
+  expiredReservationNames,
   isAllowedOrigin,
   MAX_JSON_BYTES,
   parseCsvSet,
   parseRecordingSignInput,
+  recordingRemovalPaths,
   ReplayGuard,
   requireAuthenticatedUser,
   safeSecretEqual,
@@ -23,8 +26,6 @@ import {
   SIGN_REQUESTS_PER_MINUTE,
   SlidingWindowLimiter,
   STAGING_QUEUE_LIMIT,
-  UPLOADS_PER_DAY,
-  UPLOADS_PER_HOUR,
   validateFinalAsset,
   validateStagingBucketPolicy,
 } from "./security.ts";
@@ -360,28 +361,10 @@ async function signRecording(
       "Não foi possível validar a cota de gravações.",
     );
   }
-  const now = Date.now();
-  const attempts = (reservations || []).filter((item) =>
-    /^[0-9a-f-]{36}\.mp4$/i.test(item.name)
+  assertPersistentUploadQuota(
+    reservations || [],
+    operatorUploads.length,
   );
-  const inHour =
-    attempts.filter((item) =>
-      now - Date.parse(item.created_at || "") < 60 * 60 * 1000
-    ).length;
-  const inDay =
-    attempts.filter((item) =>
-      now - Date.parse(item.created_at || "") < 24 * 60 * 60 * 1000
-    ).length;
-  if (
-    inHour > UPLOADS_PER_HOUR || inDay > UPLOADS_PER_DAY ||
-    operatorUploads.length >= UPLOADS_PER_DAY
-  ) {
-    throw new ApiError(
-      429,
-      "upload_quota_exceeded",
-      "Limite de gravações atingido. Aguarde antes de continuar.",
-    );
-  }
 
   const { data, error } = await admin.storage.from(STAGING_BUCKET)
     .createSignedUploadUrl(path, { upsert: false });
@@ -487,14 +470,9 @@ async function removeRecordings(
       "Lista de gravações inválida.",
     );
   }
-  const reservations = names.map((name) => {
-    const match = name.match(STAGING_NAME_RE)!;
-    return `_requests/${match[2]}/${match[3]}.mp4`;
-  });
-  const { error } = await admin.storage.from(STAGING_BUCKET).remove([
-    ...names,
-    ...reservations,
-  ]);
+  const { error } = await admin.storage.from(STAGING_BUCKET).remove(
+    recordingRemovalPaths(names),
+  );
   if (error) {
     throw new ApiError(
       503,
@@ -503,6 +481,55 @@ async function removeRecordings(
     );
   }
   return response(req, { removed: names.length });
+}
+
+async function pruneRecordingLedger(
+  req: Request,
+  body: Record<string, unknown>,
+  admin: ReturnType<typeof adminClient>,
+) {
+  const operatorTags = Array.isArray(body.operator_tags)
+    ? [...new Set(body.operator_tags.map(String))]
+    : [];
+  if (
+    !operatorTags.length || operatorTags.length > 100 ||
+    operatorTags.some((tag) => !/^[0-9a-f]{16}$/i.test(tag))
+  ) {
+    throw new ApiError(
+      400,
+      "invalid_operator_tags",
+      "Lista de operadores inválida.",
+    );
+  }
+  let removed = 0;
+  for (const operatorTag of operatorTags) {
+    const prefix = `_requests/${operatorTag}`;
+    const { data, error } = await admin.storage.from(STAGING_BUCKET).list(
+      prefix,
+      { limit: 1000, sortBy: { column: "created_at", order: "asc" } },
+    );
+    if (error) {
+      throw new ApiError(
+        503,
+        "ledger_list_failed",
+        "Não foi possível consultar o ledger de gravações.",
+      );
+    }
+    const expired = expiredReservationNames(data || []);
+    if (!expired.length) continue;
+    const paths = expired.map((name) => `${prefix}/${name}`);
+    const { error: removeError } = await admin.storage.from(STAGING_BUCKET)
+      .remove(paths);
+    if (removeError) {
+      throw new ApiError(
+        503,
+        "ledger_prune_failed",
+        "Não foi possível limpar o ledger expirado.",
+      );
+    }
+    removed += paths.length;
+  }
+  return response(req, { removed });
 }
 
 async function coverage(req: Request, admin: ReturnType<typeof adminClient>) {
@@ -668,6 +695,9 @@ Deno.serve(async (req) => {
     if (action === "list-recordings") return await listRecordings(req, admin);
     if (action === "remove-recordings") {
       return await removeRecordings(req, body, admin);
+    }
+    if (action === "prune-recording-ledger") {
+      return await pruneRecordingLedger(req, body, admin);
     }
     if (action === "list") return await listLibrary(req, admin);
     if (action === "coverage") return await coverage(req, admin);
