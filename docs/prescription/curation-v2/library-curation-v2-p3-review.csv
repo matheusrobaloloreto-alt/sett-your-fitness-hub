@@ -1,0 +1,2 @@
+"exercise_id","exercise_name","priority","target_count","current_targets","targets_review_status","safety_review_status","media_review_status","youtube_video_id","queue_reason","reviewer_name","reviewed_at","decision_reason","evidence","ready_for_upsert"
+"c36dcbec-494a-4240-bbb3-c8098ae7902e","Face Pull Polia Alta","P3","2","Deltoide Posterior:primary:1 | Trapézio:secondary:0.5","not_in_scope","not_in_scope","needs_review","kamdxk0L4Yw","duplicate_video_cluster","","","","","false"
