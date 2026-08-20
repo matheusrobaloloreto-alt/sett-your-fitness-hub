@@ -146,3 +146,9 @@ Validação local: **35/35 testes** do migrador. A fila média permanece com 52 
 O Chrome autenticado foi reaberto em modo read-only e o vídeo de `Elevação de Quadril Unilateral` foi inspecionado quadro a quadro. A demonstração mostra ponte de glúteo unilateral no solo, sem implemento e com uma perna elevada; movimento, suporte, lateralidade e configuração correspondem ao alvo `Ponte de glúteo unilateral` do SETT. O alias foi promovido a `approved/high` com evidência e revisão independente.
 
 Estado projetado do próximo dry-run: 40 aliases executáveis, 171/313 nomes resolvidos e 142 ainda sem resolução. A fila de evidência continua com 52 registros históricos, mas apenas 51 seguem pendentes de decisão e 50 ainda não possuem mídia MFIT observada. Os números operacionais continuam condicionados à repetição do dry-run real com os snapshots privados.
+
+### Segundo lote visual read-only
+
+Foram coletadas demonstrações adicionais para `Mobilidade de Tornozelo Semi Ajoelhado` e `Abdução de Quadril Máquina`. A primeira mostra avanço do joelho sobre o pé em posição semi-ajoelhada, sem implemento; a segunda mostra abdução bilateral sentada em máquina, com quadril próximo de 90°. As duas evidências apoiam os alvos propostos, mas permanecem `runtime_eligible=false` e `independent_review_status=pending` até um segundo revisor confirmar a equivalência.
+
+A fila agora contém mídia MFIT em 4/52 itens; 48 ainda não têm mídia observada. Como nenhuma das duas novas linhas foi promovida, a projeção executável permanece em 40 aliases, 171/313 nomes resolvidos e 142 não resolvidos.

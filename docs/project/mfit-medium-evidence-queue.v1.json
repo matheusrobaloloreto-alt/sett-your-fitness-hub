@@ -24,8 +24,8 @@
     "P0": 7,
     "P1": 9,
     "P2": 36,
-    "with_mfit_media_evidence": 2,
-    "needs_more_evidence": 50
+    "with_mfit_media_evidence": 4,
+    "needs_more_evidence": 48
   },
   "items": [
     {
@@ -35,10 +35,16 @@
       "occurrences": 14,
       "priority": "P0",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "awaiting_independent_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Nota MFIT confirma máquina abdutora; ângulo 90° é inferido e exige revisão.",
-      "mfit_media_evidence": null,
+      "blocker": "A demonstração visual confirma abdução de quadril sentada em máquina com quadril próximo de 90°; segundo revisor ainda precisa confirmar a configuração do alvo SETT.",
+      "mfit_media_evidence": {
+        "video_url": "https://vd.mfitpersonal.com.br/515/mp4/515.mp4",
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/515/jpg/md/515_md.0000000.jpg",
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Abdução bilateral de quadril sentada em cadeira abdutora, com tronco apoiado e quadril próximo de 90°."
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -49,6 +55,8 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "pending",
       "runtime_eligible": false
     },
     {
@@ -224,10 +232,16 @@
       "occurrences": 6,
       "priority": "P1",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "awaiting_independent_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Região e objetivo preservados; posição semi-ajoelhada não consta no SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "A demonstração visual confirma avanço semi-ajoelhado com dorsiflexão do tornozelo, sem implemento; segundo revisor ainda precisa confirmar que o alvo SETT genérico preserva a execução.",
+      "mfit_media_evidence": {
+        "video_url": "https://vd.mfitpersonal.com.br/v2/1061/mp4/1061_opt.mp4",
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/v2/1061/jpg/md/1061_md.0000001.jpg",
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Mobilidade de tornozelo em posição semi-ajoelhada, com avanço do joelho sobre o pé, sem implemento."
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -238,6 +252,8 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "pending",
       "runtime_eligible": false
     },
     {
