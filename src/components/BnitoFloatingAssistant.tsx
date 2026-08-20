@@ -173,6 +173,9 @@ export function BnitoContextButton({ label, context, question, className, text, 
   // White-label: troca "BNITO" literal (rótulo legado) pelo nome da empresa nos textos visíveis.
   const displayText = text ? text.replace(/BNITO/gi, name) : text;
   const displayLabel = label.replace(/BNITO/gi, name);
+  const buttonClassName = text
+    ? `h-8 rounded-full border border-navy/15 bg-background/80 px-3 text-xs text-navy shadow-sm hover:bg-navy hover:text-primary-foreground ${className || ""}`
+    : `h-8 w-8 p-0 text-navy hover:bg-transparent ${className || ""}`;
 
   return (
     <Tooltip>
@@ -181,7 +184,7 @@ export function BnitoContextButton({ label, context, question, className, text, 
           type="button"
           variant="ghost"
           size={text ? "sm" : "icon"}
-          className={`rounded-full border border-navy/15 bg-background/80 text-navy shadow-sm hover:bg-navy hover:text-primary-foreground ${text ? "h-8 px-3 text-xs" : "h-8 w-8"} ${className || ""}`}
+          className={buttonClassName}
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -420,6 +423,7 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
             <TooltipTrigger asChild>
               <button
                 type="button"
+                data-benito-fab="professor"
                 aria-label={`Abrir ${name}`}
                 onPointerDown={startDrag}
                 onClick={() => {
@@ -431,11 +435,9 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
                   openBnito();
                 }}
                 style={{ left: buttonPosition.x, top: buttonPosition.y, touchAction: "none" }}
-                className="fixed z-40 flex h-16 w-16 cursor-grab items-center justify-center rounded-full border border-white/60 bg-navy text-primary-foreground shadow-[0_18px_45px_rgba(29,45,92,0.32)] ring-8 ring-navy/10 transition duration-200 active:cursor-grabbing hover:bg-navy/95 focus:outline-none focus:ring-4 focus:ring-ring focus:ring-offset-2"
+                className="fixed z-40 flex h-16 w-16 cursor-grab items-center justify-center p-0 text-navy outline-none transition-transform duration-200 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
               >
-                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/45 bg-white/10">
-                  <BenitoSprite state={petState} size={42} alt="" />
-                </span>
+                <BenitoSprite state={petState} size={42} alt="" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="left">{`Abrir ${name}`}</TooltipContent>
@@ -444,7 +446,7 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
           <DialogContent className="flex max-h-[88dvh] w-[calc(100vw-1.5rem)] max-w-2xl flex-col gap-0 overflow-hidden rounded-[24px] border-line bg-paper p-0 shadow-2xl [&>button]:rounded-full">
             <DialogHeader className="shrink-0 border-b border-line bg-background px-5 py-4 text-left">
           <div className="flex items-start gap-3 pr-8">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-navy text-primary-foreground shadow-md">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center text-navy">
               <BenitoSprite state={petState} size={42} alt="" />
             </div>
             <div className="min-w-0">

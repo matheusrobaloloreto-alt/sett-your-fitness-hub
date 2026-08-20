@@ -10,9 +10,18 @@ test("Benito v2 remains legible in a 390x844 assistant layout", async ({ page })
   const cards = page.locator(".state");
   await expect(cards).toHaveCount(9);
   await expect(page.locator(".assistant")).toBeInViewport();
-  await expect(page.locator(".fab")).toBeInViewport();
+  const professorFab = page.locator('[data-role="professor"]');
+  const studentFab = page.locator('[data-role="student"]');
+  for (const fab of [professorFab, studentFab]) {
+    await expect(fab).toBeInViewport();
+    await expect(fab).toHaveCSS("width", "64px");
+    await expect(fab).toHaveCSS("height", "64px");
+    await expect(fab).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(fab).toHaveCSS("box-shadow", "none");
+    await expect(fab).toHaveCSS("border-top-width", "0px");
+  }
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await expect(page.locator("[data-benito-frame]")).toHaveCount(11);
+  await expect(page.locator("[data-benito-frame]")).toHaveCount(12);
 
   const spriteResources = await page.evaluate(() =>
     performance
