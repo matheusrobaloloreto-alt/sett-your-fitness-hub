@@ -7,6 +7,21 @@
 - **Production, MFIT, real users and providers:** NO-GO and untouched.
 - **Next gate:** authenticated workflow QA may continue only with synthetic staging accounts. Production remains separately gated.
 
+### 2026-08-20 release update
+
+- Staging ledger is now **164/164** after the two schema-contract migrations
+  found by authenticated QA and the drift-safe trainer-history migration.
+- `cycle_feedback.enrollment_id` and `training_cycles.objective` are explicit,
+  idempotent migration contracts.
+- The rollback-only trainer-history drift contract passes in cloud staging.
+- Security advisors after the new DDL remain at the reviewed function baseline:
+  20 intentional executable-definer warnings, plus one project-level leaked-
+  password-protection setting warning; 9 fail-closed backend tables are INFO.
+- Performance warnings remain **455** (215 auth init-plan, 238 multiple-
+  permissive-policy, 2 duplicate-index); the additional 134 entries are INFO.
+- Production remains untouched and NO-GO pending independent review and the
+  gate documented in `PRODUCTION-PREFLIGHT-2026-08-20.md`.
+
 This release follows ATENA skill 1098, **Checklist de Qualidade Antes da Entrega**.
 
 ## Applied state

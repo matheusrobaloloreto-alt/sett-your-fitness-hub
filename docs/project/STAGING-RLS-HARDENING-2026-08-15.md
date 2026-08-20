@@ -6,6 +6,14 @@
 - **Production: NO-GO until a read-only legacy-data preflight is run.** Existing rows with null or divergent tenant/reference fields can become invisible under the new fail-closed policies or fail later updates.
 - The isolated Supabase and draft Netlify staging targets were changed. Production, real data, OAuth providers, webhooks, MFIT and external integrations were not touched.
 
+### 2026-08-20 checkpoint
+
+The isolated staging ledger is **164/164**. The current read-only production
+preflight is recorded in `PRODUCTION-PREFLIGHT-2026-08-20.md`: tenant and parent
+references are consistent, while one removed historical trainer UUID is
+preserved safely by migration `20260820093445`. Production remains NO-GO until
+independent QA and the backup/rollback gate are complete.
+
 ## Delivered
 
 - Reconciled historical migrations that depended on production-only schema drift so a fresh database can replay all migrations.
