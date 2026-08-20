@@ -115,17 +115,17 @@ values
   ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004'),
   ('b0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000005');
 
-insert into public.students (id, company_id, user_id, full_name, status)
+insert into public.students (id, company_id, user_id, full_name, status, assigned_trainer_id)
 values
-  ('a1000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Student A', 'active'),
-  ('a2000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002', 'Student B', 'active'),
-  ('b1000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'Student C', 'active');
+  ('a1000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Student A', 'active', '10000000-0000-0000-0000-000000000004'),
+  ('a2000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002', 'Student B', 'active', null),
+  ('b1000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'Student C', 'active', '10000000-0000-0000-0000-000000000005');
 
-insert into public.enrollments (id, company_id, student_id)
+insert into public.enrollments (id, company_id, student_id, trainer_id)
 values
-  ('ea000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000001'),
-  ('ea000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000002'),
-  ('eb000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000003');
+  ('ea000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004'),
+  ('ea000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000002', null),
+  ('eb000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000005');
 
 insert into public.student_anamneses (id, company_id, student_id)
 values
@@ -240,11 +240,37 @@ set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"10000000-0000-0000-0000-000000000002","role":"authenticated"}', true);
 select pg_temp.assert_tenant_count(1, 'student B');
 
--- Staff A sees both students in tenant A and nothing from tenant B.
+-- Staff A starts assigned-only. The dependent clinical-module policies follow
+-- the same student visibility boundary through their student relationship.
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"10000000-0000-0000-0000-000000000004","role":"authenticated"}', true);
-select pg_temp.assert_tenant_count(2, 'staff A');
+select pg_temp.assert_tenant_count(1, 'staff A assigned-only');
+
+-- A master grants the individual, read-only full-dashboard permission.
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"10000000-0000-0000-0000-000000000006","role":"authenticated"}', true);
+select pg_temp.assert_tenant_count(3, 'master before grant', true);
+do $$
+begin
+  if not public.set_staff_permission(
+    'a0000000-0000-0000-0000-000000000001',
+    '10000000-0000-0000-0000-000000000004',
+    'company_dashboard_full',
+    true
+  ) then
+    raise exception 'master failed to grant staff A';
+  end if;
+end;
+$$;
+
+-- The same trainer now sees the two company rows in the dashboard sources,
+-- while tenant B remains invisible.
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"10000000-0000-0000-0000-000000000004","role":"authenticated"}', true);
+select pg_temp.assert_tenant_count(2, 'staff A with explicit dashboard grant');
 
 -- Staff B sees only tenant B.
 reset role;
