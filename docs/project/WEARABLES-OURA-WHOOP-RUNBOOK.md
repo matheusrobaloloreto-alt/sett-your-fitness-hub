@@ -1,6 +1,6 @@
 # Wearables SETT/BN — Oura e WHOOP
 
-Status em 2026-08-14: implementação local concluída; **nenhuma migration, configuração externa, conexão real, deploy ou push foi executado**.
+Status em 2026-08-20: implementação concluída e infraestrutura validada no staging; **nenhuma conexão OAuth real foi executada porque não há conta/dispositivo de teste nem credenciais de provedor disponíveis**.
 
 ## Arquitetura e segurança
 
@@ -120,3 +120,28 @@ Não corrigir esses dois baselines dentro da branch de wearables; pertencem às 
 - Polar AccessLink OAuth, registro e DELETE de usuário: https://www.polar.com/accesslink-api/
 - Strava List Athlete Activities (`after`, `page`, `per_page`): https://developers.strava.com/docs/reference/#api-Activities-getLoggedInAthleteActivities
 - Strava OAuth/revogação (`POST /oauth/revoke`, Basic auth e formulário): https://developers.strava.com/docs/authentication/
+
+## Checkpoint vivo de staging — 2026-08-20
+
+Estado confirmado no projeto `ifymocggowdlqqcxugko`:
+
+- migration `20260814121000 wearables_secure_foundation` e follow-ups `20260815170922`/`20260815174923` aplicados;
+- Edge `wearable-connect` ativa, versão 3;
+- os seis arquivos do bundle baixado do staging têm SHA-256 idêntico ao código desta branch;
+- `WEARABLE_TOKEN_KEYS` e `WEARABLE_TOKEN_ACTIVE_KEY_ID` presentes;
+- credenciais cifradas: 0; devices: 0; estados OAuth: 0;
+- `wearable_credentials` não possui colunas plaintext e não concede acesso a `anon`/`authenticated`;
+- secrets OAuth ausentes: Oura, WHOOP, Strava e Polar;
+- testes locais repetidos: Deno 17/17 e Vitest 23/23; `deno check` e ordem de migrations aprovados.
+
+### Bloqueio externo exato
+
+O código e a fundação de staging estão prontos. Para provar OAuth/sync de ponta a ponta ainda é necessário:
+
+1. cadastrar ao menos um app OAuth de provedor com o callback de staging;
+2. cadastrar client ID/secret desse provedor somente no staging;
+3. disponibilizar uma conta wearable de teste com consentimento explícito;
+4. validar `connect → callback → sync → refresh → disconnect → delete_data` e confirmar ausência de tokens em logs;
+5. repetir com cada provedor antes de liberar sua integração em produção.
+
+Como o usuário informou que atualmente não há Oura, WHOOP, Strava ou Polar disponível, essa etapa permanece **bloqueada por dependência externa**, não por código. Não comprar dispositivo, criar conta em nome de terceiro ou inventar credenciais para contornar o gate.
