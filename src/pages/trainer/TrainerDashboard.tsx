@@ -37,8 +37,8 @@ export default function TrainerDashboard() {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [cycles, setCycles] = useState<Record<string, Cycle[]>>({});
   const [cycleWorkoutMap, setCycleWorkoutMap] = useState<Record<string, boolean>>({});
-  const { user, role } = useAuth();
-  const { enabled: canViewCompanyDashboard, loading: permissionLoading } = useStaffPermission("company_dashboard_full");
+  const { user, role, companyId } = useAuth();
+  const { enabled: canViewCompanyDashboard, loading: permissionLoading, reload: reloadPermission } = useStaffPermission("company_dashboard_full");
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -53,19 +53,26 @@ export default function TrainerDashboard() {
 
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === "visible" && user && !permissionLoading) loadData();
+      if (document.visibilityState === "visible" && user) void reloadPermission();
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [user, permissionLoading, canViewCompanyDashboard]);
+  }, [user, reloadPermission]);
 
   const loadData = async () => {
+    if (!user || !companyId) {
+      setEnrollments([]);
+      setCycles({});
+      setCycleWorkoutMap({});
+      return;
+    }
     await supabase.rpc("process_enrollment_lifecycle" as any);
     let enrollQuery = supabase
       .from("enrollments")
       .select("*, students(full_name), plans(name, duration_weeks)")
+      .eq("company_id", companyId)
       .eq("status", "active");
-    if (!canViewCompanyDashboard) enrollQuery = enrollQuery.eq("trainer_id", user!.id);
+    if (!canViewCompanyDashboard) enrollQuery = enrollQuery.eq("trainer_id", user.id);
     const { data: enroll } = await enrollQuery;
 
     const enrollData = (enroll as Enrollment[]) || [];
@@ -75,6 +82,7 @@ export default function TrainerDashboard() {
       const ids = enrollData.map((e) => e.id);
       const { data: cycleData } = await supabase
         .from("training_cycles").select("*")
+        .eq("company_id", companyId)
         .in("enrollment_id", ids)
         .order("end_date", { ascending: true });
 
@@ -92,6 +100,7 @@ export default function TrainerDashboard() {
         const { data: workouts } = await supabase
           .from("workouts")
           .select("cycle_id, exercises")
+          .eq("company_id", companyId)
           .in("cycle_id", allCycleIds);
         const map: Record<string, boolean> = {};
         filterMaterializedWorkouts(workouts || []).forEach(w => { map[w.cycle_id] = true; });
@@ -100,6 +109,9 @@ export default function TrainerDashboard() {
         });
         setCycleWorkoutMap(map);
       }
+    } else {
+      setCycles({});
+      setCycleWorkoutMap({});
     }
   };
 

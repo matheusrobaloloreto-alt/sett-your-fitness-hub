@@ -5,13 +5,13 @@ import { useAuth } from "@/hooks/useAuth";
 export type StaffPermission = "company_dashboard_full";
 
 export function useStaffPermission(permission: StaffPermission) {
-  const { user, role, loading: authLoading } = useAuth();
+  const { user, role, companyId, loading: authLoading } = useAuth();
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
     if (authLoading) return;
-    if (!user) {
+    if (!user || !companyId) {
       setEnabled(false);
       setLoading(false);
       return;
@@ -23,19 +23,28 @@ export function useStaffPermission(permission: StaffPermission) {
     }
 
     setLoading(true);
-    const { data, error } = await supabase
-      .from("staff_permissions" as any)
-      .select("enabled")
-      .eq("user_id", user.id)
-      .eq("permission", permission)
-      .eq("enabled", true)
-      .maybeSingle();
-    setEnabled(!error && data?.enabled === true);
+    const { data, error } = await supabase.rpc("has_staff_permission" as any, {
+      _company_id: companyId,
+      _permission: permission,
+    });
+    setEnabled(!error && data === true);
     setLoading(false);
-  }, [authLoading, permission, role, user]);
+  }, [authLoading, companyId, permission, role, user]);
 
   useEffect(() => {
     void reload();
+  }, [reload]);
+
+  useEffect(() => {
+    const refreshWhenActive = () => {
+      if (document.visibilityState === "visible") void reload();
+    };
+    document.addEventListener("visibilitychange", refreshWhenActive);
+    window.addEventListener("focus", refreshWhenActive);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshWhenActive);
+      window.removeEventListener("focus", refreshWhenActive);
+    };
   }, [reload]);
 
   return { enabled, loading, reload };
