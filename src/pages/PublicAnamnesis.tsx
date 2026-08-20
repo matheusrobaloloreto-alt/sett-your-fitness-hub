@@ -22,6 +22,12 @@ import {
   SUPPORTED_TRAINING_MODALITIES,
 } from "@/lib/anamnesisOptions";
 import { mealScheduleEntries, mealSchedulePayload } from "@/lib/mealSchedule";
+import {
+  WEEKLY_SCHEDULE_DAYS,
+  missingWeeklyScheduleDays,
+  serializeWeeklySchedule,
+  type WeeklyScheduleValues,
+} from "@/lib/weeklySchedule";
 
 const EQUIPMENT_OPTIONS = [
   "Mini Bands (elástico curto fechado)", "Thera Bands (elástico grande aberto)",
@@ -122,7 +128,16 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [modalities, setModalities] = useState<string[]>([]);
   const [desiredServices, setDesiredServices] = useState<string[]>([]);
   const [modalityOther, setModalityOther] = useState("");
-  const [trainingDays, setTrainingDays] = useState("");
+  const [weeklySchedule, setWeeklySchedule] = useState<WeeklyScheduleValues>({
+    monday: "",
+    tuesday: "",
+    wednesday: "",
+    thursday: "",
+    friday: "",
+    saturday: "",
+    sunday: "",
+  });
+  const trainingDays = serializeWeeklySchedule(weeklySchedule);
   const [sessionDuration, setSessionDuration] = useState("");
   const [enduranceSessionDuration, setEnduranceSessionDuration] = useState("");
   const [trainingLocation, setTrainingLocation] = useState("");
@@ -288,8 +303,11 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
       ].filter(([value]) => !value).map(([, label]) => label);
     }
     if (targetStepId === "schedule") {
+      const missingScheduleDays = missingWeeklyScheduleDays(trainingDays);
       return [
-        [trainingDays.trim(), "semana de treinos"],
+        [missingScheduleDays.length === 0 ? "ok" : "", missingScheduleDays.length > 0
+          ? `rotina de ${missingScheduleDays.join(", ")}`
+          : "semana de treinos"],
         ...(hasEndurance ? [
           [sportGoal.trim(), "meta nas modalidades esportivas"],
           [enduranceSessionDuration, "tempo disponível para cada sessão esportiva"],
@@ -777,12 +795,34 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             {currentStep.id === "schedule" && (
             <div className="space-y-5">
               <div className="space-y-2">
-                <Label className="font-sans font-medium">Como será a sua semana de treinos? Diga cada modalidade que você vai praticar de segunda a domingo. *</Label>
-                <Textarea
-                  value={trainingDays}
-                  onChange={e => setTrainingDays(e.target.value)}
-                  placeholder="Ex: segunda — musculação; terça — corrida; quarta — musculação; quinta — descanso; sexta — musculação; sábado — corrida; domingo — descanso"
-                />
+                <Label className="font-sans font-medium">Como será a sua semana de treinos? *</Label>
+                <p className="text-sm leading-relaxed text-muted-foreground">Escreva somente a atividade de cada dia. Se não treinar, informe “descanso”.</p>
+                <div className="overflow-hidden rounded-xl border border-border bg-background/60">
+                  {WEEKLY_SCHEDULE_DAYS.map((day, index) => {
+                    const inputId = `training-day-${day.key}`;
+                    return (
+                      <div
+                        key={day.key}
+                        className={`grid grid-cols-[5.75rem_minmax(0,1fr)] items-center gap-3 p-3 sm:grid-cols-[7rem_minmax(0,1fr)] ${index > 0 ? "border-t border-border" : ""}`}
+                      >
+                        <Label htmlFor={inputId} className="font-sans text-sm font-medium text-primary">
+                          {day.label}
+                        </Label>
+                        <Input
+                          id={inputId}
+                          value={weeklySchedule[day.key]}
+                          onChange={event => setWeeklySchedule(current => ({
+                            ...current,
+                            [day.key]: event.target.value,
+                          }))}
+                          placeholder="Ex.: musculação"
+                          autoComplete="off"
+                          aria-label={`Atividade de ${day.label}`}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               {hasEndurance && (
                 <div className="space-y-4 rounded-xl border border-border bg-background/50 p-4">
