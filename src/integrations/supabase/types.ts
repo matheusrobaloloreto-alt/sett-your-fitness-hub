@@ -2739,47 +2739,6 @@ export type Database = {
           },
         ]
       }
-      staff_permissions: {
-        Row: {
-          company_id: string
-          created_at: string
-          enabled: boolean
-          granted_by: string | null
-          id: string
-          permission: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          company_id: string
-          created_at?: string
-          enabled?: boolean
-          granted_by?: string | null
-          id?: string
-          permission: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          company_id?: string
-          created_at?: string
-          enabled?: boolean
-          granted_by?: string | null
-          id?: string
-          permission?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "staff_permissions_company_id_fkey"
-            columns: ["company_id"]
-            isOneToOne: false
-            referencedRelation: "companies"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       running_plans: {
         Row: {
           anamnese_id: string | null
@@ -2889,6 +2848,47 @@ export type Database = {
             columns: ["training_cycle_id"]
             isOneToOne: false
             referencedRelation: "training_cycles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_permissions: {
+        Row: {
+          company_id: string
+          created_at: string
+          enabled: boolean
+          granted_by: string | null
+          id: string
+          permission: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          enabled?: boolean
+          granted_by?: string | null
+          id?: string
+          permission: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          enabled?: boolean
+          granted_by?: string | null
+          id?: string
+          permission?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_permissions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
             referencedColumns: ["id"]
           },
         ]
@@ -3680,6 +3680,7 @@ export type Database = {
           enrollment_id: string
           id: string
           name: string | null
+          objective: string | null
           prescribed_offline_at: string | null
           prescribed_offline_by: string | null
           prescribed_offline_note: string | null
@@ -3697,6 +3698,7 @@ export type Database = {
           enrollment_id: string
           id?: string
           name?: string | null
+          objective?: string | null
           prescribed_offline_at?: string | null
           prescribed_offline_by?: string | null
           prescribed_offline_note?: string | null
@@ -3714,6 +3716,7 @@ export type Database = {
           enrollment_id?: string
           id?: string
           name?: string | null
+          objective?: string | null
           prescribed_offline_at?: string | null
           prescribed_offline_by?: string | null
           prescribed_offline_note?: string | null
@@ -5091,10 +5094,6 @@ export type Database = {
         }
         Returns: Json
       }
-      canonical_volume_muscle_group: {
-        Args: { p_group: string }
-        Returns: string
-      }
       can_manage_staff_student: {
         Args: { _company_id: string; _student_id: string }
         Returns: boolean
@@ -5102,6 +5101,10 @@ export type Database = {
       can_read_staff_student: {
         Args: { _company_id: string; _student_id: string }
         Returns: boolean
+      }
+      canonical_volume_muscle_group: {
+        Args: { p_group: string }
+        Returns: string
       }
       check_and_unlock_achievements: {
         Args: { _student_id: string }
