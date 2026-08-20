@@ -62,3 +62,7 @@ verify_jwt = false
 
 [functions.wearable-connect]
 verify_jwt = false
+
+[functions.library-video-ingest]
+# O handler valida JWT de usuário e o segredo server-to-server em caminhos separados.
+verify_jwt = false

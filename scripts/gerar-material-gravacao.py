@@ -12,26 +12,43 @@ O código de 3 dígitos é a identidade do exercício no fluxo de gravação —
 codigo-para-exercicio.json já existe, os códigos dele são PRESERVADOS e só exercícios novos
 recebem código no fim da fila. Nunca renumere: os modelos gravam com esses nomes de arquivo.
 """
-import json, csv, re, html, unicodedata, os, subprocess
+import base64, hashlib, json, csv, re, html, unicodedata, os, urllib.request
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 OUT = RAIZ / "docs/project/gravacao"
+PUBLIC_OUT = RAIZ / "public/gravacao"
+EDGE_ALLOWLIST = RAIZ / "supabase/functions/library-video-ingest/recording-exercise-allowlist.json"
 FN = "https://zshrcgbyhzxpnlccssyz.supabase.co/functions/v1/library-video-ingest"
 ANON = "sb_publishable_8hCHHItU79APt0pt7NrZcw_OPHCUd_d"
 MODELOS = 3
+PUBLIC_NAMES = {
+    1: "modelo-1-67698060b9.html",
+    2: "modelo-2-57d17ab40a.html",
+    3: "modelo-3-13b57ff210.html",
+}
 
 def slug(s):
     s = unicodedata.normalize("NFD", s or "").encode("ascii", "ignore").decode().lower()
     return re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9]+", "-", s).strip("-"))[:60]
 
 def carregar_biblioteca():
-    segredo = (Path.home() / ".bn-video-ingest-secret").read_text().strip()
-    out = subprocess.run(["curl", "-s", "-m", "120", "-X", "POST", FN,
-        "-H", f"Authorization: Bearer {ANON}", "-H", f"x-webhook-secret: {segredo}",
-        "-H", "Content-Type: application/json", "-d", '{"action":"list"}'],
-        capture_output=True, text=True, check=True).stdout
-    return json.loads(out)["items"]
+    # O segredo fica no processo Python, nunca em argv/process list e nunca entra nos HTMLs.
+    segredo = os.environ.get("VIDEO_INGEST_SECRET")
+    if not segredo:
+        segredo = (Path.home() / ".bn-video-ingest-secret").read_text().strip()
+    req = urllib.request.Request(
+        FN,
+        data=b'{"action":"list"}',
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {ANON}",
+            "x-webhook-secret": segredo,
+            "Content-Type": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=120) as response:
+        return json.loads(response.read().decode("utf-8"))["items"]
 
 def estacao(eq, nome):
     """Onde o exercício é gravado — é por isso que se agrupa, não por grupo muscular."""
@@ -103,12 +120,52 @@ button.cp{background:#2f4272;border:none;color:#F2EFE9;border-radius:6px;padding
 .dica{font-size:11px;color:#9fb0d4;background:#16254c;border-radius:8px;padding:8px 10px;margin:0 10px 9px;line-height:1.4}
 .player{padding:0 10px 10px}.player:empty{padding:0}.player iframe,.player video{width:100%;aspect-ratio:16/9;border:0;border-radius:9px;background:#000}
 .desc{font-size:11.5px;color:#b9c6e2;padding:0 10px 9px;line-height:1.4}
-.empty{text-align:center;color:#9fb0d4;padding:36px 16px;font-size:13px}"""
+.empty{text-align:center;color:#9fb0d4;padding:36px 16px;font-size:13px}
+.auth{margin:10px;background:#16254c;border:1px solid #2f4272;border-radius:10px;padding:10px;font-size:12px;color:#b9c6e2}
+.auth form{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.auth input{font-size:14px;padding:8px;min-width:150px}
+.auth button{background:#C9A227;color:#0D1B3E;border:0;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer}
+.auth .logout{background:#2f4272;color:#F2EFE9;margin-left:8px}.auth.erro{border-color:#8c2f2f;color:#ffb7b7}
+.auth.ok{border-color:#1e7a4a;color:#a9e5c2}"""
 
-JS = """const K='bn-grav-%(m)s',KS='bn-env-%(m)s',TOK='%(tok)s',FN='%(fn)s',ANON='%(anon)s';
+JS = """const K='bn-grav-%(m)s',KS='bn-env-%(m)s',FN='%(fn)s',ANON='%(anon)s';
 let done=JSON.parse(localStorage.getItem(K)||'[]');
 let enviados=JSON.parse(localStorage.getItem(KS)||'[]');
 const items=[...document.querySelectorAll('li')];
+const authBox=document.querySelector('.auth'),authText=authBox.querySelector('.auth-text');
+const authForm=authBox.querySelector('form'),logoutBtn=authBox.querySelector('.logout');
+const supa=window.supabase.createClient('https://zshrcgbyhzxpnlccssyz.supabase.co',ANON,
+ {auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storage:window.sessionStorage}});
+let session=null,authorized=false;
+
+function setButtons(){items.forEach(li=>{li.querySelector('.rec button').disabled=!authorized;});}
+function authState(cls,text){authBox.className='auth'+(cls?' '+cls:'');authText.textContent=text;
+ authForm.style.display=session?'none':'flex';logoutBtn.style.display=session?'inline-block':'none';setButtons();}
+async function edge(body){
+ const current=(await supa.auth.getSession()).data.session;session=current;
+ if(!current)throw new Error('Faça login para gravar.');
+ const r=await fetch(FN,{method:'POST',headers:{'Authorization':'Bearer '+current.access_token,
+   'apikey':ANON,'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const payload=await r.json().catch(()=>({}));
+ if(!r.ok)throw new Error(payload?.error?.message||('HTTP '+r.status));
+ return payload;
+}
+async function validarSessao(){
+ session=(await supa.auth.getSession()).data.session;authorized=false;
+ if(!session){authState('','Entre com sua conta SETT autorizada para liberar as gravações.');return;}
+ authState('','Validando permissão...');
+ try{await edge({action:'authorize-recording'});authorized=true;
+  authState('ok','Conta autorizada. As gravações estão liberadas.');}
+ catch(e){authState('erro',e.message);}
+}
+authForm.addEventListener('submit',async e=>{e.preventDefault();authorized=false;setButtons();
+ const email=authForm.querySelector('[name=email]').value.trim();
+ const password=authForm.querySelector('[name=password]').value;
+ authState('','Entrando...');
+ const {error}=await supa.auth.signInWithPassword({email,password});
+ if(error){session=null;authState('erro','Não foi possível entrar. Confira suas credenciais.');return;}
+ authForm.reset();await validarSessao();});
+logoutBtn.addEventListener('click',async()=>{await supa.auth.signOut();session=null;authorized=false;await validarSessao();});
+supa.auth.onAuthStateChange(()=>setTimeout(validarSessao,0));
 
 // Fila de upload: um vídeo por vez. Na academia é 4G, e mandar 3 vídeos de 20MB em paralelo
 // derruba os três. Sequencial chega mais rápido e falha menos.
@@ -125,13 +182,14 @@ async function processa(){
  const {li,file}=fila.shift(); const cod=li.dataset.cod;
  try{
   estado(li,'enviando','enviando... 0%%',0);
-  const ext=(file.name.split('.').pop()||'mp4').toLowerCase();
-  const r=await fetch(FN,{method:'POST',headers:{'Authorization':'Bearer '+ANON,'Content-Type':'application/json'},
-    body:JSON.stringify({action:'sign-recording',token:TOK,codigo:cod,ext})});
-  if(!r.ok)throw new Error('assinatura falhou');
-  const {signedUrl}=await r.json();
+  if(!file.type||!['video/mp4','video/quicktime','video/webm','video/x-m4v','video/3gpp'].includes(file.type))
+    throw new Error('formato de vídeo não permitido');
+  if(file.size<1||file.size>64*1024*1024)throw new Error('o vídeo deve ter no máximo 64 MB');
+  const requestId=crypto.randomUUID();
+  const signed=await edge({action:'sign-recording',codigo:cod,exercise_id:li.dataset.id,
+    request_id:requestId,mime_type:file.type,size:file.size});
   await new Promise((ok,err)=>{const x=new XMLHttpRequest();
-   x.open('PUT',signedUrl);x.setRequestHeader('Content-Type',file.type||'video/mp4');
+   x.open('PUT',signed.signed_url);x.setRequestHeader('Content-Type',file.type);
    x.upload.onprogress=e=>{if(e.lengthComputable)estado(li,'enviando','enviando... '+Math.round(e.loaded/e.total*100)+'%%',e.loaded/e.total*100);};
    x.onload=()=>x.status<300?ok():err(new Error('HTTP '+x.status));
    x.onerror=()=>err(new Error('sem conexão'));x.send(file);});
@@ -158,10 +216,19 @@ items.forEach(li=>{const c=li.dataset.cod;
    .then(()=>{const o=cp.textContent;cp.textContent='copiado!';setTimeout(()=>cp.textContent=o,1200);});});
  const th=li.querySelector('.thumb');
  th&&th.addEventListener('click',()=>{const p=li.querySelector('.player');
-   if(p.dataset.on){p.innerHTML='';p.dataset.on='';return;}
-   p.innerHTML=th.dataset.k==='yt'
-     ?'<iframe src="https://www.youtube-nocookie.com/embed/'+th.dataset.v+'?autoplay=1" allow="autoplay" allowfullscreen></iframe>'
-     :'<video src="'+th.dataset.v+'" controls autoplay muted playsinline></video>';
+   if(p.dataset.on){p.replaceChildren();p.dataset.on='';return;}
+   const raw=th.dataset.v||'';let media=null;
+   if(th.dataset.k==='yt'&&/^[0-9A-Za-z_-]{11}$/.test(raw)){
+     media=document.createElement('iframe');
+     media.src='https://www.youtube-nocookie.com/embed/'+raw+'?autoplay=1';
+     media.allow='autoplay';media.allowFullscreen=true;
+   }else{
+     try{const url=new URL(raw);if(url.protocol!=='https:')throw new Error('scheme');
+       media=document.createElement('video');media.src=url.href;media.controls=true;
+       media.autoplay=true;media.muted=true;media.playsInline=true;
+     }catch{return;}
+   }
+   p.replaceChildren(media);
    p.dataset.on='1';});});
 function filtra(){const q=document.getElementById('q').value.toLowerCase().trim();
  const es=document.getElementById('est').value;let vis=0;
@@ -170,17 +237,11 @@ function filtra(){const q=document.getElementById('q').value.toLowerCase().trim(
  document.querySelector('.empty').style.display=vis?'none':'block';}
 document.getElementById('q').addEventListener('input',filtra);
 document.getElementById('est').addEventListener('change',filtra);
-prog();"""
+prog();setButtons();validarSessao();"""
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    # Token de upload por modelo, gerado fora do repo. Sem ele a página vira só consulta.
-    tok_path = Path.home() / ".bn-recording-tokens.json"
-    tokens_por_modelo = {}
-    if tok_path.exists():
-        tokens_por_modelo = {v: k for k, v in json.loads(tok_path.read_text()).items()}
-    else:
-        print("  aviso: ~/.bn-recording-tokens.json nao encontrado — paginas sem o botao Gravar")
+    PUBLIC_OUT.mkdir(parents=True, exist_ok=True)
     lib = carregar_biblioteca()
     mapa_path = OUT / "codigo-para-exercicio.json"
     mapa = json.loads(mapa_path.read_text(encoding="utf-8")) if mapa_path.exists() else {}
@@ -232,18 +293,22 @@ def main():
         with open(OUT / f"shot-list-modelo-{m}.csv", "w", newline="", encoding="utf-8-sig") as f:
             w = csv.DictWriter(f, fieldnames=COLS); w.writeheader()
             for r in itens: w.writerow(linha_csv(r))
-        gerar_html(m, itens, tokens_por_modelo.get(f'modelo-{m}', ''))
+        gerar_html(m, itens)
         print(f"  modelo {m}: {len(itens)} exercícios")
 
     with open(OUT / "shot-list-completo.csv", "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=COLS + ["exercise_id"]); w.writeheader()
         for r in linhas: w.writerow({**linha_csv(r), "exercise_id": r["id"]})
 
-    mapa_path.write_text(json.dumps({r["codigo"]: {"id": r["id"], "nome": r["nome"]} for r in linhas},
-                                    ensure_ascii=False, indent=1), encoding="utf-8")
+    mapa_serializado = {r["codigo"]: {"id": r["id"], "nome": r["nome"]} for r in linhas}
+    mapa_json = json.dumps(mapa_serializado, ensure_ascii=False, indent=1)
+    mapa_path.write_text(mapa_json, encoding="utf-8")
+    # A edge rejeita qualquer par código/exercício que não esteja nesta cópia versionada.
+    # Atualizar o mapa exige redeploy da edge antes de publicar os HTMLs regenerados.
+    EDGE_ALLOWLIST.write_text(mapa_json, encoding="utf-8")
     print(f"  total: {len(linhas)} exercícios · {len(frageis)} sem vídeo (prioridade ALTA)")
 
-def gerar_html(m, itens, token):
+def gerar_html(m, itens):
     ests = sorted({r["estacao"] for r in itens})
     li = []
     for r in itens:
@@ -257,7 +322,7 @@ def gerar_html(m, itens, token):
         selo = '<span class="alta">ALTA</span>' if r["fragil"] else ""
         bloco_desc = f'<div class="desc">{html.escape(desc)}</div>' if desc else ""
         li.append(
-            f'<li data-cod="{r["codigo"]}" data-est="{html.escape(r["estacao"])}" data-busca="{busca}">'
+            f'<li data-cod="{r["codigo"]}" data-id="{html.escape(r["id"])}" data-est="{html.escape(r["estacao"])}" data-busca="{busca}">'
             f'<div class="row">{capa}<div class="info">'
             f'<div class="cod">{r["codigo"]}{selo}</div>'
             f'<div class="nome">{html.escape(r["nome"])}</div>'
@@ -270,9 +335,14 @@ def gerar_html(m, itens, token):
             f'<div class="rec"><input type="file" accept="video/*" capture="environment" hidden>'
             f'<button type="button"><b>🎥 Gravar</b></button><div class="up"><i></i></div></div>'
             f'<label class="done"><input type="checkbox"> já gravei este</label></li>')
+    page_js = JS % {"m": m, "fn": FN, "anon": ANON}
+    script_hash = base64.b64encode(hashlib.sha256(page_js.encode("utf-8")).digest()).decode("ascii")
     pag = (f'<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
            f'<meta name="viewport" content="width=device-width,initial-scale=1">'
            f'<meta name="robots" content="noindex,nofollow">'
+           f'<meta name="referrer" content="no-referrer">'
+           f'<meta http-equiv="Content-Security-Policy" content="default-src &#39;self&#39;; script-src &#39;self&#39; &#39;sha256-{script_hash}&#39; https://cdn.jsdelivr.net; style-src &#39;unsafe-inline&#39;; connect-src https://zshrcgbyhzxpnlccssyz.supabase.co https://zshrcgbyhzxpnlccssyz.storage.supabase.co; img-src https: data:; media-src https: blob:; frame-src https://www.youtube-nocookie.com; object-src &#39;none&#39;; base-uri &#39;none&#39;; form-action &#39;self&#39;">'
+           f'<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.101.0/dist/umd/supabase.min.js" integrity="sha384-HS/sUFZexXk91zcjy7zGIBg3tNDxgxF8YbcifixByxxtxQoF2o8GBBT9p6DdGlAR" crossorigin="anonymous"></script>'
            f'<title>Gravação BN — Modelo {m}</title><style>{CSS}</style></head><body><div class="wrap">'
            f'<header><h1>Gravação BN — Modelo {m}</h1>'
            f'<div class="sub">{len(itens)} exercícios · toque na imagem para ver como se faz</div>'
@@ -280,12 +350,18 @@ def gerar_html(m, itens, token):
            f'<select id="est"><option value="">Todas as estações</option>'
            f'{"".join(f"<option>{html.escape(x)}</option>" for x in ests)}</select></div>'
            f'<div class="prog"><i></i></div><div class="progtxt"></div></header>'
+           f'<div class="auth"><span class="auth-text">Validando acesso...</span>'
+           f'<button type="button" class="logout" style="display:none">sair</button>'
+           f'<form style="display:none"><input name="email" type="email" autocomplete="username" placeholder="E-mail SETT" required>'
+           f'<input name="password" type="password" autocomplete="current-password" placeholder="Senha" required>'
+           f'<button type="submit">Entrar</button></form></div>'
            f'<div class="dica">Toque em <b>🎥 Gravar</b> que a câmera abre. Ao confirmar o vídeo, ele '
            f'sobe sozinho já ligado ao exercício certo — você não precisa renomear nem enviar nada. '
            f'De preferência no Wi-Fi.</div>'
            f'<ul>{"".join(li)}</ul><div class="empty" style="display:none">Nada encontrado.</div>'
-           f'</div><script>{JS % {"m": m, "tok": token, "fn": FN, "anon": ANON}}</script></body></html>')
+           f'</div><script>{page_js}</script></body></html>')
     (OUT / f"gravacao-modelo-{m}.html").write_text(pag, encoding="utf-8")
+    (PUBLIC_OUT / PUBLIC_NAMES[m]).write_text(pag, encoding="utf-8")
 
 if __name__ == "__main__":
     main()

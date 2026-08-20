@@ -9,9 +9,10 @@
 
 Abra no celular a sua página — **`gravacao-modelo-N.html`**. Para cada exercício:
 
-1. **Toque na imagem** para ver como se faz (o vídeo abre ali mesmo).
-2. **Toque em 🎥 Gravar** — a câmera abre sozinha.
-3. Grave, confirme. **O vídeo sobe automaticamente**, já ligado ao exercício certo.
+1. **Entre com sua conta SETT autorizada.** A página não contém token ou segredo de upload.
+2. **Toque na imagem** para ver como se faz (o vídeo abre ali mesmo).
+3. **Toque em 🎥 Gravar** — a câmera abre sozinha.
+4. Grave, confirme. **O vídeo sobe automaticamente**, já ligado ao exercício certo.
 
 Pronto. Sem renomear arquivo, sem mandar por WhatsApp, sem subir em pasta nenhuma. O botão fica
 **verde "✓ enviado"** e o exercício é marcado como gravado. A barra no topo mostra o progresso.
@@ -53,11 +54,19 @@ ritmo controlado, sem pressa. Se errar no meio, grave de novo (mais rápido que 
 ### Publicar o que os modelos gravaram
 
 ```bash
+node scripts/video-ingest.mjs --staging --dry-run
+```
+
+Esse primeiro comando baixa os takes e mostra matching/QA **sem enviar nem apagar nada**. Corrija
+qualquer item ilegível, ambíguo ou fora dos limites. Só depois da revisão humana execute:
+
+```bash
 node scripts/video-ingest.mjs --staging
 ```
 
-Busca tudo que os celulares enviaram, comprime, gera as capas, publica no app e limpa a área de
-triagem. Antes disso, `--staging --dry-run` mostra o QA sem enviar nada. E a qualquer momento:
+Essa segunda execução comprime, gera as capas e publica no app. A triagem crua e a reserva de replay
+de cada exercício só são removidas depois que o commit daquele exercício for confirmado no banco.
+Falha parcial nunca limpa o take que falhou. A qualquer momento:
 
 ```bash
 node scripts/video-ingest.mjs --status
@@ -68,11 +77,15 @@ mostra a cobertura e o que ainda falta gravar.
 ### Como funciona por dentro
 - A página usa a **câmera nativa** (`capture="environment"`), então sai na qualidade do aparelho,
   com estabilização e tudo mais — melhor do que gravar dentro do navegador.
-- O upload vai para uma **área de triagem** (`_staging/`) com o código no nome. A página carrega um
-  **token que só assina upload nessa pasta** e não toca no banco: mesmo que o arquivo HTML vaze, o
-  pior caso é lixo numa pasta que você revisa antes de publicar. O segredo de admin nunca sai daqui.
-- Cada envio vira `<codigo>__<modelo>__<timestamp>`, então **regravar nunca sobrescreve** o take
+- A página usa a sessão Supabase do operador. O servidor só libera gravação para `master` ou para
+  um usuário explicitamente allowlisted e ainda vinculado à empresa BN configurada.
+- O upload vai para o bucket **privado** `exercise-video-staging`. MIME, tamanho (64 MB), origem,
+  exercício, frequência e replay são validados antes da assinatura; a política do bucket confere
+  o arquivo real. Nenhum segredo operacional entra no HTML.
+- Cada envio vira `<codigo>__<hash-do-operador>__<request-id>`, então **regravar nunca sobrescreve** o take
   anterior no envio — na publicação vence o mais recente.
+- Antes de emitir a URL, a edge cria uma reserva privada pelo request ID. Ela impede replay entre
+  instâncias diferentes da Edge e também alimenta a cota persistente por operador.
 - Só depois de publicado o arquivo sai da triagem. Se algo falhar, o take original continua lá.
 - **Compressão**: 720p, sem áudio, `faststart`. ~1–2 MB por vídeo no app.
 - **QA automático**: arquivo corrompido vira falha; vídeo curto demais, longo demais, de baixa
@@ -89,5 +102,10 @@ node scripts/video-ingest.mjs --dir ~/Downloads/videos-bn --dry-run
 ```
 
 ### Regerar as listas
-`python3 scripts/gerar-material-gravacao.py` — preserva os códigos já existentes e só numera
-exercício novo no fim. **Nunca renumere**: os modelos gravam vinculados a esses códigos.
+`python3 scripts/gerar-material-gravacao.py` — preserva os códigos já existentes, só numera
+exercício novo no fim e sincroniza as três páginas internas, as três páginas públicas com hash e a
+allowlist versionada da edge. **Nunca renumere**: os modelos gravam vinculados a esses códigos.
+
+Antes de publicar páginas que incluam um exercício novo, faça primeiro o deploy da edge com a
+allowlist regenerada; até lá o servidor falha fechado para o novo código. O runbook completo de
+deploy, rotação e rollback está em `HARDENING-SEGURANCA.md`.

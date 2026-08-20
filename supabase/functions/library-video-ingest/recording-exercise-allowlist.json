@@ -1,0 +1,3706 @@
+{
+ "001": {
+  "id": "f051cdea-2073-4765-b7ad-bb4b082934e5",
+  "nome": "Mergulho em banco"
+ },
+ "002": {
+  "id": "b09418bb-1aaf-49bf-90d1-7e3276065408",
+  "nome": "Agachamento Búlgaro Smith"
+ },
+ "003": {
+  "id": "78d913ba-0a6b-4dd1-8250-df13b74940a0",
+  "nome": "Agachamento livre com barra"
+ },
+ "004": {
+  "id": "ec82da9b-8652-4a1d-a570-8aafdda2c2c9",
+  "nome": "Agachamento Smith"
+ },
+ "005": {
+  "id": "e3df9e3e-f6e2-452d-9996-8e0f90f2e01f",
+  "nome": "Barra Fixa Pronada"
+ },
+ "006": {
+  "id": "99a351d1-7fc4-441c-b95c-691e795f26d1",
+  "nome": "Bom dia Smith"
+ },
+ "007": {
+  "id": "fd207a91-506b-466d-8d6c-d905e97e690a",
+  "nome": "Flexão de Punho na Barra Fixa ou Antebraço na Barra Fixa"
+ },
+ "008": {
+  "id": "f0cf83a8-0bf6-4e3f-aa65-fb7fb7b81aee",
+  "nome": "Levantamento terra"
+ },
+ "009": {
+  "id": "4fa767dc-338d-48f0-accc-9088900c2738",
+  "nome": "Rack Pulls Smith"
+ },
+ "010": {
+  "id": "3da3626b-01f8-4fcd-bc73-281255db1d62",
+  "nome": "RDL B-Stance Barra"
+ },
+ "011": {
+  "id": "21c97317-199d-400a-ad43-0a29179570ae",
+  "nome": "Rosca Direta Barra W"
+ },
+ "012": {
+  "id": "fc064b37-3ef2-4dcd-baaa-e1272d67cc23",
+  "nome": "Snatch (arranco) com barra"
+ },
+ "013": {
+  "id": "f1fed726-d7ce-4fec-9dcb-9f987df66ca8",
+  "nome": "Supino Inclinado Barra"
+ },
+ "014": {
+  "id": "34966f6e-48c5-4757-ac4a-d0c9d6c79d23",
+  "nome": "Supino Inclinado Smith com Dead Stop"
+ },
+ "015": {
+  "id": "78b51c57-8c6b-4aba-8696-0716caaa3e9c",
+  "nome": "Afundo Barra Livre"
+ },
+ "016": {
+  "id": "1682b804-b531-426d-bb6b-93e5b9b7ceda",
+  "nome": "Afundo Smith"
+ },
+ "017": {
+  "id": "02b41ea3-d381-4c67-baec-67c4998ba7a8",
+  "nome": "Afundo Smith 2 Steps"
+ },
+ "018": {
+  "id": "9898104c-2955-45b1-a364-661ee61c444d",
+  "nome": "Afundo Smith com Step na Frente"
+ },
+ "019": {
+  "id": "553c7283-a12a-4407-b23c-1498460c8e87",
+  "nome": "Agachamento Búlgaro Barra Livre"
+ },
+ "020": {
+  "id": "9d75460b-b20b-4085-b130-72678225af6d",
+  "nome": "Agachamento frontal"
+ },
+ "021": {
+  "id": "59a8c0a7-e25a-4f86-aedc-232ee1622301",
+  "nome": "Agachamento no Banco Smith"
+ },
+ "022": {
+  "id": "7bd6ccb0-1a4c-42c5-b7b2-6687526f81b2",
+  "nome": "Avanço com Barra Reta ( afundo )"
+ },
+ "023": {
+  "id": "ba2b681b-0c91-46ab-a869-389a2479c1e1",
+  "nome": "Barra fixa (pull-up)"
+ },
+ "024": {
+  "id": "833e0423-bcfe-4393-bf44-933ca6793062",
+  "nome": "Barra Fixa Neutra"
+ },
+ "025": {
+  "id": "fce1dba8-86af-4d27-bafc-18afa8692769",
+  "nome": "Barra Fixa Supinada"
+ },
+ "026": {
+  "id": "bdec8f3b-dea0-4164-bd7b-ab273d6d101d",
+  "nome": "Barra supinada (chin-up)"
+ },
+ "027": {
+  "id": "c4304ed9-f79d-4d0e-b66b-5b143db31253",
+  "nome": "Biset Rosca Direta + Rosca Invertida Barra W"
+ },
+ "028": {
+  "id": "f6b33aae-c260-4759-b01c-ce85a045b9ab",
+  "nome": "Biset Tríceps Testa + Supino Fechado Barra"
+ },
+ "029": {
+  "id": "7c4dd9a3-c6c2-4e9a-a896-42b7c9911ade",
+  "nome": "Desenvolvimento Barra Sentado"
+ },
+ "030": {
+  "id": "8cc16422-0075-4d1f-be09-83902ea0bbf5",
+  "nome": "Desenvolvimento militar"
+ },
+ "031": {
+  "id": "a863ae76-f3e6-42c0-9757-26e7e1a111a7",
+  "nome": "Desenvolvimento Sentado Smith"
+ },
+ "032": {
+  "id": "6ba0ecfc-8dad-4f04-acf1-554cdea238f1",
+  "nome": "Drop jump barra (plio)"
+ },
+ "033": {
+  "id": "ed0553ab-2073-41b1-92e7-d9856c2daa26",
+  "nome": "Elevação Frontal Barra"
+ },
+ "034": {
+  "id": "54a3288a-01d2-412f-bf86-f2904b58cb91",
+  "nome": "Elevação Pélvica Barra"
+ },
+ "035": {
+  "id": "7edea8df-450e-4ead-befd-adbd6efc207a",
+  "nome": "Elevação Pélvica Smith"
+ },
+ "036": {
+  "id": "c4343ec8-b13c-4ecb-9d18-2aba9b6f74dc",
+  "nome": "Encolhimento Inclinado Smith"
+ },
+ "037": {
+  "id": "c8dfd65e-2b07-405f-a506-311c0995241c",
+  "nome": "Encolhimento Overhead Barra"
+ },
+ "038": {
+  "id": "c7e285f9-ef03-4c45-81ee-635ae58b236f",
+  "nome": "Encolhimento Overhead Smith"
+ },
+ "039": {
+  "id": "83aeb5e9-935b-4419-9e11-2192f9ed1794",
+  "nome": "Encolhimento Smith"
+ },
+ "040": {
+  "id": "22b81e41-787c-467f-9cdf-73a3c26da25e",
+  "nome": "Flexão Aberta Smith"
+ },
+ "041": {
+  "id": "6ccb4b47-ee73-4d8d-a9cb-af6de89b1513",
+  "nome": "Flexão Fechada Smith"
+ },
+ "042": {
+  "id": "b431d92e-8371-43bc-b580-cf9572493f8a",
+  "nome": "Good morning"
+ },
+ "043": {
+  "id": "d56a3b0c-bfe3-472a-8842-ebf415a7e724",
+  "nome": "Hang clean"
+ },
+ "044": {
+  "id": "cdf66f46-565a-4815-b724-f9dfea82b821",
+  "nome": "Hip thrust com barra"
+ },
+ "045": {
+  "id": "43109c36-7ff8-468c-99c8-fed5c171132e",
+  "nome": "Hip thrust explosivo"
+ },
+ "046": {
+  "id": "caa940f6-6aca-4e19-a77c-3212a87260a5",
+  "nome": "Muscle-up (progressão)"
+ },
+ "047": {
+  "id": "7cf75d18-f767-4032-ba36-b3ffc33beaaa",
+  "nome": "Panturrilha Smith com Step"
+ },
+ "048": {
+  "id": "0c28726e-c6d5-4df2-9056-a0f0f8499264",
+  "nome": "Passada Barra"
+ },
+ "049": {
+  "id": "8ca3b7f7-6c36-4b2d-9468-1127f7b12841",
+  "nome": "Passada com Barra Reta ( afundo)"
+ },
+ "050": {
+  "id": "0c145a70-2e35-476a-ad40-2998fcb92be3",
+  "nome": "Power clean"
+ },
+ "051": {
+  "id": "afbe8bbe-2cf2-4404-a609-7c9647ec3eeb",
+  "nome": "Pulldown barra"
+ },
+ "052": {
+  "id": "506123c3-3d0d-4d4e-91a4-2e2363dd9280",
+  "nome": "RDL Barra"
+ },
+ "053": {
+  "id": "b1c0882e-f674-473d-a6a4-5f8d1fea2b0f",
+  "nome": "Recuo Barra Livre"
+ },
+ "054": {
+  "id": "658aa167-54ef-4662-bc7f-7883b7175af8",
+  "nome": "Recuo com Barra Reta ( afundo )"
+ },
+ "055": {
+  "id": "7b60f329-d660-474c-a47f-1780c9c6f03b",
+  "nome": "Recuo Smith"
+ },
+ "056": {
+  "id": "3b94a40d-82de-4b73-8758-d7b722a9e771",
+  "nome": "Recuo Smith com Step na Frente"
+ },
+ "057": {
+  "id": "11cc5dbc-403b-4ccb-9c06-cc93d225c09b",
+  "nome": "Remada aberta Smith/Barra"
+ },
+ "058": {
+  "id": "b222ffd2-a90e-47a2-9924-a63381446069",
+  "nome": "Remada Alta Barra"
+ },
+ "059": {
+  "id": "e2e6d537-a9ba-4feb-bd2d-f6b7591895c2",
+  "nome": "Remada Alta no Smith"
+ },
+ "060": {
+  "id": "55c3a5c2-7d07-4f7b-9b3c-6343a526a376",
+  "nome": "Remada australiana (inverted row)"
+ },
+ "061": {
+  "id": "ed6127ab-bec4-46e3-86ff-749e9391d515",
+  "nome": "Remada cavalinho"
+ },
+ "062": {
+  "id": "6163ca32-b640-4c24-aa1f-860ca50be982",
+  "nome": "Remada curvada com barra"
+ },
+ "063": {
+  "id": "8fb786df-8ccc-4223-bbea-5fec0fb06c49",
+  "nome": "Remada Curvada Pronada Barra"
+ },
+ "064": {
+  "id": "90a3c261-85ad-46f5-9449-b4fd542a109e",
+  "nome": "Remada Curvada Pronada Barra com Rotação"
+ },
+ "065": {
+  "id": "e00a0b68-7e1f-4b96-b53e-9b61ccf2da62",
+  "nome": "Remada Curvada Pronada Smith"
+ },
+ "066": {
+  "id": "15e3ad55-f384-4e29-be43-b63cb85a9a5c",
+  "nome": "Remada Curvada Supinada Barra"
+ },
+ "067": {
+  "id": "8b7d520a-d5b0-4393-ad75-bf85be89a91d",
+  "nome": "Remada Curvada Supinada Smith"
+ },
+ "068": {
+  "id": "bf33e722-9da1-4e32-af62-546bb5176c3a",
+  "nome": "Rosca Scott Barra"
+ },
+ "069": {
+  "id": "9d3992cd-2ed4-4ace-a7b7-242d3a6fcc2b",
+  "nome": "Salto barra Hexagonal c/ contramovimento ( pré plio )"
+ },
+ "070": {
+  "id": "8f4d5caa-48e0-4974-99c9-91600a9c704c",
+  "nome": "Salto Barra Hexagonal Contínuo ( pré plio )"
+ },
+ "071": {
+  "id": "f18ce369-a648-4f14-a9c9-b0ed18e75cd7",
+  "nome": "Salto com Barra Hexagonal S/ contramovimento ( pré plio )"
+ },
+ "072": {
+  "id": "50ec90c8-f48d-421b-a38b-23e79a131e18",
+  "nome": "Step Up Smith"
+ },
+ "073": {
+  "id": "490b2080-ea0b-40bf-85bc-8613544d4140",
+  "nome": "Stiff"
+ },
+ "074": {
+  "id": "da6ed290-59ef-49c0-a831-51ee224233bf",
+  "nome": "Stiff Abduzido Barra"
+ },
+ "075": {
+  "id": "af71347e-48d2-40df-83b4-d77c4dd21ea7",
+  "nome": "Stiff B-Stance Barra"
+ },
+ "076": {
+  "id": "e07a88c2-da55-42e7-935a-1b53261381c6",
+  "nome": "Stiff Barra"
+ },
+ "077": {
+  "id": "10bc07ad-3778-4967-9c7f-e9eff2993ccf",
+  "nome": "Stiff com Barra Reta ( Romanian Deadlift )"
+ },
+ "078": {
+  "id": "fc025e5f-41e3-41df-8dc7-0d2507f26f17",
+  "nome": "Stiff Smith"
+ },
+ "079": {
+  "id": "561114a6-a613-4936-a51e-eda2cf36508b",
+  "nome": "Supino Declinado Barra"
+ },
+ "080": {
+  "id": "1173e1a7-fa43-4cd2-a1fd-811419b9e7d2",
+  "nome": "Supino Fechado Barra"
+ },
+ "081": {
+  "id": "630de071-ce64-490d-9257-4e1e7260804f",
+  "nome": "Supino Fechado Smith"
+ },
+ "082": {
+  "id": "bfcb16f7-0b17-43c0-a487-42171c4d7f5c",
+  "nome": "Supino Inclinado Smith"
+ },
+ "083": {
+  "id": "b61721db-87fe-41d8-b13e-f6b5833b8550",
+  "nome": "Supino Reto Barra"
+ },
+ "084": {
+  "id": "8738b381-20aa-48cf-8475-264a24f7a289",
+  "nome": "Supino reto com barra"
+ },
+ "085": {
+  "id": "0f40befe-bf63-4884-b88a-37ebf683386a",
+  "nome": "Supino Reto Smith"
+ },
+ "086": {
+  "id": "04403333-4324-4ff1-b7e3-64553fd0d142",
+  "nome": "Terra Barra Hexagonal"
+ },
+ "087": {
+  "id": "166260ad-3ebd-4718-8ef1-95598bf6f4a6",
+  "nome": "Terra com Barra Reta ( Deadlift )"
+ },
+ "088": {
+  "id": "6b34cc78-f024-4f8c-970b-2b90dda2870c",
+  "nome": "Terra romeno"
+ },
+ "089": {
+  "id": "39cd91ca-af97-43a3-85ad-25d47721db10",
+  "nome": "Terra sumô"
+ },
+ "090": {
+  "id": "ecdca299-adb9-46e7-bc96-adf9dfff162a",
+  "nome": "Tríceps Testa Barra Banco 45"
+ },
+ "091": {
+  "id": "043b569d-b13d-4ff7-9d4e-a552ff9d85ef",
+  "nome": "Tríceps Testa Barra Banco Reto"
+ },
+ "092": {
+  "id": "7bfed90c-0875-45ea-af5e-beb5ce49cb60",
+  "nome": "Tríceps Testa Barra Solo"
+ },
+ "093": {
+  "id": "721e4851-7b5b-47c4-8d90-a8315323ad40",
+  "nome": "Prancha na bola suíça"
+ },
+ "094": {
+  "id": "7a360b5d-f93d-4864-ad2c-9cfedb42613f",
+  "nome": "Stir the pot na bola"
+ },
+ "095": {
+  "id": "5371919c-fce9-4b92-b230-b782712f7e2c",
+  "nome": "Med ball arremesso reverso acima da cabeça"
+ },
+ "096": {
+  "id": "ea9d5caf-fe01-458b-bf80-e394dc8b69fb",
+  "nome": "Med ball side throw na parede (lateral)"
+ },
+ "097": {
+  "id": "7603535e-d772-4d15-a000-615d745703dc",
+  "nome": "Med ball slam frontal"
+ },
+ "098": {
+  "id": "4753f368-2ae5-40ca-9068-dd6622c25c7a",
+  "nome": "Slam ball rotacional"
+ },
+ "099": {
+  "id": "4dbab5a1-26ad-419a-b995-b1d96e6e90a4",
+  "nome": "Arremesso acima da cabeça com medicine ball"
+ },
+ "100": {
+  "id": "2647a1f4-34d8-4667-a846-fd72eed9c2d6",
+  "nome": "Arremesso de peito com medicine ball"
+ },
+ "101": {
+  "id": "16945c86-3ad5-44fb-bfaf-e601ea1a5877",
+  "nome": "Arremesso rotacional com medicine ball"
+ },
+ "102": {
+  "id": "afef4221-dc2d-451d-9ed9-2b1f50533efb",
+  "nome": "Liberação de glúteo com bolinha"
+ },
+ "103": {
+  "id": "d1ccbd02-4d54-49b7-9c55-8cb96cc55f37",
+  "nome": "Liberação de peitoral com bolinha"
+ },
+ "104": {
+  "id": "3315fa14-ef57-40ec-9dbc-305a9f6ecd80",
+  "nome": "Liberação de planta do pé com bolinha"
+ },
+ "105": {
+  "id": "85570995-10cb-4b8e-9cf4-b7c454386410",
+  "nome": "Med ball arremesso rotacional na parede"
+ },
+ "106": {
+  "id": "49ff3d8a-2107-402a-aac3-553af863775b",
+  "nome": "Med ball chest pass na parede"
+ },
+ "107": {
+  "id": "43870805-9053-422a-b7e5-81c711089b90",
+  "nome": "Med ball chest throw deitado (supino explosivo)"
+ },
+ "108": {
+  "id": "10d2d0e8-d39c-41cd-ae06-46f0a56a3dde",
+  "nome": "Med ball overhead slam (arremesso acima ao solo)"
+ },
+ "109": {
+  "id": "4aba82e0-0c2a-4723-9a5c-929db6b67476",
+  "nome": "Med ball scoop toss (arremesso de baixo para frente)"
+ },
+ "110": {
+  "id": "4fa9dd22-d57d-44a3-85cd-98310fe955ca",
+  "nome": "Med ball shot put (arremesso unilateral)"
+ },
+ "111": {
+  "id": "8fd89d73-2bba-4da8-a102-754e02df5583",
+  "nome": "Med ball squat to press throw"
+ },
+ "112": {
+  "id": "6d6cc96b-876b-494a-85e9-b3bc301d61f4",
+  "nome": "Med ball step and throw (passo e arremesso)"
+ },
+ "113": {
+  "id": "cce6cde7-2251-49cf-9083-b7bbd0193630",
+  "nome": "Slam ball"
+ },
+ "114": {
+  "id": "069009fe-c5ed-4edd-b018-c247ca09675f",
+  "nome": "Slam ball lateral"
+ },
+ "115": {
+  "id": "d2b04cb4-1a7d-4e74-af31-19809acb719a",
+  "nome": "Wall ball"
+ },
+ "116": {
+  "id": "49a466e8-8b75-499a-9595-b8c2dff6b6c4",
+  "nome": "Wall ball lateral"
+ },
+ "117": {
+  "id": "191b67b9-e656-4ec4-bcc4-8041176133a9",
+  "nome": "Wall ball unilateral"
+ },
+ "118": {
+  "id": "73c71887-0b9f-47f9-9397-4a14d0d10844",
+  "nome": "Chop meio-ajoelhado (tall/half kneeling)"
+ },
+ "119": {
+  "id": "b551a0d4-326f-4b4c-b909-8af4929130b2",
+  "nome": "Cross Over Polia Alta"
+ },
+ "120": {
+  "id": "b10456d7-2463-41ee-9087-f7cf42006a00",
+  "nome": "Cross Over Polia Alta 3 Porções"
+ },
+ "121": {
+  "id": "f22fa86e-fde5-4fe9-b8a0-098ced95239a",
+  "nome": "Extensão de Quadril em Diagonal Polia"
+ },
+ "122": {
+  "id": "3b59a032-f393-479c-b31f-e9059390c3da",
+  "nome": "Puxada Neutra Polia"
+ },
+ "123": {
+  "id": "f0d967d8-ff18-4881-8c28-aca104bf5ac6",
+  "nome": "Puxada Pronada Polia"
+ },
+ "124": {
+  "id": "f4558c21-4ace-4c19-834c-9deafaab7fef",
+  "nome": "Rosca Inclinada Polia Barra"
+ },
+ "125": {
+  "id": "99e2a39b-507d-4e8a-b260-6f5e4dae07c5",
+  "nome": "Tríceps Francês Polia Corda"
+ },
+ "126": {
+  "id": "d06f7cc9-380d-4fb1-9b60-5bd92a25dc22",
+  "nome": "Tríceps Polia Barra"
+ },
+ "127": {
+  "id": "acd1e2e2-39a0-4f00-bad8-c6cb8e674264",
+  "nome": "Abdominal Anti Rotação Polia"
+ },
+ "128": {
+  "id": "2f4377e5-6822-44b1-9d65-35bcdff31bf2",
+  "nome": "Abdominal Anti Rotação Polia Com Movimento"
+ },
+ "129": {
+  "id": "9c193276-7c38-4009-a259-2cf7cf1ee406",
+  "nome": "Abdominal Polia Alta com Corda"
+ },
+ "130": {
+  "id": "c0aa51e9-82b6-40f0-af1f-cf32be16c1da",
+  "nome": "Abdução de Quadril Cruzada Polia"
+ },
+ "131": {
+  "id": "fb5c8403-d675-4928-8d39-cec23fc7054b",
+  "nome": "Abdução de Quadril Polia"
+ },
+ "132": {
+  "id": "fd6071fb-701b-4d09-afb2-fa7ba8fc5e24",
+  "nome": "Biset Rosca Direta Polia + Rosca Invertida Polia"
+ },
+ "133": {
+  "id": "b5b7247a-e72d-4010-aec7-b0f21a8e5fa1",
+  "nome": "Biset Tríceps Polia + Inverso Polia Barra"
+ },
+ "134": {
+  "id": "39a9d0bc-1aaf-4838-a14d-4e516b15d075",
+  "nome": "Biset Tríceps Polia + Testa Polia Barra"
+ },
+ "135": {
+  "id": "86ee3559-0d35-47b2-877a-cb078d56d975",
+  "nome": "Biset Tríceps Polia + Testa Polia Corda"
+ },
+ "136": {
+  "id": "7caad9cc-dce4-40b5-a9c7-455c7853570e",
+  "nome": "Cable crunch (abdominal na polia)"
+ },
+ "137": {
+  "id": "c61b4e4f-4f72-410e-bbe1-c0e95e4a17d7",
+  "nome": "Chop Polia com Corda (CORE)"
+ },
+ "138": {
+  "id": "3bd15908-90de-4c6a-8c64-31ad3c75f845",
+  "nome": "Coice Polia Baixa"
+ },
+ "139": {
+  "id": "e6058264-060f-4e41-83ee-6810f38ca520",
+  "nome": "Coice Polia Média"
+ },
+ "140": {
+  "id": "8a461d7f-c174-4488-8dca-b4339ad26c81",
+  "nome": "Crucifixo Invertido Cruzado Polia"
+ },
+ "141": {
+  "id": "b5265c3f-05a3-4fdc-834a-2b6f0c69d12b",
+  "nome": "Crucifixo Invertido Unilateral Polia"
+ },
+ "142": {
+  "id": "e0a19df2-2e2c-4e5a-930b-3512059b2320",
+  "nome": "Elevação Frontal Polia Barra"
+ },
+ "143": {
+  "id": "f7503557-0c4c-4417-b6e0-594b6cc30dbf",
+  "nome": "Elevação Frontal Polia Corda"
+ },
+ "144": {
+  "id": "c3a857e7-c410-47d2-8aef-6dd7cb1ff9fc",
+  "nome": "Elevação Frontal Unilateral Polia"
+ },
+ "145": {
+  "id": "990793df-0bdf-4afa-8b70-65117c9a5a2a",
+  "nome": "Elevação Lateral Cruzada Polia"
+ },
+ "146": {
+  "id": "4d6e1ebd-b611-4a8d-bee2-c16fa7a8b8a4",
+  "nome": "Elevação Lateral Inclinada Polia"
+ },
+ "147": {
+  "id": "5a700771-7bf1-4c3e-8397-072a0aa98c75",
+  "nome": "Elevação Lateral Polia"
+ },
+ "148": {
+  "id": "9b9b7fc4-fdab-4ac8-978b-eb439db7be5b",
+  "nome": "Extensão de Punho 90 Graus Polia Baixa"
+ },
+ "149": {
+  "id": "5f47cbe1-d1d6-4718-b2ab-938178db7758",
+  "nome": "Extensão de Quadril Cruzada Polia"
+ },
+ "150": {
+  "id": "c36dcbec-494a-4240-bbb3-c8098ae7902e",
+  "nome": "Face Pull Polia Alta"
+ },
+ "151": {
+  "id": "b460198a-a5ca-4482-8df1-6c26220c8566",
+  "nome": "Fisio Ombro: face pull"
+ },
+ "152": {
+  "id": "a9307b76-a4e2-4305-b683-d86e59ae80b6",
+  "nome": "Flexão de Punho 90 graus Polia Baixa"
+ },
+ "153": {
+  "id": "dcc7c1f8-9e2e-4b4d-a91e-fbc96fd042fe",
+  "nome": "Flexão de Punho com a Polia Atrás"
+ },
+ "154": {
+  "id": "9c2ad88a-1f2a-4c58-9455-a667d5331d09",
+  "nome": "Flexão de Punho Polia Baixa"
+ },
+ "155": {
+  "id": "7512d746-8861-45b3-9242-800df83c8810",
+  "nome": "Flexão de Punho Unilateral Polia Alta"
+ },
+ "156": {
+  "id": "258bfac0-5456-462d-8530-a8204af6b8f8",
+  "nome": "Glúteo Coice Polia Banco"
+ },
+ "157": {
+  "id": "94f78ab8-d580-4ce0-8392-d8ac0fc141b0",
+  "nome": "Glúteo Polia Alta"
+ },
+ "158": {
+  "id": "cf15749a-32da-4e7f-95c7-67a458950a6e",
+  "nome": "Glúteo Semiflexionado Polia"
+ },
+ "159": {
+  "id": "3b123e3c-8ba7-4b27-9931-ac94f47bfc29",
+  "nome": "Glúteo Semiflexionado Polia Banco"
+ },
+ "160": {
+  "id": "71213b5c-f659-49a6-a29b-7895696a2b2b",
+  "nome": "Lift meio-ajoelhado"
+ },
+ "161": {
+  "id": "6073ee7c-1c0a-43b5-a70f-c13ddd0f1eca",
+  "nome": "Pallof press com passada"
+ },
+ "162": {
+  "id": "aa122a11-23c8-4ce3-819e-479676a85f86",
+  "nome": "Pallof press isométrico"
+ },
+ "163": {
+  "id": "08df4e08-7871-4212-aaa8-b9dc2807e2dd",
+  "nome": "Pallof press na polia"
+ },
+ "164": {
+  "id": "3e1d8c8d-fd9f-4546-8581-1a1936833624",
+  "nome": "Press anti-rotação meio-ajoelhado"
+ },
+ "165": {
+  "id": "8327a63b-80c4-421a-97d4-7de1a4b667c5",
+  "nome": "RDL Polia"
+ },
+ "166": {
+  "id": "6c2e58df-666f-420a-81e2-192929555fdc",
+  "nome": "Remada Alta Polia"
+ },
+ "167": {
+  "id": "e2e9c143-7d6e-4b55-9bd0-69b7639fefaa",
+  "nome": "Remada Polia Alta"
+ },
+ "168": {
+  "id": "f8c61424-6e4d-4fc7-bd1a-3dd381ee43d3",
+  "nome": "Remada Polia Alta Unilateral"
+ },
+ "169": {
+  "id": "f7aa9696-c084-47f4-bb2a-4f6878cbd2a4",
+  "nome": "Remada Polia Média Barra"
+ },
+ "170": {
+  "id": "0a011510-cb86-42bd-b96b-692c38e3ee4c",
+  "nome": "Remada Polia Média Corda"
+ },
+ "171": {
+  "id": "155881fb-85f7-4130-89a2-73b73143710d",
+  "nome": "Remada Polia Média Unilateral"
+ },
+ "172": {
+  "id": "da6dab0e-20ef-4b90-aef5-50dd62153f11",
+  "nome": "Remada Polia Média Unilateral com Giro"
+ },
+ "173": {
+  "id": "d154f0c1-5df4-4fd4-a487-3cfcaee43988",
+  "nome": "Rosca Direta Polia Barra"
+ },
+ "174": {
+  "id": "22a29009-6f64-406a-966f-253155bd5410",
+  "nome": "Rosca Direta Polia Corda"
+ },
+ "175": {
+  "id": "aefecdad-cc83-4a92-94b7-6408a556b883",
+  "nome": "Rosca em Hiperextensão de Ombro Polia"
+ },
+ "176": {
+  "id": "46e562a9-783c-4654-a303-bbecf3b638b9",
+  "nome": "Rosca Inversa Polia Barra"
+ },
+ "177": {
+  "id": "ea97c500-172b-4db2-a438-507f8b4a1b86",
+  "nome": "Rosca Unilateral Cross Polia Alta"
+ },
+ "178": {
+  "id": "fa93026d-104b-4ce7-9ce2-8bd58fd6b57f",
+  "nome": "Rotação Tronco Polia Baixa"
+ },
+ "179": {
+  "id": "e72c6531-5b99-4757-9a7d-efaa5d4bfdbf",
+  "nome": "Stiff Polia"
+ },
+ "180": {
+  "id": "c7da00c3-45fc-4bcf-9f33-9b6032086bf4",
+  "nome": "Triset Antebraço Polia"
+ },
+ "181": {
+  "id": "2440c002-d2bb-4a9a-bb38-8b45a58016fd",
+  "nome": "Tríceps Abdução Horizontal Unilateral Polia"
+ },
+ "182": {
+  "id": "a545e43e-bbd1-414c-8b73-2e9aa3fc4ddb",
+  "nome": "Tríceps Francês polia barra"
+ },
+ "183": {
+  "id": "fee75457-aeea-4070-8b1c-de33d8f0f0fe",
+  "nome": "Tríceps Inverso Polia"
+ },
+ "184": {
+  "id": "3cc40978-bc88-4d1c-88b4-670d761db741",
+  "nome": "Tríceps Polia Corda"
+ },
+ "185": {
+  "id": "c4cd4956-93f0-4170-a2c9-753e459a7a80",
+  "nome": "Tríceps Testa Polia Barra"
+ },
+ "186": {
+  "id": "819d50d1-34ac-418b-a989-f71937578072",
+  "nome": "Tríceps Testa Polia Corda"
+ },
+ "187": {
+  "id": "c46d79a5-e3ff-4c1e-a21c-091b66cbde1a",
+  "nome": "Tríceps Unilateral Cruzado Polia"
+ },
+ "188": {
+  "id": "5f69e25e-47af-4774-8ece-61066a4e2e47",
+  "nome": "Tríceps Unilateral Polia"
+ },
+ "189": {
+  "id": "4fa314e0-0e6d-45d0-991d-6e96945505c0",
+  "nome": "Woodchop alto-baixo na polia"
+ },
+ "190": {
+  "id": "435d6ec2-ca0c-4d2a-9b52-26099d0d0736",
+  "nome": "Woodchop baixo-alto na polia"
+ },
+ "191": {
+  "id": "e1ee3cf8-d8a4-4023-8ed2-ee967dacea2a",
+  "nome": "Y na Polia"
+ },
+ "192": {
+  "id": "29fd7e63-ac61-4732-828a-9763f603984f",
+  "nome": "Drop to stick (queda da caixa e estabiliza)"
+ },
+ "193": {
+  "id": "6d12d3e8-472b-495a-af17-0ae077bed6ce",
+  "nome": "Fisio Joelho: salto em profundidade (energy storage)"
+ },
+ "194": {
+  "id": "4f60051c-3bfa-41c8-9a1b-a4bacb4c4b70",
+  "nome": "Hurdle hops frontais"
+ },
+ "195": {
+  "id": "3698ab9b-bf41-4619-bb02-746098528036",
+  "nome": "Hurdle hops reativos (rebote rápido)"
+ },
+ "196": {
+  "id": "a720a814-089c-407e-9cda-b434a10ead49",
+  "nome": "Afundo pliométrico"
+ },
+ "197": {
+  "id": "10b412af-1efc-49ad-b38d-f62c5a09c0d9",
+  "nome": "Aterrissagem de caixa (box drop landing)"
+ },
+ "198": {
+  "id": "db93bd35-d429-4009-bbf6-28b5a44e9cfc",
+  "nome": "Aterrissagem de caixa unipodal"
+ },
+ "199": {
+  "id": "03a0f23f-cab8-41ad-9c51-5b5f928ec103",
+  "nome": "Box jump"
+ },
+ "200": {
+  "id": "20c16979-e09d-4122-a3b5-0b6876dfe77a",
+  "nome": "Box jump com aterrissagem suave"
+ },
+ "201": {
+  "id": "5b52b781-571c-4aca-99bf-e66c4a8ab4b4",
+  "nome": "Burpee box jump"
+ },
+ "202": {
+  "id": "53377cb6-f755-4f49-ac76-e55e150835bb",
+  "nome": "Búlgaro com salto"
+ },
+ "203": {
+  "id": "1237c3d4-1244-480c-9261-034036833851",
+  "nome": "Depth jump (salto em profundidade)"
+ },
+ "204": {
+  "id": "4370ac29-8751-4de9-8765-d2c467c57353",
+  "nome": "Depth jump com rebote imediato"
+ },
+ "205": {
+  "id": "de6df00a-0d66-453b-8d90-d8098810f986",
+  "nome": "Depth jump para caixa"
+ },
+ "206": {
+  "id": "72186f5e-8d3a-4f95-886a-88785e501294",
+  "nome": "Drop jump reativo (contato mínimo no solo)"
+ },
+ "207": {
+  "id": "9fe176b1-0730-449d-97c4-7ec1f6e780c2",
+  "nome": "Drop landing (só aterrissagem)"
+ },
+ "208": {
+  "id": "855be8c3-f36b-4bad-abb5-37d04db61f8d",
+  "nome": "Flexão pliométrica no step"
+ },
+ "209": {
+  "id": "6a359863-cef9-48cd-bdd9-d63f0bf66f18",
+  "nome": "Hops ( plio )"
+ },
+ "210": {
+  "id": "af214287-5ae5-4074-982d-15cb712c7d25",
+  "nome": "Hurdle hops laterais"
+ },
+ "211": {
+  "id": "4db43101-8c16-40ec-918c-fefdf8f2c02c",
+  "nome": "Hurdle hops unipodais"
+ },
+ "212": {
+  "id": "e7ea8ceb-df29-430b-bc89-715c04e4d7d4",
+  "nome": "Pliometria Alternada Elevação"
+ },
+ "213": {
+  "id": "1f9c9f42-ac95-4fee-9925-086f390c9ec8",
+  "nome": "Pliometria Plano Frontal Elevação"
+ },
+ "214": {
+  "id": "51a51037-7277-48fd-8b61-559ec69b88b6",
+  "nome": "Pliometria Unilateral apoio Banco"
+ },
+ "215": {
+  "id": "e4840783-fbde-4e07-9546-6b6d5de4115b",
+  "nome": "Potência Wall Ball base Afundo"
+ },
+ "216": {
+  "id": "2f419825-0522-4400-9753-1c19673f90f9",
+  "nome": "Salto c/ contramovimento ( plio )"
+ },
+ "217": {
+  "id": "214ee928-dbb5-454c-b3e8-5ff5b49f2e97",
+  "nome": "Salto em profundidade unipodal"
+ },
+ "218": {
+  "id": "3f5cdf00-8599-4997-a1b7-56056b335b67",
+  "nome": "Salto horizontal c/ contramovimento ( plio )"
+ },
+ "219": {
+  "id": "b75e5f9d-f56b-441e-b23f-b849048a7e68",
+  "nome": "Salto lateral em caixa"
+ },
+ "220": {
+  "id": "62bea1e0-2f07-45a6-9243-85b528adba73",
+  "nome": "Saltos Horizontais Continuos"
+ },
+ "221": {
+  "id": "52b548b7-f772-46a7-b2c6-a52793d43a22",
+  "nome": "Saltos Horizontais Unilaterais Estabilizando"
+ },
+ "222": {
+  "id": "03800c6a-d574-49ae-8cda-06904e196e47",
+  "nome": "Saltos Verticais Contínuos"
+ },
+ "223": {
+  "id": "2fadbea7-8bca-4201-81ac-288aafd53b64",
+  "nome": "Step-up com elevação de joelho"
+ },
+ "224": {
+  "id": "a67f2841-bf56-477d-8743-405c34d8360d",
+  "nome": "Subida no caixote (step-up)"
+ },
+ "225": {
+  "id": "2dbd7749-f70d-4021-b32c-79feb8e22e6e",
+  "nome": "Wall Ball Slide"
+ },
+ "226": {
+  "id": "0e741d22-0879-4e6b-9e31-ed2dc4f5d974",
+  "nome": "Wall Drill Diagonal Reativo"
+ },
+ "227": {
+  "id": "0a379d97-b76e-45f9-99b9-7fe1ad2298d6",
+  "nome": "Wall Drill Propulsão Diagonal"
+ },
+ "228": {
+  "id": "b0a48a05-1353-4553-b95d-a5809bf10e45",
+  "nome": "Battle rope (ondas)"
+ },
+ "229": {
+  "id": "c1e79eca-66da-429e-9e55-cade5bf81998",
+  "nome": "Sled pull (puxar trenó)"
+ },
+ "230": {
+  "id": "bed50ce6-9617-4562-9640-4c50eb17ae40",
+  "nome": "Sled push (empurrar trenó)"
+ },
+ "231": {
+  "id": "c648a996-b9c6-453b-bc08-32ae3bdb6c2b",
+  "nome": "Sled push de aceleração"
+ },
+ "232": {
+  "id": "a71f55f3-2748-45fb-88af-da377ce67c17",
+  "nome": "Agachamento no disco de equilíbrio"
+ },
+ "233": {
+  "id": "55ca9bc7-e978-4bfd-a571-f87f50d21d95",
+  "nome": "Bound reativo com banda no quadril"
+ },
+ "234": {
+  "id": "0864ae00-8b2d-4956-b7ae-b58ccd7b1747",
+  "nome": "Concha (clamshell) com banda"
+ },
+ "235": {
+  "id": "5c9a2f95-6d80-4535-bcbe-98e7d8f020b6",
+  "nome": "Fisio Quadril: abdução isométrica de glúteo médio"
+ },
+ "236": {
+  "id": "3170d189-6ef3-4071-b80a-4ddf4f4a24e9",
+  "nome": "Largada resistida com banda (band start)"
+ },
+ "237": {
+  "id": "b9ec1dea-7d91-4982-8a14-7b4434c1a34b",
+  "nome": "Pogo reativo com mini band"
+ },
+ "238": {
+  "id": "1fa8950a-6f9f-4c24-9115-b0cc25d6dddc",
+  "nome": "Sapinho Banco com Minband (Frog)"
+ },
+ "239": {
+  "id": "c941a80c-af63-4066-9d35-2850673c0391",
+  "nome": "Sprint resistido com banda"
+ },
+ "240": {
+  "id": "b43da4eb-780e-4488-a5bc-ccb85e32c902",
+  "nome": "Abdução de Quadril com Miniband"
+ },
+ "241": {
+  "id": "3b176d08-d9f9-46e2-a817-af77ad5768c1",
+  "nome": "Abdução de Quadril em Prancha Lateral com miniband"
+ },
+ "242": {
+  "id": "b4cb5f2a-9bb0-4cae-96ec-c851979635ad",
+  "nome": "Abdução de quadril em pé com banda"
+ },
+ "243": {
+  "id": "0217ae0c-3e89-4082-addc-054ab599055b",
+  "nome": "Abdução na parede com mini band"
+ },
+ "244": {
+  "id": "bea20cf4-d2d9-4a2d-97fa-6bee6554e7fb",
+  "nome": "Agachamento unilateral com mini band"
+ },
+ "245": {
+  "id": "dcfe8eba-b4a7-4f0d-a800-10f0f25d3cd0",
+  "nome": "Apoio Unipodal + mini band ( ativação pé )"
+ },
+ "246": {
+  "id": "310f9f12-1811-4fa5-a13e-0cda9957b22b",
+  "nome": "Aterrissagem unipodal com banda (perturbação)"
+ },
+ "247": {
+  "id": "a919653b-c39f-416e-86f7-a6a5fd1fb80a",
+  "nome": "Ativação de Glúteo mini band"
+ },
+ "248": {
+  "id": "df560304-9a05-4644-b3d3-7fb304be1c7c",
+  "nome": "Ativação Glúteos Parede Miniband"
+ },
+ "249": {
+  "id": "5d5060a7-43e2-40a8-afd4-d368d041375a",
+  "nome": "Band pull-apart"
+ },
+ "250": {
+  "id": "3c9d3fa4-d90b-4a2c-9407-ca2c8e3135ef",
+  "nome": "Band walk frontal"
+ },
+ "251": {
+  "id": "1aed1cd3-3781-4f5b-b1a6-cacef13b34f9",
+  "nome": "Bird dog com mini band"
+ },
+ "252": {
+  "id": "e6a748f5-2993-4f31-9e58-cb68e6ed8381",
+  "nome": "Caminhada lateral com mini band"
+ },
+ "253": {
+  "id": "253359b8-bda8-4506-8aaf-d922c1631cad",
+  "nome": "Coice de glúteo (kickback) com banda"
+ },
+ "254": {
+  "id": "cd97f513-28aa-489c-9cd3-af81e703af74",
+  "nome": "Dead bug com mini band"
+ },
+ "255": {
+  "id": "d5b2efff-225d-4673-a0fa-b9e363def938",
+  "nome": "Elevação de Quadril Solo + Abdução no Pico de Contração com Miniband"
+ },
+ "256": {
+  "id": "585b350c-bba4-433c-9830-e46be2af9175",
+  "nome": "Elevação de Quadril Solo com Miniband"
+ },
+ "257": {
+  "id": "3f51e5c8-acca-4225-a233-6d2faa5e1366",
+  "nome": "Extensão de Quadril com Miniband"
+ },
+ "258": {
+  "id": "75cf318a-071a-47fe-8ba9-2ff21c68dcf2",
+  "nome": "Extensão de Quadril em Diagonal Miniband"
+ },
+ "259": {
+  "id": "d8f0ab53-6e7d-4c1f-9fb9-7b8407d62b68",
+  "nome": "Face pull com banda"
+ },
+ "260": {
+  "id": "a2ea7519-0c86-4e16-bdec-aa6e571a764b",
+  "nome": "Fire hydrant com banda"
+ },
+ "261": {
+  "id": "14a37bd7-2592-44fc-b429-d2f6aa272f6e",
+  "nome": "Fisio Joelho: extensão terminal de joelho (TKE) com banda"
+ },
+ "262": {
+  "id": "8c85efc1-f782-4a92-87bb-64efce180b40",
+  "nome": "Fisio Joelho: Spanish squat isométrico (banda)"
+ },
+ "263": {
+  "id": "08e6f9c6-3798-4615-a6b9-6961a1de0d01",
+  "nome": "Fisio Ombro: rotação externa com banda"
+ },
+ "264": {
+  "id": "1a59f308-6143-4a7b-b1a1-92d08f1b0045",
+  "nome": "Fisio Ombro: rotação interna com banda"
+ },
+ "265": {
+  "id": "ee88225b-5f2d-48f2-a241-d56beacdf79f",
+  "nome": "Fisio Punho: extensão de dedos com elástico"
+ },
+ "266": {
+  "id": "f3ba0904-10e6-4c06-8e5a-32691e8c52c1",
+  "nome": "Fisio Tendão patelar: isométrico Spanish squat (45s)"
+ },
+ "267": {
+  "id": "2eed525d-8e39-415a-bb28-461767276dd4",
+  "nome": "Fisio Tornozelo: dorsiflexão com banda"
+ },
+ "268": {
+  "id": "38686cfa-22ae-4500-8155-89ff18544a34",
+  "nome": "Fisio Tornozelo: inversão/eversão com banda"
+ },
+ "269": {
+  "id": "02405dab-c29d-4179-9f75-1891c5f2207f",
+  "nome": "Flexão de quadril alternada mini band em ISO isquiotibiais/gluteo"
+ },
+ "270": {
+  "id": "226fb390-f2fb-4477-9e58-22d6f873ad3c",
+  "nome": "Gluteo - rot ext - mini band"
+ },
+ "271": {
+  "id": "a795e738-9954-43fb-b944-8e7ca6c8fde1",
+  "nome": "Glúteo Concha com Miniband"
+ },
+ "272": {
+  "id": "ef875bb7-80df-4daf-9b00-1cc56e8ebf12",
+  "nome": "Mobilidade de Ombro com Bastão/Elástico"
+ },
+ "273": {
+  "id": "93434700-d614-43e8-9263-1b5a4e4fa3dc",
+  "nome": "Monster walk (caminhada do monstro)"
+ },
+ "274": {
+  "id": "caee0c7f-7b3a-481b-84a0-77d930e8a1a5",
+  "nome": "Nórdico com Elástico"
+ },
+ "275": {
+  "id": "15970175-ecdc-42be-8d48-eed24c8db1a6",
+  "nome": "Pallof press com banda"
+ },
+ "276": {
+  "id": "05048a2c-12db-4807-8f9c-38b06233c1f5",
+  "nome": "Passada Lateral com Miniband"
+ },
+ "277": {
+  "id": "0dc85179-20cc-4046-8bbc-8425fbed95dc",
+  "nome": "Ponte de glúteo com mini band"
+ },
+ "278": {
+  "id": "9424dd73-f3ed-4a0f-a2c3-dc3a0d296898",
+  "nome": "Prancha Lateral com Rotação Externa Elastico"
+ },
+ "279": {
+  "id": "953eaf1d-1b3f-460e-b1fa-47ed3e90f0f0",
+  "nome": "Prancha Lateral em Abdução com Mini band + Crucifixo Unilateral"
+ },
+ "280": {
+  "id": "eef9a08b-8ea3-45d9-ae15-dace11048bf9",
+  "nome": "Propulsão Diagonal com mini band"
+ },
+ "281": {
+  "id": "ad2c7265-abc6-44f1-9fb6-d1dd2db714bf",
+  "nome": "RDL Unilateral com Miniband"
+ },
+ "282": {
+  "id": "bd600b8a-4a73-4964-8d93-771f74cf7f71",
+  "nome": "Remada sentada com mini band"
+ },
+ "283": {
+  "id": "405d110e-8ca3-4fbc-a2ec-57f14f241ac0",
+  "nome": "Rotação externa de ombro com banda"
+ },
+ "284": {
+  "id": "bcb4aa93-98e8-4ffb-bcac-6146557a79af",
+  "nome": "Salto horizontal com banda (banded broad jump)"
+ },
+ "285": {
+  "id": "a0d2960f-2d38-4c57-9c97-739027560206",
+  "nome": "Salto s/ contramovimento + mini band"
+ },
+ "286": {
+  "id": "11adc894-e6fd-4fcb-8c6c-f6742ff643c3",
+  "nome": "Stiff Uni + elástico ( ativação pé )"
+ },
+ "287": {
+  "id": "da200d73-4bb2-4add-b3d1-cd41e80a6c0b",
+  "nome": "Terra / Deadlift com KB + Super Band"
+ },
+ "288": {
+  "id": "4bbcaec9-1ed8-4365-8573-1894c5e2cec4",
+  "nome": "Wall drive com banda no quadril"
+ },
+ "289": {
+  "id": "af1cab29-e1e0-4e01-81d1-66db789c39ec",
+  "nome": "Wall sprint march com banda"
+ },
+ "290": {
+  "id": "00b81946-db35-47cd-bf26-e580a5b0410c",
+  "nome": "Fisio Cotovelo: Tyler twist com flexbar"
+ },
+ "291": {
+  "id": "6434476e-61da-4f43-add6-58ba14773a9f",
+  "nome": "Afundo com halteres"
+ },
+ "292": {
+  "id": "75be10d2-4087-4b4d-9a88-c04f9bdb1a30",
+  "nome": "Afundo Halteres"
+ },
+ "293": {
+  "id": "df795cb5-06d1-49a9-848f-ac7b186ff807",
+  "nome": "Agachamento Sumô Halter"
+ },
+ "294": {
+  "id": "0628f8ba-73d5-49e9-a802-bc1825680ecf",
+  "nome": "Encolhimento Halter"
+ },
+ "295": {
+  "id": "be8fff41-033b-4f4b-9d0f-414dac68321b",
+  "nome": "Fisio Cotovelo: extensão de punho excêntrica (epicondilite lateral)"
+ },
+ "296": {
+  "id": "8edcbd68-ff67-427a-8145-8908a360cb7d",
+  "nome": "Fisio Cotovelo: flexão de punho excêntrica (epicondilite medial)"
+ },
+ "297": {
+  "id": "e7f34a26-20b8-4d7c-bd8b-1d6a0c2ff97a",
+  "nome": "Fisio Posterior: terra romeno unipodal lento (HSR)"
+ },
+ "298": {
+  "id": "dc0ad1e1-6d1b-4cec-8e29-1c9ce486097f",
+  "nome": "Levantamento Terra Sumô com Halter"
+ },
+ "299": {
+  "id": "4161c89d-9db9-473f-97ca-acf4ac83b968",
+  "nome": "Passada Halteres"
+ },
+ "300": {
+  "id": "e5e6eb77-21c8-4d9b-95c0-3f91c4914375",
+  "nome": "Pullover Halter"
+ },
+ "301": {
+  "id": "53c8b9d0-82ce-4d29-8573-7a337a1da03e",
+  "nome": "Recuo Halteres"
+ },
+ "302": {
+  "id": "1dba3d51-da68-44a7-a720-f7caf0c36cd2",
+  "nome": "Rosca Scott Unilateral Neutra Halter"
+ },
+ "303": {
+  "id": "7f97f464-1f1d-47ba-9521-b2958f6714d1",
+  "nome": "Abs medball"
+ },
+ "304": {
+  "id": "a2d29137-32db-4153-93c2-eb6103c00ac9",
+  "nome": "Afundo + DB Snatch"
+ },
+ "305": {
+  "id": "75a0be3c-782a-43bd-b622-51bb4c2def59",
+  "nome": "Afundo Halteres com 2 Steps"
+ },
+ "306": {
+  "id": "18ca2f96-e70f-4428-b5d6-e20804eb193a",
+  "nome": "Afundo Halteres com Step na Frente"
+ },
+ "307": {
+  "id": "7fa7c63d-5642-4d41-acd3-f3e468e53370",
+  "nome": "Agachamento búlgaro"
+ },
+ "308": {
+  "id": "b1683ec5-c903-4406-a33d-0a03606ac7f5",
+  "nome": "Agachamento com Desenvolvimento Halteres"
+ },
+ "309": {
+  "id": "faa0a8a1-a84f-42f9-b234-8286d1c46912",
+  "nome": "Agachamento Frontal Com 2 Halteres"
+ },
+ "310": {
+  "id": "0b50f141-a549-42f1-b2e2-9ef826798af8",
+  "nome": "Avanço com Halteres (afundo)"
+ },
+ "311": {
+  "id": "90c13080-6ab3-4b9c-982f-984c50e224bc",
+  "nome": "Biset Crucifixo Inclinado + Supino Inclinado Halteres"
+ },
+ "312": {
+  "id": "64ea4d35-daa5-4d8a-916f-cdd3784d29e2",
+  "nome": "Biset Tríceps Testa + Supino Fechado Halteres"
+ },
+ "313": {
+  "id": "1941c28d-39dc-45f1-b598-4e209e3a1628",
+  "nome": "CORE Medball deitado"
+ },
+ "314": {
+  "id": "c2df4c00-a3c7-4ed2-9310-a58b1971fa6f",
+  "nome": "Crucifixo Inclinado Halteres"
+ },
+ "315": {
+  "id": "430e38a3-2815-45b1-af80-712184dd17c2",
+  "nome": "Crucifixo Reto Halteres"
+ },
+ "316": {
+  "id": "4b47b4ab-0617-4698-acac-14469bd12fb0",
+  "nome": "DB Snatch (saída de Afundo)"
+ },
+ "317": {
+  "id": "e9356e80-6f25-4ac7-bce7-afc652825220",
+  "nome": "Desenvolvimento Halteres em Pé"
+ },
+ "318": {
+  "id": "f65e178d-2fb9-467d-8ec7-153df01be7bb",
+  "nome": "Desenvolvimento Halteres Sentado"
+ },
+ "319": {
+  "id": "77208e72-8b6f-4fdc-99ca-42a18e2889d6",
+  "nome": "Desenvolvimento Neutro Halteres Sentado"
+ },
+ "320": {
+  "id": "8e9e3555-13f8-4239-b2f5-66bf7fea7194",
+  "nome": "Devil press"
+ },
+ "321": {
+  "id": "0f30810b-4750-47ca-a7a7-5b01d906119e",
+  "nome": "Dumbbell push press"
+ },
+ "322": {
+  "id": "713da3c2-14c9-4d74-8f7e-8a35d7ca21dd",
+  "nome": "Elevação Frontal Halteres Neutra"
+ },
+ "323": {
+  "id": "15968ffd-1b58-4859-b181-a8b9485a853c",
+  "nome": "Elevação Lateral Halteres"
+ },
+ "324": {
+  "id": "ab9d410a-e940-4d2c-b86a-e6b14a581fd7",
+  "nome": "Elevação Lateral Halteres Inclinada Sentado"
+ },
+ "325": {
+  "id": "bac1aae2-266d-4ebc-82ea-1bce6b01e70c",
+  "nome": "Elevação Lateral Halteres Sentado"
+ },
+ "326": {
+  "id": "173e23bb-4e7b-484e-b740-304ed542bc76",
+  "nome": "Elevação Lateral Neutra Halteres"
+ },
+ "327": {
+  "id": "462ab5a2-c923-4db3-a678-ca82d70e0585",
+  "nome": "Encolhimento Halter com Inclinação"
+ },
+ "328": {
+  "id": "d54ef301-c6bb-4d6e-9fd5-f51514817929",
+  "nome": "Extensão de Punho Halteres"
+ },
+ "329": {
+  "id": "40613578-d06a-4dd7-99a6-45cdd17ef021",
+  "nome": "Farmers carry"
+ },
+ "330": {
+  "id": "c77eabad-753e-41c9-b4c0-c634fa25948b",
+  "nome": "Fisio Cotovelo: pronação/supinação com peso"
+ },
+ "331": {
+  "id": "e13dcf55-ea17-4d7b-a53b-2a862b8b7cf6",
+  "nome": "Fisio Ombro: scaption (full can)"
+ },
+ "332": {
+  "id": "382952cd-532d-4096-b056-38a682891a43",
+  "nome": "Fisio Punho: desvio radial/ulnar com peso"
+ },
+ "333": {
+  "id": "7a4908fd-df45-44a4-bf30-c6f4a2958769",
+  "nome": "Fisio Punho: flexão/extensão de punho com peso"
+ },
+ "334": {
+  "id": "c943d2d9-f380-4da7-911d-3ac5bec18725",
+  "nome": "Fisio Quadril: hip thrust unilateral"
+ },
+ "335": {
+  "id": "479eecd9-1642-4c4c-b9eb-b0a14f11af3a",
+  "nome": "Flexão de Punho Halteres"
+ },
+ "336": {
+  "id": "69a6f10a-55a1-4b76-b694-5c2e4bb78523",
+  "nome": "Landmine rotation"
+ },
+ "337": {
+  "id": "c5349a6c-aa4d-4090-afd8-8a17d7cbc520",
+  "nome": "Man maker"
+ },
+ "338": {
+  "id": "605f232f-a42a-42b1-a36d-7e2a884f3af9",
+  "nome": "Passadas com Halteres"
+ },
+ "339": {
+  "id": "5fe82ae3-0ef1-4006-8792-75303f84f1ec",
+  "nome": "Plank row (remada na prancha)"
+ },
+ "340": {
+  "id": "71a733f9-b478-45b2-ac4b-3e9f8ae2165c",
+  "nome": "Prancha + medball"
+ },
+ "341": {
+  "id": "f7ba7031-85e7-4ed6-a68b-c9497ba6f5b6",
+  "nome": "Prancha Alta Passando Halter"
+ },
+ "342": {
+  "id": "278dc519-6103-4b04-beac-31cf6cf12fb5",
+  "nome": "Pronação e Supinação Halteres"
+ },
+ "343": {
+  "id": "58e1cae6-b85a-46d9-8639-291b23f0fbde",
+  "nome": "Push press"
+ },
+ "344": {
+  "id": "1e9ca66e-a79c-4885-87f0-049742a63266",
+  "nome": "RDL Halteres"
+ },
+ "345": {
+  "id": "83a07881-8a15-452c-80ff-6a622ca72723",
+  "nome": "Recuo com Halteres ( afundo )"
+ },
+ "346": {
+  "id": "76540c36-8b73-4400-931a-7b7afc7d9bdd",
+  "nome": "Recuo Halteres com Step na Frente"
+ },
+ "347": {
+  "id": "bc77dd8b-8a5b-49da-987b-2653991d1659",
+  "nome": "Remada Alta Halteres"
+ },
+ "348": {
+  "id": "c6a10a3b-3909-48e8-993b-6a8842b5b0c2",
+  "nome": "Remada Curvada Halteres com Rotação"
+ },
+ "349": {
+  "id": "ec464c13-8653-4ec4-83b6-0f4ac5855c4a",
+  "nome": "Remada Curvada Halteres Neutra"
+ },
+ "350": {
+  "id": "9b2b10ed-6a6c-4e43-b17d-d603b7627e2b",
+  "nome": "Remada Curvada Halteres Pronada"
+ },
+ "351": {
+  "id": "39d4541e-109c-46ed-8a72-4936c8e320ba",
+  "nome": "Renegade row"
+ },
+ "352": {
+  "id": "991faa49-4ce9-4bb9-975b-315f78efa964",
+  "nome": "Rosca Direta Halteres"
+ },
+ "353": {
+  "id": "498e22d2-7d0e-4698-a446-0c06d662b23f",
+  "nome": "Rosca Martelo Alternada Halteres"
+ },
+ "354": {
+  "id": "f42f4b07-35f7-4deb-872e-3f1987a3dc89",
+  "nome": "Rosca Martelo Halteres"
+ },
+ "355": {
+  "id": "c3a687e4-a17c-401d-a7b8-85e25c6e982f",
+  "nome": "Rosca Scott Unilateral Halter"
+ },
+ "356": {
+  "id": "124d5562-a1fc-47ce-a3eb-c536dc0f6699",
+  "nome": "Rosca Spider Halteres"
+ },
+ "357": {
+  "id": "7531dfbc-5bd0-4d07-b8a3-b42e6c4a4416",
+  "nome": "Russian twist com peso"
+ },
+ "358": {
+  "id": "db6b26b0-30b7-4143-8155-2212d2f45280",
+  "nome": "Salto Vertical Continuo Halteres ( plio )"
+ },
+ "359": {
+  "id": "107cb28d-341d-4245-9bff-e687398d7c88",
+  "nome": "SL 2DB Box Clean"
+ },
+ "360": {
+  "id": "f347f55d-f778-480c-afc8-106198022b6d",
+  "nome": "SL DB Box Clean"
+ },
+ "361": {
+  "id": "344d933b-cd88-415c-ae69-649116c150c4",
+  "nome": "SL DB Box Snatch"
+ },
+ "362": {
+  "id": "29a4577b-cf14-4bbd-b480-472fd828e6db",
+  "nome": "Snatch Unipodal / Unilateral Halter"
+ },
+ "363": {
+  "id": "88194a44-bee6-4693-a1a6-73d5e80aaaff",
+  "nome": "Step Up Halteres"
+ },
+ "364": {
+  "id": "03913dfa-9d5c-44b5-9e92-325a1697cc19",
+  "nome": "Stiff Abduzido Halteres"
+ },
+ "365": {
+  "id": "2aba59cb-6e22-4e64-9b76-f931d0b7d069",
+  "nome": "Stiff B-Stance Halteres"
+ },
+ "366": {
+  "id": "a0c39fee-d2eb-468e-8bd1-2efb7f8ab33f",
+  "nome": "Stiff com Halteres"
+ },
+ "367": {
+  "id": "dc207ca2-b186-4220-b154-63c08c53ea66",
+  "nome": "Stiff Halteres"
+ },
+ "368": {
+  "id": "a18bb611-2583-4def-8467-dc0ed9250e4d",
+  "nome": "Stiff Unipodal com Halter"
+ },
+ "369": {
+  "id": "bad24698-d7ec-42db-b88f-232652935b82",
+  "nome": "Suitcase carry (caminhada unilateral)"
+ },
+ "370": {
+  "id": "9160b4e1-9fbd-468c-b8e0-bc5868587078",
+  "nome": "Supino Fechado Halteres"
+ },
+ "371": {
+  "id": "d959e3ee-0e5f-467e-a227-ce36b984045a",
+  "nome": "Supino inclinado com halteres"
+ },
+ "372": {
+  "id": "5c3558f8-01c1-43a4-bf9b-0d6993c80b80",
+  "nome": "Supino Inclinado Halteres"
+ },
+ "373": {
+  "id": "8801e0c9-15b8-4b27-8847-1affbef93da8",
+  "nome": "Supino Reto Halteres"
+ },
+ "374": {
+  "id": "810fcad7-7b7d-47e0-895e-1eb45aa2e852",
+  "nome": "Terra romeno unipodal (single-leg RDL)"
+ },
+ "375": {
+  "id": "89248200-9215-4cd8-822d-b1bf1378c82d",
+  "nome": "Thruster"
+ },
+ "376": {
+  "id": "5112d74f-de07-4f65-86c1-9e2d0668d69f",
+  "nome": "Tríceps Francês Unilateral Halter"
+ },
+ "377": {
+  "id": "0d3eb594-ecb2-43e7-b70d-a8b272db3a42",
+  "nome": "Tríceps Testa Halteres Banco 45"
+ },
+ "378": {
+  "id": "883f77a1-c25f-4626-aed5-9d18c8955508",
+  "nome": "Tríceps Testa Halteres Banco Reto"
+ },
+ "379": {
+  "id": "df73c501-7916-4e9c-bc78-08c79d9e5c85",
+  "nome": "Tríceps Testa Halteres Solo"
+ },
+ "380": {
+  "id": "edcc27d7-39ff-40a4-9537-93b5e3f37a40",
+  "nome": "Goblet squat"
+ },
+ "381": {
+  "id": "dcc98681-1add-43fc-99ed-ba5967c2b9a5",
+  "nome": "KB Swing"
+ },
+ "382": {
+  "id": "f92c050a-f660-419a-88b2-d3cb91e5dd85",
+  "nome": "Kettlebell clean"
+ },
+ "383": {
+  "id": "3c9ef909-6f72-41af-9816-6919e032a286",
+  "nome": "Kettlebell snatch"
+ },
+ "384": {
+  "id": "d65552e0-a929-4a03-9be0-0bb86899e428",
+  "nome": "Kettlebell swing"
+ },
+ "385": {
+  "id": "33c3e734-d90b-4870-9958-d5d1c76870b3",
+  "nome": "Thruster com KB Unilateral"
+ },
+ "386": {
+  "id": "0d6195f9-ed85-427a-b60a-04e93dc6899a",
+  "nome": "Turkish get-up"
+ },
+ "387": {
+  "id": "00569022-ffe4-4592-8552-813653b3a4f6",
+  "nome": "4 exercícios da fisio"
+ },
+ "388": {
+  "id": "bcb42b88-23ee-402b-bc5d-482e95e4bec0",
+  "nome": "Abdução de Quadril no Banco com Caneleira"
+ },
+ "389": {
+  "id": "d0c93be9-6ee3-420e-a34e-10ffe077d9f2",
+  "nome": "Agachamento Búlgaro com Step"
+ },
+ "390": {
+  "id": "e9d6bfd4-2980-45b9-beac-855bb6be8c0b",
+  "nome": "Agachamento Búlgaro Inclinado"
+ },
+ "391": {
+  "id": "3e192862-ed2e-4063-b6f9-13b433844cf8",
+  "nome": "Agachamento Livre"
+ },
+ "392": {
+  "id": "64b2b71e-49e4-4792-b63e-fd105879e0ac",
+  "nome": "Agachamento Sumô Landmine"
+ },
+ "393": {
+  "id": "ec014d1e-7272-4866-a4b0-8891b1db6189",
+  "nome": "Balaço de panturrilha e tíbial"
+ },
+ "394": {
+  "id": "86749ad4-f622-4978-9c84-9ed335b13cff",
+  "nome": "Biset Cross Over + Supino Banco 90"
+ },
+ "395": {
+  "id": "4a8b14bf-d7a8-422d-932a-63a3af07e453",
+  "nome": "Cadeira Flexora com Flexão de Quadril Unilateral"
+ },
+ "396": {
+  "id": "8ee2ccea-edb2-47a9-8ea2-4b5c23c3bf40",
+  "nome": "Cardio"
+ },
+ "397": {
+  "id": "0d8ff75a-5d94-4c9a-897d-fd155c83e0ca",
+  "nome": "Corrida"
+ },
+ "398": {
+  "id": "b5528218-4bd6-4f43-83a7-6be9663a6de1",
+  "nome": "Cross Over Medial"
+ },
+ "399": {
+  "id": "8f5a324b-b573-4b6b-87f6-49461b8cdbce",
+  "nome": "Cross Over Medial Banco 90"
+ },
+ "400": {
+  "id": "ea93a5a1-a755-4c12-8b5e-33a4741a7593",
+  "nome": "Cross Over Supinado"
+ },
+ "401": {
+  "id": "947b6da5-7e97-4d27-badf-300ee1d5069a",
+  "nome": "Elevação de Quadril Solo"
+ },
+ "402": {
+  "id": "8e92cb95-dc37-49d8-857b-5f0f36eef8ca",
+  "nome": "Elevação Frontal Pronada Em Pé"
+ },
+ "403": {
+  "id": "2dd3779f-980f-47f4-bf8f-ea0a1a4ccf95",
+  "nome": "Elevação Pélvica Unilateral Banco"
+ },
+ "404": {
+  "id": "fc958ce0-b6b5-4a54-bd3d-74b8828a56e2",
+  "nome": "Extensora Completa + Parcial Embaixo"
+ },
+ "405": {
+  "id": "4b184b64-9581-43bb-bfb0-c081d373b5c1",
+  "nome": "Extensão da coluna com rolinho"
+ },
+ "406": {
+  "id": "5c4f79d8-2927-4963-9539-ea65a0b978a9",
+  "nome": "Extensão Y-T"
+ },
+ "407": {
+  "id": "c5888208-17b3-4b1a-9b20-6b1214c89b6d",
+  "nome": "Face Pull Corda"
+ },
+ "408": {
+  "id": "6f5aa853-de66-47ad-8061-d488c6f6adf7",
+  "nome": "Flexão Fechada"
+ },
+ "409": {
+  "id": "2345fdf0-2bb7-49c0-839d-1d1bfd3024f8",
+  "nome": "Levantamento Terra"
+ },
+ "410": {
+  "id": "5621889e-0fba-4c45-aa67-570bb685fe49",
+  "nome": "liberação do tibial com rolinho"
+ },
+ "411": {
+  "id": "4722c027-4a82-4113-b7da-6e3ed5ae3bda",
+  "nome": "Mesa Flexora Unilateral"
+ },
+ "412": {
+  "id": "9a667138-66cf-42d3-a36f-0ffb0cd611e9",
+  "nome": "Pulldown Corda"
+ },
+ "413": {
+  "id": "e1000001-0000-0000-0000-000000000007",
+  "nome": "Puxada Frontal"
+ },
+ "414": {
+  "id": "199cac35-bfc9-4575-86b9-39b128337fa5",
+  "nome": "Remada Cavalinho Unilateral Neutra"
+ },
+ "415": {
+  "id": "ecb7437e-a486-4e23-a816-43f948b5e5c8",
+  "nome": "Remada Cavalinho Unilateral Pronada"
+ },
+ "416": {
+  "id": "1829097c-7ad7-40e0-840b-0fc087e79d0f",
+  "nome": "Remada com Peito no Banco Pronada"
+ },
+ "417": {
+  "id": "709a6fe5-cab8-482a-b60d-35495ff6e275",
+  "nome": "Retração escapular na parede"
+ },
+ "418": {
+  "id": "9211404c-1b87-4a13-97a6-b5c65fc4ff22",
+  "nome": "Serrote Livre"
+ },
+ "419": {
+  "id": "e06fec69-cded-4629-b5dc-651402331d4c",
+  "nome": "Supersquat"
+ },
+ "420": {
+  "id": "f5929365-dc60-4617-a45d-c27500404748",
+  "nome": "Supino Reto Solo"
+ },
+ "421": {
+  "id": "ab96e97b-0a29-44e2-9dff-4cf074c7e8d4",
+  "nome": "Swan dive chão"
+ },
+ "422": {
+  "id": "054f9822-2e74-46ba-b97d-23cf1823baf9",
+  "nome": "Triset Panturrilha com Rotação"
+ },
+ "423": {
+  "id": "e789f3da-6de9-4be5-b039-adfb38f8a955",
+  "nome": "Abdução de Quadril com Caneleira"
+ },
+ "424": {
+  "id": "447d63e9-dfce-4e60-ba14-2a64ebd4fd00",
+  "nome": "Afundo (retrocesso) + overhead knee drive"
+ },
+ "425": {
+  "id": "b7741370-b490-4d21-965b-7b2e5ed18c6c",
+  "nome": "Afundo (retrocesso) + Shoulder Press simultâneo"
+ },
+ "426": {
+  "id": "7aebe25d-69d6-49b1-93f0-1f287fcfc15e",
+  "nome": "Afundo + joelho elevado"
+ },
+ "427": {
+  "id": "b875b1fa-e185-49f9-8ed8-4e998ba72b11",
+  "nome": "Afundo + panturrilha inclinada"
+ },
+ "428": {
+  "id": "ceb4d99c-d903-4579-82a0-d61bced5d74f",
+  "nome": "Afundo Step Up com elevação de joelho"
+ },
+ "429": {
+  "id": "5e0d9df3-8d79-469c-8b16-e5e1d2e8f868",
+  "nome": "Afundo Unipodal - anilha contrapeso"
+ },
+ "430": {
+  "id": "c452607e-7dff-463d-adb2-a712059a8d26",
+  "nome": "Agachamento Búlgaro"
+ },
+ "431": {
+  "id": "d91a1c63-de51-4a7f-a42c-23f5911c18f9",
+  "nome": "Agachamento Búlgaro com Apoio"
+ },
+ "432": {
+  "id": "7a8976b1-789e-4ea7-b499-8b81ece87d25",
+  "nome": "Agachamento Cálice"
+ },
+ "433": {
+  "id": "6950cec4-2d21-40e1-992c-0e0a11ba5d38",
+  "nome": "Agachamento Cálice Banco"
+ },
+ "434": {
+  "id": "6bc152db-68b2-4629-99bf-719ab3f060bd",
+  "nome": "Agachamento Front Squat"
+ },
+ "435": {
+  "id": "ba5cc0fa-5df4-41c9-8bf1-fce04648ec6f",
+  "nome": "Agachamento Hack"
+ },
+ "436": {
+  "id": "b62d4d38-20bb-4873-a61f-95f5b3dc0b92",
+  "nome": "Agachamento Hack Angular"
+ },
+ "437": {
+  "id": "4bf7d5d1-9cd1-473a-9c48-5969aa7edec9",
+  "nome": "Agachamento Livre ( backsquat )"
+ },
+ "438": {
+  "id": "f6f1683c-2e7c-4e75-b268-89803b22e6ac",
+  "nome": "Agachamento Livre com Banco"
+ },
+ "439": {
+  "id": "9476d942-f358-4ea6-87ff-ae031adf98e1",
+  "nome": "Agachamento Sumô Belt Squat"
+ },
+ "440": {
+  "id": "5664e6f2-52fe-46d9-be5a-a8806703ad84",
+  "nome": "Ativação Escapular 4 Apoios"
+ },
+ "441": {
+  "id": "b0584d56-0a2d-44be-96af-1372c88b4a9a",
+  "nome": "Ativação Escapular Unilateral 4 Apoios"
+ },
+ "442": {
+  "id": "dc4a5ffe-82a1-4ec2-a456-5bdceaa86d62",
+  "nome": "Avanço com rotação de tronco"
+ },
+ "443": {
+  "id": "eecbb779-188a-4a82-8b80-ed9af4c1a6eb",
+  "nome": "Biceps Martelo + Desenvolvimento"
+ },
+ "444": {
+  "id": "1a753479-4b74-43b2-8e75-1a9ace6d4b35",
+  "nome": "Biset Cadeira Abdutora 45 + 90"
+ },
+ "445": {
+  "id": "4b0b3925-7ba0-476a-b7a2-e2d06fef90bd",
+  "nome": "Biset Cadeira Abdutora 90 + Inclinada"
+ },
+ "446": {
+  "id": "826d88a4-7f2f-45bd-927f-5e5cc5910626",
+  "nome": "Biset Cross Over + Supino Inclinado Banco 45"
+ },
+ "447": {
+  "id": "63374ce3-a255-4e87-9c76-2e23cd15a4ec",
+  "nome": "Biset Cross Over + Supino Inclinado Neutro Banco 45"
+ },
+ "448": {
+  "id": "759f84c5-4c58-4f67-a789-ec64fcc960e7",
+  "nome": "Biset Elevação Lateral Sentado 90 + Inclinada"
+ },
+ "449": {
+  "id": "1c97bc1e-2dfe-4f83-b329-49ca21a8350a",
+  "nome": "Biset Extensora + Nórdico Reverso"
+ },
+ "450": {
+  "id": "2ea75295-c1ce-495f-9d59-e2f5e94d72b2",
+  "nome": "Biset Remada Baixa Pronada + Supinada"
+ },
+ "451": {
+  "id": "c916c624-2e7c-40b2-8195-4e5f8a4f2c3c",
+  "nome": "Bom dia"
+ },
+ "452": {
+  "id": "1528aefa-4644-48c9-a527-a5cab3f067f7",
+  "nome": "Bounds ( plio )"
+ },
+ "453": {
+  "id": "81bf8e7c-dbab-4002-8492-56f99adabf0f",
+  "nome": "Box jump sem contramovimento"
+ },
+ "454": {
+  "id": "ebfc7276-35e4-4b9f-b030-05a170d6fcef",
+  "nome": "Box Jump Uni"
+ },
+ "455": {
+  "id": "a2e06823-6b12-4b56-af94-f3f14755a54a",
+  "nome": "Bracing Solo"
+ },
+ "456": {
+  "id": "d5685718-8c7f-4230-83e2-6585e687924a",
+  "nome": "Búlgaro Variação 1"
+ },
+ "457": {
+  "id": "4da66eac-c9b9-4f03-bc6f-a69da1eba99f",
+  "nome": "Cadeira Abdutora 45"
+ },
+ "458": {
+  "id": "8d9c8d95-ca83-4b41-aece-ded54f6711c7",
+  "nome": "Cadeira Abdutora 90"
+ },
+ "459": {
+  "id": "44492ac7-de5a-4cba-ad7f-a7d8630de5cc",
+  "nome": "Cadeira Abdutora com Extensão de Quadril"
+ },
+ "460": {
+  "id": "8d920409-e19e-4364-bd64-985ccfb46c0e",
+  "nome": "Cadeira Abdutora Inclinada"
+ },
+ "461": {
+  "id": "8861655a-9cda-46e1-9397-b50783953b9b",
+  "nome": "Cadeira Adutora"
+ },
+ "462": {
+  "id": "619df5e8-b0fc-4229-ad64-b185e41903ee",
+  "nome": "Cadeira Extensora"
+ },
+ "463": {
+  "id": "81a10f69-c409-40f5-b41c-e50436b7ca50",
+  "nome": "Cadeira Extensora Unilateral"
+ },
+ "464": {
+  "id": "961f2121-1053-4f1f-9376-86f21cb9e68b",
+  "nome": "Cadeira Flexora"
+ },
+ "465": {
+  "id": "ae13d351-7019-4b7d-b0e6-cea4b8fea50d",
+  "nome": "Cadeira Flexora com Flexão de Quadril"
+ },
+ "466": {
+  "id": "6c0996c0-b774-47c0-99e4-f6c3bff1a9c8",
+  "nome": "Cadeira Flexora Unilateral"
+ },
+ "467": {
+  "id": "38a69b08-2a5f-41a2-a635-46009fb9f8f9",
+  "nome": "Complex controle motor (Stiff uni + overhead knee drive + afundo)"
+ },
+ "468": {
+  "id": "aa78feb2-704f-451a-9c40-f5ef29d2568d",
+  "nome": "Cross Over Inclinado Banco 45"
+ },
+ "469": {
+  "id": "8fece0e9-3907-4f54-86b4-54a088cb0540",
+  "nome": "Crucifixo Invertido com Peito no Banco"
+ },
+ "470": {
+  "id": "cad889ac-c8da-4654-b27a-41555e10f212",
+  "nome": "Crucifixo Invertido Curvado"
+ },
+ "471": {
+  "id": "6e9fdaca-5bfb-420c-b5bf-5beddcce6c05",
+  "nome": "Crucifixo Invertido Sentado"
+ },
+ "472": {
+  "id": "e1000001-0000-0000-0000-000000000003",
+  "nome": "Crucifixo na Máquina"
+ },
+ "473": {
+  "id": "2aa06234-f381-443e-98e1-79f597388da2",
+  "nome": "Deadlift Uni (controle motor)"
+ },
+ "474": {
+  "id": "606fe07b-7696-428d-91b3-012863ca5554",
+  "nome": "Desenvolvimento Arnold em Pé"
+ },
+ "475": {
+  "id": "4834bdde-5c05-47d1-94b3-9cdecd81fd62",
+  "nome": "Desenvolvimento Arnold Sentado"
+ },
+ "476": {
+  "id": "e1000001-0000-0000-0000-000000000015",
+  "nome": "Desenvolvimento com Halteres"
+ },
+ "477": {
+  "id": "bf14a53d-23ee-4db4-a46e-07e149e66454",
+  "nome": "Desenvolvimento Militar"
+ },
+ "478": {
+  "id": "48ece7af-de72-45c1-bdf4-27a7ff2f3209",
+  "nome": "Desenvolvimento Neutro em Pé"
+ },
+ "479": {
+  "id": "e54dd5b2-99cf-4648-9885-6cd19d03f9d9",
+  "nome": "Desenvolvimento Unilateral Landmine"
+ },
+ "480": {
+  "id": "edf0f0e9-0ba8-4a65-b90d-a368e6e8296b",
+  "nome": "Drop (baixo) + Box Jump"
+ },
+ "481": {
+  "id": "4262a5bb-6fe3-4b61-99d0-1f04c2a71b86",
+  "nome": "Drop Bilateral ( Frenagem )"
+ },
+ "482": {
+  "id": "fdbbc862-e887-404f-ab17-ffd7301cf713",
+  "nome": "Drop Jump Bilateral ( plio )"
+ },
+ "483": {
+  "id": "a23acdcd-c4b6-4678-a2c5-6f41dd3640ee",
+  "nome": "Drop jump bilateral + estab. uni"
+ },
+ "484": {
+  "id": "e03a9284-f027-413c-a79f-32a2534581fc",
+  "nome": "Drop Jump Horizontal Bilateral"
+ },
+ "485": {
+  "id": "4c7c6ea2-a4b4-452f-9969-58c60221f0a1",
+  "nome": "Drop Jump Squat"
+ },
+ "486": {
+  "id": "4732f2be-a67a-4931-a8a7-510109a10851",
+  "nome": "Drop Unilateral"
+ },
+ "487": {
+  "id": "8c666a93-0716-493d-a299-2b2afc9f0f51",
+  "nome": "Educativo Estabilidade ( rigidez de tornozelo )"
+ },
+ "488": {
+  "id": "72921c56-910a-4345-8b8d-26baf726516b",
+  "nome": "Elevação de Quadril Solo Unilateral"
+ },
+ "489": {
+  "id": "e1a9fb5d-eb21-4a17-9694-75bcf9fc8a12",
+  "nome": "Elevação de Quadril Unilateral solo"
+ },
+ "490": {
+  "id": "124415c1-13d6-4df1-a464-96a66467db66",
+  "nome": "Elevação Frontal Neutra Alternada Em Pé"
+ },
+ "491": {
+  "id": "f42f0dfc-d75e-475f-bacb-ec5f05b321d5",
+  "nome": "Elevação Frontal Neutra Alternada Sentado"
+ },
+ "492": {
+  "id": "cfb03da0-4462-422e-ad32-3f4abdbc29e8",
+  "nome": "Elevação Frontal Neutra para Pronada Alternada em pé"
+ },
+ "493": {
+  "id": "f1dc1f36-8d03-4ff6-ac34-623682e09b69",
+  "nome": "Elevação Frontal Neutra para Pronada Alternada Sentado"
+ },
+ "494": {
+  "id": "67c8c3af-c2ef-4908-b7e5-e1815d1acf2b",
+  "nome": "Elevação Frontal Neutra para pronada em pé"
+ },
+ "495": {
+  "id": "e19e6c38-e490-464b-9e87-c6b3b37bc02c",
+  "nome": "Elevação Frontal Neutra para pronada sentado"
+ },
+ "496": {
+  "id": "3b990b66-f39e-4954-8d21-0b644fd67bb9",
+  "nome": "Elevação Frontal Neutra Sentado"
+ },
+ "497": {
+  "id": "944b34f5-829c-4a5f-813b-3a4c90ed5e5b",
+  "nome": "Elevação Lateral Banco 45"
+ },
+ "498": {
+  "id": "6cf9d1c8-14d4-4785-8e37-96193e44557d",
+  "nome": "Elevação Lateral Peito no Banco"
+ },
+ "499": {
+  "id": "275a185a-b011-4813-833f-a5a0854ab052",
+  "nome": "Elevação Lateral Unilateral Inclinada"
+ },
+ "500": {
+  "id": "419b47e7-af8c-4b57-89c9-29def5e8688d",
+  "nome": "Elevação pélvica Unil"
+ },
+ "501": {
+  "id": "58fcfb7a-5b8a-4295-92ef-9b370c4d1b1e",
+  "nome": "Elevação Pélvica Unilateral Landmine"
+ },
+ "502": {
+  "id": "fdab544b-3538-4dda-8a80-c438556da597",
+  "nome": "Extensora Parcial + Completa Crescente"
+ },
+ "503": {
+  "id": "1a213f58-784c-4218-83fc-6e11a5666275",
+  "nome": "Flexora na Bola"
+ },
+ "504": {
+  "id": "5348bcf1-9421-493c-a7d9-74b5d89b828e",
+  "nome": "Flexora Unilateral com Caneleira"
+ },
+ "505": {
+  "id": "53548f57-bd76-48e6-8562-6b6333fab861",
+  "nome": "Flexora Unilateral em Pé"
+ },
+ "506": {
+  "id": "927f5612-8822-4dd9-a980-59300c897fab",
+  "nome": "Flexora Unilateral na Bola"
+ },
+ "507": {
+  "id": "277c2674-93e2-4aac-aa67-1c8ee82d0c55",
+  "nome": "Flexão Aberta"
+ },
+ "508": {
+  "id": "be707dcf-d4cc-4788-8d23-551f5730e971",
+  "nome": "Flexão Aberta com Apoio do Joelho"
+ },
+ "509": {
+  "id": "3b9332bf-bad7-4d78-9ca2-21d3f9c713f4",
+  "nome": "Flexão com deslocamento"
+ },
+ "510": {
+  "id": "dc00dfb9-6167-4c22-8f28-df15094d22a5",
+  "nome": "Flexão de Joelhos na bola unilateral"
+ },
+ "511": {
+  "id": "96181757-fb88-4bf0-b8fc-8e90cf643d07",
+  "nome": "Flexões excêntricas (apoio)"
+ },
+ "512": {
+  "id": "62ff7da4-908b-4e96-a3dc-8555dc903615",
+  "nome": "Flexões no Banco"
+ },
+ "513": {
+  "id": "86bee686-3946-4f37-8730-22c88c777650",
+  "nome": "Front Squat"
+ },
+ "514": {
+  "id": "3bcfa19a-aad9-4cad-aae5-a11711f8d431",
+  "nome": "Graviton Neutro"
+ },
+ "515": {
+  "id": "6cf6f6ed-9022-459c-b5ae-cbe499ba4b33",
+  "nome": "Graviton Pronado"
+ },
+ "516": {
+  "id": "d82e1fdf-00da-4f9d-b6dd-23ce5033e5c5",
+  "nome": "Graviton Supinado"
+ },
+ "517": {
+  "id": "cc2a7748-03a7-4ab4-b8e8-e71092917112",
+  "nome": "HIIT"
+ },
+ "518": {
+  "id": "a4f35317-675d-46f0-a063-5a2d69761109",
+  "nome": "Lateral shuffle"
+ },
+ "519": {
+  "id": "e1000001-0000-0000-0000-000000000011",
+  "nome": "Leg Press 45°"
+ },
+ "520": {
+  "id": "45912e02-399e-4442-8b13-365e834fab4b",
+  "nome": "Levantamento Terra Sumô"
+ },
+ "521": {
+  "id": "cb160be6-90a5-4365-b77c-0ae473917009",
+  "nome": "Levantamento Terra Sumô Belt Squat"
+ },
+ "522": {
+  "id": "fa532cec-fd1b-440e-b42e-6d2c0f6ae3fb",
+  "nome": "Levantamento Terra Sumô Landmine"
+ },
+ "523": {
+  "id": "7de14018-9e35-45e7-a3d1-27557b1042f7",
+  "nome": "Liberação da panturrilha com rolinho"
+ },
+ "524": {
+  "id": "a56b2913-4848-450e-8751-2efb662ec59d",
+  "nome": "Liberação Miofascial Glúteo Médio"
+ },
+ "525": {
+  "id": "9a427102-e8ee-4663-b53b-1d37ab201af9",
+  "nome": "Liberação Miofascial Tensor da Fascia Lata"
+ },
+ "526": {
+  "id": "2d19a06f-d6ba-4dff-9008-eec8d337868d",
+  "nome": "liberação quadriceps com rolinho"
+ },
+ "527": {
+  "id": "9c9491ac-77e1-4d82-801c-df380fb098e3",
+  "nome": "Lift com anilha em Base Afundo Isométrico"
+ },
+ "528": {
+  "id": "0bc88428-34f7-48c8-ac8e-ed3d235b109a",
+  "nome": "Manguito Externo"
+ },
+ "529": {
+  "id": "fb2ba2b0-82b0-4c48-a8c6-f736ccadcec1",
+  "nome": "Manguito Externo em Diagonal"
+ },
+ "530": {
+  "id": "2e7d04fe-0720-42d8-ba20-012045538d35",
+  "nome": "Manobra de Bracing"
+ },
+ "531": {
+  "id": "9a07c179-37e8-4d8f-9ae9-0f399b1624b2",
+  "nome": "Mesa Flexora"
+ },
+ "532": {
+  "id": "49fbaae9-ff6f-468a-ad2b-c6c7ee357bfe",
+  "nome": "Nórdico"
+ },
+ "533": {
+  "id": "672c0d1e-59af-46c1-b3ec-d3135a745b1b",
+  "nome": "Nórdico Reverso"
+ },
+ "534": {
+  "id": "0f840a33-cbf4-49f7-abc0-f999cc801301",
+  "nome": "Pallor press - Anti extensão/flexão"
+ },
+ "535": {
+  "id": "becb17e7-37e7-42a9-860d-98a6af115d90",
+  "nome": "Pancha frontal variação 1"
+ },
+ "536": {
+  "id": "c5e71701-baac-4c7a-926c-a5215c36938a",
+  "nome": "Panturrilha com controle de Inversão"
+ },
+ "537": {
+  "id": "9858eb03-5e8e-463c-82ea-98d1635c4e2d",
+  "nome": "Panturrilha Leg 45"
+ },
+ "538": {
+  "id": "9f7ecac4-8233-4a7e-95a7-c60dbace22d3",
+  "nome": "Panturrilha Leg Horizontal"
+ },
+ "539": {
+  "id": "e1000001-0000-0000-0000-000000000014",
+  "nome": "Panturrilha no Smith"
+ },
+ "540": {
+  "id": "41013fda-c824-4342-9f52-7f8d2dd0a54b",
+  "nome": "Panturrilha Unilateral Step/Degrau"
+ },
+ "541": {
+  "id": "0a136fd6-d641-4e21-be1c-dfd2f614b8cc",
+  "nome": "Paralela Inclinada para Peitoral"
+ },
+ "542": {
+  "id": "e10df991-f551-4b67-9600-f128151fb078",
+  "nome": "Paralela para Tríceps"
+ },
+ "543": {
+  "id": "f5340b40-627b-45d2-9eae-c9cd3c098d86",
+  "nome": "Perdigueiro 4 apoios (suspenso)"
+ },
+ "544": {
+  "id": "f6691114-2900-44af-909e-e966957f1372",
+  "nome": "Perdigueiro Alternado"
+ },
+ "545": {
+  "id": "fd346ad6-7a30-4e31-b167-9c9ab3f478c0",
+  "nome": "Perdigueiro Invertido Alternado"
+ },
+ "546": {
+  "id": "8f6eb5f3-64aa-4409-ae99-a6b96e3064b7",
+  "nome": "Plio Bound Burpee"
+ },
+ "547": {
+  "id": "3f04c318-83f2-4e78-aee1-99ddd18849ef",
+  "nome": "Pré Plio Bilateral - Posição Atlética"
+ },
+ "548": {
+  "id": "714ca533-7eee-4121-bc44-d76ecd2b9863",
+  "nome": "Pré Plio Unilateral"
+ },
+ "549": {
+  "id": "184049e0-c296-41b2-9742-96d416c0ca8a",
+  "nome": "Pull Over Unilateral Banco"
+ },
+ "550": {
+  "id": "c85e058a-1e62-48e8-8e27-7bc988b82800",
+  "nome": "Pulldown"
+ },
+ "551": {
+  "id": "9838c0b0-1c55-4b7a-a4fe-241a1ad92422",
+  "nome": "Pulldown Aberto"
+ },
+ "552": {
+  "id": "2b544004-7438-4adf-8d5f-de505cb8d404",
+  "nome": "Pulldown Unilateral"
+ },
+ "553": {
+  "id": "d22c572a-4ce1-4e5d-b0a7-471be47aa232",
+  "nome": "Puxada Neutra Unilateral"
+ },
+ "554": {
+  "id": "35f2868b-140e-489b-aaa1-44659a4b4a04",
+  "nome": "Puxada Neutra Unilateral com Giro"
+ },
+ "555": {
+  "id": "b48f3fd6-4b2e-46c5-ac67-cd3acb578d04",
+  "nome": "Puxada Romana"
+ },
+ "556": {
+  "id": "c3ffdec6-f7bc-4ddb-9161-22600b178653",
+  "nome": "Puxada Supinada"
+ },
+ "557": {
+  "id": "ffbf282d-91d7-44fb-b4fe-7775256eca1f",
+  "nome": "Rack Pulls"
+ },
+ "558": {
+  "id": "edaabff8-cd69-4e3c-8658-6a300fd46872",
+  "nome": "RDL Belt Squat"
+ },
+ "559": {
+  "id": "5f51a4d4-44ee-45e1-89ac-ef44712b0c1e",
+  "nome": "RDL Unilateral"
+ },
+ "560": {
+  "id": "0db0d50d-5d72-4ade-97f2-3ec1c64218d8",
+  "nome": "Remada Baixa Neutra"
+ },
+ "561": {
+  "id": "f138a64b-e0d8-4945-8dd3-b64dda059da3",
+  "nome": "Remada Baixa Neutra Unilateral"
+ },
+ "562": {
+  "id": "ac085604-d230-44fa-bb9c-393696a3d3e3",
+  "nome": "Remada Baixa Pronada"
+ },
+ "563": {
+  "id": "663ca485-1e3a-4501-9e3a-dc2a1da4fa98",
+  "nome": "Remada Baixa Romana"
+ },
+ "564": {
+  "id": "ba97e3d0-b019-403b-b66c-f314159af214",
+  "nome": "Remada Baixa Supinada"
+ },
+ "565": {
+  "id": "0c6d0470-cc1d-4388-aec3-c86ebf4ab0b9",
+  "nome": "Remada Baixa Unilateral com Rotação"
+ },
+ "566": {
+  "id": "1022b48e-678a-4bb8-88b0-765bf9a189de",
+  "nome": "Remada Cavalinho Neutra"
+ },
+ "567": {
+  "id": "085d0cbf-6038-42ef-92b4-f906843c667b",
+  "nome": "Remada Cavalinho Pronada"
+ },
+ "568": {
+  "id": "7c94db20-f60f-4222-b592-afcbd22468c1",
+  "nome": "Remada com Peito no Banco Neutra"
+ },
+ "569": {
+  "id": "f0406f4a-06ba-4233-8651-51ad93d5bc88",
+  "nome": "Remada Suspenas"
+ },
+ "570": {
+  "id": "1d5b69b5-9253-4a9f-b7cb-01703845ed08",
+  "nome": "Remada T Neutra"
+ },
+ "571": {
+  "id": "54c4496f-bc84-41eb-a6f5-0e308642791d",
+  "nome": "Remada T Pronada"
+ },
+ "572": {
+  "id": "5dd42590-3103-4a4d-8716-bcbba23bd66c",
+  "nome": "Resposta a carga com controle de eversão"
+ },
+ "573": {
+  "id": "39bfac54-b3c7-4b54-84f3-9aa88abffdf9",
+  "nome": "Resposta a carga ISO molinete"
+ },
+ "574": {
+  "id": "a49a288e-8fec-4318-a1ec-c86d25d99621",
+  "nome": "Rigidez de Tornozelo elevação ( estabilidade)"
+ },
+ "575": {
+  "id": "e1000001-0000-0000-0000-000000000009",
+  "nome": "Rosca Alternada"
+ },
+ "576": {
+  "id": "380a94d4-ddc7-48ff-8b7d-9eab07f270ed",
+  "nome": "Rosca Alternada com Giro"
+ },
+ "577": {
+  "id": "92da4db7-ec84-4aca-a2e5-432b4b204b3f",
+  "nome": "Rosca Arnold"
+ },
+ "578": {
+  "id": "867a6df5-d665-43ac-b297-d46c2b667741",
+  "nome": "Rosca Banco 45"
+ },
+ "579": {
+  "id": "af88fede-e776-4fd2-b929-6357cfd98e0b",
+  "nome": "Rosca Banco 45 com Giro"
+ },
+ "580": {
+  "id": "2d0b1d00-37fc-4deb-9687-3250edeeb87c",
+  "nome": "Rosca Banco 45 Neutra"
+ },
+ "581": {
+  "id": "56c7b21c-1697-4f6b-9d73-02dd9f0d0f26",
+  "nome": "Rosca Concentrada"
+ },
+ "582": {
+  "id": "e1000001-0000-0000-0000-000000000008",
+  "nome": "Rosca Direta"
+ },
+ "583": {
+  "id": "f97ce807-f666-4763-bc5f-70f491c215ec",
+  "nome": "Serrote Banco"
+ },
+ "584": {
+  "id": "771c15b3-d144-4e5a-ac67-f93a0116fe5c",
+  "nome": "Serrote em pé"
+ },
+ "585": {
+  "id": "7e8bf2c1-c96a-4ba5-8e2f-122e27ef1f55",
+  "nome": "Short foot"
+ },
+ "586": {
+  "id": "5186ef9c-b985-415e-b303-3e4539a94a8a",
+  "nome": "Shoulder press uni em base afundo"
+ },
+ "587": {
+  "id": "751e0fa2-335a-42d3-8bd9-21f4b587f7ac",
+  "nome": "SL RDF CLEAN ( stiff unipodal )"
+ },
+ "588": {
+  "id": "1aebf554-0bd2-42d6-a749-4070c77e128d",
+  "nome": "Stiff Belt Squat"
+ },
+ "589": {
+  "id": "26ac45b4-4a3c-49f4-a68e-20e87a00252a",
+  "nome": "Stiff Invertido Belt Squat"
+ },
+ "590": {
+  "id": "54d5d585-9b45-4ece-ae2f-9acfed397591",
+  "nome": "Stiff Uni com anilha + knee drive (controle motor)"
+ },
+ "591": {
+  "id": "bbee5a76-b377-455f-9418-605e0de57e74",
+  "nome": "Stiff Uni Explosivo (controle motor)"
+ },
+ "592": {
+  "id": "b3b167c4-93f4-4548-835d-2230bcf49dc9",
+  "nome": "Stiff unilateral ( B-stance )"
+ },
+ "593": {
+  "id": "40f6085e-6038-403a-9419-bc67731defea",
+  "nome": "Stiff Unilateral (Aviãozinho)"
+ },
+ "594": {
+  "id": "18248fd8-94bb-46c6-a567-de54ce6103d7",
+  "nome": "Stiff Unilateral com Apoio"
+ },
+ "595": {
+  "id": "253a7e0f-63fc-43cb-b983-352bfb724549",
+  "nome": "Sumo Deadlift"
+ },
+ "596": {
+  "id": "a3960993-b603-403e-acc2-df84a2aceb6b",
+  "nome": "Superman"
+ },
+ "597": {
+  "id": "80653a6c-1c38-4e90-9805-d9c9e75eef83",
+  "nome": "Superman W e Y"
+ },
+ "598": {
+  "id": "5021e362-3f0e-44fa-aed1-c9e10a2392c0",
+  "nome": "Supersquat Invertido"
+ },
+ "599": {
+  "id": "42588627-d820-450b-926a-9ac98957a792",
+  "nome": "Supino alternado pegada neutra"
+ },
+ "600": {
+  "id": "e28e4c41-5215-4cd6-b642-4322656f228d",
+  "nome": "Supino Inclinado Cross Over Banco 45"
+ },
+ "601": {
+  "id": "ef3553ff-17bc-4309-83ac-c3173f0256e2",
+  "nome": "Supino Inclinado Neutro Cross Over Banco 45"
+ },
+ "602": {
+  "id": "2e826822-0e02-42bb-986b-d7b32fe5ec62",
+  "nome": "Supino Reto Cross Over Banco 90"
+ },
+ "603": {
+  "id": "468b5bb5-dc72-4d40-b1d0-01063f2366ac",
+  "nome": "Torção de tronco em base Afundo Isométrico"
+ },
+ "604": {
+  "id": "e1000001-0000-0000-0000-000000000004",
+  "nome": "Tríceps Corda"
+ },
+ "605": {
+  "id": "4f44fac9-f032-48aa-a936-f088f8a76709",
+  "nome": "Tríceps Francês Em Pé"
+ },
+ "606": {
+  "id": "59de661a-23a1-41d3-9a1e-ee21d77401ae",
+  "nome": "Tríceps Francês Sentado"
+ },
+ "607": {
+  "id": "e1000001-0000-0000-0000-000000000005",
+  "nome": "Tríceps Testa"
+ },
+ "608": {
+  "id": "316c9693-ce56-4b3b-b31e-f4316f75e70c",
+  "nome": "Voador"
+ },
+ "609": {
+  "id": "96d192f2-1d3f-4114-85de-63c3413cb68c",
+  "nome": "Voador Invertido"
+ },
+ "610": {
+  "id": "6bd9ccf9-9832-4ec7-ac30-34bac76d20db",
+  "nome": "Along. Coluna Rotação"
+ },
+ "611": {
+  "id": "384c7931-f1ee-4259-a893-85a554c852b7",
+  "nome": "Along. Hiperextensão Rolinho"
+ },
+ "612": {
+  "id": "92b7dfba-cb1d-43f8-86a1-b89d7f5d4db1",
+  "nome": "Along. Iliopsoas"
+ },
+ "613": {
+  "id": "6f354269-311d-4878-b66c-27fc7090161e",
+  "nome": "Apoio unipodal no bosu"
+ },
+ "614": {
+  "id": "6b696ad3-5a7b-49e6-aacd-19de3a190056",
+  "nome": "Extensora com Alongamento Entre Séries"
+ },
+ "615": {
+  "id": "ae0aafea-1686-4d2e-9393-1108049e9926",
+  "nome": "Mobilidade Buda"
+ },
+ "616": {
+  "id": "6c26cf55-546d-4b04-add0-ba4d5bda1755",
+  "nome": "Mobilidade Cat-Cow"
+ },
+ "617": {
+  "id": "957ea2e1-954d-4af7-8c95-8e08c43217e6",
+  "nome": "Mobilidade de Quadril e Tornozelo com Alongamento"
+ },
+ "618": {
+  "id": "41733afe-1af1-444e-85da-91dbecaa2c1a",
+  "nome": "Mobilidade de Quadril foco em Adutores"
+ },
+ "619": {
+  "id": "7c6f882b-7fec-4979-8216-0cacf5cc2e4d",
+  "nome": "Agachamento no bosu"
+ },
+ "620": {
+  "id": "d7dee2b8-8f7a-414f-a2cf-b1ff769967fa",
+  "nome": "Along. Adutores Bilateral"
+ },
+ "621": {
+  "id": "801cfb45-c447-425b-aff0-26b5d87ce5d9",
+  "nome": "Along. Adutores Flexionado (Frog)"
+ },
+ "622": {
+  "id": "0197410d-5f04-4c31-8b1c-7599f49e6774",
+  "nome": "Along. Adutores Unilateral Estendido"
+ },
+ "623": {
+  "id": "c6059bf6-c71f-414e-8cdb-60178f7d5405",
+  "nome": "Along. Dorsal e Quadrado Lombar Unilateral Espaldar"
+ },
+ "624": {
+  "id": "48fdd2e6-1cad-42bf-8ebc-6099cc9d437e",
+  "nome": "Along. Dorsal Unilateral Espaldar"
+ },
+ "625": {
+  "id": "de394e81-17b2-4feb-bcf2-5b5991e04c6c",
+  "nome": "Along. Glúteo Cruzado Espaldar"
+ },
+ "626": {
+  "id": "966ff2d0-8dca-402f-9e5e-c630869682a8",
+  "nome": "Along. Glúteo Cruzado Solo"
+ },
+ "627": {
+  "id": "7cbab4b8-70cb-4bae-add3-e5f0ea95b220",
+  "nome": "Along. Levantador da Escápula"
+ },
+ "628": {
+  "id": "737b8377-e7a6-49e6-954c-644b435a97cd",
+  "nome": "Along. Panturrilha Unilateral"
+ },
+ "629": {
+  "id": "1e780c54-cd0f-4b68-b1b3-d2fc2aeef576",
+  "nome": "Along. Peitoral Bilateral Espaldar"
+ },
+ "630": {
+  "id": "36377d3a-12e3-4ff1-ba6c-8d378dff2d77",
+  "nome": "Along. Peitoral Menor"
+ },
+ "631": {
+  "id": "069596e0-f5a3-4f6e-82e7-b0e3fec2e9e4",
+  "nome": "Along. Peitoral Unilateral Espaldar"
+ },
+ "632": {
+  "id": "eb7618bc-1e4a-4394-aaa4-c8a8697d56f5",
+  "nome": "Along. Pigeon"
+ },
+ "633": {
+  "id": "63cb2e5f-8892-48d1-b72c-943e3205cb82",
+  "nome": "Along. Pigeon com Quadrado Lombar"
+ },
+ "634": {
+  "id": "06edd293-b856-47c0-ae91-8e1cc523688f",
+  "nome": "Along. Posterior Bilateral em Pé"
+ },
+ "635": {
+  "id": "4d624a0c-e3a0-40e7-9d2a-4f1b72584c61",
+  "nome": "Along. Posterior Bilateral Solo"
+ },
+ "636": {
+  "id": "8f725656-bb0e-4ed0-9fbb-f0fecfaf6523",
+  "nome": "Along. Posterior Unilateral Estendido"
+ },
+ "637": {
+  "id": "c08df451-d8bb-4923-829b-3ddc21ead3b9",
+  "nome": "Along. Posterior Unilateral Flexionado"
+ },
+ "638": {
+  "id": "5f12d59c-e9e4-4b5d-8014-587b8c9c286b",
+  "nome": "Along. Posterior Unilateral Solo"
+ },
+ "639": {
+  "id": "c4530121-861e-48ce-ae2f-90ecdd098b1a",
+  "nome": "Along. Quadríceps Bilateral Solo"
+ },
+ "640": {
+  "id": "2528f127-fd91-4f2e-a4aa-4e1f8290163e",
+  "nome": "Along. Quadríceps Unilateral em Pé"
+ },
+ "641": {
+  "id": "4b71ea5c-aa1a-4cba-a87f-8197a924823f",
+  "nome": "Along. Reto Femoral Solo"
+ },
+ "642": {
+  "id": "996d15ba-40b6-436b-9b00-22e9978b9e10",
+  "nome": "Along. Tensor da Fascia Lata Solo"
+ },
+ "643": {
+  "id": "bd2efefb-8df6-4f90-a929-797fec7ac4d6",
+  "nome": "Alongamento de Glúteos 90-90"
+ },
+ "644": {
+  "id": "522511bf-ecc7-4f48-97dc-2493e32d5299",
+  "nome": "Alongamento TFL"
+ },
+ "645": {
+  "id": "bcf67999-ce05-4e6a-aebe-750d618ead5a",
+  "nome": "Controle motor - mobilidade e estabilidade"
+ },
+ "646": {
+  "id": "3f81fa4b-a113-47f6-b2b4-dcc419d94c3e",
+  "nome": "Fisio Quadril: hip hinge com bastão"
+ },
+ "647": {
+  "id": "7ebb1e7c-0eef-4b61-835f-9969df952199",
+  "nome": "Halo - mobilidade superiores"
+ },
+ "648": {
+  "id": "fa020cd6-704f-41e0-83eb-23ef18783a74",
+  "nome": "Liberação de adutores no foam roll"
+ },
+ "649": {
+  "id": "626975e1-439c-4e98-8182-f6f18ff5fbd3",
+  "nome": "Liberação de banda iliotibial no foam roll"
+ },
+ "650": {
+  "id": "df256bcf-dc82-42bd-9ea6-8d9df39a87e0",
+  "nome": "Liberação de dorsal no foam roll"
+ },
+ "651": {
+  "id": "09945798-7bca-42c3-a51e-bdc9a34cc33c",
+  "nome": "Liberação de glúteo no foam roll"
+ },
+ "652": {
+  "id": "14d69ca0-70cd-4e54-bac6-02bd2731a20a",
+  "nome": "Liberação de panturrilha no foam roll"
+ },
+ "653": {
+  "id": "546c6966-a182-41df-bf68-28efdc067995",
+  "nome": "Liberação de posterior de coxa no foam roll"
+ },
+ "654": {
+  "id": "44dc8b07-df32-4c35-b1aa-c016ff6f5362",
+  "nome": "Liberação de quadríceps no foam roll"
+ },
+ "655": {
+  "id": "fe8cf9a6-8f14-4567-b36c-7ede072624af",
+  "nome": "Liberação torácica no foam roll"
+ },
+ "656": {
+  "id": "35bb19e6-e1df-4cec-85ea-47ba4420796e",
+  "nome": "Mobilidade 90-90 Rot. Externa"
+ },
+ "657": {
+  "id": "7be698a4-1cac-468e-bfc0-ba79189768f9",
+  "nome": "Mobilidade 90-90 Rot. interna"
+ },
+ "658": {
+  "id": "edca7177-f6c5-4906-8e21-8ba3d1c84eae",
+  "nome": "Mobilidade 90/90"
+ },
+ "659": {
+  "id": "743974e1-4d5d-4fd6-8e50-7609e86b707f",
+  "nome": "Mobilidade 90/90 completa"
+ },
+ "660": {
+  "id": "bb961cbb-04fa-4768-9740-c28561a34c61",
+  "nome": "Mobilidade Corpo Todo"
+ },
+ "661": {
+  "id": "5c8f5515-ecca-4ef1-aded-d979645942ab",
+  "nome": "Mobilidade de Coluna"
+ },
+ "662": {
+  "id": "e4f4ba1d-68c8-47c9-95d9-1dc2d46599ad",
+  "nome": "Mobilidade de Ombro com Toque de Mãos"
+ },
+ "663": {
+  "id": "81ccbed4-e39d-4a4e-bc95-71139de3273c",
+  "nome": "Mobilidade de Ombro Rotação Externa com Bastão"
+ },
+ "664": {
+  "id": "c7d00c36-12dc-4a88-814b-045b1b853a44",
+  "nome": "Mobilidade de Ombro Rotação Solo"
+ },
+ "665": {
+  "id": "bbb26a3d-72ad-4f47-9b9c-3abb7ea70af9",
+  "nome": "Mobilidade de Ombro W"
+ },
+ "666": {
+  "id": "509865d8-5b76-429d-bef8-3ae1b3f8b619",
+  "nome": "Mobilidade de Quadril"
+ },
+ "667": {
+  "id": "c62336c5-77b2-4876-884f-707b090f6932",
+  "nome": "Mobilidade de Quadril ( sagital )"
+ },
+ "668": {
+  "id": "12aeb1ef-02d6-4210-b5a4-b495ca6fb3a7",
+  "nome": "Mobilidade de Quadril 2"
+ },
+ "669": {
+  "id": "706142ca-78f8-4591-acc0-7b4018432b14",
+  "nome": "Mobilidade de quadril 3"
+ },
+ "670": {
+  "id": "836f33a9-24ee-4ec9-adef-23d984bbdaf4",
+  "nome": "Mobilidade de Quadril e Tornozelo"
+ },
+ "671": {
+  "id": "8927006c-0c4b-4163-b151-745fa1d0a8f3",
+  "nome": "Mobilidade de Quadril Frog"
+ },
+ "672": {
+  "id": "fc740c2a-3afc-4cdb-a361-d78fac243ee7",
+  "nome": "Mobilidade de Quadril Lateral"
+ },
+ "673": {
+  "id": "affde76f-d5b2-42d3-97bd-188e630d1127",
+  "nome": "Mobilidade de Quadril Rotação Interna Deitado"
+ },
+ "674": {
+  "id": "057059ab-07fe-45af-b2ba-a1b9533ea547",
+  "nome": "Mobilidade de quadril-adutores/post"
+ },
+ "675": {
+  "id": "3f384f30-1259-4e27-a7bf-70889243ac41",
+  "nome": "Mobilidade de Tornozelo"
+ },
+ "676": {
+  "id": "0b7f58e5-53ec-4b4d-9e15-11d7ca9d006c",
+  "nome": "Mobilidade de tornozelo/quadril"
+ },
+ "677": {
+  "id": "0ddd9b9e-4d85-469c-b6db-3c4ea5a3c52a",
+  "nome": "Mobilidade de Torácica"
+ },
+ "678": {
+  "id": "16aebaf1-7466-4583-806b-219c47f2245f",
+  "nome": "Mobilidade em ponte/Extensão"
+ },
+ "679": {
+  "id": "c51ab919-f750-481b-94ea-743657c3a414",
+  "nome": "Mobilidade Escapular em Puxada"
+ },
+ "680": {
+  "id": "e7321291-a3bb-44b0-b6df-dc0dca157ea9",
+  "nome": "Mobilidade Escapular TRX"
+ },
+ "681": {
+  "id": "ec281a05-a949-41c6-b5df-3ee615a23bfb",
+  "nome": "Mobilidade Full Inferiores (hard)"
+ },
+ "682": {
+  "id": "ed98f29a-71c5-4708-90ef-6b8485707028",
+  "nome": "Mobilidade Hiperextensão Lombar"
+ },
+ "683": {
+  "id": "917da140-0856-4ef2-97c0-6d0e636b40de",
+  "nome": "Mobilidade Hiperextensão Torácica Rolinho"
+ },
+ "684": {
+  "id": "a8e8cde0-087a-412f-acf9-652f53cfff84",
+  "nome": "Mobilidade quadril 90-90"
+ },
+ "685": {
+  "id": "75649465-1319-48e0-bdfb-dc1ce93774af",
+  "nome": "Mobilidade quadril flexores/posterior"
+ },
+ "686": {
+  "id": "2f55744f-a768-4738-b6fd-665d3723123c",
+  "nome": "Mobilidade rot quadril ext int"
+ },
+ "687": {
+  "id": "ab73db0f-26d0-4e3e-931f-4e22e687e036",
+  "nome": "Mobilidade Sapinho 🐸"
+ },
+ "688": {
+  "id": "c829d03a-9b66-41a5-b6e8-db237e017812",
+  "nome": "Mobilidade Torácica Bastão"
+ },
+ "689": {
+  "id": "8530bb18-166f-4ea1-a3f3-794737676d02",
+  "nome": "Mobilidade torácica com rotação e bastão"
+ },
+ "690": {
+  "id": "f92713c4-e9fa-4048-96e6-286f9b53455b",
+  "nome": "Mobilidade Torácica Rotação"
+ },
+ "691": {
+  "id": "25c14693-7751-4ce7-ba27-ccbf02a2aa5e",
+  "nome": "Mobilidade Torácica Semiajoelhado"
+ },
+ "692": {
+  "id": "286bfb30-d38a-4f8c-aa08-053f5b382db9",
+  "nome": "Prancha no bosu"
+ },
+ "693": {
+  "id": "ca9d547c-3488-43fa-945e-7dbb8431a917",
+  "nome": "Shoulder dislocates com bastão"
+ },
+ "694": {
+  "id": "dece41a1-f793-4bc4-b614-b2c22b4caf6f",
+  "nome": "Terra romeno unipodal com bastão"
+ },
+ "695": {
+  "id": "d2e55bc6-411a-4ca9-8b6f-8fb86e8099b8",
+  "nome": "Elevação Pélvica Máquina"
+ },
+ "696": {
+  "id": "c1a1a51b-0db1-4855-b091-0f9becd7845b",
+  "nome": "Elevação Pélvica Unilateral Máquina"
+ },
+ "697": {
+  "id": "efde85ec-e714-44b9-928c-8db249f06c04",
+  "nome": "Extensão de Quadril Banco Romano com Flexão"
+ },
+ "698": {
+  "id": "fe4225a3-0ba4-404f-8807-ba61915c45c6",
+  "nome": "Fisio Joelho: cadeira extensora lenta (HSR)"
+ },
+ "699": {
+  "id": "07f6ad25-885b-409c-8008-af86cf871028",
+  "nome": "Fisio Tendão patelar: HSR cadeira extensora (3s/3s)"
+ },
+ "700": {
+  "id": "866f6e15-312c-49b5-972a-4caefaccf5da",
+  "nome": "Leg Press 45 Unilateral"
+ },
+ "701": {
+  "id": "f10d42bd-7127-4b92-9220-bea99cd5d1ee",
+  "nome": "Leg Press Horizontal"
+ },
+ "702": {
+  "id": "93609dd6-479d-42f1-b927-72b3511f161b",
+  "nome": "Abdominal Infra Máquina"
+ },
+ "703": {
+  "id": "6175a7d8-333d-4e09-a539-1ea6b13e1b81",
+  "nome": "Abdominal Máquina"
+ },
+ "704": {
+  "id": "9c34a520-62bb-4385-b4f4-384ebce408b8",
+  "nome": "Bom Dia Máquina"
+ },
+ "705": {
+  "id": "e1ff0905-955b-4bf7-95c6-1b72dbfa34ff",
+  "nome": "Desenvolvimento Máquina"
+ },
+ "706": {
+  "id": "7f9fbd65-d234-4b84-b198-faca46343915",
+  "nome": "Desenvolvimento Neutro Máquina"
+ },
+ "707": {
+  "id": "7b06658f-12bb-4cd4-b749-ac2c38c5dfc9",
+  "nome": "Elevação Lateral Máquina"
+ },
+ "708": {
+  "id": "495e8cd8-c47b-4093-b6c1-774d6e78d2c1",
+  "nome": "Extensão de Quadril Banco Romano"
+ },
+ "709": {
+  "id": "dfedffd3-0ae4-4f28-b4db-52f9a6ce8cc0",
+  "nome": "Extensão de Quadril Banco Romano Unilateral"
+ },
+ "710": {
+  "id": "1dfa63ac-6191-49f8-984a-faffd7c2a5d3",
+  "nome": "Extensão de Quadril Máquina"
+ },
+ "711": {
+  "id": "95712a5d-a4e4-4469-a46b-f7c50855caef",
+  "nome": "Extensão de quadril no Banco Romano"
+ },
+ "712": {
+  "id": "afcab7c3-ba4f-4178-946f-eea2e6969e93",
+  "nome": "Leg Press 45"
+ },
+ "713": {
+  "id": "f2210012-5c3a-4e03-b55b-2afee7bdacb0",
+  "nome": "Leg Press Deitado"
+ },
+ "714": {
+  "id": "386edcd5-cc32-45d2-b065-db84adf8ada1",
+  "nome": "Leg Press Horizontal Unilateral"
+ },
+ "715": {
+  "id": "f85f0d88-fd73-474b-83ac-7b0c2b376ebf",
+  "nome": "Leg Press Unilateral Placas Separadas"
+ },
+ "716": {
+  "id": "1d8626a7-58e1-40d3-8ca8-396b57c233eb",
+  "nome": "Panturrilha em Pé Máquina"
+ },
+ "717": {
+  "id": "7bc7e3ba-a138-4a2b-b069-e6eb642ebe90",
+  "nome": "Panturrilha Sentado Máquina"
+ },
+ "718": {
+  "id": "592cf519-f2f5-4f82-9d10-8c2005851cbb",
+  "nome": "Puxada Pronada Máquina"
+ },
+ "719": {
+  "id": "21a15e45-12b2-49f8-bf06-daa21b0cb33f",
+  "nome": "Puxada Supinada Máquina"
+ },
+ "720": {
+  "id": "6bdb1793-3d29-4659-9dfe-00097a8c85ae",
+  "nome": "Puxada Supinada Unilateral Máquina"
+ },
+ "721": {
+  "id": "ce8529f2-dd0e-4c7c-8110-d2505d84bfe2",
+  "nome": "Remada Alta Máquina"
+ },
+ "722": {
+  "id": "f0705159-aa86-407c-a27e-170374012831",
+  "nome": "Remada Cavalinho Máquina Neutra"
+ },
+ "723": {
+  "id": "d10517b3-51e6-43b9-95d0-58af14f0909f",
+  "nome": "Remada Neutra Unilateral Máquina"
+ },
+ "724": {
+  "id": "9a567f8d-f128-4cfd-9718-f2501bdf9fbc",
+  "nome": "Remada Pronada Máquina"
+ },
+ "725": {
+  "id": "0c061dfd-084f-4f5e-9aab-98119d30ed77",
+  "nome": "Remada Supinada Máquina"
+ },
+ "726": {
+  "id": "247a67e1-3dd4-45a3-9cf2-c423c37cf419",
+  "nome": "Remada Supinada Unilateral Máquina"
+ },
+ "727": {
+  "id": "ac9d61cc-6bcc-4c5e-ac00-094f43fe1453",
+  "nome": "Rosca Scott Máquina"
+ },
+ "728": {
+  "id": "5d0985d2-a31d-46ff-9897-d916d74beb06",
+  "nome": "Supino Declinado Máquina"
+ },
+ "729": {
+  "id": "be15aca9-9af9-4e55-8c54-288689feb7cd",
+  "nome": "Supino Inclinado Máquina"
+ },
+ "730": {
+  "id": "05f95cd1-0819-458e-ba2a-f4431d7816e5",
+  "nome": "Supino Reto Máquina"
+ },
+ "731": {
+  "id": "84657c3f-895f-4892-b624-737b633f0ecf",
+  "nome": "Tríceps Paralela Máquina"
+ },
+ "732": {
+  "id": "25117a38-de47-4604-aac1-c0cbf1b878a1",
+  "nome": "Mergulho em paralela (dips)"
+ },
+ "733": {
+  "id": "0681e77e-1e7f-4d90-8bf9-61b0b96755da",
+  "nome": "A-bounds (skip saltado)"
+ },
+ "734": {
+  "id": "2b6e19be-6b4d-44d6-af4b-04f7a09bef60",
+  "nome": "Abdominal Infra Solo"
+ },
+ "735": {
+  "id": "2a186779-bd91-4f24-b1d8-906713246fb0",
+  "nome": "Abdominal Infra Suspenso com Rotação"
+ },
+ "736": {
+  "id": "48a26c01-b995-437a-9c6c-1a8fc1d6cc9e",
+  "nome": "Afundo (peso corporal)"
+ },
+ "737": {
+  "id": "faf12cde-1543-492d-9746-bf5bb6e4e35f",
+  "nome": "Airplane (avião - quadril)"
+ },
+ "738": {
+  "id": "e6600538-a517-428e-8c0a-318ffd1aed2d",
+  "nome": "Ankle stiffness hops (rigidez de tornozelo)"
+ },
+ "739": {
+  "id": "c22a4ab4-20e0-4b7b-b8be-4ede1247e693",
+  "nome": "Apoio em tandem (pé-ante-pé)"
+ },
+ "740": {
+  "id": "b4f55b28-cccc-475e-805a-cfd0406d2e60",
+  "nome": "Apoio unipodal (single-leg stance)"
+ },
+ "741": {
+  "id": "35d9b280-868c-4500-945f-5094f7e2ff43",
+  "nome": "Aterrissagem lateral e estabiliza"
+ },
+ "742": {
+  "id": "7565719f-c11a-4c3e-9c2f-533cd0f86b3c",
+  "nome": "Aterrissagem rotacional e estabiliza"
+ },
+ "743": {
+  "id": "99ec0aac-513c-46ce-b780-68183bc8cdbd",
+  "nome": "Bird dog"
+ },
+ "744": {
+  "id": "492b16f9-0ca8-4d87-a233-20a106b4a532",
+  "nome": "Bird dog"
+ },
+ "745": {
+  "id": "dd9ad55a-2d97-4862-b9c1-3cc17167b258",
+  "nome": "Bounding (passadas saltadas)"
+ },
+ "746": {
+  "id": "c7f31a16-ff3f-479e-b8db-cf64121acc2f",
+  "nome": "Broad jump para salto vertical"
+ },
+ "747": {
+  "id": "d2fd81f8-eae0-4694-ad7c-12e54b9c6125",
+  "nome": "Fisio Cervical: chin tuck (retração cervical)"
+ },
+ "748": {
+  "id": "3b90e2e4-187b-47d7-b862-647387e6271d",
+  "nome": "Fisio Joelho: agachamento declinado unipodal lento"
+ },
+ "749": {
+  "id": "132ed659-277c-4f83-b6d1-768271f8dc90",
+  "nome": "Fisio Joelho: agachamento isométrico (carga estática)"
+ },
+ "750": {
+  "id": "95b1b5b6-7465-441a-91d4-dd70d4a38f85",
+  "nome": "Fisio Ombro: deslizamento na parede (wall slide)"
+ },
+ "751": {
+  "id": "80b81c28-1269-481d-9d24-16b6b8c9b68e",
+  "nome": "Fisio Ombro: Prone Y-T-W-L"
+ },
+ "752": {
+  "id": "36443e8b-29ac-4e42-b232-f8067208ef20",
+  "nome": "Fisio Ombro: serratus punch"
+ },
+ "753": {
+  "id": "d0ff4da9-51b1-4e8f-bffc-d787ba275ffe",
+  "nome": "Fisio Quadril: ponte de glúteo isométrica"
+ },
+ "754": {
+  "id": "d47183c0-a08a-4f08-8b52-a8c61d8a6ffe",
+  "nome": "Fisio Tornozelo: heel drop excêntrico (Alfredson)"
+ },
+ "755": {
+  "id": "01dd0e4a-ac88-4009-908e-7b5a8495d52e",
+  "nome": "Fisio Tornozelo: hop and stick (resposta a carga)"
+ },
+ "756": {
+  "id": "a68c698b-3785-45f3-b3fc-c611211387b7",
+  "nome": "Fisio Tornozelo: panturrilha com joelho fletido (sóleo)"
+ },
+ "757": {
+  "id": "c5759160-3c50-4dbd-bd45-5a573ba4ed1e",
+  "nome": "Fisio Tornozelo: panturrilha excêntrica no step"
+ },
+ "758": {
+  "id": "835cbbe6-27b8-45da-927f-109c1d316c7b",
+  "nome": "Hops reativos unipodais"
+ },
+ "759": {
+  "id": "08603e8e-f8c7-48f2-a0b4-3572a685314c",
+  "nome": "Prancha Empurrar / Puxar"
+ },
+ "760": {
+  "id": "e5ffe3e1-2757-4ed7-ba87-a745d9a96c5d",
+  "nome": "Prancha Frontal"
+ },
+ "761": {
+  "id": "8296368d-a47e-427f-b138-6bf9340e5914",
+  "nome": "Prancha frontal"
+ },
+ "762": {
+  "id": "33da3aa3-144d-4bf4-bf46-a5599b718270",
+  "nome": "Saltos no lugar (controle de aterrissagem)"
+ },
+ "763": {
+  "id": "97e12a00-e2cc-452d-b50d-0899f5edcfec",
+  "nome": "Saltos reativos contínuos (repeated hops)"
+ },
+ "764": {
+  "id": "e4ea8b60-b6ad-41e7-92a5-863451267473",
+  "nome": "Scapular push-up (push-up plus)"
+ },
+ "765": {
+  "id": "d995e5f7-9725-48a5-ae0a-780b1c9f1d29",
+  "nome": "Scissor jumps (tesoura)"
+ },
+ "766": {
+  "id": "5f1491fa-432c-4bb5-a404-e9074fc79792",
+  "nome": "Sissy squat"
+ },
+ "767": {
+  "id": "b977301b-7a5c-4753-8c6f-eb2db516a277",
+  "nome": "Snap down (desaceleração rápida)"
+ },
+ "768": {
+  "id": "97b12dd1-8de7-4b1a-909e-36ed4653528b",
+  "nome": "Split jump (afundo saltado)"
+ },
+ "769": {
+  "id": "26b210fb-57c9-455d-bff0-bd8ac58294fa",
+  "nome": "Tuck jumps contínuos reativos"
+ },
+ "770": {
+  "id": "59bd4068-be22-46ce-a004-52abe5dc3112",
+  "nome": "Wall drive 3 contatos"
+ },
+ "771": {
+  "id": "36f9b012-2d66-48ca-84bf-154d2439ebfb",
+  "nome": "Wall drive isométrico (posição de aceleração)"
+ },
+ "772": {
+  "id": "66fb19d4-caf8-4a49-8c47-19e3758aa262",
+  "nome": "90/90 hip switch"
+ },
+ "773": {
+  "id": "0ec7c2d3-0455-412e-9754-d66bc36b63ac",
+  "nome": "Abdominal Canivete"
+ },
+ "774": {
+  "id": "913d8079-f45c-4391-8cf0-6ec97f0d209b",
+  "nome": "Abdominal Canivete Alternado"
+ },
+ "775": {
+  "id": "fc70d297-3dab-42dc-8017-eca87ec3c622",
+  "nome": "Abdominal Canoa"
+ },
+ "776": {
+  "id": "614cd597-6d91-43ab-9ddf-ad438d084e1d",
+  "nome": "Abdominal Infra Banco Declinado"
+ },
+ "777": {
+  "id": "b44e0cd4-986f-4b0e-9a6b-f9cef0da7437",
+  "nome": "Abdominal Infra Suspenso"
+ },
+ "778": {
+  "id": "6049e35c-75b7-49f5-8cf9-db5983757985",
+  "nome": "Abdominal Remador"
+ },
+ "779": {
+  "id": "b459d238-619c-4301-89c7-0e1694d448b5",
+  "nome": "Abdominal Rodinha"
+ },
+ "780": {
+  "id": "91773d81-3cfe-4748-ad78-599ba2bffb59",
+  "nome": "Abdominal Supra Banco Declinado"
+ },
+ "781": {
+  "id": "68a21d6e-f8ef-4307-adc7-d5399002393b",
+  "nome": "Abdominal Supra Bola"
+ },
+ "782": {
+  "id": "17161c04-540a-441c-9e03-8d9f9aae7b97",
+  "nome": "Abdominal Supra Solo"
+ },
+ "783": {
+  "id": "7ac36eb1-8014-4034-9ce7-f2bd50a7ecbd",
+  "nome": "Abdominal Tesoura"
+ },
+ "784": {
+  "id": "095abe10-f515-4eb8-9d12-ef8a41c6afaf",
+  "nome": "Abdução de Quadril em Prancha Lateral"
+ },
+ "785": {
+  "id": "02a99ab3-c126-4832-9718-2dd717e7ba82",
+  "nome": "Abdução em Prancha Lateral c/ Joelhos Flexionados"
+ },
+ "786": {
+  "id": "6b73310b-e91c-470f-90a7-dd5c54a477cb",
+  "nome": "Abdução Uni em Prancha lateral"
+ },
+ "787": {
+  "id": "2813abd3-bfdd-40f5-a56f-de2cbaf384d7",
+  "nome": "Agachamento livre (air squat)"
+ },
+ "788": {
+  "id": "28b739a6-a902-4fd4-b08f-4141a7a8f2aa",
+  "nome": "Agachamento profundo isométrico (deep squat hold)"
+ },
+ "789": {
+  "id": "c4c19b19-2a1c-4ff6-9f59-05aab846fee5",
+  "nome": "Alcance unipodal (Y-balance)"
+ },
+ "790": {
+  "id": "85b00ae3-727d-4cb8-8e79-542d04649cdc",
+  "nome": "Ankle hops (saltos de tornozelo)"
+ },
+ "791": {
+  "id": "754a5c3f-93a7-40c2-afe7-4b1e55ebe897",
+  "nome": "Apoio unipodal olhos fechados"
+ },
+ "792": {
+  "id": "b7e8d7e7-c1be-4d2a-8c35-93875b521914",
+  "nome": "Aterrissagem unipodal (single-leg landing)"
+ },
+ "793": {
+  "id": "9906609c-9980-46ad-b291-16989baa0d27",
+  "nome": "Bear crawl"
+ },
+ "794": {
+  "id": "4f30a215-6227-46f8-92a1-f7149eae8c60",
+  "nome": "Bicycle crunch"
+ },
+ "795": {
+  "id": "a4579449-dbad-432e-ac9e-d5658f8d8a7a",
+  "nome": "Bird Dog com Remada"
+ },
+ "796": {
+  "id": "c8221a75-a074-4b35-8ec9-0b40a3b58646",
+  "nome": "Bird dog de ativação"
+ },
+ "797": {
+  "id": "c582b327-3be8-457a-9540-d534d3811572",
+  "nome": "Biset Prancha Frontal + Lateral"
+ },
+ "798": {
+  "id": "b25cec38-45f8-4a92-8baa-fe0f449fd307",
+  "nome": "Body saw na prancha"
+ },
+ "799": {
+  "id": "9d432dc8-0012-4184-85e6-6df33d9811e3",
+  "nome": "Bound lateral (salto lateral de propulsão)"
+ },
+ "800": {
+  "id": "0e59ded2-d50d-44d4-a985-97352e1022e5",
+  "nome": "Bound unipodal (single-leg bound)"
+ },
+ "801": {
+  "id": "6430da02-52ca-4597-ac3c-685ac4fad388",
+  "nome": "Bounding alternado (passadas saltadas longas)"
+ },
+ "802": {
+  "id": "a89cb9b3-3499-415b-82ee-8d05d923013c",
+  "nome": "Broad jump (salto horizontal)"
+ },
+ "803": {
+  "id": "81ebac28-3799-4ce2-8efd-9f28194b0d74",
+  "nome": "Burpee"
+ },
+ "804": {
+  "id": "17c7779c-adac-4f4b-8253-99aec7b94a10",
+  "nome": "CARs de ombro"
+ },
+ "805": {
+  "id": "dc9ff1ef-fb37-4314-b421-c6bb03f9f1ca",
+  "nome": "CARs de quadril"
+ },
+ "806": {
+  "id": "96cec170-bac7-450f-b235-7fcaa3f93617",
+  "nome": "CARs de tornozelo"
+ },
+ "807": {
+  "id": "4bda1934-e7b7-4473-bb08-e64df17fe9ab",
+  "nome": "Cat-camel (gato-camelo)"
+ },
+ "808": {
+  "id": "b166a655-c9b0-4c7d-bd42-4f7ed3f384c1",
+  "nome": "Copenhagen plank"
+ },
+ "809": {
+  "id": "d99e2cbd-d66b-4c4d-a4a4-bc614f07c455",
+  "nome": "CORE ( combinado )"
+ },
+ "810": {
+  "id": "2e04727d-35b1-4053-8733-ed0cec7da94f",
+  "nome": "Cossack squat"
+ },
+ "811": {
+  "id": "c0464d7f-5b14-4336-83ef-5c7933116d73",
+  "nome": "Couch stretch (alongamento de quadril)"
+ },
+ "812": {
+  "id": "edc403cb-1113-45d7-8b1e-93eb01926e15",
+  "nome": "Countermovement jump (CMJ)"
+ },
+ "813": {
+  "id": "8b509e2a-e30f-4656-b0fb-7a0a19b00321",
+  "nome": "Crab walk"
+ },
+ "814": {
+  "id": "e439f3e2-3bc0-4e34-abb3-d225bab8d710",
+  "nome": "Crucifixo Unilateral em Prancha Lateral em Abdução"
+ },
+ "815": {
+  "id": "4c1d784b-f68b-4eb3-b6b8-962733b0d4a8",
+  "nome": "Dead bug"
+ },
+ "816": {
+  "id": "cba7692e-3f67-4212-95f7-96bfcbe3753d",
+  "nome": "Dead bug"
+ },
+ "817": {
+  "id": "399b6084-25de-43ca-827c-20d746c0dbe0",
+  "nome": "Dead bug de ativação"
+ },
+ "818": {
+  "id": "5fc77191-eb82-4f0f-ae09-5799929ad02f",
+  "nome": "Falling start sprint (queda e arranque)"
+ },
+ "819": {
+  "id": "67d51653-c141-4537-9b72-866ffdd94ade",
+  "nome": "Fisio Cervical: chin tuck isométrico deitado"
+ },
+ "820": {
+  "id": "0b750f44-3c98-4a5a-8cde-3ea11dd2bf61",
+  "nome": "Fisio Cervical: flexores profundos do pescoço"
+ },
+ "821": {
+  "id": "bac3e3b4-24ab-4f6a-ac7c-1e777a3b5a34",
+  "nome": "Fisio Cervical: rotação com auto-resistência"
+ },
+ "822": {
+  "id": "b665da9f-6ee0-4f88-b419-47703430e79a",
+  "nome": "Fisio Joelho: controle excêntrico de quadríceps (step-down lento)"
+ },
+ "823": {
+  "id": "464c9be0-8ddc-4690-8998-f2928bf31dc9",
+  "nome": "Fisio Joelho: wall sit isométrico"
+ },
+ "824": {
+  "id": "c2ebd055-a04c-48db-8ba4-43ad45329681",
+  "nome": "Fisio Lombar: bird dog"
+ },
+ "825": {
+  "id": "b137ea90-e276-48e6-ba2b-7a7fbc8feb8c",
+  "nome": "Fisio Lombar: extensão lombar (Sorensen isométrico)"
+ },
+ "826": {
+  "id": "9996cc9b-38ef-4cba-8670-cea497502b0b",
+  "nome": "Fisio Lombar: McGill curl-up"
+ },
+ "827": {
+  "id": "b5c3cb75-ece8-4bec-a95e-b5ffce956cae",
+  "nome": "Fisio Lombar: prancha lateral"
+ },
+ "828": {
+  "id": "ce8d9966-f412-4c94-b58a-11b4b01b18b4",
+  "nome": "Fisio Lombar: reverse hyper"
+ },
+ "829": {
+  "id": "f3eb6f05-491e-410d-b09d-e29e91edbec9",
+  "nome": "Fisio Ombro: sleeper stretch"
+ },
+ "830": {
+  "id": "c9a313ac-da8a-402c-a123-91e0286e5175",
+  "nome": "Fisio Posterior: nordic hamstring excêntrico"
+ },
+ "831": {
+  "id": "be26e577-e388-46be-985a-ed20c32224fa",
+  "nome": "Fisio Posterior: ponte de isquiotibiais isométrica"
+ },
+ "832": {
+  "id": "30e64625-661a-47cb-af8c-ca84d5a77a8f",
+  "nome": "Fisio Posterior: razor curl"
+ },
+ "833": {
+  "id": "d0aecfa5-b2f0-431d-b0a3-7efa0a3b1a9e",
+  "nome": "Fisio Quadril: Copenhagen adductor (progressões)"
+ },
+ "834": {
+  "id": "bf77c22c-f2d8-4ceb-b5ac-6e1a239218cc",
+  "nome": "Fisio Tendão de Aquiles: HSR panturrilha lenta"
+ },
+ "835": {
+  "id": "a54aad3c-6b05-4b45-af11-b2afb995fede",
+  "nome": "Fisio Tendão de Aquiles: isométrico em ponta de pé"
+ },
+ "836": {
+  "id": "09ad001c-44fc-4ec2-8239-bd8e3f48ceef",
+  "nome": "Fisio Tornozelo: equilíbrio unipodal progressivo"
+ },
+ "837": {
+  "id": "c7149f43-4623-4d09-ad19-0da5a4e14cc9",
+  "nome": "Flexão arqueiro"
+ },
+ "838": {
+  "id": "68435077-73bf-4ad9-9f10-1cf1f7fe35b8",
+  "nome": "Flexão de braço"
+ },
+ "839": {
+  "id": "b363a4b2-f716-4930-87ed-8f1e46cb1348",
+  "nome": "Flexão de Quadril Alternada em Isometria de Ponte"
+ },
+ "840": {
+  "id": "196b92b9-5c58-4409-b17f-2254d72b33ab",
+  "nome": "Flexão de Quadril em ponte ( core )"
+ },
+ "841": {
+  "id": "2ee6bb11-2dc0-4114-bdd0-3f8d7809d8f4",
+  "nome": "Flexão declinada"
+ },
+ "842": {
+  "id": "c55cbb27-0165-4e4d-92e0-8dbde591f4ce",
+  "nome": "Flexão diamante"
+ },
+ "843": {
+  "id": "cc4e5ace-2a48-4156-a647-7c4c7e21e6be",
+  "nome": "Flexão parada de mão na parede"
+ },
+ "844": {
+  "id": "18f06415-9121-426e-8d5b-1fa120f92f07",
+  "nome": "Flexão pliométrica (clap push-up)"
+ },
+ "845": {
+  "id": "bc110262-b13a-49be-820d-246d679ecda3",
+  "nome": "Flutter kicks"
+ },
+ "846": {
+  "id": "f6907426-e6ec-4ceb-8e98-87cb733bc841",
+  "nome": "Hanging knee raise"
+ },
+ "847": {
+  "id": "194582f3-e357-495e-add5-e81bc1811378",
+  "nome": "Hanging leg raise"
+ },
+ "848": {
+  "id": "cb79bb2f-7f23-4856-ac7e-d2a7c51ef292",
+  "nome": "Hip airplane"
+ },
+ "849": {
+  "id": "aa18098a-e639-4618-9063-e760c9cebcae",
+  "nome": "Hollow hold"
+ },
+ "850": {
+  "id": "2f67aed2-e788-4b85-a50d-093511dbd717",
+  "nome": "Hollow rock"
+ },
+ "851": {
+  "id": "5a95b77a-59c8-4c94-8dc4-5557642ad0be",
+  "nome": "L-sit"
+ },
+ "852": {
+  "id": "251d1f5f-6983-4a47-9935-f7fe71874bb5",
+  "nome": "McGill curl-up"
+ },
+ "853": {
+  "id": "6601637d-61f2-40cd-ab2f-bc9aa45c7825",
+  "nome": "Mobilidade de punho (4 direções)"
+ },
+ "854": {
+  "id": "2b64e2db-f402-4b68-ba0b-94182de8dea0",
+  "nome": "Mobilidade de tornozelo na parede (knee-to-wall)"
+ },
+ "855": {
+  "id": "cc4885b7-5983-46eb-836f-4c31b8b2323c",
+  "nome": "Mountain climbers"
+ },
+ "856": {
+  "id": "8d6f862b-694b-4ada-b84d-d51be3c0454c",
+  "nome": "Open book (rotação torácica deitado)"
+ },
+ "857": {
+  "id": "b470efe1-aeb5-4c1a-9752-e65790f33823",
+  "nome": "Pike push-up"
+ },
+ "858": {
+  "id": "24b1e69b-e3d3-45c1-8fd2-55356f6e87e9",
+  "nome": "Pistol squat"
+ },
+ "859": {
+  "id": "8c8ab66a-8995-4b9a-a16c-3a33d5548286",
+  "nome": "Pogo jumps (saltinhos no lugar)"
+ },
+ "860": {
+  "id": "6c8ad754-c524-47cd-944c-4103ba247fba",
+  "nome": "Pogo unipodal"
+ },
+ "861": {
+  "id": "0b31d071-9fba-4e25-b214-83e134c254d1",
+  "nome": "Pombo (pigeon)"
+ },
+ "862": {
+  "id": "a5d763eb-d779-49bc-acd4-665438ab4e01",
+  "nome": "Ponte de glúteo"
+ },
+ "863": {
+  "id": "a21397db-be10-492f-9e1b-42994ac9d79f",
+  "nome": "Ponte de glúteo unilateral"
+ },
+ "864": {
+  "id": "9f5d985c-c6f5-4287-a448-b844600bdae3",
+  "nome": "Ponte Glútea"
+ },
+ "865": {
+  "id": "0f84c8b6-3e2e-4433-a247-985c26c1af9f",
+  "nome": "Power skip (skip de altura/distância)"
+ },
+ "866": {
+  "id": "85f9e6ce-592e-4eda-a9c6-79c2f828135f",
+  "nome": "Prancha + Cócoras"
+ },
+ "867": {
+  "id": "ee5bb2b7-7e27-470b-9fd2-9e924b0ebae0",
+  "nome": "Prancha Alta"
+ },
+ "868": {
+  "id": "7a15e4ba-3866-4371-874d-25b7c94d9e1a",
+  "nome": "Prancha alta (Cadeia cruzada - Core)"
+ },
+ "869": {
+  "id": "fce5642a-088d-40e1-9779-0956e9ed0f99",
+  "nome": "Prancha Alta com Flexão de Quadril e Joelho na Bola"
+ },
+ "870": {
+  "id": "e8e07b80-c7bc-455f-b053-a9391e5ec052",
+  "nome": "Prancha Bola"
+ },
+ "871": {
+  "id": "3552afdc-4a5a-49da-b7cb-222fe4044734",
+  "nome": "Prancha Bola com Movimento Frente e Trás"
+ },
+ "872": {
+  "id": "b4d544e8-9879-4b6d-9b8f-06a24fa4b894",
+  "nome": "Prancha com Ativação de Serrátil"
+ },
+ "873": {
+  "id": "0cb9e0ab-92ab-4a98-9f1b-98601d9dac5e",
+  "nome": "Prancha com Extensão de Quadril Alternada"
+ },
+ "874": {
+  "id": "d9b00932-87f9-48f1-b8f4-6e7aa4588b28",
+  "nome": "Prancha com Extensão de Quadril Unilateral"
+ },
+ "875": {
+  "id": "41a50d5e-42ac-46fc-9930-d3c5c51713c5",
+  "nome": "Prancha com toque de ombro"
+ },
+ "876": {
+  "id": "91084dd1-b0b2-48f7-8365-0bab87218fa6",
+  "nome": "Prancha de Copenhagen"
+ },
+ "877": {
+  "id": "77ecd1af-2960-4c99-b26a-dcfff9f66cdc",
+  "nome": "Prancha de Copenhagen Dinâmica"
+ },
+ "878": {
+  "id": "123d1913-6722-412a-9644-98fe62ca2129",
+  "nome": "Prancha de Copenhagen Flexionada"
+ },
+ "879": {
+  "id": "5fbca827-2419-41b2-bb66-2492a472be9b",
+  "nome": "Prancha inversa"
+ },
+ "880": {
+  "id": "8760c798-2f49-403e-8660-ad7c12729d5f",
+  "nome": "Prancha inversa + flexão de quadril alternada"
+ },
+ "881": {
+  "id": "44f1aea6-0474-49fb-ad57-2092f121036f",
+  "nome": "Prancha Lateral"
+ },
+ "882": {
+  "id": "973b1aee-c058-4635-a8bd-f74740c55c13",
+  "nome": "Prancha lateral"
+ },
+ "883": {
+  "id": "cbede972-bc03-4bbb-b665-6ae95e0c0016",
+  "nome": "Prancha Lateral + Abdução Isométrica"
+ },
+ "884": {
+  "id": "4145eb23-d052-43f3-a187-e0775d415ba2",
+  "nome": "Prancha lateral + Ostrinha"
+ },
+ "885": {
+  "id": "65ec923f-0020-4f2c-8c09-d89104d0cf12",
+  "nome": "Prancha Lateral + pressão na Bola"
+ },
+ "886": {
+  "id": "a53b70fb-7cda-4018-8b55-68a6e9aa5d0a",
+  "nome": "Prancha Lateral com Abdução de Quadril Isométrica"
+ },
+ "887": {
+  "id": "c210591d-1ee6-451f-b28d-7c02e72f1fa2",
+  "nome": "Prancha lateral com elevação de quadril"
+ },
+ "888": {
+  "id": "0bcfd332-2862-41db-9e34-c45773a0ff85",
+  "nome": "Prancha Lateral com Rotação Torácica"
+ },
+ "889": {
+  "id": "59a78a41-600c-46e6-99eb-5f07b9063db9",
+  "nome": "Prancha Lateral em Abdução Isométrica c/ Calcanhares Unidos"
+ },
+ "890": {
+  "id": "134d2973-68a1-4a41-99a1-5887538cb220",
+  "nome": "Prancha na Bola Mexendo Caldeirão"
+ },
+ "891": {
+  "id": "d5462d44-a75c-4178-8d7c-1df92850cfd2",
+  "nome": "Prancha Toque de Ombros Cruzado"
+ },
+ "892": {
+  "id": "2f48e086-0b50-4ba8-a94c-f8ff3af23dbd",
+  "nome": "Prancha up-down (antebraço-mão)"
+ },
+ "893": {
+  "id": "76467db3-e397-4cb0-a1cb-3bb4fb2cf339",
+  "nome": "Quadruped rock back"
+ },
+ "894": {
+  "id": "9f1d3660-5d1a-4166-ad4e-b3fe4f53be8b",
+  "nome": "Reverse crunch"
+ },
+ "895": {
+  "id": "112992f6-3db1-4aae-a972-8d2962126dcf",
+  "nome": "Rolamento segmentar (segmental rolling)"
+ },
+ "896": {
+  "id": "43d04bdc-4c4c-49d6-aed4-453d6f4c09ef",
+  "nome": "Rotação torácica quadrupede"
+ },
+ "897": {
+  "id": "2e2a7262-63ec-4cdc-a108-4b5322b35289",
+  "nome": "Russian twist"
+ },
+ "898": {
+  "id": "b83e923c-3a70-4469-9644-0004afdeb6be",
+  "nome": "Salto e estabiliza unipodal (hop and stick)"
+ },
+ "899": {
+  "id": "b59d110f-5e01-4604-a67d-b6a4175d7c7d",
+  "nome": "Salto horizontal e estabiliza (broad jump to stick)"
+ },
+ "900": {
+  "id": "f9b158a0-ac31-488b-9b5d-c042c51a22e2",
+  "nome": "Salto horizontal reativo (broad jump rebote)"
+ },
+ "901": {
+  "id": "211b5f49-9fa8-4931-9f53-c1873cfa6ad5",
+  "nome": "Salto lateral (lateral bound)"
+ },
+ "902": {
+  "id": "5036af96-6876-4559-a9d8-3108a7e5d300",
+  "nome": "Saltos reativos laterais"
+ },
+ "903": {
+  "id": "455db455-2899-4631-a539-023a2c75b90a",
+  "nome": "Saltos unipodais para frente (progressão)"
+ },
+ "904": {
+  "id": "7db05819-02d7-4f3a-8677-383c91fac948",
+  "nome": "Skater jumps (saltos de patinador)"
+ },
+ "905": {
+  "id": "8be87651-fa98-4855-8a76-665f44971cc6",
+  "nome": "Skipping alto"
+ },
+ "906": {
+  "id": "3e5eab60-1953-4ec7-a4c3-33b67a4026e6",
+  "nome": "Spiderman lunge com rotação"
+ },
+ "907": {
+  "id": "043bc675-86a6-42d2-92eb-01ee6f309008",
+  "nome": "Squat jump (salto agachado)"
+ },
+ "908": {
+  "id": "c8086a56-54a1-4ece-ba4c-508eab361518",
+  "nome": "Toe taps deitado (core control)"
+ },
+ "909": {
+  "id": "2aaadd16-0981-4952-a86b-a0f55577bde1",
+  "nome": "Toes to bar"
+ },
+ "910": {
+  "id": "fe17cc30-418b-4708-adf6-b8d9cefcdadc",
+  "nome": "Triple extension drill (tríplice extensão)"
+ },
+ "911": {
+  "id": "9634cfc8-a6d2-4571-ac2e-0e8e4a34cf4d",
+  "nome": "Tuck jump (joelhos ao peito)"
+ },
+ "912": {
+  "id": "a3ad2cdb-f8e7-4f09-9312-25e7ecf476bd",
+  "nome": "V-up"
+ },
+ "913": {
+  "id": "faa1019a-2bd5-411b-853a-e8ed2e49e996",
+  "nome": "Wall ankling (tornozelo na parede)"
+ },
+ "914": {
+  "id": "6dac4ab0-d5af-42ec-9dec-ea954a0387c1",
+  "nome": "Wall drive contínuo (rápido)"
+ },
+ "915": {
+  "id": "c93f9ae2-eca7-4cde-a34a-c4bed7f95087",
+  "nome": "Wall drive duplo (2 trocas)"
+ },
+ "916": {
+  "id": "c2d07de8-c924-44d1-94b4-7338d2a5c4f4",
+  "nome": "Wall drive marcha (1 troca)"
+ },
+ "917": {
+  "id": "065e621b-2ba9-4332-9dee-fb3806b11545",
+  "nome": "Wall slide (controle escapular)"
+ },
+ "918": {
+  "id": "1f396e9a-d008-4d23-9149-2d9edd8688d5",
+  "nome": "Wall slides (deslizar na parede)"
+ },
+ "919": {
+  "id": "b882b52e-1c17-4d1d-b743-6a65fa57ae3e",
+  "nome": "Worlds greatest stretch"
+ },
+ "920": {
+  "id": "db1a5e49-0a06-41b1-94e2-41a1b83d5c74",
+  "nome": "Ab wheel rollout"
+ },
+ "921": {
+  "id": "d3bef183-9c48-44db-b1b0-041e549b43ca",
+  "nome": "Sandbag carry"
+ },
+ "922": {
+  "id": "25c200e9-f296-4a5b-b774-38eda193f832",
+  "nome": "Fisio Posterior: leg curl deslizante (slider)"
+ },
+ "923": {
+  "id": "26f53a45-0947-40a6-a2b5-5c7fd7fe3b5c",
+  "nome": "Pistol squat assistido"
+ },
+ "924": {
+  "id": "185147fa-6622-4a7d-a7f2-cc61dffe2c45",
+  "nome": "Prancha com pés no TRX"
+ },
+ "925": {
+  "id": "c1ada640-8bbf-4d6d-b130-d1ded4519a92",
+  "nome": "Rollout no TRX"
+ },
+ "926": {
+  "id": "48dcb2de-b391-4512-8571-03db99f5f5d9",
+  "nome": "Fisio Punho: wrist roller (enrolar carga)"
+ }
+}

@@ -59,8 +59,12 @@ const call = async (body) => {
     headers: { Authorization: `Bearer ${ANON}`, "x-webhook-secret": secret, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(`${body.action}: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
-  return r.json();
+  const payload = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const code = payload?.error?.code || "request_failed";
+    throw new Error(`${body.action}: HTTP ${r.status} ${code}`);
+  }
+  return payload;
 };
 
 const slug = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "")
@@ -112,13 +116,13 @@ if (STAGING) {
   const { items } = await call({ action: "list-recordings" });
   mkdirSync(DIR, { recursive: true });
   console.log(`Gravações aguardando: ${items.length}`);
-  // Nome no storage: <codigo>__<modelo>__<timestamp>.<ext>. Se o mesmo exercício foi gravado
+  // Nome no storage: <codigo>__<operador-hash>__<request-id>.<ext>. Se o mesmo exercício foi gravado
   // mais de uma vez, vale o take mais recente — o modelo regravou porque não gostou do anterior.
   const maisRecente = new Map();
   for (const it of items) {
     const cod = it.name.match(/^(\d{3})__/)?.[1];
     if (!cod) continue;
-    const ts = Number(it.name.match(/__(\d+)\./)?.[1] || 0);
+    const ts = Date.parse(it.created_at || "") || 0;
     const atual = maisRecente.get(cod);
     if (!atual || ts > atual.ts) maisRecente.set(cod, { ...it, ts, cod });
   }
@@ -297,7 +301,8 @@ async function processar(m) {
 
   const base = `biblioteca/${m.ex.id}`;
   for (const [arq, path, tipo] of [[outMp4, `${base}.mp4`, "video/mp4"], [outJpg, `${base}.jpg`, "image/jpeg"]]) {
-    const { signedUrl } = await call({ action: "sign", path });
+    const bytes = statSync(arq).size;
+    const { signed_url: signedUrl } = await call({ action: "sign", path, mime_type: tipo, size: bytes });
     const r = await fetch(signedUrl, { method: "PUT", headers: { "Content-Type": tipo }, body: readFileSync(arq) });
     if (!r.ok) throw new Error(`upload ${path}: HTTP ${r.status}`);
   }
@@ -305,7 +310,7 @@ async function processar(m) {
   rmSync(outMp4, { force: true }); rmSync(outJpg, { force: true });
   if (!KEEP) rmSync(src, { force: true }); // libera disco: 926 originais de celular passam de 30GB
   return {
-    commit: { id: m.ex.id, video_path: `${base}.mp4`, thumbnail_url: `${SUPABASE_URL}/storage/v1/object/public/exercises-videos/${base}.jpg` },
+    commit: { id: m.ex.id, video_path: `${base}.mp4` },
     mb, avisos,
   };
 }
@@ -345,19 +350,25 @@ await pool(alvos, JOBS, async (m) => {
 
 // ---------- 3. Confirmar no banco ----------
 let atualizados = 0;
+const idsPublicados = new Set();
 for (let k = 0; k < commits.length; k += 50) {
-  atualizados += (await call({ action: "commit", items: commits.slice(k, k + 50) })).updated;
+  const result = await call({ action: "commit", items: commits.slice(k, k + 50) });
+  atualizados += result.updated;
+  for (const item of result.results || []) {
+    if (item.ok) idsPublicados.add(item.id);
+  }
 }
 if (STAGING && atualizados && processadasDoStaging.length) {
   // Só limpa a triagem depois que o vídeo está publicado: se algo falhar, o take original
   // continua lá para uma nova tentativa.
-  const publicados = new Set(commits.map((c) => c.video_path.split("/")[1].replace(".mp4", "")));
   const remover = processadasDoStaging.filter((n) => {
     const cod = n.match(/^(\d{3})__/)?.[1];
-    return cod && codeMap[cod] && publicados.has(codeMap[cod].id);
+    return cod && codeMap[cod] && idsPublicados.has(codeMap[cod].id);
   });
   if (remover.length) {
-    await call({ action: "remove-recordings", names: remover });
+    for (let k = 0; k < remover.length; k += 100) {
+      await call({ action: "remove-recordings", names: remover.slice(k, k + 100) });
+    }
     console.log(`Triagem limpa: ${remover.length} arquivo(s) já publicado(s).`);
   }
 }
