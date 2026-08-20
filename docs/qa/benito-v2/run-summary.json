@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "spriteVersionNumber": 2,
+  "run_dir": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final",
+  "spritesheet": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/final/spritesheet-extended.webp",
+  "validation": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/final/validation-extended.json",
+  "chroma_despill": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/chroma-despill-extended.json",
+  "contact_sheet": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/contact-sheet-extended.png",
+  "direction_sheet": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/look-directions.png",
+  "direction_semantics": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/direction-semantics.json",
+  "blind_direction_validation": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/direction-blind-validation.json",
+  "blind_review_resolution": null,
+  "continuity": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/look-continuity.json",
+  "review": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/review.json",
+  "package": "/Users/macbookpro/.codex/pets/benito"
+}

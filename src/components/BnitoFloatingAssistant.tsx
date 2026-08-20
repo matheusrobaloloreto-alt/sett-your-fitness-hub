@@ -1,6 +1,6 @@
 import { createContext, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { BrainCircuit, HelpCircle, Loader2, Send, Sparkles } from "lucide-react";
+import { HelpCircle, Loader2, Send, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
@@ -18,6 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { readEdgeError } from "@/lib/edgeError";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { BenitoSprite, type BenitoState } from "@/components/BenitoSprite";
 
 type BnitoMessage = {
   id: string;
@@ -188,7 +189,7 @@ export function BnitoContextButton({ label, context, question, className, text, 
           }}
           aria-label={`Perguntar ao ${name} sobre ${displayLabel}`}
         >
-          <BrainCircuit className="h-4 w-4" />
+          <BenitoSprite state="idle" size={16} alt="" />
           {displayText && <span>{displayText}</span>}
         </Button>
       </TooltipTrigger>
@@ -208,9 +209,13 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [petReaction, setPetReaction] = useState<BenitoState | null>(null);
   const [messages, setMessages] = useState<BnitoMessage[]>(() => [makeWelcome("Setty")]);
   const [sessionContext, setSessionContext] = useState<BnitoOpenOptions | null>(null);
-  const dragStateRef = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  const dragStateRef = useRef<{ dx: number; dy: number; moved: boolean; lastClientX: number; startClientX: number; startClientY: number } | null>(null);
+  const dragAbortRef = useRef<AbortController | null>(null);
+  const [dragDirection, setDragDirection] = useState<"running-left" | "running-right" | null>(null);
+  const petReactionTimerRef = useRef<number | null>(null);
   const [buttonPosition, setButtonPosition] = useState(() => {
     if (typeof window === "undefined") return { x: 0, y: 0 };
     const stored = window.localStorage.getItem(POSITION_KEY);
@@ -232,6 +237,19 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setMessages((cur) => (cur.length === 1 && cur[0].id === WELCOME_ID ? [makeWelcome(name)] : cur));
   }, [name]);
+
+  const showPetReaction = useCallback((state: BenitoState, duration = 1400) => {
+    if (petReactionTimerRef.current !== null) window.clearTimeout(petReactionTimerRef.current);
+    setPetReaction(state);
+    petReactionTimerRef.current = window.setTimeout(() => {
+      setPetReaction(null);
+      petReactionTimerRef.current = null;
+    }, duration);
+  }, []);
+
+  useEffect(() => () => {
+    if (petReactionTimerRef.current !== null) window.clearTimeout(petReactionTimerRef.current);
+  }, []);
 
   const shouldShow = role === "admin" || role === "coordinator" || role === "trainer" || role === "master";
   const cycleId = useMemo(() => getCycleId(location.pathname), [location.pathname]);
@@ -263,31 +281,56 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   const handlePointerMove = useCallback((event: PointerEvent) => {
     const state = dragStateRef.current;
     if (!state) return;
-    state.moved = true;
+    const totalDx = event.clientX - state.startClientX;
+    const totalDy = event.clientY - state.startClientY;
+    if (Math.abs(totalDx) > 5 || Math.abs(totalDy) > 5) state.moved = true;
+    const horizontalDelta = event.clientX - state.lastClientX;
+    if (state.moved && Math.abs(horizontalDelta) >= 3) {
+      setDragDirection(horizontalDelta < 0 ? "running-left" : "running-right");
+      state.lastClientX = event.clientX;
+    }
     setButtonPosition(clampButtonPosition(event.clientX - state.dx, event.clientY - state.dy));
   }, [clampButtonPosition]);
 
-  const finishDrag = useCallback(() => {
-    window.removeEventListener("pointermove", handlePointerMove);
-    window.removeEventListener("pointerup", finishDrag);
-  }, [handlePointerMove]);
+  useEffect(() => () => {
+    dragAbortRef.current?.abort();
+    dragAbortRef.current = null;
+  }, []);
 
   const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    dragAbortRef.current?.abort();
     const rect = event.currentTarget.getBoundingClientRect();
     dragStateRef.current = {
       dx: event.clientX - rect.left,
       dy: event.clientY - rect.top,
       moved: false,
+      lastClientX: event.clientX,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
     };
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", finishDrag);
+    const controller = new AbortController();
+    dragAbortRef.current = controller;
+    const finishDrag = () => {
+      controller.abort();
+      if (dragAbortRef.current === controller) dragAbortRef.current = null;
+      setDragDirection(null);
+    };
+    const cancelDrag = () => {
+      dragStateRef.current = null;
+      finishDrag();
+    };
+    window.addEventListener("pointermove", handlePointerMove, { signal: controller.signal });
+    window.addEventListener("pointerup", finishDrag, { once: true, signal: controller.signal });
+    window.addEventListener("pointercancel", cancelDrag, { once: true, signal: controller.signal });
+    window.addEventListener("blur", cancelDrag, { once: true, signal: controller.signal });
   };
 
   const openBnito = useCallback((options?: BnitoOpenOptions) => {
     setSessionContext(options || null);
     setInput(options?.question || "");
     setOpen(true);
-  }, []);
+    showPetReaction("greeting");
+  }, [showPetReaction]);
 
   const askBnito = async (question: string) => {
     const trimmed = question.trim();
@@ -342,12 +385,14 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
       if (data.error) throw new Error(data.details || data.error);
 
       setMessages((current) => [...current, createMessage("assistant", formatBnitoResponse(data, name))]);
+      showPetReaction("success");
     } catch (error) {
       const raw = error instanceof Error ? error.message : "erro inesperado";
       const message = raw === "__timeout__"
         ? `O ${name} demorou demais para responder e a requisicao foi cancelada. Tente de novo em instantes.`
         : getUnavailableMessage(raw, name);
       setMessages((current) => [...current, createMessage("assistant", message)]);
+      showPetReaction("error", 1800);
     } finally {
       setLoading(false);
     }
@@ -362,6 +407,9 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
     () => ({ isAvailable: shouldShow, openBnito, assistantName: name }),
     [openBnito, shouldShow, name],
   );
+  const petState: BenitoState = loading
+    ? "processing"
+    : dragDirection ?? petReaction ?? (open ? "waiting" : "idle");
 
   return (
     <BnitoAssistantContext.Provider value={contextValue}>
@@ -386,7 +434,7 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
                 className="fixed z-40 flex h-16 w-16 cursor-grab items-center justify-center rounded-full border border-white/60 bg-navy text-primary-foreground shadow-[0_18px_45px_rgba(29,45,92,0.32)] ring-8 ring-navy/10 transition duration-200 active:cursor-grabbing hover:bg-navy/95 focus:outline-none focus:ring-4 focus:ring-ring focus:ring-offset-2"
               >
                 <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/45 bg-white/10">
-                  <BrainCircuit className="h-7 w-7" />
+                  <BenitoSprite state={petState} size={42} alt="" />
                 </span>
               </button>
             </TooltipTrigger>
@@ -397,7 +445,7 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
             <DialogHeader className="shrink-0 border-b border-line bg-background px-5 py-4 text-left">
           <div className="flex items-start gap-3 pr-8">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-navy text-primary-foreground shadow-md">
-              <BrainCircuit className="h-6 w-6" />
+              <BenitoSprite state={petState} size={42} alt="" />
             </div>
             <div className="min-w-0">
               <DialogTitle className="font-display text-2xl text-navy">{name}</DialogTitle>

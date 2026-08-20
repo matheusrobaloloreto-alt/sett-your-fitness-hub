@@ -1,6 +1,6 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
-import { BrainCircuit, HelpCircle, Loader2, Send, Sparkles } from "lucide-react";
+import { HelpCircle, Loader2, Send, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useCompanyAiConfig } from "@/lib/companyAiConfig";
@@ -17,6 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { businessDateYmd } from "@/lib/businessDate";
+import { BenitoSprite, type BenitoState } from "@/components/BenitoSprite";
 
 type StudentBnitoMessage = {
   id: string;
@@ -216,15 +217,30 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [petReaction, setPetReaction] = useState<BenitoState | null>(null);
   const [messages, setMessages] = useState<StudentBnitoMessage[]>(() => [makeWelcome("Assistente")]);
   const [mission, setMission] = useState<ProactiveMission | null>(null);
   const [missionLoading, setMissionLoading] = useState(false);
   const [missionDismissed, setMissionDismissed] = useState(false);
+  const petReactionTimerRef = useRef<number | null>(null);
 
   // Quando o nome da empresa carrega, atualiza a mensagem de boas-vindas (se a conversa ainda nem começou).
   useEffect(() => {
     setMessages((cur) => (cur.length === 1 && cur[0].id === WELCOME_ID ? [makeWelcome(name)] : cur));
   }, [name]);
+
+  const showPetReaction = useCallback((state: BenitoState, duration = 1400) => {
+    if (petReactionTimerRef.current !== null) window.clearTimeout(petReactionTimerRef.current);
+    setPetReaction(state);
+    petReactionTimerRef.current = window.setTimeout(() => {
+      setPetReaction(null);
+      petReactionTimerRef.current = null;
+    }, duration);
+  }, []);
+
+  useEffect(() => () => {
+    if (petReactionTimerRef.current !== null) window.clearTimeout(petReactionTimerRef.current);
+  }, []);
 
   const shouldShow = role === "student";
   const pageLabel = useMemo(() => getStudentPageLabel(location.pathname), [location.pathname]);
@@ -313,14 +329,23 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
 
       const responseName = data.assistant_identity?.assistant_name || name;
       setMessages((current) => [...current, createMessage("assistant", formatStudentBnitoResponse(data, responseName))]);
+      const responseUrgency = typeof data.result === "object" ? data.result?.urgency : undefined;
+      const requiresTeamHandoff = typeof data.result === "object" && data.result?.handoff_to_team === true;
+      showPetReaction(
+        requiresTeamHandoff || responseUrgency === "parar_e_avisar" || responseUrgency === "cautela"
+          ? "alert"
+          : "celebration",
+        requiresTeamHandoff || responseUrgency === "parar_e_avisar" ? 3000 : 1800,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "erro inesperado";
       setMessages((current) => [...current, createMessage("assistant", getUnavailableMessage(message, name))]);
+      showPetReaction("error", 1800);
     } finally {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [consumeIdentity, loading, location.pathname, messages, pageLabel, paramsKey, name]);
+  }, [consumeIdentity, loading, location.pathname, messages, pageLabel, paramsKey, name, showPetReaction]);
 
   useEffect(() => {
     if (!shouldShow) return;
@@ -385,15 +410,28 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
     maxX: 0,
     minY: 0,
     maxY: 0,
+    lastClientX: 0,
     moved: false,
   });
   const [bnitoDrag, setBnitoDrag] = useState({ x: 0, y: 0 });
+  const [dragDirection, setDragDirection] = useState<"running-left" | "running-right" | null>(null);
+  const petState: BenitoState = loading || missionLoading
+    ? "processing"
+    : dragDirection
+      ?? (mission && !missionDismissed && mission.urgency === "parar_e_avisar"
+        ? "alert"
+        : petReaction ?? (open || (mission && !missionDismissed)
+          ? "waiting"
+          : "idle"));
 
   return (
     <>
       {children}
       {shouldShow && (
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (nextOpen) showPetReaction("greeting");
+        }}>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -421,6 +459,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
                     maxX,
                     minY,
                     maxY,
+                    lastClientX: e.clientX,
                     moved: false,
                   };
                   e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -431,18 +470,34 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
                   const dy = e.clientY - drag.sy;
                   if (Math.abs(dx) > 5 || Math.abs(dy) > 5) drag.moved = true;
                   if (drag.moved) {
+                    const horizontalDelta = e.clientX - drag.lastClientX;
+                    if (Math.abs(horizontalDelta) >= 3) {
+                      setDragDirection(horizontalDelta < 0 ? "running-left" : "running-right");
+                      drag.lastClientX = e.clientX;
+                    }
                     setBnitoDrag({
                       x: Math.min(drag.maxX, Math.max(drag.minX, drag.ox + dx)),
                       y: Math.min(drag.maxY, Math.max(drag.minY, drag.oy + dy)),
                     });
                   }
                 }}
-                onPointerUp={(e) => { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId); if (!dragRef.current.moved) setOpen(true); }}
-                onPointerCancel={(e) => e.currentTarget.releasePointerCapture?.(e.pointerId)}
+                onPointerUp={(e) => {
+                  (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+                  setDragDirection(null);
+                  if (!dragRef.current.moved) {
+                    setOpen(true);
+                    showPetReaction("greeting");
+                  }
+                }}
+                onPointerCancel={(e) => {
+                  e.currentTarget.releasePointerCapture?.(e.pointerId);
+                  setDragDirection(null);
+                }}
+                onLostPointerCapture={() => setDragDirection(null)}
                 className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom,0px))] right-[calc(1.25rem+env(safe-area-inset-right,0px))] z-40 flex h-16 w-16 items-center justify-center rounded-full border border-white/70 bg-navy text-primary-foreground shadow-[0_18px_45px_rgba(29,45,92,0.32)] ring-8 ring-navy/10 transition-colors duration-200 hover:bg-navy/95 focus:outline-none focus:ring-4 focus:ring-ring focus:ring-offset-2 md:bottom-[calc(1.5rem+env(safe-area-inset-bottom,0px))] md:right-6 cursor-grab active:cursor-grabbing"
               >
                 <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/45 bg-white/10">
-                  <BrainCircuit className="h-7 w-7" />
+                  <BenitoSprite state={petState} size={42} alt="" />
                 </span>
               </button>
             </TooltipTrigger>
@@ -453,7 +508,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
             <div className="pointer-events-none fixed bottom-[calc(11rem+env(safe-area-inset-bottom,0px))] right-4 z-40 w-[min(20rem,calc(100vw-2rem))] rounded-[22px] border border-line bg-background/95 p-3 text-sm shadow-xl backdrop-blur [@media(max-height:740px)]:hidden md:bottom-24 md:right-6">
               <div className="flex items-start gap-2">
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-primary-foreground">
-                  <BrainCircuit className="h-4 w-4" />
+                  <BenitoSprite state={missionLoading ? "processing" : mission.urgency === "parar_e_avisar" ? "alert" : "waiting"} size={28} alt="" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold uppercase tracking-wide text-navy">{mission.title}</p>
@@ -464,6 +519,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
                       className="pointer-events-auto rounded-full bg-navy px-3 py-1.5 text-xs font-medium text-primary-foreground"
                       onClick={() => {
                         setOpen(true);
+                        showPetReaction("greeting");
                         void askBnito(mission.actionPrompt);
                       }}
                     >
@@ -490,7 +546,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
             <DialogHeader className="shrink-0 border-b border-line bg-background px-5 py-4 text-left">
               <div className="flex items-start gap-3 pr-8">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-navy text-primary-foreground shadow-md">
-                  <BrainCircuit className="h-6 w-6" />
+                  <BenitoSprite state={petState} size={42} alt="" />
                 </div>
                 <div className="min-w-0">
                   <DialogTitle className="font-display text-2xl text-navy">{name}</DialogTitle>

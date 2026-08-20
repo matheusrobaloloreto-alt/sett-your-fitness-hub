@@ -1,0 +1,274 @@
+{
+  "ok": true,
+  "frames_root": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames",
+  "states": [
+    "running-right",
+    "running-left"
+  ],
+  "errors": [],
+  "warnings": [],
+  "rows": [
+    {
+      "state": "running-right",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-right/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19474,
+          "bbox": [
+            11,
+            5,
+            181,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 1000
+        },
+        {
+          "index": 1,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-right/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17890,
+          "bbox": [
+            22,
+            5,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 989
+        },
+        {
+          "index": 2,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-right/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17993,
+          "bbox": [
+            14,
+            5,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 966
+        },
+        {
+          "index": 3,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-right/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17973,
+          "bbox": [
+            14,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 907
+        },
+        {
+          "index": 4,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-right/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17843,
+          "bbox": [
+            20,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 1027
+        },
+        {
+          "index": 5,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-right/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17862,
+          "bbox": [
+            10,
+            5,
+            181,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 972
+        },
+        {
+          "index": 6,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-right/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19012,
+          "bbox": [
+            15,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 906
+        },
+        {
+          "index": 7,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-right/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18144,
+          "bbox": [
+            12,
+            5,
+            179,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 995
+        }
+      ]
+    },
+    {
+      "state": "running-left",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-left/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19474,
+          "bbox": [
+            11,
+            5,
+            181,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 1000
+        },
+        {
+          "index": 1,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-left/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17890,
+          "bbox": [
+            22,
+            5,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 989
+        },
+        {
+          "index": 2,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-left/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17993,
+          "bbox": [
+            14,
+            5,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 966
+        },
+        {
+          "index": 3,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-left/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17973,
+          "bbox": [
+            14,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 907
+        },
+        {
+          "index": 4,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-left/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17843,
+          "bbox": [
+            20,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 1027
+        },
+        {
+          "index": 5,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-left/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17862,
+          "bbox": [
+            10,
+            5,
+            181,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 972
+        },
+        {
+          "index": 6,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-left/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19012,
+          "bbox": [
+            15,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 906
+        },
+        {
+          "index": 7,
+          "file": "/Users/macbookpro/.codex/worktrees/bn-app-20260815/benito-pet/.hatch-pet/benito-v2/frames/running-left/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18144,
+          "bbox": [
+            12,
+            5,
+            179,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 995
+        }
+      ]
+    }
+  ]
+}
