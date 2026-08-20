@@ -11,14 +11,7 @@
   "direction_sheet": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/look-directions.png",
   "direction_semantics": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/direction-semantics.json",
   "blind_direction_validation": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/direction-blind-validation.json",
-  "blind_review_resolution": {
-    "decision": "accept",
-    "severity": "minor",
-    "reviewed_warnings": "six intermediate blind-axis ambiguities",
-    "evidence": "Independent labeled-loop rereview found no wrong-quadrant pose or reversal; P0/P1=0.",
-    "reviewed_by": "/root/release_ops_resume/benito_rereview",
-    "reviewed_commit": "46610d1f8a04cdace2d623f4c2f3ce461b8dab1c"
-  },
+  "blind_review_resolution": "docs/qa/benito-v2/blind-review-resolution.json",
   "independent_review_request": "docs/qa/benito-v2/independent-review-request.json",
   "continuity": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/look-continuity.json",
   "review": "/Users/macbookpro/.codex/pet-runs/benito-v2-20260820-final/qa/review.json",

@@ -239,6 +239,48 @@ describe("animation and fallback contracts", () => {
     expect(container.querySelector('[data-benito-frame="0"]')).toBeInTheDocument();
   });
 
+  it("starts at frame zero after a delayed atlas preload", () => {
+    const { container } = render(
+      <BenitoSprite state="processing" width={42} alt="Benito" />,
+    );
+
+    act(() => vi.advanceTimersByTime(5_000));
+    act(() => MockImage.instances[0].onload?.());
+    expect(container.querySelector('[data-benito-frame="0"]')).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(200));
+    expect(container.querySelector('[data-benito-frame="1"]')).toBeInTheDocument();
+  });
+
+  it("restarts without an inactive-time jump after pause and remount", () => {
+    const first = render(
+      <BenitoSprite state="greeting" width={42} alt="Benito" />,
+    );
+    act(() => MockImage.instances[0].onload?.());
+    act(() => vi.advanceTimersByTime(200));
+    expect(first.container.querySelector('[data-benito-frame="1"]')).toBeInTheDocument();
+
+    first.rerender(
+      <BenitoSprite state="greeting" width={42} alt="Benito" paused />,
+    );
+    act(() => vi.advanceTimersByTime(5_000));
+    first.rerender(<BenitoSprite state="greeting" width={42} alt="Benito" />);
+    expect(first.container.querySelector('[data-benito-frame="0"]')).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(200));
+    expect(first.container.querySelector('[data-benito-frame="1"]')).toBeInTheDocument();
+
+    first.unmount();
+    act(() => vi.advanceTimersByTime(5_000));
+    const second = render(
+      <BenitoSprite state="greeting" width={42} alt="Benito remontado" />,
+    );
+    expect(second.container.querySelector('[data-benito-frame="0"]')).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(200));
+    expect(second.container.querySelector('[data-benito-frame="1"]')).toBeInTheDocument();
+  });
+
   it("retries atlas errors twice and then keeps an explicit error fallback", () => {
     const { container } = render(
       <BenitoSprite state="idle" width={42} alt="Benito" />,

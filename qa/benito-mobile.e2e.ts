@@ -30,4 +30,17 @@ test("Benito v2 remains legible in a 390x844 assistant layout", async ({ page })
   }
 
   await page.screenshot({ path: screenshotPath, fullPage: false });
+
+  await page.goto("/qa/benito-mobile-fixture.html?animation=run");
+  const animatedSprite = page.locator('.assistant [data-benito-state="processing"]');
+  await expect(animatedSprite.locator("[data-benito-frame]")).toHaveAttribute(
+    "data-benito-frame",
+    "0",
+  );
+  await expect
+    .poll(
+      () => animatedSprite.locator("[data-benito-frame]").getAttribute("data-benito-frame"),
+      { timeout: 1_500 },
+    )
+    .not.toBe("0");
 });

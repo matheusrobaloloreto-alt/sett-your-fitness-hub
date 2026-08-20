@@ -17,6 +17,8 @@ const states: ReadonlyArray<{ label: string; state: BenitoState }> = [
 ];
 
 function BenitoMobileFixture() {
+  const paused = new URLSearchParams(window.location.search).get("animation") !== "run";
+
   return (
     <>
       <style>{`
@@ -42,7 +44,7 @@ function BenitoMobileFixture() {
         <section className="states" aria-label="Estados do Benito">
           {states.map(({ label, state }) => (
             <div className="state" key={state}>
-              <BenitoSprite state={state} size={42} alt={`Benito: ${label}`} />
+              <BenitoSprite state={state} size={42} alt={`Benito: ${label}`} paused={paused} />
               <span>{label}</span>
             </div>
           ))}
@@ -50,7 +52,7 @@ function BenitoMobileFixture() {
       </main>
       <aside className="assistant" aria-label="Prévia do assistente">
         <div className="assistant-header">
-          <BenitoSprite state="processing" size={42} alt="Benito processando" />
+          <BenitoSprite state="processing" size={42} alt="Benito processando" paused={paused} />
           <div className="assistant-copy">
             <strong>Benito está processando</strong>
             <small>Professor e aluno mantêm o mesmo avatar.</small>
@@ -58,7 +60,7 @@ function BenitoMobileFixture() {
         </div>
       </aside>
       <button className="fab" aria-label="Abrir Benito">
-        <BenitoSprite state="idle" size={42} alt="" />
+        <BenitoSprite state="idle" size={42} alt="" paused={paused} />
       </button>
     </>
   );
