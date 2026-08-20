@@ -34,6 +34,7 @@ test("curation v2 generator separates tracks and never auto-approves", () => {
     safety_metadata_gap: 2,
     duplicate_video_clusters: 1,
     duplicate_video_exercises: 2,
+    target_signature_outliers: 0,
     reconciliation: { unchanged: 1, catalog_changed: 1, new: 1, missing_from_live: 1, duplicate_id_conflict: 0 },
     review_by_priority: { P0: 2, P1: 1, P2: 0, P3: 0 },
   });
@@ -57,4 +58,37 @@ test("curation v2 output is deterministic for a frozen timestamp", () => {
     legacySources: [{ path: "legacy.csv", text: "exercise_id,exercise_name\ne1,Exercício\n" }],
   };
   assert.deepEqual(buildArtifacts(input), buildArtifacts(input));
+});
+
+test("curation v2 isolates repeated target-signature outliers without auto-approval", () => {
+  const exercises = Array.from({ length: 10 }, (_, index) => ({
+    id: `e${index + 1}`,
+    name: index < 8 ? `Supino ${index + 1}` : `Flexão de Punho ${index + 1}`,
+    muscle_group: index < 8 ? "Peitoral" : "Antebraço",
+  }));
+  const targets = exercises.flatMap((exercise) => [
+    { exercise_id: exercise.id, muscle_group_id: "chest", role: "primary", is_primary: true, volume_percentage: 1 },
+    { exercise_id: exercise.id, muscle_group_id: "shoulder", role: "secondary", is_primary: false, volume_percentage: 0.5 },
+    { exercise_id: exercise.id, muscle_group_id: "triceps", role: "secondary", is_primary: false, volume_percentage: 50 },
+  ]);
+  const result = buildArtifacts({
+    generatedAt: "2026-08-20T12:00:00.000Z",
+    muscleGroups: [
+      { id: "chest", name: "Peitoral" },
+      { id: "shoulder", name: "Deltoide Anterior" },
+      { id: "triceps", name: "Tríceps" },
+    ],
+    exercises,
+    targets,
+    metadata: [],
+    legacySources: [],
+  });
+
+  assert.equal(result.counts.target_signature_outliers, 2);
+  const outliers = result.files["library-curation-v2-target-signature-outliers.csv"];
+  assert.match(outliers, /Flexão de Punho 9/);
+  assert.match(outliers, /Flexão de Punho 10/);
+  assert.match(outliers, /Peitoral/);
+  assert.doesNotMatch(outliers, /Supino 1/);
+  assert.doesNotMatch(outliers, /,"true"/);
 });

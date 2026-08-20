@@ -75,6 +75,29 @@ const isP0Name = (name) => {
   return [...P0_NAMES].some((candidate) => normalized.includes(candidate));
 };
 
+function canonicalSourceGroup(value) {
+  const group = normalize(value);
+  if (["peito", "peitoral"].includes(group)) return "peitoral";
+  if (["costas", "dorsal"].includes(group)) return "costas";
+  if (["abdomen", "abdominais"].includes(group)) return "abdomen";
+  if (["ombro", "ombros"].includes(group)) return "ombro";
+  return group;
+}
+
+function canonicalTargetPercentage(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(value ?? "");
+  const percentage = numeric >= 0 && numeric <= 1 ? numeric * 100 : numeric;
+  return String(Number(percentage.toFixed(6)));
+}
+
+function targetSignature(targets) {
+  return targets
+    .map((target) => `${target.muscle_group_name}:${target.role}:${canonicalTargetPercentage(target.volume_percentage)}`)
+    .sort()
+    .join(" | ");
+}
+
 function legacyIndex(legacySources) {
   const byId = new Map();
   for (const source of legacySources) {
@@ -175,6 +198,43 @@ export function buildArtifacts({ exercises, targets, metadata, muscleGroups, leg
   }
   reconciliation.sort((a, b) => a.exercise_id.localeCompare(b.exercise_id));
 
+  const signatureClusters = new Map();
+  for (const row of records) {
+    const signature = targetSignature(row.targets);
+    const sourceGroup = canonicalSourceGroup(row.muscle_group);
+    if (!signature || !sourceGroup) continue;
+    const cluster = signatureClusters.get(signature) || [];
+    cluster.push({ row, sourceGroup });
+    signatureClusters.set(signature, cluster);
+  }
+  const signatureOutliers = [];
+  for (const [signature, cluster] of signatureClusters) {
+    if (cluster.length < 10) continue;
+    const groupCounts = new Map();
+    for (const item of cluster) groupCounts.set(item.sourceGroup, (groupCounts.get(item.sourceGroup) || 0) + 1);
+    const ranked = [...groupCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const [dominantGroup, dominantCount] = ranked[0] || ["", 0];
+    const dominantShare = dominantCount / cluster.length;
+    if (!dominantGroup || dominantShare < 0.5 || ranked[1]?.[1] === dominantCount) continue;
+    for (const { row, sourceGroup } of cluster) {
+      if (sourceGroup === dominantGroup) continue;
+      signatureOutliers.push({
+        exercise_id: row.exercise_id,
+        exercise_name: row.exercise_name,
+        source_muscle_group: row.muscle_group,
+        target_signature: signature,
+        signature_cluster_size: cluster.length,
+        dominant_source_group: dominantGroup,
+        dominant_source_count: dominantCount,
+        dominant_share: dominantShare.toFixed(4),
+        review_status: "needs_review",
+        evidence: `Repeated target signature is dominated by source group ${dominantGroup}; verify copy/template contamination without inferring replacement targets.`,
+        ready_for_upsert: "false",
+      });
+    }
+  }
+  signatureOutliers.sort((a, b) => a.exercise_name.localeCompare(b.exercise_name) || a.exercise_id.localeCompare(b.exercise_id));
+
   const reviewRows = records.flatMap((row) => {
     const forcedP0TargetReview = isP0Name(row.exercise_name);
     const targetCandidate = row.targets.length === 1 || forcedP0TargetReview;
@@ -232,6 +292,7 @@ export function buildArtifacts({ exercises, targets, metadata, muscleGroups, leg
     safety_metadata_gap: records.filter((row) => row.safety_gap).length,
     duplicate_video_clusters: [...youtubeCounts.values()].filter((count) => count > 1).length,
     duplicate_video_exercises: videoClusters.length,
+    target_signature_outliers: signatureOutliers.length,
     reconciliation: Object.fromEntries(["unchanged", "catalog_changed", "new", "missing_from_live", "duplicate_id_conflict"].map((status) => [status, reconciliation.filter((row) => row.reconciliation_status === status).length])),
     review_by_priority: Object.fromEntries(["P0", "P1", "P2", "P3"].map((priority) => [priority, reviewRows.filter((row) => row.priority === priority).length])),
   };
@@ -256,6 +317,7 @@ export function buildArtifacts({ exercises, targets, metadata, muscleGroups, leg
   const reviewHeaders = ["exercise_id", "exercise_name", "priority", "target_count", "current_targets", "targets_review_status", "safety_review_status", "media_review_status", "youtube_video_id", "queue_reason", "reviewer_name", "reviewed_at", "decision_reason", "evidence", "ready_for_upsert"];
   const reconciliationHeaders = ["exercise_id", "exercise_name", "reconciliation_status", "legacy_names", "legacy_sources"];
   const videoHeaders = ["cluster_id", "youtube_video_id", "exercise_id", "exercise_name", "media_review_status", "decision", "reviewer_name", "reviewed_at", "evidence"];
+  const signatureOutlierHeaders = ["exercise_id", "exercise_name", "source_muscle_group", "target_signature", "signature_cluster_size", "dominant_source_group", "dominant_source_count", "dominant_share", "review_status", "evidence", "ready_for_upsert"];
   return {
     counts,
     files: {
@@ -266,6 +328,7 @@ export function buildArtifacts({ exercises, targets, metadata, muscleGroups, leg
       "library-curation-v2-p2-review.csv": csv(reviewHeaders, reviewRows.filter((row) => row.priority === "P2")),
       "library-curation-v2-p3-review.csv": csv(reviewHeaders, reviewRows.filter((row) => row.priority === "P3")),
       "library-curation-v2-video-clusters.csv": csv(videoHeaders, videoClusters),
+      "library-curation-v2-target-signature-outliers.csv": csv(signatureOutlierHeaders, signatureOutliers),
       "library-curation-v2-run-summary.json": `${JSON.stringify({ schema_version: 2, generated_at: generatedAt, mode: "read_only_sanitized", contains_pii: false, counts }, null, 2)}\n`,
     },
   };

@@ -22,6 +22,7 @@
       "P1": 213,
       "P2": 628,
       "P3": 1
-    }
+    },
+    "target_signature_outliers": 64
   }
 }
