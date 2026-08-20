@@ -2,7 +2,10 @@
 
 -- Run only against a disposable database whose schema already includes
 -- 20260820113000_add_explicit_staff_permissions.sql. The transaction is rolled
--- back so reruns leave no fixture data behind.
+-- back so reruns leave no fixture data behind. The fixture bootstrap requires
+-- the disposable database owner (normally supabase_admin) only to suspend the
+-- GoTrue auth.users triggers while inserting synthetic UUIDs; all authorization
+-- assertions below execute as authenticated JWT actors.
 begin;
 
 create or replace function pg_temp.assert_true(ok boolean, message text)
@@ -143,6 +146,13 @@ begin
   get diagnostics changed_rows = row_count;
   if changed_rows <> 0 then
     raise exception 'ASSERTION FAILED: full dashboard grant must not widen writes';
+  end if;
+
+  update public.admin_alerts set title = 'must stay blocked'
+  where id = '70000000-0000-0000-0000-000000000001';
+  get diagnostics changed_rows = row_count;
+  if changed_rows <> 0 then
+    raise exception 'ASSERTION FAILED: full dashboard grant must not update company alerts';
   end if;
 end;
 $$;

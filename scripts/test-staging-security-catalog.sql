@@ -6,6 +6,8 @@ declare
   actual_security_definer_browser_signatures text[];
   expected_security_definer_browser_signatures constant text[] := array[
     'award_xp(uuid,text,integer,uuid,text)',
+    'can_manage_staff_student(uuid,uuid)',
+    'can_read_staff_student(uuid,uuid)',
     'check_and_unlock_achievements(uuid)',
     'get_active_platform_ads(text,text,uuid)',
     'get_company_ai_identity(uuid)',
@@ -15,6 +17,7 @@ declare
     'get_user_company_id(uuid)',
     'get_user_role(uuid)',
     'has_role(uuid,app_role)',
+    'has_staff_permission(uuid,text)',
     'is_company_staff(uuid,uuid)',
     'is_student_company_staff(uuid,uuid)',
     'mark_training_cycle_viewed(uuid)',
@@ -23,6 +26,7 @@ declare
     'replace_exercise_muscle_targets(uuid,jsonb)',
     'reschedule_training_cycles_from(uuid,uuid,date)',
     'save_workout_logs_if_current(jsonb)',
+    'set_staff_permission(uuid,uuid,text,boolean)',
     'sync_prescription_cycles(uuid,date)'
   ]::text[];
 begin

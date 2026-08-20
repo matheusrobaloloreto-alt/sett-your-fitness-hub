@@ -387,8 +387,9 @@ using (exists (
     and public.can_manage_staff_student(tc.company_id, tc.student_id)
 ));
 
--- A trainer with the explicit full-dashboard grant may read and resolve all
--- dashboard alerts for this company. Other trainers remain target-only.
+-- A trainer with the explicit full-dashboard grant may read all dashboard
+-- alerts for this company. The permission is deliberately read-only: resolving
+-- or otherwise changing an alert remains limited to its target/admin/coordinator.
 drop policy if exists "admin alerts staff select" on public.admin_alerts;
 create policy "admin alerts staff select"
 on public.admin_alerts for select to authenticated
@@ -411,7 +412,6 @@ using (
     admin_alerts.target_user_id = auth.uid()
     or public.has_role(auth.uid(), 'admin'::public.app_role)
     or public.has_role(auth.uid(), 'coordinator'::public.app_role)
-    or public.has_staff_permission(admin_alerts.company_id, 'company_dashboard_full')
   )
 )
 with check (
@@ -421,7 +421,6 @@ with check (
     admin_alerts.target_user_id = auth.uid()
     or public.has_role(auth.uid(), 'admin'::public.app_role)
     or public.has_role(auth.uid(), 'coordinator'::public.app_role)
-    or public.has_staff_permission(admin_alerts.company_id, 'company_dashboard_full')
   )
   and (
     admin_alerts.target_user_id is null
