@@ -14,7 +14,7 @@
       "proposed_target_exercise_id": "2345fdf0-2bb7-49c0-839d-1d1bfd3024f8",
       "proposed_target_name": "Levantamento Terra",
       "confidence": "high",
-      "status": "pending_independent_review",
+      "status": "approved_by_independent_review",
       "rejected_duplicate_exercise_id": "f0cf83a8-0bf6-4e3f-aa65-fb7fb7b81aee",
       "evidence": [
         "docs/project/gravacao/shot-list-completo.csv: both duplicate ids reference the same source demonstration Nf9O-pEl1ok",
@@ -22,14 +22,14 @@
         "docs/prescription/library-curation-high-risk-v1.csv: proposed target has reviewed movement pattern, equipment and safety context",
         "docs/prescription/library-curation-v1-consolidated-manifest.csv: proposed target is the existing curated canonical record"
       ],
-      "rationale": "The records represent the same demonstrated movement; the proposed target is the one already connected to the curated metadata pipeline. Independent review is still mandatory before runtime activation."
+      "rationale": "The records represent the same demonstrated movement; the proposed target is the one already connected to the curated metadata pipeline. Independent review confirmed the explicit override on 2026-08-20."
     },
     {
       "source_name": "Agachamento Bulgaro",
       "proposed_target_exercise_id": "c452607e-7dff-463d-adb2-a712059a8d26",
       "proposed_target_name": "Agachamento Búlgaro",
       "confidence": "high",
-      "status": "pending_independent_review",
+      "status": "approved_by_independent_review",
       "rejected_duplicate_exercise_id": "7fa7c63d-5642-4d41-acd3-f3e468e53370",
       "evidence": [
         "docs/project/gravacao/shot-list-completo.csv: both duplicate ids reference the same source demonstration ZpIMkV6cf7c",
@@ -37,7 +37,7 @@
         "supabase/migrations/20260401203848_360e8e4d-e062-4545-862d-f9ef7f9ccbb0.sql: proposed target already has primary and secondary muscle-target rows",
         "docs/prescription/library-curation-v1-consolidated-manifest.csv: proposed target is the existing curated canonical record"
       ],
-      "rationale": "The records share the same demonstration; the proposed target is the one already connected to muscle targets and the curated metadata pipeline. Independent review is still mandatory before runtime activation."
+      "rationale": "The records share the same demonstration; the proposed target is the one already connected to muscle targets and the curated metadata pipeline. Independent review confirmed the explicit override on 2026-08-20."
     }
   ]
 }

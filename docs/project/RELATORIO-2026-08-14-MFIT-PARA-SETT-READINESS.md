@@ -129,3 +129,14 @@ Removido apenas `generated_at`, os dois relatórios pós-QA geraram o mesmo SHA-
 Risco principal: 145 nomes ainda não têm resolução segura — 52 candidatos médios, 28 baixos, 63 sem candidato e 2 exatos ambíguos. O próximo passo é conferir os candidatos médios por vídeo/execução e decidir se faltam variantes reais no catálogo; itens sem evidência permanecem bloqueados. A inconsistência grave dos targets de `Rosca Scott Barra` deve ser corrigida/inspecionada antes de qualquer reconsideração desse alias.
 
 Somente depois de obter 100% de cobertura e repetir o dry-run devem ser avaliados backup e aplicação em lotes pequenos. Qualquer `--apply` continua condicionado a autorização explícita.
+
+## Checkpoint de aceleração — 2026-08-20
+
+Os dois matches exatos ambíguos receberam revisão independente baseada em evidência versionada:
+
+- `Levantamento Terra`: as duas linhas usam a mesma demonstração; foi escolhido o registro canônico já ligado à curadoria, enquanto a duplicata está sem metadata e sem alvo primário;
+- `Agachamento Bulgaro`: as duas linhas usam a mesma demonstração; foi escolhido o registro já ligado aos alvos musculares e à curadoria, enquanto a duplicata está sem metadata e sem alvo primário.
+
+Os overrides são explícitos (`match_scope=ambiguous_exact_override`), exigem `independent_review_status=approved` e continuam falhando fechado se o alvo não pertencer ao conjunto exato de duplicatas. O mapa agora contém 39 aliases executáveis e zero ambiguidade exata pendente. Isso projeta 170/313 nomes resolvidos, mas a nova cobertura só será declarada depois de repetir o dry-run real com os snapshots operacionais privados.
+
+Validação local: **35/35 testes** do migrador. A fila média permanece com 52 itens; 51 ainda exigem evidência visual/técnica. Nenhum apply ou escrita remota foi executado.

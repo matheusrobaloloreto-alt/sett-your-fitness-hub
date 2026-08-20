@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 37,
+    "approved_aliases": 39,
     "pending_medium": 52,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
-    "blocked_ambiguous_exact": 2,
-    "unresolved_total": 145
+    "blocked_ambiguous_exact": 0,
+    "unresolved_total": 143
   },
   "aliases": [
     {
@@ -480,6 +480,28 @@
       "confidence": "high",
       "occurrences": 11,
       "rationale": "Movimento, polia e corda preservados."
+    },
+    {
+      "source_name": "Levantamento Terra",
+      "target_exercise_id": "2345fdf0-2bb7-49c0-839d-1d1bfd3024f8",
+      "target_name": "Levantamento Terra",
+      "status": "approved",
+      "confidence": "high",
+      "match_scope": "ambiguous_exact_override",
+      "independent_review_status": "approved",
+      "occurrences": 1,
+      "rationale": "Override independente: os dois IDs usam a mesma demonstração; o alvo escolhido é o registro canônico já ligado à curadoria, enquanto a duplicata não possui metadados nem alvo primário."
+    },
+    {
+      "source_name": "Agachamento Bulgaro",
+      "target_exercise_id": "c452607e-7dff-463d-adb2-a712059a8d26",
+      "target_name": "Agachamento Búlgaro",
+      "status": "approved",
+      "confidence": "high",
+      "match_scope": "ambiguous_exact_override",
+      "independent_review_status": "approved",
+      "occurrences": 1,
+      "rationale": "Override independente: os dois IDs usam a mesma demonstração; o alvo escolhido já possui alvos musculares e vínculo com a curadoria, enquanto a duplicata não possui metadados nem alvo primário."
     }
   ],
   "review_queue": {
@@ -891,36 +913,7 @@
       "Tríceps Francês com Halteres",
       "Tríceps Supinado com Halteres"
     ],
-    "ambiguous_exact": [
-      {
-        "source_name": "Levantamento Terra",
-        "candidates": [
-          {
-            "exercise_id": "f0cf83a8-0bf6-4e3f-aa65-fb7fb7b81aee",
-            "name": "Levantamento terra"
-          },
-          {
-            "exercise_id": "2345fdf0-2bb7-49c0-839d-1d1bfd3024f8",
-            "name": "Levantamento Terra"
-          }
-        ],
-        "blocker": "mesmo nome normalizado retorna mais de um exercise_id; nenhum critério técnico disponível distingue os registros"
-      },
-      {
-        "source_name": "Agachamento Bulgaro",
-        "candidates": [
-          {
-            "exercise_id": "7fa7c63d-5642-4d41-acd3-f3e468e53370",
-            "name": "Agachamento búlgaro"
-          },
-          {
-            "exercise_id": "c452607e-7dff-463d-adb2-a712059a8d26",
-            "name": "Agachamento Búlgaro"
-          }
-        ],
-        "blocker": "mesmo nome normalizado retorna mais de um exercise_id; nenhum critério técnico disponível distingue os registros"
-      }
-    ]
+    "ambiguous_exact": []
   },
   "limitations": [
     "Os 180 registros MFIT não têm description, equipment nem muscle_group preenchidos; 13 têm nota de execução, usada apenas quando discriminante.",

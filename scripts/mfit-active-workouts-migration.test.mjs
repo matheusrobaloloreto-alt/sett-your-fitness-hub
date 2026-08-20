@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -992,4 +993,36 @@ test("MFIT alternatives retain the primary exercise and a review note", () => {
   assert.equal(exercises.length, 1);
   assert.equal(exercises[0].name, "Leg press");
   assert.match(exercises[0].notes, /Alternativas MFIT: Agachamento guiado/);
+});
+
+test("versioned exact-duplicate overrides stay explicit, reviewed and traceable", async () => {
+  const aliasPath = new URL("../docs/project/mfit-exercise-aliases.v1.json", import.meta.url);
+  const evidencePath = new URL("../docs/project/mfit-exact-duplicate-evidence.v1.json", import.meta.url);
+  const queuePath = new URL("../docs/project/mfit-medium-evidence-queue.v1.json", import.meta.url);
+  const [aliasText, evidenceText, queueText] = await Promise.all([
+    readFile(aliasPath, "utf8"),
+    readFile(evidencePath, "utf8"),
+    readFile(queuePath, "utf8"),
+  ]);
+  const aliasPayload = JSON.parse(aliasText);
+  const evidencePayload = JSON.parse(evidenceText);
+  const queuePayload = JSON.parse(queueText);
+  const aliasIndex = buildExerciseAliasIndex(aliasPayload);
+
+  assert.equal(aliasPayload.summary.approved_aliases, 39);
+  assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
+  assert.equal(aliasPayload.summary.unresolved_total, 143);
+  assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
+
+  for (const sourceName of ["Levantamento Terra", "Agachamento Bulgaro"]) {
+    const alias = aliasIndex.get(sourceName.toLocaleLowerCase("pt-BR"));
+    assert.equal(alias.match_scope, "ambiguous_exact_override");
+    const evidence = evidencePayload.resolutions.find((row) => row.source_name === sourceName);
+    assert.equal(evidence?.status, "approved_by_independent_review");
+  }
+
+  const currentHash = createHash("sha256").update(aliasText).digest("hex");
+  assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
+  assert.equal(queuePayload.items.length, 52);
+  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 0);
 });
