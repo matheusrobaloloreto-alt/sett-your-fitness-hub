@@ -232,6 +232,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
     () => `student-bnito-mission:${businessDateYmd()}:${assistantIdentity?.company_id || studentCompanyId || "no-company"}:${assistantIdentity?.context_version || "context-pending"}:${name.trim().toLowerCase()}:${location.pathname}`,
     [assistantIdentity?.company_id, assistantIdentity?.context_version, location.pathname, name, studentCompanyId],
   );
+  const missionDismissedKey = `${missionCacheKey}:dismissed`;
 
   const consumeIdentity = useCallback((data?: StudentBnitoResponse | null) => {
     const next = data?.assistant_identity;
@@ -325,7 +326,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
     if (!shouldShow) return;
 
     const fallback = buildLocalMission(pageLabel, name);
-    setMissionDismissed(false);
+    setMissionDismissed(sessionStorage.getItem(missionDismissedKey) === "1");
     setMission(fallback);
 
     const cached = sessionStorage.getItem(missionCacheKey);
@@ -367,7 +368,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [consumeIdentity, location.pathname, missionCacheKey, pageLabel, paramsKey, shouldShow, name]);
+  }, [consumeIdentity, location.pathname, missionCacheKey, missionDismissedKey, pageLabel, paramsKey, shouldShow, name]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -449,7 +450,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
           </Tooltip>
 
           {!open && mission && !missionDismissed && (
-            <div className="fixed bottom-[calc(11rem+env(safe-area-inset-bottom,0px))] right-4 z-40 w-[min(20rem,calc(100vw-2rem))] rounded-[22px] border border-line bg-background/95 p-3 text-sm shadow-xl backdrop-blur [@media(max-height:740px)]:hidden md:bottom-24 md:right-6">
+            <div className="pointer-events-none fixed bottom-[calc(11rem+env(safe-area-inset-bottom,0px))] right-4 z-40 w-[min(20rem,calc(100vw-2rem))] rounded-[22px] border border-line bg-background/95 p-3 text-sm shadow-xl backdrop-blur [@media(max-height:740px)]:hidden md:bottom-24 md:right-6">
               <div className="flex items-start gap-2">
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-primary-foreground">
                   <BrainCircuit className="h-4 w-4" />
@@ -460,7 +461,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
                   <div className="mt-2 flex items-center gap-2">
                     <button
                       type="button"
-                      className="rounded-full bg-navy px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                      className="pointer-events-auto rounded-full bg-navy px-3 py-1.5 text-xs font-medium text-primary-foreground"
                       onClick={() => {
                         setOpen(true);
                         void askBnito(mission.actionPrompt);
@@ -470,8 +471,11 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
                     </button>
                     <button
                       type="button"
-                      className="rounded-full px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted"
-                      onClick={() => setMissionDismissed(true)}
+                      className="pointer-events-auto rounded-full px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted"
+                      onClick={() => {
+                        sessionStorage.setItem(missionDismissedKey, "1");
+                        setMissionDismissed(true);
+                      }}
                     >
                       Depois
                     </button>

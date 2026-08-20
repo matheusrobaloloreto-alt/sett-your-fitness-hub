@@ -1046,13 +1046,8 @@ export default function StudentPortal() {
             totalSessions={totalSessions}
             weeklyGoal={weeklyGoal}
             streak={streak}
+            activeWorkoutId={session.activeSession?.workoutId ?? null}
             goalEditor={studentId ? <WeeklyGoalEditor studentId={studentId} currentGoal={weeklyGoal} onSaved={setWeeklyGoal} /> : null}
-            achievementsPanel={studentId ? (
-              <div className="space-y-4">
-                <AchievementsPanel studentId={studentId} />
-                <MonthlyLeaderboard companyId={companyId} />
-              </div>
-            ) : null}
             hasNutrition={hasNutrition}
             hasCorrida={hasCorrida}
             hasNatacao={hasNatacao}
@@ -1305,6 +1300,12 @@ export default function StudentPortal() {
           <div className="space-y-4">
             <VolumeInsights allLogs={allLogs} cycles={cycles} studentId={studentId} />
             <StatsCharts allLogs={allLogs} cycles={cycles} todayStr={todayStr} />
+            {studentId && totalSessions > 0 && (
+              <div className="space-y-4">
+                <AchievementsPanel studentId={studentId} />
+                <MonthlyLeaderboard companyId={companyId} />
+              </div>
+            )}
           </div>
         )}
 

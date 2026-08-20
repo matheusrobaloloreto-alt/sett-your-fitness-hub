@@ -62,6 +62,13 @@
     --success-foreground: 60 19% 98%;
     --warning: 32 80% 42%;
     --warning-foreground: 60 19% 98%;
+
+    /* Aluno-first: uma ação dominante, leitura editorial e divisores leves. */
+    --student-action: 223 53% 27%;
+    --student-action-foreground: 60 19% 98%;
+    --student-surface: 60 19% 98%;
+    --student-rule: 45 12% 83%;
+    --student-content-width: 42rem;
   }
 }
 
@@ -140,6 +147,16 @@
   }
   .text-balance {
     text-wrap: balance;
+  }
+  .student-content-measure {
+    max-width: var(--student-content-width);
+  }
+  .student-action-surface {
+    background: hsl(var(--student-action));
+    color: hsl(var(--student-action-foreground));
+  }
+  .student-editorial-rule {
+    border-color: hsl(var(--student-rule));
   }
 }
 
