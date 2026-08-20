@@ -55,7 +55,7 @@ independent QA and the backup/rollback gate are complete.
 - Focused wearable security contracts: **21/21 PASS**.
 - Production build, including backend provenance verification: **PASS**.
 - Staging build and postbuild provenance/sanitization gate: **PASS**.
-- Draft HTTP/SPA smoke: **10/10 routes and 6/6 static assets PASS**; the operator-only recording artifact is absent.
+- Draft HTTP/SPA smoke: **10/10 routes and 6/6 static assets PASS**. The current stable staging deploy additionally serves the three operator-only recording pages rewritten to the isolated staging backend, with production references blocked.
 
 The complete test command has one environment-only failure in `dietPdf.test.ts`: this worktree's `node_modules` is a symlink outside the Vite filesystem allowlist, so the PDF worker import is denied. The application build does resolve and bundle the same worker successfully. No test or safety assertion was weakened.
 

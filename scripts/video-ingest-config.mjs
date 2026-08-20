@@ -89,4 +89,3 @@ export async function requestVideoIngest(config, body, fetchImpl = fetch) {
   }
   return payload;
 }
-

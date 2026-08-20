@@ -25,6 +25,7 @@ describe("student-first experience contract", () => {
     expect(checkinSource).toContain('[["Muito baixo", 1]');
     expect(checkinSource).not.toMatch(/[😴🥱🙂😌⚡😐😖🤯]/u);
     expect(checkinSource).toContain("aria-pressed");
+    expect(checkinSource).toContain('aria-label={`Dor ${v} de 8`}');
   });
 
   it("does not let the proactive BNITO card block the workout and remembers dismissal", () => {

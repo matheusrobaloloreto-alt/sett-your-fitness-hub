@@ -76,7 +76,7 @@ export function CheckinCard({ studentId, companyId }: Props) {
             <span className="text-[11px] text-muted-foreground">Dor percebida agora (0 = nenhuma, 8 = intensa)</span>
             <div className="grid grid-cols-5 gap-1">
               {PAIN.map((v) => (
-                <button key={v} type="button" disabled={saving} onClick={() => submit(v)} aria-label={`Dor ${v} de 10`}
+                <button key={v} type="button" disabled={saving} onClick={() => submit(v)} aria-label={`Dor ${v} de 8`}
                   className={`min-h-10 rounded-md text-xs font-bold transition ${v >= 6 ? "bg-red-500/10 text-red-500" : v >= 4 ? "bg-amber-500/10 text-amber-600" : "bg-green-500/10 text-green-600"} hover:ring-2 hover:ring-primary disabled:opacity-50`}>{v}</button>
               ))}
             </div>

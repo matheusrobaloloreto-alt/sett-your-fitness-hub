@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,17 +49,7 @@ export default function TrainerDashboard() {
     return "/trainer";
   };
 
-  useEffect(() => { if (user && !permissionLoading) loadData(); }, [user, permissionLoading, canViewCompanyDashboard]);
-
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible" && user) void reloadPermission();
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [user, reloadPermission]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!user || !companyId) {
       setEnrollments([]);
       setCycles({});
@@ -112,7 +102,17 @@ export default function TrainerDashboard() {
       setCycles({});
       setCycleWorkoutMap({});
     }
-  };
+  }, [canViewCompanyDashboard, companyId, user]);
+
+  useEffect(() => { if (user && !permissionLoading) void loadData(); }, [user, permissionLoading, loadData]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && user) void reloadPermission();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [user, reloadPermission]);
 
   const getCycleIcon = (status: string, endDate: string) => {
     if (status === "completed") return <CheckCircle className="h-4 w-4 text-success" />;

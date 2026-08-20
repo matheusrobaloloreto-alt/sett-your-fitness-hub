@@ -23,7 +23,7 @@ export function useStaffPermission(permission: StaffPermission) {
     }
 
     setLoading(true);
-    const { data, error } = await supabase.rpc("has_staff_permission" as any, {
+    const { data, error } = await supabase.rpc("has_staff_permission", {
       _company_id: companyId,
       _permission: permission,
     });

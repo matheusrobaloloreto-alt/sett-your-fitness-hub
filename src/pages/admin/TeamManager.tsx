@@ -919,7 +919,7 @@ export default function TeamManager() {
       await supabase.from("user_roles").insert({ user_id: editUserId, role: roleToAdd as Role });
     }
     if (effectiveCompanyId && user) {
-      const { error: permissionError } = await supabase.rpc("set_staff_permission" as any, {
+      const { error: permissionError } = await supabase.rpc("set_staff_permission", {
         _company_id: effectiveCompanyId,
         _user_id: editUserId,
         _permission: "company_dashboard_full",

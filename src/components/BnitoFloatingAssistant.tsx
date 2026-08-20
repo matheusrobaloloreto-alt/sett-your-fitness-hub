@@ -545,7 +545,3 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
     </BnitoAssistantContext.Provider>
   );
 }
-
-export function BnitoFloatingAssistant() {
-  return <BnitoAssistantProvider>{null}</BnitoAssistantProvider>;
-}

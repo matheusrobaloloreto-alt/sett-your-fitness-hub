@@ -64,9 +64,9 @@ The first wearable cloud test exposed a real P0 defect: `commit_wearable_sync` a
 
 ## Frontend boundary
 
-The generated recording pages are an operator-only production artifact. They embed production backend coordinates and an operational upload token by design, so the staging postbuild step omits `dist/gravacao` without altering its source. The postbuild then scans the deploy output and fails unless the isolated staging backend is present and blocked backend/key fragments are absent.
+The generated recording pages are operator-only artifacts. The staging postbuild rewrites only the three files under `dist/gravacao` to the isolated staging backend, recalculates their inline CSP hashes and fails closed unless all three pages are present and blocked production backend/key fragments are absent.
 
-The draft and stable-staging smokes confirm that requesting a recording-page URL returns only the SPA shell and exposes none of the recording artifact. On the stable staging URL, 10/10 routes and 6/6 entry assets passed; the remote bundle contains the staging backend and zero production/legacy backend references.
+The current stable staging URL serves all three isolated recording pages. Live smokes confirm staging-only backend references, valid CSP digests and the dedicated anti-iframe, MIME-sniffing, referrer and no-store headers; the application bundle also contains the staging backend and zero production/legacy backend references.
 
 ## Independent QA
 

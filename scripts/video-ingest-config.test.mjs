@@ -80,4 +80,3 @@ test("request wrapper sends only to its resolved endpoint", async (t) => {
     body: { action: "coverage" },
   });
 });
-

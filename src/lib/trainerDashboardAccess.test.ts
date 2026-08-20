@@ -8,6 +8,7 @@ const trainerDashboardSource = readFileSync("src/pages/trainer/TrainerDashboard.
 const renewalsPanelSource = readFileSync("src/components/dashboard/RenewalsAndCyclesPanel.tsx", "utf8");
 const teamManagerSource = readFileSync("src/pages/admin/TeamManager.tsx", "utf8");
 const migrationSource = readFileSync("supabase/migrations/20260820113000_add_explicit_staff_permissions.sql", "utf8");
+const supabaseTypesSource = readFileSync("src/integrations/supabase/types.ts", "utf8");
 
 describe("trainer dashboard access contract", () => {
   it("grants trainers the dashboard module by default and gates the route", () => {
@@ -27,6 +28,8 @@ describe("trainer dashboard access contract", () => {
     expect(teamManagerSource).toContain("Concessão individual");
     expect(teamManagerSource).toContain('_permission: "company_dashboard_full"');
     expect(teamManagerSource).toContain('rpc("set_staff_permission"');
+    expect(staffPermissionSource).not.toContain('rpc("has_staff_permission" as any');
+    expect(teamManagerSource).not.toContain('rpc("set_staff_permission" as any');
   });
 
   it("stores the grant per company and user without changing the trainer role defaults", () => {
@@ -39,6 +42,14 @@ describe("trainer dashboard access contract", () => {
     expect(migrationSource).not.toContain("grant select, insert, update on public.staff_permissions to authenticated");
     expect(permissionSource).toContain('trainer: ["dashboard"');
     expect(permissionSource).not.toContain("company_dashboard_full");
+    for (const rpc of [
+      "can_manage_staff_student",
+      "can_read_staff_student",
+      "has_staff_permission",
+      "set_staff_permission",
+    ]) {
+      expect(supabaseTypesSource).toContain(`${rpc}: {`);
+    }
   });
 
   it("refreshes grants when the tab becomes active so revocation is not stale", () => {

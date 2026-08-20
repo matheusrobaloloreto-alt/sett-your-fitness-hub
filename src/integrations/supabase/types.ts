@@ -5095,6 +5095,14 @@ export type Database = {
         Args: { p_group: string }
         Returns: string
       }
+      can_manage_staff_student: {
+        Args: { _company_id: string; _student_id: string }
+        Returns: boolean
+      }
+      can_read_staff_student: {
+        Args: { _company_id: string; _student_id: string }
+        Returns: boolean
+      }
       check_and_unlock_achievements: {
         Args: { _student_id: string }
         Returns: number
@@ -5436,6 +5444,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      has_staff_permission: {
+        Args: { _company_id: string; _permission: string }
+        Returns: boolean
+      }
       is_company_staff: {
         Args: { _company_id: string; _user_id: string }
         Returns: boolean
@@ -5498,6 +5510,15 @@ export type Database = {
         Returns: undefined
       }
       save_workout_logs_if_current: { Args: { _rows: Json }; Returns: Json }
+      set_staff_permission: {
+        Args: {
+          _company_id: string
+          _enabled: boolean
+          _permission: string
+          _user_id: string
+        }
+        Returns: boolean
+      }
       sett_phone_key: { Args: { _value: string }; Returns: string }
       submit_anamnesis_invite_atomic: {
         Args: {
