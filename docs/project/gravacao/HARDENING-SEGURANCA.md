@@ -13,12 +13,19 @@
   limite persistente por operador e limite global da fila. Cada tentativa reserva de forma atômica
   `_requests/<hash-operador>/<request-id>.mp4` no bucket privado; replays e conflitos retornam 409
   mesmo quando outra instância da Edge atende a repetição.
+- A remoção de um take publicado não apaga a reserva: o ledger persiste por oito dias, preservando
+  as janelas de uma hora/um dia mesmo depois de a fila bruta ser drenada. Reservas expiradas são
+  limpas separadamente pela ação administrativa `prune-recording-ledger`.
 - O arquivo cru entra em `exercise-video-staging`, bucket privado com restrições reais de MIME e
   tamanho. A edge falha com 503 se a configuração do bucket estiver mais permissiva.
 - Listagem, remoção, assinatura dos arquivos finais e commit continuam fora do browser de gravação:
   JWT `master` ou `VIDEO_INGEST_SECRET` server-to-server sem cabeçalho `Origin`.
 - Publicação continua manual: gravação → triagem privada → `--staging --dry-run` → QA → publicação →
-  remoção da triagem e da reserva somente depois do commit **individual** confirmado no banco.
+  remoção somente do take exato cujo download/processamento e commit **individual** foram confirmados.
+  O nome local preserva o request ID remoto; cache de um take anterior não pode substituir regravação.
+- O hosting aplica a `/gravacao/*` proteção anti-iframe por header (`frame-ancestors 'none'` e
+  `X-Frame-Options: DENY`), além de `nosniff`, `no-referrer` e `no-store`. Meta CSP não é tratada
+  como proteção contra clickjacking.
 
 ## Arquivos HTML que devem ser regenerados
 
@@ -57,6 +64,8 @@ O gerador sincroniza os seis arquivos e `recording-exercise-allowlist.json` numa
    deno check supabase/functions/library-video-ingest/index.ts
    deno test supabase/functions/library-video-ingest/security.test.ts
    node scripts/test-recording-hardening.mjs
+   node --test scripts/video-ingest-safety.test.mjs
+   node scripts/test-recording-http-headers.mjs
    node --check scripts/video-ingest.mjs
    python3 -m py_compile scripts/gerar-material-gravacao.py
    ```
@@ -74,8 +83,19 @@ O gerador sincroniza os seis arquivos e `recording-exercise-allowlist.json` numa
    - repetição do mesmo request ID em outra instância continua bloqueada;
    - URL pública direta do objeto não permite leitura anônima;
    - `node scripts/video-ingest.mjs --status` e `--staging --dry-run` funcionam sem escrita.
+   - após drenar um lote, uma nova tentativa ainda respeita as reservas da janela diária;
+   - `node scripts/video-ingest.mjs --prune-ledger <hash-operador>` remove somente reservas com
+     oito dias ou mais e preserva reservas recentes.
 4. Regenerar e publicar os seis HTMLs em staging. Fazer login, enviar um vídeo sintético curto,
-   validar a fila e remover somente esse objeto de teste e sua reserva correspondente.
+   validar a fila e remover somente esse objeto de teste. A reserva recente permanece no ledger.
+   Validar os headers reais do hosting, sem aceitar redirecionamento silencioso:
+
+   ```bash
+   curl -fsSI https://<host-staging>/gravacao/modelo-1-67698060b9.html
+   ```
+
+   Exigir `Content-Security-Policy: frame-ancestors 'none'`, `X-Frame-Options: DENY`,
+   `X-Content-Type-Options: nosniff` e `Referrer-Policy: no-referrer`.
 5. QA independente deve aprovar o diff, os logs sem segredo e o fluxo completo antes de produção.
 
 ## Corte de produção e rotação

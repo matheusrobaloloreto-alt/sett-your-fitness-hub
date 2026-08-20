@@ -4,6 +4,7 @@ export const SIGN_REQUESTS_PER_MINUTE = 20;
 export const UPLOADS_PER_HOUR = 180;
 export const UPLOADS_PER_DAY = 400;
 export const STAGING_QUEUE_LIMIT = 950;
+export const RESERVATION_RETENTION_MS = 8 * 24 * 60 * 60 * 1000;
 
 export const RECORDING_MIME_TO_EXTENSION = new Map([
   ["video/mp4", "mp4"],
@@ -24,6 +25,10 @@ const UUID_RE =
 const REQUEST_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CODE_RE = /^\d{3}$/;
+const RESERVATION_NAME_RE = new RegExp(
+  `^${REQUEST_ID_RE.source.slice(1, -1)}\\.mp4$`,
+  "i",
+);
 
 export class ApiError extends Error {
   status: number;
@@ -220,6 +225,60 @@ export function validateStagingBucketPolicy(
       "A área de triagem não está configurada com a política de segurança exigida.",
     );
   }
+}
+
+type ReservationItem = { name: string; created_at?: string | null };
+
+export function recordingRemovalPaths(names: string[]): string[] {
+  return [...names];
+}
+
+export function assertPersistentUploadQuota(
+  reservations: ReservationItem[],
+  queuedOperatorRecordings: number,
+  now = Date.now(),
+): void {
+  const attempts = reservations.filter((item) =>
+    RESERVATION_NAME_RE.test(item.name)
+  );
+  const elapsedAttempts = attempts.map((item) =>
+    now - Date.parse(item.created_at || "")
+  );
+  if (elapsedAttempts.some((elapsed) => !Number.isFinite(elapsed))) {
+    throw new ApiError(
+      503,
+      "quota_ledger_invalid",
+      "Não foi possível validar a cota de gravações.",
+    );
+  }
+  const inHour = elapsedAttempts.filter((elapsed) => {
+    return elapsed >= 0 && elapsed < 60 * 60 * 1000;
+  }).length;
+  const inDay = elapsedAttempts.filter((elapsed) => {
+    return elapsed >= 0 && elapsed < 24 * 60 * 60 * 1000;
+  }).length;
+  if (
+    inHour > UPLOADS_PER_HOUR || inDay > UPLOADS_PER_DAY ||
+    queuedOperatorRecordings >= UPLOADS_PER_DAY
+  ) {
+    throw new ApiError(
+      429,
+      "upload_quota_exceeded",
+      "Limite de gravações atingido. Aguarde antes de continuar.",
+    );
+  }
+}
+
+export function expiredReservationNames(
+  reservations: ReservationItem[],
+  now = Date.now(),
+  retentionMs = RESERVATION_RETENTION_MS,
+): string[] {
+  return reservations.filter((item) => {
+    if (!RESERVATION_NAME_RE.test(item.name)) return false;
+    const createdAt = Date.parse(item.created_at || "");
+    return Number.isFinite(createdAt) && now - createdAt >= retentionMs;
+  }).map((item) => item.name);
 }
 
 export async function sha256Tag(value: string, length = 16): Promise<string> {

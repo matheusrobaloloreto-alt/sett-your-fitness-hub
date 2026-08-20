@@ -14,6 +14,7 @@
  *   node scripts/video-ingest.mjs --status                       # cobertura e o que falta gravar
  *   node scripts/video-ingest.mjs --dir ... --jobs 6 --only 001,002
  *   node scripts/video-ingest.mjs --staging --no-trim     # não aparar as bordas paradas
+ *   node scripts/video-ingest.mjs --prune-ledger <hashes>  # limpa só reservas expiradas
  *
  * O manifest do Drive é [{"name":"001-....mp4","id":"<fileId>"}] — a pasta precisa estar
  * compartilhada como "qualquer pessoa com o link".
@@ -26,6 +27,12 @@ import { readFileSync, writeFileSync, readdirSync, mkdirSync, statSync, existsSy
 import { homedir } from "node:os";
 import { join, extname, basename, resolve } from "node:path";
 import { promisify } from "node:util";
+import {
+  localStagingFileName,
+  selectLatestStagingItems,
+  stagingCodeFromName,
+  stagingNamesForSuccessfulCommits,
+} from "./video-ingest-safety.mjs";
 
 const run = promisify(execFile);
 const SUPABASE_URL = "https://zshrcgbyhzxpnlccssyz.supabase.co";
@@ -42,7 +49,7 @@ const flag = (n, d = null) => { const i = args.indexOf(`--${n}`); return i >= 0 
 const DRY = args.includes("--dry-run");
 const STATUS = args.includes("--status");
 const STAGING = args.includes("--staging");
-let processadasDoStaging = [];
+const stagingReadyNames = new Set();
 const FORCE = args.includes("--force");
 const KEEP = args.includes("--keep-source");
 const NOTRIM = args.includes("--no-trim");
@@ -51,6 +58,7 @@ const MANIFEST = flag("manifest");
 const DIR = flag("dir") || (MANIFEST || STAGING ? join(WORK, "download") : null);
 const ONLY = flag("only") ? String(flag("only")).split(",").map((s) => s.trim()) : null;
 const MAP_FILE = flag("map", "docs/project/gravacao/codigo-para-exercicio.json");
+const PRUNE_LEDGER = flag("prune-ledger");
 
 const secret = readFileSync(join(homedir(), ".bn-video-ingest-secret"), "utf8").trim();
 const call = async (body) => {
@@ -96,6 +104,13 @@ async function pool(itens, n, tarefa) {
 const mapPath = resolve(process.cwd(), MAP_FILE);
 const codeMap = existsSync(mapPath) ? JSON.parse(readFileSync(mapPath, "utf8")) : {};
 
+if (PRUNE_LEDGER) {
+  const operatorTags = String(PRUNE_LEDGER).split(",").map((tag) => tag.trim()).filter(Boolean);
+  const result = await call({ action: "prune-recording-ledger", operator_tags: operatorTags });
+  console.log(`Ledger expirado limpo: ${result.removed} reserva(s).`);
+  process.exit(0);
+}
+
 // ---------- --status: cobertura e o que ainda falta ----------
 if (STATUS) {
   const cov = await call({ action: "coverage" });
@@ -118,30 +133,26 @@ if (STAGING) {
   console.log(`Gravações aguardando: ${items.length}`);
   // Nome no storage: <codigo>__<operador-hash>__<request-id>.<ext>. Se o mesmo exercício foi gravado
   // mais de uma vez, vale o take mais recente — o modelo regravou porque não gostou do anterior.
-  const maisRecente = new Map();
-  for (const it of items) {
-    const cod = it.name.match(/^(\d{3})__/)?.[1];
-    if (!cod) continue;
-    const ts = Date.parse(it.created_at || "") || 0;
-    const atual = maisRecente.get(cod);
-    if (!atual || ts > atual.ts) maisRecente.set(cod, { ...it, ts, cod });
-  }
-  const antigos = items.length - maisRecente.size;
+  const baixar = selectLatestStagingItems(items);
+  const antigos = items.length - baixar.length;
   if (antigos) console.log(`  ${antigos} take(s) antigo(s) ignorado(s) (regravação vence)`);
-  const baixar = [...maisRecente.values()];
   await pool(baixar, JOBS, async (it) => {
-    const ext = it.name.split(".").pop() || "mp4";
-    const destino = join(DIR, `${it.cod}-gravado.${ext}`);
-    if (existsSync(destino) && statSync(destino).size > 10000) return;
+    const localName = localStagingFileName(it.name);
+    const destino = join(DIR, localName);
+    if (existsSync(destino) && statSync(destino).size > 10000) {
+      stagingReadyNames.add(localName);
+      return;
+    }
     try {
       await run("curl", ["-sL", "--fail", "--max-time", "900", "-o", destino, it.url], { maxBuffer: 1 << 20 });
+      if (statSync(destino).size <= 10000) throw new Error("download incompleto");
+      stagingReadyNames.add(localName);
     } catch (e) {
       rmSync(destino, { force: true });
       console.log(`  ✖ ${it.name}: ${String(e.message || e).slice(0, 90)}`);
     }
   });
-  console.log(`Baixadas ${readdirSync(DIR).length} gravação(ões) para processar.\n`);
-  processadasDoStaging = items.map((i) => i.name);
+  console.log(`Disponíveis ${stagingReadyNames.size} gravação(ões) selecionada(s) para processar.\n`);
 }
 
 // ---------- 0b. Baixar do Google Drive ----------
@@ -171,14 +182,17 @@ if (MANIFEST) {
 // ---------- 1. Casar arquivos com exercícios ----------
 const library = (await call({ action: "list" })).items;
 const byId = new Map(library.map((e) => [e.id, e]));
-const arquivos = readdirSync(DIR).filter((f) => VIDEO_EXT.has(extname(f).toLowerCase()) && !f.startsWith("."));
+const arquivos = (STAGING ? [...stagingReadyNames] : readdirSync(DIR))
+  .filter((f) => VIDEO_EXT.has(extname(f).toLowerCase()) && !f.startsWith("."));
 
 const ambiguos = [], semMatch = [], duplicados = [];
 const porExercicio = new Map(); // exercise_id → candidatos
 
 for (const f of arquivos) {
   const nome = basename(f, extname(f));
-  const cod = nome.match(/^(\d{3})\b/)?.[1];
+  const cod = STAGING
+    ? stagingCodeFromName(f)
+    : nome.match(/^(\d{3})(?=\D|$)/)?.[1];
   let alvo = null, como = null;
   if (cod && codeMap[cod] && byId.has(codeMap[cod].id)) {
     alvo = byId.get(codeMap[cod].id); como = `código ${cod}`;
@@ -312,6 +326,7 @@ async function processar(m) {
   return {
     commit: { id: m.ex.id, video_path: `${base}.mp4` },
     mb, avisos,
+    remoteName: STAGING ? localStagingFileName(m.arquivo) : null,
   };
 }
 
@@ -335,12 +350,15 @@ if (!alvos.length) { console.log("\nNada novo a processar."); process.exit(0); }
 
 mkdirSync(WORK, { recursive: true });
 console.log(`\nProcessando ${alvos.length} vídeo(s) com ${JOBS} em paralelo...`);
-const commits = [], falhas = [], comAviso = [];
+const commits = [], processedStaging = [], falhas = [], comAviso = [];
 let feitos = 0;
 await pool(alvos, JOBS, async (m) => {
   try {
     const r = await processar(m);
     commits.push(r.commit);
+    if (r.remoteName) {
+      processedStaging.push({ exerciseId: r.commit.id, remoteName: r.remoteName });
+    }
     if (r.avisos.length) comAviso.push({ arquivo: m.arquivo, exercicio: m.ex.name, avisos: r.avisos });
     if (++feitos % 25 === 0 || feitos === alvos.length) console.log(`  ...${feitos}/${alvos.length}`);
   } catch (e) {
@@ -358,13 +376,10 @@ for (let k = 0; k < commits.length; k += 50) {
     if (item.ok) idsPublicados.add(item.id);
   }
 }
-if (STAGING && atualizados && processadasDoStaging.length) {
+if (STAGING && atualizados && processedStaging.length) {
   // Só limpa a triagem depois que o vídeo está publicado: se algo falhar, o take original
   // continua lá para uma nova tentativa.
-  const remover = processadasDoStaging.filter((n) => {
-    const cod = n.match(/^(\d{3})__/)?.[1];
-    return cod && codeMap[cod] && idsPublicados.has(codeMap[cod].id);
-  });
+  const remover = stagingNamesForSuccessfulCommits(processedStaging, idsPublicados);
   if (remover.length) {
     for (let k = 0; k < remover.length; k += 100) {
       await call({ action: "remove-recordings", names: remover.slice(k, k + 100) });

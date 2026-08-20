@@ -68,7 +68,14 @@ assert.match(edge, /_requests\/\$\{operatorTag\}/, "reserva persistente de repla
 
 const cli = read("scripts/video-ingest.mjs");
 assert.match(cli, /idsPublicados\.add\(item\.id\)/, "CLI não registra commits individuais concluídos");
-assert.match(cli, /idsPublicados\.has\(codeMap\[cod\]\.id\)/, "CLI pode limpar staging sem commit individual");
+assert.match(cli, /stagingNamesForSuccessfulCommits\(processedStaging, idsPublicados\)/, "CLI pode limpar staging sem commit individual");
+
+const hostingHeaders = read("public/_headers");
+assert.match(hostingHeaders, /\/gravacao\/\*/, "rota de gravação sem headers dedicados");
+assert.match(hostingHeaders, /Content-Security-Policy:\s*frame-ancestors 'none'/, "clickjacking não bloqueado no hosting");
+assert.match(hostingHeaders, /X-Frame-Options:\s*DENY/, "fallback X-Frame-Options ausente");
+assert.match(hostingHeaders, /X-Content-Type-Options:\s*nosniff/, "nosniff ausente no hosting");
+assert.match(hostingHeaders, /Referrer-Policy:\s*no-referrer/, "referrer policy ausente no hosting");
 
 const config = read("supabase/config.toml");
 assert.match(config, /\[functions\.library-video-ingest\][\s\S]*?verify_jwt\s*=\s*false/, "config explícita da edge ausente");
