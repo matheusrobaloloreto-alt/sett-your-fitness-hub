@@ -54,20 +54,28 @@ const result = buildArtifacts({
   generatedAt: snapshot.generated_at,
 });
 const count = result.counts.target_signature_outliers;
+const highSignalCount = result.counts.target_signature_high_signal;
 fs.writeFileSync(
   path.join(outputDir, "library-curation-v2-target-signature-outliers.csv"),
   result.files["library-curation-v2-target-signature-outliers.csv"],
 );
+fs.writeFileSync(
+  path.join(outputDir, "library-curation-v2-target-signature-high-signal-review.csv"),
+  result.files["library-curation-v2-target-signature-high-signal-review.csv"],
+);
 
 snapshot.counts.target_signature_outliers = count;
+snapshot.counts.target_signature_high_signal = highSignalCount;
 fs.writeFileSync(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`);
 const runSummary = JSON.parse(fs.readFileSync(runSummaryPath, "utf8"));
 runSummary.counts.target_signature_outliers = count;
+runSummary.counts.target_signature_high_signal = highSignalCount;
 fs.writeFileSync(runSummaryPath, `${JSON.stringify(runSummary, null, 2)}\n`);
 
 console.log(JSON.stringify({
   mode: "snapshot_derived_read_only",
   contains_pii: false,
   target_signature_outliers: count,
+  target_signature_high_signal: highSignalCount,
   output_file: "library-curation-v2-target-signature-outliers.csv",
 }, null, 2));

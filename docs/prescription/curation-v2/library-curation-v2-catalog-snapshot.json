@@ -24,7 +24,8 @@
       "P2": 628,
       "P3": 1
     },
-    "target_signature_outliers": 64
+    "target_signature_outliers": 64,
+    "target_signature_high_signal": 22
   },
   "hashes": {
     "exercises": "af80ca5622c6dd591c7ff9956cad990be50b1dd4a8fd9954de5b188e073e76cd",

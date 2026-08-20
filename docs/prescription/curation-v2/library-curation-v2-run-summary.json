@@ -23,6 +23,7 @@
       "P2": 628,
       "P3": 1
     },
-    "target_signature_outliers": 64
+    "target_signature_outliers": 64,
+    "target_signature_high_signal": 22
   }
 }

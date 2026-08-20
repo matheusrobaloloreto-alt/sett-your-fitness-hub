@@ -234,6 +234,7 @@ export function buildArtifacts({ exercises, targets, metadata, muscleGroups, leg
     }
   }
   signatureOutliers.sort((a, b) => a.exercise_name.localeCompare(b.exercise_name) || a.exercise_id.localeCompare(b.exercise_id));
+  const signatureHighSignal = signatureOutliers.filter((row) => /^(flexao de punho|cadeira flexora|coice polia|gluteo coice|remada alta|crucifixo invertido|rosca scott|extensao de quadril banco romano)/.test(normalize(row.exercise_name)));
 
   const reviewRows = records.flatMap((row) => {
     const forcedP0TargetReview = isP0Name(row.exercise_name);
@@ -293,6 +294,7 @@ export function buildArtifacts({ exercises, targets, metadata, muscleGroups, leg
     duplicate_video_clusters: [...youtubeCounts.values()].filter((count) => count > 1).length,
     duplicate_video_exercises: videoClusters.length,
     target_signature_outliers: signatureOutliers.length,
+    target_signature_high_signal: signatureHighSignal.length,
     reconciliation: Object.fromEntries(["unchanged", "catalog_changed", "new", "missing_from_live", "duplicate_id_conflict"].map((status) => [status, reconciliation.filter((row) => row.reconciliation_status === status).length])),
     review_by_priority: Object.fromEntries(["P0", "P1", "P2", "P3"].map((priority) => [priority, reviewRows.filter((row) => row.priority === priority).length])),
   };
@@ -329,6 +331,7 @@ export function buildArtifacts({ exercises, targets, metadata, muscleGroups, leg
       "library-curation-v2-p3-review.csv": csv(reviewHeaders, reviewRows.filter((row) => row.priority === "P3")),
       "library-curation-v2-video-clusters.csv": csv(videoHeaders, videoClusters),
       "library-curation-v2-target-signature-outliers.csv": csv(signatureOutlierHeaders, signatureOutliers),
+      "library-curation-v2-target-signature-high-signal-review.csv": csv(signatureOutlierHeaders, signatureHighSignal),
       "library-curation-v2-run-summary.json": `${JSON.stringify({ schema_version: 2, generated_at: generatedAt, mode: "read_only_sanitized", contains_pii: false, counts }, null, 2)}\n`,
     },
   };

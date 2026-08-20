@@ -35,6 +35,7 @@ test("curation v2 generator separates tracks and never auto-approves", () => {
     duplicate_video_clusters: 1,
     duplicate_video_exercises: 2,
     target_signature_outliers: 0,
+    target_signature_high_signal: 0,
     reconciliation: { unchanged: 1, catalog_changed: 1, new: 1, missing_from_live: 1, duplicate_id_conflict: 0 },
     review_by_priority: { P0: 2, P1: 1, P2: 0, P3: 0 },
   });
@@ -85,10 +86,15 @@ test("curation v2 isolates repeated target-signature outliers without auto-appro
   });
 
   assert.equal(result.counts.target_signature_outliers, 2);
+  assert.equal(result.counts.target_signature_high_signal, 2);
   const outliers = result.files["library-curation-v2-target-signature-outliers.csv"];
+  const highSignal = result.files["library-curation-v2-target-signature-high-signal-review.csv"];
   assert.match(outliers, /Flexão de Punho 9/);
   assert.match(outliers, /Flexão de Punho 10/);
   assert.match(outliers, /Peitoral/);
   assert.doesNotMatch(outliers, /Supino 1/);
   assert.doesNotMatch(outliers, /,"true"/);
+  assert.match(highSignal, /Flexão de Punho 9/);
+  assert.match(highSignal, /Flexão de Punho 10/);
+  assert.doesNotMatch(highSignal, /Supino 1/);
 });

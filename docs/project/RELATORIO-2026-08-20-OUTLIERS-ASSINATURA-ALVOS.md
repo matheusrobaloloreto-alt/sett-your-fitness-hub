@@ -33,6 +33,7 @@ Essas contagens sao candidatos de revisao, nao conclusoes biomecanicas. Exercici
 ## Artefatos e validacao
 
 - Fila: `docs/prescription/curation-v2/library-curation-v2-target-signature-outliers.csv`.
+- Lote tecnico prioritario de 22: `docs/prescription/curation-v2/library-curation-v2-target-signature-high-signal-review.csv`.
 - Gerador principal: `scripts/prescription/generate-library-curation-v2.mjs`.
 - Refresh deterministico a partir do snapshot sanitizado: `scripts/prescription/refresh-library-signature-outliers.mjs`.
 - Testes do gerador: 3/3 aprovados, incluindo escala mista e garantia de zero autoaprovacao.
