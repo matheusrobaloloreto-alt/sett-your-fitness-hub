@@ -505,6 +505,47 @@ test("an approved alias resolves only to its exact visible catalog id and name",
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
 });
 
+test("an exact-duplicate override stays inert until independent review is approved", async () => {
+  const input = baseInput();
+  input.exerciseAliasPayload = {
+    schema_version: 1,
+    contains_pii: false,
+    aliases: [{
+      source_name: "Supino MFIT Exato",
+      target_exercise_id: "60000000-0000-4000-8000-000000000097",
+      target_name: "Supino MFIT Exato",
+      status: "approved",
+      confidence: "high",
+      match_scope: "ambiguous_exact_override",
+      independent_review_status: "pending",
+    }],
+  };
+  const db = new MemoryDb({
+    exercises: [
+      {
+        id: "60000000-0000-4000-8000-000000000099",
+        company_id: null,
+        name: "Supino MFIT Exato",
+        is_global: true,
+      },
+      {
+        id: "60000000-0000-4000-8000-000000000097",
+        company_id: null,
+        name: "Supino MFIT Exato",
+        is_global: true,
+      },
+    ],
+  });
+
+  const report = await runMigration({ ...input, db, today: "2026-08-10" });
+
+  assert.equal(report.summary.exercise_aliases_loaded, 0);
+  assert.equal(report.summary.exercise_catalog_ambiguous, 1);
+  assert.equal(report.summary.exercise_catalog_coverage_percent, 0);
+  assert.equal(report.summary.blocked, 1);
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
 test("a stale or invisible alias target fails closed", async () => {
   const input = baseInput();
   input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Supino legado";
@@ -520,6 +561,95 @@ test("a stale or invisible alias target fails closed", async () => {
     }],
   };
   const db = new MemoryDb();
+  const report = await runMigration({ ...input, db, today: "2026-08-10" });
+
+  assert.equal(report.summary.exercise_catalog_invalid_aliases, 1);
+  assert.equal(report.summary.exercise_catalog_coverage_percent, 0);
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.results[0].reason, "exercise_alias_invalid");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("an approved high-confidence alias can select one exact duplicate explicitly", async () => {
+  const input = baseInput();
+  const preferredId = "60000000-0000-4000-8000-000000000097";
+  input.exerciseAliasPayload = {
+    schema_version: 1,
+    contains_pii: false,
+    aliases: [{
+      source_name: "Supino MFIT Exato",
+      target_exercise_id: preferredId,
+      target_name: "Supino MFIT Exato",
+      status: "approved",
+      confidence: "high",
+      match_scope: "ambiguous_exact_override",
+      independent_review_status: "approved",
+    }],
+  };
+  const db = new MemoryDb({
+    exercises: [
+      {
+        id: "60000000-0000-4000-8000-000000000099",
+        company_id: null,
+        name: "Supino MFIT Exato",
+        is_global: true,
+      },
+      {
+        id: preferredId,
+        company_id: null,
+        name: "Súpino MFIT Exato",
+        is_global: true,
+      },
+    ],
+  });
+
+  const report = await runMigration({ ...input, db, today: "2026-08-10" });
+
+  assert.equal(report.summary.exercise_catalog_ambiguous, 0);
+  assert.equal(report.summary.exercise_catalog_alias_matched, 1);
+  assert.equal(report.summary.exercise_catalog_coverage_percent, 100);
+  assert.equal(report.summary.planned, 1);
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("an exact-duplicate override fails closed when its target is not one of the duplicates", async () => {
+  const input = baseInput();
+  input.exerciseAliasPayload = {
+    schema_version: 1,
+    contains_pii: false,
+    aliases: [{
+      source_name: "Supino MFIT Exato",
+      target_exercise_id: "60000000-0000-4000-8000-000000000096",
+      target_name: "Supino MFIT Exato alternativo",
+      status: "approved",
+      confidence: "high",
+      match_scope: "ambiguous_exact_override",
+      independent_review_status: "approved",
+    }],
+  };
+  const db = new MemoryDb({
+    exercises: [
+      {
+        id: "60000000-0000-4000-8000-000000000099",
+        company_id: null,
+        name: "Supino MFIT Exato",
+        is_global: true,
+      },
+      {
+        id: "60000000-0000-4000-8000-000000000097",
+        company_id: null,
+        name: "Supino MFIT Exato",
+        is_global: true,
+      },
+      {
+        id: "60000000-0000-4000-8000-000000000096",
+        company_id: null,
+        name: "Supino MFIT Exato alternativo",
+        is_global: true,
+      },
+    ],
+  });
+
   const report = await runMigration({ ...input, db, today: "2026-08-10" });
 
   assert.equal(report.summary.exercise_catalog_invalid_aliases, 1);

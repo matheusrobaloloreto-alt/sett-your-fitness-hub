@@ -818,17 +818,23 @@ export function buildExerciseAliasIndex(payload = { schema_version: 1, contains_
     const sourceName = cleanText(row?.source_name);
     const targetExerciseId = cleanText(row?.target_exercise_id);
     const targetName = cleanText(row?.target_name);
+    const matchScope = cleanText(row?.match_scope) || "alias";
     const normalizedSource = normalizeCatalogName(sourceName);
     if (!normalizedSource || !targetName) throw new Error("Exercise alias names cannot be empty");
     if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(targetExerciseId)) {
       throw new Error("Exercise alias target_exercise_id must be a UUID");
     }
+    if (!new Set(["alias", "ambiguous_exact_override"]).has(matchScope)) {
+      throw new Error("Exercise alias match_scope is invalid");
+    }
     if (row.status !== "approved" || row.confidence !== "high") continue;
+    if (matchScope === "ambiguous_exact_override" && row.independent_review_status !== "approved") continue;
     if (aliases.has(normalizedSource)) throw new Error("Exercise alias sources must be unique after normalization");
     aliases.set(normalizedSource, {
       source_name: sourceName,
       target_exercise_id: targetExerciseId,
       target_name: targetName,
+      match_scope: matchScope,
     });
   }
   return aliases;
@@ -848,7 +854,20 @@ function resolveCatalogExercise(catalog, companyId, sourceName, aliasIndex) {
   if (normalizeCatalogName(visibleTargets[0].name) !== normalizeCatalogName(alias.target_name)) {
     return { status: "invalid_alias", alias_reason: "target_name_mismatch" };
   }
-  return { status: "matched", id: visibleTargets[0].id, match_method: "approved_alias" };
+  if (exact.length > 1 && alias.match_scope !== "ambiguous_exact_override") {
+    return { status: "invalid_alias", alias_reason: "ambiguous_exact_override_scope_required" };
+  }
+  if (exact.length === 0 && alias.match_scope === "ambiguous_exact_override") {
+    return { status: "invalid_alias", alias_reason: "ambiguous_exact_override_without_duplicates" };
+  }
+  if (exact.length > 1 && !exact.some((candidate) => candidate.id === visibleTargets[0].id)) {
+    return { status: "invalid_alias", alias_reason: "ambiguous_exact_target_mismatch" };
+  }
+  return {
+    status: "matched",
+    id: visibleTargets[0].id,
+    match_method: exact.length > 1 ? "approved_alias_exact_override" : "approved_alias",
+  };
 }
 
 function chooseReusableEmptyCycle(enrollmentCycles, workoutsByCycle, startDate, endDate, today) {
@@ -1404,7 +1423,7 @@ export async function runMigration({
   const catalogAmbiguous = exerciseCoverage.filter((item) => item.status === "ambiguous").length;
   const catalogInvalidAliases = exerciseCoverage.filter((item) => item.status === "invalid_alias").length;
   const catalogAliasMatched = exerciseCoverage
-    .filter((item) => item.status === "matched" && item.match_method === "approved_alias").length;
+    .filter((item) => item.status === "matched" && item.match_method.startsWith("approved_alias")).length;
   const catalogCoverageBlocked = catalogMissing > 0 || catalogAmbiguous > 0 || catalogInvalidAliases > 0;
   const cyclesByEnrollment = new Map();
   const cyclesById = new Map(cycles.map((cycle) => [cycle.id, cycle]));
