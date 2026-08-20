@@ -8,23 +8,23 @@
  * exercício para o vídeo próprio (zerando o YouTube).
  *
  * Uso:
- *   node scripts/video-ingest.mjs --manifest drive.json          # baixa do Drive e processa
- *   node scripts/video-ingest.mjs --dir ~/Downloads/videos-bn    # pasta local
- *   node scripts/video-ingest.mjs --dir ... --dry-run            # matching + QA, sem enviar
- *   node scripts/video-ingest.mjs --status                       # cobertura e o que falta gravar
- *   node scripts/video-ingest.mjs --dir ... --jobs 6 --only 001,002
- *   node scripts/video-ingest.mjs --staging --no-trim     # não aparar as bordas paradas
- *   node scripts/video-ingest.mjs --prune-ledger <hashes>  # limpa só reservas expiradas
+ *   SETT_DEPLOY_TARGET=production node scripts/video-ingest.mjs --confirm-project zshrcgbyhzxpnlccssyz --status
+ *   SETT_DEPLOY_TARGET=production node scripts/video-ingest.mjs --confirm-project zshrcgbyhzxpnlccssyz --manifest drive.json
+ *   SETT_DEPLOY_TARGET=production node scripts/video-ingest.mjs --confirm-project zshrcgbyhzxpnlccssyz --dir ~/Downloads/videos-bn --dry-run
+ *   SETT_DEPLOY_TARGET=staging VIDEO_INGEST_SUPABASE_URL=https://ifymocggowdlqqcxugko.supabase.co \
+ *     node scripts/video-ingest.mjs --confirm-project ifymocggowdlqqcxugko --staging --dry-run
+ *
+ * `--staging` seleciona a fila privada de gravações do backend já confirmado; não escolhe o
+ * ambiente. URL, chave pública e segredo do staging devem ser fornecidos por env efêmero.
  *
  * O manifest do Drive é [{"name":"001-....mp4","id":"<fileId>"}] — a pasta precisa estar
  * compartilhada como "qualquer pessoa com o link".
  *
  * Retomável: pula o que já baixou e, por padrão, o que já tem vídeo próprio no app (--force refaz).
- * Requer: ffmpeg/ffprobe no PATH e o segredo em ~/.bn-video-ingest-secret.
+ * Requer: alvo/projeto explícitos, ffmpeg/ffprobe no PATH e segredo por canal seguro.
  */
 import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, statSync, existsSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, extname, basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -33,11 +33,12 @@ import {
   stagingCodeFromName,
   stagingNamesForSuccessfulCommits,
 } from "./video-ingest-safety.mjs";
+import {
+  requestVideoIngest,
+  resolveVideoIngestConfig,
+} from "./video-ingest-config.mjs";
 
 const run = promisify(execFile);
-const SUPABASE_URL = "https://zshrcgbyhzxpnlccssyz.supabase.co";
-const ANON = "sb_publishable_8hCHHItU79APt0pt7NrZcw_OPHCUd_d";
-const FN = `${SUPABASE_URL}/functions/v1/library-video-ingest`;
 const VIDEO_EXT = new Set([".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm", ".hevc", ".mpg", ".mpeg", ".3gp"]);
 const WORK = "/tmp/bn-video-ingest";
 
@@ -46,6 +47,8 @@ const DUR_MIN = 3, DUR_MAX = 90, ALTURA_MIN = 480;
 
 const args = process.argv.slice(2);
 const flag = (n, d = null) => { const i = args.indexOf(`--${n}`); return i >= 0 ? (args[i + 1] ?? true) : d; };
+const ingestConfig = resolveVideoIngestConfig({ args });
+console.log(`Video ingest target: ${ingestConfig.target} (${ingestConfig.projectRef}).`);
 const DRY = args.includes("--dry-run");
 const STATUS = args.includes("--status");
 const STAGING = args.includes("--staging");
@@ -60,20 +63,7 @@ const ONLY = flag("only") ? String(flag("only")).split(",").map((s) => s.trim())
 const MAP_FILE = flag("map", "docs/project/gravacao/codigo-para-exercicio.json");
 const PRUNE_LEDGER = flag("prune-ledger");
 
-const secret = readFileSync(join(homedir(), ".bn-video-ingest-secret"), "utf8").trim();
-const call = async (body) => {
-  const r = await fetch(FN, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${ANON}`, "x-webhook-secret": secret, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const payload = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    const code = payload?.error?.code || "request_failed";
-    throw new Error(`${body.action}: HTTP ${r.status} ${code}`);
-  }
-  return payload;
-};
+const call = (body) => requestVideoIngest(ingestConfig, body);
 
 const slug = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "")
   .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
