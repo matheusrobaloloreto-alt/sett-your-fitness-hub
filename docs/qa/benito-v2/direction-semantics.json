@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "reviewRequired": true,
+  "directions": [
+    {"direction":"000","verdict":"pass","expected":"up","observed":"up","reason":"Os globos oculares, pupilas e a face estão elevados; a pose permanece central, sem deriva horizontal."},
+    {"direction":"022.5","verdict":"warning","expected":"up-right","observed":"up-right","reason":"A leitura vertical para cima é clara; o componente horizontal à direita é sutil e ficou ambíguo no gate cego."},
+    {"direction":"045","verdict":"warning","expected":"up-right","observed":"up-right","reason":"Olhos altos preservam o eixo para cima; a rotação à direita progride na sequência rotulada, embora tenha sido ambígua isoladamente."},
+    {"direction":"067.5","verdict":"pass","expected":"up-right","observed":"up-right","reason":"O globo visível aponta para cima e a oclusão da placa/face avança inequivocamente para a direita da tela."},
+    {"direction":"090","verdict":"pass","expected":"right","observed":"right","reason":"O nariz, a face e o olho visível projetam-se inequivocamente para a direita da tela; o eixo vertical é neutro."},
+    {"direction":"112.5","verdict":"warning","expected":"down-right","observed":"down-right","reason":"Pálpebras e olhos descem; o yaw à direita permanece no loop rotulado, mas o componente horizontal ficou ambíguo no gate cego."},
+    {"direction":"135","verdict":"warning","expected":"down-right","observed":"down-right","reason":"Olhos e face estão baixos; o componente à direita é sutil, sem cruzar para o quadrante esquerdo."},
+    {"direction":"157.5","verdict":"warning","expected":"down-right","observed":"down-right","reason":"A direção para baixo é clara; o resíduo à direita é fraco, porém coerente com o passo anterior a 180 no loop."},
+    {"direction":"180","verdict":"pass","expected":"down","observed":"down","reason":"Pálpebras, pupilas e face apontam inequivocamente para baixo; a pose permanece central no eixo horizontal."},
+    {"direction":"202.5","verdict":"warning","expected":"down-left","observed":"down-left","reason":"Os olhos permanecem baixos e o yaw inicia à esquerda no loop rotulado; isoladamente o eixo horizontal ficou ambíguo."},
+    {"direction":"225","verdict":"pass","expected":"down-left","observed":"down-left","reason":"Olho e face seguem baixos e o perfil progride claramente para a esquerda da tela."},
+    {"direction":"247.5","verdict":"warning","expected":"down-left","observed":"down-left","reason":"O perfil aponta claramente para a esquerda; o componente vertical para baixo é sutil no tamanho normal."},
+    {"direction":"270","verdict":"pass","expected":"left","observed":"left","reason":"Nariz, face e olho visível projetam-se inequivocamente para a esquerda da tela; o eixo vertical é neutro."},
+    {"direction":"292.5","verdict":"pass","expected":"up-left","observed":"up-left","reason":"Olho e face sobem enquanto o perfil permanece claramente voltado para a esquerda da tela."},
+    {"direction":"315","verdict":"pass","expected":"up-left","observed":"up-left","reason":"O olho está alto e o yaw/oclusão permanecem voltados para a esquerda."},
+    {"direction":"337.5","verdict":"pass","expected":"up-left","observed":"up-left","reason":"O olhar elevado é legível e o componente esquerdo permanece claro antes do retorno a 000."}
+  ],
+  "warnings": [
+    "Ângulos intermediários 022.5, 045, 112.5, 135, 157.5, 202.5 e 247.5 têm um componente sutil, mas o loop rotulado mantém progressão sem inversão.",
+    "Métricas de continuidade sinalizam deslocamentos pontuais próximos dos perfis fortes, sem snap, clipping ou pop de escala conspícuos no tamanho normal."
+  ]
+}
