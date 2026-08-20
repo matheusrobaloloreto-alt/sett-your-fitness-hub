@@ -1,6 +1,9 @@
 {
   "status": "approved",
-  "waiver": null,
+  "waiver": {
+    "status": "accepted-minor-override",
+    "path": "docs/qa/benito-v2/blind-review-resolution.json"
+  },
   "reason": "Independent rereview approved commit 46610d1 with P0/P1=0. The six intermediate ambiguities were accepted as minor because the labeled ordered loop has no wrong-quadrant pose or reversal.",
   "hardGates": {
     "000_vs_180_vertical": "pass",

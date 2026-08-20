@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -29,13 +30,26 @@ describe("Benito assistant integration", () => {
       id?: string;
       spriteVersionNumber?: number;
       spritesheetPath?: string;
+      compactSpritesheetPath?: string;
+      compactMaxDisplayWidth?: number;
     };
 
     expect(manifest).toMatchObject({
       id: "benito",
       spriteVersionNumber: 2,
       spritesheetPath: "spritesheet.webp",
+      compactSpritesheetPath: "spritesheet-compact.webp",
+      compactMaxDisplayWidth: 48,
     });
-    expect(existsSync(resolve(packageDir, manifest.spritesheetPath || ""))).toBe(true);
+    const canonicalAtlas = resolve(packageDir, manifest.spritesheetPath || "");
+    const compactAtlas = resolve(packageDir, manifest.compactSpritesheetPath || "");
+    expect(existsSync(canonicalAtlas)).toBe(true);
+    expect(existsSync(compactAtlas)).toBe(true);
+    expect(createHash("sha256").update(readFileSync(canonicalAtlas)).digest("hex")).toBe(
+      "d146d3dbd2022cfbcf56d5d2c6c85e52337f65773237060140a7ee1489a02b9f",
+    );
+    expect(createHash("sha256").update(readFileSync(compactAtlas)).digest("hex")).toBe(
+      "66727a726f8f078cd1827c78ce331c0e47925f77dc089ff7ee472ee7ba1c20d1",
+    );
   });
 });

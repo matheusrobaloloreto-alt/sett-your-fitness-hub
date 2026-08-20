@@ -219,26 +219,34 @@ function retryAtlas(path: string): void {
 
 const FRAME_CLOCK_INTERVAL_MS = 100;
 const frameClockListeners = new Set<() => void>();
-let frameClockNow = Date.now();
+let frameClockElapsed = 0;
+let frameClockLastTick: number | undefined;
 let frameClockTimer: ReturnType<typeof setTimeout> | undefined;
 
 function stopFrameClock(): void {
   if (frameClockTimer !== undefined) clearTimeout(frameClockTimer);
   frameClockTimer = undefined;
+  frameClockLastTick = undefined;
 }
 
 function scheduleFrameClock(): void {
   if (frameClockTimer !== undefined || frameClockListeners.size === 0) return;
   frameClockTimer = setTimeout(() => {
     frameClockTimer = undefined;
-    frameClockNow = Date.now();
+    const now = Date.now();
+    if (frameClockLastTick !== undefined) {
+      frameClockElapsed += Math.max(0, now - frameClockLastTick);
+    }
+    frameClockLastTick = now;
     frameClockListeners.forEach((listener) => listener());
     scheduleFrameClock();
   }, FRAME_CLOCK_INTERVAL_MS);
 }
 
 function subscribeToFrameClock(listener: () => void): () => void {
+  const startsClock = frameClockListeners.size === 0;
   frameClockListeners.add(listener);
+  if (startsClock) frameClockLastTick = Date.now();
   scheduleFrameClock();
   return () => {
     frameClockListeners.delete(listener);
@@ -247,7 +255,7 @@ function subscribeToFrameClock(listener: () => void): () => void {
 }
 
 function getFrameClockSnapshot(): number {
-  return frameClockNow;
+  return frameClockElapsed;
 }
 
 function getServerFrameClockSnapshot(): number {
@@ -294,7 +302,8 @@ export function resetBenitoRuntimeForTests(): void {
   atlasListeners.clear();
   atlasStatuses.clear();
   atlasRetryCounts.clear();
-  frameClockNow = Date.now();
+  frameClockElapsed = 0;
+  frameClockLastTick = undefined;
 }
 
 function subscribeToReducedMotion(listener: () => void): () => void {
@@ -390,26 +399,26 @@ export function BenitoSprite({
     return () => window.clearTimeout(retryTimer);
   }, [atlas, atlasPath]);
 
-  const origin = animationOriginRef.current;
-  const stateChanged = origin.state !== state || origin.atlasPath !== atlasPath;
-  const animationStarted = !origin.enabled && animationEnabled;
-  if ((stateChanged && restartOnStateChange) || animationStarted) {
+  const committedOrigin = animationOriginRef.current;
+  const stateChanged =
+    committedOrigin.state !== state || committedOrigin.atlasPath !== atlasPath;
+  const animationStarted = !committedOrigin.enabled && animationEnabled;
+  const shouldRestart = (stateChanged && restartOnStateChange) || animationStarted;
+  const renderStartedAt = shouldRestart ? clock : committedOrigin.startedAt;
+
+  useEffect(() => {
     animationOriginRef.current = {
       state,
       atlasPath,
       enabled: animationEnabled,
-      startedAt: clock,
+      startedAt: renderStartedAt,
     };
-  } else {
-    origin.state = state;
-    origin.atlasPath = atlasPath;
-    origin.enabled = animationEnabled;
-  }
+  }, [animationEnabled, atlasPath, renderStartedAt, state]);
 
   const frame = animationEnabled
     ? getBenitoFrameAtElapsedTime(
         state,
-        Math.max(0, clock - animationOriginRef.current.startedAt),
+        Math.max(0, clock - renderStartedAt),
       )
     : 0;
   const commonProps = decorative

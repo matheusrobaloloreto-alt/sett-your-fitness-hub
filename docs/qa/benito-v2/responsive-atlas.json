@@ -15,10 +15,15 @@
   "derivation": {
     "tool": "cwebp 1.6.0",
     "command": "cwebp -quiet -resize 384 572 -q 88 -m 6 public/pets/benito-v2/spritesheet.webp -o public/pets/benito-v2/spritesheet-compact.webp",
-    "canonicalAtlasPreserved": true
+    "canonicalAtlasPreserved": true,
+    "packageRoles": {
+      "codexPetPackage": "/Users/macbookpro/.codex/pets/benito remains the canonical full-resolution hatch-pet package",
+      "appPublicPackage": "public/pets/benito-v2 adds a verified compact derivative for React placements at or below 48 CSS pixels"
+    }
   },
   "qa": {
-    "deterministicRuntime": "unavailable: load_workspace_dependencies produced no output for 60 seconds and was terminated",
-    "visualGate": "pending independent blind review; no waiver recorded"
+    "deterministicRuntime": "loaded through codex_app__load_workspace_dependencies; canonical v2 atlas validation passed with zero errors, warnings, or transparent RGB residue",
+    "visualGate": "passed independent rereview at commit 46610d1; P0/P1=0; approved in commit 8d3f9df",
+    "mobileGate": "Playwright Chrome 390x844 passed with the real React renderer, no horizontal overflow, 11 decoded sprites, compact-only network loading, and observed animation progression"
   }
 }
