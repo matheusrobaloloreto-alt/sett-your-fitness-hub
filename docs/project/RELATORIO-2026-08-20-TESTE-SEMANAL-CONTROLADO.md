@@ -11,8 +11,8 @@ O dispatcher agendado não é seguro para um teste unitário real porque sua exe
 Nesse modo:
 
 - `process_automation_triggers()` não é chamado;
-- somente `claim_automation_session(_session_id)` pode reivindicar a sessão;
-- `claim_automation_sessions(_limit)` exclui sessões `controlled_test=true`, então o cron normal não captura o canário;
+- somente `claim_automation_session(_session_id)` pode reivindicar uma sessão com `controlled_test` truthy;
+- `claim_automation_sessions(_limit)` exclui sessões com `controlled_test` truthy, então o cron normal não captura o canário;
 - a RPC aceita apenas uma sessão semanal ativa, com nó atual e flag explícita de teste;
 - retorno vazio falha com 404 e retorno não único falha com 409;
 - a validação já existente reconfirma aluno, empresa, chat, telefone canônico, JID direto e instância conectada antes de chamar o provedor;
@@ -38,6 +38,8 @@ A RPC não cria aluno, matrícula, chat, telefone, instância ou provedor e não
 
 A migration `20260820173000_exclude_controlled_sessions_from_batch_claim.sql` recompõe `claim_automation_sessions(_limit)` para manter o dispatcher agendado fora das sessões controladas. O caminho exato `claim_automation_session(_session_id)` continua aceitando somente `weekly_contact` com `controlled_test=true`.
 
+A migration `20260820174000_align_controlled_test_claim_semantics.sql` alinha o batch claim e o exact claim na mesma leitura segura de `controlled_test`: `true`, `t`, `1`, `yes`, `y` e `on` são tratados como controlados após `trim/lower`; ausência, `null`, `false` e texto inválido são tratados como não controlados sem cast boolean que possa derrubar o dispatcher.
+
 ## Gate exato de staging
 
 Antes de qualquer envio, o staging `ifymocggowdlqqcxugko` precisa ter:
@@ -45,15 +47,16 @@ Antes de qualquer envio, o staging `ifymocggowdlqqcxugko` precisa ter:
 1. migration `20260820160000_claim_single_controlled_automation_session.sql` aplicada;
 2. migration `20260820170000_prepare_controlled_weekly_test_session.sql` aplicada;
 3. migration `20260820173000_exclude_controlled_sessions_from_batch_claim.sql` aplicada;
-4. edge `process-automation-sessions` desta branch publicada;
-5. `AUTOMATION_TEST_SECRET` temporário e exclusivo, além dos secrets normais do dispatcher;
-6. provedor WhatsApp de staging configurado e uma instância de teste conectada;
-7. um destinatário controlado, cujo número pertença ao operador do teste;
-8. um aluno, matrícula operacional, chat direto e fluxo semanal no mesmo tenant, todos vinculados a esse destinatário;
-9. preparação via `prepare_controlled_weekly_test_session(student_id, controlled_test_run_id)`, gerando uma única `flow_session` com `trigger_type=weekly_contact`, `controlled_test=true`, chave de teste única e o `student_id` exato;
-10. snapshot sanitizado pré-teste: zero outras sessões `processing`, hash SHA-256 do telefone canônico igual ao hash do JID, e estado original do destinatário;
-11. invocação única com os dois headers de segredo e o `session_id` exato;
-12. confirmação de uma única mensagem no provedor e no banco, seguida da remoção do segredo temporário.
+4. migration `20260820174000_align_controlled_test_claim_semantics.sql` aplicada;
+5. edge `process-automation-sessions` desta branch publicada;
+6. `AUTOMATION_TEST_SECRET` temporário e exclusivo, além dos secrets normais do dispatcher;
+7. provedor WhatsApp de staging configurado e uma instância de teste conectada;
+8. um destinatário controlado, cujo número pertença ao operador do teste;
+9. um aluno, matrícula operacional, chat direto e fluxo semanal no mesmo tenant, todos vinculados a esse destinatário;
+10. preparação via `prepare_controlled_weekly_test_session(student_id, controlled_test_run_id)`, gerando uma única `flow_session` com `trigger_type=weekly_contact`, `controlled_test=true`, chave de teste única e o `student_id` exato;
+11. snapshot sanitizado pré-teste: zero outras sessões `processing`, hash SHA-256 do telefone canônico igual ao hash do JID, e estado original do destinatário;
+12. invocação única com os dois headers de segredo e o `session_id` exato;
+13. confirmação de uma única mensagem no provedor e no banco, seguida da remoção do segredo temporário.
 
 ## Rollback
 
@@ -76,6 +79,6 @@ Assim, o staging atual não consegue disparar a automação — o bloqueio ocorr
 
 ## Validação adicional do bundle
 
-- `node --test scripts/controlled-weekly-test-bundle.test.mjs`: 3/3 testes aprovados.
-- O teste de contrato confirma service-role-only, idempotência, binding exato de destinatário, instância conectada, matrícula operacional, rollback sem `DELETE`, batch claim ignorando `controlled_test=true` e exact claim ainda capturando a sessão controlada.
+- `node --test scripts/controlled-weekly-test-bundle.test.mjs`: 4/4 testes aprovados.
+- O teste de contrato confirma service-role-only, idempotência, binding exato de destinatário, instância conectada, matrícula operacional, rollback sem `DELETE`, batch claim ignorando `controlled_test` truthy, exact claim ainda capturando a sessão controlada e tabela-verdade local para ausência/null/false/true/strings truthy/texto inválido.
 - A migration ainda precisa ser compilada/aplicada no staging e passar pelo canário read-only de preparação antes de qualquer invocação do dispatcher.
