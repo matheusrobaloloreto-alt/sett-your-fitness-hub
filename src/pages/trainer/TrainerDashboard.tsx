@@ -66,7 +66,6 @@ export default function TrainerDashboard() {
       setCycleWorkoutMap({});
       return;
     }
-    await supabase.rpc("process_enrollment_lifecycle" as any);
     let enrollQuery = supabase
       .from("enrollments")
       .select("*, students(full_name), plans(name, duration_weeks)")

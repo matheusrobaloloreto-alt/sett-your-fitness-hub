@@ -5,6 +5,7 @@ const appSource = readFileSync("src/App.tsx", "utf8");
 const permissionSource = readFileSync("src/hooks/useRolePermissions.tsx", "utf8");
 const staffPermissionSource = readFileSync("src/hooks/useStaffPermission.ts", "utf8");
 const trainerDashboardSource = readFileSync("src/pages/trainer/TrainerDashboard.tsx", "utf8");
+const renewalsPanelSource = readFileSync("src/components/dashboard/RenewalsAndCyclesPanel.tsx", "utf8");
 const teamManagerSource = readFileSync("src/pages/admin/TeamManager.tsx", "utf8");
 const migrationSource = readFileSync("supabase/migrations/20260820113000_add_explicit_staff_permissions.sql", "utf8");
 
@@ -43,6 +44,11 @@ describe("trainer dashboard access contract", () => {
   it("refreshes grants when the tab becomes active so revocation is not stale", () => {
     expect(staffPermissionSource).toContain('document.addEventListener("visibilitychange"');
     expect(staffPermissionSource).toContain('window.addEventListener("focus"');
+  });
+
+  it("leaves enrollment lifecycle mutation exclusively to the server", () => {
+    expect(trainerDashboardSource).not.toContain("process_enrollment_lifecycle");
+    expect(renewalsPanelSource).not.toContain("process_enrollment_lifecycle");
   });
 
   it("does not expose the company-wide admin dashboard on the trainer route", () => {

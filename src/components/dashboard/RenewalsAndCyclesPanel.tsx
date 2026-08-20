@@ -14,7 +14,6 @@ interface PanelData {
 }
 
 async function fetchRenewalsAndCycles(effectiveCompanyId: string | null | undefined): Promise<PanelData> {
-  await supabase.rpc("process_enrollment_lifecycle" as any);
   const thirtyDaysFromNow = format(addDays(new Date(), 30), "yyyy-MM-dd");
 
   let expiringQuery = supabase
