@@ -13,6 +13,7 @@ interface Cycle {
   start_date: string;
   end_date: string;
   status: string;
+  objective?: string | null;
   workouts: { id: string; title: string; day_of_week: number | null }[];
 }
 
@@ -29,8 +30,8 @@ interface StudentHomeProps {
   totalSessions: number;
   weeklyGoal: number;
   streak: number;
+  activeWorkoutId?: string | null;
   goalEditor?: React.ReactNode;
-  achievementsPanel?: React.ReactNode;
   // Abas de prescrição condicionais: só aparecem se a prescrição correspondente existir no app do aluno.
   hasNutrition?: boolean;
   hasCorrida?: boolean;
@@ -68,8 +69,8 @@ export function StudentHome({
   totalSessions,
   weeklyGoal,
   streak,
+  activeWorkoutId,
   goalEditor,
-  achievementsPanel,
   hasNutrition,
   hasCorrida,
   hasNatacao,
@@ -79,6 +80,8 @@ export function StudentHome({
   const firstName = studentName.split(" ")[0];
   const todayLabel = format(new Date(), "EEEE · dd 'de' MMMM", { locale: ptBR });
   const todayWorkout = selectedCycle?.workouts.find((w) => w.day_of_week === currentDayOfWeek) ?? null;
+  const activeWorkout = selectedCycle?.workouts.find((w) => w.id === activeWorkoutId) ?? null;
+  const primaryWorkout = activeWorkout ?? todayWorkout;
 
   // Abas de prescrição que só aparecem quando o treinador publicou aquela modalidade.
   const prescriptionItems: NavItem[] = [
@@ -119,22 +122,27 @@ export function StudentHome({
       {/* Hero — Treino de hoje (maior ação do atleta) */}
       {selectedCycle && (
         <button onClick={() => onNavigate("treino")} className="w-full text-left group">
-          <Card className="relative overflow-hidden border-primary bg-primary text-primary-foreground transition-shadow group-hover:shadow-lg">
+          <Card className="student-action-surface relative overflow-hidden border-primary transition-shadow group-hover:shadow-lg">
             <Dumbbell className="absolute -right-4 -bottom-5 h-32 w-32 text-primary-foreground/10 rotate-12 pointer-events-none" />
             <CardContent className="relative p-5">
-              {todayWorkout ? (
+              {primaryWorkout ? (
                 <>
                   <p className="font-mono-data text-[11px] uppercase tracking-[0.18em] text-primary-foreground/60">
-                    Treino de hoje
+                    {activeWorkout ? "Treino em andamento" : "Treino de hoje"}
                   </p>
                   <h3 className="font-display text-2xl mt-1.5 text-primary-foreground leading-snug">
-                    {todayWorkout.title}
+                    {primaryWorkout.title}
                   </h3>
+                  {selectedCycle.objective && (
+                    <p className="mt-2 max-w-[34rem] text-sm leading-relaxed text-primary-foreground/75">
+                      Por que agora: {selectedCycle.objective}
+                    </p>
+                  )}
                   <span className="inline-flex items-center gap-2 mt-4 text-sm font-semibold">
                     <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-primary-foreground/15">
                       <Play className="h-3.5 w-3.5 fill-current" />
                     </span>
-                    Iniciar treino
+                    {activeWorkout ? "Retomar de onde parei" : "Iniciar treino"}
                     <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                   </span>
                 </>
@@ -208,8 +216,6 @@ export function StudentHome({
         goalEditor={goalEditor}
       />
 
-      {achievementsPanel}
-
       {/* Navegação */}
       <div>
         <p className="text-eyebrow mb-3">Explorar</p>
@@ -217,7 +223,7 @@ export function StudentHome({
           {navItems.map((item) => {
             const { view, label, icon: Icon } = item;
             const sub = item.sub;
-            const isToday = view === "treino" && !!todayWorkout;
+            const isToday = view === "treino" && !!primaryWorkout;
             return (
               <button key={view} onClick={() => onNavigate(view)} className="text-left group">
                 <Card className={cn(
