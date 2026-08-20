@@ -6,6 +6,29 @@ import { describe, expect, it } from "vitest";
 const root = process.cwd();
 const readProjectFile = (path: string) => readFileSync(resolve(root, path), "utf8");
 
+function extractClassNameAfter(source: string, marker: string): string {
+  const start = source.indexOf(marker);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const match = source.slice(start).match(/className="([^"]+)"/);
+  expect(match?.[1]).toBeTruthy();
+  return match?.[1] ?? "";
+}
+
+function restingChromeTokens(className: string): string[] {
+  return className
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((token) => !token.startsWith("focus-visible:"))
+    .filter((token) =>
+      token === "border"
+      || token.startsWith("border-")
+      || token === "rounded-full"
+      || token.startsWith("bg-")
+      || token.startsWith("ring-")
+      || token.startsWith("shadow"),
+    );
+}
+
 describe("Benito assistant integration", () => {
   it("uses the animated sprite in professor and student assistant avatars", () => {
     const professor = readProjectFile("src/components/BnitoFloatingAssistant.tsx");
@@ -19,6 +42,41 @@ describe("Benito assistant integration", () => {
     expect(student).not.toContain("<BrainCircuit");
     expect(student).toContain('requiresTeamHandoff || responseUrgency === "parar_e_avisar"');
     expect(student).toContain('mission && !missionDismissed && mission.urgency === "parar_e_avisar"');
+  });
+
+  it("keeps professor and student floating Benito buttons chromeless at rest", () => {
+    const professor = readProjectFile("src/components/BnitoFloatingAssistant.tsx");
+    const student = readProjectFile("src/components/StudentBnitoAssistant.tsx");
+    const professorFab = extractClassNameAfter(professor, 'data-benito-fab="professor"');
+    const studentFab = extractClassNameAfter(student, 'data-benito-fab="student"');
+
+    expect(professorFab).toContain("h-16 w-16");
+    expect(studentFab).toContain("h-16 w-16");
+    expect(restingChromeTokens(professorFab)).toEqual([]);
+    expect(restingChromeTokens(studentFab)).toEqual([]);
+    expect(professorFab).toContain("focus-visible:outline");
+    expect(studentFab).toContain("focus-visible:outline");
+    expect(professor).not.toContain('rounded-full border border-white/45 bg-white/10');
+    expect(student).not.toContain('rounded-full border border-white/45 bg-white/10');
+    expect(professor).not.toContain('rounded-full bg-navy text-primary-foreground shadow-md');
+    expect(student).not.toContain('rounded-full bg-navy text-primary-foreground shadow-md');
+    expect(student).not.toContain('rounded-full bg-navy text-primary-foreground">\n                  <BenitoSprite');
+  });
+
+  it("preserves floating Benito accessibility, drag behavior, and sprite fallback path", () => {
+    const professor = readProjectFile("src/components/BnitoFloatingAssistant.tsx");
+    const student = readProjectFile("src/components/StudentBnitoAssistant.tsx");
+    const sprite = readProjectFile("src/components/BenitoSprite.tsx");
+
+    expect(professor).toContain("aria-label={`Abrir ${name}`}");
+    expect(student).toContain("aria-label={`Abrir ${name}`}");
+    expect(professor).toContain("onPointerDown={startDrag}");
+    expect(professor).toContain('window.addEventListener("pointermove", handlePointerMove');
+    expect(student).toContain("setPointerCapture");
+    expect(student).toContain("onPointerMove");
+    expect(student).toContain("releasePointerCapture");
+    expect(sprite).toContain("data-benito-fallback");
+    expect(sprite).toContain("<BrainCircuit");
   });
 
   it("packages the same validated v2 atlas used by the React renderer", () => {

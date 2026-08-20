@@ -36,7 +36,9 @@ function BenitoMobileFixture() {
         .assistant-copy { min-width: 0; }
         .assistant-copy strong, .assistant-copy small { display: block; }
         .assistant-copy small { color: #5a6177; }
-        .fab { position: fixed; right: 20px; bottom: 20px; width: 64px; height: 64px; display: grid; place-items: center; border: 0; border-radius: 50%; background: #182348; box-shadow: 0 16px 36px rgba(24,35,72,.3); }
+        .fab { position: fixed; bottom: 20px; width: 64px; height: 64px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; box-shadow: none; color: #182348; }
+        .fab-professor { left: 20px; }
+        .fab-student { right: 20px; }
       `}</style>
       <main>
         <h1>Benito v2 · mobile QA</h1>
@@ -59,7 +61,10 @@ function BenitoMobileFixture() {
           </div>
         </div>
       </aside>
-      <button className="fab" aria-label="Abrir Benito">
+      <button className="fab fab-professor" data-role="professor" aria-label="Abrir Benito do professor">
+        <BenitoSprite state="idle" size={42} alt="" paused={paused} />
+      </button>
+      <button className="fab fab-student" data-role="student" aria-label="Abrir Benito do aluno">
         <BenitoSprite state="idle" size={42} alt="" paused={paused} />
       </button>
     </>

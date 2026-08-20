@@ -436,6 +436,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
             <TooltipTrigger asChild>
               <button
                 type="button"
+                data-benito-fab="student"
                 aria-label={`Abrir ${name}`}
                 style={{ transform: `translate(${bnitoDrag.x}px, ${bnitoDrag.y}px)`, touchAction: "none" }}
                 onPointerDown={(e) => {
@@ -494,11 +495,9 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
                   setDragDirection(null);
                 }}
                 onLostPointerCapture={() => setDragDirection(null)}
-                className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom,0px))] right-[calc(1.25rem+env(safe-area-inset-right,0px))] z-40 flex h-16 w-16 items-center justify-center rounded-full border border-white/70 bg-navy text-primary-foreground shadow-[0_18px_45px_rgba(29,45,92,0.32)] ring-8 ring-navy/10 transition-colors duration-200 hover:bg-navy/95 focus:outline-none focus:ring-4 focus:ring-ring focus:ring-offset-2 md:bottom-[calc(1.5rem+env(safe-area-inset-bottom,0px))] md:right-6 cursor-grab active:cursor-grabbing"
+                className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom,0px))] right-[calc(1.25rem+env(safe-area-inset-right,0px))] z-40 flex h-16 w-16 cursor-grab items-center justify-center p-0 text-navy outline-none transition-transform duration-200 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring md:bottom-[calc(1.5rem+env(safe-area-inset-bottom,0px))] md:right-6"
               >
-                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/45 bg-white/10">
-                  <BenitoSprite state={petState} size={42} alt="" />
-                </span>
+                <BenitoSprite state={petState} size={42} alt="" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="left">{`Falar com o ${name}`}</TooltipContent>
@@ -507,7 +506,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
           {!open && mission && !missionDismissed && (
             <div className="pointer-events-none fixed bottom-[calc(11rem+env(safe-area-inset-bottom,0px))] right-4 z-40 w-[min(20rem,calc(100vw-2rem))] rounded-[22px] border border-line bg-background/95 p-3 text-sm shadow-xl backdrop-blur [@media(max-height:740px)]:hidden md:bottom-24 md:right-6">
               <div className="flex items-start gap-2">
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-primary-foreground">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center text-navy">
                   <BenitoSprite state={missionLoading ? "processing" : mission.urgency === "parar_e_avisar" ? "alert" : "waiting"} size={28} alt="" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -545,7 +544,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
           <DialogContent className="flex max-h-[88dvh] w-[calc(100vw-1.5rem)] max-w-2xl flex-col gap-0 overflow-hidden rounded-[24px] border-line bg-paper p-0 shadow-2xl [&>button]:rounded-full">
             <DialogHeader className="shrink-0 border-b border-line bg-background px-5 py-4 text-left">
               <div className="flex items-start gap-3 pr-8">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-navy text-primary-foreground shadow-md">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center text-navy">
                   <BenitoSprite state={petState} size={42} alt="" />
                 </div>
                 <div className="min-w-0">
