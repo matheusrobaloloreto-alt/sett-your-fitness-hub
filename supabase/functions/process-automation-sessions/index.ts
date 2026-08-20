@@ -285,6 +285,19 @@ export async function handleAutomationRequest(request: Request) {
   if (!expectedSecret) return json({ error: "Automation dispatcher is not configured" }, 503);
   if (!safeEqual(expectedSecret, suppliedSecret)) return json({ error: "Unauthorized" }, 401);
 
+  const requestBody = await request.json().catch(() => ({})) as Record<string, unknown>;
+  const controlledTest = requestBody.mode === "controlled_test";
+  const controlledSessionId = String(requestBody.session_id || "").trim();
+  if (controlledTest) {
+    const expectedTestSecret = Deno.env.get("AUTOMATION_TEST_SECRET") || "";
+    const suppliedTestSecret = request.headers.get("x-test-secret") || "";
+    if (!expectedTestSecret) return json({ error: "Controlled automation test is not configured" }, 503);
+    if (!safeEqual(expectedTestSecret, suppliedTestSecret)) return json({ error: "Unauthorized" }, 401);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(controlledSessionId)) {
+      return json({ error: "Invalid controlled session id" }, 400);
+    }
+  }
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   const evolutionUrl = (Deno.env.get("EVOLUTION_API_URL") || "").replace(/\/$/, "");
@@ -292,11 +305,21 @@ export async function handleAutomationRequest(request: Request) {
   if (!supabaseUrl || !serviceKey) return json({ error: "Supabase service configuration missing" }, 503);
   const admin = createClient(supabaseUrl, serviceKey);
 
-  const triggerResult = await admin.rpc("process_automation_triggers");
+  const triggerResult = controlledTest
+    ? { data: null, error: null }
+    : await admin.rpc("process_automation_triggers");
   if (triggerResult.error) console.error("automation trigger scan failed", triggerResult.error.message);
-  const claimResult = await admin.rpc("claim_automation_sessions", { _limit: 25 });
+  const claimResult = controlledTest
+    ? await admin.rpc("claim_automation_session", { _session_id: controlledSessionId })
+    : await admin.rpc("claim_automation_sessions", { _limit: 25 });
   if (claimResult.error) return json({ error: "Unable to claim automation sessions" }, 500);
   const sessions = (claimResult.data || []) as FlowSession[];
+  if (controlledTest && sessions.length === 0) {
+    return json({ error: "Controlled automation session not found or not eligible" }, 404);
+  }
+  if (controlledTest && sessions.length !== 1) {
+    return json({ error: "Controlled automation claim was not unique" }, 409);
+  }
 
   if (!evolutionUrl || !evolutionKey) {
     const retryAt = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
@@ -329,7 +352,14 @@ export async function handleAutomationRequest(request: Request) {
     }
   }
 
-  return json({ claimed: sessions.length, completed, waiting, failed, triggers: triggerResult.data || null });
+  return json({
+    mode: controlledTest ? "controlled_test" : "scheduled",
+    claimed: sessions.length,
+    completed,
+    waiting,
+    failed,
+    triggers: triggerResult.data || null,
+  });
 }
 
 if (import.meta.main) Deno.serve(handleAutomationRequest);
