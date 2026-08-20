@@ -1009,9 +1009,9 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 40);
+  assert.equal(aliasPayload.summary.approved_aliases, 41);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 142);
+  assert.equal(aliasPayload.summary.unresolved_total, 141);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
 
   for (const sourceName of ["Levantamento Terra", "Agachamento Bulgaro"]) {
@@ -1028,8 +1028,28 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   assert.equal(unilateralEvidence?.independent_review_status, "approved");
   assert.match(unilateralEvidence?.mfit_media_evidence?.video_url || "", /^https:\/\//);
 
+  const seatedHipAbduction = aliasIndex.get("abducao de quadril maquina");
+  assert.equal(seatedHipAbduction?.target_exercise_id, "8d9c8d95-ca83-4b41-aece-ded54f6711c7");
+  const seatedHipAbductionAlias = aliasPayload.aliases.find(
+    (row) => row.source_name === "Abdução de Quadril Máquina",
+  );
+  assert.equal(seatedHipAbductionAlias?.independent_review_status, "approved");
+  const seatedHipAbductionEvidence = queuePayload.items.find(
+    (row) => row.source_name === "Abdução de Quadril Máquina",
+  );
+  assert.equal(seatedHipAbductionEvidence?.decision_status, "approved_after_visual_review");
+  assert.equal(seatedHipAbductionEvidence?.independent_review_status, "approved");
+  assert.equal(seatedHipAbductionEvidence?.runtime_eligible, true);
+
+  for (const sourceName of ["Puxada Neutra triangulo", "Mobilidade de Tornozelo Semi Ajoelhado"]) {
+    const evidence = queuePayload.items.find((row) => row.source_name === sourceName);
+    assert.equal(evidence?.decision_status, "needs_more_evidence");
+    assert.equal(evidence?.independent_review_status, "needs_more_evidence");
+    assert.equal(evidence?.runtime_eligible, false);
+  }
+
   const currentHash = createHash("sha256").update(aliasText).digest("hex");
   assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
   assert.equal(queuePayload.items.length, 52);
-  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 1);
+  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 2);
 });

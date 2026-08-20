@@ -158,3 +158,11 @@ A fila agora contém mídia MFIT em 4/52 itens; 48 ainda não têm mídia observ
 O vídeo público associado ao `media_id=569` foi recuperado e inspecionado em frames do início e da fase de puxada. A demonstração de `Puxada Neutra triangulo` mostra puxada vertical sentada na polia, bilateral, com pegada neutra em acessório triangular e apoio para as coxas. Isso sustenta o candidato `Puxada Neutra Polia`, mas a perda do detalhe do acessório no nome genérico ainda exige segundo revisor.
 
 A linha passou de `needs_evidence` para `awaiting_independent_review`, mantendo `runtime_eligible=false`. A fila permanece com mídia em 4/52 itens, agora todos os quatro com vídeo acessível; são 3 aguardando revisão independente, 48 ainda sem evidência visual e apenas 1 alias executável. Nenhuma promoção ou escrita remota foi realizada.
+
+### QA independente do lote visual
+
+O segundo revisor auditou os três casos com mídia completa. Apenas `Abdução de Quadril Máquina` → `Cadeira Abdutora 90` atingiu equivalência determinística: a demonstração preserva movimento, máquina, postura sentada, apoio, bilateralidade e quadril próximo de 90°. O alias foi registrado como `approved/high` com `independent_review_status=approved`. Isso não aprova a curadoria clínica/prescritiva do alvo SETT, cujos metadados continuam em revisão separada.
+
+`Puxada Neutra triangulo` → `Puxada Neutra Polia` e `Mobilidade de Tornozelo Semi Ajoelhado` → `Mobilidade de Tornozelo` permanecem bloqueados: os alvos genéricos ainda não provam, respectivamente, o acessório triangular/V-bar fechado e a postura semi-ajoelhada. Ambos passaram a `needs_more_evidence`, continuam `runtime_eligible=false` e exigem evidência do alvo ou um alvo específico.
+
+Estado projetado do próximo dry-run: 41 aliases executáveis, 172/313 nomes resolvidos e 141 não resolvidos. A fila histórica mantém 52 itens; 2 estão aprovados, 2 possuem mídia mas ainda precisam de evidência do alvo e 48 ainda não possuem mídia observada. Não havia snapshots operacionais privados atuais no worktree ou diretórios temporários para repetir o dry-run real; nenhum apply ou escrita remota foi executado.

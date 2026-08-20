@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 40,
-    "pending_medium": 51,
+    "approved_aliases": 41,
+    "pending_medium": 50,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 142
+    "unresolved_total": 141
   },
   "aliases": [
     {
@@ -66,6 +66,16 @@
       "confidence": "high",
       "occurrences": 1,
       "rationale": "Movimento, região e implemento bola preservados."
+    },
+    {
+      "source_name": "Abdução de Quadril Máquina",
+      "target_exercise_id": "8d9c8d95-ca83-4b41-aece-ded54f6711c7",
+      "target_name": "Cadeira Abdutora 90",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 14,
+      "independent_review_status": "approved",
+      "rationale": "Vídeo MFIT e QA independente confirmam abdução bilateral sentada em cadeira abdutora, com tronco apoiado e quadril próximo de 90°; movimento, implemento, suporte, lateralidade e configuração correspondem ao alvo SETT. A curadoria de metadados do alvo permanece separada."
     },
     {
       "source_name": "Afundo Alternado no Smith",
@@ -547,14 +557,6 @@
         "confidence": "medium",
         "occurrences": 1,
         "blocker": "“Abdominal Rodinha” preserva o movimento; apoio/solo não é explicitado no SETT."
-      },
-      {
-        "source_name": "Abdução de Quadril Máquina",
-        "proposed_target_exercise_id": "8d9c8d95-ca83-4b41-aece-ded54f6711c7",
-        "proposed_target_name": "Cadeira Abdutora 90",
-        "confidence": "medium",
-        "occurrences": 14,
-        "blocker": "Nota MFIT confirma máquina abdutora; ângulo 90° é inferido e exige revisão."
       },
       {
         "source_name": "Abdução de Quadril Unilateral com Caneleira",
