@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { DashboardAlerts } from "@/components/DashboardAlerts";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { useStaffPermission } from "@/hooks/useStaffPermission";
 
 interface Enrollment {
   id: string;
@@ -37,6 +38,7 @@ export default function TrainerDashboard() {
   const [cycles, setCycles] = useState<Record<string, Cycle[]>>({});
   const [cycleWorkoutMap, setCycleWorkoutMap] = useState<Record<string, boolean>>({});
   const { user, role } = useAuth();
+  const { enabled: canViewCompanyDashboard, loading: permissionLoading } = useStaffPermission("company_dashboard_full");
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -47,23 +49,24 @@ export default function TrainerDashboard() {
     return "/trainer";
   };
 
-  useEffect(() => { if (user) loadData(); }, [user]);
+  useEffect(() => { if (user && !permissionLoading) loadData(); }, [user, permissionLoading, canViewCompanyDashboard]);
 
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === "visible" && user) loadData();
+      if (document.visibilityState === "visible" && user && !permissionLoading) loadData();
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [user]);
+  }, [user, permissionLoading, canViewCompanyDashboard]);
 
   const loadData = async () => {
     await supabase.rpc("process_enrollment_lifecycle" as any);
-    const { data: enroll } = await supabase
+    let enrollQuery = supabase
       .from("enrollments")
       .select("*, students(full_name), plans(name, duration_weeks)")
-      .eq("trainer_id", user!.id)
       .eq("status", "active");
+    if (!canViewCompanyDashboard) enrollQuery = enrollQuery.eq("trainer_id", user!.id);
+    const { data: enroll } = await enrollQuery;
 
     const enrollData = (enroll as Enrollment[]) || [];
     setEnrollments(enrollData);
@@ -120,17 +123,21 @@ export default function TrainerDashboard() {
       <div className="space-y-6">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-4xl text-primary">MEUS ALUNOS</h1>
+            <h1 className="text-4xl text-primary">{canViewCompanyDashboard ? "PAINEL DA EMPRESA" : "MEUS ALUNOS"}</h1>
             <BnitoContextButton
               label="dashboard do professor"
-              context={`Painel do professor com ${enrollments.length} matriculas atribuidas e ciclos de treino.`}
+              context={`Painel do professor com ${enrollments.length} matriculas ${canViewCompanyDashboard ? "da empresa" : "atribuidas"} e ciclos de treino.`}
               question="Como devo priorizar meus alunos e ciclos de treino hoje?"
             />
           </div>
-          <p className="text-muted-foreground font-sans">Gerencie os treinos dos seus alunos</p>
+          <p className="text-muted-foreground font-sans">
+            {canViewCompanyDashboard
+              ? "Visão completa concedida individualmente pela empresa"
+              : "Gerencie os treinos dos seus alunos"}
+          </p>
         </div>
 
-        <DashboardAlerts trainerId={user?.id} />
+        <DashboardAlerts trainerId={canViewCompanyDashboard ? undefined : user?.id} />
 
         {enrollments.length === 0 ? (
           <p className="text-muted-foreground font-sans text-center py-12">Nenhum aluno atribuído ainda</p>

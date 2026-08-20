@@ -2739,6 +2739,47 @@ export type Database = {
           },
         ]
       }
+      staff_permissions: {
+        Row: {
+          company_id: string
+          created_at: string
+          enabled: boolean
+          granted_by: string | null
+          id: string
+          permission: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          enabled?: boolean
+          granted_by?: string | null
+          id?: string
+          permission: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          enabled?: boolean
+          granted_by?: string | null
+          id?: string
+          permission?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_permissions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       running_plans: {
         Row: {
           anamnese_id: string | null
