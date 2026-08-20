@@ -158,14 +158,16 @@
       "occurrences": 9,
       "priority": "P0",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "awaiting_independent_review",
       "source_bucket": "reconciled_alias_candidate",
-      "blocker": "QA biomecânico: pegada neutra não garante triângulo nem largura fechada.",
+      "blocker": "A demonstração visual confirma puxada sentada na polia com pegada neutra e acessório triangular; segundo revisor ainda precisa confirmar que o alvo SETT genérico preserva a configuração relevante.",
       "mfit_media_evidence": {
         "media_id": "569",
+        "video_url": "https://vd.mfitpersonal.com.br/569/mp4/569.mp4",
         "thumbnail_url": "https://vd.mfitpersonal.com.br/569/jpg/md/569_md.0000000.jpg",
-        "observed_via": "authenticated_read_only_browser",
-        "observed_at": "2026-08-20"
+        "observed_via": "public_media_read_only_frame_review",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Puxada vertical sentada na polia, bilateral, com pegada neutra em acessório triangular e apoio para as coxas."
       },
       "required_checks": [
         "movement",
@@ -177,6 +179,8 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "pending",
       "runtime_eligible": false
     },
     {

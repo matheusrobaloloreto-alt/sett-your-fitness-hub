@@ -152,3 +152,9 @@ Estado projetado do próximo dry-run: 40 aliases executáveis, 171/313 nomes res
 Foram coletadas demonstrações adicionais para `Mobilidade de Tornozelo Semi Ajoelhado` e `Abdução de Quadril Máquina`. A primeira mostra avanço do joelho sobre o pé em posição semi-ajoelhada, sem implemento; a segunda mostra abdução bilateral sentada em máquina, com quadril próximo de 90°. As duas evidências apoiam os alvos propostos, mas permanecem `runtime_eligible=false` e `independent_review_status=pending` até um segundo revisor confirmar a equivalência.
 
 A fila agora contém mídia MFIT em 4/52 itens; 48 ainda não têm mídia observada. Como nenhuma das duas novas linhas foi promovida, a projeção executável permanece em 40 aliases, 171/313 nomes resolvidos e 142 não resolvidos.
+
+### Terceira evidência visual read-only
+
+O vídeo público associado ao `media_id=569` foi recuperado e inspecionado em frames do início e da fase de puxada. A demonstração de `Puxada Neutra triangulo` mostra puxada vertical sentada na polia, bilateral, com pegada neutra em acessório triangular e apoio para as coxas. Isso sustenta o candidato `Puxada Neutra Polia`, mas a perda do detalhe do acessório no nome genérico ainda exige segundo revisor.
+
+A linha passou de `needs_evidence` para `awaiting_independent_review`, mantendo `runtime_eligible=false`. A fila permanece com mídia em 4/52 itens, agora todos os quatro com vídeo acessível; são 3 aguardando revisão independente, 48 ainda sem evidência visual e apenas 1 alias executável. Nenhuma promoção ou escrita remota foi realizada.
