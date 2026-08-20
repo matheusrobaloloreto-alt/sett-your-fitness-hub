@@ -33,7 +33,7 @@ Antes de criar qualquer sessão, a preparação exige, sem fallback por nome:
 - exatamente um fluxo semanal ativo e um caminho válido `start -> weekly_contact_message`;
 - nenhuma outra sessão semanal aberta para o destinatário.
 
-A RPC não cria aluno, matrícula, chat, telefone, instância ou provedor e não envia mensagem. Repetir a mesma preparação com o mesmo UUID devolve a sessão existente; tentar reutilizar o UUID para outro aluno falha fechado.
+A RPC não cria aluno, matrícula, chat, telefone, instância ou provedor e não envia mensagem. Repetir a mesma preparação com o mesmo UUID devolve a sessão existente; tentar reutilizar o UUID para outro aluno falha fechado. Locks transacionais são adquiridos em ordem determinística por UUID de execução e depois por `chat_id`, impedindo que duas execuções com UUIDs diferentes criem sessões simultâneas para o mesmo destinatário.
 
 ## Gate exato de staging
 

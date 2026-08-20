@@ -16,6 +16,7 @@ test("controlled weekly seed is service-role-only, idempotent and exact-recipien
 
   assert.match(sql, /auth\.role\(\)\s*<>\s*'service_role'/i);
   assert.match(sql, /pg_advisory_xact_lock/i);
+  assert.match(sql, /pg_advisory_xact_lock\(hashtextextended\(v_chat\.id::text,\s*0\)\)/i);
   assert.match(sql, /controlled_test_run_id/i);
   assert.match(sql, /trigger_type'\s*,\s*'weekly_contact'/i);
   assert.match(sql, /controlled_test'\s*,\s*true/i);
@@ -26,6 +27,14 @@ test("controlled weekly seed is service-role-only, idempotent and exact-recipien
   assert.match(sql, /existing\.status\s+in\s*\('active',\s*'waiting_response',\s*'processing'\)/i);
   assert.match(sql, /revoke all on function public\.prepare_controlled_weekly_test_session/i);
   assert.match(sql, /grant execute on function public\.prepare_controlled_weekly_test_session[^;]*service_role/i);
+
+  const runLock = sql.indexOf("pg_advisory_xact_lock(hashtextextended(_controlled_test_run_id::text, 0))");
+  const recipientLock = sql.indexOf("pg_advisory_xact_lock(hashtextextended(v_chat.id::text, 0))");
+  const openSessionCheck = sql.indexOf("existing.status in ('active', 'waiting_response', 'processing')");
+  const sessionInsert = sql.indexOf("insert into public.flow_sessions");
+  assert.ok(runLock < recipientLock, "run ID must be locked before the recipient");
+  assert.ok(recipientLock < openSessionCheck, "recipient must be locked before checking for an open session");
+  assert.ok(openSessionCheck < sessionInsert, "open-session check must precede the insert");
 });
 
 test("controlled weekly rollback cancels without deleting evidence", async () => {

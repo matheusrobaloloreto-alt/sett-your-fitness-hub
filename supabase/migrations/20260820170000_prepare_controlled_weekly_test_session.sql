@@ -59,6 +59,10 @@ begin
        public.sett_phone_key(v_student.phone)
      );
 
+  -- Lock order is deterministic: opaque run ID first, then exact recipient chat.
+  -- Different run IDs for the same recipient must serialize before the open-session check.
+  perform pg_advisory_xact_lock(hashtextextended(v_chat.id::text, 0));
+
   -- One active weekly flow per tenant. Ambiguity is a configuration error.
   select flow.* into strict v_flow
     from public.automation_flows as flow
