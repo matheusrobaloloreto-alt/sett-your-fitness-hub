@@ -70,6 +70,10 @@ const sorted = (rows, key = "id") => [...rows].sort((a, b) => String(a[key] || "
 const list = (value) => Array.isArray(value) ? value.filter(Boolean) : [];
 const csvCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
 const csv = (headers, rows) => `${headers.map(csvCell).join(",")}\n${rows.map((row) => headers.map((header) => csvCell(row[header])).join(",")).join("\n")}\n`;
+const isP0Name = (name) => {
+  const normalized = normalize(name);
+  return [...P0_NAMES].some((candidate) => normalized.includes(candidate));
+};
 
 function legacyIndex(legacySources) {
   const byId = new Map();
@@ -90,8 +94,7 @@ function legacyIndex(legacySources) {
 function priorityFor(exercise, isCandidate) {
   if (!isCandidate) return "";
   const exerciseName = exercise.exercise_name || exercise.name || "";
-  const name = normalize(exerciseName);
-  if ([...P0_NAMES].some((candidate) => name.includes(candidate))) return "P0";
+  if (isP0Name(exerciseName)) return "P0";
   if (P1_PATTERN.test(exerciseName)) return "P1";
   if ((exercise.targets || []).length === 1 || exercise.safety_gap) return "P2";
   return "P3";
@@ -173,14 +176,16 @@ export function buildArtifacts({ exercises, targets, metadata, muscleGroups, leg
   reconciliation.sort((a, b) => a.exercise_id.localeCompare(b.exercise_id));
 
   const reviewRows = records.flatMap((row) => {
-    const targetCandidate = row.targets.length === 1;
+    const forcedP0TargetReview = isP0Name(row.exercise_name);
+    const targetCandidate = row.targets.length === 1 || forcedP0TargetReview;
     const safetyCandidate = row.safety_gap;
     const mediaCandidate = row.duplicate_video_cluster;
     const candidate = targetCandidate || safetyCandidate || mediaCandidate;
     if (!candidate) return [];
     const priority = priorityFor(row, candidate);
     const reasons = [
-      targetCandidate ? "single_target" : "",
+      row.targets.length === 1 ? "single_target" : "",
+      forcedP0TargetReview && row.targets.length > 1 ? "p0_target_inconsistency" : "",
       safetyCandidate ? "safety_metadata_gap" : "",
       mediaCandidate ? "duplicate_video_cluster" : "",
     ].filter(Boolean);

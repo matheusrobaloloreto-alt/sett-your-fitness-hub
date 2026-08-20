@@ -24,7 +24,7 @@ Os artefatos sanitizados estão em `docs/prescription/curation-v2/`:
 - clusters de vídeo;
 - resumo determinístico da execução.
 
-Distribuição inicial da fila única: P0 13, P1 213, P2 628 e P3 1. A prioridade serve apenas para ordenar revisão; não aprova biomecânica, segurança ou mídia.
+Distribuição corrigida da fila única: P0 16, P1 213, P2 628 e P3 1. As prioridades não são mutuamente exclusivas. O gerador inicial havia omitido três inconsistências P0 multi-target da trilha técnica; a correção incluiu `Remada Alta Barra`, `Step Up Halteres` e `Step Up Smith`, sem aprovar qualquer configuração. A prioridade serve apenas para ordenar revisão; não aprova biomecânica, segurança ou mídia.
 
 ## Validação
 
