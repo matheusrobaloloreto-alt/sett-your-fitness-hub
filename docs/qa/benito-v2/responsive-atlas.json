@@ -1,0 +1,24 @@
+{
+  "source": {
+    "path": "public/pets/benito-v2/spritesheet.webp",
+    "dimensions": "1536x2288",
+    "bytes": 2900378,
+    "sha256": "d146d3dbd2022cfbcf56d5d2c6c85e52337f65773237060140a7ee1489a02b9f"
+  },
+  "compact": {
+    "path": "public/pets/benito-v2/spritesheet-compact.webp",
+    "dimensions": "384x572",
+    "bytes": 123078,
+    "sha256": "66727a726f8f078cd1827c78ce331c0e47925f77dc089ff7ee472ee7ba1c20d1",
+    "displayWidthMax": 48
+  },
+  "derivation": {
+    "tool": "cwebp 1.6.0",
+    "command": "cwebp -quiet -resize 384 572 -q 88 -m 6 public/pets/benito-v2/spritesheet.webp -o public/pets/benito-v2/spritesheet-compact.webp",
+    "canonicalAtlasPreserved": true
+  },
+  "qa": {
+    "deterministicRuntime": "unavailable: load_workspace_dependencies produced no output for 60 seconds and was terminated",
+    "visualGate": "pending independent blind review; no waiver recorded"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "status": "pending",
+  "waiver": null,
+  "reason": "The existing three-reviewer consensus passed both cardinal hard gates but left six intermediate axis classifications ambiguous. No executor or parent self-approval is recorded.",
+  "hardGates": {
+    "000_vs_180_vertical": "pass",
+    "090_vs_270_horizontal": "pass"
+  },
+  "ambiguousIntermediateAxes": [
+    { "direction": "112.5", "axis": "horizontal", "expected": "screen-right" },
+    { "direction": "135", "axis": "horizontal", "expected": "screen-right" },
+    { "direction": "157.5", "axis": "horizontal", "expected": "screen-right" },
+    { "direction": "202.5", "axis": "horizontal", "expected": "screen-left" },
+    { "direction": "225", "axis": "vertical", "expected": "down" },
+    { "direction": "247.5", "axis": "vertical", "expected": "down" }
+  ],
+  "reviewInputs": [
+    "docs/qa/benito-v2/direction-blind-pairs.png",
+    "docs/qa/benito-v2/direction-blind-verdicts.json",
+    "docs/qa/benito-v2/direction-blind-validation.json",
+    "docs/qa/benito-v2/look-directions.png",
+    "docs/qa/benito-v2/direction-semantics.json",
+    "docs/qa/benito-v2/look-continuity.json",
+    "docs/qa/benito-v2/contact-sheet-extended.png"
+  ],
+  "requiredOutcome": "A fresh independent visual reviewer must return pass/fail with direction-level evidence. If fail is minor, only a parent or user may record an explicit accepted resolution under the hatch-pet policy."
+}
