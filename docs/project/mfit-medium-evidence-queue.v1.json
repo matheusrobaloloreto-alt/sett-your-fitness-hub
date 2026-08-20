@@ -5,7 +5,7 @@
   "execution_scope": "offline_evidence_review_only",
   "source_snapshot": {
     "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
-    "alias_map_sha256": "951d823d185e846ec27af0468c9bdb1fd1e6a26cc192ef829e1470ff90322220",
+    "alias_map_sha256": "4f4dec94d72db33f1969b55ca10dc28241b451d7b6a8ff6043b5d11cfd0dd064",
     "medium_names": 52,
     "medium_occurrences": 162
   },
@@ -24,8 +24,8 @@
     "P0": 7,
     "P1": 9,
     "P2": 36,
-    "with_mfit_media_evidence": 1,
-    "needs_more_evidence": 51
+    "with_mfit_media_evidence": 2,
+    "needs_more_evidence": 50
   },
   "items": [
     {
@@ -545,11 +545,17 @@
       "proposed_target_name": "Ponte de glúteo unilateral",
       "occurrences": 2,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Equivalência com ponte de glúteo unilateral; catálogo contém outras variantes de elevação unilateral.",
-      "mfit_media_evidence": null,
+      "blocker": null,
+      "mfit_media_evidence": {
+        "video_url": "https://d2vfutiy2j6sqj.cloudfront.net/115171/mp4/vr5q55vify_opt.mp4",
+        "thumbnail_url": "https://d2vfutiy2j6sqj.cloudfront.net/115171/jpg/md/vr5q55vify_md.0000000.jpg",
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Ponte de glúteo unilateral no solo, sem implemento, com uma perna elevada."
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -560,7 +566,8 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "independent_review_status": "approved",
+      "runtime_eligible": true
     },
     {
       "source_name": "Puxada Articulada Aberta",

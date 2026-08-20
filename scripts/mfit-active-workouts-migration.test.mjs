@@ -1009,9 +1009,9 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 39);
+  assert.equal(aliasPayload.summary.approved_aliases, 40);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 143);
+  assert.equal(aliasPayload.summary.unresolved_total, 142);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
 
   for (const sourceName of ["Levantamento Terra", "Agachamento Bulgaro"]) {
@@ -1021,8 +1021,15 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
     assert.equal(evidence?.status, "approved_by_independent_review");
   }
 
+  const unilateralBridge = aliasIndex.get("elevacao de quadril unilateral");
+  assert.equal(unilateralBridge?.target_exercise_id, "a21397db-be10-492f-9e1b-42994ac9d79f");
+  const unilateralEvidence = queuePayload.items.find((row) => row.source_name === "Elevação de Quadril Unilateral");
+  assert.equal(unilateralEvidence?.decision_status, "approved_after_visual_review");
+  assert.equal(unilateralEvidence?.independent_review_status, "approved");
+  assert.match(unilateralEvidence?.mfit_media_evidence?.video_url || "", /^https:\/\//);
+
   const currentHash = createHash("sha256").update(aliasText).digest("hex");
   assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
   assert.equal(queuePayload.items.length, 52);
-  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 0);
+  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 1);
 });

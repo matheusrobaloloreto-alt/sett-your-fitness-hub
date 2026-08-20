@@ -140,3 +140,9 @@ Os dois matches exatos ambíguos receberam revisão independente baseada em evid
 Os overrides são explícitos (`match_scope=ambiguous_exact_override`), exigem `independent_review_status=approved` e continuam falhando fechado se o alvo não pertencer ao conjunto exato de duplicatas. O mapa agora contém 39 aliases executáveis e zero ambiguidade exata pendente. Isso projeta 170/313 nomes resolvidos, mas a nova cobertura só será declarada depois de repetir o dry-run real com os snapshots operacionais privados.
 
 Validação local: **35/35 testes** do migrador. A fila média permanece com 52 itens; 51 ainda exigem evidência visual/técnica. Nenhum apply ou escrita remota foi executado.
+
+### Evidência visual adicional
+
+O Chrome autenticado foi reaberto em modo read-only e o vídeo de `Elevação de Quadril Unilateral` foi inspecionado quadro a quadro. A demonstração mostra ponte de glúteo unilateral no solo, sem implemento e com uma perna elevada; movimento, suporte, lateralidade e configuração correspondem ao alvo `Ponte de glúteo unilateral` do SETT. O alias foi promovido a `approved/high` com evidência e revisão independente.
+
+Estado projetado do próximo dry-run: 40 aliases executáveis, 171/313 nomes resolvidos e 142 ainda sem resolução. A fila de evidência continua com 52 registros históricos, mas apenas 51 seguem pendentes de decisão e 50 ainda não possuem mídia MFIT observada. Os números operacionais continuam condicionados à repetição do dry-run real com os snapshots privados.

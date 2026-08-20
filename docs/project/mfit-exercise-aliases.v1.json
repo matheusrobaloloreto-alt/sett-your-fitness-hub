@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 39,
-    "pending_medium": 52,
+    "approved_aliases": 40,
+    "pending_medium": 51,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 143
+    "unresolved_total": 142
   },
   "aliases": [
     {
@@ -482,6 +482,16 @@
       "rationale": "Movimento, polia e corda preservados."
     },
     {
+      "source_name": "Elevação de Quadril Unilateral",
+      "target_exercise_id": "a21397db-be10-492f-9e1b-42994ac9d79f",
+      "target_name": "Ponte de glúteo unilateral",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "independent_review_status": "approved",
+      "rationale": "Vídeo MFIT autenticado confirma ponte de glúteo unilateral no solo, sem implemento, com uma perna elevada; movimento, suporte, lateralidade e configuração correspondem ao alvo SETT."
+    },
+    {
       "source_name": "Levantamento Terra",
       "target_exercise_id": "2345fdf0-2bb7-49c0-839d-1d1bfd3024f8",
       "target_name": "Levantamento Terra",
@@ -641,14 +651,6 @@
         "confidence": "medium",
         "occurrences": 1,
         "blocker": "Movimento e Smith preservados; SETT adiciona posição sentada."
-      },
-      {
-        "source_name": "Elevação de Quadril Unilateral",
-        "proposed_target_exercise_id": "a21397db-be10-492f-9e1b-42994ac9d79f",
-        "proposed_target_name": "Ponte de glúteo unilateral",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Equivalência com ponte de glúteo unilateral; catálogo contém outras variantes de elevação unilateral."
       },
       {
         "source_name": "Encolhimento de Ombros no Smith Pela Frente",
