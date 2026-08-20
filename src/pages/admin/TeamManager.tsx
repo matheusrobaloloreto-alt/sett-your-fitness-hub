@@ -919,15 +919,12 @@ export default function TeamManager() {
       await supabase.from("user_roles").insert({ user_id: editUserId, role: roleToAdd as Role });
     }
     if (effectiveCompanyId && user) {
-      const { error: permissionError } = await supabase
-        .from("staff_permissions" as any)
-        .upsert({
-          company_id: effectiveCompanyId,
-          user_id: editUserId,
-          permission: "company_dashboard_full",
-          enabled: editRoles.includes("trainer") && editFullDashboard,
-          granted_by: user.id,
-        }, { onConflict: "company_id,user_id,permission" });
+      const { error: permissionError } = await supabase.rpc("set_staff_permission" as any, {
+        _company_id: effectiveCompanyId,
+        _user_id: editUserId,
+        _permission: "company_dashboard_full",
+        _enabled: editRoles.includes("trainer") && editFullDashboard,
+      });
       if (permissionError) {
         setLoading(false);
         toast({ title: "Papéis salvos, mas a visão empresarial falhou", description: permissionError.message, variant: "destructive" });
