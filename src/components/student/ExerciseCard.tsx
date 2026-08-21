@@ -12,6 +12,7 @@ import { SET_TYPE_CONFIG, SET_TYPES, getSetLabel, type SetType } from "@/lib/set
 import { exerciseThumb } from "@/lib/exerciseCover";
 import { isGroupingMethod } from "@/lib/workoutMethods";
 import { MethodBadge } from "@/components/workout/MethodBadge";
+import { formatBiweeklyProgressionForDisplay, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,6 +34,7 @@ interface WorkoutExercise {
   tempo?: string | null;
   rir?: string | null;
   weekly_instruction?: string | null;
+  weekly_prescription?: StoredWeeklyExercisePrescription[];
   sets: string;
   reps: string;
   rest: string;
@@ -78,6 +80,7 @@ export function ExerciseCard({
   // Sempre há demonstração: vídeo gravado próprio OU fallback do YouTube pelo nome do exercício.
   const hasVideo = !!(ex.video_path || ex.video_url || ex.exercise_name);
   const cover = exerciseThumb(ex);
+  const biweeklyProgression = formatBiweeklyProgressionForDisplay(ex.weekly_prescription);
   const getLogKey = (s: number) => `${workoutId}-${idx}-${s}`;
 
   // Melhor carga histórica deste exercício (antes de hoje) — base para detectar recorde.
@@ -187,6 +190,17 @@ export function ExerciseCard({
                 {ex.weekly_instruction && (
                   <p className="mt-1 font-sans text-xs leading-relaxed text-foreground">{ex.weekly_instruction}</p>
                 )}
+              </div>
+            )}
+
+            {biweeklyProgression.length > 0 && (
+              <div className="rounded-lg border border-border bg-card px-3 py-2">
+                <p className="font-mono-data text-[10px] font-semibold uppercase text-muted-foreground">Progressão quinzenal</p>
+                <div className="mt-1 space-y-1">
+                  {biweeklyProgression.map((line) => (
+                    <p key={line} className="font-sans text-[11px] leading-relaxed text-foreground">{line}</p>
+                  ))}
+                </div>
               </div>
             )}
 

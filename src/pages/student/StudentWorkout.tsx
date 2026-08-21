@@ -12,7 +12,7 @@ import { ptBR } from "date-fns/locale";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { businessDateYmd } from "@/lib/businessDate";
 import { MethodBadge } from "@/components/workout/MethodBadge";
-import { resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
+import { formatBiweeklyProgressionForDisplay, resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
 
 interface WorkoutExercise {
@@ -480,6 +480,7 @@ export default function StudentWorkout() {
                           <div className="space-y-2">
                             {group.items.map(({ ex, idx }) => {
                               const isExpanded = expandedExercise === idx;
+                              const biweeklyProgression = formatBiweeklyProgressionForDisplay(ex.weekly_prescription);
                               return (
                           <Card
                             key={idx}
@@ -562,6 +563,17 @@ export default function StudentWorkout() {
                                         {ex.tempo ? `Cadência ${ex.tempo.split("").join("-")}` : ""}{ex.tempo && ex.rir ? " · " : ""}{ex.rir ? `RIR ${ex.rir}` : ""}
                                       </p>
                                       {ex.weekly_instruction && <p className="mt-1 text-xs text-foreground">{ex.weekly_instruction}</p>}
+                                    </div>
+                                  )}
+
+                                  {biweeklyProgression.length > 0 && (
+                                    <div className="rounded-lg border border-border bg-card p-2">
+                                      <p className="font-mono-data text-[10px] font-semibold uppercase text-muted-foreground">Progressão quinzenal</p>
+                                      <div className="mt-1 space-y-1">
+                                        {biweeklyProgression.map((line) => (
+                                          <p key={line} className="text-[11px] leading-relaxed text-foreground">{line}</p>
+                                        ))}
+                                      </div>
                                     </div>
                                   )}
 

@@ -79,6 +79,43 @@ function explanationIds(program: ReturnType<typeof generateTrainingProgram>) {
 }
 
 describe("BN Prescription Engine v1", () => {
+  it("nunca repete exercise_id dentro da mesma sessão e bloqueia gap quando o catálogo elegível acaba", () => {
+    const narrowCatalog: ExerciseCatalogEntry[] = [
+      {
+        id: "only-safe",
+        name: "Mobilidade Prancha Agachamento Leg Press Remada Supino Mesa Flexora Hip Thrust Panturrilha",
+        muscle_group: "geral",
+        equipment: "livre",
+        targets: [{ muscle_group: "geral" }],
+      },
+    ];
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      daysPerWeek: 2,
+      catalog: narrowCatalog,
+    }));
+
+    for (const workout of program.workouts) {
+      const ids = workout.exercises.map((exercise) => exercise.exercise_id);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+    expect(program.library_policy.gaps.some((gap) => gap.includes("session_unique_exhausted"))).toBe(true);
+    expect(hasBlocker(program, "library_session_unique_exhausted")).toBe(true);
+  });
+
+  it("permite reuso entre sessões apenas como penalidade rastreável, sem duplicar na sessão", () => {
+    const limitedCatalog = catalog.slice(0, 7);
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      daysPerWeek: 3,
+      catalog: limitedCatalog,
+    }));
+    const idsByWorkout = program.workouts.map((workout) => workout.exercises.map((exercise) => exercise.exercise_id));
+
+    expect(idsByWorkout.every((ids) => new Set(ids).size === ids.length)).toBe(true);
+    expect(program.library_policy.gaps.some((gap) => gap.includes("cross_session_reuse"))).toBe(true);
+  });
+
   it("não transforma nomes de campos ou respostas clínicas negativas em dor", () => {
     const program = generateTrainingProgram(baseInput({
       fitnessLevel: "intermediario",

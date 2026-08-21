@@ -102,6 +102,15 @@ export function summarizeExerciseWeeklyProgression(
   });
 }
 
+export function formatBiweeklyProgressionForDisplay(
+  items?: StoredWeeklyExercisePrescription[] | null,
+): string[] {
+  return summarizeExerciseWeeklyProgression(items).map((block) => {
+    const method = block.method || "Séries retas";
+    return `Semanas ${block.weeks}: ${block.setsReps} · Cadência ${block.tempo} · RIR ${block.rir} · ${method}. ${block.instruction}`;
+  });
+}
+
 export function resolveExerciseForWeek<T extends WeeklyAwareExercise>(exercise: T, week: number): T {
   const prescription = exercise.weekly_prescription?.find((item) => Number(item.week) === week);
   if (!prescription) return exercise;
