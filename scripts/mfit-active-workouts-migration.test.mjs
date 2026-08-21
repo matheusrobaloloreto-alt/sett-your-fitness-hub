@@ -1009,10 +1009,10 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 64);
-  assert.equal(aliasPayload.summary.pending_medium, 27);
+  assert.equal(aliasPayload.summary.approved_aliases, 66);
+  assert.equal(aliasPayload.summary.pending_medium, 25);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 118);
+  assert.equal(aliasPayload.summary.unresolved_total, 116);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
 
   for (const sourceName of ["Levantamento Terra", "Agachamento Bulgaro"]) {
@@ -1190,6 +1190,20 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
       targetName: "Abdominal Infra Solo",
       evidenceType: "sanitized_independent_review_handoff",
     },
+    {
+      sourceName: "Remada Alta na Polia Baixa com Barra Reta",
+      normalizedSource: "remada alta na polia baixa com barra reta",
+      targetExerciseId: "6c2e58df-666f-420a-81e2-192929555fdc",
+      targetName: "Remada Alta Polia",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
+    {
+      sourceName: "Remada Curvada com Carga (Pegada Neutra)",
+      normalizedSource: "remada curvada com carga (pegada neutra)",
+      targetExerciseId: "ec464c13-8653-4ec4-83b6-0f4ac5855c4a",
+      targetName: "Remada Curvada Halteres Neutra",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
   ];
 
   for (const expected of visuallyApprovedAliases) {
@@ -1239,6 +1253,22 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   assert.equal(broomstickGoodMorning?.runtime_eligible, false);
 
   const stillBlockedAliases = [
+    {
+      sourceName: "Barra Fixa Gráviton (Pegada Aberta)",
+      normalizedSource: "barra fixa graviton (pegada aberta)",
+    },
+    {
+      sourceName: "Desenvolvimento com Halteres (Pegada Neutra)",
+      normalizedSource: "desenvolvimento com halteres (pegada neutra)",
+    },
+    {
+      sourceName: "Encolhimento de Ombros no Smith Pela Frente",
+      normalizedSource: "encolhimento de ombros no smith pela frente",
+    },
+    {
+      sourceName: "Remada Alta com Barra W",
+      normalizedSource: "remada alta com barra w",
+    },
     {
       sourceName: "Abdominal Supra no Solo Pés Altos",
       normalizedSource: "abdominal supra no solo pes altos",
@@ -1328,5 +1358,5 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const currentHash = createHash("sha256").update(aliasText).digest("hex");
   assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
   assert.equal(queuePayload.items.length, 52);
-  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 25);
+  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 27);
 });

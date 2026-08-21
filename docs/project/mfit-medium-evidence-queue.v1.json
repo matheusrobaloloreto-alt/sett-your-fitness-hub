@@ -5,7 +5,7 @@
   "execution_scope": "offline_evidence_review_only",
   "source_snapshot": {
     "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
-    "alias_map_sha256": "e32312fa167b81464f6ebd3b686c27b62d62e10a9a8033adbbda140945841e06",
+    "alias_map_sha256": "d18087f4b6522b4396a1890d404126fd51b183d4ecf2e5fc4a2c042bc7b896c0",
     "medium_names": 52,
     "medium_occurrences": 162
   },
@@ -24,8 +24,8 @@
     "P0": 7,
     "P1": 9,
     "P2": 36,
-    "with_mfit_media_evidence": 30,
-    "needs_more_evidence": 22
+    "with_mfit_media_evidence": 32,
+    "needs_more_evidence": 20
   },
   "items": [
     {
@@ -1441,11 +1441,24 @@
       "proposed_target_name": "Remada Alta Polia",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Remada alta e polia preservadas; altura e barra não constam no SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: remada alta na polia baixa com barra reta foi considerada equivalente ao alvo SETT Remada Alta Polia para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -1456,7 +1469,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Remada Curvada com Carga (Pegada Neutra)",
@@ -1464,11 +1479,24 @@
       "proposed_target_name": "Remada Curvada Halteres Neutra",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Movimento e pegada preservados; “carga” foi interpretada como halteres.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: remada curvada com carga e pegada neutra foi considerada equivalente ao alvo SETT Remada Curvada Halteres Neutra para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -1479,7 +1507,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Remada TRX (Pegada Pronada)",

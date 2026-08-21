@@ -258,3 +258,16 @@ Foram materializados somente os 2 `APPROVE_ALIAS` explicitamente aprovados no ha
 Permanecem bloqueados e fora do mapa executável: `Barra Fixa Gráviton (Pegada Aberta)`, `Desenvolvimento com Halteres (Pegada Neutra)`, `Encolhimento de Ombros no Smith Pela Frente` e `Remada Alta com Barra W`. Permanecem não revisados/sem decisão materializada: `Remada Alta na Polia Baixa com Barra Reta` e `Remada Curvada com Carga (Pegada Neutra)`.
 
 Estado projetado do próximo dry-run: 64 aliases executáveis, 195/313 nomes resolvidos e 118 não resolvidos. O mapa versionado projeta `approved_aliases=64`, `pending_medium=27` e `unresolved_total=118`; a fila de evidência projeta 30 itens com evidência MFIT/revisão e 22 ainda sem resolução suficiente. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.
+
+### Materialização P2 Batch D — 2 APPROVE_ALIAS recebidos
+
+Foram materializados somente os 2 `APPROVE_ALIAS` explicitamente aprovados no handoff Batch D, com evidência sanitizada de revisão independente (`evidence_type=sanitized_independent_review_handoff`), `independent_review_status=approved`, `current_confidence=high`, `decision_status=approved_after_visual_review` e `runtime_eligible=true`. Nenhuma curadoria clínica/prescritiva ou metadado do alvo SETT foi alterado.
+
+| Source MFIT | Target SETT | Base factual sanitizada |
+|---|---|---|
+| `Remada Alta na Polia Baixa com Barra Reta` | `Remada Alta Polia` | Remada alta, cabo/polia e barra reta preservados; altura baixa registrada como diferença aceita apenas para migração histórica. |
+| `Remada Curvada com Carga (Pegada Neutra)` | `Remada Curvada Halteres Neutra` | Remada curvada e pegada neutra preservadas; `carga` foi resolvida para halteres neutros apenas pelo handoff aprovado. |
+
+Permanecem bloqueados e fora do mapa executável: `Barra Fixa Gráviton (Pegada Aberta)`, `Desenvolvimento com Halteres (Pegada Neutra)`, `Encolhimento de Ombros no Smith Pela Frente`, `Remada Alta com Barra W`, `Remada Alta na Polia Alta com Corda` e `Remada Fechada com Halteres no Banco Inclinado`.
+
+Estado projetado do próximo dry-run: 66 aliases executáveis, 197/313 nomes resolvidos e 116 não resolvidos. O mapa versionado projeta `approved_aliases=66`, `pending_medium=25` e `unresolved_total=116`; a fila de evidência projeta 32 itens com evidência MFIT/revisão e 20 ainda sem resolução suficiente. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.

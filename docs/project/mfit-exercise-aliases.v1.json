@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 64,
-    "pending_medium": 27,
+    "approved_aliases": 66,
+    "pending_medium": 25,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 118
+    "unresolved_total": 116
   },
   "aliases": [
     {
@@ -735,6 +735,30 @@
       "independent_review_status": "approved",
       "approved_after_visual_review": true,
       "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Remada Alta na Polia Baixa com Barra Reta",
+      "target_exercise_id": "6c2e58df-666f-420a-81e2-192929555fdc",
+      "target_name": "Remada Alta Polia",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: remada alta na polia baixa com barra reta preserva remada alta, cabo/polia e barra; a altura baixa fica registrada como diferença aceita apenas para o alias MFIT→SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Remada Curvada com Carga (Pegada Neutra)",
+      "target_exercise_id": "ec464c13-8653-4ec4-83b6-0f4ac5855c4a",
+      "target_name": "Remada Curvada Halteres Neutra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: remada curvada com carga e pegada neutra foi resolvida para halteres neutros, preservando movimento e pegada. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
     }
   ],
   "review_queue": {
@@ -818,22 +842,6 @@
         "confidence": "medium",
         "occurrences": 2,
         "blocker": "Remada alta e polia preservadas; altura e corda não constam no SETT."
-      },
-      {
-        "source_name": "Remada Alta na Polia Baixa com Barra Reta",
-        "proposed_target_exercise_id": "6c2e58df-666f-420a-81e2-192929555fdc",
-        "proposed_target_name": "Remada Alta Polia",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Remada alta e polia preservadas; altura e barra não constam no SETT."
-      },
-      {
-        "source_name": "Remada Curvada com Carga (Pegada Neutra)",
-        "proposed_target_exercise_id": "ec464c13-8653-4ec4-83b6-0f4ac5855c4a",
-        "proposed_target_name": "Remada Curvada Halteres Neutra",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Movimento e pegada preservados; “carga” foi interpretada como halteres."
       },
       {
         "source_name": "Remada Fechada Unilateral",
