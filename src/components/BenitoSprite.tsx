@@ -119,6 +119,8 @@ export interface BenitoSpriteStyleInput {
   state: BenitoState;
   frame: number;
   width: number;
+  pixelRatio?: number;
+  atlasPath?: string;
 }
 
 export interface BenitoAnimationModeInput {
@@ -137,22 +139,25 @@ export function getBenitoDisplayHeight(width: number): number {
   return width * (BENITO_ATLAS.cellHeight / BENITO_ATLAS.cellWidth);
 }
 
-export function getBenitoAtlasPath(width: number): string {
-  return width <= BENITO_COMPACT_MAX_WIDTH
-    ? BENITO_COMPACT_ATLAS_PATH
-    : BENITO_ATLAS_PATH;
+export function getBenitoAtlasPath(width: number, pixelRatio = 1): string {
+  const safePixelRatio = Number.isFinite(pixelRatio) && pixelRatio > 0 ? pixelRatio : 1;
+  return safePixelRatio >= 1.5 && width > BENITO_STATIC_ICON_MAX_WIDTH
+    ? BENITO_ATLAS_PATH
+    : BENITO_COMPACT_ATLAS_PATH;
 }
 
 export function getBenitoSpriteStyle({
   state,
   frame,
   width,
+  pixelRatio = 1,
+  atlasPath: atlasPathOverride,
 }: BenitoSpriteStyleInput): CSSProperties {
   const safeWidth = Number.isFinite(width) && width > 0 ? width : BENITO_ATLAS.cellWidth;
   const height = getBenitoDisplayHeight(safeWidth);
   const animation = BENITO_ANIMATIONS[state];
   const safeFrame = Math.max(0, Math.trunc(frame)) % animation.frameCount;
-  const atlasPath = getBenitoAtlasPath(safeWidth);
+  const atlasPath = atlasPathOverride ?? getBenitoAtlasPath(safeWidth, pixelRatio);
 
   return {
     width: safeWidth,
@@ -368,40 +373,61 @@ export function BenitoSprite({
   const decorative = label === "";
   const safeDisplayWidth =
     Number.isFinite(displayWidth) && displayWidth > 0 ? displayWidth : BENITO_ATLAS.cellWidth;
-  const atlasPath = getBenitoAtlasPath(safeDisplayWidth);
-  const getSelectedAtlasStatus = useCallback(() => getAtlasStatus(atlasPath), [atlasPath]);
-  const atlas = useSyncExternalStore(
+  const pixelRatio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+  const preferredAtlasPath = getBenitoAtlasPath(safeDisplayWidth, pixelRatio);
+  const getAtlasSnapshot = useCallback(
+    () => `${getAtlasStatus(BENITO_COMPACT_ATLAS_PATH)}:${getAtlasStatus(preferredAtlasPath)}`,
+    [preferredAtlasPath],
+  );
+  useSyncExternalStore(
     subscribeToAtlas,
-    getSelectedAtlasStatus,
+    getAtlasSnapshot,
     getServerAtlasStatus,
   );
+  const compactAtlasStatus = getAtlasStatus(BENITO_COMPACT_ATLAS_PATH);
+  const preferredAtlasStatus = getAtlasStatus(preferredAtlasPath);
+  const renderedAtlasPath = preferredAtlasStatus === "loaded"
+    ? preferredAtlasPath
+    : compactAtlasStatus === "loaded"
+      ? BENITO_COMPACT_ATLAS_PATH
+      : null;
   const prefersReducedMotion = useReducedMotion(reducedMotion);
   const animationEnabled =
-    atlas === "loaded" &&
+    renderedAtlasPath !== null &&
     safeDisplayWidth > BENITO_STATIC_ICON_MAX_WIDTH &&
     shouldAnimateBenito({ paused, reducedMotion: prefersReducedMotion });
   const clock = useBenitoAnimationClock(animationEnabled);
   const animationOriginRef = useRef({
     state,
-    atlasPath,
+    atlasPath: renderedAtlasPath,
     enabled: animationEnabled,
     startedAt: clock,
   });
 
   useEffect(() => {
-    preloadAtlas(atlasPath);
-  }, [atlasPath]);
+    preloadAtlas(BENITO_COMPACT_ATLAS_PATH);
+  }, []);
 
   useEffect(() => {
-    const retryCount = atlasRetryCounts.get(atlasPath) ?? 0;
-    if (atlas !== "error" || retryCount >= MAX_ATLAS_RETRIES) return;
-    const retryTimer = window.setTimeout(() => retryAtlas(atlasPath), 1200);
-    return () => window.clearTimeout(retryTimer);
-  }, [atlas, atlasPath]);
+    if (preferredAtlasPath === BENITO_COMPACT_ATLAS_PATH) return;
+    if (compactAtlasStatus !== "loaded" && compactAtlasStatus !== "error") return;
+    const preloadTimer = window.setTimeout(() => preloadAtlas(preferredAtlasPath), 0);
+    return () => window.clearTimeout(preloadTimer);
+  }, [compactAtlasStatus, preferredAtlasPath]);
+
+  useEffect(() => {
+    const paths = [...new Set([BENITO_COMPACT_ATLAS_PATH, preferredAtlasPath])];
+    const retryTimers = paths.flatMap((path) => {
+      const retryCount = atlasRetryCounts.get(path) ?? 0;
+      if (getAtlasStatus(path) !== "error" || retryCount >= MAX_ATLAS_RETRIES) return [];
+      return [window.setTimeout(() => retryAtlas(path), 1200)];
+    });
+    return () => retryTimers.forEach((timer) => window.clearTimeout(timer));
+  }, [compactAtlasStatus, preferredAtlasPath, preferredAtlasStatus]);
 
   const committedOrigin = animationOriginRef.current;
   const stateChanged =
-    committedOrigin.state !== state || committedOrigin.atlasPath !== atlasPath;
+    committedOrigin.state !== state || committedOrigin.atlasPath !== renderedAtlasPath;
   const animationStarted = !committedOrigin.enabled && animationEnabled;
   const shouldRestart = (stateChanged && restartOnStateChange) || animationStarted;
   const renderStartedAt = shouldRestart ? clock : committedOrigin.startedAt;
@@ -409,11 +435,11 @@ export function BenitoSprite({
   useEffect(() => {
     animationOriginRef.current = {
       state,
-      atlasPath,
+      atlasPath: renderedAtlasPath,
       enabled: animationEnabled,
       startedAt: renderStartedAt,
     };
-  }, [animationEnabled, atlasPath, renderStartedAt, state]);
+  }, [animationEnabled, renderedAtlasPath, renderStartedAt, state]);
 
   const frame = animationEnabled
     ? getBenitoFrameAtElapsedTime(
@@ -430,6 +456,7 @@ export function BenitoSprite({
       {...commonProps}
       className={className}
       data-benito-state={state}
+      data-benito-atlas={renderedAtlasPath === BENITO_ATLAS_PATH ? "full" : renderedAtlasPath === BENITO_COMPACT_ATLAS_PATH ? "compact" : "fallback"}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -440,20 +467,20 @@ export function BenitoSprite({
         flex: "0 0 auto",
       }}
     >
-      {atlas === "loaded" ? (
+      {renderedAtlasPath ? (
         <span
           aria-hidden="true"
           data-benito-frame={frame}
           style={{
             display: "block",
             flex: "0 0 auto",
-            ...getBenitoSpriteStyle({ state, frame, width: safeDisplayWidth }),
+            ...getBenitoSpriteStyle({ state, frame, width: safeDisplayWidth, atlasPath: renderedAtlasPath }),
           }}
         />
       ) : (
         <BrainCircuit
           aria-hidden="true"
-          data-benito-fallback={atlas === "error" ? "error" : "loading"}
+          data-benito-fallback={compactAtlasStatus === "error" && preferredAtlasStatus === "error" ? "error" : "loading"}
           width={safeDisplayWidth * 0.48}
           height={safeDisplayWidth * 0.48}
         />

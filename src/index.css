@@ -236,6 +236,11 @@
   letter-spacing: -0.01em;
 }
 
+/* Benito stays chromeless while retaining a readable silhouette on light and dark themes. */
+.benito-sprite-prominent [data-benito-frame] {
+  filter: saturate(1.14) contrast(1.08) drop-shadow(0 3px 3px rgb(15 32 73 / 28%));
+}
+
 /* EDITORIAL — espaçoso/leitura confortável: base rem maior, títulos serifados */
 :root[data-layout="editorial"] { font-size: 17px; --radius: 0.85rem; }
 [data-layout="editorial"] h1, [data-layout="editorial"] h2, [data-layout="editorial"] h3,

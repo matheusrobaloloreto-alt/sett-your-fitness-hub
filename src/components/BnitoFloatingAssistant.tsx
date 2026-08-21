@@ -435,9 +435,9 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
                   openBnito();
                 }}
                 style={{ left: buttonPosition.x, top: buttonPosition.y, touchAction: "none" }}
-                className="fixed z-40 flex h-16 w-16 cursor-grab items-center justify-center p-0 text-navy outline-none transition-transform duration-200 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+                className="fixed z-40 flex h-[76px] w-[76px] cursor-grab items-center justify-center p-0 text-navy outline-none transition-transform duration-200 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
               >
-                <BenitoSprite state={petState} size={42} alt="" />
+                <BenitoSprite state={petState} size={60} alt="" className="benito-sprite-prominent" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="left">{`Abrir ${name}`}</TooltipContent>
@@ -446,8 +446,8 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
           <DialogContent className="flex max-h-[88dvh] w-[calc(100vw-1.5rem)] max-w-2xl flex-col gap-0 overflow-hidden rounded-[24px] border-line bg-paper p-0 shadow-2xl [&>button]:rounded-full">
             <DialogHeader className="shrink-0 border-b border-line bg-background px-5 py-4 text-left">
           <div className="flex items-start gap-3 pr-8">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center text-navy">
-              <BenitoSprite state={petState} size={42} alt="" />
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center text-navy">
+              <BenitoSprite state={petState} size={52} alt="" className="benito-sprite-prominent" />
             </div>
             <div className="min-w-0">
               <DialogTitle className="font-display text-2xl text-navy">{name}</DialogTitle>

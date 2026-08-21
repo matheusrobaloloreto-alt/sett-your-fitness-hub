@@ -36,7 +36,7 @@ function BenitoMobileFixture() {
         .assistant-copy { min-width: 0; }
         .assistant-copy strong, .assistant-copy small { display: block; }
         .assistant-copy small { color: #5a6177; }
-        .fab { position: fixed; bottom: 20px; width: 64px; height: 64px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; box-shadow: none; color: #182348; }
+        .fab { position: fixed; bottom: 20px; width: 76px; height: 76px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; box-shadow: none; color: #182348; }
         .fab-professor { left: 20px; }
         .fab-student { right: 20px; }
       `}</style>
@@ -46,7 +46,7 @@ function BenitoMobileFixture() {
         <section className="states" aria-label="Estados do Benito">
           {states.map(({ label, state }) => (
             <div className="state" key={state}>
-              <BenitoSprite state={state} size={42} alt={`Benito: ${label}`} paused={paused} />
+              <BenitoSprite state={state} size={52} alt={`Benito: ${label}`} paused={paused} className="benito-sprite-prominent" />
               <span>{label}</span>
             </div>
           ))}
@@ -54,7 +54,7 @@ function BenitoMobileFixture() {
       </main>
       <aside className="assistant" aria-label="Prévia do assistente">
         <div className="assistant-header">
-          <BenitoSprite state="processing" size={42} alt="Benito processando" paused={paused} />
+          <BenitoSprite state="processing" size={52} alt="Benito processando" paused={paused} className="benito-sprite-prominent" />
           <div className="assistant-copy">
             <strong>Benito está processando</strong>
             <small>Professor e aluno mantêm o mesmo avatar.</small>
@@ -62,10 +62,10 @@ function BenitoMobileFixture() {
         </div>
       </aside>
       <button className="fab fab-professor" data-role="professor" aria-label="Abrir Benito do professor">
-        <BenitoSprite state="idle" size={42} alt="" paused={paused} />
+        <BenitoSprite state="idle" size={60} alt="" paused={paused} className="benito-sprite-prominent" />
       </button>
       <button className="fab fab-student" data-role="student" aria-label="Abrir Benito do aluno">
-        <BenitoSprite state="idle" size={42} alt="" paused={paused} />
+        <BenitoSprite state="idle" size={60} alt="" paused={paused} className="benito-sprite-prominent" />
       </button>
     </>
   );

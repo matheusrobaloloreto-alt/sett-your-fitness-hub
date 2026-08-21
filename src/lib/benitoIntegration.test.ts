@@ -50,8 +50,8 @@ describe("Benito assistant integration", () => {
     const professorFab = extractClassNameAfter(professor, 'data-benito-fab="professor"');
     const studentFab = extractClassNameAfter(student, 'data-benito-fab="student"');
 
-    expect(professorFab).toContain("h-16 w-16");
-    expect(studentFab).toContain("h-16 w-16");
+    expect(professorFab).toContain("h-[76px] w-[76px]");
+    expect(studentFab).toContain("h-[76px] w-[76px]");
     expect(restingChromeTokens(professorFab)).toEqual([]);
     expect(restingChromeTokens(studentFab)).toEqual([]);
     expect(professorFab).toContain("focus-visible:outline");
@@ -61,6 +61,8 @@ describe("Benito assistant integration", () => {
     expect(professor).not.toContain('rounded-full bg-navy text-primary-foreground shadow-md');
     expect(student).not.toContain('rounded-full bg-navy text-primary-foreground shadow-md');
     expect(student).not.toContain('rounded-full bg-navy text-primary-foreground">\n                  <BenitoSprite');
+    expect(professor).toContain('size={60} alt="" className="benito-sprite-prominent"');
+    expect(student).toContain('size={60} alt="" className="benito-sprite-prominent"');
   });
 
   it("preserves floating Benito accessibility, drag behavior, and sprite fallback path", () => {

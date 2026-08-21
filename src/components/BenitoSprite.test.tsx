@@ -28,6 +28,7 @@ class MockImage {
 }
 
 const RealImage = window.Image;
+const RealDevicePixelRatio = window.devicePixelRatio;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -39,6 +40,10 @@ beforeEach(() => {
     writable: true,
     value: MockImage,
   });
+  Object.defineProperty(window, "devicePixelRatio", {
+    configurable: true,
+    value: 1,
+  });
 });
 
 afterEach(() => {
@@ -48,6 +53,10 @@ afterEach(() => {
     configurable: true,
     writable: true,
     value: RealImage,
+  });
+  Object.defineProperty(window, "devicePixelRatio", {
+    configurable: true,
+    value: RealDevicePixelRatio,
   });
   vi.useRealTimers();
 });
@@ -118,7 +127,7 @@ describe("BENITO_ANIMATIONS", () => {
 
 describe("getBenitoSpriteStyle", () => {
   it("scales the full atlas and offsets exact cells at half-native size", () => {
-    const style = getBenitoSpriteStyle({ state: "running-left", frame: 3, width: 96 });
+    const style = getBenitoSpriteStyle({ state: "running-left", frame: 3, width: 96, pixelRatio: 2 });
 
     expect(getBenitoDisplayHeight(96)).toBe(104);
     expect(style).toMatchObject({
@@ -142,11 +151,14 @@ describe("getBenitoSpriteStyle", () => {
     });
   });
 
-  it("selects the compact atlas for 16–48px placements", () => {
+  it("selects atlas density from display size and device pixel ratio", () => {
     expect(getBenitoAtlasPath(16)).toBe(BENITO_COMPACT_ATLAS_PATH);
     expect(getBenitoAtlasPath(42)).toBe(BENITO_COMPACT_ATLAS_PATH);
     expect(getBenitoAtlasPath(48)).toBe(BENITO_COMPACT_ATLAS_PATH);
-    expect(getBenitoAtlasPath(49)).toBe(BENITO_ATLAS_PATH);
+    expect(getBenitoAtlasPath(60, 1)).toBe(BENITO_COMPACT_ATLAS_PATH);
+    expect(getBenitoAtlasPath(28, 2)).toBe(BENITO_COMPACT_ATLAS_PATH);
+    expect(getBenitoAtlasPath(36, 2)).toBe(BENITO_ATLAS_PATH);
+    expect(getBenitoAtlasPath(60, 2)).toBe(BENITO_ATLAS_PATH);
 
     expect(getBenitoSpriteStyle({ state: "waiting", frame: 2, width: 42 })).toMatchObject({
       backgroundImage: `url("${BENITO_COMPACT_ATLAS_PATH}")`,
@@ -195,6 +207,29 @@ describe("animation and fallback contracts", () => {
 
     expect(container.querySelector("[data-benito-fallback]")).not.toBeInTheDocument();
     expect(container.querySelector('[data-benito-frame="0"]')).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Benito saudando" })).toHaveAttribute("data-benito-atlas", "compact");
+  });
+
+  it("paints compact first then swaps to the full atlas on Retina", () => {
+    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 2 });
+    const { container } = render(
+      <BenitoSprite state="greeting" width={60} alt="Benito Retina" />,
+    );
+
+    expect(MockImage.instances).toHaveLength(1);
+    expect(MockImage.instances[0].src).toBe(BENITO_COMPACT_ATLAS_PATH);
+    act(() => MockImage.instances[0].onload?.());
+    expect(screen.getByRole("img", { name: "Benito Retina" })).toHaveAttribute("data-benito-atlas", "compact");
+
+    act(() => vi.advanceTimersByTime(0));
+    expect(MockImage.instances).toHaveLength(2);
+    expect(MockImage.instances[1].src).toBe(BENITO_ATLAS_PATH);
+    act(() => MockImage.instances[1].onload?.());
+
+    expect(screen.getByRole("img", { name: "Benito Retina" })).toHaveAttribute("data-benito-atlas", "full");
+    expect(container.querySelector('[data-benito-frame="0"]')).toHaveStyle({
+      backgroundImage: `url("${BENITO_ATLAS_PATH}")`,
+    });
   });
 
   it("uses one shared timer for multiple animated sprites", () => {
