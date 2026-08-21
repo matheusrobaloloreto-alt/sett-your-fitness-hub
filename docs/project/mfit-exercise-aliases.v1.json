@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 58,
-    "pending_medium": 33,
+    "approved_aliases": 62,
+    "pending_medium": 29,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 124
+    "unresolved_total": 120
   },
   "aliases": [
     {
@@ -351,19 +351,25 @@
       "source_name": "Remada Curvada com Barra Reta (Pegada Pronada)",
       "target_exercise_id": "8fb786df-8ccc-4223-bbea-5fec0fb06c49",
       "target_name": "Remada Curvada Pronada Barra",
-      "status": "needs_review",
-      "confidence": "medium",
+      "status": "approved",
+      "confidence": "high",
       "occurrences": 2,
-      "rationale": "QA biomecânico: pegada preservada, mas o formato reto da barra não está confirmado."
+      "rationale": "QA independente aprovou equivalência para migração histórica: remada curvada com barra reta e pegada pronada preserva movimento, implemento e pegada no alvo SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
     },
     {
       "source_name": "Remada Curvada com Barra Reta (Pegada Supinada)",
       "target_exercise_id": "15e3ad55-f384-4e29-be43-b63cb85a9a5c",
       "target_name": "Remada Curvada Supinada Barra",
-      "status": "needs_review",
-      "confidence": "medium",
+      "status": "approved",
+      "confidence": "high",
       "occurrences": 2,
-      "rationale": "QA biomecânico: pegada preservada, mas o formato reto da barra não está confirmado."
+      "rationale": "QA independente aprovou equivalência para migração histórica: remada curvada com barra reta e pegada supinada preserva movimento, implemento e pegada no alvo SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
     },
     {
       "source_name": "Remada Curvada com Halteres (Pegada Neutra)",
@@ -400,6 +406,18 @@
       "confidence": "medium",
       "occurrences": 1,
       "rationale": "QA biomecânico: o target não confirma halteres; alternância também pode existir em cabos independentes."
+    },
+    {
+      "source_name": "Rosca direta Banco Inclinado",
+      "target_exercise_id": "867a6df5-d665-43ac-b297-d46c2b667741",
+      "target_name": "Rosca Banco 45",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: rosca direta em banco inclinado preserva movimento de flexão de cotovelo e suporte inclinado no alvo SETT Rosca Banco 45. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
     },
     {
       "source_name": "Rosca Direta com Halteres",
@@ -690,18 +708,22 @@
       "independent_review_status": "approved",
       "approved_after_visual_review": true,
       "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Abdominal Infra com as Pernas Estendidas",
+      "target_exercise_id": "2b6e19be-6b4d-44d6-af4b-04f7a09bef60",
+      "target_name": "Abdominal Infra Solo",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: abdominal infra no solo com pernas estendidas preserva padrão, suporte e alavanca do alvo SETT Abdominal Infra Solo. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
     }
   ],
   "review_queue": {
     "medium": [
-      {
-        "source_name": "Abdominal Infra com as Pernas Estendidas",
-        "proposed_target_exercise_id": "2b6e19be-6b4d-44d6-af4b-04f7a09bef60",
-        "proposed_target_name": "Abdominal Infra Solo",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Mesmo padrão abdominal infra no solo; posição estendida não consta no nome SETT."
-      },
       {
         "source_name": "Abdominal Infra com as Pernas Flexionadas",
         "proposed_target_exercise_id": "2b6e19be-6b4d-44d6-af4b-04f7a09bef60",
@@ -845,14 +867,6 @@
         "confidence": "medium",
         "occurrences": 2,
         "blocker": "Rosca direta preservada; barra reta não consta no SETT."
-      },
-      {
-        "source_name": "Rosca direta Banco Inclinado",
-        "proposed_target_exercise_id": "867a6df5-d665-43ac-b297-d46c2b667741",
-        "proposed_target_name": "Rosca Banco 45",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Rosca no banco 45 preserva inclinação; tipo “direta” não é explicitado."
       },
       {
         "source_name": "Sobe/Desce no Banco",

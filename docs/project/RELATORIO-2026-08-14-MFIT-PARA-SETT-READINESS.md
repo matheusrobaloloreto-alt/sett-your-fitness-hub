@@ -230,3 +230,18 @@ Foram materializados somente os 4 `APPROVE_ALIAS` explicitamente aprovados no ha
 Permanecem bloqueados e fora do mapa executável: `Abdominal Supra no Solo Pés Altos`, `Bom dia com Cabo de Vassoura`, `Desenvolvimento Barra Reta` e `Remada Alta na Polia Alta com Corda`.
 
 Estado projetado do próximo dry-run: 58 aliases executáveis, 189/313 nomes resolvidos e 124 não resolvidos. O mapa versionado projeta `approved_aliases=58`, `pending_medium=33` e `unresolved_total=124`; a fila de evidência projeta 24 itens com evidência MFIT/revisão e 28 ainda sem resolução suficiente. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.
+
+### Materialização P2 Batch B — 4 APPROVE_ALIAS recebidos
+
+Foram materializados somente os 4 `APPROVE_ALIAS` explicitamente aprovados no handoff Batch B, com evidência sanitizada de revisão independente (`evidence_type=sanitized_independent_review_handoff`), `independent_review_status=approved`, `current_confidence=high`, `decision_status=approved_after_visual_review` e `runtime_eligible=true`. Nenhuma curadoria clínica/prescritiva ou metadado do alvo SETT foi alterado.
+
+| Source MFIT | Target SETT | Base factual sanitizada |
+|---|---|---|
+| `Remada Curvada com Barra Reta (Pegada Pronada)` | `Remada Curvada Pronada Barra` | Remada curvada com barra reta e pegada pronada preserva movimento, implemento e pegada para migração histórica. |
+| `Remada Curvada com Barra Reta (Pegada Supinada)` | `Remada Curvada Supinada Barra` | Remada curvada com barra reta e pegada supinada preserva movimento, implemento e pegada para migração histórica. |
+| `Rosca direta Banco Inclinado` | `Rosca Banco 45` | Rosca direta em banco inclinado preserva flexão de cotovelo e suporte inclinado no alvo SETT. |
+| `Abdominal Infra com as Pernas Estendidas` | `Abdominal Infra Solo` | Abdominal infra no solo com pernas estendidas preserva padrão, suporte e alavanca do alvo SETT. |
+
+Permanecem bloqueados e fora do mapa executável: `Remada Fechada com Halteres no Banco Inclinado`, `Rosca Direta Barra Reta`, `Abdominal com Rodinha Solo com Apoio` e `Afundo Alternado Smith`. Os dois primeiros e o abdominal seguem como revisão média não elegível no arquivo; `Afundo Alternado Smith` não possui alias executável nem item de evidência materializado no mapa local.
+
+Estado projetado do próximo dry-run: 62 aliases executáveis, 193/313 nomes resolvidos e 120 não resolvidos. O mapa versionado projeta `approved_aliases=62`, `pending_medium=29` e `unresolved_total=120`; a fila de evidência projeta 28 itens com evidência MFIT/revisão e 24 ainda sem resolução suficiente. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.

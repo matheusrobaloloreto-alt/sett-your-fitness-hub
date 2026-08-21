@@ -1009,10 +1009,10 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 58);
-  assert.equal(aliasPayload.summary.pending_medium, 33);
+  assert.equal(aliasPayload.summary.approved_aliases, 62);
+  assert.equal(aliasPayload.summary.pending_medium, 29);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 124);
+  assert.equal(aliasPayload.summary.unresolved_total, 120);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
 
   for (const sourceName of ["Levantamento Terra", "Agachamento Bulgaro"]) {
@@ -1162,6 +1162,34 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
       targetName: "Puxada Pronada Máquina",
       evidenceType: "sanitized_independent_review_handoff",
     },
+    {
+      sourceName: "Remada Curvada com Barra Reta (Pegada Pronada)",
+      normalizedSource: "remada curvada com barra reta (pegada pronada)",
+      targetExerciseId: "8fb786df-8ccc-4223-bbea-5fec0fb06c49",
+      targetName: "Remada Curvada Pronada Barra",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
+    {
+      sourceName: "Remada Curvada com Barra Reta (Pegada Supinada)",
+      normalizedSource: "remada curvada com barra reta (pegada supinada)",
+      targetExerciseId: "15e3ad55-f384-4e29-be43-b63cb85a9a5c",
+      targetName: "Remada Curvada Supinada Barra",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
+    {
+      sourceName: "Rosca direta Banco Inclinado",
+      normalizedSource: "rosca direta banco inclinado",
+      targetExerciseId: "867a6df5-d665-43ac-b297-d46c2b667741",
+      targetName: "Rosca Banco 45",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
+    {
+      sourceName: "Abdominal Infra com as Pernas Estendidas",
+      normalizedSource: "abdominal infra com as pernas estendidas",
+      targetExerciseId: "2b6e19be-6b4d-44d6-af4b-04f7a09bef60",
+      targetName: "Abdominal Infra Solo",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
   ];
 
   for (const expected of visuallyApprovedAliases) {
@@ -1227,12 +1255,28 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
       sourceName: "Remada Alta na Polia Alta com Corda",
       normalizedSource: "remada alta na polia alta com corda",
     },
+    {
+      sourceName: "Remada Fechada com Halteres no Banco Inclinado",
+      normalizedSource: "remada fechada com halteres no banco inclinado",
+    },
+    {
+      sourceName: "Rosca Direta Barra Reta",
+      normalizedSource: "rosca direta barra reta",
+    },
+    {
+      sourceName: "Abdominal com Rodinha Solo com Apoio",
+      normalizedSource: "abdominal com rodinha solo com apoio",
+    },
   ];
   for (const { sourceName, normalizedSource } of stillBlockedAliases) {
     const queueRow = queuePayload.items.find((row) => row.source_name === sourceName);
     assert.equal(aliasIndex.has(normalizedSource), false);
     assert.equal(queueRow?.runtime_eligible, false);
   }
+
+  assert.equal(aliasIndex.has("afundo alternado smith"), false);
+  assert.equal(aliasPayload.aliases.some((row) => row.source_name === "Afundo Alternado Smith"), false);
+  assert.equal(queuePayload.items.some((row) => row.source_name === "Afundo Alternado Smith"), false);
 
   const unilateralBandRow = queuePayload.items.find((row) => row.source_name === "Remada Fechada Unilateral");
   assert.equal(aliasIndex.has("remada fechada unilateral"), false);
@@ -1284,5 +1328,5 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const currentHash = createHash("sha256").update(aliasText).digest("hex");
   assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
   assert.equal(queuePayload.items.length, 52);
-  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 19);
+  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 23);
 });

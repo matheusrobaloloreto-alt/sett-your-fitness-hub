@@ -5,7 +5,7 @@
   "execution_scope": "offline_evidence_review_only",
   "source_snapshot": {
     "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
-    "alias_map_sha256": "05bbe0d9eda6f66eabc21543fadf27dcb3115dc9b5c3907cc062eefa6c0ed371",
+    "alias_map_sha256": "6543e097c351a92d1712f319b1513486b2fefa6652a26ecc54c2948305639dc1",
     "medium_names": 52,
     "medium_occurrences": 162
   },
@@ -24,8 +24,8 @@
     "P0": 7,
     "P1": 9,
     "P2": 36,
-    "with_mfit_media_evidence": 24,
-    "needs_more_evidence": 28
+    "with_mfit_media_evidence": 28,
+    "needs_more_evidence": 24
   },
   "items": [
     {
@@ -952,11 +952,23 @@
       "proposed_target_name": "Remada Curvada Pronada Barra",
       "occurrences": 2,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
-      "blocker": "QA biomecânico: pegada preservada, mas o formato reto da barra não está confirmado.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: remada curvada com barra reta e pegada pronada foi considerada equivalente ao alvo SETT Remada Curvada Pronada Barra para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -967,7 +979,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Remada Curvada com Barra Reta (Pegada Supinada)",
@@ -975,11 +989,23 @@
       "proposed_target_name": "Remada Curvada Supinada Barra",
       "occurrences": 2,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
-      "blocker": "QA biomecânico: pegada preservada, mas o formato reto da barra não está confirmado.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: remada curvada com barra reta e pegada supinada foi considerada equivalente ao alvo SETT Remada Curvada Supinada Barra para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -990,7 +1016,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Remada Fechada com Halteres no Banco Inclinado",
@@ -1021,11 +1049,21 @@
       "proposed_target_name": "Rosca Banco 45",
       "occurrences": 2,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Rosca no banco 45 preserva inclinação; tipo “direta” não é explicitado.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: rosca direta em banco inclinado foi considerada equivalente ao alvo SETT Rosca Banco 45 para migração histórica.",
+        "supports": [
+          "movement",
+          "support_or_posture",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -1036,7 +1074,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Rosca Direta Barra Reta",
@@ -1090,11 +1130,22 @@
       "proposed_target_name": "Abdominal Infra Solo",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Mesmo padrão abdominal infra no solo; posição estendida não consta no nome SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: abdominal infra com pernas estendidas foi considerado equivalente ao alvo SETT Abdominal Infra Solo para migração histórica.",
+        "supports": [
+          "movement",
+          "support_or_posture",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -1105,7 +1156,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Abdução de Quadril Unilateral com Caneleira",
