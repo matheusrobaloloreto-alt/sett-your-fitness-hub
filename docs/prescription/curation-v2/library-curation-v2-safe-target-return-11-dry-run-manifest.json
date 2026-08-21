@@ -1,0 +1,632 @@
+{
+  "schema_version": "library-curation-v2-safe-target-dry-run-manifest.v1",
+  "mode": "dry_run_noop",
+  "generated_at": "2026-08-21T17:52:24.912Z",
+  "source_artifact": "docs/prescription/curation-v2/library-curation-v2-safe-target-return-11.json",
+  "status": "NO_APPROVED_ROWS_NO_SQL_NO_DB",
+  "ready_for_upsert": false,
+  "counts": {
+    "dry_run_rows": 11,
+    "approved_rows": 0,
+    "ready_for_upsert_true": 0,
+    "excluded_rows_retained_outside_manifest": 11,
+    "by_group": {
+      "Posterior de Coxa": 2,
+      "Glúteo": 4,
+      "Deltoide Posterior": 4,
+      "Bíceps": 1
+    }
+  },
+  "provenance": {
+    "source_hashes": {
+      "input_artifact": "ba86987fa425ee89aab3c08ed2c740f8bb76a73abb90c4e60e365659bf719088",
+      "high_signal_review": "a2904d37e7090c44b46ae49dd59eec7ba2c73b113c11087c471f943d818922d0",
+      "catalog_snapshot": "ab677bfc2b88cff378948730a9885930ee6fca7ac4a8ce24d18dd016ade1103e",
+      "manual_plan": "887643e1759842f7d4ed8226655a942eda7fc0a912096f1d5359bb8965e9ded7",
+      "independent_review_record": "be7de0ff22a85cea2476e96d6f52e8f034b6dbd54e0192d08e797dc3435b7d7d",
+      "visual_22_video_review_record": "aa300f64d4239d153fcae24436942e3570ba91dc201cf0da4f053c3dc709fc12"
+    },
+    "offline_execution": {
+      "db_access": false,
+      "network_access": false,
+      "approved_manifest_generated": false,
+      "upsert_sql_generated": false,
+      "staging_or_production_touched": false
+    },
+    "manifest_hash_without_self": "312d3c126c0f45402c18f5d46a0baabc93baa52db2ab742138e12ae99eff481a"
+  },
+  "before_after_diff_by_id": [
+    {
+      "exercise_id": "ae13d351-7019-4b7d-b0e6-cea4b8fea50d",
+      "exercise_name": "Cadeira Flexora com Flexão de Quadril",
+      "source_muscle_group": "posterior de coxa",
+      "before_target_signature": "Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50",
+      "after_target_signature": "Posterior de Coxa:primary:100",
+      "after_targets": [
+        {
+          "muscle_group_id": "77d093d5-0a62-4b1f-b47f-b981e8af19fa",
+          "muscle_group_name": "Posterior de Coxa",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "diff_status": "dry_run_noop_not_applied",
+      "reviewer_status": "needs_review",
+      "ready_for_upsert": false,
+      "canonical_precedents": [
+        {
+          "exercise_id": "961f2121-1053-4f1f-9376-86f21cb9e68b",
+          "exercise_name": "Cadeira Flexora"
+        },
+        {
+          "exercise_id": "9a07c179-37e8-4d8f-9ae9-0f399b1624b2",
+          "exercise_name": "Mesa Flexora"
+        },
+        {
+          "exercise_id": "25c200e9-f296-4a5b-b774-38eda193f832",
+          "exercise_name": "Fisio Posterior: leg curl deslizante (slider)"
+        }
+      ],
+      "rationale": "Flexora is a knee-flexion posterior-chain exercise; the current push-muscle signature is documented as contamination.",
+      "source_snapshot_targets": [
+        {
+          "muscle_group_id": "22b24c2d-1841-4dc9-bc60-34469abd2e18",
+          "muscle_group_name": "Deltoide Anterior",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "6b925fc8-cf05-40aa-a5f8-18418d7439c4",
+          "muscle_group_name": "Tríceps",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "9acae245-fc44-4342-bba8-562cf203db96",
+          "muscle_group_name": "Peitoral",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 1
+        }
+      ]
+    },
+    {
+      "exercise_id": "4a8b14bf-d7a8-422d-932a-63a3af07e453",
+      "exercise_name": "Cadeira Flexora com Flexão de Quadril Unilateral",
+      "source_muscle_group": "posterior de coxa",
+      "before_target_signature": "Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50",
+      "after_target_signature": "Posterior de Coxa:primary:100",
+      "after_targets": [
+        {
+          "muscle_group_id": "77d093d5-0a62-4b1f-b47f-b981e8af19fa",
+          "muscle_group_name": "Posterior de Coxa",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "diff_status": "dry_run_noop_not_applied",
+      "reviewer_status": "needs_review",
+      "ready_for_upsert": false,
+      "canonical_precedents": [
+        {
+          "exercise_id": "961f2121-1053-4f1f-9376-86f21cb9e68b",
+          "exercise_name": "Cadeira Flexora"
+        },
+        {
+          "exercise_id": "6c0996c0-b774-47c0-99e4-f6c3bff1a9c8",
+          "exercise_name": "Cadeira Flexora Unilateral"
+        },
+        {
+          "exercise_id": "4722c027-4a82-4113-b7da-6e3ed5ae3bda",
+          "exercise_name": "Mesa Flexora Unilateral"
+        }
+      ],
+      "rationale": "Unilateral flexora remains a posterior-coxa primary pattern; unilateral status does not support the current peitoral/triceps contamination.",
+      "source_snapshot_targets": [
+        {
+          "muscle_group_id": "22b24c2d-1841-4dc9-bc60-34469abd2e18",
+          "muscle_group_name": "Deltoide Anterior",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "6b925fc8-cf05-40aa-a5f8-18418d7439c4",
+          "muscle_group_name": "Tríceps",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "9acae245-fc44-4342-bba8-562cf203db96",
+          "muscle_group_name": "Peitoral",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 1
+        }
+      ]
+    },
+    {
+      "exercise_id": "3bd15908-90de-4c6a-8c64-31ad3c75f845",
+      "exercise_name": "Coice Polia Baixa",
+      "source_muscle_group": "glúteo",
+      "before_target_signature": "Tríceps:primary:100",
+      "after_target_signature": "Glúteo:primary:100",
+      "after_targets": [
+        {
+          "muscle_group_id": "5cbe97cd-5ae8-4fbe-9f30-5b37203a19d5",
+          "muscle_group_name": "Glúteo",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "diff_status": "dry_run_noop_not_applied",
+      "reviewer_status": "needs_review",
+      "ready_for_upsert": false,
+      "canonical_precedents": [
+        {
+          "exercise_id": "253359b8-bda8-4506-8aaf-d922c1631cad",
+          "exercise_name": "Coice de glúteo (kickback) com banda"
+        },
+        {
+          "exercise_id": "94f78ab8-d580-4ce0-8392-d8ac0fc141b0",
+          "exercise_name": "Glúteo Polia Alta"
+        },
+        {
+          "exercise_id": "cf15749a-32da-4e7f-95c7-67a458950a6e",
+          "exercise_name": "Glúteo Semiflexionado Polia"
+        }
+      ],
+      "rationale": "Coice/kickback in cable setup maps to glute primary; triceps primary is the documented contaminated signature.",
+      "source_snapshot_targets": [
+        {
+          "muscle_group_id": "6b925fc8-cf05-40aa-a5f8-18418d7439c4",
+          "muscle_group_name": "Tríceps",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 1
+        }
+      ]
+    },
+    {
+      "exercise_id": "e6058264-060f-4e41-83ee-6810f38ca520",
+      "exercise_name": "Coice Polia Média",
+      "source_muscle_group": "glúteo",
+      "before_target_signature": "Tríceps:primary:100",
+      "after_target_signature": "Glúteo:primary:100",
+      "after_targets": [
+        {
+          "muscle_group_id": "5cbe97cd-5ae8-4fbe-9f30-5b37203a19d5",
+          "muscle_group_name": "Glúteo",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "diff_status": "dry_run_noop_not_applied",
+      "reviewer_status": "needs_review",
+      "ready_for_upsert": false,
+      "canonical_precedents": [
+        {
+          "exercise_id": "253359b8-bda8-4506-8aaf-d922c1631cad",
+          "exercise_name": "Coice de glúteo (kickback) com banda"
+        },
+        {
+          "exercise_id": "94f78ab8-d580-4ce0-8392-d8ac0fc141b0",
+          "exercise_name": "Glúteo Polia Alta"
+        },
+        {
+          "exercise_id": "cf15749a-32da-4e7f-95c7-67a458950a6e",
+          "exercise_name": "Glúteo Semiflexionado Polia"
+        }
+      ],
+      "rationale": "Medium-cable coice is retained as glute primary in this safe return; no triceps target is supported by the reviewed family.",
+      "source_snapshot_targets": [
+        {
+          "muscle_group_id": "6b925fc8-cf05-40aa-a5f8-18418d7439c4",
+          "muscle_group_name": "Tríceps",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 1
+        }
+      ]
+    },
+    {
+      "exercise_id": "efde85ec-e714-44b9-928c-8db249f06c04",
+      "exercise_name": "Extensão de Quadril Banco Romano com Flexão",
+      "source_muscle_group": "glúteo",
+      "before_target_signature": "Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50",
+      "after_target_signature": "Glúteo:primary:100",
+      "after_targets": [
+        {
+          "muscle_group_id": "5cbe97cd-5ae8-4fbe-9f30-5b37203a19d5",
+          "muscle_group_name": "Glúteo",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "diff_status": "dry_run_noop_not_applied",
+      "reviewer_status": "needs_review",
+      "ready_for_upsert": false,
+      "canonical_precedents": [
+        {
+          "exercise_id": "1dfa63ac-6191-49f8-984a-faffd7c2a5d3",
+          "exercise_name": "Extensão de Quadril Máquina"
+        },
+        {
+          "exercise_id": "a5d763eb-d779-49bc-acd4-665438ab4e01",
+          "exercise_name": "Ponte de glúteo"
+        },
+        {
+          "exercise_id": "d0ff4da9-51b1-4e8f-bffc-d787ba275ffe",
+          "exercise_name": "Fisio Quadril: ponte de glúteo isométrica"
+        }
+      ],
+      "rationale": "Visual review resolved setup as banco romano/45 graus for efde85ec and advanced it only to the separate targets/volume stage; this remains a safe draft with ready_for_upsert=false and still requires QA before any upsert.",
+      "source_snapshot_targets": [
+        {
+          "muscle_group_id": "22b24c2d-1841-4dc9-bc60-34469abd2e18",
+          "muscle_group_name": "Deltoide Anterior",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "6b925fc8-cf05-40aa-a5f8-18418d7439c4",
+          "muscle_group_name": "Tríceps",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "9acae245-fc44-4342-bba8-562cf203db96",
+          "muscle_group_name": "Peitoral",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 1
+        }
+      ]
+    },
+    {
+      "exercise_id": "258bfac0-5456-462d-8530-a8204af6b8f8",
+      "exercise_name": "Glúteo Coice Polia Banco",
+      "source_muscle_group": "glúteo",
+      "before_target_signature": "Tríceps:primary:100",
+      "after_target_signature": "Glúteo:primary:100",
+      "after_targets": [
+        {
+          "muscle_group_id": "5cbe97cd-5ae8-4fbe-9f30-5b37203a19d5",
+          "muscle_group_name": "Glúteo",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "diff_status": "dry_run_noop_not_applied",
+      "reviewer_status": "needs_review",
+      "ready_for_upsert": false,
+      "canonical_precedents": [
+        {
+          "exercise_id": "253359b8-bda8-4506-8aaf-d922c1631cad",
+          "exercise_name": "Coice de glúteo (kickback) com banda"
+        },
+        {
+          "exercise_id": "3b123e3c-8ba7-4b27-9931-ac94f47bfc29",
+          "exercise_name": "Glúteo Semiflexionado Polia Banco"
+        },
+        {
+          "exercise_id": "cf15749a-32da-4e7f-95c7-67a458950a6e",
+          "exercise_name": "Glúteo Semiflexionado Polia"
+        }
+      ],
+      "rationale": "Bench-supported glute cable kickback remains glute primary; triceps primary is the contaminated signature.",
+      "source_snapshot_targets": [
+        {
+          "muscle_group_id": "6b925fc8-cf05-40aa-a5f8-18418d7439c4",
+          "muscle_group_name": "Tríceps",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 1
+        }
+      ]
+    },
+    {
+      "exercise_id": "8fece0e9-3907-4f54-86b4-54a088cb0540",
+      "exercise_name": "Crucifixo Invertido com Peito no Banco",
+      "source_muscle_group": "ombro",
+      "before_target_signature": "Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50",
+      "after_target_signature": "Deltoide Posterior:primary:100",
+      "after_targets": [
+        {
+          "muscle_group_id": "64d81d34-cb15-44d0-b460-5cd209c664e3",
+          "muscle_group_name": "Deltoide Posterior",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "diff_status": "dry_run_noop_not_applied",
+      "reviewer_status": "needs_review",
+      "ready_for_upsert": false,
+      "canonical_precedents": [
+        {
+          "exercise_id": "cad889ac-c8da-4654-b27a-41555e10f212",
+          "exercise_name": "Crucifixo Invertido Curvado"
+        },
+        {
+          "exercise_id": "c36dcbec-494a-4240-bbb3-c8098ae7902e",
+          "exercise_name": "Face Pull Polia Alta"
+        },
+        {
+          "exercise_id": "c5888208-17b3-4b1a-9b20-6b1214c89b6d",
+          "exercise_name": "Face Pull Corda"
+        }
+      ],
+      "rationale": "Reverse fly variation maps to posterior deltoid primary; current pushing-muscle signature is contamination.",
+      "source_snapshot_targets": [
+        {
+          "muscle_group_id": "22b24c2d-1841-4dc9-bc60-34469abd2e18",
+          "muscle_group_name": "Deltoide Anterior",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "6b925fc8-cf05-40aa-a5f8-18418d7439c4",
+          "muscle_group_name": "Tríceps",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "9acae245-fc44-4342-bba8-562cf203db96",
+          "muscle_group_name": "Peitoral",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 1
+        }
+      ]
+    },
+    {
+      "exercise_id": "8a461d7f-c174-4488-8dca-b4339ad26c81",
+      "exercise_name": "Crucifixo Invertido Cruzado Polia",
+      "source_muscle_group": "ombro",
+      "before_target_signature": "Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50",
+      "after_target_signature": "Deltoide Posterior:primary:100",
+      "after_targets": [
+        {
+          "muscle_group_id": "64d81d34-cb15-44d0-b460-5cd209c664e3",
+          "muscle_group_name": "Deltoide Posterior",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "diff_status": "dry_run_noop_not_applied",
+      "reviewer_status": "needs_review",
+      "ready_for_upsert": false,
+      "canonical_precedents": [
+        {
+          "exercise_id": "cad889ac-c8da-4654-b27a-41555e10f212",
+          "exercise_name": "Crucifixo Invertido Curvado"
+        },
+        {
+          "exercise_id": "c36dcbec-494a-4240-bbb3-c8098ae7902e",
+          "exercise_name": "Face Pull Polia Alta"
+        },
+        {
+          "exercise_id": "c5888208-17b3-4b1a-9b20-6b1214c89b6d",
+          "exercise_name": "Face Pull Corda"
+        }
+      ],
+      "rationale": "Cable crossed reverse fly is a posterior-shoulder pattern; no peitoral/triceps target is retained in this safe draft.",
+      "source_snapshot_targets": [
+        {
+          "muscle_group_id": "22b24c2d-1841-4dc9-bc60-34469abd2e18",
+          "muscle_group_name": "Deltoide Anterior",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "6b925fc8-cf05-40aa-a5f8-18418d7439c4",
+          "muscle_group_name": "Tríceps",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "9acae245-fc44-4342-bba8-562cf203db96",
+          "muscle_group_name": "Peitoral",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 1
+        }
+      ]
+    },
+    {
+      "exercise_id": "6e9fdaca-5bfb-420c-b5bf-5beddcce6c05",
+      "exercise_name": "Crucifixo Invertido Sentado",
+      "source_muscle_group": "ombro",
+      "before_target_signature": "Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50",
+      "after_target_signature": "Deltoide Posterior:primary:100",
+      "after_targets": [
+        {
+          "muscle_group_id": "64d81d34-cb15-44d0-b460-5cd209c664e3",
+          "muscle_group_name": "Deltoide Posterior",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "diff_status": "dry_run_noop_not_applied",
+      "reviewer_status": "needs_review",
+      "ready_for_upsert": false,
+      "canonical_precedents": [
+        {
+          "exercise_id": "cad889ac-c8da-4654-b27a-41555e10f212",
+          "exercise_name": "Crucifixo Invertido Curvado"
+        },
+        {
+          "exercise_id": "c36dcbec-494a-4240-bbb3-c8098ae7902e",
+          "exercise_name": "Face Pull Polia Alta"
+        },
+        {
+          "exercise_id": "c5888208-17b3-4b1a-9b20-6b1214c89b6d",
+          "exercise_name": "Face Pull Corda"
+        }
+      ],
+      "rationale": "Seated reverse fly is grouped with posterior deltoid precedents; final approval still requires independent QA before upsert.",
+      "source_snapshot_targets": [
+        {
+          "muscle_group_id": "22b24c2d-1841-4dc9-bc60-34469abd2e18",
+          "muscle_group_name": "Deltoide Anterior",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "6b925fc8-cf05-40aa-a5f8-18418d7439c4",
+          "muscle_group_name": "Tríceps",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "9acae245-fc44-4342-bba8-562cf203db96",
+          "muscle_group_name": "Peitoral",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 1
+        }
+      ]
+    },
+    {
+      "exercise_id": "b5265c3f-05a3-4fdc-834a-2b6f0c69d12b",
+      "exercise_name": "Crucifixo Invertido Unilateral Polia",
+      "source_muscle_group": "ombro",
+      "before_target_signature": "Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50",
+      "after_target_signature": "Deltoide Posterior:primary:100",
+      "after_targets": [
+        {
+          "muscle_group_id": "64d81d34-cb15-44d0-b460-5cd209c664e3",
+          "muscle_group_name": "Deltoide Posterior",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "diff_status": "dry_run_noop_not_applied",
+      "reviewer_status": "needs_review",
+      "ready_for_upsert": false,
+      "canonical_precedents": [
+        {
+          "exercise_id": "cad889ac-c8da-4654-b27a-41555e10f212",
+          "exercise_name": "Crucifixo Invertido Curvado"
+        },
+        {
+          "exercise_id": "c36dcbec-494a-4240-bbb3-c8098ae7902e",
+          "exercise_name": "Face Pull Polia Alta"
+        },
+        {
+          "exercise_id": "c5888208-17b3-4b1a-9b20-6b1214c89b6d",
+          "exercise_name": "Face Pull Corda"
+        }
+      ],
+      "rationale": "Unilateral cable reverse fly remains posterior deltoid primary; this artifact keeps it non-upsertable pending QA.",
+      "source_snapshot_targets": [
+        {
+          "muscle_group_id": "22b24c2d-1841-4dc9-bc60-34469abd2e18",
+          "muscle_group_name": "Deltoide Anterior",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "6b925fc8-cf05-40aa-a5f8-18418d7439c4",
+          "muscle_group_name": "Tríceps",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "9acae245-fc44-4342-bba8-562cf203db96",
+          "muscle_group_name": "Peitoral",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 1
+        }
+      ]
+    },
+    {
+      "exercise_id": "bf33e722-9da1-4e32-af62-546bb5176c3a",
+      "exercise_name": "Rosca Scott Barra",
+      "source_muscle_group": "bíceps",
+      "before_target_signature": "Bíceps:secondary:50 | Deltoide Posterior:secondary:50 | Dorsal:primary:100 | Trapézio:secondary:50",
+      "after_target_signature": "Bíceps:primary:100",
+      "after_targets": [
+        {
+          "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
+          "muscle_group_name": "Bíceps",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "diff_status": "dry_run_noop_not_applied",
+      "reviewer_status": "needs_review",
+      "ready_for_upsert": false,
+      "canonical_precedents": [
+        {
+          "exercise_id": "ac9d61cc-6bcc-4c5e-ac00-094f43fe1453",
+          "exercise_name": "Rosca Scott Máquina"
+        },
+        {
+          "exercise_id": "1dba3d51-da68-44a7-a720-f7caf0c36cd2",
+          "exercise_name": "Rosca Scott Unilateral Neutra Halter"
+        },
+        {
+          "exercise_id": "21c97317-199d-400a-ad43-0a29179570ae",
+          "exercise_name": "Rosca Direta Barra W"
+        }
+      ],
+      "rationale": "Rosca Scott is an elbow-flexion biceps exercise; dorsal/trapezio/posterior-deltoid signature is treated as contamination.",
+      "source_snapshot_targets": [
+        {
+          "muscle_group_id": "613809f7-2188-49cb-ba31-e406e8742104",
+          "muscle_group_name": "Dorsal",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 1
+        },
+        {
+          "muscle_group_id": "64d81d34-cb15-44d0-b460-5cd209c664e3",
+          "muscle_group_name": "Deltoide Posterior",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
+          "muscle_group_name": "Bíceps",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        },
+        {
+          "muscle_group_id": "a269b423-1a11-4e8a-92d1-ed1293aeab47",
+          "muscle_group_name": "Trapézio",
+          "role": "secondary",
+          "is_primary": false,
+          "volume_percentage": 0.5
+        }
+      ]
+    }
+  ]
+}
