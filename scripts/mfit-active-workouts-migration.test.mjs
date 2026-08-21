@@ -1009,9 +1009,10 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 41);
+  assert.equal(aliasPayload.summary.approved_aliases, 48);
+  assert.equal(aliasPayload.summary.pending_medium, 43);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 141);
+  assert.equal(aliasPayload.summary.unresolved_total, 134);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
 
   for (const sourceName of ["Levantamento Terra", "Agachamento Bulgaro"]) {
@@ -1041,6 +1042,94 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   assert.equal(seatedHipAbductionEvidence?.independent_review_status, "approved");
   assert.equal(seatedHipAbductionEvidence?.runtime_eligible, true);
 
+  const visuallyApprovedAliases = [
+    {
+      sourceName: "Abdução de Quadril Unilateral com Caneleira",
+      normalizedSource: "abducao de quadril unilateral com caneleira",
+      targetExerciseId: "e789f3da-6de9-4be5-b039-adfb38f8a955",
+      targetName: "Abdução de Quadril com Caneleira",
+      mediaId: "25",
+    },
+    {
+      sourceName: "Puxada Aberta Barra reta",
+      normalizedSource: "puxada aberta barra reta",
+      targetExerciseId: "f0d967d8-ff18-4881-8c28-aca104bf5ac6",
+      targetName: "Puxada Pronada Polia",
+      mediaId: "565",
+    },
+    {
+      sourceName: "Remada Baixa Triangulo",
+      normalizedSource: "remada baixa triangulo",
+      targetExerciseId: "0db0d50d-5d72-4ade-97f2-3ec1c64218d8",
+      targetName: "Remada Baixa Neutra",
+      mediaId: "576",
+    },
+    {
+      sourceName: "Pulldown Barra Reta",
+      normalizedSource: "pulldown barra reta",
+      targetExerciseId: "afbe8bbe-2cf2-4404-a609-7c9647ec3eeb",
+      targetName: "Pulldown barra",
+      mediaId: "1104",
+    },
+    {
+      sourceName: "Face Pull",
+      normalizedSource: "face pull",
+      targetExerciseId: "c5888208-17b3-4b1a-9b20-6b1214c89b6d",
+      targetName: "Face Pull Corda",
+      mediaId: "1110",
+    },
+    {
+      sourceName: "Tríceps na Polia com Barra Reta",
+      normalizedSource: "triceps na polia com barra reta",
+      targetExerciseId: "d06f7cc9-380d-4fb1-9b60-5bd92a25dc22",
+      targetName: "Tríceps Polia Barra",
+      mediaId: "415",
+    },
+    {
+      sourceName: "Flexão de Braços com Apoio",
+      normalizedSource: "flexao de bracos com apoio",
+      targetExerciseId: "be707dcf-d4cc-4788-8d23-551f5730e971",
+      targetName: "Flexão Aberta com Apoio do Joelho",
+      mediaId: "239",
+    },
+  ];
+
+  for (const expected of visuallyApprovedAliases) {
+    const alias = aliasIndex.get(expected.normalizedSource);
+    assert.equal(alias?.target_exercise_id, expected.targetExerciseId);
+    assert.equal(alias?.target_name, expected.targetName);
+    assert.equal(alias?.match_scope, "alias");
+
+    const aliasRow = aliasPayload.aliases.find((row) => row.source_name === expected.sourceName);
+    assert.equal(aliasRow?.target_exercise_id, expected.targetExerciseId);
+    assert.equal(aliasRow?.target_name, expected.targetName);
+    assert.equal(aliasRow?.status, "approved");
+    assert.equal(aliasRow?.confidence, "high");
+    assert.equal(aliasRow?.independent_review_status, "approved");
+    assert.equal(aliasRow?.approved_after_visual_review, true);
+    assert.equal(aliasRow?.media_id, expected.mediaId);
+
+    const queueRow = queuePayload.items.find((row) => row.source_name === expected.sourceName);
+    assert.equal(queueRow?.proposed_target_exercise_id, expected.targetExerciseId);
+    assert.equal(queueRow?.proposed_target_name, expected.targetName);
+    assert.equal(queueRow?.current_confidence, "high");
+    assert.equal(queueRow?.decision_status, "approved_after_visual_review");
+    assert.equal(queueRow?.independent_review_status, "approved");
+    assert.equal(queueRow?.runtime_eligible, true);
+    assert.equal(queueRow?.mfit_media_evidence?.media_id, expected.mediaId);
+    assert.equal(queueRow?.mfit_media_evidence?.video_url_verified_200, true);
+    assert.equal(queueRow?.mfit_media_evidence?.thumbnail_observed, true);
+    assert.equal(queueRow?.mfit_media_evidence?.observed_via, "authenticated_read_only_browser");
+    assert.equal(queueRow?.mfit_media_evidence?.observed_at, "2026-08-20");
+    assert.ok(queueRow?.mfit_media_evidence?.visual_finding);
+  }
+
+  const broomstickGoodMorning = queuePayload.items.find(
+    (row) => row.source_name === "Bom dia com Cabo de Vassoura",
+  );
+  assert.equal(broomstickGoodMorning?.decision_status, "needs_evidence");
+  assert.equal(broomstickGoodMorning?.runtime_eligible, false);
+
   for (const sourceName of ["Puxada Neutra triangulo", "Mobilidade de Tornozelo Semi Ajoelhado"]) {
     const evidence = queuePayload.items.find((row) => row.source_name === sourceName);
     assert.equal(evidence?.decision_status, "needs_more_evidence");
@@ -1051,5 +1140,5 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const currentHash = createHash("sha256").update(aliasText).digest("hex");
   assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
   assert.equal(queuePayload.items.length, 52);
-  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 2);
+  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 9);
 });

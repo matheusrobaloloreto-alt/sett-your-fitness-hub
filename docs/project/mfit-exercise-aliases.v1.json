@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 41,
-    "pending_medium": 50,
+    "approved_aliases": 48,
+    "pending_medium": 43,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 141
+    "unresolved_total": 134
   },
   "aliases": [
     {
@@ -279,10 +279,13 @@
       "source_name": "Pulldown Barra Reta",
       "target_exercise_id": "afbe8bbe-2cf2-4404-a609-7c9647ec3eeb",
       "target_name": "Pulldown barra",
-      "status": "needs_review",
-      "confidence": "medium",
+      "status": "approved",
+      "confidence": "high",
       "occurrences": 4,
-      "rationale": "QA biomecânico: o formato reto da barra desaparece no target genérico."
+      "rationale": "QA independente visual: extensão de ombro/pulldown de braços estendidos, polia alta, barra reta e suporte em pé preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "1104"
     },
     {
       "source_name": "Pulldown com Corda",
@@ -333,10 +336,13 @@
       "source_name": "Remada Baixa Triangulo",
       "target_exercise_id": "0db0d50d-5d72-4ade-97f2-3ec1c64218d8",
       "target_name": "Remada Baixa Neutra",
-      "status": "needs_review",
-      "confidence": "medium",
+      "status": "approved",
+      "confidence": "high",
       "occurrences": 4,
-      "rationale": "QA biomecânico: neutralidade não garante o puxador triangular/fechado."
+      "rationale": "QA independente visual: padrão de remada baixa, suporte sentado, puxador triangular e pegada neutra/fechada preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "576"
     },
     {
       "source_name": "Remada Curvada com Barra Reta (Pegada Pronada)",
@@ -477,10 +483,13 @@
       "source_name": "Tríceps na Polia com Barra Reta",
       "target_exercise_id": "d06f7cc9-380d-4fb1-9b60-5bd92a25dc22",
       "target_name": "Tríceps Polia Barra",
-      "status": "needs_review",
-      "confidence": "medium",
+      "status": "approved",
+      "confidence": "high",
       "occurrences": 1,
-      "rationale": "QA biomecânico: barra reta pode ser substituída por V/W no target genérico, alterando punho e trajetória."
+      "rationale": "QA independente visual: extensão de cotovelo na polia, barra reta/curta, suporte em pé e pegada em pronação preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "415"
     },
     {
       "source_name": "Tríceps na Polia com Corda",
@@ -522,6 +531,54 @@
       "independent_review_status": "approved",
       "occurrences": 1,
       "rationale": "Override independente: os dois IDs usam a mesma demonstração; o alvo escolhido já possui alvos musculares e vínculo com a curadoria, enquanto a duplicata não possui metadados nem alvo primário."
+    },
+    {
+      "source_name": "Abdução de Quadril Unilateral com Caneleira",
+      "target_exercise_id": "e789f3da-6de9-4be5-b039-adfb38f8a955",
+      "target_name": "Abdução de Quadril com Caneleira",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente visual: movimento primário de abdução de quadril, implemento caneleira e unilateralidade preservados; diferença de suporte decúbito lateral versus em pé com apoio é aceitável para migração histórica.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "25"
+    },
+    {
+      "source_name": "Puxada Aberta Barra reta",
+      "target_exercise_id": "f0d967d8-ff18-4881-8c28-aca104bf5ac6",
+      "target_name": "Puxada Pronada Polia",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 10,
+      "rationale": "QA independente visual: padrão de puxada vertical, polia, barra longa e pegada aberta/pronada preservados; diferença nominal não altera a semântica histórica.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "565"
+    },
+    {
+      "source_name": "Face Pull",
+      "target_exercise_id": "c5888208-17b3-4b1a-9b20-6b1214c89b6d",
+      "target_name": "Face Pull Corda",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 11,
+      "rationale": "QA independente visual: padrão face pull, cabo/polia, corda, suporte em pé e trajetória até a face preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "1110"
+    },
+    {
+      "source_name": "Flexão de Braços com Apoio",
+      "target_exercise_id": "be707dcf-d4cc-4788-8d23-551f5730e971",
+      "target_name": "Flexão Aberta com Apoio do Joelho",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente visual: push-up em cadeia fechada com joelhos apoiados e largura aberta/moderada preservados; o source genérico “com apoio” fica resolvido pela evidência visual.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "239"
     }
   ],
   "review_queue": {
@@ -557,14 +614,6 @@
         "confidence": "medium",
         "occurrences": 1,
         "blocker": "“Abdominal Rodinha” preserva o movimento; apoio/solo não é explicitado no SETT."
-      },
-      {
-        "source_name": "Abdução de Quadril Unilateral com Caneleira",
-        "proposed_target_exercise_id": "e789f3da-6de9-4be5-b039-adfb38f8a955",
-        "proposed_target_name": "Abdução de Quadril com Caneleira",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Movimento e caneleira preservados; unilateralidade não consta no SETT."
       },
       {
         "source_name": "Abdução de Quadril em Pé com Caneleira",
@@ -663,36 +712,12 @@
         "blocker": "Encolhimento e Smith preservados; posição “pela frente” não consta no SETT."
       },
       {
-        "source_name": "Face Pull",
-        "proposed_target_exercise_id": "c5888208-17b3-4b1a-9b20-6b1214c89b6d",
-        "proposed_target_name": "Face Pull Corda",
-        "confidence": "medium",
-        "occurrences": 11,
-        "blocker": "Mesmo movimento; corda é inferida entre várias implementações SETT."
-      },
-      {
-        "source_name": "Flexão de Braços com Apoio",
-        "proposed_target_exercise_id": "be707dcf-d4cc-4788-8d23-551f5730e971",
-        "proposed_target_name": "Flexão Aberta com Apoio do Joelho",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Flexão assistida preservada; “apoio” foi interpretado como joelhos."
-      },
-      {
         "source_name": "Mobilidade de Tornozelo Semi Ajoelhado",
         "proposed_target_exercise_id": "3f384f30-1259-4e27-a7bf-70889243ac41",
         "proposed_target_name": "Mobilidade de Tornozelo",
         "confidence": "medium",
         "occurrences": 6,
         "blocker": "Região e objetivo preservados; posição semi-ajoelhada não consta no SETT."
-      },
-      {
-        "source_name": "Puxada Aberta Barra reta",
-        "proposed_target_exercise_id": "f0d967d8-ff18-4881-8c28-aca104bf5ac6",
-        "proposed_target_name": "Puxada Pronada Polia",
-        "confidence": "medium",
-        "occurrences": 10,
-        "blocker": "Puxada aberta/barra corresponde à puxada pronada na polia; largura não consta no SETT."
       },
       {
         "source_name": "Puxada Articulada Aberta",

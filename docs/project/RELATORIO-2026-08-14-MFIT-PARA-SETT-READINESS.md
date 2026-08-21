@@ -166,3 +166,21 @@ O segundo revisor auditou os três casos com mídia completa. Apenas `Abdução 
 `Puxada Neutra triangulo` → `Puxada Neutra Polia` e `Mobilidade de Tornozelo Semi Ajoelhado` → `Mobilidade de Tornozelo` permanecem bloqueados: os alvos genéricos ainda não provam, respectivamente, o acessório triangular/V-bar fechado e a postura semi-ajoelhada. Ambos passaram a `needs_more_evidence`, continuam `runtime_eligible=false` e exigem evidência do alvo ou um alvo específico.
 
 Estado projetado do próximo dry-run: 41 aliases executáveis, 172/313 nomes resolvidos e 141 não resolvidos. A fila histórica mantém 52 itens; 2 estão aprovados, 2 possuem mídia mas ainda precisam de evidência do alvo e 48 ainda não possuem mídia observada. Não havia snapshots operacionais privados atuais no worktree ou diretórios temporários para repetir o dry-run real; nenhum apply ou escrita remota foi executado.
+
+### Lote independente MFIT/SETT — 7 aliases visuais aprovados
+
+QA biomecânica independente aprovou mais 7 aliases por evidência visual, sem curadoria de metadados do alvo SETT e sem escrita remota. Para cada linha, o MP4 público respondeu 200, o thumbnail foi observado, `observed_via=authenticated_read_only_browser`, `observed_at=2026-08-20`, `independent_review_status=approved`, `current_confidence=high`, `decision_status=approved_after_visual_review` e `runtime_eligible=true`.
+
+| Source MFIT | `media_id` | Target SETT | Base factual da aprovação |
+|---|---:|---|---|
+| `Abdução de Quadril Unilateral com Caneleira` | 25 | `Abdução de Quadril com Caneleira` | Abdução unilateral de quadril com caneleira; diferença de suporte/postura aceita apenas para migração histórica. |
+| `Puxada Aberta Barra reta` | 565 | `Puxada Pronada Polia` | Puxada vertical sentada na polia, barra longa, pegada aberta/pronada e apoio para coxas. |
+| `Remada Baixa Triangulo` | 576 | `Remada Baixa Neutra` | Remada baixa sentada na polia com puxador triangular/fechado e pegada neutra. |
+| `Pulldown Barra Reta` | 1104 | `Pulldown barra` | Pulldown de braços estendidos em polia alta com barra reta. |
+| `Face Pull` | 1110 | `Face Pull Corda` | Face pull em pé na polia alta com corda, trajetória em direção à face. |
+| `Tríceps na Polia com Barra Reta` | 415 | `Tríceps Polia Barra` | Extensão de cotovelo em pé na polia com barra curta reta. |
+| `Flexão de Braços com Apoio` | 239 | `Flexão Aberta com Apoio do Joelho` | Flexão de braços no solo com joelhos apoiados e mãos em largura aberta/moderada. |
+
+`Bom dia com Cabo de Vassoura` permanece bloqueado: a ocorrência visual observada era apenas `Bom Dia`, sem prova do implemento cabo de vassoura.
+
+Estado projetado do próximo dry-run: 48 aliases executáveis, 179/313 nomes resolvidos e 134 não resolvidos. O mapa versionado projeta `approved_aliases=48`, `pending_medium=43` e `unresolved_total=134`; a fila de evidência projeta 11 itens com mídia observada e 41 ainda em `needs_more_evidence`. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.

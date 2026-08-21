@@ -5,7 +5,7 @@
   "execution_scope": "offline_evidence_review_only",
   "source_snapshot": {
     "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
-    "alias_map_sha256": "fa5236fb540d1a65d1131c4a034199caa57e1a1d48b5ec9d1cea3586d3b2855f",
+    "alias_map_sha256": "6f06d43df2bdb73f65e9302b1fc7f38746d1e645d98b2b2c0fa46212daba21a6",
     "medium_names": 52,
     "medium_occurrences": 162
   },
@@ -24,8 +24,8 @@
     "P0": 7,
     "P1": 9,
     "P2": 36,
-    "with_mfit_media_evidence": 4,
-    "needs_more_evidence": 48
+    "with_mfit_media_evidence": 11,
+    "needs_more_evidence": 41
   },
   "items": [
     {
@@ -65,11 +65,29 @@
       "proposed_target_name": "Face Pull Corda",
       "occurrences": 11,
       "priority": "P0",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Mesmo movimento; corda é inferida entre várias implementações SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "1110",
+        "video_url": "https://vd.mfitpersonal.com.br/v2/1110/mp4/1110_opt.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/v2/1110/jpg/md/1110_md.0000001.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Face pull em pé na polia alta com corda, puxando em direção à face; o vídeo SETT confirma face pull por cabo/corda.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -80,7 +98,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Remada Fechada Unilateral",
@@ -134,11 +154,29 @@
       "proposed_target_name": "Puxada Pronada Polia",
       "occurrences": 10,
       "priority": "P0",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Puxada aberta/barra corresponde à puxada pronada na polia; largura não consta no SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "565",
+        "video_url": "https://vd.mfitpersonal.com.br/565/mp4/565.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/565/jpg/md/565_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Puxada vertical sentada na polia, com barra longa, pegada aberta/pronada e apoio para as coxas; o vídeo SETT confirma puxada aberta no pulley com barra longa.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -149,7 +187,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Puxada Neutra triangulo",
@@ -312,11 +352,29 @@
       "proposed_target_name": "Pulldown barra",
       "occurrences": 4,
       "priority": "P1",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
-      "blocker": "QA biomecânico: o formato reto da barra desaparece no target genérico.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "1104",
+        "video_url": "https://vd.mfitpersonal.com.br/v2/1104/mp4/1104_opt.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/v2/1104/jpg/md/1104_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Pulldown de braços estendidos em polia alta com barra reta, em pé com tronco inclinado; o vídeo SETT confirma pulldown de braços estendidos com barra.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -327,7 +385,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Remada Baixa Triangulo",
@@ -335,11 +395,29 @@
       "proposed_target_name": "Remada Baixa Neutra",
       "occurrences": 4,
       "priority": "P1",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
-      "blocker": "QA biomecânico: neutralidade não garante o puxador triangular/fechado.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "576",
+        "video_url": "https://vd.mfitpersonal.com.br/576/mp4/576.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/576/jpg/md/576_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Remada baixa sentada na polia com puxador triangular/fechado e pegada neutra; o vídeo SETT confirma remada baixa com triângulo.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -350,7 +428,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Abdominal Infra com as Pernas Flexionadas",
@@ -802,11 +882,29 @@
       "proposed_target_name": "Abdução de Quadril com Caneleira",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Movimento e caneleira preservados; unilateralidade não consta no SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "25",
+        "video_url": "https://vd.mfitpersonal.com.br/25/mp4/25.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/25/jpg/md/25_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Abdução unilateral de quadril com caneleira, em decúbito lateral; o alvo SETT preserva abdução de quadril unilateral com caneleira, com diferença apenas de suporte/postura aceitável para histórico.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -817,7 +915,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Afundo Alternado no Smith",
@@ -940,11 +1040,29 @@
       "proposed_target_name": "Flexão Aberta com Apoio do Joelho",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Flexão assistida preservada; “apoio” foi interpretado como joelhos.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "239",
+        "video_url": "https://vd.mfitpersonal.com.br/239/mp4/239.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/239/jpg/md/239_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Flexão de braços no solo com joelhos apoiados e mãos afastadas em largura compatível com flexão aberta; o vídeo SETT confirma flexão com apoio de joelhos.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -955,7 +1073,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Prancha Isometrica com Trx",
@@ -1216,11 +1336,29 @@
       "proposed_target_name": "Tríceps Polia Barra",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
-      "blocker": "QA biomecânico: barra reta pode ser substituída por V/W no target genérico, alterando punho e trajetória.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "415",
+        "video_url": "https://vd.mfitpersonal.com.br/415/mp4/415.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/415/jpg/md/415_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Extensão de cotovelo em pé na polia com barra curta reta; o vídeo SETT confirma tríceps na polia com barra visualmente reta.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -1231,7 +1369,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Tríceps Testa com Halteres",
