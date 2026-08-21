@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 66,
-    "pending_medium": 25,
+    "approved_aliases": 69,
+    "pending_medium": 22,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 116
+    "unresolved_total": 113
   },
   "aliases": [
     {
@@ -447,10 +447,13 @@
       "source_name": "Rosca Direta na Polia (Barra Reta)",
       "target_exercise_id": "d154f0c1-5df4-4fd4-a487-3cfcaee43988",
       "target_name": "Rosca Direta Polia Barra",
-      "status": "needs_review",
-      "confidence": "medium",
+      "status": "approved",
+      "confidence": "high",
       "occurrences": 1,
-      "rationale": "QA biomecânico: polia preservada, mas o formato reto da barra não está confirmado."
+      "rationale": "QA independente aprovou equivalência para migração histórica: rosca direta na polia com barra reta preserva flexão de cotovelo, cabo/polia e barra no alvo SETT Rosca Direta Polia Barra. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
     },
     {
       "source_name": "Rosca Martelo com Halteres",
@@ -487,6 +490,30 @@
       "confidence": "high",
       "occurrences": 1,
       "rationale": "Equivalência step-up; frontal/unilateral são implícitos no movimento."
+    },
+    {
+      "source_name": "Sobe/Desce no Banco",
+      "target_exercise_id": "a67f2841-bf56-477d-8743-405c34d8360d",
+      "target_name": "Subida no caixote (step-up)",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: sobe/desce no banco preserva o padrão de step-up no alvo SETT Subida no caixote (step-up). A diferença banco/caixote fica registrada como aceita apenas para o alias MFIT→SETT; a curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Supino Máquina Inclinado (Pegada Neutra)",
+      "target_exercise_id": "be15aca9-9af9-4e55-8c54-288689feb7cd",
+      "target_name": "Supino Inclinado Máquina",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: supino inclinado em máquina preserva empurrar inclinado e máquina no alvo SETT Supino Inclinado Máquina. A pegada neutra fica registrada como diferença aceita apenas para o alias MFIT→SETT; a curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
     },
     {
       "source_name": "Supino Reto com Halteres",
@@ -884,28 +911,12 @@
         "blocker": "Rosca direta preservada; barra reta não consta no SETT."
       },
       {
-        "source_name": "Sobe/Desce no Banco",
-        "proposed_target_exercise_id": "a67f2841-bf56-477d-8743-405c34d8360d",
-        "proposed_target_name": "Subida no caixote (step-up)",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Forte equivalência funcional com step-up; banco/caixote diferem."
-      },
-      {
         "source_name": "Subida no Caixote com Halteres",
         "proposed_target_exercise_id": "a67f2841-bf56-477d-8743-405c34d8360d",
         "proposed_target_name": "Subida no caixote (step-up)",
         "confidence": "medium",
         "occurrences": 1,
         "blocker": "Subida no caixote preservada; halteres não constam no SETT."
-      },
-      {
-        "source_name": "Supino Máquina Inclinado (Pegada Neutra)",
-        "proposed_target_exercise_id": "be15aca9-9af9-4e55-8c54-288689feb7cd",
-        "proposed_target_name": "Supino Inclinado Máquina",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Supino inclinado em máquina preservado; pegada neutra não consta no SETT."
       },
       {
         "source_name": "Tríceps Testa com Halteres",

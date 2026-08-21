@@ -5,7 +5,7 @@
   "execution_scope": "offline_evidence_review_only",
   "source_snapshot": {
     "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
-    "alias_map_sha256": "d18087f4b6522b4396a1890d404126fd51b183d4ecf2e5fc4a2c042bc7b896c0",
+    "alias_map_sha256": "f6fee03e709a43fff1309af743291f043dbfc0f401aea7e23eec885574ccfdcb",
     "medium_names": 52,
     "medium_occurrences": 162
   },
@@ -24,8 +24,8 @@
     "P0": 7,
     "P1": 9,
     "P2": 36,
-    "with_mfit_media_evidence": 32,
-    "needs_more_evidence": 20
+    "with_mfit_media_evidence": 35,
+    "needs_more_evidence": 17
   },
   "items": [
     {
@@ -1586,11 +1586,23 @@
       "proposed_target_name": "Rosca Direta Polia Barra",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
-      "blocker": "QA biomecânico: polia preservada, mas o formato reto da barra não está confirmado.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: rosca direta na polia com barra reta foi considerada equivalente ao alvo SETT Rosca Direta Polia Barra para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -1601,7 +1613,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Sobe/Desce no Banco",
@@ -1609,11 +1623,22 @@
       "proposed_target_name": "Subida no caixote (step-up)",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Forte equivalência funcional com step-up; banco/caixote diferem.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: sobe/desce no banco foi considerado equivalente ao alvo SETT Subida no caixote (step-up) para migração histórica.",
+        "supports": [
+          "movement",
+          "support_or_posture",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -1624,7 +1649,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Subida no Caixote com Halteres",
@@ -1655,11 +1682,23 @@
       "proposed_target_name": "Supino Inclinado Máquina",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Supino inclinado em máquina preservado; pegada neutra não consta no SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: supino em máquina inclinada com pegada neutra foi considerado equivalente ao alvo SETT Supino Inclinado Máquina para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "support_or_posture",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -1670,7 +1709,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Tríceps na Polia com Barra Reta",

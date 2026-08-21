@@ -1009,10 +1009,10 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 66);
-  assert.equal(aliasPayload.summary.pending_medium, 25);
+  assert.equal(aliasPayload.summary.approved_aliases, 69);
+  assert.equal(aliasPayload.summary.pending_medium, 22);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 116);
+  assert.equal(aliasPayload.summary.unresolved_total, 113);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
 
   for (const sourceName of ["Levantamento Terra", "Agachamento Bulgaro"]) {
@@ -1204,6 +1204,27 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
       targetName: "Remada Curvada Halteres Neutra",
       evidenceType: "sanitized_independent_review_handoff",
     },
+    {
+      sourceName: "Rosca Direta na Polia (Barra Reta)",
+      normalizedSource: "rosca direta na polia (barra reta)",
+      targetExerciseId: "d154f0c1-5df4-4fd4-a487-3cfcaee43988",
+      targetName: "Rosca Direta Polia Barra",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
+    {
+      sourceName: "Sobe/Desce no Banco",
+      normalizedSource: "sobe/desce no banco",
+      targetExerciseId: "a67f2841-bf56-477d-8743-405c34d8360d",
+      targetName: "Subida no caixote (step-up)",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
+    {
+      sourceName: "Supino Máquina Inclinado (Pegada Neutra)",
+      normalizedSource: "supino maquina inclinado (pegada neutra)",
+      targetExerciseId: "be15aca9-9af9-4e55-8c54-288689feb7cd",
+      targetName: "Supino Inclinado Máquina",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
   ];
 
   for (const expected of visuallyApprovedAliases) {
@@ -1290,6 +1311,10 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
       normalizedSource: "remada fechada com halteres no banco inclinado",
     },
     {
+      sourceName: "Afundo Alternado no Smith",
+      normalizedSource: "afundo alternado no smith",
+    },
+    {
       sourceName: "Rosca Direta Barra Reta",
       normalizedSource: "rosca direta barra reta",
     },
@@ -1358,5 +1383,5 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const currentHash = createHash("sha256").update(aliasText).digest("hex");
   assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
   assert.equal(queuePayload.items.length, 52);
-  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 27);
+  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 30);
 });

@@ -271,3 +271,17 @@ Foram materializados somente os 2 `APPROVE_ALIAS` explicitamente aprovados no ha
 Permanecem bloqueados e fora do mapa executável: `Barra Fixa Gráviton (Pegada Aberta)`, `Desenvolvimento com Halteres (Pegada Neutra)`, `Encolhimento de Ombros no Smith Pela Frente`, `Remada Alta com Barra W`, `Remada Alta na Polia Alta com Corda` e `Remada Fechada com Halteres no Banco Inclinado`.
 
 Estado projetado do próximo dry-run: 66 aliases executáveis, 197/313 nomes resolvidos e 116 não resolvidos. O mapa versionado projeta `approved_aliases=66`, `pending_medium=25` e `unresolved_total=116`; a fila de evidência projeta 32 itens com evidência MFIT/revisão e 20 ainda sem resolução suficiente. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.
+
+### Materialização P2 Batch E — 3 APPROVE_ALIAS recebidos e 1 conflito preservado
+
+Foram materializados somente 3 dos 4 `APPROVE_ALIAS` do handoff Batch E, com evidência sanitizada de revisão independente (`evidence_type=sanitized_independent_review_handoff`), `independent_review_status=approved`, `current_confidence=high`, `decision_status=approved_after_visual_review` e `runtime_eligible=true`. Nenhuma curadoria clínica/prescritiva ou metadado do alvo SETT foi alterado.
+
+| Source MFIT | Target SETT | Base factual sanitizada |
+|---|---|---|
+| `Rosca Direta na Polia (Barra Reta)` | `Rosca Direta Polia Barra` | Rosca direta na polia com barra reta preserva flexão de cotovelo, cabo/polia e barra no alvo SETT. |
+| `Sobe/Desce no Banco` | `Subida no caixote (step-up)` | Sobe/desce no banco preserva o padrão de step-up do alvo SETT; a diferença banco/caixote fica aceita apenas para migração histórica. |
+| `Supino Máquina Inclinado (Pegada Neutra)` | `Supino Inclinado Máquina` | Supino inclinado em máquina preserva empurrar inclinado e máquina; pegada neutra fica aceita apenas para migração histórica. |
+
+`Afundo Alternado no Smith` → `Afundo Smith` permanece bloqueado: há conflito com revisão anterior do Batch B, que havia mantido a linha fora do runtime por alternância/sequência/lateralidade. O alias segue `runtime_eligible=false`, `decision_status=needs_evidence` e requer reconciliação independente antes de qualquer materialização.
+
+Estado projetado do próximo dry-run: 69 aliases executáveis, 200/313 nomes resolvidos e 113 não resolvidos. O mapa versionado projeta `approved_aliases=69`, `pending_medium=22` e `unresolved_total=113`; a fila de evidência projeta 35 itens com evidência MFIT/revisão e 17 ainda sem resolução suficiente. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.
