@@ -35,23 +35,23 @@
 
 | exercise_id | exercise_name | before | after | ready_for_upsert |
 |---|---|---|---|---:|
-| `ae13d351-7019-4b7d-b0e6-cea4b8fea50d` | Cadeira Flexora com Flexão de Quadril | Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50 | Posterior de Coxa:primary:100 | false |
-| `4a8b14bf-d7a8-422d-932a-63a3af07e453` | Cadeira Flexora com Flexão de Quadril Unilateral | Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50 | Posterior de Coxa:primary:100 | false |
+| `ae13d351-7019-4b7d-b0e6-cea4b8fea50d` | Cadeira Flexora com Flexão de Quadril | Deltoide Anterior:secondary:50 \| Peitoral:primary:100 \| Tríceps:secondary:50 | Posterior de Coxa:primary:100 | false |
+| `4a8b14bf-d7a8-422d-932a-63a3af07e453` | Cadeira Flexora com Flexão de Quadril Unilateral | Deltoide Anterior:secondary:50 \| Peitoral:primary:100 \| Tríceps:secondary:50 | Posterior de Coxa:primary:100 | false |
 | `3bd15908-90de-4c6a-8c64-31ad3c75f845` | Coice Polia Baixa | Tríceps:primary:100 | Glúteo:primary:100 | false |
 | `e6058264-060f-4e41-83ee-6810f38ca520` | Coice Polia Média | Tríceps:primary:100 | Glúteo:primary:100 | false |
-| `efde85ec-e714-44b9-928c-8db249f06c04` | Extensão de Quadril Banco Romano com Flexão | Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50 | Glúteo:primary:100 | false |
+| `efde85ec-e714-44b9-928c-8db249f06c04` | Extensão de Quadril Banco Romano com Flexão | Deltoide Anterior:secondary:50 \| Peitoral:primary:100 \| Tríceps:secondary:50 | Glúteo:primary:100 | false |
 | `258bfac0-5456-462d-8530-a8204af6b8f8` | Glúteo Coice Polia Banco | Tríceps:primary:100 | Glúteo:primary:100 | false |
-| `8fece0e9-3907-4f54-86b4-54a088cb0540` | Crucifixo Invertido com Peito no Banco | Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50 | Deltoide Posterior:primary:100 | false |
-| `8a461d7f-c174-4488-8dca-b4339ad26c81` | Crucifixo Invertido Cruzado Polia | Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50 | Deltoide Posterior:primary:100 | false |
-| `6e9fdaca-5bfb-420c-b5bf-5beddcce6c05` | Crucifixo Invertido Sentado | Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50 | Deltoide Posterior:primary:100 | false |
-| `b5265c3f-05a3-4fdc-834a-2b6f0c69d12b` | Crucifixo Invertido Unilateral Polia | Deltoide Anterior:secondary:50 | Peitoral:primary:100 | Tríceps:secondary:50 | Deltoide Posterior:primary:100 | false |
-| `bf33e722-9da1-4e32-af62-546bb5176c3a` | Rosca Scott Barra | Bíceps:secondary:50 | Deltoide Posterior:secondary:50 | Dorsal:primary:100 | Trapézio:secondary:50 | Bíceps:primary:100 | false |
+| `8fece0e9-3907-4f54-86b4-54a088cb0540` | Crucifixo Invertido com Peito no Banco | Deltoide Anterior:secondary:50 \| Peitoral:primary:100 \| Tríceps:secondary:50 | Deltoide Posterior:primary:100 | false |
+| `8a461d7f-c174-4488-8dca-b4339ad26c81` | Crucifixo Invertido Cruzado Polia | Deltoide Anterior:secondary:50 \| Peitoral:primary:100 \| Tríceps:secondary:50 | Deltoide Posterior:primary:100 | false |
+| `6e9fdaca-5bfb-420c-b5bf-5beddcce6c05` | Crucifixo Invertido Sentado | Deltoide Anterior:secondary:50 \| Peitoral:primary:100 \| Tríceps:secondary:50 | Deltoide Posterior:primary:100 | false |
+| `b5265c3f-05a3-4fdc-834a-2b6f0c69d12b` | Crucifixo Invertido Unilateral Polia | Deltoide Anterior:secondary:50 \| Peitoral:primary:100 \| Tríceps:secondary:50 | Deltoide Posterior:primary:100 | false |
+| `bf33e722-9da1-4e32-af62-546bb5176c3a` | Rosca Scott Barra | Bíceps:secondary:50 \| Deltoide Posterior:secondary:50 \| Dorsal:primary:100 \| Trapézio:secondary:50 | Bíceps:primary:100 | false |
 
 ## Hashes
 
 | artifact | sha256 |
 |---|---|
-| manifest_json | d17b268ad8064679e6b9c4b9bc2248b1ed6718f132b6964a0231e955b99f8907 |
+| manifest_json | 3b0459fb258f421149e82e43a2624ff67ef93b2b60cc1198bd104765cf350c09 |
 | report_md | omitted_self_referential_hash |
 | catalog_snapshot | ab677bfc2b88cff378948730a9885930ee6fca7ac4a8ce24d18dd016ade1103e |
 | high_signal_review | a2904d37e7090c44b46ae49dd59eec7ba2c73b113c11087c471f943d818922d0 |

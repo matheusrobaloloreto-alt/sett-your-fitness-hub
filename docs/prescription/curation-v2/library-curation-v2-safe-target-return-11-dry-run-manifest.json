@@ -1,7 +1,7 @@
 {
   "schema_version": "library-curation-v2-safe-target-dry-run-manifest.v1",
   "mode": "dry_run_noop",
-  "generated_at": "2026-08-21T17:52:24.912Z",
+  "generated_at": "2026-08-21T17:55:57.265Z",
   "source_artifact": "docs/prescription/curation-v2/library-curation-v2-safe-target-return-11.json",
   "status": "NO_APPROVED_ROWS_NO_SQL_NO_DB",
   "ready_for_upsert": false,
@@ -33,7 +33,7 @@
       "upsert_sql_generated": false,
       "staging_or_production_touched": false
     },
-    "manifest_hash_without_self": "312d3c126c0f45402c18f5d46a0baabc93baa52db2ab742138e12ae99eff481a"
+    "manifest_hash_without_self": "6e5832719c8dc4ee8867f9456d5dabb5ae331de564d53a1e5bddcbfad2056387"
   },
   "before_after_diff_by_id": [
     {

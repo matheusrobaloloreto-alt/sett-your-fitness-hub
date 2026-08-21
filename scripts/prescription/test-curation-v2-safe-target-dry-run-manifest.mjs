@@ -35,6 +35,45 @@ function assert(condition, message) {
   if (!condition) fail(message);
 }
 
+function splitMarkdownTableRow(line) {
+  const cells = [];
+  let current = "";
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === "\\" && line[i + 1] === "|") {
+      current += "\\|";
+      i++;
+      continue;
+    }
+    if (char === "|") {
+      cells.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  cells.push(current.trim());
+  if (cells[0] === "") cells.shift();
+  if (cells[cells.length - 1] === "") cells.pop();
+  return cells;
+}
+
+function assertBeforeAfterTableShape(reportText) {
+  const lines = reportText.split("\n");
+  const start = lines.findIndex((line) => line.trim() === "## Before/After Diff By ID");
+  assert(start >= 0, "report must include before/after table section");
+  const tableLines = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i].startsWith("## ")) break;
+    if (lines[i].startsWith("|")) tableLines.push(lines[i]);
+  }
+  assert(tableLines.length === 13, `before/after table must contain header + separator + 11 rows, got ${tableLines.length}`);
+  for (const line of tableLines) {
+    const cells = splitMarkdownTableRow(line);
+    assert(cells.length === 5, `before/after table row must have 5 columns, got ${cells.length}: ${line}`);
+  }
+}
+
 function assertNoNetworkOrDbCalls() {
   const source = fs.readFileSync(BUILDER, "utf8");
   const banned = [
@@ -91,6 +130,7 @@ try {
   }
   const reportText = fs.readFileSync(reportPath, "utf8");
   assert(reportText.includes("No database, network, approved manifest, upsert SQL"), "report must state offline/noop guardrails");
+  assertBeforeAfterTableShape(reportText);
   assert(fs.readFileSync(reviewCsvPath, "utf8").includes('"ready_for_upsert"'), "review CSV must contain ready_for_upsert header");
 
   run(process.execPath, [

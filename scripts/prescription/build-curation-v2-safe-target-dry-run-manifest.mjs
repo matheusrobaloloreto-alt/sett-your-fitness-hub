@@ -120,6 +120,10 @@ function csvCell(value) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
 
+function markdownCell(value) {
+  return String(value ?? "").replace(/\n/g, " ").replace(/\|/g, "\\|");
+}
+
 function writeCsv(file, rows) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const lines = [REVIEW_HEADERS.map(csvCell).join(",")];
@@ -284,7 +288,7 @@ function buildReport({ args, manifest, manifestHash }) {
   lines.push("| exercise_id | exercise_name | before | after | ready_for_upsert |");
   lines.push("|---|---|---|---|---:|");
   for (const row of manifest.before_after_diff_by_id) {
-    lines.push(`| \`${row.exercise_id}\` | ${row.exercise_name} | ${row.before_target_signature} | ${row.after_target_signature} | ${row.ready_for_upsert} |`);
+    lines.push(`| \`${row.exercise_id}\` | ${markdownCell(row.exercise_name)} | ${markdownCell(row.before_target_signature)} | ${markdownCell(row.after_target_signature)} | ${row.ready_for_upsert} |`);
   }
   lines.push("");
   lines.push("## Hashes");
