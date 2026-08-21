@@ -299,3 +299,9 @@ O ledger documental deixou de usar `pending_medium=22` como mistura de bloqueio 
 | `never_reviewed_medium` | 0 | Não há item médio sem primeira revisão após o checkpoint do Chrome. |
 
 Compatibilidade runtime preservada: somente aliases `approved/high` continuam executáveis; `blocked_after_visual_review` e `approved_pending_materialization` permanecem `runtime_eligible=false` e fora do índice de aliases do migrador.
+
+### Materialização final do aprovado pendente — 2026-08-21
+
+`Tríceps Testa com Halteres` → `Tríceps Testa Halteres Banco Reto` foi materializado após revisão independente sanitizada (`contains_pii=false`) aprovar execução em banco reto com dois halteres, bilateral, preservando extensão de cotovelo/testa com halteres. O alias entrou no runtime apenas como `approved/high`; a linha histórica do ledger passou para `decision_status=approved_after_visual_review`, `runtime_eligible=true` e `observed_via=independent_review_handoff`.
+
+Estado projetado do próximo dry-run: 70 aliases executáveis, 201/313 nomes resolvidos e 112 não resolvidos. O mapa versionado projeta `approved_aliases=70`, `runtime_false_medium=21`, `blocked_after_visual_review=21`, `approved_pending_materialization=0`, `pending_medium=0`, `never_reviewed_medium=0` e `unresolved_total=112`. A fila de evidência passa a 36 itens com evidência MFIT/revisão materializada. O dry-run real continua condicionado aos snapshots operacionais privados atuais; nenhum `--apply`, DB write, fuzzy matching, target-curation ou dado pessoal foi usado nesta materialização.

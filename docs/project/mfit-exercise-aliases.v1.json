@@ -14,16 +14,16 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 69,
+    "approved_aliases": 70,
     "pending_medium": 0,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 113,
-    "runtime_false_medium": 22,
+    "unresolved_total": 112,
+    "runtime_false_medium": 21,
     "blocked_after_visual_review": 21,
     "never_reviewed_medium": 0,
-    "approved_pending_materialization": 1
+    "approved_pending_materialization": 0
   },
   "aliases": [
     {
@@ -592,6 +592,18 @@
       "confidence": "high",
       "occurrences": 2,
       "rationale": "Movimento, polia e corda preservados."
+    },
+    {
+      "source_name": "Tríceps Testa com Halteres",
+      "target_exercise_id": "883f77a1-c25f-4626-aed5-9d18c8955508",
+      "target_name": "Tríceps Testa Halteres Banco Reto",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente visual sanitizado: execução em banco reto com dois halteres, bilateral, preservando extensão de cotovelo/testa com halteres; banco reto aceito para migração histórica.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
     },
     {
       "source_name": "Tríceps na Polia com Barra Reta",
@@ -1210,27 +1222,7 @@
         }
       }
     ],
-    "approved_pending_materialization": [
-      {
-        "source_name": "Tríceps Testa com Halteres",
-        "proposed_target_exercise_id": "883f77a1-c25f-4626-aed5-9d18c8955508",
-        "proposed_target_name": "Tríceps Testa Halteres Banco Reto",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Movimento e halteres preservados; banco reto é inferido.",
-        "decision_status": "approved_pending_materialization",
-        "runtime_eligible": false,
-        "independent_review_status": "approved",
-        "review_provenance": {
-          "evidence_type": "sanitized_independent_review_handoff",
-          "batch": "post-ledger visual review",
-          "source_report": "specialist_chrome_checkpoint_2026-08-21",
-          "contains_pii": false
-        },
-        "current_confidence": "medium",
-        "visual_finding": "Revisão visual sanitizada: execução em banco reto com dois halteres, bilateral, preservando extensão de cotovelo/testa com halteres."
-      }
-    ]
+    "approved_pending_materialization": []
   },
   "limitations": [
     "Os 180 registros MFIT não têm description, equipment nem muscle_group preenchidos; 13 têm nota de execução, usada apenas quando discriminante.",

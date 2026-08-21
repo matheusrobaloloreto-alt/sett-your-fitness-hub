@@ -5,7 +5,7 @@
   "execution_scope": "offline_evidence_review_only",
   "source_snapshot": {
     "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
-    "alias_map_sha256": "35bb1c0659b88be9ebd9811ab7f0035ecec19559c9b26ab57e1935066acfcd35",
+    "alias_map_sha256": "59651b99d51c7279faa4264ae2228b9b19ede59f61cb2f8c198d9d7412609b20",
     "medium_names": 52,
     "medium_occurrences": 162
   },
@@ -24,13 +24,13 @@
     "P0": 7,
     "P1": 9,
     "P2": 36,
-    "with_mfit_media_evidence": 35,
+    "with_mfit_media_evidence": 36,
     "needs_more_evidence": 0,
-    "runtime_false_medium": 22,
+    "runtime_false_medium": 21,
     "blocked_after_visual_review": 21,
     "pending_new_review": 0,
     "never_reviewed_medium": 0,
-    "approved_pending_materialization": 1
+    "approved_pending_materialization": 0
   },
   "items": [
     {
@@ -1911,11 +1911,23 @@
       "proposed_target_name": "Tríceps Testa Halteres Banco Reto",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "approved_pending_materialization",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Movimento e halteres preservados; banco reto é inferido.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Revisão visual sanitizada: execução em banco reto com dois halteres, bilateral, preservando extensão de cotovelo/testa com halteres.",
+        "supports": [
+          "movement",
+          "implement",
+          "support_or_posture",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -1926,7 +1938,7 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false,
+      "runtime_eligible": true,
       "independent_review_status": "approved",
       "review_provenance": {
         "evidence_type": "sanitized_independent_review_handoff",
@@ -1934,7 +1946,7 @@
         "source_report": "specialist_chrome_checkpoint_2026-08-21",
         "contains_pii": false
       },
-      "visual_assessment": "supports_proposed_target_pending_materialization",
+      "visual_assessment": "supports_proposed_target",
       "visual_finding": "Revisão visual sanitizada: execução em banco reto com dois halteres, bilateral, preservando extensão de cotovelo/testa com halteres."
     }
   ]

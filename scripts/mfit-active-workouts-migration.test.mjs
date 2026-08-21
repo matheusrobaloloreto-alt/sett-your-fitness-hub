@@ -1016,18 +1016,17 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 69);
-  assert.equal(aliasPayload.summary.runtime_false_medium, 22);
+  assert.equal(aliasPayload.summary.approved_aliases, 70);
+  assert.equal(aliasPayload.summary.runtime_false_medium, 21);
   assert.equal(aliasPayload.summary.blocked_after_visual_review, 21);
-  assert.equal(aliasPayload.summary.approved_pending_materialization, 1);
+  assert.equal(aliasPayload.summary.approved_pending_materialization, 0);
   assert.equal(aliasPayload.summary.pending_medium, 0);
   assert.equal(aliasPayload.summary.never_reviewed_medium, 0);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 113);
+  assert.equal(aliasPayload.summary.unresolved_total, 112);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
   assert.deepEqual(aliasPayload.review_queue.medium, []);
-  assert.equal(aliasPayload.review_queue.approved_pending_materialization.length, 1);
-  assert.equal(aliasPayload.review_queue.approved_pending_materialization[0].source_name, "Tríceps Testa com Halteres");
+  assert.deepEqual(aliasPayload.review_queue.approved_pending_materialization, []);
 
   const blockedVisualQueue = queuePayload.items.filter(
     (row) => row.decision_status === "blocked_after_visual_review",
@@ -1035,14 +1034,12 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const approvedPendingQueue = queuePayload.items.filter(
     (row) => row.decision_status === "approved_pending_materialization",
   );
-  assert.equal(queuePayload.summary.runtime_false_medium, 22);
+  assert.equal(queuePayload.summary.runtime_false_medium, 21);
   assert.equal(queuePayload.summary.blocked_after_visual_review, 21);
-  assert.equal(queuePayload.summary.approved_pending_materialization, 1);
+  assert.equal(queuePayload.summary.approved_pending_materialization, 0);
   assert.equal(queuePayload.summary.never_reviewed_medium, 0);
   assert.equal(blockedVisualQueue.length, 21);
-  assert.equal(approvedPendingQueue.length, 1);
-  assert.equal(approvedPendingQueue[0].source_name, "Tríceps Testa com Halteres");
-  assert.equal(approvedPendingQueue[0].runtime_eligible, false);
+  assert.equal(approvedPendingQueue.length, 0);
   assert.ok(blockedVisualQueue.every((row) => row.runtime_eligible === false));
 
   const afundoConflict = aliasPayload.aliases.find((row) => row.source_name === "Afundo Alternado no Smith");
@@ -1154,6 +1151,13 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
       targetExerciseId: "043b569d-b13d-4ff7-9d4e-a552ff9d85ef",
       targetName: "Tríceps Testa Barra Banco Reto",
       mediaId: "558",
+    },
+    {
+      sourceName: "Tríceps Testa com Halteres",
+      normalizedSource: "triceps testa com halteres",
+      targetExerciseId: "883f77a1-c25f-4626-aed5-9d18c8955508",
+      targetName: "Tríceps Testa Halteres Banco Reto",
+      evidenceType: "sanitized_independent_review_handoff",
     },
     {
       sourceName: "Agachamento Lateral Alternado",
@@ -1418,5 +1422,5 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const currentHash = createHash("sha256").update(aliasText).digest("hex");
   assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
   assert.equal(queuePayload.items.length, 52);
-  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 30);
+  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 31);
 });
