@@ -108,12 +108,22 @@ describe("BN Prescription Engine v1", () => {
     const program = generateTrainingProgram(baseInput({
       fitnessLevel: "intermediario",
       daysPerWeek: 3,
+      isEnduranceAthlete: true,
+      runningDaysContext: { days_per_week: 3, sport: "corrida" },
       catalog: limitedCatalog,
     }));
     const idsByWorkout = program.workouts.map((workout) => workout.exercises.map((exercise) => exercise.exercise_id));
+    const reuseWarnings = program.validator.pre_save.warnings.filter((warning) => warning.code === "cross_session_reuse");
 
     expect(idsByWorkout.every((ids) => new Set(ids).size === ids.length)).toBe(true);
     expect(program.library_policy.gaps.some((gap) => gap.includes("cross_session_reuse"))).toBe(true);
+    expect(reuseWarnings).toHaveLength(1);
+    expect(reuseWarnings[0]).toMatchObject({
+      severity: "warning",
+      source: "biblioteca",
+    });
+    expect(program.validator.pre_save.blockers.some((blocker) => blocker.code === "cross_session_reuse")).toBe(false);
+    expect(hasWarning(program, "endurance_agenda_missing")).toBe(true);
   });
 
   it("não transforma nomes de campos ou respostas clínicas negativas em dor", () => {
@@ -903,7 +913,7 @@ describe("BN Prescription Engine v1 — Golden Test Cases GC-01..GC-12", () => {
     expect(program.methodology_preset.key).toBe("hipertrofia_intermediario");
     expect(program.workouts.length).toBe(4);
     expect(program.weekly_structure).toContain("Upper/Lower");
-    expect(program.validator.pre_save.warnings).toEqual([]);
+    expect(program.validator.pre_save.warnings.filter((warning) => warning.code !== "cross_session_reuse")).toEqual([]);
     expect(program.validator.pre_save.blockers).toEqual([]);
     expect(weeklySets(program, "costas")).toBeGreaterThanOrEqual(10);
     expect(weeklySets(program, "costas")).toBeLessThanOrEqual(16);

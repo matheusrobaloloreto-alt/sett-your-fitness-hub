@@ -113,6 +113,24 @@ export function validateTrainingProgram(args: {
     });
   }
 
+  const crossSessionReuse = [...new Map(
+    args.program.library_policy.gaps
+      .filter((gap) => gap.startsWith("WARNING:cross_session_reuse"))
+      .map((gap) => {
+        const [, , phase, exerciseId, exerciseName] = gap.split(":");
+        return [exerciseId || gap, { phase, exerciseId, exerciseName }];
+      }),
+  ).values()];
+  if (crossSessionReuse.length > 0) {
+    add({
+      severity: "warning",
+      code: "cross_session_reuse",
+      message: `Reuso entre sessões detectado para ${crossSessionReuse.length} exercício(s): ${crossSessionReuse.map((item) => item.exerciseName || item.exerciseId).join(", ")}.`,
+      recommendation: "Aceitável como penalidade leve quando o catálogo é estreito; revisar se houver alternativa equivalente para variar estímulo entre sessões.",
+      source: "biblioteca",
+    });
+  }
+
   const optionalGaps = args.program.library_policy.gaps.filter((gap) =>
     gap.startsWith("WARNING:safe_alternative_unavailable") || gap.startsWith("WARNING:session_unique_exhausted")
   );
