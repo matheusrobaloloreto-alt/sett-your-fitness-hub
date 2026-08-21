@@ -102,7 +102,20 @@ export function validateTrainingProgram(args: {
     });
   }
 
-  const optionalGaps = args.program.library_policy.gaps.filter((gap) => gap.startsWith("WARNING:"));
+  const sessionUniqueGaps = args.program.library_policy.gaps.filter((gap) => gap.startsWith("BLOCKER:session_unique_exhausted"));
+  for (const gap of sessionUniqueGaps) {
+    add({
+      severity: "blocker",
+      code: "library_session_unique_exhausted",
+      message: `A biblioteca elegível acabou antes de completar a sessão sem repetir exercício (${gap.split(":").slice(2).join(" / ")}).`,
+      recommendation: "Cadastrar alternativa segura ou revisar manualmente a sessão; o motor não deve duplicar exercise_id no mesmo treino.",
+      source: "biblioteca",
+    });
+  }
+
+  const optionalGaps = args.program.library_policy.gaps.filter((gap) =>
+    gap.startsWith("WARNING:safe_alternative_unavailable") || gap.startsWith("WARNING:session_unique_exhausted")
+  );
   for (const gap of optionalGaps) {
     add({
       severity: "warning",

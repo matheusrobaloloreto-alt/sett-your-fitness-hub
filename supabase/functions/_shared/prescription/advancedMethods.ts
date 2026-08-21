@@ -52,6 +52,40 @@ export interface AdvancedMethodCtx {
 // Heurística simples de isolador quando o motor não marca is_isolation.
 const COMPOUND_RE = /(agachamento|terra|levantamento|supino|desenvolvimento|remada|barra fixa|leg press|stiff|avanço|afundo|clean|snatch|push press|thruster)/i;
 const HEAVY_COMPOUND_RE = /(agachamento|terra|levantamento|leg press|hack|stiff|clean|snatch|push press|thruster)/i;
+function normalizeGroup(value: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function groupFamily(ex: MethodAwareExercise): string | null {
+  const group = normalizeGroup(ex.muscle_group);
+  const name = normalizeGroup(ex.exercise_name);
+  const text = `${group} ${name}`;
+  if (/peitoral|chest|supino|crucifixo|crossover/.test(text)) return "peitoral";
+  if (/costas|dorsal|remada|puxada|barra fixa|lat/.test(text)) return "costas";
+  if (/biceps|rosca/.test(text)) return "biceps";
+  if (/triceps|testa|corda|paralela/.test(text)) return "triceps";
+  if (/quadriceps|quadric|extensora|leg press|agachamento/.test(text)) return "quadriceps";
+  if (/posterior|isquio|flexora|mesa flexora|stiff|terra romeno/.test(text)) return "posterior";
+  return null;
+}
+
+function isAntagonistPair(a: MethodAwareExercise, b: MethodAwareExercise): boolean {
+  const left = groupFamily(a);
+  const right = groupFamily(b);
+  if (!left || !right) return false;
+  return (
+    (left === "peitoral" && right === "costas") ||
+    (left === "costas" && right === "peitoral") ||
+    (left === "biceps" && right === "triceps") ||
+    (left === "triceps" && right === "biceps") ||
+    (left === "quadriceps" && right === "posterior") ||
+    (left === "posterior" && right === "quadriceps")
+  );
+}
+
 function isIsolation(ex: MethodAwareExercise): boolean {
   if (typeof ex.is_isolation === "boolean") return ex.is_isolation;
   return !COMPOUND_RE.test(ex.exercise_name || "");
@@ -73,6 +107,15 @@ function isSafeGroupingCandidate(ex: MethodAwareExercise): boolean {
 function lastConsecutivePair(indexes: number[]): number[] {
   for (let index = indexes.length - 1; index > 0; index -= 1) {
     if (indexes[index] === indexes[index - 1] + 1) return [indexes[index - 1], indexes[index]];
+  }
+  return [];
+}
+
+function lastConsecutiveAntagonistPair(indexes: number[], exercises: MethodAwareExercise[]): number[] {
+  for (let index = indexes.length - 1; index > 0; index -= 1) {
+    const left = indexes[index - 1];
+    const right = indexes[index];
+    if (right === left + 1 && isAntagonistPair(exercises[left], exercises[right])) return [left, right];
   }
   return [];
 }
@@ -113,11 +156,13 @@ export function planAdvancedMethods<T extends MethodAwareExercise>(exercises: T[
     // Semana ímpar do bloco final: bi-set seguro. Semana par: técnica de intensidade
     // em um único acessório. Assim a sessão nunca acumula técnicas demais.
     if (week % 2 === 1) {
-      const pair = lastConsecutivePair(groupingIdxs);
+      const supersetPair = lastConsecutiveAntagonistPair(groupingIdxs, out);
+      const pair = supersetPair.length === 2 ? supersetPair : lastConsecutivePair(groupingIdxs);
       if (pair.length === 2) {
         const group = gid(pair[0]);
+        const method: MethodId = supersetPair.length === 2 ? "superset" : "biset";
         for (const index of pair) {
-          out[index].method = "biset";
+          out[index].method = method;
           out[index].group_id = group;
         }
         return out;

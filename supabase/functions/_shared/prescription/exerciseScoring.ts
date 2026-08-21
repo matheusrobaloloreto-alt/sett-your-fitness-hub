@@ -5,6 +5,7 @@ export interface ExercisePickRequest {
   catalog: ExerciseCatalogEntry[];
   keywords: string[];
   usedIds?: Set<string>;
+  hardExcludedIds?: Set<string>;
   restrictions?: RestrictionRule[];
   equipment?: unknown;
   fitnessLevel?: unknown;
@@ -67,15 +68,22 @@ export function scoreExercise(exercise: ExerciseCatalogEntry, request: ExerciseP
 
 export function pickCatalogExercise(request: ExercisePickRequest): ExerciseCatalogEntry | null {
   if (!request.catalog.length) return null;
+  const isHardExcluded = (exercise: ExerciseCatalogEntry) => request.hardExcludedIds?.has(exercise.id);
   const equivalentIds = new Set(
     request.catalog
       .filter((exercise) => request.keywords.some((keyword) => exerciseText(exercise).includes(normalizeText(keyword))))
       .flatMap((exercise) => exercise.equivalent_substitutes || []),
   );
-  const equivalent = request.catalog.find((exercise) => equivalentIds.has(exercise.id) && !request.usedIds?.has(exercise.id) && scoreExercise(exercise, request) > 0);
+  const equivalent = request.catalog.find((exercise) =>
+    equivalentIds.has(exercise.id) &&
+    !isHardExcluded(exercise) &&
+    !request.usedIds?.has(exercise.id) &&
+    scoreExercise(exercise, request) > 0
+  );
   if (equivalent) return equivalent;
 
   const ranked = request.catalog
+    .filter((exercise) => !isHardExcluded(exercise))
     .map((exercise) => ({ exercise, score: scoreExercise(exercise, request) }))
     .sort((a, b) => b.score - a.score);
 

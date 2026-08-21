@@ -39,9 +39,9 @@ const PHASE_ORDER: Record<string, number> = {
   autoliberacao: 20,
   alongamento: 30,
   fisioterapia: 40,
-  controle_motor: 50,
-  ativacao_core: 60,
-  ativacao_especifica: 70,
+  ativacao_core: 50,
+  ativacao_especifica: 60,
+  controle_motor: 70,
   pliometria: 80,
   forca_global: 90,
   forca_especifica: 100,
@@ -137,17 +137,23 @@ function exerciseToTrainingExercise(exercise: ExerciseCatalogEntry, spec: Exerci
   };
 }
 
-function selectExercises(input: PrescriptionInput, specs: ExerciseSpec[], usedIds: Set<string>) {
+function selectExercises(input: PrescriptionInput, specs: ExerciseSpec[], programUsedIds: Set<string>) {
   const catalog = normalizeCatalog(input.catalog);
   const restrictions = deriveRestrictionRules(input);
+  const sessionUsedIds = new Set<string>();
   const gaps: string[] = [];
-  const exercises: TrainingExercise[] = [];
+  const pickedExercises: Array<{ specIndex: number; exercise: TrainingExercise }> = [];
 
-  specs.forEach((spec, index) => {
+  const orderedSpecs = specs
+    .map((spec, index) => ({ spec, index }))
+    .sort((left, right) => Number(left.spec.required === false) - Number(right.spec.required === false) || left.index - right.index);
+
+  orderedSpecs.forEach(({ spec, index }) => {
     const exercise = pickCatalogExercise({
       catalog,
       keywords: spec.keywords,
-      usedIds,
+      usedIds: programUsedIds,
+      hardExcludedIds: sessionUsedIds,
       restrictions,
       equipment: input.equipment,
       fitnessLevel: input.fitnessLevel,
@@ -157,13 +163,22 @@ function selectExercises(input: PrescriptionInput, specs: ExerciseSpec[], usedId
     });
     if (!exercise) {
       if (spec.reportGap !== false) {
-        gaps.push(`${spec.required === false ? "WARNING" : "BLOCKER"}:safe_alternative_unavailable:${spec.phase}:${spec.keywords.join("/")}`);
+        const gapCode = sessionUsedIds.size > 0 ? "session_unique_exhausted" : "safe_alternative_unavailable";
+        gaps.push(`${spec.required === false ? "WARNING" : "BLOCKER"}:${gapCode}:${spec.phase}:${spec.keywords.join("/")}`);
       }
       return;
     }
-    usedIds.add(exercise.id);
-    exercises.push(exerciseToTrainingExercise(exercise, spec, index + 1, input));
+    if (programUsedIds.has(exercise.id)) {
+      gaps.push(`WARNING:cross_session_reuse:${spec.phase}:${exercise.id}:${exercise.name}`);
+    }
+    sessionUsedIds.add(exercise.id);
+    programUsedIds.add(exercise.id);
+    pickedExercises.push({ specIndex: index, exercise: exerciseToTrainingExercise(exercise, spec, index + 1, input) });
   });
+
+  const exercises = pickedExercises
+    .sort((left, right) => left.specIndex - right.specIndex)
+    .map(({ exercise }, index) => ({ ...exercise, exercise_order: index + 1 }));
 
   return { exercises, gaps };
 }
@@ -175,7 +190,7 @@ function lowerWorkoutSpecs(input: PrescriptionInput): ExerciseSpec[] {
   const sets = input.isEnduranceAthlete || input.runningDaysContext ? 2 : 3;
   const specs: ExerciseSpec[] = [
     { phase: "mobilidade", keywords: ["mobilidade tornozelo quadril", "tornozelo", "quadril", "alongamento"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Amplitude sem dor e respiração calma.", note: knee ? "Preparar tornozelo/quadril para reduzir estresse no joelho." : "Preparar amplitude antes da força." },
-    { phase: "autoliberacao", keywords: ["auto liberacao", "liberacao miofascial", "rolo", "foam roller"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "30-45s", rest: 15, rir: "4", cue: "Pressão tolerável, sem insistir em dor aguda.", note: "Preparação opcional em circuito, sem gerar fadiga." },
+    { phase: "autoliberacao", keywords: ["auto liberacao", "liberacao miofascial", "rolo", "foam roller", "mobilidade"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "30-45s", rest: 15, rir: "4", cue: "Pressão tolerável, sem insistir em dor aguda.", note: "Preparação opcional em circuito, sem gerar fadiga." },
     { phase: "ativacao_core", keywords: back ? ["pallof", "bird dog", "dead bug", "core"] : ["prancha", "dead bug", "core", "pallof"], preferredMuscleGroup: "core", preferredPattern: "core", sets: 2, reps: "20-30s", rest: 45, rir: input.deload ? "4" : "3-4", cue: "Trave costelas e pelve, sem prender o ar.", note: back ? "Core anti-extensão/anti-rotação para proteger lombar." : "Aumenta estabilidade lombo-pélvica antes da carga." },
     { phase: "ativacao_especifica", keywords: ["gluteo medio", "gluteo", "abducao", "mini band"], preferredMuscleGroup: "gluteos", preferredPattern: "isolado_acessorio", sets: 2, reps: "12-15", rest: 45, rir: input.deload ? "4" : "3", cue: "Joelho alinhado ao pé, sem colapsar.", note: knee ? "Prioriza controle de valgo dinâmico." : "Ativa quadril para padrões de agachar." },
     { phase: "controle_motor", keywords: knee ? ["leg press", "agachamento caixa", "caixa", "rom parcial"] : ["agachamento", "goblet", "squat", "caixa"], preferredMuscleGroup: "quadriceps", preferredPattern: "joelho_dominante", sets: knee ? 1 : 2, reps: "8-10", rest: 60, rir: input.deload ? "4" : "3-4", cue: "Desça até onde mantém pelve e joelho alinhados.", note: back ? "Limitar amplitude para manter coluna neutra." : "Reforça padrão técnico antes de carga." },

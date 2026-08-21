@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatBiweeklyProgressionForDisplay,
   resolveExerciseForWeek,
   resolveWorkoutForCycleWeek,
   summarizeExerciseWeeklyProgression,
@@ -67,5 +68,22 @@ describe("weekly strength periodization resolver", () => {
     expect(summary[1].method).toContain("Drop-set");
     expect(summary[2].method).toContain("Bi-set");
     expect(summary[2].method).toContain("Cluster-set (15s)");
+  });
+
+  it("formata a progressão quinzenal para os consumidores exibirem sem estado duplicado", () => {
+    const display = formatBiweeklyProgressionForDisplay([
+      { week: 1, block: "base", sets: 2, reps: "10-12", rir: "3-4", rest_seconds: 75, tempo: "3110", instruction: "Base técnica." },
+      { week: 2, block: "base", sets: 2, reps: "10-12", rir: "3", rest_seconds: 75, tempo: "3011", instruction: "Consolidar." },
+      { week: 3, block: "acumulacao", sets: 3, reps: "8-12", rir: "2-3", rest_seconds: 60, tempo: "3010", method: "restpause", method_seconds: 20, instruction: "Rest-pause na última série." },
+      { week: 4, block: "acumulacao", sets: 3, reps: "8-12", rir: "2-3", rest_seconds: 60, tempo: "2110", method: "dropset", instruction: "Um drop na última série." },
+    ]);
+
+    expect(display).toEqual([
+      expect.stringContaining("Semanas 1-2"),
+      expect.stringContaining("Semanas 3-4"),
+    ]);
+    expect(display[0]).toContain("Séries retas");
+    expect(display[1]).toContain("Rest-pause (20s)");
+    expect(display[1]).toContain("Drop-set");
   });
 });
