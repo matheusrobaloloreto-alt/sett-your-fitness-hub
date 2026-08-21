@@ -15,11 +15,15 @@
   },
   "summary": {
     "approved_aliases": 69,
-    "pending_medium": 22,
+    "pending_medium": 0,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 113
+    "unresolved_total": 113,
+    "runtime_false_medium": 22,
+    "blocked_after_visual_review": 21,
+    "never_reviewed_medium": 0,
+    "approved_pending_materialization": 1
   },
   "aliases": [
     {
@@ -81,10 +85,21 @@
       "source_name": "Afundo Alternado no Smith",
       "target_exercise_id": "1682b804-b531-426d-bb6b-93e5b9b7ceda",
       "target_name": "Afundo Smith",
-      "status": "needs_review",
+      "status": "blocked_after_visual_review",
       "confidence": "medium",
       "occurrences": 1,
-      "rationale": "QA biomecânico: alternado define sequência/lateralidade; o target pode representar afundo estático unilateral."
+      "rationale": "QA biomecânico: alternado define sequência/lateralidade; o target pode representar afundo estático unilateral.",
+      "runtime_eligible": false,
+      "decision_status": "blocked_after_visual_review",
+      "independent_review_status": "conflict_blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch B",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      },
+      "conflict_status": "blocked_conflict",
+      "conflict_reason": "Conflito preservado: revisão anterior manteve fora do runtime por alternância/sequência/lateralidade."
     },
     {
       "source_name": "Agachamento com Halter na Frente",
@@ -99,10 +114,19 @@
       "source_name": "Barra Fixa Gráviton (Pegada Aberta)",
       "target_exercise_id": "6cf6f6ed-9022-459c-b5ae-cbe499ba4b33",
       "target_name": "Graviton Pronado",
-      "status": "needs_review",
+      "status": "blocked_after_visual_review",
       "confidence": "medium",
       "occurrences": 1,
-      "rationale": "QA biomecânico: pronação não preserva necessariamente a largura aberta."
+      "rationale": "QA biomecânico: pronação não preserva necessariamente a largura aberta.",
+      "runtime_eligible": false,
+      "decision_status": "blocked_after_visual_review",
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Búlgaro Inclinado para Frente",
@@ -327,19 +351,37 @@
       "source_name": "Puxada Neutra triangulo",
       "target_exercise_id": "3b59a032-f393-479c-b31f-e9059390c3da",
       "target_name": "Puxada Neutra Polia",
-      "status": "needs_review",
+      "status": "blocked_after_visual_review",
       "confidence": "medium",
       "occurrences": 9,
-      "rationale": "QA biomecânico: pegada neutra não garante triângulo nem largura fechada."
+      "rationale": "QA biomecânico: pegada neutra não garante triângulo nem largura fechada.",
+      "runtime_eligible": false,
+      "decision_status": "blocked_after_visual_review",
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Remada Alta com Barra W",
       "target_exercise_id": "b222ffd2-a90e-47a2-9924-a63381446069",
       "target_name": "Remada Alta Barra",
-      "status": "needs_review",
+      "status": "blocked_after_visual_review",
       "confidence": "medium",
       "occurrences": 1,
-      "rationale": "QA biomecânico: barra W altera orientação de punho/antebraço e não é detalhe descartável."
+      "rationale": "QA biomecânico: barra W altera orientação de punho/antebraço e não é detalhe descartável.",
+      "runtime_eligible": false,
+      "decision_status": "blocked_after_visual_review",
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Remada Baixa (Pegada Pronada)",
@@ -417,10 +459,19 @@
       "source_name": "Rosca Alternada com Halteres",
       "target_exercise_id": "e1000001-0000-0000-0000-000000000009",
       "target_name": "Rosca Alternada",
-      "status": "needs_review",
+      "status": "blocked_after_visual_review",
       "confidence": "medium",
       "occurrences": 1,
-      "rationale": "QA biomecânico: o target não confirma halteres; alternância também pode existir em cabos independentes."
+      "rationale": "QA biomecânico: o target não confirma halteres; alternância também pode existir em cabos independentes.",
+      "runtime_eligible": false,
+      "decision_status": "blocked_after_visual_review",
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch E",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Rosca direta Banco Inclinado",
@@ -789,144 +840,7 @@
     }
   ],
   "review_queue": {
-    "medium": [
-      {
-        "source_name": "Abdominal Infra com as Pernas Flexionadas",
-        "proposed_target_exercise_id": "2b6e19be-6b4d-44d6-af4b-04f7a09bef60",
-        "proposed_target_name": "Abdominal Infra Solo",
-        "confidence": "medium",
-        "occurrences": 3,
-        "blocker": "QA independente visual: ambos são abdominal infra no solo, mas a flexão de joelho/pernas flexionadas altera alavanca e dificuldade; target genérico observado não preserva a variante."
-      },
-      {
-        "source_name": "Abdominal Supra no Solo Pés Altos",
-        "proposed_target_exercise_id": "17161c04-540a-441c-9e03-8d9f9aae7b97",
-        "proposed_target_name": "Abdominal Supra Solo",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Abdominal supra no solo preservado; pés altos não consta no SETT."
-      },
-      {
-        "source_name": "Abdominal com Rodinha Solo com Apoio",
-        "proposed_target_exercise_id": "b459d238-619c-4301-89c7-0e1694d448b5",
-        "proposed_target_name": "Abdominal Rodinha",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "“Abdominal Rodinha” preserva o movimento; apoio/solo não é explicitado no SETT."
-      },
-      {
-        "source_name": "Agachamento Sumô no Step com Halteres",
-        "proposed_target_exercise_id": "df795cb5-06d1-49a9-848f-ac7b186ff807",
-        "proposed_target_name": "Agachamento Sumô Halter",
-        "confidence": "medium",
-        "occurrences": 6,
-        "blocker": "QA independente visual: movimento sumô e halter batem, mas os steps elevam o apoio e aumentam ROM; target sem step não preserva a configuração."
-      },
-      {
-        "source_name": "Bom dia com Cabo de Vassoura",
-        "proposed_target_exercise_id": "c916c624-2e7c-40b2-8195-4e5f8a4f2c3c",
-        "proposed_target_name": "Bom dia",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Mesmo padrão bom-dia; cabo de vassoura não consta no SETT."
-      },
-      {
-        "source_name": "Desenvolvimento Barra Reta",
-        "proposed_target_exercise_id": "7c4dd9a3-c6c2-4e9a-a896-42b7c9911ade",
-        "proposed_target_name": "Desenvolvimento Barra Sentado",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Desenvolvimento com barra preservado; SETT adiciona posição sentada."
-      },
-      {
-        "source_name": "Desenvolvimento com Halteres (Pegada Neutra)",
-        "proposed_target_exercise_id": "77208e72-8b6f-4fdc-99ca-42a18e2889d6",
-        "proposed_target_name": "Desenvolvimento Neutro Halteres Sentado",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Halteres e pegada neutra preservados; SETT adiciona posição sentada."
-      },
-      {
-        "source_name": "Encolhimento de Ombros no Smith Pela Frente",
-        "proposed_target_exercise_id": "83aeb5e9-935b-4419-9e11-2192f9ed1794",
-        "proposed_target_name": "Encolhimento Smith",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Encolhimento e Smith preservados; posição “pela frente” não consta no SETT."
-      },
-      {
-        "source_name": "Mobilidade de Tornozelo Semi Ajoelhado",
-        "proposed_target_exercise_id": "3f384f30-1259-4e27-a7bf-70889243ac41",
-        "proposed_target_name": "Mobilidade de Tornozelo",
-        "confidence": "medium",
-        "occurrences": 6,
-        "blocker": "Região e objetivo preservados; posição semi-ajoelhada não consta no SETT."
-      },
-      {
-        "source_name": "Remada Alta na Polia Alta com Corda",
-        "proposed_target_exercise_id": "6c2e58df-666f-420a-81e2-192929555fdc",
-        "proposed_target_name": "Remada Alta Polia",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Remada alta e polia preservadas; altura e corda não constam no SETT."
-      },
-      {
-        "source_name": "Remada Fechada Unilateral",
-        "proposed_target_exercise_id": "f138a64b-e0d8-4945-8dd3-b64dda059da3",
-        "proposed_target_name": "Remada Baixa Neutra Unilateral",
-        "confidence": "medium",
-        "occurrences": 11,
-        "blocker": "QA independente visual: movimento baixo e lateralidade batem parcialmente, mas resistência elástica em pé difere materialmente de cabo sentado; exige evidência adicional ou alvo específico antes de runtime."
-      },
-      {
-        "source_name": "Remada Fechada com Halteres no Banco Inclinado",
-        "proposed_target_exercise_id": "7c94db20-f60f-4222-b592-afcbd22468c1",
-        "proposed_target_name": "Remada com Peito no Banco Neutra",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Nota confirma retração escapular; banco/pegada neutra preservados, inclinação e halteres não explícitos."
-      },
-      {
-        "source_name": "Remada TRX (Pegada Pronada)",
-        "proposed_target_exercise_id": "f0406f4a-06ba-4233-8651-51ad93d5bc88",
-        "proposed_target_name": "Remada Suspenas",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "“Remada suspensa” é candidato funcional a TRX; catálogo tem typo e não explicita pegada."
-      },
-      {
-        "source_name": "Rosca Alternada Banco Inclinado",
-        "proposed_target_exercise_id": "867a6df5-d665-43ac-b297-d46c2b667741",
-        "proposed_target_name": "Rosca Banco 45",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Banco 45 preserva inclinação; alternância não consta no SETT."
-      },
-      {
-        "source_name": "Rosca Direta Barra Reta",
-        "proposed_target_exercise_id": "e1000001-0000-0000-0000-000000000008",
-        "proposed_target_name": "Rosca Direta",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Rosca direta preservada; barra reta não consta no SETT."
-      },
-      {
-        "source_name": "Subida no Caixote com Halteres",
-        "proposed_target_exercise_id": "a67f2841-bf56-477d-8743-405c34d8360d",
-        "proposed_target_name": "Subida no caixote (step-up)",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Subida no caixote preservada; halteres não constam no SETT."
-      },
-      {
-        "source_name": "Tríceps Testa com Halteres",
-        "proposed_target_exercise_id": "883f77a1-c25f-4626-aed5-9d18c8955508",
-        "proposed_target_name": "Tríceps Testa Halteres Banco Reto",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Movimento e halteres preservados; banco reto é inferido."
-      }
-    ],
+    "medium": [],
     "low": [
       "Abdominal Dead Bug",
       "Abdominal Dead Bug Isométrico",
@@ -1021,7 +935,302 @@
       "Tríceps Francês com Halteres",
       "Tríceps Supinado com Halteres"
     ],
-    "ambiguous_exact": []
+    "ambiguous_exact": [],
+    "blocked_after_visual_review": [
+      {
+        "source_name": "Abdominal Infra com as Pernas Flexionadas",
+        "proposed_target_exercise_id": "2b6e19be-6b4d-44d6-af4b-04f7a09bef60",
+        "proposed_target_name": "Abdominal Infra Solo",
+        "confidence": "medium",
+        "occurrences": 3,
+        "blocker": "QA independente visual: ambos são abdominal infra no solo, mas a flexão de joelho/pernas flexionadas altera alavanca e dificuldade; target genérico observado não preserva a variante.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P0/P1 visual review",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Abdominal Supra no Solo Pés Altos",
+        "proposed_target_exercise_id": "17161c04-540a-441c-9e03-8d9f9aae7b97",
+        "proposed_target_name": "Abdominal Supra Solo",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Abdominal supra no solo preservado; pés altos não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch A",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Abdominal com Rodinha Solo com Apoio",
+        "proposed_target_exercise_id": "b459d238-619c-4301-89c7-0e1694d448b5",
+        "proposed_target_name": "Abdominal Rodinha",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "“Abdominal Rodinha” preserva o movimento; apoio/solo não é explicitado no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch B",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Agachamento Sumô no Step com Halteres",
+        "proposed_target_exercise_id": "df795cb5-06d1-49a9-848f-ac7b186ff807",
+        "proposed_target_name": "Agachamento Sumô Halter",
+        "confidence": "medium",
+        "occurrences": 6,
+        "blocker": "QA independente visual: movimento sumô e halter batem, mas os steps elevam o apoio e aumentam ROM; target sem step não preserva a configuração.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P0/P1 visual review",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Bom dia com Cabo de Vassoura",
+        "proposed_target_exercise_id": "c916c624-2e7c-40b2-8195-4e5f8a4f2c3c",
+        "proposed_target_name": "Bom dia",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Mesmo padrão bom-dia; cabo de vassoura não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P0/P1 visual review",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Desenvolvimento Barra Reta",
+        "proposed_target_exercise_id": "7c4dd9a3-c6c2-4e9a-a896-42b7c9911ade",
+        "proposed_target_name": "Desenvolvimento Barra Sentado",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Desenvolvimento com barra preservado; SETT adiciona posição sentada.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch A",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Desenvolvimento com Halteres (Pegada Neutra)",
+        "proposed_target_exercise_id": "77208e72-8b6f-4fdc-99ca-42a18e2889d6",
+        "proposed_target_name": "Desenvolvimento Neutro Halteres Sentado",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "Halteres e pegada neutra preservados; SETT adiciona posição sentada.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch C",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Encolhimento de Ombros no Smith Pela Frente",
+        "proposed_target_exercise_id": "83aeb5e9-935b-4419-9e11-2192f9ed1794",
+        "proposed_target_name": "Encolhimento Smith",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "Encolhimento e Smith preservados; posição “pela frente” não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch C",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Mobilidade de Tornozelo Semi Ajoelhado",
+        "proposed_target_exercise_id": "3f384f30-1259-4e27-a7bf-70889243ac41",
+        "proposed_target_name": "Mobilidade de Tornozelo",
+        "confidence": "medium",
+        "occurrences": 6,
+        "blocker": "Região e objetivo preservados; posição semi-ajoelhada não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P0/P1 visual review",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Remada Alta na Polia Alta com Corda",
+        "proposed_target_exercise_id": "6c2e58df-666f-420a-81e2-192929555fdc",
+        "proposed_target_name": "Remada Alta Polia",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Remada alta e polia preservadas; altura e corda não constam no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch A",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Remada Fechada Unilateral",
+        "proposed_target_exercise_id": "f138a64b-e0d8-4945-8dd3-b64dda059da3",
+        "proposed_target_name": "Remada Baixa Neutra Unilateral",
+        "confidence": "medium",
+        "occurrences": 11,
+        "blocker": "QA independente visual: movimento baixo e lateralidade batem parcialmente, mas resistência elástica em pé difere materialmente de cabo sentado; exige evidência adicional ou alvo específico antes de runtime.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P0/P1 visual review",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Remada Fechada com Halteres no Banco Inclinado",
+        "proposed_target_exercise_id": "7c94db20-f60f-4222-b592-afcbd22468c1",
+        "proposed_target_name": "Remada com Peito no Banco Neutra",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Nota confirma retração escapular; banco/pegada neutra preservados, inclinação e halteres não explícitos.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch B",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Remada TRX (Pegada Pronada)",
+        "proposed_target_exercise_id": "f0406f4a-06ba-4233-8651-51ad93d5bc88",
+        "proposed_target_name": "Remada Suspenas",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "“Remada suspensa” é candidato funcional a TRX; catálogo tem typo e não explicita pegada.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch D",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Rosca Alternada Banco Inclinado",
+        "proposed_target_exercise_id": "867a6df5-d665-43ac-b297-d46c2b667741",
+        "proposed_target_name": "Rosca Banco 45",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "Banco 45 preserva inclinação; alternância não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch D",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Rosca Direta Barra Reta",
+        "proposed_target_exercise_id": "e1000001-0000-0000-0000-000000000008",
+        "proposed_target_name": "Rosca Direta",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Rosca direta preservada; barra reta não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch B",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Subida no Caixote com Halteres",
+        "proposed_target_exercise_id": "a67f2841-bf56-477d-8743-405c34d8360d",
+        "proposed_target_name": "Subida no caixote (step-up)",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "Subida no caixote preservada; halteres não constam no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch E",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      }
+    ],
+    "approved_pending_materialization": [
+      {
+        "source_name": "Tríceps Testa com Halteres",
+        "proposed_target_exercise_id": "883f77a1-c25f-4626-aed5-9d18c8955508",
+        "proposed_target_name": "Tríceps Testa Halteres Banco Reto",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "Movimento e halteres preservados; banco reto é inferido.",
+        "decision_status": "approved_pending_materialization",
+        "runtime_eligible": false,
+        "independent_review_status": "approved",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "post-ledger visual review",
+          "source_report": "specialist_chrome_checkpoint_2026-08-21",
+          "contains_pii": false
+        },
+        "current_confidence": "medium",
+        "visual_finding": "Revisão visual sanitizada: execução em banco reto com dois halteres, bilateral, preservando extensão de cotovelo/testa com halteres."
+      }
+    ]
   },
   "limitations": [
     "Os 180 registros MFIT não têm description, equipment nem muscle_group preenchidos; 13 têm nota de execução, usada apenas quando discriminante.",

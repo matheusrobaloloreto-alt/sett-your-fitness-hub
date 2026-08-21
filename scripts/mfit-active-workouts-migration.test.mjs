@@ -475,6 +475,13 @@ test("only approved high-confidence aliases are executable and reviewed rows sta
     buildExerciseAliasIndex({ ...valid, aliases: [{ ...valid.aliases[0], status: "needs_review", confidence: "medium" }] }).size,
     0,
   );
+  assert.equal(
+    buildExerciseAliasIndex({
+      ...valid,
+      aliases: [{ ...valid.aliases[0], status: "blocked_after_visual_review", confidence: "medium" }],
+    }).size,
+    0,
+  );
   assert.throws(
     () => buildExerciseAliasIndex({ ...valid, aliases: [valid.aliases[0], { ...valid.aliases[0], source_name: "SÚPINO LEGADO" }] }),
     /unique after normalization/,
@@ -1010,10 +1017,38 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
   assert.equal(aliasPayload.summary.approved_aliases, 69);
-  assert.equal(aliasPayload.summary.pending_medium, 22);
+  assert.equal(aliasPayload.summary.runtime_false_medium, 22);
+  assert.equal(aliasPayload.summary.blocked_after_visual_review, 21);
+  assert.equal(aliasPayload.summary.approved_pending_materialization, 1);
+  assert.equal(aliasPayload.summary.pending_medium, 0);
+  assert.equal(aliasPayload.summary.never_reviewed_medium, 0);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
   assert.equal(aliasPayload.summary.unresolved_total, 113);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
+  assert.deepEqual(aliasPayload.review_queue.medium, []);
+  assert.equal(aliasPayload.review_queue.approved_pending_materialization.length, 1);
+  assert.equal(aliasPayload.review_queue.approved_pending_materialization[0].source_name, "Tríceps Testa com Halteres");
+
+  const blockedVisualQueue = queuePayload.items.filter(
+    (row) => row.decision_status === "blocked_after_visual_review",
+  );
+  const approvedPendingQueue = queuePayload.items.filter(
+    (row) => row.decision_status === "approved_pending_materialization",
+  );
+  assert.equal(queuePayload.summary.runtime_false_medium, 22);
+  assert.equal(queuePayload.summary.blocked_after_visual_review, 21);
+  assert.equal(queuePayload.summary.approved_pending_materialization, 1);
+  assert.equal(queuePayload.summary.never_reviewed_medium, 0);
+  assert.equal(blockedVisualQueue.length, 21);
+  assert.equal(approvedPendingQueue.length, 1);
+  assert.equal(approvedPendingQueue[0].source_name, "Tríceps Testa com Halteres");
+  assert.equal(approvedPendingQueue[0].runtime_eligible, false);
+  assert.ok(blockedVisualQueue.every((row) => row.runtime_eligible === false));
+
+  const afundoConflict = aliasPayload.aliases.find((row) => row.source_name === "Afundo Alternado no Smith");
+  assert.equal(afundoConflict?.status, "blocked_after_visual_review");
+  assert.equal(afundoConflict?.runtime_eligible, false);
+  assert.equal(afundoConflict?.conflict_status, "blocked_conflict");
 
   for (const sourceName of ["Levantamento Terra", "Agachamento Bulgaro"]) {
     const alias = aliasIndex.get(sourceName.toLocaleLowerCase("pt-BR"));
@@ -1270,7 +1305,7 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const broomstickGoodMorning = queuePayload.items.find(
     (row) => row.source_name === "Bom dia com Cabo de Vassoura",
   );
-  assert.equal(broomstickGoodMorning?.decision_status, "needs_evidence");
+  assert.equal(broomstickGoodMorning?.decision_status, "blocked_after_visual_review");
   assert.equal(broomstickGoodMorning?.runtime_eligible, false);
 
   const stillBlockedAliases = [
@@ -1335,8 +1370,8 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
 
   const unilateralBandRow = queuePayload.items.find((row) => row.source_name === "Remada Fechada Unilateral");
   assert.equal(aliasIndex.has("remada fechada unilateral"), false);
-  assert.equal(unilateralBandRow?.decision_status, "needs_more_evidence");
-  assert.equal(unilateralBandRow?.independent_review_status, "needs_more_evidence");
+  assert.equal(unilateralBandRow?.decision_status, "blocked_after_visual_review");
+  assert.equal(unilateralBandRow?.independent_review_status, "blocked");
   assert.equal(unilateralBandRow?.runtime_eligible, false);
   assert.equal(unilateralBandRow?.mfit_media_evidence?.media_id, "638");
   assert.equal(unilateralBandRow?.mfit_media_evidence?.video_url_verified_200, true);
@@ -1362,8 +1397,8 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   for (const expected of p1BlockedAliases) {
     assert.equal(aliasIndex.has(expected.normalizedSource), false);
     const queueRow = queuePayload.items.find((row) => row.source_name === expected.sourceName);
-    assert.equal(queueRow?.decision_status, "needs_more_evidence");
-    assert.equal(queueRow?.independent_review_status, "needs_more_evidence");
+    assert.equal(queueRow?.decision_status, "blocked_after_visual_review");
+    assert.equal(queueRow?.independent_review_status, "blocked");
     assert.equal(queueRow?.runtime_eligible, false);
     assert.equal(queueRow?.mfit_media_evidence?.media_id, expected.mediaId);
     assert.equal(queueRow?.mfit_media_evidence?.video_url_verified_200, true);
@@ -1375,8 +1410,8 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
 
   for (const sourceName of ["Puxada Neutra triangulo", "Mobilidade de Tornozelo Semi Ajoelhado"]) {
     const evidence = queuePayload.items.find((row) => row.source_name === sourceName);
-    assert.equal(evidence?.decision_status, "needs_more_evidence");
-    assert.equal(evidence?.independent_review_status, "needs_more_evidence");
+    assert.equal(evidence?.decision_status, "blocked_after_visual_review");
+    assert.equal(evidence?.independent_review_status, "blocked");
     assert.equal(evidence?.runtime_eligible, false);
   }
 

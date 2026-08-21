@@ -282,6 +282,20 @@ Foram materializados somente 3 dos 4 `APPROVE_ALIAS` do handoff Batch E, com evi
 | `Sobe/Desce no Banco` | `Subida no caixote (step-up)` | Sobe/desce no banco preserva o padrão de step-up do alvo SETT; a diferença banco/caixote fica aceita apenas para migração histórica. |
 | `Supino Máquina Inclinado (Pegada Neutra)` | `Supino Inclinado Máquina` | Supino inclinado em máquina preserva empurrar inclinado e máquina; pegada neutra fica aceita apenas para migração histórica. |
 
-`Afundo Alternado no Smith` → `Afundo Smith` permanece bloqueado: há conflito com revisão anterior do Batch B, que havia mantido a linha fora do runtime por alternância/sequência/lateralidade. O alias segue `runtime_eligible=false`, `decision_status=needs_evidence` e requer reconciliação independente antes de qualquer materialização.
+`Afundo Alternado no Smith` → `Afundo Smith` permanece bloqueado: há conflito com revisão anterior do Batch B, que havia mantido a linha fora do runtime por alternância/sequência/lateralidade. O alias segue `runtime_eligible=false`, `decision_status=blocked_after_visual_review` e `conflict_status=blocked_conflict`.
 
-Estado projetado do próximo dry-run: 69 aliases executáveis, 200/313 nomes resolvidos e 113 não resolvidos. O mapa versionado projeta `approved_aliases=69`, `pending_medium=22` e `unresolved_total=113`; a fila de evidência projeta 35 itens com evidência MFIT/revisão e 17 ainda sem resolução suficiente. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.
+Estado projetado do próximo dry-run: 69 aliases executáveis, 200/313 nomes resolvidos e 113 não resolvidos. O mapa versionado projeta `approved_aliases=69`, `runtime_false_medium=22`, `blocked_after_visual_review=21`, `approved_pending_materialization=1`, `pending_medium=0`, `never_reviewed_medium=0` e `unresolved_total=113`. A fila de evidência mantém 35 itens com evidência MFIT/revisão, mas separa bloqueio visual de próxima revisão: 21 itens ficam `blocked_after_visual_review`, 1 item (`Tríceps Testa com Halteres` → `Tríceps Testa Halteres Banco Reto`) fica `approved_pending_materialization` sem alias criado, e nenhum item permanece `never_reviewed`. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.
+
+### Saneamento do ledger médio — 2026-08-21
+
+O ledger documental deixou de usar `pending_medium=22` como mistura de bloqueio runtime. A semântica atual é explícita:
+
+| Campo | Valor | Semântica |
+|---|---:|---|
+| `runtime_false_medium` | 22 | Total médio ainda fora do runtime. |
+| `blocked_after_visual_review` | 21 | Revisado visualmente e bloqueado com razão/proveniência sanitizada. |
+| `approved_pending_materialization` | 1 | Revisado visualmente e aprovado para materialização futura, sem alias criado neste commit. |
+| `pending_medium` | 0 | Próximos lotes não devem reselecionar itens já revisados. |
+| `never_reviewed_medium` | 0 | Não há item médio sem primeira revisão após o checkpoint do Chrome. |
+
+Compatibilidade runtime preservada: somente aliases `approved/high` continuam executáveis; `blocked_after_visual_review` e `approved_pending_materialization` permanecem `runtime_eligible=false` e fora do índice de aliases do migrador.

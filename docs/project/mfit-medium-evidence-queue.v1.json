@@ -5,7 +5,7 @@
   "execution_scope": "offline_evidence_review_only",
   "source_snapshot": {
     "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
-    "alias_map_sha256": "f6fee03e709a43fff1309af743291f043dbfc0f401aea7e23eec885574ccfdcb",
+    "alias_map_sha256": "35bb1c0659b88be9ebd9811ab7f0035ecec19559c9b26ab57e1935066acfcd35",
     "medium_names": 52,
     "medium_occurrences": 162
   },
@@ -25,7 +25,12 @@
     "P1": 9,
     "P2": 36,
     "with_mfit_media_evidence": 35,
-    "needs_more_evidence": 17
+    "needs_more_evidence": 0,
+    "runtime_false_medium": 22,
+    "blocked_after_visual_review": 21,
+    "pending_new_review": 0,
+    "never_reviewed_medium": 0,
+    "approved_pending_materialization": 1
   },
   "items": [
     {
@@ -109,7 +114,7 @@
       "occurrences": 11,
       "priority": "P0",
       "current_confidence": "medium",
-      "decision_status": "needs_more_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "QA independente visual: movimento baixo e lateralidade batem parcialmente, mas resistência elástica em pé difere materialmente de cabo sentado; exige evidência adicional ou alvo específico antes de runtime.",
       "mfit_media_evidence": {
@@ -144,7 +149,13 @@
       ],
       "runtime_eligible": false,
       "visual_assessment": "source_supported_but_target_requires_more_evidence",
-      "independent_review_status": "needs_more_evidence"
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Crucifixo Inverso com Halteres",
@@ -239,7 +250,7 @@
       "occurrences": 9,
       "priority": "P0",
       "current_confidence": "medium",
-      "decision_status": "needs_more_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
       "blocker": "QA independente confirmou a fonte, mas o alvo genérico não prova acessório triangular/V-bar fechado; anexar evidência SETT do alvo ou usar alvo específico.",
       "mfit_media_evidence": {
@@ -261,8 +272,14 @@
         "visual_demonstration"
       ],
       "visual_assessment": "supports_proposed_target",
-      "independent_review_status": "needs_more_evidence",
-      "runtime_eligible": false
+      "independent_review_status": "blocked",
+      "runtime_eligible": false,
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Ativação de Glúteo com Elevação Pélvica",
@@ -314,7 +331,7 @@
       "occurrences": 6,
       "priority": "P1",
       "current_confidence": "medium",
-      "decision_status": "needs_more_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "QA independente visual: movimento sumô e halter batem, mas os steps elevam o apoio e aumentam ROM; target sem step não preserva a configuração.",
       "mfit_media_evidence": {
@@ -346,7 +363,13 @@
       ],
       "runtime_eligible": false,
       "visual_assessment": "source_supported_but_target_requires_more_evidence",
-      "independent_review_status": "needs_more_evidence"
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Mobilidade de Tornozelo Semi Ajoelhado",
@@ -355,7 +378,7 @@
       "occurrences": 6,
       "priority": "P1",
       "current_confidence": "medium",
-      "decision_status": "needs_more_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "QA independente confirmou a fonte, mas o alvo genérico não prova postura semi-ajoelhada; anexar evidência SETT do alvo ou usar alvo específico.",
       "mfit_media_evidence": {
@@ -376,8 +399,14 @@
         "visual_demonstration"
       ],
       "visual_assessment": "supports_proposed_target",
-      "independent_review_status": "needs_more_evidence",
-      "runtime_eligible": false
+      "independent_review_status": "blocked",
+      "runtime_eligible": false,
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Deslocamento Lateral com Elástico",
@@ -558,7 +587,7 @@
       "occurrences": 3,
       "priority": "P1",
       "current_confidence": "medium",
-      "decision_status": "needs_more_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "QA independente visual: ambos são abdominal infra no solo, mas a flexão de joelho/pernas flexionadas altera alavanca e dificuldade; target genérico observado não preserva a variante.",
       "mfit_media_evidence": {
@@ -590,7 +619,13 @@
       ],
       "runtime_eligible": false,
       "visual_assessment": "source_supported_but_target_requires_more_evidence",
-      "independent_review_status": "needs_more_evidence"
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Agachamento Lateral Alternado",
@@ -685,7 +720,7 @@
       "occurrences": 2,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "Abdominal supra no solo preservado; pés altos não consta no SETT.",
       "mfit_media_evidence": null,
@@ -699,7 +734,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch A",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Abdução de Quadril em Pé com Caneleira",
@@ -781,7 +823,7 @@
       "occurrences": 2,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "Mesmo padrão bom-dia; cabo de vassoura não consta no SETT.",
       "mfit_media_evidence": null,
@@ -795,7 +837,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Crucifixo com Halteres",
@@ -840,7 +889,7 @@
       "occurrences": 2,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "Desenvolvimento com barra preservado; SETT adiciona posição sentada.",
       "mfit_media_evidence": null,
@@ -854,7 +903,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch A",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Elevação de Quadril Unilateral",
@@ -930,7 +986,7 @@
       "occurrences": 2,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "Remada alta e polia preservadas; altura e corda não constam no SETT.",
       "mfit_media_evidence": null,
@@ -944,7 +1000,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch A",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Remada Curvada com Barra Reta (Pegada Pronada)",
@@ -1027,7 +1090,7 @@
       "occurrences": 2,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "Nota confirma retração escapular; banco/pegada neutra preservados, inclinação e halteres não explícitos.",
       "mfit_media_evidence": null,
@@ -1041,7 +1104,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch B",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Rosca direta Banco Inclinado",
@@ -1085,7 +1155,7 @@
       "occurrences": 2,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "Rosca direta preservada; barra reta não consta no SETT.",
       "mfit_media_evidence": null,
@@ -1099,7 +1169,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch B",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Abdominal com Rodinha Solo com Apoio",
@@ -1108,7 +1185,7 @@
       "occurrences": 1,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "“Abdominal Rodinha” preserva o movimento; apoio/solo não é explicitado no SETT.",
       "mfit_media_evidence": null,
@@ -1122,7 +1199,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch B",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Abdominal Infra com as Pernas Estendidas",
@@ -1210,7 +1294,7 @@
       "occurrences": 1,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
       "blocker": "QA biomecânico: alternado define sequência/lateralidade; o target pode representar afundo estático unilateral.",
       "mfit_media_evidence": null,
@@ -1224,7 +1308,16 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "conflict_blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch B",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      },
+      "conflict_status": "blocked_conflict",
+      "conflict_reason": "Conflito preservado: revisão anterior manteve fora do runtime por alternância/sequência/lateralidade."
     },
     {
       "source_name": "Barra Fixa Gráviton (Pegada Aberta)",
@@ -1233,7 +1326,7 @@
       "occurrences": 1,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
       "blocker": "QA biomecânico: pronação não preserva necessariamente a largura aberta.",
       "mfit_media_evidence": null,
@@ -1247,7 +1340,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Desenvolvimento com Halteres (Pegada Neutra)",
@@ -1256,7 +1356,7 @@
       "occurrences": 1,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "Halteres e pegada neutra preservados; SETT adiciona posição sentada.",
       "mfit_media_evidence": null,
@@ -1270,7 +1370,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Desenvolvimento no Smith",
@@ -1316,7 +1423,7 @@
       "occurrences": 1,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "Encolhimento e Smith preservados; posição “pela frente” não consta no SETT.",
       "mfit_media_evidence": null,
@@ -1330,7 +1437,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Flexão de Braços com Apoio",
@@ -1419,7 +1533,7 @@
       "occurrences": 1,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
       "blocker": "QA biomecânico: barra W altera orientação de punho/antebraço e não é detalhe descartável.",
       "mfit_media_evidence": null,
@@ -1433,7 +1547,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Remada Alta na Polia Baixa com Barra Reta",
@@ -1518,7 +1639,7 @@
       "occurrences": 1,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "“Remada suspensa” é candidato funcional a TRX; catálogo tem typo e não explicita pegada.",
       "mfit_media_evidence": null,
@@ -1532,7 +1653,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch D",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Rosca Alternada Banco Inclinado",
@@ -1541,7 +1669,7 @@
       "occurrences": 1,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "Banco 45 preserva inclinação; alternância não consta no SETT.",
       "mfit_media_evidence": null,
@@ -1555,7 +1683,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch D",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Rosca Alternada com Halteres",
@@ -1564,7 +1699,7 @@
       "occurrences": 1,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
       "blocker": "QA biomecânico: o target não confirma halteres; alternância também pode existir em cabos independentes.",
       "mfit_media_evidence": null,
@@ -1578,7 +1713,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch E",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Rosca Direta na Polia (Barra Reta)",
@@ -1660,7 +1802,7 @@
       "occurrences": 1,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "blocked_after_visual_review",
       "source_bucket": "medium_review_queue",
       "blocker": "Subida no caixote preservada; halteres não constam no SETT.",
       "mfit_media_evidence": null,
@@ -1674,7 +1816,14 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch E",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
     },
     {
       "source_name": "Supino Máquina Inclinado (Pegada Neutra)",
@@ -1763,7 +1912,7 @@
       "occurrences": 1,
       "priority": "P2",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "approved_pending_materialization",
       "source_bucket": "medium_review_queue",
       "blocker": "Movimento e halteres preservados; banco reto é inferido.",
       "mfit_media_evidence": null,
@@ -1777,7 +1926,16 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "independent_review_status": "approved",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "post-ledger visual review",
+        "source_report": "specialist_chrome_checkpoint_2026-08-21",
+        "contains_pii": false
+      },
+      "visual_assessment": "supports_proposed_target_pending_materialization",
+      "visual_finding": "Revisão visual sanitizada: execução em banco reto com dois halteres, bilateral, preservando extensão de cotovelo/testa com halteres."
     }
   ]
 }
