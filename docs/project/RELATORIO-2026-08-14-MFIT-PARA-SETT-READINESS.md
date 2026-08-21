@@ -215,3 +215,18 @@ QA visual read-only revisou 6 candidatos P1 pela biblioteca MFIT autenticada, se
 Os dois bloqueados permanecem `runtime_eligible=false` e `independent_review_status=needs_more_evidence`; eles não entraram no mapa executável.
 
 Estado projetado do próximo dry-run: 54 aliases executáveis, 185/313 nomes resolvidos e 128 não resolvidos. O mapa versionado projeta `approved_aliases=54`, `pending_medium=37` e `unresolved_total=128`; a fila de evidência projeta 20 itens com mídia observada e 32 ainda sem mídia observada. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.
+
+### Materialização P2 — 4 APPROVE_ALIAS recebidos
+
+Foram materializados somente os 4 `APPROVE_ALIAS` explicitamente aprovados no handoff, com evidência sanitizada de revisão independente (`evidence_type=sanitized_independent_review_handoff`), `independent_review_status=approved`, `current_confidence=high`, `decision_status=approved_after_visual_review` e `runtime_eligible=true`. Nenhuma curadoria clínica/prescritiva ou metadado do alvo SETT foi alterado.
+
+| Source MFIT | Target SETT | Base factual sanitizada |
+|---|---|---|
+| `Abdução de Quadril em Pé com Caneleira` | `Abdução de Quadril com Caneleira` | Abdução de quadril e caneleira preservadas; postura em pé registrada como diferença aceita apenas para migração histórica. |
+| `Abdução de Quadril na Polia Baixa Unilateral` | `Abdução de Quadril Polia` | Abdução de quadril, cabo/polia e unilateralidade preservadas; altura baixa registrada como diferença nominal aceita apenas para migração histórica. |
+| `Crucifixo com Halteres` | `Crucifixo Reto Halteres` | Crucifixo e halteres preservados; alvo reto resolve a ausência de ângulo inclinado/declinado explícito. |
+| `Puxada Articulada Aberta` | `Puxada Pronada Máquina` | Padrão de puxada, máquina e intenção aberta/pronada preservados; máquina articulada registrada como diferença aceita apenas para migração histórica. |
+
+Permanecem bloqueados e fora do mapa executável: `Abdominal Supra no Solo Pés Altos`, `Bom dia com Cabo de Vassoura`, `Desenvolvimento Barra Reta` e `Remada Alta na Polia Alta com Corda`.
+
+Estado projetado do próximo dry-run: 58 aliases executáveis, 189/313 nomes resolvidos e 124 não resolvidos. O mapa versionado projeta `approved_aliases=58`, `pending_medium=33` e `unresolved_total=124`; a fila de evidência projeta 24 itens com evidência MFIT/revisão e 28 ainda sem resolução suficiente. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.

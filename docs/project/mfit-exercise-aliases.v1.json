@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 54,
-    "pending_medium": 37,
+    "approved_aliases": 58,
+    "pending_medium": 33,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 128
+    "unresolved_total": 124
   },
   "aliases": [
     {
@@ -642,6 +642,54 @@
       "independent_review_status": "approved",
       "approved_after_visual_review": true,
       "media_id": "540"
+    },
+    {
+      "source_name": "Abdução de Quadril em Pé com Caneleira",
+      "target_exercise_id": "e789f3da-6de9-4be5-b039-adfb38f8a955",
+      "target_name": "Abdução de Quadril com Caneleira",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: abdução de quadril com caneleira preserva movimento e implemento; a variação de postura em pé fica registrada como diferença aceita apenas para o alias MFIT→SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Abdução de Quadril na Polia Baixa Unilateral",
+      "target_exercise_id": "fb5c8403-d675-4928-8d39-cec23fc7054b",
+      "target_name": "Abdução de Quadril Polia",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: abdução de quadril, cabo/polia e unilateralidade preservados; a altura baixa da polia fica registrada como diferença nominal aceita apenas para o alias MFIT→SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Crucifixo com Halteres",
+      "target_exercise_id": "430e38a3-2815-45b1-af80-712184dd17c2",
+      "target_name": "Crucifixo Reto Halteres",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: crucifixo com halteres preserva movimento e implemento; o alvo reto resolve a variante sem ângulo inclinado/declinado explícito. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Puxada Articulada Aberta",
+      "target_exercise_id": "592cf519-f2f5-4f82-9d10-8c2005851cbb",
+      "target_name": "Puxada Pronada Máquina",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: padrão de puxada, máquina e intenção aberta/pronada preservados; a máquina articulada fica registrada como diferença de equipamento aceita apenas para o alias MFIT→SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
     }
   ],
   "review_queue": {
@@ -679,22 +727,6 @@
         "blocker": "“Abdominal Rodinha” preserva o movimento; apoio/solo não é explicitado no SETT."
       },
       {
-        "source_name": "Abdução de Quadril em Pé com Caneleira",
-        "proposed_target_exercise_id": "e789f3da-6de9-4be5-b039-adfb38f8a955",
-        "proposed_target_name": "Abdução de Quadril com Caneleira",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Movimento e caneleira preservados; postura em pé não consta no SETT."
-      },
-      {
-        "source_name": "Abdução de Quadril na Polia Baixa Unilateral",
-        "proposed_target_exercise_id": "fb5c8403-d675-4928-8d39-cec23fc7054b",
-        "proposed_target_name": "Abdução de Quadril Polia",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Movimento e cabo/polia preservados; altura e unilateralidade não constam no SETT."
-      },
-      {
         "source_name": "Agachamento Sumô no Step com Halteres",
         "proposed_target_exercise_id": "df795cb5-06d1-49a9-848f-ac7b186ff807",
         "proposed_target_name": "Agachamento Sumô Halter",
@@ -709,14 +741,6 @@
         "confidence": "medium",
         "occurrences": 2,
         "blocker": "Mesmo padrão bom-dia; cabo de vassoura não consta no SETT."
-      },
-      {
-        "source_name": "Crucifixo com Halteres",
-        "proposed_target_exercise_id": "430e38a3-2815-45b1-af80-712184dd17c2",
-        "proposed_target_name": "Crucifixo Reto Halteres",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Halteres e crucifixo preservados; “reto” é inferido pela ausência de ângulo."
       },
       {
         "source_name": "Desenvolvimento Barra Reta",
@@ -757,14 +781,6 @@
         "confidence": "medium",
         "occurrences": 6,
         "blocker": "Região e objetivo preservados; posição semi-ajoelhada não consta no SETT."
-      },
-      {
-        "source_name": "Puxada Articulada Aberta",
-        "proposed_target_exercise_id": "592cf519-f2f5-4f82-9d10-8c2005851cbb",
-        "proposed_target_name": "Puxada Pronada Máquina",
-        "confidence": "medium",
-        "occurrences": 2,
-        "blocker": "Nota e nome sustentam puxada pronada em máquina; tipo articulado/largura não consta no SETT."
       },
       {
         "source_name": "Remada Alta na Polia Alta com Corda",

@@ -5,7 +5,7 @@
   "execution_scope": "offline_evidence_review_only",
   "source_snapshot": {
     "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
-    "alias_map_sha256": "445fa76c7ecd1614f980686218e6dca3cb4b3c9ac1c4a2c96fc8e5e3c8a841bd",
+    "alias_map_sha256": "05bbe0d9eda6f66eabc21543fadf27dcb3115dc9b5c3907cc062eefa6c0ed371",
     "medium_names": 52,
     "medium_occurrences": 162
   },
@@ -24,8 +24,8 @@
     "P0": 7,
     "P1": 9,
     "P2": 36,
-    "with_mfit_media_evidence": 20,
-    "needs_more_evidence": 32
+    "with_mfit_media_evidence": 24,
+    "needs_more_evidence": 28
   },
   "items": [
     {
@@ -707,11 +707,22 @@
       "proposed_target_name": "Abdução de Quadril com Caneleira",
       "occurrences": 2,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Movimento e caneleira preservados; postura em pé não consta no SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: abdução de quadril em pé com caneleira foi considerada equivalente ao alvo SETT Abdução de Quadril com Caneleira para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -722,7 +733,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Abdução de Quadril na Polia Baixa Unilateral",
@@ -730,11 +743,23 @@
       "proposed_target_name": "Abdução de Quadril Polia",
       "occurrences": 2,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Movimento e cabo/polia preservados; altura e unilateralidade não constam no SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: abdução unilateral de quadril na polia baixa foi considerada equivalente ao alvo SETT Abdução de Quadril Polia para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -745,7 +770,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Bom dia com Cabo de Vassoura",
@@ -776,11 +803,22 @@
       "proposed_target_name": "Crucifixo Reto Halteres",
       "occurrences": 2,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Halteres e crucifixo preservados; “reto” é inferido pela ausência de ângulo.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: crucifixo com halteres foi considerado equivalente ao alvo SETT Crucifixo Reto Halteres para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "support_or_posture",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -791,7 +829,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Desenvolvimento Barra Reta",
@@ -852,11 +892,23 @@
       "proposed_target_name": "Puxada Pronada Máquina",
       "occurrences": 2,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Nota e nome sustentam puxada pronada em máquina; tipo articulado/largura não consta no SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: puxada articulada aberta foi considerada equivalente ao alvo SETT Puxada Pronada Máquina para migração histórica.",
+        "supports": [
+          "movement",
+          "grip_or_width",
+          "support_or_posture",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -867,7 +919,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Remada Alta na Polia Alta com Corda",

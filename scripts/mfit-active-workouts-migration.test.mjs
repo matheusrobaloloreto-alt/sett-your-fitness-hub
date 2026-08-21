@@ -1009,10 +1009,10 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 54);
-  assert.equal(aliasPayload.summary.pending_medium, 37);
+  assert.equal(aliasPayload.summary.approved_aliases, 58);
+  assert.equal(aliasPayload.summary.pending_medium, 33);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 128);
+  assert.equal(aliasPayload.summary.unresolved_total, 124);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
 
   for (const sourceName of ["Levantamento Terra", "Agachamento Bulgaro"]) {
@@ -1134,6 +1134,34 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
       targetName: "Remada Cavalinho Máquina Neutra",
       mediaId: "540",
     },
+    {
+      sourceName: "Abdução de Quadril em Pé com Caneleira",
+      normalizedSource: "abducao de quadril em pe com caneleira",
+      targetExerciseId: "e789f3da-6de9-4be5-b039-adfb38f8a955",
+      targetName: "Abdução de Quadril com Caneleira",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
+    {
+      sourceName: "Abdução de Quadril na Polia Baixa Unilateral",
+      normalizedSource: "abducao de quadril na polia baixa unilateral",
+      targetExerciseId: "fb5c8403-d675-4928-8d39-cec23fc7054b",
+      targetName: "Abdução de Quadril Polia",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
+    {
+      sourceName: "Crucifixo com Halteres",
+      normalizedSource: "crucifixo com halteres",
+      targetExerciseId: "430e38a3-2815-45b1-af80-712184dd17c2",
+      targetName: "Crucifixo Reto Halteres",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
+    {
+      sourceName: "Puxada Articulada Aberta",
+      normalizedSource: "puxada articulada aberta",
+      targetExerciseId: "592cf519-f2f5-4f82-9d10-8c2005851cbb",
+      targetName: "Puxada Pronada Máquina",
+      evidenceType: "sanitized_independent_review_handoff",
+    },
   ];
 
   for (const expected of visuallyApprovedAliases) {
@@ -1149,7 +1177,11 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
     assert.equal(aliasRow?.confidence, "high");
     assert.equal(aliasRow?.independent_review_status, "approved");
     assert.equal(aliasRow?.approved_after_visual_review, true);
-    assert.equal(aliasRow?.media_id, expected.mediaId);
+    if (expected.mediaId) {
+      assert.equal(aliasRow?.media_id, expected.mediaId);
+    } else {
+      assert.equal(aliasRow?.evidence_source, "approve_alias_handoff_2026-08-21");
+    }
 
     const queueRow = queuePayload.items.find((row) => row.source_name === expected.sourceName);
     assert.equal(queueRow?.proposed_target_exercise_id, expected.targetExerciseId);
@@ -1158,11 +1190,17 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
     assert.equal(queueRow?.decision_status, "approved_after_visual_review");
     assert.equal(queueRow?.independent_review_status, "approved");
     assert.equal(queueRow?.runtime_eligible, true);
-    assert.equal(queueRow?.mfit_media_evidence?.media_id, expected.mediaId);
-    assert.equal(queueRow?.mfit_media_evidence?.video_url_verified_200, true);
-    assert.equal(queueRow?.mfit_media_evidence?.thumbnail_observed, true);
-    assert.equal(queueRow?.mfit_media_evidence?.observed_via, "authenticated_read_only_browser");
-    assert.equal(queueRow?.mfit_media_evidence?.observed_at, "2026-08-20");
+    if (expected.mediaId) {
+      assert.equal(queueRow?.mfit_media_evidence?.media_id, expected.mediaId);
+      assert.equal(queueRow?.mfit_media_evidence?.video_url_verified_200, true);
+      assert.equal(queueRow?.mfit_media_evidence?.thumbnail_observed, true);
+      assert.equal(queueRow?.mfit_media_evidence?.observed_via, "authenticated_read_only_browser");
+      assert.equal(queueRow?.mfit_media_evidence?.observed_at, "2026-08-20");
+    } else {
+      assert.equal(queueRow?.mfit_media_evidence?.evidence_type, expected.evidenceType);
+      assert.equal(queueRow?.mfit_media_evidence?.observed_via, "independent_review_handoff");
+      assert.equal(queueRow?.mfit_media_evidence?.observed_at, "2026-08-21");
+    }
     assert.ok(queueRow?.mfit_media_evidence?.visual_finding);
   }
 
@@ -1171,6 +1209,30 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   );
   assert.equal(broomstickGoodMorning?.decision_status, "needs_evidence");
   assert.equal(broomstickGoodMorning?.runtime_eligible, false);
+
+  const stillBlockedAliases = [
+    {
+      sourceName: "Abdominal Supra no Solo Pés Altos",
+      normalizedSource: "abdominal supra no solo pes altos",
+    },
+    {
+      sourceName: "Bom dia com Cabo de Vassoura",
+      normalizedSource: "bom dia com cabo de vassoura",
+    },
+    {
+      sourceName: "Desenvolvimento Barra Reta",
+      normalizedSource: "desenvolvimento barra reta",
+    },
+    {
+      sourceName: "Remada Alta na Polia Alta com Corda",
+      normalizedSource: "remada alta na polia alta com corda",
+    },
+  ];
+  for (const { sourceName, normalizedSource } of stillBlockedAliases) {
+    const queueRow = queuePayload.items.find((row) => row.source_name === sourceName);
+    assert.equal(aliasIndex.has(normalizedSource), false);
+    assert.equal(queueRow?.runtime_eligible, false);
+  }
 
   const unilateralBandRow = queuePayload.items.find((row) => row.source_name === "Remada Fechada Unilateral");
   assert.equal(aliasIndex.has("remada fechada unilateral"), false);
@@ -1222,5 +1284,5 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const currentHash = createHash("sha256").update(aliasText).digest("hex");
   assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
   assert.equal(queuePayload.items.length, 52);
-  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 15);
+  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 19);
 });
