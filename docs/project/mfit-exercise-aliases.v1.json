@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 62,
-    "pending_medium": 29,
+    "approved_aliases": 64,
+    "pending_medium": 27,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 120
+    "unresolved_total": 118
   },
   "aliases": [
     {
@@ -150,6 +150,18 @@
       "rationale": "Movimento, equipamento e posição preservados."
     },
     {
+      "source_name": "Desenvolvimento no Smith",
+      "target_exercise_id": "a863ae76-f3e6-42c0-9757-26e7e1a111a7",
+      "target_name": "Desenvolvimento Sentado Smith",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: desenvolvimento no Smith preserva movimento de empurrar vertical guiado, barra/máquina Smith e suporte sentado no alvo SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
       "source_name": "Deslocamento Lateral com Elástico",
       "target_exercise_id": "e6a748f5-2993-4f31-9e58-cb68e6ed8381",
       "target_name": "Caminhada lateral com mini band",
@@ -264,10 +276,13 @@
       "source_name": "Prancha Isometrica com Trx",
       "target_exercise_id": "185147fa-6622-4a7d-a7f2-cc61dffe2c45",
       "target_name": "Prancha com pés no TRX",
-      "status": "needs_review",
-      "confidence": "medium",
+      "status": "approved",
+      "confidence": "high",
       "occurrences": 1,
-      "rationale": "QA biomecânico: a origem não informa se pés ou mãos ficam suspensos; o target fixa apoio mecanicamente distinto."
+      "rationale": "QA independente aprovou equivalência para migração histórica: prancha isométrica com TRX preserva isometria de core, suspensão TRX e suporte com pés no TRX no alvo SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
     },
     {
       "source_name": "Prancha Isométrica na Bola Suíça",
@@ -779,14 +794,6 @@
         "confidence": "medium",
         "occurrences": 1,
         "blocker": "Halteres e pegada neutra preservados; SETT adiciona posição sentada."
-      },
-      {
-        "source_name": "Desenvolvimento no Smith",
-        "proposed_target_exercise_id": "a863ae76-f3e6-42c0-9757-26e7e1a111a7",
-        "proposed_target_name": "Desenvolvimento Sentado Smith",
-        "confidence": "medium",
-        "occurrences": 1,
-        "blocker": "Movimento e Smith preservados; SETT adiciona posição sentada."
       },
       {
         "source_name": "Encolhimento de Ombros no Smith Pela Frente",

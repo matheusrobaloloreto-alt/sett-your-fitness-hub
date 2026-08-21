@@ -5,7 +5,7 @@
   "execution_scope": "offline_evidence_review_only",
   "source_snapshot": {
     "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
-    "alias_map_sha256": "6543e097c351a92d1712f319b1513486b2fefa6652a26ecc54c2948305639dc1",
+    "alias_map_sha256": "e32312fa167b81464f6ebd3b686c27b62d62e10a9a8033adbbda140945841e06",
     "medium_names": 52,
     "medium_occurrences": 162
   },
@@ -24,8 +24,8 @@
     "P0": 7,
     "P1": 9,
     "P2": 36,
-    "with_mfit_media_evidence": 28,
-    "needs_more_evidence": 24
+    "with_mfit_media_evidence": 30,
+    "needs_more_evidence": 22
   },
   "items": [
     {
@@ -1278,11 +1278,23 @@
       "proposed_target_name": "Desenvolvimento Sentado Smith",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Movimento e Smith preservados; SETT adiciona posição sentada.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: desenvolvimento no Smith foi considerado equivalente ao alvo SETT Desenvolvimento Sentado Smith para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "support_or_posture",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -1293,7 +1305,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Encolhimento de Ombros no Smith Pela Frente",
@@ -1367,11 +1381,23 @@
       "proposed_target_name": "Prancha com pés no TRX",
       "occurrences": 1,
       "priority": "P2",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
-      "blocker": "QA biomecânico: a origem não informa se pés ou mãos ficam suspensos; o target fixa apoio mecanicamente distinto.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: prancha isométrica com TRX foi considerada equivalente ao alvo SETT Prancha com pés no TRX para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "support_or_posture",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -1382,7 +1408,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Remada Alta com Barra W",
