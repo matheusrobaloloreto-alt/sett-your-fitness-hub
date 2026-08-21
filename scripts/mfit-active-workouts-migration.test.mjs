@@ -1009,10 +1009,10 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 50);
-  assert.equal(aliasPayload.summary.pending_medium, 41);
+  assert.equal(aliasPayload.summary.approved_aliases, 54);
+  assert.equal(aliasPayload.summary.pending_medium, 37);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 132);
+  assert.equal(aliasPayload.summary.unresolved_total, 128);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
 
   for (const sourceName of ["Levantamento Terra", "Agachamento Bulgaro"]) {
@@ -1106,6 +1106,34 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
       targetName: "Ponte de glúteo",
       mediaId: "1065",
     },
+    {
+      sourceName: "Deslocamento Lateral com Elástico",
+      normalizedSource: "deslocamento lateral com elastico",
+      targetExerciseId: "e6a748f5-2993-4f31-9e58-cb68e6ed8381",
+      targetName: "Caminhada lateral com mini band",
+      mediaId: "1085",
+    },
+    {
+      sourceName: "Tríceps Testa Barra Reta",
+      normalizedSource: "triceps testa barra reta",
+      targetExerciseId: "043b569d-b13d-4ff7-9d4e-a552ff9d85ef",
+      targetName: "Tríceps Testa Barra Banco Reto",
+      mediaId: "558",
+    },
+    {
+      sourceName: "Agachamento Lateral Alternado",
+      normalizedSource: "agachamento lateral alternado",
+      targetExerciseId: "2e04727d-35b1-4053-8733-ed0cec7da94f",
+      targetName: "Cossack squat",
+      mediaId: "49",
+    },
+    {
+      sourceName: "Remada Máquina (Pegada Neutra)",
+      normalizedSource: "remada maquina (pegada neutra)",
+      targetExerciseId: "f0705159-aa86-407c-a27e-170374012831",
+      targetName: "Remada Cavalinho Máquina Neutra",
+      mediaId: "540",
+    },
   ];
 
   for (const expected of visuallyApprovedAliases) {
@@ -1155,6 +1183,35 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   assert.ok(unilateralBandRow?.mfit_media_evidence?.mismatch?.includes("implement_or_resistance"));
   assert.ok(unilateralBandRow?.mfit_media_evidence?.mismatch?.includes("support_or_posture"));
 
+  const p1BlockedAliases = [
+    {
+      sourceName: "Agachamento Sumô no Step com Halteres",
+      normalizedSource: "agachamento sumo no step com halteres",
+      mediaId: "78",
+      mismatch: "machine_configuration",
+    },
+    {
+      sourceName: "Abdominal Infra com as Pernas Flexionadas",
+      normalizedSource: "abdominal infra com as pernas flexionadas",
+      mediaId: "332",
+      mismatch: "range_or_lever_arm",
+    },
+  ];
+
+  for (const expected of p1BlockedAliases) {
+    assert.equal(aliasIndex.has(expected.normalizedSource), false);
+    const queueRow = queuePayload.items.find((row) => row.source_name === expected.sourceName);
+    assert.equal(queueRow?.decision_status, "needs_more_evidence");
+    assert.equal(queueRow?.independent_review_status, "needs_more_evidence");
+    assert.equal(queueRow?.runtime_eligible, false);
+    assert.equal(queueRow?.mfit_media_evidence?.media_id, expected.mediaId);
+    assert.equal(queueRow?.mfit_media_evidence?.video_url_verified_200, true);
+    assert.equal(queueRow?.mfit_media_evidence?.thumbnail_observed, true);
+    assert.equal(queueRow?.mfit_media_evidence?.observed_via, "authenticated_read_only_browser");
+    assert.equal(queueRow?.mfit_media_evidence?.observed_at, "2026-08-20");
+    assert.ok(queueRow?.mfit_media_evidence?.mismatch?.includes(expected.mismatch));
+  }
+
   for (const sourceName of ["Puxada Neutra triangulo", "Mobilidade de Tornozelo Semi Ajoelhado"]) {
     const evidence = queuePayload.items.find((row) => row.source_name === sourceName);
     assert.equal(evidence?.decision_status, "needs_more_evidence");
@@ -1165,5 +1222,5 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const currentHash = createHash("sha256").update(aliasText).digest("hex");
   assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
   assert.equal(queuePayload.items.length, 52);
-  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 11);
+  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 15);
 });

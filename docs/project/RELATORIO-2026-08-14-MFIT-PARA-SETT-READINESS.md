@@ -198,3 +198,20 @@ QA biomecânica independente revisou mais 3 candidatos P0 com mídia pública 20
 `Remada Fechada Unilateral` permanece `runtime_eligible=false` e `independent_review_status=needs_more_evidence`; ela não entrou no mapa executável.
 
 Estado projetado do próximo dry-run: 50 aliases executáveis, 181/313 nomes resolvidos e 132 não resolvidos. O mapa versionado projeta `approved_aliases=50`, `pending_medium=41` e `unresolved_total=132`; a fila de evidência projeta 14 itens com mídia observada e 38 ainda em `needs_more_evidence`. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.
+
+### QA visual P1 MFIT/SETT — 4 aliases aprovados e 2 bloqueados
+
+QA visual read-only revisou 6 candidatos P1 pela biblioteca MFIT autenticada, sem clicar `Adicionar ao treino`. Cada busca retornou heading exato para o card usado; variantes exibidas foram ignoradas. Todos os MP4s públicos responderam 200, os thumbnails foram observados, `observed_via=authenticated_read_only_browser` e `observed_at=2026-08-20`.
+
+| Source MFIT | `media_id` | Target SETT | Decisão | Base factual |
+|---|---:|---|---|---|
+| `Deslocamento Lateral com Elástico` | 1085 | `Caminhada lateral com mini band` | `approved/high` | Deslocamento lateral com mini band/elástico nos membros inferiores, em postura semi-agachada. |
+| `Tríceps Testa Barra Reta` | 558 | `Tríceps Testa Barra Banco Reto` | `approved/high` | Tríceps testa deitado em banco reto com barra reta. |
+| `Agachamento Lateral Alternado` | 49 | `Cossack squat` | `approved/high` | Agachamento lateral profundo alternado, peso corporal, base ampla e uma perna estendida. |
+| `Remada Máquina (Pegada Neutra)` | 540 | `Remada Cavalinho Máquina Neutra` | `approved/high` | Remada em máquina sentada com pegada neutra, suporte anterior e trajetória horizontal. |
+| `Agachamento Sumô no Step com Halteres` | 78 | `Agachamento Sumô Halter` | `needs_more_evidence` | Source usa steps bilaterais, aumentando ROM; alvo observado é sumô com halter no solo, sem step. |
+| `Abdominal Infra com as Pernas Flexionadas` | 332 | `Abdominal Infra Solo` | `needs_more_evidence` | Source preserva joelhos/pernas flexionadas; alvo observado usa pernas estendidas, mudando alavanca e dificuldade. |
+
+Os dois bloqueados permanecem `runtime_eligible=false` e `independent_review_status=needs_more_evidence`; eles não entraram no mapa executável.
+
+Estado projetado do próximo dry-run: 54 aliases executáveis, 185/313 nomes resolvidos e 128 não resolvidos. O mapa versionado projeta `approved_aliases=54`, `pending_medium=37` e `unresolved_total=128`; a fila de evidência projeta 20 itens com mídia observada e 32 ainda sem mídia observada. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.

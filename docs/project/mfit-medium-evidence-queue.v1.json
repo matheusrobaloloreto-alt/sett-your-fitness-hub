@@ -5,7 +5,7 @@
   "execution_scope": "offline_evidence_review_only",
   "source_snapshot": {
     "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
-    "alias_map_sha256": "932a1dddc628fc9c8efd9c1a1cf8610c97b869731def969c372a9d173680159d",
+    "alias_map_sha256": "445fa76c7ecd1614f980686218e6dca3cb4b3c9ac1c4a2c96fc8e5e3c8a841bd",
     "medium_names": 52,
     "medium_occurrences": 162
   },
@@ -24,8 +24,8 @@
     "P0": 7,
     "P1": 9,
     "P2": 36,
-    "with_mfit_media_evidence": 14,
-    "needs_more_evidence": 38
+    "with_mfit_media_evidence": 20,
+    "needs_more_evidence": 32
   },
   "items": [
     {
@@ -314,10 +314,26 @@
       "occurrences": 6,
       "priority": "P1",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "needs_more_evidence",
       "source_bucket": "medium_review_queue",
-      "blocker": "Sumô e halter preservados; step/ROM adicional não consta no SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "QA independente visual: movimento sumô e halter batem, mas os steps elevam o apoio e aumentam ROM; target sem step não preserva a configuração.",
+      "mfit_media_evidence": {
+        "media_id": "78",
+        "video_url": "https://vd.mfitpersonal.com.br/78/mp4/78.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/78/jpg/md/78_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Agachamento sumô com halter sobre steps bilaterais, aumentando a amplitude/ROM; o alvo SETT demonstra sumô com halter no solo, sem step.",
+        "supports": [
+          "movement"
+        ],
+        "mismatch": [
+          "support_or_posture",
+          "machine_configuration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -328,7 +344,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "visual_assessment": "source_supported_but_target_requires_more_evidence",
+      "independent_review_status": "needs_more_evidence"
     },
     {
       "source_name": "Mobilidade de Tornozelo Semi Ajoelhado",
@@ -367,11 +385,29 @@
       "proposed_target_name": "Caminhada lateral com mini band",
       "occurrences": 5,
       "priority": "P1",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "reconciled_alias_candidate",
-      "blocker": "QA biomecânico: elástico é genérico; mini band fixa implemento e configuração específicos.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "1085",
+        "video_url": "https://vd.mfitpersonal.com.br/v2/1085/mp4/1085_opt.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/v2/1085/jpg/md/1085_md.0000001.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Deslocamento lateral com mini band/elástico nos membros inferiores, em postura semi-agachada; o alvo SETT preserva caminhada lateral com mini band.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -382,7 +418,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Tríceps Testa Barra Reta",
@@ -390,11 +428,29 @@
       "proposed_target_name": "Tríceps Testa Barra Banco Reto",
       "occurrences": 5,
       "priority": "P1",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Movimento e barra preservados; banco reto é inferido.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "558",
+        "video_url": "https://vd.mfitpersonal.com.br/558/mp4/558.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/558/jpg/md/558_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Tríceps testa deitado em banco reto com barra reta; o alvo SETT demonstra tríceps testa com barra em banco reto.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -405,7 +461,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Pulldown Barra Reta",
@@ -500,10 +558,26 @@
       "occurrences": 3,
       "priority": "P1",
       "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "decision_status": "needs_more_evidence",
       "source_bucket": "medium_review_queue",
-      "blocker": "Mesmo padrão abdominal infra no solo; posição flexionada não consta no nome SETT.",
-      "mfit_media_evidence": null,
+      "blocker": "QA independente visual: ambos são abdominal infra no solo, mas a flexão de joelho/pernas flexionadas altera alavanca e dificuldade; target genérico observado não preserva a variante.",
+      "mfit_media_evidence": {
+        "media_id": "332",
+        "video_url": "https://vd.mfitpersonal.com.br/332/mp4/332.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/332/jpg/md/332_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Abdominal infra no solo com joelhos/pernas flexionadas; o alvo SETT Abdominal Infra Solo demonstra pernas estendidas, mudando alavanca e dificuldade.",
+        "supports": [
+          "movement"
+        ],
+        "mismatch": [
+          "laterality_or_joint_position",
+          "range_or_lever_arm"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -514,7 +588,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": false,
+      "visual_assessment": "source_supported_but_target_requires_more_evidence",
+      "independent_review_status": "needs_more_evidence"
     },
     {
       "source_name": "Agachamento Lateral Alternado",
@@ -522,11 +598,29 @@
       "proposed_target_name": "Cossack squat",
       "occurrences": 3,
       "priority": "P1",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Cossack squat é forte candidato ao agachamento lateral; amplitude/forma precisa revisão.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "49",
+        "video_url": "https://vd.mfitpersonal.com.br/49/mp4/49.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/49/jpg/md/49_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Agachamento lateral profundo alternado, peso corporal, base ampla e uma perna estendida; o alvo SETT Cossack squat preserva o padrão.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -537,7 +631,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Remada Máquina (Pegada Neutra)",
@@ -545,11 +641,29 @@
       "proposed_target_name": "Remada Cavalinho Máquina Neutra",
       "occurrences": 3,
       "priority": "P1",
-      "current_confidence": "medium",
-      "decision_status": "needs_evidence",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
       "source_bucket": "medium_review_queue",
-      "blocker": "Máquina e pegada neutra preservadas; formato cavalinho é inferido.",
-      "mfit_media_evidence": null,
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "540",
+        "video_url": "https://vd.mfitpersonal.com.br/540/mp4/540.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/540/jpg/md/540_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Remada em máquina sentada com pegada neutra, suporte anterior e trajetória horizontal; o alvo SETT preserva remada cavalinho em máquina neutra.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
       "required_checks": [
         "movement",
         "implement",
@@ -560,7 +674,9 @@
         "sett_metadata_and_targets",
         "visual_demonstration"
       ],
-      "runtime_eligible": false
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
     },
     {
       "source_name": "Abdominal Supra no Solo Pés Altos",

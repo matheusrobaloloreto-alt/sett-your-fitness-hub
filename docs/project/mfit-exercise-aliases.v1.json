@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 50,
-    "pending_medium": 41,
+    "approved_aliases": 54,
+    "pending_medium": 37,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 132
+    "unresolved_total": 128
   },
   "aliases": [
     {
@@ -153,10 +153,13 @@
       "source_name": "Deslocamento Lateral com Elástico",
       "target_exercise_id": "e6a748f5-2993-4f31-9e58-cb68e6ed8381",
       "target_name": "Caminhada lateral com mini band",
-      "status": "needs_review",
-      "confidence": "medium",
+      "status": "approved",
+      "confidence": "high",
       "occurrences": 5,
-      "rationale": "QA biomecânico: elástico é genérico; mini band fixa implemento e configuração específicos."
+      "rationale": "QA independente visual: deslocamento lateral, elástico/mini band em membros inferiores, postura semi-agachada e padrão de abdução/controle lateral preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "1085"
     },
     {
       "source_name": "Elevacão Lateral Sentado com Halteres",
@@ -603,6 +606,42 @@
       "independent_review_status": "approved",
       "approved_after_visual_review": true,
       "media_id": "1065"
+    },
+    {
+      "source_name": "Tríceps Testa Barra Reta",
+      "target_exercise_id": "043b569d-b13d-4ff7-9d4e-a552ff9d85ef",
+      "target_name": "Tríceps Testa Barra Banco Reto",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 5,
+      "rationale": "QA independente visual: extensão de cotovelo deitado em banco reto com barra reta; suporte, implemento e movimento preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "558"
+    },
+    {
+      "source_name": "Agachamento Lateral Alternado",
+      "target_exercise_id": "2e04727d-35b1-4053-8733-ed0cec7da94f",
+      "target_name": "Cossack squat",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "rationale": "QA independente visual: agachamento lateral profundo alternado, peso corporal, base ampla e uma perna estendida; padrão Cossack preservado.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "49"
+    },
+    {
+      "source_name": "Remada Máquina (Pegada Neutra)",
+      "target_exercise_id": "f0705159-aa86-407c-a27e-170374012831",
+      "target_name": "Remada Cavalinho Máquina Neutra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "rationale": "QA independente visual: remada em máquina sentada, pegada neutra, suporte anterior/chest-supported e trajetória horizontal preservados; diferença de modelo da máquina não muda a semântica histórica.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "540"
     }
   ],
   "review_queue": {
@@ -621,7 +660,7 @@
         "proposed_target_name": "Abdominal Infra Solo",
         "confidence": "medium",
         "occurrences": 3,
-        "blocker": "Mesmo padrão abdominal infra no solo; posição flexionada não consta no nome SETT."
+        "blocker": "QA independente visual: ambos são abdominal infra no solo, mas a flexão de joelho/pernas flexionadas altera alavanca e dificuldade; target genérico observado não preserva a variante."
       },
       {
         "source_name": "Abdominal Supra no Solo Pés Altos",
@@ -656,20 +695,12 @@
         "blocker": "Movimento e cabo/polia preservados; altura e unilateralidade não constam no SETT."
       },
       {
-        "source_name": "Agachamento Lateral Alternado",
-        "proposed_target_exercise_id": "2e04727d-35b1-4053-8733-ed0cec7da94f",
-        "proposed_target_name": "Cossack squat",
-        "confidence": "medium",
-        "occurrences": 3,
-        "blocker": "Cossack squat é forte candidato ao agachamento lateral; amplitude/forma precisa revisão."
-      },
-      {
         "source_name": "Agachamento Sumô no Step com Halteres",
         "proposed_target_exercise_id": "df795cb5-06d1-49a9-848f-ac7b186ff807",
         "proposed_target_name": "Agachamento Sumô Halter",
         "confidence": "medium",
         "occurrences": 6,
-        "blocker": "Sumô e halter preservados; step/ROM adicional não consta no SETT."
+        "blocker": "QA independente visual: movimento sumô e halter batem, mas os steps elevam o apoio e aumentam ROM; target sem step não preserva a configuração."
       },
       {
         "source_name": "Bom dia com Cabo de Vassoura",
@@ -776,14 +807,6 @@
         "blocker": "Nota confirma retração escapular; banco/pegada neutra preservados, inclinação e halteres não explícitos."
       },
       {
-        "source_name": "Remada Máquina (Pegada Neutra)",
-        "proposed_target_exercise_id": "f0705159-aa86-407c-a27e-170374012831",
-        "proposed_target_name": "Remada Cavalinho Máquina Neutra",
-        "confidence": "medium",
-        "occurrences": 3,
-        "blocker": "Máquina e pegada neutra preservadas; formato cavalinho é inferido."
-      },
-      {
         "source_name": "Remada TRX (Pegada Pronada)",
         "proposed_target_exercise_id": "f0406f4a-06ba-4233-8651-51ad93d5bc88",
         "proposed_target_name": "Remada Suspenas",
@@ -838,14 +861,6 @@
         "confidence": "medium",
         "occurrences": 1,
         "blocker": "Supino inclinado em máquina preservado; pegada neutra não consta no SETT."
-      },
-      {
-        "source_name": "Tríceps Testa Barra Reta",
-        "proposed_target_exercise_id": "043b569d-b13d-4ff7-9d4e-a552ff9d85ef",
-        "proposed_target_name": "Tríceps Testa Barra Banco Reto",
-        "confidence": "medium",
-        "occurrences": 5,
-        "blocker": "Movimento e barra preservados; banco reto é inferido."
       },
       {
         "source_name": "Tríceps Testa com Halteres",
