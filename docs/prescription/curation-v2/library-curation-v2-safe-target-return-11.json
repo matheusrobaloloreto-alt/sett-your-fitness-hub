@@ -9,7 +9,8 @@
     "high_signal_review": "docs/prescription/curation-v2/library-curation-v2-target-signature-high-signal-review.csv",
     "catalog_snapshot": "docs/prescription/curation-v2/library-curation-v2-catalog-snapshot.json",
     "manual_plan": "docs/prescription/curation-v2/library-curation-v2-high-signal-manual-remediation-plan.md",
-    "independent_review_record": "docs/prescription/curation-v2/library-curation-v2-high-signal-independent-review-record.md"
+    "independent_review_record": "docs/prescription/curation-v2/library-curation-v2-high-signal-independent-review-record.md",
+    "visual_22_video_review_record": "docs/prescription/curation-v2/library-curation-v2-visual-22-video-review-record.md"
   },
   "safeguards": [
     "This artifact is offline and audit-only.",
@@ -170,7 +171,10 @@
           "exercise_name": "Fisio Quadril: ponte de glúteo isométrica"
         }
       ],
-      "rationale": "Included only as a safe draft per the 11-ID instruction; prior evidence record still requires QA before any upsert because banco romano setup may change risk interpretation.",
+      "evidence_sources": [
+        "docs/prescription/curation-v2/library-curation-v2-visual-22-video-review-record.md"
+      ],
+      "rationale": "Visual review resolved setup as banco romano/45 graus for efde85ec and advanced it only to the separate targets/volume stage; this remains a safe draft with ready_for_upsert=false and still requires QA before any upsert.",
       "ready_for_upsert": false
     },
     {

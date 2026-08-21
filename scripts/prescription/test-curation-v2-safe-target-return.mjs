@@ -11,6 +11,8 @@ const ROOT = process.cwd();
 const ARTIFACT = "docs/prescription/curation-v2/library-curation-v2-safe-target-return-11.json";
 const SNAPSHOT = "docs/prescription/curation-v2/library-curation-v2-catalog-snapshot.json";
 const HIGH_SIGNAL = "docs/prescription/curation-v2/library-curation-v2-target-signature-high-signal-review.csv";
+const VISUAL_REVIEW = "docs/prescription/curation-v2/library-curation-v2-visual-22-video-review-record.md";
+const EFDE85EC_ID = "efde85ec-e714-44b9-928c-8db249f06c04";
 
 const AUTHORIZED_SAFE_IDS = [
   "ae13d351-7019-4b7d-b0e6-cea4b8fea50d",
@@ -123,6 +125,10 @@ function validate({ artifactPath = ARTIFACT, snapshotPath = SNAPSHOT, highSignal
   }
 
   if (artifact.ready_for_upsert !== false) fail("top-level ready_for_upsert must be false");
+  if (artifact.sources?.visual_22_video_review_record !== VISUAL_REVIEW) {
+    fail(`visual_22_video_review_record source must be listed as ${VISUAL_REVIEW}`);
+  }
+  if (!fs.existsSync(artifact.sources.visual_22_video_review_record)) fail("visual review source file does not exist");
   if (!Array.isArray(artifact.safe_targets)) fail("safe_targets must be an array");
   if (!Array.isArray(artifact.excluded_from_batch)) fail("excluded_from_batch must be an array");
   if (artifact.safe_targets.length !== 11) fail(`safe_targets must contain exactly 11 rows, got ${artifact.safe_targets.length}`);
@@ -157,6 +163,16 @@ function validate({ artifactPath = ARTIFACT, snapshotPath = SNAPSHOT, highSignal
       if (!catalogExercise) fail(`precedent missing from snapshot: ${precedent.exercise_id}`);
       const hasGroup = (catalogExercise.targets ?? []).some((candidate) => candidate.muscle_group_name === target.muscle_group_name);
       if (!hasGroup) fail(`precedent ${precedent.exercise_id} does not target ${target.muscle_group_name}`);
+    }
+
+    if (row.exercise_id === EFDE85EC_ID) {
+      if (!Array.isArray(row.evidence_sources) || !row.evidence_sources.includes(VISUAL_REVIEW)) {
+        fail("efde85ec must list the visual 22 video review record in evidence_sources");
+      }
+      const rationale = String(row.rationale ?? "").toLowerCase();
+      if (!rationale.includes("setup") || !rationale.includes("banco romano/45 graus") || !rationale.includes("ready_for_upsert=false")) {
+        fail("efde85ec rationale must mention setup resolved as banco romano/45 graus and ready_for_upsert=false");
+      }
     }
   }
 
@@ -222,6 +238,17 @@ function main() {
       }, 1),
       runFixture("volume_over_100_fails", (copy) => {
         copy.safe_targets[0].proposed_targets[0].volume_percentage = 101;
+      }, 1),
+      runFixture("missing_visual_source_fails", (copy) => {
+        delete copy.sources.visual_22_video_review_record;
+      }, 1),
+      runFixture("efde_missing_visual_evidence_fails", (copy) => {
+        const efde = copy.safe_targets.find((row) => row.exercise_id === EFDE85EC_ID);
+        efde.evidence_sources = [];
+      }, 1),
+      runFixture("efde_unresolved_setup_rationale_fails", (copy) => {
+        const efde = copy.safe_targets.find((row) => row.exercise_id === EFDE85EC_ID);
+        efde.rationale = "Glute primary draft.";
       }, 1),
     ];
     const failed = fixtures.filter((fixture) => !fixture.pass);
