@@ -1009,10 +1009,10 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 48);
-  assert.equal(aliasPayload.summary.pending_medium, 43);
+  assert.equal(aliasPayload.summary.approved_aliases, 50);
+  assert.equal(aliasPayload.summary.pending_medium, 41);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 134);
+  assert.equal(aliasPayload.summary.unresolved_total, 132);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
 
   for (const sourceName of ["Levantamento Terra", "Agachamento Bulgaro"]) {
@@ -1092,6 +1092,20 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
       targetName: "Flexão Aberta com Apoio do Joelho",
       mediaId: "239",
     },
+    {
+      sourceName: "Crucifixo Inverso com Halteres",
+      normalizedSource: "crucifixo inverso com halteres",
+      targetExerciseId: "cad889ac-c8da-4654-b27a-41555e10f212",
+      targetName: "Crucifixo Invertido Curvado",
+      mediaId: "215",
+    },
+    {
+      sourceName: "Ativação de Glúteo com Elevação Pélvica",
+      normalizedSource: "ativacao de gluteo com elevacao pelvica",
+      targetExerciseId: "a5d763eb-d779-49bc-acd4-665438ab4e01",
+      targetName: "Ponte de glúteo",
+      mediaId: "1065",
+    },
   ];
 
   for (const expected of visuallyApprovedAliases) {
@@ -1130,6 +1144,17 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   assert.equal(broomstickGoodMorning?.decision_status, "needs_evidence");
   assert.equal(broomstickGoodMorning?.runtime_eligible, false);
 
+  const unilateralBandRow = queuePayload.items.find((row) => row.source_name === "Remada Fechada Unilateral");
+  assert.equal(aliasIndex.has("remada fechada unilateral"), false);
+  assert.equal(unilateralBandRow?.decision_status, "needs_more_evidence");
+  assert.equal(unilateralBandRow?.independent_review_status, "needs_more_evidence");
+  assert.equal(unilateralBandRow?.runtime_eligible, false);
+  assert.equal(unilateralBandRow?.mfit_media_evidence?.media_id, "638");
+  assert.equal(unilateralBandRow?.mfit_media_evidence?.video_url_verified_200, true);
+  assert.equal(unilateralBandRow?.mfit_media_evidence?.thumbnail_observed, true);
+  assert.ok(unilateralBandRow?.mfit_media_evidence?.mismatch?.includes("implement_or_resistance"));
+  assert.ok(unilateralBandRow?.mfit_media_evidence?.mismatch?.includes("support_or_posture"));
+
   for (const sourceName of ["Puxada Neutra triangulo", "Mobilidade de Tornozelo Semi Ajoelhado"]) {
     const evidence = queuePayload.items.find((row) => row.source_name === sourceName);
     assert.equal(evidence?.decision_status, "needs_more_evidence");
@@ -1140,5 +1165,5 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const currentHash = createHash("sha256").update(aliasText).digest("hex");
   assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
   assert.equal(queuePayload.items.length, 52);
-  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 9);
+  assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 11);
 });

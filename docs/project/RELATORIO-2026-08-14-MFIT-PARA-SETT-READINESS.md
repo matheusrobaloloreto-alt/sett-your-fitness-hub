@@ -184,3 +184,17 @@ QA biomecânica independente aprovou mais 7 aliases por evidência visual, sem c
 `Bom dia com Cabo de Vassoura` permanece bloqueado: a ocorrência visual observada era apenas `Bom Dia`, sem prova do implemento cabo de vassoura.
 
 Estado projetado do próximo dry-run: 48 aliases executáveis, 179/313 nomes resolvidos e 134 não resolvidos. O mapa versionado projeta `approved_aliases=48`, `pending_medium=43` e `unresolved_total=134`; a fila de evidência projeta 11 itens com mídia observada e 41 ainda em `needs_more_evidence`. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.
+
+### QA P0 MFIT/SETT — 2 aliases aprovados e 1 bloqueado
+
+QA biomecânica independente revisou mais 3 candidatos P0 com mídia pública 200, thumbnail observado, `observed_via=authenticated_read_only_browser` e `observed_at=2026-08-20`.
+
+| Source MFIT | `media_id` | Target SETT | Decisão | Base factual |
+|---|---:|---|---|---|
+| `Crucifixo Inverso com Halteres` | 215 | `Crucifixo Invertido Curvado` | `approved/high` | Crucifixo inverso curvado em pé com halteres; o vídeo SETT demonstra postura curvada com halteres. |
+| `Ativação de Glúteo com Elevação Pélvica` | 1065 | `Ponte de glúteo` | `approved/high` | Ponte bilateral no solo, peso corporal e sem implemento; o vídeo SETT demonstra ponte bilateral no solo. |
+| `Remada Fechada Unilateral` | 638 | `Remada Baixa Neutra Unilateral` | `needs_more_evidence` | Movimento baixo e lateralidade batem parcialmente, mas resistência elástica em pé difere materialmente de cabo sentado. |
+
+`Remada Fechada Unilateral` permanece `runtime_eligible=false` e `independent_review_status=needs_more_evidence`; ela não entrou no mapa executável.
+
+Estado projetado do próximo dry-run: 50 aliases executáveis, 181/313 nomes resolvidos e 132 não resolvidos. O mapa versionado projeta `approved_aliases=50`, `pending_medium=41` e `unresolved_total=132`; a fila de evidência projeta 14 itens com mídia observada e 38 ainda em `needs_more_evidence`. O dry-run real continua bloqueado até snapshots operacionais privados atuais estarem presentes; nenhum `--apply`, DB write ou dado pessoal foi usado.

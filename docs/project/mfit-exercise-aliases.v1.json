@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 48,
-    "pending_medium": 43,
+    "approved_aliases": 50,
+    "pending_medium": 41,
     "blocked_low": 28,
     "blocked_no_candidate": 63,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 134
+    "unresolved_total": 132
   },
   "aliases": [
     {
@@ -579,6 +579,30 @@
       "independent_review_status": "approved",
       "approved_after_visual_review": true,
       "media_id": "239"
+    },
+    {
+      "source_name": "Crucifixo Inverso com Halteres",
+      "target_exercise_id": "cad889ac-c8da-4654-b27a-41555e10f212",
+      "target_name": "Crucifixo Invertido Curvado",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 10,
+      "rationale": "QA independente visual: abdução horizontal/reverse fly em postura curvada, suporte em pé e halteres preservados; o nome SETT omite o implemento, mas a demonstração do alvo confirma halteres.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "215"
+    },
+    {
+      "source_name": "Ativação de Glúteo com Elevação Pélvica",
+      "target_exercise_id": "a5d763eb-d779-49bc-acd4-665438ab4e01",
+      "target_name": "Ponte de glúteo",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 8,
+      "rationale": "QA independente visual: ponte de glúteo bilateral no solo, peso corporal, suporte, movimento e bilateralidade preservados; “ativação” é intenção de uso, não variante mecânica.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "1065"
     }
   ],
   "review_queue": {
@@ -648,28 +672,12 @@
         "blocker": "Sumô e halter preservados; step/ROM adicional não consta no SETT."
       },
       {
-        "source_name": "Ativação de Glúteo com Elevação Pélvica",
-        "proposed_target_exercise_id": "a5d763eb-d779-49bc-acd4-665438ab4e01",
-        "proposed_target_name": "Ponte de glúteo",
-        "confidence": "medium",
-        "occurrences": 8,
-        "blocker": "Equivalência técnica com ponte de glúteo; rótulo “ativação” não identifica carga/variante."
-      },
-      {
         "source_name": "Bom dia com Cabo de Vassoura",
         "proposed_target_exercise_id": "c916c624-2e7c-40b2-8195-4e5f8a4f2c3c",
         "proposed_target_name": "Bom dia",
         "confidence": "medium",
         "occurrences": 2,
         "blocker": "Mesmo padrão bom-dia; cabo de vassoura não consta no SETT."
-      },
-      {
-        "source_name": "Crucifixo Inverso com Halteres",
-        "proposed_target_exercise_id": "cad889ac-c8da-4654-b27a-41555e10f212",
-        "proposed_target_name": "Crucifixo Invertido Curvado",
-        "confidence": "medium",
-        "occurrences": 10,
-        "blocker": "SETT confirma ombro/equipamento livre; postura curvada é inferida entre variantes possíveis."
       },
       {
         "source_name": "Crucifixo com Halteres",
@@ -757,7 +765,7 @@
         "proposed_target_name": "Remada Baixa Neutra Unilateral",
         "confidence": "medium",
         "occurrences": 11,
-        "blocker": "Fechada→neutra e unilateral preservados; altura baixa é inferida."
+        "blocker": "QA independente visual: movimento baixo e lateralidade batem parcialmente, mas resistência elástica em pé difere materialmente de cabo sentado; exige evidência adicional ou alvo específico antes de runtime."
       },
       {
         "source_name": "Remada Fechada com Halteres no Banco Inclinado",
