@@ -22,7 +22,7 @@
     "No existing 11-safe artifact, CSV, approved manifest, upsert SQL, migration, target row, staging database, or production database was changed.",
     "All proposal rows and blocked rows keep ready_for_upsert=false.",
     "The 4 wrist-flexion cable rows use 100 only as the local single-primary broad-taxonomy convention; it is not EMG evidence.",
-    "The 5 upright-row rows are qualitative only, intentionally omit volume_percentage, and require local calibration before any numeric volume contract."
+    "The 5 upright-row rows are qualitative only, intentionally omit executable role/is_primary/volume_percentage fields, use candidate_role, and require local calibration plus human review before any numeric volume contract."
   ],
   "provenance": {
     "offline_execution": {
@@ -118,23 +118,25 @@
       "source_muscle_group": "ombro",
       "current_target_signature": "Dorsal:primary:1 | Deltoide Posterior:secondary:0.5 | Bíceps:secondary:0.5 | Trapézio:secondary:0.5",
       "proposal_type": "qualitative_target_hypothesis",
+      "non_executable_schema": true,
+      "human_review_only": true,
       "needs_local_calibration": true,
       "equipment_setup": "Barra: pegada pronada, mãos próximas a largura dos ombros, trajetória vertical guiada pelos cotovelos; registrar se a execução local privilegia abdução de ombro ou encolhimento.",
       "proposed_targets": [
         {
           "muscle_group_id": "3f48c850-84a5-46f3-ae18-ad9450a5d929",
           "muscle_group_name": "Deltoide Lateral",
-          "role": "primary"
+          "candidate_role": "primary"
         },
         {
           "muscle_group_id": "a269b423-1a11-4e8a-92d1-ed1293aeab47",
           "muscle_group_name": "Trapézio",
-          "role": "secondary"
+          "candidate_role": "secondary"
         },
         {
           "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
           "muscle_group_name": "Bíceps",
-          "role": "secondary",
+          "candidate_role": "secondary",
           "status": "possible"
         }
       ],
@@ -147,23 +149,25 @@
       "source_muscle_group": "ombro",
       "current_target_signature": "Dorsal:primary:1 | Deltoide Posterior:secondary:0.5 | Bíceps:secondary:0.5 | Trapézio:secondary:0.5",
       "proposal_type": "qualitative_target_hypothesis",
+      "non_executable_schema": true,
+      "human_review_only": true,
       "needs_local_calibration": true,
       "equipment_setup": "Halteres: cargas independentes ao lado do corpo, cotovelos lideram a subida; registrar amplitude, rotação de ombro e quanto o trapézio domina no vídeo local.",
       "proposed_targets": [
         {
           "muscle_group_id": "3f48c850-84a5-46f3-ae18-ad9450a5d929",
           "muscle_group_name": "Deltoide Lateral",
-          "role": "primary"
+          "candidate_role": "primary"
         },
         {
           "muscle_group_id": "a269b423-1a11-4e8a-92d1-ed1293aeab47",
           "muscle_group_name": "Trapézio",
-          "role": "secondary"
+          "candidate_role": "secondary"
         },
         {
           "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
           "muscle_group_name": "Bíceps",
-          "role": "secondary",
+          "candidate_role": "secondary",
           "status": "possible"
         }
       ],
@@ -176,23 +180,25 @@
       "source_muscle_group": "ombro",
       "current_target_signature": "Dorsal:primary:1 | Deltoide Posterior:secondary:0.5 | Bíceps:secondary:0.5 | Trapézio:secondary:0.5",
       "proposal_type": "qualitative_target_hypothesis",
+      "non_executable_schema": true,
+      "human_review_only": true,
       "needs_local_calibration": true,
       "equipment_setup": "Máquina: trajetória fixa e pegador dependem do equipamento da unidade; registrar altura do assento, linha de puxada e se o equipamento impõe elevação escapular.",
       "proposed_targets": [
         {
           "muscle_group_id": "3f48c850-84a5-46f3-ae18-ad9450a5d929",
           "muscle_group_name": "Deltoide Lateral",
-          "role": "primary"
+          "candidate_role": "primary"
         },
         {
           "muscle_group_id": "a269b423-1a11-4e8a-92d1-ed1293aeab47",
           "muscle_group_name": "Trapézio",
-          "role": "secondary"
+          "candidate_role": "secondary"
         },
         {
           "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
           "muscle_group_name": "Bíceps",
-          "role": "secondary",
+          "candidate_role": "secondary",
           "status": "possible"
         }
       ],
@@ -205,23 +211,25 @@
       "source_muscle_group": "ombro",
       "current_target_signature": "Dorsal:primary:1 | Deltoide Posterior:secondary:0.5 | Bíceps:secondary:0.5 | Trapézio:secondary:0.5",
       "proposal_type": "qualitative_target_hypothesis",
+      "non_executable_schema": true,
+      "human_review_only": true,
       "needs_local_calibration": true,
       "equipment_setup": "Smith: barra guiada em trilho, corpo ajustado sob a linha da barra; registrar inclinação do tronco, pegada e se o trilho muda a demanda de trapézio versus deltoide lateral.",
       "proposed_targets": [
         {
           "muscle_group_id": "3f48c850-84a5-46f3-ae18-ad9450a5d929",
           "muscle_group_name": "Deltoide Lateral",
-          "role": "primary"
+          "candidate_role": "primary"
         },
         {
           "muscle_group_id": "a269b423-1a11-4e8a-92d1-ed1293aeab47",
           "muscle_group_name": "Trapézio",
-          "role": "secondary"
+          "candidate_role": "secondary"
         },
         {
           "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
           "muscle_group_name": "Bíceps",
-          "role": "secondary",
+          "candidate_role": "secondary",
           "status": "possible"
         }
       ],
@@ -234,23 +242,25 @@
       "source_muscle_group": "ombro",
       "current_target_signature": "Dorsal:primary:1 | Deltoide Posterior:secondary:0.5 | Bíceps:secondary:0.5 | Trapézio:secondary:0.5",
       "proposal_type": "qualitative_target_hypothesis",
+      "non_executable_schema": true,
+      "human_review_only": true,
       "needs_local_calibration": true,
       "equipment_setup": "Polia: cabo vindo de baixo, barra ou corda puxada na vertical; registrar acessório usado, distância da polia e se a linha de resistência favorece deltoide lateral ou trapézio.",
       "proposed_targets": [
         {
           "muscle_group_id": "3f48c850-84a5-46f3-ae18-ad9450a5d929",
           "muscle_group_name": "Deltoide Lateral",
-          "role": "primary"
+          "candidate_role": "primary"
         },
         {
           "muscle_group_id": "a269b423-1a11-4e8a-92d1-ed1293aeab47",
           "muscle_group_name": "Trapézio",
-          "role": "secondary"
+          "candidate_role": "secondary"
         },
         {
           "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
           "muscle_group_name": "Bíceps",
-          "role": "secondary",
+          "candidate_role": "secondary",
           "status": "possible"
         }
       ],

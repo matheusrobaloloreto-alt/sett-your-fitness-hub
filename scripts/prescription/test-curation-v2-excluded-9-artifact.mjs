@@ -94,15 +94,23 @@ for (const row of calibrated) {
 for (const row of qualitative) {
   assert(row.ready_for_upsert === false, `qualitative row ready_for_upsert must be false: ${row.exercise_id}`);
   assert(row.proposal_type === "qualitative_target_hypothesis", `qualitative row type mismatch: ${row.exercise_id}`);
+  assert(row.non_executable_schema === true, `qualitative row must be marked non_executable_schema=true: ${row.exercise_id}`);
+  assert(row.human_review_only === true, `qualitative row must be marked human_review_only=true: ${row.exercise_id}`);
   assert(row.needs_local_calibration === true, `qualitative row must require local calibration: ${row.exercise_id}`);
   assert(typeof row.equipment_setup === "string" && row.equipment_setup.length > 40, `qualitative row must include equipment setup: ${row.exercise_id}`);
   const serialized = JSON.stringify(row);
   assert(!serialized.includes("volume_percentage"), `qualitative row must not include volume_percentage: ${row.exercise_id}`);
   const targets = row.proposed_targets ?? [];
   assert(targets.length === 3, `qualitative row must have three qualitative targets: ${row.exercise_id}`);
-  assert(targets.some((target) => target.muscle_group_name === "Deltoide Lateral" && target.role === "primary"), `qualitative row missing Deltoide Lateral primary: ${row.exercise_id}`);
-  assert(targets.some((target) => target.muscle_group_name === "Trapézio" && target.role === "secondary"), `qualitative row missing Trapézio secondary: ${row.exercise_id}`);
-  assert(targets.some((target) => target.muscle_group_name === "Bíceps" && target.role === "secondary" && target.status === "possible"), `qualitative row missing Bíceps secondary possible: ${row.exercise_id}`);
+  for (const target of targets) {
+    assert(!Object.hasOwn(target, "role"), `qualitative target must not include executable role: ${row.exercise_id}`);
+    assert(!Object.hasOwn(target, "is_primary"), `qualitative target must not include executable is_primary: ${row.exercise_id}`);
+    assert(!Object.hasOwn(target, "volume_percentage"), `qualitative target must not include executable volume_percentage: ${row.exercise_id}`);
+    assert(Object.hasOwn(target, "candidate_role"), `qualitative target must use candidate_role: ${row.exercise_id}`);
+  }
+  assert(targets.some((target) => target.muscle_group_name === "Deltoide Lateral" && target.candidate_role === "primary"), `qualitative row missing Deltoide Lateral primary candidate: ${row.exercise_id}`);
+  assert(targets.some((target) => target.muscle_group_name === "Trapézio" && target.candidate_role === "secondary"), `qualitative row missing Trapézio secondary candidate: ${row.exercise_id}`);
+  assert(targets.some((target) => target.muscle_group_name === "Bíceps" && target.candidate_role === "secondary" && target.status === "possible"), `qualitative row missing Bíceps secondary possible candidate: ${row.exercise_id}`);
 }
 
 for (const row of blocked) {
