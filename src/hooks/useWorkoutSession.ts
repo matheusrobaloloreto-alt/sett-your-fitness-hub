@@ -78,7 +78,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
   }, [activeSession]);
 
   const startSession = useCallback(async (workoutId: string) => {
-    if (!studentId) return;
+    if (!studentId || activeSession) return;
     const now = Date.now();
     
     const { data, error } = await supabase
@@ -105,7 +105,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     setElapsed(0);
     finishingRef.current = false; // novo treino é finalizável de novo
     localStorage.setItem(STORAGE_KEY(studentId), JSON.stringify(session));
-  }, [studentId, companyId]);
+  }, [activeSession, studentId, companyId]);
 
   const finishSession = useCallback(async (
     logs: Record<string, { weight: number; reps_done: number; workout_id: string; exercise_index: number; set_number: number; set_type?: string; rpe?: number; completed?: boolean }>,

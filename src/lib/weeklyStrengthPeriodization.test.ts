@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildStudentProgressionHighlight,
   formatBiweeklyProgressionForDisplay,
+  resolveActiveWorkoutInCycles,
   resolveStudentHomeWorkoutTarget,
   resolveExerciseForWeek,
   resolveWorkoutForCycleWeek,
@@ -179,6 +180,24 @@ describe("weekly strength periodization resolver", () => {
     expect(resolveStudentHomeWorkoutTarget(workouts, 4, "stale-active")).toEqual({
       kind: "stale_active",
       workout: null,
+    });
+  });
+
+  it("resolve sessão ativa contra todos os ciclos antes de deixar outro treino iniciar", () => {
+    const cycles = [
+      { id: "cycle-1", workouts: [{ id: "lower", title: "Treino A", day_of_week: 2 }] },
+      { id: "cycle-2", workouts: [{ id: "upper", title: "Treino B", day_of_week: 4 }] },
+    ];
+
+    expect(resolveActiveWorkoutInCycles(cycles, "upper")).toEqual({
+      kind: "resolved",
+      cycle: cycles[1],
+      workout: cycles[1].workouts[0],
+    });
+    expect(resolveActiveWorkoutInCycles(cycles, null)).toEqual({ kind: "none" });
+    expect(resolveActiveWorkoutInCycles(cycles, "removed-workout")).toEqual({
+      kind: "stale",
+      workoutId: "removed-workout",
     });
   });
 });

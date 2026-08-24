@@ -5,6 +5,7 @@ const homeSource = readFileSync("src/components/student/StudentHome.tsx", "utf8"
 const checkinSource = readFileSync("src/components/student/CheckinCard.tsx", "utf8");
 const portalSource = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");
 const bnitoSource = readFileSync("src/components/StudentBnitoAssistant.tsx", "utf8");
+const workoutSessionSource = readFileSync("src/hooks/useWorkoutSession.ts", "utf8");
 
 describe("student-first experience contract", () => {
   it("makes the active workout the dominant resumable action and explains its purpose", () => {
@@ -14,6 +15,15 @@ describe("student-first experience contract", () => {
     expect(homeSource).toContain("progressionHighlight.body");
     expect(portalSource).toContain("activeWorkoutId={session.activeSession?.workoutId ?? null}");
     expect(portalSource).toContain("setSelectedWorkoutId(workoutId)");
+  });
+
+  it("blocks starting another workout when the active session is no longer in any hydrated cycle", () => {
+    expect(portalSource).toContain("resolveActiveWorkoutInCycles(cycles, session.activeSession?.workoutId ?? null)");
+    expect(portalSource).toContain('activeWorkoutResolution.kind === "stale"');
+    expect(portalSource).toContain("setSelectedWorkoutId(null)");
+    expect(portalSource).toContain("startBlockedReason");
+    expect(portalSource).toContain("Encerrar sessão ativa");
+    expect(workoutSessionSource).toContain("if (!studentId || activeSession) return;");
   });
 
   it("keeps empty gamification away from the home and reveals it only after real sessions", () => {

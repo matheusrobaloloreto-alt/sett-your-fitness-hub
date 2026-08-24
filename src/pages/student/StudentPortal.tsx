@@ -41,7 +41,7 @@ import { WorkoutHeader } from "@/components/student/WorkoutHeader";
 import { WeeklyGoalEditor } from "@/components/student/WeeklyGoalEditor";
 import { AchievementsPanel } from "@/components/student/AchievementsPanel";
 import { MonthlyLeaderboard } from "@/components/student/MonthlyLeaderboard";
-import { resolveWorkoutForCycleWeek, type ResolvedWeekContext, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
+import { resolveActiveWorkoutInCycles, resolveWorkoutForCycleWeek, type ResolvedWeekContext, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 
 import { CycleFeedbackBanner } from "@/components/student/CycleFeedbackBanner";
 import { calculateStreak } from "@/lib/streakCalculator";
@@ -68,6 +68,7 @@ import {
 
 type ActiveView = "home" | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
 const MAX_EXTRA_SETS = 5;
+const STALE_ACTIVE_SESSION_MESSAGE = "Há uma sessão ativa que não está mais na sua ficha. Encerre essa sessão antes de iniciar outro treino.";
 
 
 interface WorkoutExercise {
@@ -167,18 +168,33 @@ export default function StudentPortal() {
   const [runningSports, setRunningSports] = useState<Set<string>>(new Set());
   
 
-  const selectedWorkoutBase = selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
-  const selectedWorkout = useMemo(
-    () => resolveWorkoutForCycleWeek(
-      selectedWorkoutBase,
-      selectedCycle?.start_date,
-      selectedCycle?.duration_weeks,
-    ),
-    [selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks],
-  );
   const todayStr = businessDateYmd();
 
   const session = useWorkoutSession(studentId, companyId);
+  const activeWorkoutResolution = useMemo(
+    () => resolveActiveWorkoutInCycles(cycles, session.activeSession?.workoutId ?? null),
+    [cycles, session.activeSession?.workoutId],
+  );
+  const hasUnresolvedActiveSession = session.isHydrated && activeWorkoutResolution.kind === "stale";
+  const selectedWorkoutCycle = activeWorkoutResolution.kind === "resolved" ? activeWorkoutResolution.cycle : selectedCycle;
+  const selectedWorkoutBase = hasUnresolvedActiveSession
+    ? null
+    : activeWorkoutResolution.kind === "resolved"
+      ? activeWorkoutResolution.workout
+      : selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
+  const selectedWorkout = useMemo(
+    () => resolveWorkoutForCycleWeek(
+      selectedWorkoutBase,
+      selectedWorkoutCycle?.start_date,
+      selectedWorkoutCycle?.duration_weeks,
+    ),
+    [selectedWorkoutBase, selectedWorkoutCycle?.start_date, selectedWorkoutCycle?.duration_weeks],
+  );
+  const startBlockedReason = hasUnresolvedActiveSession
+    ? STALE_ACTIVE_SESSION_MESSAGE
+    : session.activeSession?.workoutId && selectedWorkout && session.activeSession.workoutId !== selectedWorkout.id
+      ? "Já existe uma sessão ativa de outro treino. Retome ou encerre essa sessão antes de iniciar outro treino."
+      : null;
   const workoutUiDraftStorageKey = studentId ? workoutUiDraftKey(studentId, todayStr) : null;
   const workoutUiRestoredKeyRef = useRef<string | null>(null);
   const extraSetsWorkoutRef = useRef<string | null>(null);
@@ -201,7 +217,14 @@ export default function StudentPortal() {
     if (!target) return;
     const cycle = cycles.find(item => item.id === target.cycleId && item.workouts.some(workout => workout.id === target.workoutId))
       || cycles.find(item => item.workouts.some(workout => workout.id === target.workoutId));
-    if (!cycle) return;
+    if (!cycle) {
+      if (target.source === "active_session") {
+        setSelectedWorkoutId(null);
+        setExpandedExercise(null);
+        setActiveView("treino");
+      }
+      return;
+    }
     setSelectedCycle(cycle);
     setSelectedWorkoutId(target.workoutId);
     setExpandedExercise(target.expandedExercise);
@@ -780,6 +803,10 @@ export default function StudentPortal() {
 
   const handleStartSession = async () => {
     if (!selectedWorkout) return;
+    if (startBlockedReason) {
+      toast({ title: "Sessão ativa em andamento", description: startBlockedReason, variant: "destructive" });
+      return;
+    }
     await session.startSession(selectedWorkout.id);
     toast({ title: "Treino iniciado!", description: "O cronômetro está rodando." });
   };
@@ -1119,7 +1146,24 @@ export default function StudentPortal() {
                   studentName={studentName}
                 />
 
-                {selectedCycle.workouts.length > 0 ? (
+                {hasUnresolvedActiveSession && (
+                  <Card className="border-amber-300 bg-amber-50">
+                    <CardContent className="space-y-3 p-5">
+                      <Badge variant="outline" className="border-amber-300 text-amber-800">Sessão ativa</Badge>
+                      <div className="space-y-1">
+                        <h3 className="font-sans text-base font-semibold text-amber-950">Sessão ativa fora da ficha atual</h3>
+                        <p className="font-sans text-sm leading-relaxed text-amber-900">
+                          A sessão iniciada aponta para um treino que não está mais publicado na sua ficha. Para proteger seu histórico, o app não inicia outro treino por cima dela.
+                        </p>
+                      </div>
+                      <Button variant="outline" className="w-full border-amber-300 bg-white/80 text-amber-900 hover:bg-white" onClick={handleAbandonSession}>
+                        Encerrar sessão ativa
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {!hasUnresolvedActiveSession && (selectedCycle.workouts.length > 0 ? (
                   <div className="space-y-3">
                     {selectedWorkout && (
                       <WorkoutHeader
@@ -1169,6 +1213,8 @@ export default function StudentPortal() {
                           onFinish={handleFinishSession}
                           onAbandon={handleAbandonSession}
                           workoutTitle={selectedWorkout.title}
+                          startBlockedReason={startBlockedReason}
+                          onResolveBlockedStart={() => setActiveView("treino")}
                         />
 
                         <WarmupGuide muscleGroups={selectedWorkout.exercises.map((e) => e.muscle_group)} open={warmupOpen} onOpenChange={setWarmupOpen} />
@@ -1298,7 +1344,7 @@ export default function StudentPortal() {
                       <p className="text-muted-foreground font-sans">Treino ainda não prescrito para este ciclo.</p>
                     </CardContent>
                   </Card>
-                )}
+                ))}
               </div>
             )}
           </div>

@@ -62,6 +62,11 @@ export interface StudentHomeWorkoutTarget<TWorkout extends StudentHomeWorkoutLik
   workout: TWorkout | null;
 }
 
+export type ActiveWorkoutInCycles<TCycle, TWorkout> =
+  | { kind: "none" }
+  | { kind: "resolved"; cycle: TCycle; workout: TWorkout }
+  | { kind: "stale"; workoutId: string };
+
 export interface WeeklyProgressionSummary {
   weeks: string;
   setsReps: string;
@@ -228,6 +233,21 @@ export function resolveStudentHomeWorkoutTarget<TWorkout extends StudentHomeWork
   const todayWorkout = workouts?.find((w) => w.day_of_week === currentDayOfWeek) ?? null;
   if (todayWorkout) return { kind: "today", workout: todayWorkout };
   return null;
+}
+
+export function resolveActiveWorkoutInCycles<
+  TWorkout extends { id: string },
+  TCycle extends { workouts: TWorkout[] },
+>(
+  cycles: TCycle[] | undefined | null,
+  activeWorkoutId?: string | null,
+): ActiveWorkoutInCycles<TCycle, TWorkout> {
+  if (!activeWorkoutId) return { kind: "none" };
+  for (const cycle of cycles ?? []) {
+    const workout = cycle.workouts.find((item) => item.id === activeWorkoutId);
+    if (workout) return { kind: "resolved", cycle, workout };
+  }
+  return { kind: "stale", workoutId: activeWorkoutId };
 }
 
 export function resolveExerciseForWeek<T extends WeeklyAwareExercise>(exercise: T, week: number): T {

@@ -9,10 +9,35 @@ interface WorkoutTimerProps {
   onFinish: () => void;
   onAbandon: () => void;
   workoutTitle: string;
+  startBlockedReason?: string | null;
+  onResolveBlockedStart?: () => void;
 }
 
-export function WorkoutTimer({ isActive, elapsed, formatTime, onStart, onFinish, onAbandon, workoutTitle }: WorkoutTimerProps) {
+export function WorkoutTimer({
+  isActive,
+  elapsed,
+  formatTime,
+  onStart,
+  onFinish,
+  onAbandon,
+  workoutTitle,
+  startBlockedReason,
+  onResolveBlockedStart,
+}: WorkoutTimerProps) {
   if (!isActive) {
+    if (startBlockedReason) {
+      return (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 space-y-3">
+          <p className="text-sm font-sans leading-relaxed">{startBlockedReason}</p>
+          {onResolveBlockedStart && (
+            <Button variant="outline" className="w-full border-amber-300 bg-white/80 font-sans text-amber-900 hover:bg-white" onClick={onResolveBlockedStart}>
+              Resolver sessão ativa
+            </Button>
+          )}
+        </div>
+      );
+    }
+
     return (
       <Button className="w-full h-14 text-lg gap-3 font-sans" onClick={onStart}>
         <Play className="h-5 w-5" />
