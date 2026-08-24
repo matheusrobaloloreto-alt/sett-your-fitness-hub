@@ -1,0 +1,277 @@
+{
+  "schema_version": "library-curation-v2-excluded-9-target-proposal.v1",
+  "generated_at": "2026-08-24",
+  "worktree": "codex/bn-training-volume",
+  "base_head": "4a1824d061308310c14866419721dec9c85864a7",
+  "status": "technical_proposal_draft_not_upsertable",
+  "ready_for_upsert": false,
+  "scope": {
+    "proposal_rows": 9,
+    "blocked_rows": 2,
+    "calibrated_single_primary_rows": 4,
+    "qualitative_no_percentage_rows": 5
+  },
+  "sources": {
+    "safe_target_return_11_excluded_batch": "docs/prescription/curation-v2/library-curation-v2-safe-target-return-11.json",
+    "high_signal_review": "docs/prescription/curation-v2/library-curation-v2-target-signature-high-signal-review.csv",
+    "catalog_snapshot": "docs/prescription/curation-v2/library-curation-v2-catalog-snapshot.json",
+    "manual_plan": "docs/prescription/curation-v2/library-curation-v2-high-signal-manual-remediation-plan.md"
+  },
+  "safeguards": [
+    "This is a separate offline technical artifact for the 9 non-blocked rows from the previous excluded batch.",
+    "No existing 11-safe artifact, CSV, approved manifest, upsert SQL, migration, target row, staging database, or production database was changed.",
+    "All proposal rows and blocked rows keep ready_for_upsert=false.",
+    "The 4 wrist-flexion cable rows use 100 only as the local single-primary broad-taxonomy convention; it is not EMG evidence.",
+    "The 5 upright-row rows are qualitative only, intentionally omit volume_percentage, and require local calibration before any numeric volume contract."
+  ],
+  "provenance": {
+    "offline_execution": {
+      "db_access": false,
+      "network_access": false,
+      "approved_manifest_generated": false,
+      "upsert_sql_generated": false,
+      "staging_or_production_touched": false
+    }
+  },
+  "calibrated_single_primary_targets": [
+    {
+      "exercise_id": "a9307b76-a4e2-4305-b683-d86e59ae80b6",
+      "exercise_name": "Flexão de Punho 90 graus Polia Baixa",
+      "source_muscle_group": "antebraço",
+      "current_target_signature": "Deltoide Anterior:secondary:0.5 | Tríceps:secondary:0.5 | Peitoral:primary:1",
+      "proposal_type": "calibrated_single_primary_target",
+      "needs_local_calibration": false,
+      "proposed_targets": [
+        {
+          "muscle_group_id": "149249ab-3aa4-4651-b054-7c8237b61527",
+          "muscle_group_name": "Antebraço",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "rationale": "Cable wrist flexion is retained as a forearm primary pattern. The 100 value is the local convention for a single primary target under the broad Antebraço taxonomy, not an EMG-derived claim.",
+      "ready_for_upsert": false
+    },
+    {
+      "exercise_id": "dcc7c1f8-9e2e-4b4d-a91e-fbc96fd042fe",
+      "exercise_name": "Flexão de Punho com a Polia Atrás",
+      "source_muscle_group": "antebraço",
+      "current_target_signature": "Deltoide Anterior:secondary:0.5 | Tríceps:secondary:0.5 | Peitoral:primary:1",
+      "proposal_type": "calibrated_single_primary_target",
+      "needs_local_calibration": false,
+      "proposed_targets": [
+        {
+          "muscle_group_id": "149249ab-3aa4-4651-b054-7c8237b61527",
+          "muscle_group_name": "Antebraço",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "rationale": "Behind-body cable wrist flexion is still a wrist-flexor/forearm pattern. The 100 value is the local convention for a single primary target under the broad Antebraço taxonomy, not an EMG-derived claim.",
+      "ready_for_upsert": false
+    },
+    {
+      "exercise_id": "9c2ad88a-1f2a-4c58-9455-a667d5331d09",
+      "exercise_name": "Flexão de Punho Polia Baixa",
+      "source_muscle_group": "antebraço",
+      "current_target_signature": "Deltoide Anterior:secondary:0.5 | Tríceps:secondary:0.5 | Peitoral:primary:1",
+      "proposal_type": "calibrated_single_primary_target",
+      "needs_local_calibration": false,
+      "proposed_targets": [
+        {
+          "muscle_group_id": "149249ab-3aa4-4651-b054-7c8237b61527",
+          "muscle_group_name": "Antebraço",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "rationale": "Low-cable wrist flexion maps to forearm as the only primary target in the local taxonomy. The 100 value is the local convention for a single primary target under the broad Antebraço taxonomy, not an EMG-derived claim.",
+      "ready_for_upsert": false
+    },
+    {
+      "exercise_id": "7512d746-8861-45b3-9242-800df83c8810",
+      "exercise_name": "Flexão de Punho Unilateral Polia Alta",
+      "source_muscle_group": "antebraço",
+      "current_target_signature": "Deltoide Anterior:secondary:0.5 | Tríceps:secondary:0.5 | Peitoral:primary:1",
+      "proposal_type": "calibrated_single_primary_target",
+      "needs_local_calibration": false,
+      "proposed_targets": [
+        {
+          "muscle_group_id": "149249ab-3aa4-4651-b054-7c8237b61527",
+          "muscle_group_name": "Antebraço",
+          "role": "primary",
+          "is_primary": true,
+          "volume_percentage": 100
+        }
+      ],
+      "rationale": "Unilateral high-cable wrist flexion remains a forearm primary pattern. The 100 value is the local convention for a single primary target under the broad Antebraço taxonomy, not an EMG-derived claim.",
+      "ready_for_upsert": false
+    }
+  ],
+  "qualitative_target_proposals": [
+    {
+      "exercise_id": "b222ffd2-a90e-47a2-9924-a63381446069",
+      "exercise_name": "Remada Alta Barra",
+      "source_muscle_group": "ombro",
+      "current_target_signature": "Dorsal:primary:1 | Deltoide Posterior:secondary:0.5 | Bíceps:secondary:0.5 | Trapézio:secondary:0.5",
+      "proposal_type": "qualitative_target_hypothesis",
+      "needs_local_calibration": true,
+      "equipment_setup": "Barra: pegada pronada, mãos próximas a largura dos ombros, trajetória vertical guiada pelos cotovelos; registrar se a execução local privilegia abdução de ombro ou encolhimento.",
+      "proposed_targets": [
+        {
+          "muscle_group_id": "3f48c850-84a5-46f3-ae18-ad9450a5d929",
+          "muscle_group_name": "Deltoide Lateral",
+          "role": "primary"
+        },
+        {
+          "muscle_group_id": "a269b423-1a11-4e8a-92d1-ed1293aeab47",
+          "muscle_group_name": "Trapézio",
+          "role": "secondary"
+        },
+        {
+          "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
+          "muscle_group_name": "Bíceps",
+          "role": "secondary",
+          "status": "possible"
+        }
+      ],
+      "rationale": "Upright-row family proposal only: lateral deltoid primary, trapezius secondary, biceps secondary possible. No numeric volume is assigned until local setup and execution are calibrated.",
+      "ready_for_upsert": false
+    },
+    {
+      "exercise_id": "bc77dd8b-8a5b-49da-987b-2653991d1659",
+      "exercise_name": "Remada Alta Halteres",
+      "source_muscle_group": "ombro",
+      "current_target_signature": "Dorsal:primary:1 | Deltoide Posterior:secondary:0.5 | Bíceps:secondary:0.5 | Trapézio:secondary:0.5",
+      "proposal_type": "qualitative_target_hypothesis",
+      "needs_local_calibration": true,
+      "equipment_setup": "Halteres: cargas independentes ao lado do corpo, cotovelos lideram a subida; registrar amplitude, rotação de ombro e quanto o trapézio domina no vídeo local.",
+      "proposed_targets": [
+        {
+          "muscle_group_id": "3f48c850-84a5-46f3-ae18-ad9450a5d929",
+          "muscle_group_name": "Deltoide Lateral",
+          "role": "primary"
+        },
+        {
+          "muscle_group_id": "a269b423-1a11-4e8a-92d1-ed1293aeab47",
+          "muscle_group_name": "Trapézio",
+          "role": "secondary"
+        },
+        {
+          "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
+          "muscle_group_name": "Bíceps",
+          "role": "secondary",
+          "status": "possible"
+        }
+      ],
+      "rationale": "Dumbbell upright row is kept qualitative because independent-arm setup changes shoulder/scapular demand. No numeric volume is assigned until local setup and execution are calibrated.",
+      "ready_for_upsert": false
+    },
+    {
+      "exercise_id": "ce8529f2-dd0e-4c7c-8110-d2505d84bfe2",
+      "exercise_name": "Remada Alta Máquina",
+      "source_muscle_group": "ombro",
+      "current_target_signature": "Dorsal:primary:1 | Deltoide Posterior:secondary:0.5 | Bíceps:secondary:0.5 | Trapézio:secondary:0.5",
+      "proposal_type": "qualitative_target_hypothesis",
+      "needs_local_calibration": true,
+      "equipment_setup": "Máquina: trajetória fixa e pegador dependem do equipamento da unidade; registrar altura do assento, linha de puxada e se o equipamento impõe elevação escapular.",
+      "proposed_targets": [
+        {
+          "muscle_group_id": "3f48c850-84a5-46f3-ae18-ad9450a5d929",
+          "muscle_group_name": "Deltoide Lateral",
+          "role": "primary"
+        },
+        {
+          "muscle_group_id": "a269b423-1a11-4e8a-92d1-ed1293aeab47",
+          "muscle_group_name": "Trapézio",
+          "role": "secondary"
+        },
+        {
+          "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
+          "muscle_group_name": "Bíceps",
+          "role": "secondary",
+          "status": "possible"
+        }
+      ],
+      "rationale": "Machine upright row is equipment-dependent, so this row records target direction only. No numeric volume is assigned until local setup and execution are calibrated.",
+      "ready_for_upsert": false
+    },
+    {
+      "exercise_id": "e2e6d537-a9ba-4feb-bd2d-f6b7591895c2",
+      "exercise_name": "Remada Alta no Smith",
+      "source_muscle_group": "ombro",
+      "current_target_signature": "Dorsal:primary:1 | Deltoide Posterior:secondary:0.5 | Bíceps:secondary:0.5 | Trapézio:secondary:0.5",
+      "proposal_type": "qualitative_target_hypothesis",
+      "needs_local_calibration": true,
+      "equipment_setup": "Smith: barra guiada em trilho, corpo ajustado sob a linha da barra; registrar inclinação do tronco, pegada e se o trilho muda a demanda de trapézio versus deltoide lateral.",
+      "proposed_targets": [
+        {
+          "muscle_group_id": "3f48c850-84a5-46f3-ae18-ad9450a5d929",
+          "muscle_group_name": "Deltoide Lateral",
+          "role": "primary"
+        },
+        {
+          "muscle_group_id": "a269b423-1a11-4e8a-92d1-ed1293aeab47",
+          "muscle_group_name": "Trapézio",
+          "role": "secondary"
+        },
+        {
+          "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
+          "muscle_group_name": "Bíceps",
+          "role": "secondary",
+          "status": "possible"
+        }
+      ],
+      "rationale": "Smith upright row is constrained by the rail path; target direction is recorded without percentage pending local calibration.",
+      "ready_for_upsert": false
+    },
+    {
+      "exercise_id": "6c2e58df-666f-420a-81e2-192929555fdc",
+      "exercise_name": "Remada Alta Polia",
+      "source_muscle_group": "ombro",
+      "current_target_signature": "Dorsal:primary:1 | Deltoide Posterior:secondary:0.5 | Bíceps:secondary:0.5 | Trapézio:secondary:0.5",
+      "proposal_type": "qualitative_target_hypothesis",
+      "needs_local_calibration": true,
+      "equipment_setup": "Polia: cabo vindo de baixo, barra ou corda puxada na vertical; registrar acessório usado, distância da polia e se a linha de resistência favorece deltoide lateral ou trapézio.",
+      "proposed_targets": [
+        {
+          "muscle_group_id": "3f48c850-84a5-46f3-ae18-ad9450a5d929",
+          "muscle_group_name": "Deltoide Lateral",
+          "role": "primary"
+        },
+        {
+          "muscle_group_id": "a269b423-1a11-4e8a-92d1-ed1293aeab47",
+          "muscle_group_name": "Trapézio",
+          "role": "secondary"
+        },
+        {
+          "muscle_group_id": "78d9b019-e1b3-4119-b4fe-fca633945cb6",
+          "muscle_group_name": "Bíceps",
+          "role": "secondary",
+          "status": "possible"
+        }
+      ],
+      "rationale": "Cable upright row target direction is qualitative only because accessory and line of pull must be calibrated locally before a volume percentage is safe.",
+      "ready_for_upsert": false
+    }
+  ],
+  "blocked_out_of_scope": [
+    {
+      "exercise_id": "479eecd9-1642-4c4c-b9eb-b0a14f11af3a",
+      "exercise_name": "Flexão de Punho Halteres",
+      "status": "BLOCK",
+      "reason": "Explicitly excluded from this 9-row proposal. It is not a cable wrist-flexion row and needs separate local evidence before any target/volume proposal.",
+      "ready_for_upsert": false
+    },
+    {
+      "exercise_id": "fd207a91-506b-466d-8d6c-d905e97e690a",
+      "exercise_name": "Flexão de Punho na Barra Fixa ou Antebraço na Barra Fixa",
+      "status": "BLOCK",
+      "reason": "Explicitly excluded from this 9-row proposal. Prior evidence requires video/metadata differentiation before it can be treated as wrist flexion or a hanging/bar pattern.",
+      "ready_for_upsert": false
+    }
+  ]
+}
