@@ -11,7 +11,7 @@ import {
   type MicrocycleType,
 } from "@/lib/periodization";
 import type { ResolvedWeekContext } from "@/lib/weeklyStrengthPeriodization";
-import { buildStudentProgressionHighlight, weeklyMethodLabel } from "@/lib/weeklyStrengthPeriodization";
+import { buildStudentProgressionHighlight, studentEffortCue, weeklyMethodLabel } from "@/lib/weeklyStrengthPeriodization";
 
 const DOT: Record<MicrocycleType, string> = {
   ordinario: "bg-primary",
@@ -81,6 +81,11 @@ export function PeriodizationBanner({
               <CalendarRange className="h-4 w-4 shrink-0 text-primary" />
               <span className="flex min-w-0 flex-col leading-tight">
                 <span className="font-mono-data text-xs font-semibold uppercase tracking-[0.12em] text-primary">
+                  <span>{progressionHighlight.title}</span>
+                  <span className="mx-1">·</span>
+                  <span>{progressionHighlight.eyebrow}</span>
+                </span>
+                <span className="font-mono-data text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
                   Periodização · Semana {curIdx + 1}/{plan.durationWeeks}
                 </span>
                 <span className="font-sans text-xs leading-relaxed text-muted-foreground sm:text-sm">
@@ -135,11 +140,11 @@ export function PeriodizationBanner({
               <p className="font-sans text-sm leading-relaxed text-foreground">{micro.description}</p>
               <p className="font-sans text-xs text-muted-foreground">{wk.focus}</p>
               <p className="font-mono-data text-[11px] text-muted-foreground">
-                RIR alvo {isCurrent && prescribedWeek ? prescribedWeek.rir : wk.rir} · Volume ~{wk.volumePct}% da referência
+                Esforço alvo: {studentEffortCue(isCurrent && prescribedWeek ? prescribedWeek.rir : wk.rir)} · Volume ~{wk.volumePct}% da referência
               </p>
               {isCurrent && prescribedWeek && (
                 <p className="font-sans text-xs font-medium text-primary">
-                  {progressionHighlight.eyebrow} · {currentLabel}
+                  {progressionHighlight.title} · {progressionHighlight.eyebrow} · {currentLabel}
                 </p>
               )}
             </div>

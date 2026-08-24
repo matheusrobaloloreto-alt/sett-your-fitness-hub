@@ -144,4 +144,41 @@ describe("weekly strength periodization resolver", () => {
       workout: workouts[1],
     });
   });
+
+  it("normaliza RIR textual e usa copy segura quando o esforço vem vazio", () => {
+    expect(buildStudentProgressionHighlight({
+      prescribedWeek: {
+        week: 5,
+        block: "intensificacao",
+        rir: "RIR 2",
+        tempo: "2010",
+        methods: [],
+        instruction: "Mantenha controle em todas as séries.",
+      },
+      durationWeeks: 6,
+    }).body).toBe("Esta quinzena fica mais intensa com séries retas. Termine as séries com cerca de 2 repetições guardadas. Mantenha controle em todas as séries.");
+
+    expect(buildStudentProgressionHighlight({
+      prescribedWeek: {
+        week: 3,
+        block: "acumulacao",
+        rir: "",
+        tempo: "3010",
+        methods: [],
+        instruction: "Aumente volume sem acelerar a execução.",
+      },
+      durationWeeks: 6,
+    }).body).toBe("Esta quinzena aumenta o volume com séries retas. Mantenha esforço controlado conforme as séries do treino. Aumente volume sem acelerar a execução.");
+  });
+
+  it("falha fechado quando existe sessão ativa para treino que não está mais na lista", () => {
+    const workouts = [
+      { id: "upper", title: "Treino B", day_of_week: 4 },
+    ];
+
+    expect(resolveStudentHomeWorkoutTarget(workouts, 4, "stale-active")).toEqual({
+      kind: "stale_active",
+      workout: null,
+    });
+  });
 });

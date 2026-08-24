@@ -58,8 +58,8 @@ export interface StudentHomeWorkoutLike {
 }
 
 export interface StudentHomeWorkoutTarget<TWorkout extends StudentHomeWorkoutLike> {
-  kind: "active" | "today";
-  workout: TWorkout;
+  kind: "active" | "today" | "stale_active";
+  workout: TWorkout | null;
 }
 
 export interface WeeklyProgressionSummary {
@@ -105,8 +105,21 @@ function biweeklyEyebrow(week: number, durationWeeks?: number | null) {
   return `Semanas ${start}-${end}`;
 }
 
-function studentRirText(rir: string) {
-  return `Termine as séries com cerca de ${rir} repetições guardadas.`;
+function normalizedRirValue(rir?: string | null) {
+  const normalized = String(rir || "").trim().match(/(?:^|\b)RIR\s*(\d+(?:\s*-\s*\d+)?)/i)?.[1]
+    || String(rir || "").trim().match(/^(\d+(?:\s*-\s*\d+)?)$/)?.[1];
+  return normalized ? normalized.replace(/\s+/g, "") : null;
+}
+
+export function studentEffortCue(rir?: string | null) {
+  const normalized = normalizedRirValue(rir);
+  return normalized ? `cerca de ${normalized} repetições guardadas` : "esforço controlado conforme as séries do treino";
+}
+
+function studentRirText(rir?: string | null) {
+  const normalized = normalizedRirValue(rir);
+  if (!normalized) return "Mantenha esforço controlado conforme as séries do treino.";
+  return `Termine as séries com ${studentEffortCue(rir)}.`;
 }
 
 function prescribedWeekOpening(block: string, hasMethods: boolean) {
@@ -211,6 +224,7 @@ export function resolveStudentHomeWorkoutTarget<TWorkout extends StudentHomeWork
 ): StudentHomeWorkoutTarget<TWorkout> | null {
   const activeWorkout = workouts?.find((w) => w.id === activeWorkoutId) ?? null;
   if (activeWorkout) return { kind: "active", workout: activeWorkout };
+  if (activeWorkoutId) return { kind: "stale_active", workout: null };
   const todayWorkout = workouts?.find((w) => w.day_of_week === currentDayOfWeek) ?? null;
   if (todayWorkout) return { kind: "today", workout: todayWorkout };
   return null;

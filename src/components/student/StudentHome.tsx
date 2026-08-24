@@ -52,6 +52,34 @@ export type StudentNavView =
 
 type NavItem = { view: StudentNavView; label: string; icon: typeof Dumbbell; sub?: string };
 
+function ProgressionHighlightBlock({
+  title,
+  eyebrow,
+  body,
+  tone = "light",
+}: {
+  title: string;
+  eyebrow: string;
+  body: string;
+  tone?: "light" | "dark";
+}) {
+  const titleClass = tone === "dark" ? "text-foreground" : "text-primary-foreground";
+  const eyebrowClass = tone === "dark" ? "text-primary" : "text-primary-foreground/65";
+  const bodyClass = tone === "dark" ? "text-muted-foreground" : "text-primary-foreground/78";
+  return (
+    <div className="mt-3 max-w-[34rem] space-y-1">
+      <p className={`font-mono-data text-[10px] uppercase tracking-[0.16em] ${eyebrowClass}`}>
+        <span className={titleClass}>{title}</span>
+        <span className="mx-1.5">·</span>
+        {eyebrow}
+      </p>
+      <p className={`text-sm leading-relaxed ${bodyClass}`}>
+        {body}
+      </p>
+    </div>
+  );
+}
+
 const NAV_ITEMS: readonly NavItem[] = [
   { view: "treino", label: "Treino", icon: Dumbbell },
   { view: "stats", label: "Estatísticas", icon: BarChart3, sub: "Volume e força" },
@@ -91,6 +119,7 @@ export function StudentHome({
     activeWorkoutId,
   );
   const primaryWorkout = workoutTarget?.workout ?? null;
+  const isStaleActiveWorkout = workoutTarget?.kind === "stale_active";
   const progressionHighlight = selectedCycle
     ? buildStudentProgressionHighlight({
       prescribedWeek: primaryWorkout?.weekly_context,
@@ -152,20 +181,40 @@ export function StudentHome({
                     {primaryWorkout.title}
                   </h3>
                   {progressionHighlight && (
-                    <div className="mt-3 max-w-[34rem] space-y-1">
-                      <p className="font-mono-data text-[10px] uppercase tracking-[0.16em] text-primary-foreground/55">
-                        {progressionHighlight.eyebrow}
-                      </p>
-                      <p className="text-sm leading-relaxed text-primary-foreground/78">
-                        {progressionHighlight.body}
-                      </p>
-                    </div>
+                    <ProgressionHighlightBlock
+                      title={progressionHighlight.title}
+                      eyebrow={progressionHighlight.eyebrow}
+                      body={progressionHighlight.body}
+                    />
                   )}
                   <span className="inline-flex items-center gap-2 mt-4 text-sm font-semibold">
                     <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-primary-foreground/15">
                       <Play className="h-3.5 w-3.5 fill-current" />
                     </span>
                     {workoutTarget?.kind === "active" ? "Retomar de onde parei" : "Iniciar treino"}
+                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                  </span>
+                </>
+              ) : isStaleActiveWorkout ? (
+                <>
+                  <p className="font-mono-data text-[11px] uppercase tracking-[0.18em] text-primary-foreground/60">
+                    Treino em andamento
+                  </p>
+                  <h3 className="font-display text-2xl mt-1.5 text-primary-foreground leading-snug">
+                    Retomar treino em andamento
+                  </h3>
+                  <p className="mt-2 max-w-[34rem] text-sm leading-relaxed text-primary-foreground/75">
+                    Há uma sessão aberta de outro treino. Abra a aba de treino para recuperar antes de iniciar outro.
+                  </p>
+                  {progressionHighlight && (
+                    <ProgressionHighlightBlock
+                      title={progressionHighlight.title}
+                      eyebrow={progressionHighlight.eyebrow}
+                      body={progressionHighlight.body}
+                    />
+                  )}
+                  <span className="inline-flex items-center gap-1.5 mt-4 text-sm font-medium text-primary-foreground/80">
+                    Ver treinos do ciclo
                     <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                   </span>
                 </>
@@ -177,6 +226,13 @@ export function StudentHome({
                   <h3 className="font-display text-2xl mt-1.5 text-primary-foreground leading-snug flex items-center gap-2">
                     <Moon className="h-5 w-5" /> Dia de descanso
                   </h3>
+                  {progressionHighlight && (
+                    <ProgressionHighlightBlock
+                      title={progressionHighlight.title}
+                      eyebrow={progressionHighlight.eyebrow}
+                      body={progressionHighlight.body}
+                    />
+                  )}
                   <span className="inline-flex items-center gap-1.5 mt-4 text-sm font-medium text-primary-foreground/80">
                     Ver treinos do ciclo
                     <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
