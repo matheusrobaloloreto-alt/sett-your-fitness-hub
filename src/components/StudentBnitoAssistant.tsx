@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { businessDateYmd } from "@/lib/businessDate";
 import { BenitoSprite, type BenitoState } from "@/components/BenitoSprite";
+import { useBenitoProductState } from "@/lib/benitoProductEvents";
 
 type StudentBnitoMessage = {
   id: string;
@@ -415,14 +416,14 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
   });
   const [bnitoDrag, setBnitoDrag] = useState({ x: 0, y: 0 });
   const [dragDirection, setDragDirection] = useState<"running-left" | "running-right" | null>(null);
-  const petState: BenitoState = loading || missionLoading
+  const localPetFallback: BenitoState = loading || missionLoading
     ? "processing"
-    : dragDirection
-      ?? (mission && !missionDismissed && mission.urgency === "parar_e_avisar"
-        ? "alert"
-        : petReaction ?? (open || (mission && !missionDismissed)
-          ? "waiting"
-          : "idle"));
+    : mission && !missionDismissed && mission.urgency === "parar_e_avisar"
+      ? "alert"
+      : petReaction ?? (open || (mission && !missionDismissed)
+        ? "waiting"
+        : "idle");
+  const petState = useBenitoProductState("student", localPetFallback, dragDirection);
 
   return (
     <>

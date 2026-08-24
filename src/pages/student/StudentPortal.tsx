@@ -65,6 +65,7 @@ import {
   writeWorkoutUiDraft,
   workoutLogTombstoneKey,
 } from "@/lib/workoutDraft";
+import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 
 
 type ActiveView = "home" | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
@@ -815,10 +816,12 @@ export default function StudentPortal() {
   const handleStartSession = async () => {
     if (!selectedWorkout) return;
     if (startBlockedReason) {
+      emitBenitoProductEvent({ source: "student_workout", action: "start_blocked" });
       toast({ title: "Sessão ativa em andamento", description: startBlockedReason, variant: "destructive" });
       return;
     }
     await session.startSession(selectedWorkout.id);
+    emitBenitoProductEvent({ source: "student_workout", action: "started" });
     toast({ title: "Treino iniciado!", description: "O cronômetro está rodando." });
   };
 
@@ -834,6 +837,7 @@ export default function StudentPortal() {
     });
 
     const finishedSession = await session.finishSession(logs, selectedWorkout.exercises, previousBestWeights);
+    emitBenitoProductEvent({ source: "student_workout", action: "completed" });
     toast({ title: "Treino concluído! 🎉", description: "Mandou bem — orgulho do seu progresso. Bora pro próximo!" });
 
     // Abre o popup "Como foi o treino?" — o registro principal fica no app.
@@ -879,9 +883,11 @@ export default function StudentPortal() {
           ...current,
         ]);
       }
+      emitBenitoProductEvent({ source: "student_feedback", action: "submitted" });
       setFeedbackOpen(false);
       setFeedbackSessionId(null);
     } catch (error) {
+      emitBenitoProductEvent({ source: "student_feedback", action: "failed" });
       toast({
         title: "Não foi possível enviar o feedback",
         description: error instanceof Error ? error.message : "Tente novamente em instantes.",

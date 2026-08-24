@@ -31,6 +31,7 @@ import {
   buildPrescriptionIntegration,
   formatPrescriptionIntegrationSummary,
 } from "@/lib/prescriptionIntegration";
+import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 
 interface Student { id: string; full_name: string; }
 interface Anamnese {
@@ -234,7 +235,7 @@ export default function UnifiedPrescriber() {
     return data.id;
   }
 
-  async function validateStrengthPlan(plan: any, anamneseContext: any, functionalAssessmentContext: any): Promise<PrescriptionValidationResult | null> {
+  const validateStrengthPlan = async (plan: any, anamneseContext: any, functionalAssessmentContext: any): Promise<PrescriptionValidationResult | null> => {
     const { data, error: e } = await supabase.functions.invoke<{ result?: PrescriptionValidationResult; error?: string }>("ai-validate-prescription", {
       body: {
         company_id: companyId,
@@ -256,7 +257,7 @@ export default function UnifiedPrescriber() {
     const result = data?.result || { status: "ok", warnings: [], blockers: [] };
     setValidationResult(result);
     return result;
-  }
+  };
 
   async function notifyStudent(message?: string) {
     if (!studentId || !companyId) return;
@@ -294,6 +295,7 @@ export default function UnifiedPrescriber() {
   async function generate() {
     if (!studentId || !companyId) { setError("Selecione um aluno."); return; }
     if (modalities.size === 0) { setError("Selecione ao menos uma prescrição."); return; }
+    emitBenitoProductEvent({ source: "professor_prescription", action: "generation_started" });
     setGenerating(true); setError(""); setValidationResult(null);
     setStatus({ musculacao: "idle", corrida: "idle" });
     setResults({ musculacao: null, corrida: null });
@@ -301,6 +303,12 @@ export default function UnifiedPrescriber() {
     let strengthPlan: any = null;
     let strengthPlanId: string | null = null;
     let runningPlanId: string | null = null;
+    let didStartReview = false;
+    const startPrescriptionReview = () => {
+      if (didStartReview) return;
+      didStartReview = true;
+      emitBenitoProductEvent({ source: "professor_prescription", action: "review_started" });
+    };
     const bundleId = crypto.randomUUID();
 
     try {
@@ -351,11 +359,12 @@ export default function UnifiedPrescriber() {
           },
         });
         if (e || data?.error) {
-      const f = await describeInvokeFailure(e, data);
-      if (f?.validator) setValidationResult(f.validator);
-      throw new Error(f?.message || data?.error || e?.message || "Falha na geração.");
-    }
+          const f = await describeInvokeFailure(e, data);
+          if (f?.validator) setValidationResult(f.validator);
+          throw new Error(f?.message || data?.error || e?.message || "Falha na geração.");
+        }
         strengthPlan = data?.plan; strengthPlanId = data?.id ?? null;
+        startPrescriptionReview();
         const validation = await validateStrengthPlan(
           strengthPlan,
           { ...anamnese, id: savedAnamneseId },
@@ -404,16 +413,17 @@ export default function UnifiedPrescriber() {
           },
         });
         if (e || data?.error) {
-      const f = await describeInvokeFailure(e, data);
-      if (f?.validator) setValidationResult(f.validator);
-      throw new Error(f?.message || data?.error || e?.message || "Falha na geração.");
-    }
+          const f = await describeInvokeFailure(e, data);
+          if (f?.validator) setValidationResult(f.validator);
+          throw new Error(f?.message || data?.error || e?.message || "Falha na geração.");
+        }
         runningPlanId = data?.id ?? null;
         setResults(r => ({ ...r, corrida: data?.plan }));
         setStatus(s => ({ ...s, corrida: "done" }));
       }
 
-      await supabase.from("prescription_bundles").insert({
+      startPrescriptionReview();
+      const { error: bundleInsertError } = await supabase.from("prescription_bundles").insert({
         id: bundleId, company_id: companyId, student_id: studentId,
         anamnese_id: savedAnamneseId,
         assessment_id: integrationCtx.sources.assessment_id,
@@ -427,7 +437,14 @@ export default function UnifiedPrescriber() {
         ].join("\n"),
         status: "active",
       });
+      if (bundleInsertError) throw new Error(bundleInsertError.message || "Falha ao salvar pacote de prescricao.");
+      emitBenitoProductEvent({ source: "professor_prescription", action: "completed" });
     } catch (err: any) {
+      if (/bloquead|block/i.test(err?.message || "")) {
+        emitBenitoProductEvent({ source: "professor_prescription", action: "blocked" });
+      } else {
+        emitBenitoProductEvent({ source: "professor_prescription", action: "failed" });
+      }
       setError(err.message || "Erro ao gerar prescrições.");
       setStatus(s => ({
         musculacao: s.musculacao === "generating" ? "error" : s.musculacao,

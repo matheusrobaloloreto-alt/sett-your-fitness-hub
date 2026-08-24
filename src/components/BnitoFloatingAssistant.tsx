@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { readEdgeError } from "@/lib/edgeError";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BenitoSprite, type BenitoState } from "@/components/BenitoSprite";
+import { useBenitoProductState } from "@/lib/benitoProductEvents";
 
 type BnitoMessage = {
   id: string;
@@ -410,9 +411,10 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
     () => ({ isAvailable: shouldShow, openBnito, assistantName: name }),
     [openBnito, shouldShow, name],
   );
-  const petState: BenitoState = loading
+  const localPetFallback: BenitoState = loading
     ? "processing"
-    : dragDirection ?? petReaction ?? (open ? "waiting" : "idle");
+    : petReaction ?? (open ? "waiting" : "idle");
+  const petState = useBenitoProductState("professor", localPetFallback, dragDirection);
 
   return (
     <BnitoAssistantContext.Provider value={contextValue}>
