@@ -95,6 +95,36 @@ describe("BN Prescription Engine v1", () => {
     expect(indexOf("forca_global")).toBeLessThan(indexOf("forca_especifica"));
   });
 
+  it("mantém controle motor antes das ativações e prioriza glúteo médio antes do padrão joelho em valgo", () => {
+    const cleanProgram = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      daysPerWeek: 3,
+    }));
+    const cleanPhases = cleanProgram.workouts[0].exercises.map((exercise) => exercise.phase);
+    const cleanIndexOf = (phase: string) => cleanPhases.indexOf(phase);
+    const valgusProgram = generateTrainingProgram(baseInput({
+      fitnessLevel: "iniciante",
+      objective: "hipertrofia",
+      daysPerWeek: 3,
+      injuries: ["joelho"],
+      painEva: 3,
+      painReports: [{ region: "joelho", eva: 3 }],
+      restrictions: "dor no joelho e valgo dinâmico",
+      assessmentContext: { ohs_compensations: [{ key: "dynamic_valgus", presente: true, severidade: "moderada" }] },
+    }));
+    const valgusExercises = valgusProgram.workouts[0].exercises;
+    const gluteIndex = valgusExercises.findIndex((exercise) => /abdu|glut/i.test(exercise.exercise_name));
+    const kneeIndex = valgusExercises.findIndex((exercise) => /agachamento|leg press/i.test(exercise.exercise_name));
+
+    expect(cleanIndexOf("controle_motor")).toBeLessThan(cleanIndexOf("ativacao_core"));
+    expect(cleanIndexOf("controle_motor")).toBeLessThan(cleanIndexOf("ativacao_especifica"));
+    expect(gluteIndex).toBeGreaterThanOrEqual(0);
+    expect(kneeIndex).toBeGreaterThanOrEqual(0);
+    expect(gluteIndex).toBeLessThan(kneeIndex);
+    expect(valgusExercises[gluteIndex].phase).toBe("controle_motor");
+    expect(valgusExercises[kneeIndex].phase).toBe("controle_motor");
+  });
+
   it("nunca repete exercise_id dentro da mesma sessão e bloqueia gap quando o catálogo elegível acaba", () => {
     const narrowCatalog: ExerciseCatalogEntry[] = [
       {
@@ -754,7 +784,7 @@ describe("BN Prescription Engine v1 — Golden Test Cases GC-01..GC-12", () => {
     expect(program.workouts.length).toBe(3);
     expect(weeklySets(program, "quadriceps")).toBeLessThanOrEqual(10);
     expect(gluteIndex).toBeGreaterThanOrEqual(0);
-    expect(kneeIndex).toBeGreaterThanOrEqual(0);
+    expect(kneeIndex === -1 || gluteIndex < kneeIndex).toBe(true);
     expect(prescribedExerciseText(program)).not.toMatch(/agachamento livre profundo|atg|afundo alto|pliometr|salto/);
     expect(JSON.stringify(program.periodization_blocks).toLowerCase()).toContain("rir 3-4");
     expect(explanationIds(program)).toEqual(expect.arrayContaining(["reduzi_quadriceps_por_dor_joelho", "priorizei_gluteo_medio_por_valgo", "evitei_metodo_avancado_por_dor_ou_nivel"]));
