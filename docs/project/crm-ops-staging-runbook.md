@@ -35,8 +35,9 @@ npm run staging:secrets:list
 ```
 
 `staging:secrets:list` redacts CLI digests. Treat missing `AUTOMATION_CRON_SECRET`,
-`AUTOMATION_TEST_SECRET`, `EVOLUTION_API_URL`, and `EVOLUTION_API_KEY` as a blocker for live dispatch.
-Never copy production secret values into staging.
+`AUTOMATION_TEST_SECRET`, `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, and
+`WHATSAPP_WEBHOOK_SECRET` as a blocker for live dispatch. Never copy production secret values into
+staging.
 
 ## Link staging for linked-only commands
 
@@ -76,13 +77,46 @@ npm run staging:deploy:automation
 This deploys only `process-automation-sessions` with `--project-ref ifymocggowdlqqcxugko --use-api`.
 Do not invoke the dispatcher from this runbook.
 
-## Canary without sending
+## No-send preparation
 
-Only call `prepare_controlled_weekly_test_session` if staging already has a same-tenant fixture with:
+This phase ends at `prepare_controlled_weekly_test_session`. It must not invoke
+`process-automation-sessions`, the Evolution provider, or any webhook.
+
+Only call `prepare_controlled_weekly_test_session(student_id, controlled_test_run_id)` if staging
+already has a same-tenant fixture with:
 
 - operator authorized for the tenant
 - student, enrollment, chat, connected instance, weekly flow, and start/content nodes
 - direct `@s.whatsapp.net` JID matching the student's phone or WhatsApp
 
-Do not use production people, production numbers, or Renan-like fixtures in staging. Do not invoke
-`process-automation-sessions`; preparation creates an auditable row only.
+Do not use production people, production numbers, or Renan-like fixtures in staging. Preparation
+creates one auditable `flow_sessions` row only. Capture a sanitized snapshot containing only:
+
+- session id
+- trigger type
+- `controlled_test=true`
+- hash of the canonical phone/JID
+- count of other `processing` sessions
+
+If the fixture cannot be created without real people or production numbers, stop here.
+
+## Authorized real canary
+
+This phase is a separate gate. It may happen only after the no-send preparation passes, the exact
+four migrations above are applied, `process-automation-sessions` from this branch is deployed to
+staging, and `AUTOMATION_CRON_SECRET`, `AUTOMATION_TEST_SECRET`, `EVOLUTION_API_URL`,
+`EVOLUTION_API_KEY`, and `WHATSAPP_WEBHOOK_SECRET` are present in staging.
+
+For a real send, invoke the dispatcher once with:
+
+- the exact `session_id` created by the no-send preparation
+- the normal cron secret
+- the temporary test secret
+- a staging-only provider instance
+- a recipient number controlled by the operator
+
+Confirm exactly one provider message and one matching database message, then remove
+`AUTOMATION_TEST_SECRET`. If the session has not sent, rollback is
+`cancel_controlled_weekly_test_session(session_id)`; do not delete the row, because it is audit
+evidence. A Renan production canary is not authorized by this staging runbook and requires its own
+explicit approval after the staging proof is green.

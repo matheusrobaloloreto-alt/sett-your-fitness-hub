@@ -70,6 +70,19 @@ ASAAS_API_KEY
 ASAAS_WEBHOOK_TOKEN
 ```
 
+CRM/automation staging secrets are also server-side only. Names only, no values:
+
+```bash
+AUTOMATION_CRON_SECRET
+AUTOMATION_TEST_SECRET
+EVOLUTION_API_URL
+EVOLUTION_API_KEY
+WHATSAPP_WEBHOOK_SECRET
+```
+
+Never copy production WhatsApp/provider values into staging. The controlled weekly-contact canary
+requires a staging-only provider instance and a staging-only recipient controlled by the operator.
+
 Optional:
 
 ```bash
