@@ -6,6 +6,11 @@ import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { WeeklyBar } from "./WeeklyBar";
+import {
+  buildStudentProgressionHighlight,
+  resolveStudentHomeWorkoutTarget,
+  type ResolvedWeekContext,
+} from "@/lib/weeklyStrengthPeriodization";
 
 interface Cycle {
   id: string;
@@ -14,7 +19,8 @@ interface Cycle {
   end_date: string;
   status: string;
   objective?: string | null;
-  workouts: { id: string; title: string; day_of_week: number | null }[];
+  duration_weeks?: number | null;
+  workouts: { id: string; title: string; day_of_week: number | null; weekly_context?: ResolvedWeekContext }[];
 }
 
 interface StudentHomeProps {
@@ -37,7 +43,7 @@ interface StudentHomeProps {
   hasCorrida?: boolean;
   hasNatacao?: boolean;
   hasCiclismo?: boolean;
-  onNavigate: (view: StudentNavView) => void;
+  onNavigate: (view: StudentNavView, workoutId?: string | null) => void;
 }
 
 export type StudentNavView =
@@ -79,9 +85,21 @@ export function StudentHome({
 }: StudentHomeProps) {
   const firstName = studentName.split(" ")[0];
   const todayLabel = format(new Date(), "EEEE · dd 'de' MMMM", { locale: ptBR });
-  const todayWorkout = selectedCycle?.workouts.find((w) => w.day_of_week === currentDayOfWeek) ?? null;
-  const activeWorkout = selectedCycle?.workouts.find((w) => w.id === activeWorkoutId) ?? null;
-  const primaryWorkout = activeWorkout ?? todayWorkout;
+  const workoutTarget = resolveStudentHomeWorkoutTarget(
+    selectedCycle?.workouts,
+    currentDayOfWeek,
+    activeWorkoutId,
+  );
+  const primaryWorkout = workoutTarget?.workout ?? null;
+  const progressionHighlight = selectedCycle
+    ? buildStudentProgressionHighlight({
+      prescribedWeek: primaryWorkout?.weekly_context,
+      objective: selectedCycle.objective,
+      durationWeeks: selectedCycle.duration_weeks,
+      startDate: selectedCycle.start_date,
+      endDate: selectedCycle.end_date,
+    })
+    : null;
 
   // Abas de prescrição que só aparecem quando o treinador publicou aquela modalidade.
   const prescriptionItems: NavItem[] = [
@@ -121,28 +139,33 @@ export function StudentHome({
 
       {/* Hero — Treino de hoje (maior ação do atleta) */}
       {selectedCycle && (
-        <button onClick={() => onNavigate("treino")} className="w-full text-left group">
+        <button onClick={() => onNavigate("treino", primaryWorkout?.id ?? null)} className="w-full text-left group">
           <Card className="student-action-surface relative overflow-hidden border-primary transition-shadow group-hover:shadow-lg">
             <Dumbbell className="absolute -right-4 -bottom-5 h-32 w-32 text-primary-foreground/10 rotate-12 pointer-events-none" />
             <CardContent className="relative p-5">
               {primaryWorkout ? (
                 <>
                   <p className="font-mono-data text-[11px] uppercase tracking-[0.18em] text-primary-foreground/60">
-                    {activeWorkout ? "Treino em andamento" : "Treino de hoje"}
+                    {workoutTarget?.kind === "active" ? "Treino em andamento" : "Treino de hoje"}
                   </p>
                   <h3 className="font-display text-2xl mt-1.5 text-primary-foreground leading-snug">
                     {primaryWorkout.title}
                   </h3>
-                  {selectedCycle.objective && (
-                    <p className="mt-2 max-w-[34rem] text-sm leading-relaxed text-primary-foreground/75">
-                      Por que agora: {selectedCycle.objective}
-                    </p>
+                  {progressionHighlight && (
+                    <div className="mt-3 max-w-[34rem] space-y-1">
+                      <p className="font-mono-data text-[10px] uppercase tracking-[0.16em] text-primary-foreground/55">
+                        {progressionHighlight.eyebrow}
+                      </p>
+                      <p className="text-sm leading-relaxed text-primary-foreground/78">
+                        {progressionHighlight.body}
+                      </p>
+                    </div>
                   )}
                   <span className="inline-flex items-center gap-2 mt-4 text-sm font-semibold">
                     <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-primary-foreground/15">
                       <Play className="h-3.5 w-3.5 fill-current" />
                     </span>
-                    {activeWorkout ? "Retomar de onde parei" : "Iniciar treino"}
+                    {workoutTarget?.kind === "active" ? "Retomar de onde parei" : "Iniciar treino"}
                     <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                   </span>
                 </>

@@ -11,6 +11,7 @@ import {
   type MicrocycleType,
 } from "@/lib/periodization";
 import type { ResolvedWeekContext } from "@/lib/weeklyStrengthPeriodization";
+import { buildStudentProgressionHighlight, weeklyMethodLabel } from "@/lib/weeklyStrengthPeriodization";
 
 const DOT: Record<MicrocycleType, string> = {
   ordinario: "bg-primary",
@@ -52,8 +53,15 @@ export function PeriodizationBanner({
   if (!cur) return null;
   const curMicro = MICROCYCLES[cur.microcycle];
   const curMeso = MESOCYCLES[cur.mesocycle];
+  const progressionHighlight = buildStudentProgressionHighlight({
+    prescribedWeek,
+    objective,
+    durationWeeks: dur,
+    startDate,
+    endDate,
+  });
   const currentLabel = prescribedWeek
-    ? `${prescribedWeek.block === "acumulacao" ? "Acumulação" : prescribedWeek.block === "intensificacao" ? "Intensificação" : "Base"} · ${prescribedWeek.methods.length ? prescribedWeek.methods.join(" + ") : "Séries retas"}`
+    ? `${prescribedWeek.block === "acumulacao" ? "Acumulação" : prescribedWeek.block === "intensificacao" ? "Intensificação" : "Base"} · ${prescribedWeek.methods.length ? prescribedWeek.methods.map((method) => weeklyMethodLabel(method) || method).join(" + ") : "Séries retas"}`
     : `${curMeso.label} · ${curMicro.short}`;
 
   const wk = plan.weeks[Math.min(sel, plan.weeks.length - 1)] || cur;
@@ -75,8 +83,8 @@ export function PeriodizationBanner({
                 <span className="font-mono-data text-xs font-semibold uppercase tracking-[0.12em] text-primary">
                   Periodização · Semana {curIdx + 1}/{plan.durationWeeks}
                 </span>
-                <span className="truncate font-sans text-xs text-muted-foreground">
-                  {currentLabel}
+                <span className="font-sans text-xs leading-relaxed text-muted-foreground sm:text-sm">
+                  {progressionHighlight.body}
                 </span>
               </span>
               <span className={`hidden shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide sm:inline ${CHIP[cur.microcycle]}`}>
@@ -131,7 +139,7 @@ export function PeriodizationBanner({
               </p>
               {isCurrent && prescribedWeek && (
                 <p className="font-sans text-xs font-medium text-primary">
-                  Cadência {prescribedWeek.tempo.split("").join("-")} · {prescribedWeek.instruction}
+                  {progressionHighlight.eyebrow} · {currentLabel}
                 </p>
               )}
             </div>

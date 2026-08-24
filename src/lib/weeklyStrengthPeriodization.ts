@@ -1,4 +1,9 @@
-import { currentWeekIndex } from "@/lib/periodization";
+import {
+  buildPeriodizationPlan,
+  currentWeekIndex,
+  MESOCYCLES,
+  weeksBetweenDates,
+} from "@/lib/periodization";
 
 export interface StoredWeeklyExercisePrescription {
   week: number;
@@ -39,6 +44,24 @@ export interface ResolvedWeekContext {
   instruction: string;
 }
 
+export interface StudentProgressionHighlight {
+  source: "prescribed_week" | "periodization_fallback";
+  eyebrow: string;
+  title: string;
+  body: string;
+}
+
+export interface StudentHomeWorkoutLike {
+  id: string;
+  title: string;
+  day_of_week: number | null;
+}
+
+export interface StudentHomeWorkoutTarget<TWorkout extends StudentHomeWorkoutLike> {
+  kind: "active" | "today";
+  workout: TWorkout;
+}
+
 export interface WeeklyProgressionSummary {
   weeks: string;
   setsReps: string;
@@ -66,6 +89,31 @@ export function weeklyMethodLabel(method?: string | null, seconds?: number | nul
   if (!method) return null;
   const label = METHOD_LABELS[method] || method.replaceAll("_", " ");
   return seconds ? `${label} (${seconds}s)` : label;
+}
+
+function blockLabel(block: string) {
+  if (block === "acumulacao") return "acumulação";
+  if (block === "intensificacao") return "intensificação";
+  if (block === "base") return "base";
+  return block.replaceAll("_", " ");
+}
+
+function biweeklyEyebrow(week: number, durationWeeks?: number | null) {
+  const duration = Math.max(1, Math.round(Number(durationWeeks) || 6));
+  const start = Math.floor((Math.max(1, week) - 1) / 2) * 2 + 1;
+  const end = Math.min(duration, start + 1);
+  return `Semanas ${start}-${end}`;
+}
+
+function studentRirText(rir: string) {
+  return `Termine as séries com cerca de ${rir} repetições guardadas.`;
+}
+
+function prescribedWeekOpening(block: string, hasMethods: boolean) {
+  if (block === "intensificacao") return hasMethods ? "Esta quinzena fica mais intensa" : "Esta quinzena fica mais intensa com séries retas";
+  if (block === "acumulacao") return hasMethods ? "Esta quinzena aumenta o volume" : "Esta quinzena aumenta o volume com séries retas";
+  if (block === "base") return hasMethods ? "Esta quinzena constrói base técnica" : "Esta quinzena constrói base técnica com séries retas";
+  return `Esta quinzena entra em ${blockLabel(block)}`;
 }
 
 function compactPair(values: string[]) {
@@ -109,6 +157,63 @@ export function formatBiweeklyProgressionForDisplay(
     const method = block.method || "Séries retas";
     return `Semanas ${block.weeks}: ${block.setsReps} · Cadência ${block.tempo} · RIR ${block.rir} · ${method}. ${block.instruction}`;
   });
+}
+
+export function buildStudentProgressionHighlight({
+  prescribedWeek,
+  objective,
+  durationWeeks,
+  startDate,
+  endDate,
+  today = new Date(),
+}: {
+  prescribedWeek?: ResolvedWeekContext | null;
+  objective?: string | null;
+  durationWeeks?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  today?: Date;
+}): StudentProgressionHighlight {
+  const duration = durationWeeks || weeksBetweenDates(startDate, endDate) || 6;
+
+  if (prescribedWeek) {
+    const methods = prescribedWeek.methods
+      .map((method) => weeklyMethodLabel(method))
+      .filter((method): method is string => Boolean(method));
+    const methodText = methods.length ? ` com ${methods.join(" + ")}` : "";
+    return {
+      source: "prescribed_week",
+      eyebrow: biweeklyEyebrow(prescribedWeek.week, duration),
+      title: "O que muda agora",
+      body: `${prescribedWeekOpening(prescribedWeek.block, methods.length > 0)}${methodText}. ${studentRirText(prescribedWeek.rir)} ${prescribedWeek.instruction}`,
+    };
+  }
+
+  const plan = buildPeriodizationPlan(objective, duration);
+  const weekIndex = currentWeekIndex(startDate, plan.durationWeeks, today);
+  const week = plan.weeks[weekIndex] || plan.weeks[0];
+  const mesoLabel = week ? blockLabel(week.mesocycle) : blockLabel("base");
+  const mesoDescription = week?.mesocycle === "intensificacao"
+    ? "mais intensidade e proximidade da falha, mantendo a execução controlada."
+    : week ? MESOCYCLES[week.mesocycle].description.split("(")[0].trim() : "adaptação e técnica.";
+  return {
+    source: "periodization_fallback",
+    eyebrow: biweeklyEyebrow((week?.week ?? 1), plan.durationWeeks),
+    title: "O que muda agora",
+    body: `Esta quinzena entra em ${mesoLabel}: ${mesoDescription.charAt(0).toLowerCase()}${mesoDescription.slice(1).replace(/\.$/, "")}. Sem técnica especial publicada para esta semana; siga as séries do treino.`,
+  };
+}
+
+export function resolveStudentHomeWorkoutTarget<TWorkout extends StudentHomeWorkoutLike>(
+  workouts: TWorkout[] | undefined | null,
+  currentDayOfWeek: number,
+  activeWorkoutId?: string | null,
+): StudentHomeWorkoutTarget<TWorkout> | null {
+  const activeWorkout = workouts?.find((w) => w.id === activeWorkoutId) ?? null;
+  if (activeWorkout) return { kind: "active", workout: activeWorkout };
+  const todayWorkout = workouts?.find((w) => w.day_of_week === currentDayOfWeek) ?? null;
+  if (todayWorkout) return { kind: "today", workout: todayWorkout };
+  return null;
 }
 
 export function resolveExerciseForWeek<T extends WeeklyAwareExercise>(exercise: T, week: number): T {

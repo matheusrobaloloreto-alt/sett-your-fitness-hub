@@ -8,10 +8,12 @@ const bnitoSource = readFileSync("src/components/StudentBnitoAssistant.tsx", "ut
 
 describe("student-first experience contract", () => {
   it("makes the active workout the dominant resumable action and explains its purpose", () => {
-    expect(homeSource).toContain('activeWorkout ? "Treino em andamento" : "Treino de hoje"');
-    expect(homeSource).toContain('activeWorkout ? "Retomar de onde parei" : "Iniciar treino"');
-    expect(homeSource).toContain("Por que agora:");
+    expect(homeSource).toContain('workoutTarget?.kind === "active" ? "Treino em andamento" : "Treino de hoje"');
+    expect(homeSource).toContain('workoutTarget?.kind === "active" ? "Retomar de onde parei" : "Iniciar treino"');
+    expect(homeSource).toContain('onNavigate("treino", primaryWorkout?.id ?? null)');
+    expect(homeSource).toContain("progressionHighlight.body");
     expect(portalSource).toContain("activeWorkoutId={session.activeSession?.workoutId ?? null}");
+    expect(portalSource).toContain("setSelectedWorkoutId(workoutId)");
   });
 
   it("keeps empty gamification away from the home and reveals it only after real sessions", () => {

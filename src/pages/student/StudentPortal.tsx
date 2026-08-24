@@ -381,7 +381,12 @@ export default function StudentPortal() {
                 thumbnail_url: (ex as any).thumbnail_url || videoMap[ex.exercise_id]?.thumbnail_url || null,
               })),
             }))
-            .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+            .sort((a, b) => (a.title || "").localeCompare(b.title || ""))
+            .map((workout) => resolveWorkoutForCycleWeek(
+              workout,
+              c.start_date,
+              (c as any).duration_weeks,
+            ) || workout);
           return { ...c, workouts: cycleWorkouts };
         });
         setCycles(enriched);
@@ -916,7 +921,11 @@ export default function StudentPortal() {
   }, [allLogs, weeklyGoal]);
 
 
-  const handleNavigate = (view: ActiveView) => {
+  const handleNavigate = (view: ActiveView, workoutId?: string | null) => {
+    if (view === "treino" && workoutId) {
+      setSelectedWorkoutId(workoutId);
+      setExpandedExercise(null);
+    }
     setActiveView(view);
   };
 

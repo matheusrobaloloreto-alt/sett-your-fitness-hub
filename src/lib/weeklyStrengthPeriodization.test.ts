@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildStudentProgressionHighlight,
   formatBiweeklyProgressionForDisplay,
+  resolveStudentHomeWorkoutTarget,
   resolveExerciseForWeek,
   resolveWorkoutForCycleWeek,
   summarizeExerciseWeeklyProgression,
@@ -85,5 +87,61 @@ describe("weekly strength periodization resolver", () => {
     expect(display[0]).toContain("Séries retas");
     expect(display[1]).toContain("Rest-pause (20s)");
     expect(display[1]).toContain("Drop-set");
+  });
+
+  it("prioriza a prescrição semanal autoritativa no resumo aluno-first da quinzena atual", () => {
+    const highlight = buildStudentProgressionHighlight({
+      prescribedWeek: {
+        week: 5,
+        block: "intensificacao",
+        rir: "2",
+        tempo: "2010",
+        methods: ["biset"],
+        instruction: "Execute o par em sequência, sem correr a técnica.",
+      },
+      durationWeeks: 6,
+    });
+
+    expect(highlight).toEqual({
+      source: "prescribed_week",
+      eyebrow: "Semanas 5-6",
+      title: "O que muda agora",
+      body: "Esta quinzena fica mais intensa com Bi-set. Termine as séries com cerca de 2 repetições guardadas. Execute o par em sequência, sem correr a técnica.",
+    });
+    expect(highlight?.body).not.toContain("RIR");
+    expect(highlight?.body).not.toContain("weekly_context");
+  });
+
+  it("gera um fallback determinístico para ciclos legados sem prometer método avançado inexistente", () => {
+    const highlight = buildStudentProgressionHighlight({
+      objective: "Hipertrofia",
+      startDate: "2026-07-06",
+      endDate: "2026-08-17",
+      today: new Date("2026-08-05T12:00:00"),
+    });
+
+    expect(highlight).toEqual({
+      source: "periodization_fallback",
+      eyebrow: "Semanas 5-6",
+      title: "O que muda agora",
+      body: "Esta quinzena entra em intensificação: mais intensidade e proximidade da falha, mantendo a execução controlada. Sem técnica especial publicada para esta semana; siga as séries do treino.",
+    });
+    expect(highlight?.body).not.toMatch(/Bi-set|Drop-set|Cluster|Rest-pause/);
+  });
+
+  it("resolve explicitamente o treino que o hero deve abrir", () => {
+    const workouts = [
+      { id: "lower", title: "Treino A", day_of_week: 2 },
+      { id: "upper", title: "Treino B", day_of_week: 4 },
+    ];
+
+    expect(resolveStudentHomeWorkoutTarget(workouts, 4, "lower")).toEqual({
+      kind: "active",
+      workout: workouts[0],
+    });
+    expect(resolveStudentHomeWorkoutTarget(workouts, 4, null)).toEqual({
+      kind: "today",
+      workout: workouts[1],
+    });
   });
 });
