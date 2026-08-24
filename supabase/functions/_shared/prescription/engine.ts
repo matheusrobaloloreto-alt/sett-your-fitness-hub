@@ -39,9 +39,9 @@ const PHASE_ORDER: Record<string, number> = {
   autoliberacao: 20,
   alongamento: 30,
   fisioterapia: 40,
-  ativacao_core: 50,
-  ativacao_especifica: 60,
-  controle_motor: 70,
+  controle_motor: 50,
+  ativacao_core: 60,
+  ativacao_especifica: 70,
   pliometria: 80,
   forca_global: 90,
   forca_especifica: 100,
@@ -137,6 +137,28 @@ function exerciseToTrainingExercise(exercise: ExerciseCatalogEntry, spec: Exerci
   };
 }
 
+function hasSessionExcludedEligibleAlternative(args: {
+  catalog: ExerciseCatalogEntry[];
+  spec: ExerciseSpec;
+  programUsedIds: Set<string>;
+  sessionUsedIds: Set<string>;
+  restrictions: ReturnType<typeof deriveRestrictionRules>;
+  input: PrescriptionInput;
+}) {
+  if (args.sessionUsedIds.size === 0) return false;
+  return Boolean(pickCatalogExercise({
+    catalog: args.catalog,
+    keywords: args.spec.keywords,
+    usedIds: args.programUsedIds,
+    restrictions: args.restrictions,
+    equipment: args.input.equipment,
+    fitnessLevel: args.input.fitnessLevel,
+    preferredMuscleGroup: args.spec.preferredMuscleGroup,
+    preferredPattern: args.spec.preferredPattern,
+    preferredExerciseIds: previousExerciseIds(args.input, args.spec.phase, args.spec.preferredMuscleGroup),
+  }));
+}
+
 function selectExercises(input: PrescriptionInput, specs: ExerciseSpec[], programUsedIds: Set<string>) {
   const catalog = normalizeCatalog(input.catalog);
   const restrictions = deriveRestrictionRules(input);
@@ -163,7 +185,14 @@ function selectExercises(input: PrescriptionInput, specs: ExerciseSpec[], progra
     });
     if (!exercise) {
       if (spec.reportGap !== false) {
-        const gapCode = sessionUsedIds.size > 0 ? "session_unique_exhausted" : "safe_alternative_unavailable";
+        const gapCode = hasSessionExcludedEligibleAlternative({
+          catalog,
+          spec,
+          programUsedIds,
+          sessionUsedIds,
+          restrictions,
+          input,
+        }) ? "session_unique_exhausted" : "safe_alternative_unavailable";
         gaps.push(`${spec.required === false ? "WARNING" : "BLOCKER"}:${gapCode}:${spec.phase}:${spec.keywords.join("/")}`);
       }
       return;

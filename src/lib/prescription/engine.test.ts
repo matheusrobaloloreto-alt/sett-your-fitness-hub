@@ -79,6 +79,22 @@ function explanationIds(program: ReturnType<typeof generateTrainingProgram>) {
 }
 
 describe("BN Prescription Engine v1", () => {
+  it("ordena controle motor antes das ativações sem deslocar mobilidade e força", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      daysPerWeek: 3,
+    }));
+    const phases = program.workouts[0].exercises.map((exercise) => exercise.phase);
+    const indexOf = (phase: string) => phases.indexOf(phase);
+
+    expect(indexOf("mobilidade")).toBeGreaterThanOrEqual(0);
+    expect(indexOf("controle_motor")).toBeGreaterThan(indexOf("mobilidade"));
+    expect(indexOf("controle_motor")).toBeLessThan(indexOf("ativacao_core"));
+    expect(indexOf("controle_motor")).toBeLessThan(indexOf("ativacao_especifica"));
+    expect(indexOf("ativacao_especifica")).toBeLessThan(indexOf("forca_global"));
+    expect(indexOf("forca_global")).toBeLessThan(indexOf("forca_especifica"));
+  });
+
   it("nunca repete exercise_id dentro da mesma sessão e bloqueia gap quando o catálogo elegível acaba", () => {
     const narrowCatalog: ExerciseCatalogEntry[] = [
       {
@@ -101,6 +117,33 @@ describe("BN Prescription Engine v1", () => {
     }
     expect(program.library_policy.gaps.some((gap) => gap.includes("session_unique_exhausted"))).toBe(true);
     expect(hasBlocker(program, "library_session_unique_exhausted")).toBe(true);
+  });
+
+  it("mantém safe_alternative_unavailable quando a falha vem de segurança mesmo após selecionar outro exercício", () => {
+    const mixedCatalog: ExerciseCatalogEntry[] = [
+      { id: "dead-core", name: "Dead Bug Core Livre", muscle_group: "core", equipment: "livre", targets: [{ muscle_group: "core" }] },
+      {
+        id: "unsafe-squat",
+        name: "Agachamento Livre Profundo ATG",
+        muscle_group: "quadríceps",
+        equipment: "barra",
+        contraindications: ["joelho"],
+        pain_limitation_tags: ["joelho"],
+      },
+    ];
+    const program = generateTrainingProgram(baseInput({
+      catalog: mixedCatalog,
+      restrictions: "dor no joelho EVA 4 e valgo dinâmico",
+      painEva: 4,
+      assessmentContext: { ohs_compensations: [{ key: "dynamic_valgus", presente: true, severidade: "moderada" }] },
+    }));
+
+    expect(allExerciseIds(program)).toContain("dead-core");
+    expect(allExerciseIds(program)).not.toContain("unsafe-squat");
+    expect(program.library_policy.gaps.some((gap) => gap.includes("BLOCKER:safe_alternative_unavailable:forca_global"))).toBe(true);
+    expect(program.library_policy.gaps.some((gap) => gap.includes("session_unique_exhausted:forca_global"))).toBe(false);
+    expect(hasBlocker(program, "safe_alternative_unavailable")).toBe(true);
+    expect(hasBlocker(program, "library_session_unique_exhausted")).toBe(false);
   });
 
   it("permite reuso entre sessões apenas como penalidade rastreável, sem duplicar na sessão", () => {
@@ -711,7 +754,7 @@ describe("BN Prescription Engine v1 — Golden Test Cases GC-01..GC-12", () => {
     expect(program.workouts.length).toBe(3);
     expect(weeklySets(program, "quadriceps")).toBeLessThanOrEqual(10);
     expect(gluteIndex).toBeGreaterThanOrEqual(0);
-    expect(kneeIndex === -1 || gluteIndex < kneeIndex).toBe(true);
+    expect(kneeIndex).toBeGreaterThanOrEqual(0);
     expect(prescribedExerciseText(program)).not.toMatch(/agachamento livre profundo|atg|afundo alto|pliometr|salto/);
     expect(JSON.stringify(program.periodization_blocks).toLowerCase()).toContain("rir 3-4");
     expect(explanationIds(program)).toEqual(expect.arrayContaining(["reduzi_quadriceps_por_dor_joelho", "priorizei_gluteo_medio_por_valgo", "evitei_metodo_avancado_por_dor_ou_nivel"]));
