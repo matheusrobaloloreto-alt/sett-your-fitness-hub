@@ -78,7 +78,9 @@ describe("Benito product event map", () => {
         fallback: "idle",
       });
     }
-    expect(getBenitoEventSpec({ source: "student_workout", action: "set_autosaved" } as BenitoProductEvent)).toBeNull();
+    expect(
+      getBenitoEventSpec({ source: "student_workout", action: "set_autosaved" } as unknown as BenitoProductEvent),
+    ).toBeNull();
   });
 });
 
