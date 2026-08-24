@@ -296,41 +296,58 @@ export function StudentHome({
       />
 
       {/* Navegação */}
-      <div>
-        <p className="text-eyebrow mb-3">Explorar</p>
-        <div className="grid grid-cols-2 gap-3">
+      <nav aria-label="Explorar áreas do app" className="border-t border-border pt-5">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-eyebrow">Explorar</p>
+            <h3 className="mt-1 font-display text-xl leading-tight text-foreground">Seu índice de treino</h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate("treino")}
+            className="min-h-11 shrink-0 rounded-md border border-primary/40 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          >
+            Abrir treino
+          </button>
+        </div>
+        <ul aria-label="Destinos do portal do aluno" className="divide-y divide-border border-y border-border">
           {navItems.map((item) => {
             const { view, label, icon: Icon } = item;
             const sub = item.sub;
+            const resolvedSub = subFor(view, sub);
             const isToday = view === "treino" && !!primaryWorkout;
             return (
-              <button key={view} onClick={() => onNavigate(view)} className="text-left group">
-                <Card className={cn(
-                  "h-full bg-card border-border transition-all duration-200",
-                  "group-hover:border-primary/50 group-hover:shadow-md group-hover:-translate-y-0.5",
-                )}>
-                  <CardContent className="p-5 flex flex-col gap-3">
-                    <div className="flex items-center justify-between">
-                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center transition-colors group-hover:bg-primary/15">
-                        <Icon className="h-5 w-5 text-primary" />
-                      </div>
+              <li key={view}>
+                <button
+                  type="button"
+                  aria-label={`${label}: ${resolvedSub}`}
+                  onClick={() => onNavigate(view)}
+                  className={cn(
+                    "group flex min-h-11 w-full items-center gap-3 py-3 text-left transition-colors hover:bg-secondary/50",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+                  )}
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 transition-colors group-hover:bg-primary/15">
+                    <Icon className="h-5 w-5 text-primary" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="font-sans text-sm font-semibold text-foreground">{label}</span>
                       {isToday && (
-                        <span className="font-mono-data text-[9px] uppercase tracking-[0.14em] text-primary bg-primary/10 rounded-full px-2 py-0.5">
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-primary">
                           Hoje
                         </span>
                       )}
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-foreground font-sans text-sm">{label}</h3>
-                      <p className="text-xs text-muted-foreground font-sans mt-0.5">{subFor(view, sub)}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </button>
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{resolvedSub}</span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
+                </button>
+              </li>
             );
           })}
-        </div>
-      </div>
+        </ul>
+      </nav>
     </div>
   );
 }

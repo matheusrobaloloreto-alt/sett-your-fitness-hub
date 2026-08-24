@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PeriodizationBanner } from "./PeriodizationBanner";
 import { StudentHome } from "./StudentHome";
@@ -88,6 +88,42 @@ describe("StudentHome progression highlight", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Treino em andamento/i }));
     expect(onNavigate).toHaveBeenCalledWith("treino", null);
+  });
+
+  it("preserves every navigation destination in an editorial index with accessible targets", () => {
+    const onNavigate = vi.fn();
+    renderHome({
+      onNavigate,
+      hasNutrition: true,
+      hasCorrida: true,
+      hasNatacao: true,
+      hasCiclismo: true,
+    });
+
+    const index = screen.getByRole("navigation", { name: "Explorar áreas do app" });
+    expect(index).toBeInTheDocument();
+    const destinationList = screen.getByRole("list", { name: "Destinos do portal do aluno" });
+    expect(destinationList).toBeInTheDocument();
+
+    const expectedDestinations = [
+      "Treino",
+      "Estatísticas",
+      "Calendário",
+      "Histórico",
+      "Integrações",
+      "Dicas Nutricionais",
+      "Corrida",
+      "Natação",
+      "Ciclismo",
+    ];
+
+    for (const label of expectedDestinations) {
+      const item = within(destinationList).getByRole("button", { name: new RegExp(`^${label}:`, "i") });
+      expect(item).toHaveClass("min-h-11");
+    }
+
+    fireEvent.click(within(destinationList).getByRole("button", { name: /^Dicas Nutricionais:/i }));
+    expect(onNavigate).toHaveBeenCalledWith("nutricao");
   });
 });
 

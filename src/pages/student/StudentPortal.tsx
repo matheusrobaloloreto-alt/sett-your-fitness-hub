@@ -30,6 +30,7 @@ import { useWakeLock } from "@/hooks/useWakeLock";
 import { WeeklyBar } from "@/components/student/WeeklyBar";
 import { AnnouncementsBell } from "@/components/student/AnnouncementsBell";
 import { StudentHome } from "@/components/student/StudentHome";
+import { EditorialPageHeader } from "@/components/EditorialPageHeader";
 import { businessDateYmd } from "@/lib/businessDate";
 import { NutritionPlanView } from "@/components/student/NutritionPlanView";
 import { CardioPlanView } from "@/components/student/CardioPlanView";
@@ -1029,40 +1030,39 @@ export default function StudentPortal() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="bg-card border-b border-border px-4 py-5 sm:px-6">
-        <div className="max-w-2xl mx-auto">
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-3">
-              {activeView !== "home" && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setActiveView("home")}
-                  className="mr-1"
-                  aria-label="Voltar ao início"
-                  title="Voltar ao início"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </Button>
-              )}
-              <Dumbbell className="h-6 w-6 text-primary" />
-              <h1 className="text-xl text-primary font-mono-data font-semibold tracking-wide">
-                {viewTitles[activeView]}
-              </h1>
-            </div>
-            <div className="flex items-center gap-1">
-              {studentId && companyId && <AnnouncementsBell studentId={studentId} companyId={companyId} />}
-              <Button variant="ghost" size="icon" onClick={signOut} aria-label="Sair" title="Sair">
-                <LogOut className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-          {activeView === "home" && (
-            <p className="text-foreground font-sans text-lg">{studentName}</p>
-          )}
-        </div>
-      </div>
+      <EditorialPageHeader
+        className="bg-card px-4 sm:px-6"
+        innerClassName="mx-auto max-w-2xl"
+        overline="Portal do aluno"
+        title={viewTitles[activeView]}
+        titleClassName="text-xl text-primary sm:text-2xl"
+        leading={
+          activeView !== "home" ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setActiveView("home")}
+              aria-label="Voltar ao início"
+              title="Voltar ao início"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          ) : (
+            <span className="flex h-11 w-11 items-center justify-center rounded-md bg-primary/10" aria-hidden="true">
+              <Dumbbell className="h-5 w-5 text-primary" />
+            </span>
+          )
+        }
+        context={activeView === "home" ? <span className="text-foreground">{studentName}</span> : null}
+        actions={
+          <>
+            {studentId && companyId && <AnnouncementsBell studentId={studentId} companyId={companyId} />}
+            <Button variant="ghost" size="icon" className="h-11 w-11" onClick={signOut} aria-label="Sair" title="Sair">
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </>
+        }
+      />
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6">
         {/* Cycle renewal banner (above any view) */}

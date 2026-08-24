@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { StudentCycleFeedbackCard } from "@/components/admin/StudentCycleFeedbackCard";
 import { StudentWorkoutFeedbackCard } from "@/components/admin/StudentWorkoutFeedbackCard";
 import { PlanVersionsCard } from "@/components/admin/PlanVersionsCard";
@@ -30,6 +30,8 @@ import { format, parseISO, eachDayOfInterval, addWeeks, addDays, isValid } from 
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+import { EditorialPageHeader } from "@/components/EditorialPageHeader";
+import { EditorialTabStrip } from "@/components/EditorialTabStrip";
 import { ProgressPhotosPanel } from "@/components/ProgressPhotosPanel";
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
 import type { PreRegistrationData } from "@/lib/preRegistration";
@@ -1083,59 +1085,72 @@ export default function StudentDetail() {
   return (
     <>
       <div className="space-y-4">
-        {/* Compact Header */}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/admin/students")}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl sm:text-2xl text-primary truncate">{student.full_name.toUpperCase()}</h1>
-              <Badge variant="outline" className={`text-xs ${statusColors[student.status]}`}>
-                {statusLabels[student.status] || student.status}
-              </Badge>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground font-sans mt-1">
-              {student.email && <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{student.email}</span>}
-              {student.whatsapp && <span className="flex items-center gap-1"><MessageCircle className="h-3 w-3" />{formatPhone(student.whatsapp)}</span>}
-              {trainerName && <span className="flex items-center gap-1"><Dumbbell className="h-3 w-3" />{trainerName}</span>}
-            </div>
-          </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <BnitoContextButton
-              label={`perfil de ${student.full_name}`}
-              context={`Detalhe do aluno. Status: ${student.status}. Treinador: ${trainerName || "nao definido"}. Matriculas: ${enrollments.length}. Ciclos: ${cycles.length}.`}
-              question="Me ajude a identificar os principais riscos e proximos passos deste aluno."
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs"
-              onClick={handleActivateStudentAccess}
-              disabled={activatingAccess || !student.email}
-            >
-              <UserPlus className="h-3.5 w-3.5 mr-1" />
-              <span className="hidden sm:inline">{activatingAccess ? "Ativando..." : "Ativar Acesso"}</span>
+        <EditorialPageHeader
+          overline="Perfil do aluno"
+          title={student.full_name.toUpperCase()}
+          titleClassName="text-primary"
+          leading={
+            <Button variant="ghost" size="icon" onClick={() => navigate("/admin/students")} aria-label="Voltar para alunos">
+              <ArrowLeft className="h-5 w-5" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={openEditStudent}>
-              <Pencil className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+          }
+          meta={
+            <Badge variant="outline" className={`text-xs ${statusColors[student.status]}`}>
+              {statusLabels[student.status] || student.status}
+            </Badge>
+          }
+          context={
+            <>
+              {student.email && (
+                <span className="inline-flex min-w-0 items-center gap-1 break-all">
+                  <Mail className="h-3.5 w-3.5 shrink-0" />
+                  {student.email}
+                </span>
+              )}
+              {student.whatsapp && (
+                <span className="inline-flex items-center gap-1">
+                  <MessageCircle className="h-3.5 w-3.5 shrink-0" />
+                  {formatPhone(student.whatsapp)}
+                </span>
+              )}
+              {trainerName && (
+                <span className="inline-flex items-center gap-1">
+                  <Dumbbell className="h-3.5 w-3.5 shrink-0" />
+                  {trainerName}
+                </span>
+              )}
+            </>
+          }
+          actions={
+            <>
+              <BnitoContextButton
+                label={`perfil de ${student.full_name}`}
+                context={`Detalhe do aluno. Status: ${student.status}. Treinador: ${trainerName || "nao definido"}. Matriculas: ${enrollments.length}. Ciclos: ${cycles.length}.`}
+                question="Me ajude a identificar os principais riscos e proximos passos deste aluno."
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-11 text-xs"
+                onClick={handleActivateStudentAccess}
+                disabled={activatingAccess || !student.email}
+              >
+                <UserPlus className="h-3.5 w-3.5 mr-1" />
+                <span>{activatingAccess ? "Ativando..." : "Ativar Acesso"}</span>
+              </Button>
+              <Button variant="ghost" size="icon" className="h-11 w-11" onClick={openEditStudent} aria-label="Editar aluno">
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </>
+          }
+        />
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="mb-4 flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0 pb-2">
-            {STUDENT_TABS.map(([value, label]) => (
-              <TabsTrigger
-                key={value}
-                value={value}
-                className="shrink-0 rounded-full border border-transparent px-3 py-1.5 text-sm font-medium text-muted-foreground shadow-none data-[state=active]:border-primary/30 data-[state=active]:bg-secondary data-[state=active]:text-primary data-[state=active]:shadow-sm"
-              >
-                {label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <EditorialTabStrip
+            tabs={STUDENT_TABS.map(([value, label]) => ({ value, label }))}
+            ariaLabel="Seções do aluno"
+          />
 
           {/* ===== VISÃO GERAL ===== */}
           <TabsContent value="overview" className="space-y-4">
