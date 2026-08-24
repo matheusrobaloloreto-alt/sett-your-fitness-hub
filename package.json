@@ -14,7 +14,13 @@
     "replica:import": "node scripts/replica-import.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify:backend": "node scripts/verify-canonical-backend.mjs"
+    "verify:backend": "node scripts/verify-canonical-backend.mjs",
+    "staging:preflight": "node scripts/supabase-staging.mjs preflight",
+    "staging:functions:list": "node scripts/supabase-staging.mjs functions:list",
+    "staging:secrets:list": "node scripts/supabase-staging.mjs secrets:list",
+    "staging:migrations:list": "node scripts/supabase-staging.mjs migration:list-linked",
+    "staging:db:push:dry-run": "node scripts/supabase-staging.mjs db:push-dry-run-linked",
+    "staging:deploy:automation": "node scripts/supabase-staging.mjs deploy:process-automation-sessions"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
