@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   buildWorkoutFeedbackRecord,
+  deliverWorkoutFeedbackToWhatsapp,
   normalizeWorkoutFeedbackPayload,
 } from "../../supabase/functions/_shared/student-workout-feedback";
 
 const MIGRATION = "supabase/migrations/20260824120000_workout_feedback_trainer_replies.sql";
 const EDGE = "supabase/functions/student-workout-feedback/index.ts";
+const SHARED = "supabase/functions/_shared/student-workout-feedback.ts";
 
 const read = (path: string) => readFileSync(path, "utf8");
 
@@ -59,6 +61,74 @@ describe("student workout feedback edge payload", () => {
   });
 });
 
+function createWhatsappDeliveryDb({
+  messageError = null,
+  chatUpdateError = null,
+}: {
+  messageError?: { message: string } | null;
+  chatUpdateError?: { message: string } | null;
+}) {
+  return {
+    from(table: string) {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        order: () => query,
+        limit: () => query,
+        insert: () => {
+          if (table === "whatsapp_messages") {
+            return Promise.resolve({ error: messageError });
+          }
+          return query;
+        },
+        update: () => ({
+          eq: () => Promise.resolve({ error: chatUpdateError }),
+        }),
+        maybeSingle: () => {
+          if (table === "whatsapp_chats") {
+            return Promise.resolve({ data: { id: "chat-1", unread_count: 2 }, error: null });
+          }
+          return Promise.resolve({ data: null, error: null });
+        },
+      };
+      return query;
+    },
+  };
+}
+
+describe("optional workout feedback WhatsApp delivery", () => {
+  const baseArgs = {
+    studentId: "student-1",
+    student: {
+      company_id: "company-1",
+      full_name: "Aluno Teste",
+      whatsapp: "48999999999",
+      phone: null,
+    },
+    content: "Feedback de treino - Aluno",
+    nowIso: () => "2026-08-24T10:00:00.000Z",
+    log: () => undefined,
+  };
+
+  it("returns delivered false instead of throwing when the WhatsApp message mirror fails", async () => {
+    const result = await deliverWorkoutFeedbackToWhatsapp({
+      ...baseArgs,
+      db: createWhatsappDeliveryDb({ messageError: { message: "provider down" } }),
+    });
+
+    expect(result).toEqual({ delivered: false });
+  });
+
+  it("returns delivered false instead of throwing when the chat update mirror fails", async () => {
+    const result = await deliverWorkoutFeedbackToWhatsapp({
+      ...baseArgs,
+      db: createWhatsappDeliveryDb({ chatUpdateError: { message: "stale chat" } }),
+    });
+
+    expect(result).toEqual({ delivered: false });
+  });
+});
+
 describe("workout feedback trainer reply migration contract", () => {
   it("adds nullable reply columns, size/coherence checks, and no speculative index", () => {
     const migration = read(MIGRATION);
@@ -93,9 +163,14 @@ describe("workout feedback trainer reply migration contract", () => {
 
   it("keeps the edge on the app database record before optional WhatsApp delivery", () => {
     const edge = read(EDGE);
+    const shared = read(SHARED);
 
     expect(edge).toContain("normalizeWorkoutFeedbackPayload");
     expect(edge).toContain("buildWorkoutFeedbackRecord");
-    expect(edge.indexOf(".from(\"workout_feedback\").insert")).toBeLessThan(edge.indexOf(".from(\"whatsapp_messages\").insert"));
+    expect(edge).toContain("deliverWorkoutFeedbackToWhatsapp");
+    expect(edge.indexOf(".from(\"workout_feedback\").insert")).toBeLessThan(edge.indexOf("const delivery = await deliverWorkoutFeedbackToWhatsapp"));
+    expect(edge).not.toContain("Feedback salvo, mas falhou");
+    expect(shared).toContain(".from(\"whatsapp_messages\").insert");
+    expect(shared).toContain("return { delivered: false }");
   });
 });

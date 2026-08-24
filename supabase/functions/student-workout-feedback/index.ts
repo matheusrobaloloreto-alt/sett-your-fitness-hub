@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildWorkoutFeedbackMessage,
   buildWorkoutFeedbackRecord,
+  deliverWorkoutFeedbackToWhatsapp,
   normalizeWorkoutFeedbackPayload,
 } from "../_shared/student-workout-feedback.ts";
 
@@ -78,41 +79,14 @@ serve(async (req) => {
       action_url: `/admin/students/${student_id}`,
     });
 
-    // Conversa do aluno; cria se não houver (precisa de instância + número).
-    let { data: chat } = await db.from("whatsapp_chats").select("id, unread_count").eq("student_id", student_id).order("last_message_at", { ascending: false }).limit(1).maybeSingle();
-
-    if (!chat) {
-      const digits = String(student.whatsapp || student.phone || "").replace(/\D/g, "");
-      const { data: inst } = await db.from("whatsapp_instances").select("id").eq("company_id", student.company_id).order("status").limit(1).maybeSingle();
-      if (digits && (inst as any)?.id) {
-        const remoteJid = `${digits.startsWith("55") ? digits : "55" + digits}@s.whatsapp.net`;
-        const { data: created } = await db.from("whatsapp_chats").insert({
-          company_id: student.company_id, instance_id: (inst as any).id, remote_jid: remoteJid,
-          student_id, contact_name: student.full_name,
-        }).select("id, unread_count").maybeSingle();
-        chat = created as any;
-      }
-    }
-
-    if (!chat) {
-      return json({ ok: true, persisted: true, delivered: false, feedback_id: savedFeedback.id });
-    }
-
-    const nowIso = new Date().toISOString();
-    const { error: messageError } = await db.from("whatsapp_messages").insert({
-      chat_id: (chat as any).id, company_id: student.company_id,
-      content, type: "text", source: "incoming", is_from_me: false,
-      status: "received", timestamp: nowIso, sender_id: student_id,
+    const delivery = await deliverWorkoutFeedbackToWhatsapp({
+      db,
+      studentId: student_id,
+      student,
+      content,
     });
-    if (messageError) throw new Error(`Feedback salvo, mas falhou no WhatsApp: ${messageError.message}`);
-    const { error: chatError } = await db.from("whatsapp_chats").update({
-      unread_count: (((chat as any).unread_count as number) || 0) + 1,
-      last_message: content.slice(0, 120),
-      last_message_at: nowIso,
-    }).eq("id", (chat as any).id);
-    if (chatError) throw new Error(`Feedback salvo, mas falhou ao atualizar conversa: ${chatError.message}`);
 
-    return json({ ok: true, persisted: true, delivered: true, feedback_id: savedFeedback.id });
+    return json({ ok: true, persisted: true, delivered: delivery.delivered, feedback_id: savedFeedback.id });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "Erro inesperado" }, 500);
   }

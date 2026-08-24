@@ -11,6 +11,22 @@ interface BuildRecordArgs {
   payload: NormalizedWorkoutFeedbackPayload;
 }
 
+interface WorkoutFeedbackStudent {
+  company_id: string;
+  full_name: string | null;
+  whatsapp: string | null;
+  phone: string | null;
+}
+
+interface DeliverWorkoutFeedbackToWhatsappArgs {
+  db: any;
+  studentId: string;
+  student: WorkoutFeedbackStudent;
+  content: string;
+  nowIso?: () => string;
+  log?: (message: string, details?: unknown) => void;
+}
+
 const PERCEPTION_TO_DIFFICULTY: Record<string, number> = {
   "Difícil": 8,
   "Bom": 5,
@@ -78,4 +94,87 @@ export function buildWorkoutFeedbackMessage({
   const ratingLine = payload.perception ? `Percepção: ${payload.perception}\n` : "";
   const titleLine = payload.workoutTitle ? ` (${payload.workoutTitle.slice(0, 60)})` : "";
   return `Feedback de treino${titleLine} — ${firstName}\n${ratingLine}${payload.reflection || "(sem comentário adicional)"}`;
+}
+
+export async function deliverWorkoutFeedbackToWhatsapp({
+  db,
+  studentId,
+  student,
+  content,
+  nowIso = () => new Date().toISOString(),
+  log = console.warn,
+}: DeliverWorkoutFeedbackToWhatsappArgs): Promise<{ delivered: boolean }> {
+  try {
+    const { data: existingChat, error: chatLookupError } = await db
+      .from("whatsapp_chats")
+      .select("id, unread_count")
+      .eq("student_id", studentId)
+      .order("last_message_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (chatLookupError) throw chatLookupError;
+    let chat = existingChat;
+
+    if (!chat) {
+      const digits = String(student.whatsapp || student.phone || "").replace(/\D/g, "");
+      const { data: inst, error: instanceError } = await db
+        .from("whatsapp_instances")
+        .select("id")
+        .eq("company_id", student.company_id)
+        .order("status")
+        .limit(1)
+        .maybeSingle();
+      if (instanceError) throw instanceError;
+
+      if (digits && inst?.id) {
+        const remoteJid = `${digits.startsWith("55") ? digits : "55" + digits}@s.whatsapp.net`;
+        const { data: created, error: createChatError } = await db
+          .from("whatsapp_chats")
+          .insert({
+            company_id: student.company_id,
+            instance_id: inst.id,
+            remote_jid: remoteJid,
+            student_id: studentId,
+            contact_name: student.full_name,
+          })
+          .select("id, unread_count")
+          .maybeSingle();
+        if (createChatError) throw createChatError;
+        chat = created;
+      }
+    }
+
+    if (!chat?.id) {
+      return { delivered: false };
+    }
+
+    const sentAt = nowIso();
+    const { error: messageError } = await db.from("whatsapp_messages").insert({
+      chat_id: chat.id,
+      company_id: student.company_id,
+      content,
+      type: "text",
+      source: "incoming",
+      is_from_me: false,
+      status: "received",
+      timestamp: sentAt,
+      sender_id: studentId,
+    });
+    if (messageError) throw messageError;
+
+    const { error: chatError } = await db
+      .from("whatsapp_chats")
+      .update({
+        unread_count: (Number(chat.unread_count) || 0) + 1,
+        last_message: content.slice(0, 120),
+        last_message_at: sentAt,
+      })
+      .eq("id", chat.id);
+    if (chatError) throw chatError;
+
+    return { delivered: true };
+  } catch (error) {
+    log("Workout feedback WhatsApp mirror failed after persistence", error);
+    return { delivered: false };
+  }
 }
