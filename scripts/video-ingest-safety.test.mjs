@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  assertUploadableVideoMetadata,
+  decideVideoIngestSafety,
   localStagingFileName,
   selectLatestStagingItems,
   stagingCodeFromName,
@@ -45,4 +47,66 @@ test("a limpeza remove somente o take processado cujo commit individual passou",
 
 test("nomes remotos fora do contrato não viram caminho local", () => {
   assert.throws(() => localStagingFileName("../../take.mp4"), /inválido/i);
+});
+
+test("canário final 360x480 H264/yuv420p segue publicável", () => {
+  const decision = decideVideoIngestSafety({
+    dur: 12,
+    w: 360,
+    h: 480,
+    codec: "h264",
+    pixFmt: "yuv420p",
+  });
+
+  assert.equal(decision.ready, true);
+  assert.deepEqual(decision.blockers, []);
+  assert.deepEqual(decision.warnings, []);
+});
+
+test("original 480x360 válido vira aviso aceito, não bloqueio", () => {
+  const decision = decideVideoIngestSafety({
+    dur: 14,
+    w: 480,
+    h: 360,
+    codec: "h264",
+    pixFmt: "yuv420p",
+  });
+
+  assert.equal(decision.ready, true);
+  assert.deepEqual(decision.blockers, []);
+  assert.deepEqual(decision.warnings, ["resolução 480x360 aceita no limite 360p"]);
+});
+
+test("vídeos curtos, longos, corruptos, com codec inválido ou dimensão inválida bloqueiam", () => {
+  const cases = [
+    [{ dur: 2.375, w: 480, h: 360, codec: "h264", pixFmt: "yuv420p" }, "curto demais (2.4s)"],
+    [{ dur: 90.25, w: 480, h: 360, codec: "h264", pixFmt: "yuv420p" }, "longo demais (90.3s)"],
+    [{ dur: 10, w: 480, h: 360, codec: "vp9", pixFmt: "yuv420p" }, "codec incompatível (vp9)"],
+    [{ dur: 10, w: 320, h: 480, codec: "h264", pixFmt: "yuv420p" }, "dimensão inválida (320x480)"],
+    [null, "ilegível/corrompido"],
+  ];
+
+  for (const [info, expected] of cases) {
+    const decision = decideVideoIngestSafety(info);
+    assert.equal(decision.ready, false, expected);
+    assert(decision.blockers.includes(expected), `${expected} deveria bloquear`);
+  }
+});
+
+test("item bloqueado falha antes de qualquer sign/upload/commit", async () => {
+  let signs = 0;
+  let uploads = 0;
+  let commits = 0;
+  const blocked = { dur: 2.375, w: 480, h: 360, codec: "h264", pixFmt: "yuv420p" };
+
+  assert.throws(() => {
+    assertUploadableVideoMetadata(blocked);
+    signs += 1;
+    uploads += 1;
+    commits += 1;
+  }, /curto demais/);
+
+  assert.equal(signs, 0);
+  assert.equal(uploads, 0);
+  assert.equal(commits, 0);
 });

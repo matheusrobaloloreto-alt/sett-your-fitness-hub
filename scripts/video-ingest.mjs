@@ -28,6 +28,8 @@ import { readFileSync, writeFileSync, readdirSync, mkdirSync, statSync, existsSy
 import { join, extname, basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
+  assertUploadableVideoMetadata,
+  decideVideoIngestSafety,
   localStagingFileName,
   selectLatestStagingItems,
   stagingCodeFromName,
@@ -41,9 +43,6 @@ import {
 const run = promisify(execFile);
 const VIDEO_EXT = new Set([".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm", ".hevc", ".mpg", ".mpeg", ".3gp"]);
 const WORK = "/tmp/bn-video-ingest";
-
-// Limites de QA — fora disso é quase sempre erro de gravação, não escolha do professor.
-const DUR_MIN = 3, DUR_MAX = 90, ALTURA_MIN = 480;
 
 const args = process.argv.slice(2);
 const flag = (n, d = null) => { const i = args.indexOf(`--${n}`); return i >= 0 ? (args[i + 1] ?? true) : d; };
@@ -269,19 +268,23 @@ async function detectarAcao(file, dur) {
 
 async function inspecionar(file) {
   const { stdout } = await run("ffprobe", ["-v", "error", "-select_streams", "v:0",
-    "-show_entries", "stream=width,height:format=duration", "-of", "json", file], { maxBuffer: 1 << 20 });
+    "-show_entries", "stream=width,height,codec_name,pix_fmt:format=duration", "-of", "json", file], { maxBuffer: 1 << 20 });
   const j = JSON.parse(stdout);
   const s = j.streams?.[0] || {};
-  return { dur: parseFloat(j.format?.duration) || 0, w: s.width || 0, h: s.height || 0 };
+  return {
+    dur: parseFloat(j.format?.duration) || 0,
+    w: s.width || 0,
+    h: s.height || 0,
+    codec: s.codec_name || "",
+    pixFmt: s.pix_fmt || "",
+  };
 }
 
 async function processar(m) {
   const src = join(DIR, m.arquivo);
   const info = await inspecionar(src); // ffprobe falhando = arquivo corrompido → vira falha
-  const avisos = [];
-  if (info.dur < DUR_MIN) avisos.push(`curto demais (${info.dur.toFixed(1)}s)`);
-  if (info.dur > DUR_MAX) avisos.push(`longo demais (${Math.round(info.dur)}s)`);
-  if (Math.max(info.w, info.h) && Math.min(info.w, info.h) < ALTURA_MIN) avisos.push(`baixa resolução (${info.w}x${info.h})`);
+  const decisao = assertUploadableVideoMetadata(info);
+  const avisos = [...decisao.warnings];
 
   const outMp4 = join(WORK, `${m.ex.id}.mp4`);
   const outJpg = join(WORK, `${m.ex.id}.jpg`);
@@ -322,18 +325,24 @@ async function processar(m) {
 
 if (DRY) {
   console.log(`\n[dry-run] rodando QA em ${alvos.length} arquivo(s), sem enviar nada...`);
-  let ruins = 0;
+  let bloqueados = 0, comAvisoDry = 0;
   await pool(alvos, JOBS, async (m) => {
     try {
       const i = await inspecionar(join(DIR, m.arquivo));
-      const av = [];
-      if (i.dur < DUR_MIN) av.push(`curto (${i.dur.toFixed(1)}s)`);
-      if (i.dur > DUR_MAX) av.push(`longo (${Math.round(i.dur)}s)`);
-      if (Math.min(i.w, i.h) < ALTURA_MIN) av.push(`${i.w}x${i.h}`);
-      if (av.length) { ruins++; console.log(`  ⚠ ${m.arquivo}: ${av.join(", ")}`); }
-    } catch { ruins++; console.log(`  ✖ ${m.arquivo}: ilegível/corrompido`); }
+      const decisao = decideVideoIngestSafety(i);
+      if (!decisao.ready) {
+        bloqueados++;
+        console.log(`  ✖ ${m.arquivo}: ${decisao.blockers.join(", ")}`);
+      } else if (decisao.warnings.length) {
+        comAvisoDry++;
+        console.log(`  ⚠ ${m.arquivo}: ${decisao.warnings.join(", ")}`);
+      }
+    } catch {
+      bloqueados++;
+      console.log(`  ✖ ${m.arquivo}: ${decideVideoIngestSafety(null).blockers.join(", ")}`);
+    }
   });
-  console.log(`\n[dry-run] ${alvos.length - ruins} prontos, ${ruins} com problema. Nada foi enviado.`);
+  console.log(`\n[dry-run] ${alvos.length - bloqueados} prontos, ${bloqueados} bloqueados, ${comAvisoDry} com aviso aceito. Nada foi enviado.`);
   process.exit(0);
 }
 if (!alvos.length) { console.log("\nNada novo a processar."); process.exit(0); }
