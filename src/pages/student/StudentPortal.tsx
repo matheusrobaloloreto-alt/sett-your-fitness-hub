@@ -1041,6 +1041,7 @@ export default function StudentPortal() {
             <Button
               variant="ghost"
               size="icon"
+              className="h-11 w-11"
               onClick={() => setActiveView("home")}
               aria-label="Voltar ao início"
               title="Voltar ao início"

@@ -20,4 +20,10 @@ describe("editorial visual contract", () => {
     expect(studentDetailSource).toContain('ariaLabel="Seções do aluno"');
     expect(studentDetailSource).not.toContain("rounded-full border border-transparent px-3 py-1.5");
   });
+
+  it("keeps header icon actions at a 44px target in professor and student headers", () => {
+    expect(studentDetailSource).toMatch(/<Button[\s\S]*?className="h-11 w-11"[\s\S]*?aria-label="Voltar para alunos"/);
+    expect(studentDetailSource).toMatch(/<BnitoContextButton[\s\S]*?className="h-11 w-11"/);
+    expect(studentPortalSource).toMatch(/<Button[\s\S]*?className="h-11 w-11"[\s\S]*?aria-label="Voltar ao início"/);
+  });
 });

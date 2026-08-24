@@ -23,7 +23,7 @@ export function EditorialTabStrip({
     <TabsList
       aria-label={ariaLabel}
       className={cn(
-        "mb-4 flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0 pb-2 scroll-px-4 snap-x",
+        "mb-4 flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0 pb-2 pr-20 scroll-px-4 scroll-pr-20 snap-x sm:pr-0 sm:scroll-pr-4",
         "[-webkit-overflow-scrolling:touch]",
         className,
       )}

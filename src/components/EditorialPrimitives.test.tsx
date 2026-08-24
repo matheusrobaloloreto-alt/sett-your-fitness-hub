@@ -42,6 +42,9 @@ describe("editorial visual primitives", () => {
     expect(tablist).toHaveClass("overflow-x-auto");
     expect(tablist).toHaveClass("snap-x");
     expect(tablist).toHaveClass("scroll-px-4");
+    expect(tablist).toHaveClass("pr-20");
+    expect(tablist).toHaveClass("sm:pr-0");
+    expect(tablist).toHaveClass("scroll-pr-20");
 
     for (const tab of tabs) {
       const trigger = screen.getByRole("tab", { name: tab.label });

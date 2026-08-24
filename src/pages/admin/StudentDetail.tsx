@@ -1090,7 +1090,7 @@ export default function StudentDetail() {
           title={student.full_name.toUpperCase()}
           titleClassName="text-primary"
           leading={
-            <Button variant="ghost" size="icon" onClick={() => navigate("/admin/students")} aria-label="Voltar para alunos">
+            <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => navigate("/admin/students")} aria-label="Voltar para alunos">
               <ArrowLeft className="h-5 w-5" />
             </Button>
           }
@@ -1127,6 +1127,7 @@ export default function StudentDetail() {
                 label={`perfil de ${student.full_name}`}
                 context={`Detalhe do aluno. Status: ${student.status}. Treinador: ${trainerName || "nao definido"}. Matriculas: ${enrollments.length}. Ciclos: ${cycles.length}.`}
                 question="Me ajude a identificar os principais riscos e proximos passos deste aluno."
+                className="h-11 w-11"
               />
               <Button
                 variant="outline"
