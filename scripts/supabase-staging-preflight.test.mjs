@@ -9,6 +9,7 @@ import {
   STAGING_REF,
   buildSupabaseArgs,
   extractDryRunMigrationVersions,
+  prepareSupabaseInvocation,
   runPreflight,
   sanitizeDbDryRunFailure,
   sanitizeSecretsOutput,
@@ -103,6 +104,36 @@ test("preflight fails closed on production or divergent refs", async () => {
   });
 });
 
+test("preflight blocks inherited remote env without exposing values", async () => {
+  await withFixture({
+    "supabase/config.toml": `project_id = "${PROD_REF}"\n`,
+  }, async (root) => {
+    for (const [key, value] of [
+      ["SUPABASE_DB_URL", `postgresql://postgres:secret@db.${PROD_REF}.supabase.co/postgres`],
+      ["DATABASE_URL", `postgresql://postgres:secret@db.${PROD_REF}.supabase.co/postgres`],
+      ["SUPABASE_URL", `https://${PROD_REF}.supabase.co`],
+      ["SUPABASE_SERVICE_ROLE_KEY", "secret-service-role-value"],
+      ["VITE_SUPABASE_URL", `https://${STAGING_REF}.supabase.co`],
+    ]) {
+      assert.throws(
+        () =>
+          runPreflight({
+            root,
+            env: {
+              SETT_BN_STAGING_PROJECT_REF: STAGING_REF,
+              [key]: value,
+            },
+            requireLinked: false,
+          }),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes(`${key} must be unset`) &&
+          !error.message.includes(value),
+      );
+    }
+  });
+});
+
 test("wrapper only builds explicit staging commands", () => {
   const env = { SETT_BN_STAGING_PROJECT_REF: STAGING_REF };
 
@@ -149,6 +180,52 @@ test("wrapper only builds explicit staging commands", () => {
   assert.throws(() => buildSupabaseArgs("db:push", env), /not allowlisted/);
 });
 
+test("linked commands validate the staging link before preparing spawn", async () => {
+  await withFixture({
+    "supabase/config.toml": `project_id = "${PROD_REF}"\n`,
+    "supabase/.temp/project-ref": `${STAGING_REF}\n`,
+  }, async (root) => {
+    assert.deepEqual(
+      prepareSupabaseInvocation("migration:list-linked", {
+        root,
+        env: { SETT_BN_STAGING_PROJECT_REF: STAGING_REF },
+      }),
+      {
+        args: ["migration", "list", "--linked"],
+        cwd: root,
+      },
+    );
+  });
+
+  await withFixture({
+    "supabase/config.toml": `project_id = "${PROD_REF}"\n`,
+    "supabase/.temp/project-ref": `${PROD_REF}\n`,
+  }, async (root) => {
+    assert.throws(
+      () =>
+        prepareSupabaseInvocation("db:push-dry-run-linked", {
+          root,
+          env: { SETT_BN_STAGING_PROJECT_REF: STAGING_REF },
+        }),
+      /linked Supabase ref points to production/,
+    );
+  });
+
+  await withFixture({
+    "supabase/config.toml": `project_id = "${PROD_REF}"\n`,
+    "supabase/.temp/project-ref": "different-staging\n",
+  }, async (root) => {
+    assert.throws(
+      () =>
+        prepareSupabaseInvocation("migration:list-linked", {
+          root,
+          env: { SETT_BN_STAGING_PROJECT_REF: STAGING_REF },
+        }),
+      /linked Supabase ref diverges from staging/,
+    );
+  });
+});
+
 test("secrets output redacts CLI digests", () => {
   const output = `
    NAME                         | DIGEST
@@ -162,6 +239,9 @@ test("secrets output redacts CLI digests", () => {
   assert.match(sanitized, /EVOLUTION_API_KEY\s+\| \[redacted-digest\]/);
   assert.doesNotMatch(sanitized, /04d47b870b860/);
   assert.doesNotMatch(sanitized, /abcdefabcdef/);
+
+  const stderr = "warning digest abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+  assert.doesNotMatch(sanitizeSecretsOutput(stderr), /abcdefabcdef/);
 });
 
 test("dry-run parser returns only migration versions", () => {

@@ -13,6 +13,21 @@ const REF_ENV_KEYS = [
   "SUPABASE_PROJECT_ID",
   "VITE_SUPABASE_PROJECT_ID",
 ];
+const INHERITABLE_REMOTE_ENV_KEYS = [
+  "DATABASE_URL",
+  "POSTGRES_URL",
+  "POSTGRES_PRISMA_URL",
+  "POSTGRES_URL_NON_POOLING",
+  "SUPABASE_ANON_KEY",
+  "SUPABASE_DB_URL",
+  "SUPABASE_PUBLISHABLE_KEY",
+  "SUPABASE_SECRET_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_URL",
+  "VITE_SUPABASE_ANON_KEY",
+  "VITE_SUPABASE_PUBLISHABLE_KEY",
+  "VITE_SUPABASE_URL",
+];
 
 function repoRootFromHere() {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -49,6 +64,11 @@ export function runPreflight({
     if (!value) continue;
     if (value === PROD_REF) fail(`${key} points to production (${PROD_REF})`);
     if (value !== STAGING_REF) fail(`${key} diverges from staging (${STAGING_REF})`);
+  }
+  for (const key of INHERITABLE_REMOTE_ENV_KEYS) {
+    if (String(env[key] || "").trim()) {
+      fail(`${key} must be unset for this staging wrapper; use ${CONFIRM_ENV} only`);
+    }
   }
 
   const configPath = path.join(root, "supabase", "config.toml");
@@ -105,6 +125,19 @@ export function buildSupabaseArgs(command, env = process.env) {
   }
 }
 
+export function prepareSupabaseInvocation(command, {
+  root = repoRootFromHere(),
+  env = process.env,
+} = {}) {
+  const requireLinked = command === "migration:list-linked" || command === "db:push-dry-run-linked";
+  const requireWriteConfirm = command === "deploy:process-automation-sessions";
+  runPreflight({ root, env, requireLinked, requireWriteConfirm });
+  return {
+    args: buildSupabaseArgs(command, env),
+    cwd: root,
+  };
+}
+
 export function sanitizeSecretsOutput(output) {
   return output.replace(/\b[a-f0-9]{64}\b/gi, "[redacted-digest]");
 }
@@ -151,17 +184,17 @@ function main() {
     return;
   }
 
-  const args = buildSupabaseArgs(command);
+  const invocation = prepareSupabaseInvocation(command);
   const captureOutput = command === "secrets:list" || command === "db:push-dry-run-linked";
-  const child = spawnSync("supabase", args, {
-    cwd: repoRootFromHere(),
+  const child = spawnSync("supabase", invocation.args, {
+    cwd: invocation.cwd,
     stdio: captureOutput ? ["ignore", "pipe", "pipe"] : "inherit",
     encoding: captureOutput ? "utf8" : undefined,
     env: process.env,
   });
   if (command === "secrets:list") {
     if (child.stdout) process.stdout.write(sanitizeSecretsOutput(child.stdout));
-    if (child.stderr) process.stderr.write(String(child.stderr));
+    if (child.stderr) process.stderr.write(sanitizeSecretsOutput(String(child.stderr)));
   }
   if (command === "db:push-dry-run-linked") {
     const output = `${child.stdout || ""}\n${child.stderr || ""}`;

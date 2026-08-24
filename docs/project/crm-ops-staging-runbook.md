@@ -21,6 +21,11 @@ export SETT_BN_STAGING_WRITE_CONFIRM=ifymocggowdlqqcxugko
 The wrapper fails if any local env ref points to production or to another project. It also fails if
 `supabase/.temp/project-ref` points anywhere except staging.
 
+Before running the wrapper, unset inherited remote connection/env values such as `SUPABASE_URL`,
+`SUPABASE_DB_URL`, `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, publishable/anon keys, and Vite
+Supabase URLs. The wrapper intentionally fails closed when any of those values are present; it does
+not print their contents.
+
 ## Read-only checks
 
 ```bash
@@ -42,6 +47,12 @@ supabase link --project-ref ifymocggowdlqqcxugko
 npm run staging:migrations:list
 npm run staging:db:push:dry-run
 ```
+
+Supabase CLI does not provide `--project-ref` for `migration list --linked` or
+`db push --dry-run --linked`. This is the only wrapper exception to explicit `--project-ref`.
+The wrapper compensates by validating `supabase/.temp/project-ref` immediately before spawning the
+CLI and by running from the fixed repository root. If the link is absent, production, or anything
+other than `ifymocggowdlqqcxugko`, the command does not spawn.
 
 Stop if the link prompts for unavailable database credentials, if the fingerprint is not
 `ifymocggowdlqqcxugko`, or if migration list shows any pending version beyond:
