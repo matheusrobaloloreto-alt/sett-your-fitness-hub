@@ -29,7 +29,9 @@ import { join, extname, basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   assertUploadableVideoMetadata,
+  buildUploadTranscodeArgs,
   decideVideoIngestSafety,
+  inspectVideoSource,
   localStagingFileName,
   selectLatestStagingItems,
   stagingCodeFromName,
@@ -266,23 +268,9 @@ async function detectarAcao(file, dur) {
   } catch { return null; }
 }
 
-async function inspecionar(file) {
-  const { stdout } = await run("ffprobe", ["-v", "error", "-select_streams", "v:0",
-    "-show_entries", "stream=width,height,codec_name,pix_fmt:format=duration", "-of", "json", file], { maxBuffer: 1 << 20 });
-  const j = JSON.parse(stdout);
-  const s = j.streams?.[0] || {};
-  return {
-    dur: parseFloat(j.format?.duration) || 0,
-    w: s.width || 0,
-    h: s.height || 0,
-    codec: s.codec_name || "",
-    pixFmt: s.pix_fmt || "",
-  };
-}
-
 async function processar(m) {
   const src = join(DIR, m.arquivo);
-  const info = await inspecionar(src); // ffprobe falhando = arquivo corrompido → vira falha
+  const info = await inspectVideoSource(src); // ffprobe/ffmpeg falhando = arquivo corrompido → vira falha
   const decisao = assertUploadableVideoMetadata(info);
   const avisos = [...decisao.warnings];
 
@@ -296,13 +284,10 @@ async function processar(m) {
   // force_divisible_by=2: celular grava 1080x1920 e a redução daria 405px de largura,
   // dimensão ímpar que o H.264/yuv420p recusa. freezedetect no mesmo passe custa ~nada
   // e denuncia vídeo em que a câmera travou ou ninguém se moveu. -an tira o áudio.
-  const { stderr } = await run("ffmpeg", ["-y", "-loglevel", "info", ...recorte, "-i", src,
-    "-vf", "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30,freezedetect=n=-60dB:d=2",
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p",
-    "-movflags", "+faststart", "-an", outMp4], { maxBuffer: 32 << 20 });
+  const { stderr } = await run("ffmpeg", buildUploadTranscodeArgs({ recorte, src, outMp4 }), { maxBuffer: 32 << 20 });
   if (/freeze_start/.test(stderr || "")) avisos.push("trecho congelado (2s+ sem movimento)");
 
-  const at = Math.max(0.5, (await inspecionar(outMp4)).dur / 3); // 1/3: movimento já acontecendo
+  const at = Math.max(0.5, (await inspectVideoSource(outMp4)).dur / 3); // 1/3: movimento já acontecendo
   await run("ffmpeg", ["-y", "-loglevel", "error", "-ss", String(at), "-i", outMp4,
     "-frames:v", "1", "-q:v", "4", outJpg], { maxBuffer: 1 << 20 });
 
@@ -328,7 +313,7 @@ if (DRY) {
   let bloqueados = 0, comAvisoDry = 0;
   await pool(alvos, JOBS, async (m) => {
     try {
-      const i = await inspecionar(join(DIR, m.arquivo));
+      const i = await inspectVideoSource(join(DIR, m.arquivo));
       const decisao = decideVideoIngestSafety(i);
       if (!decisao.ready) {
         bloqueados++;

@@ -1,3 +1,8 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+
 const STAGING_NAME_RE =
   /^(\d{3})__([0-9a-f]{16})__([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(mp4|mov|webm|m4v|3gp)$/i;
 
@@ -5,7 +10,6 @@ const DURATION_MIN_SECONDS = 3;
 const DURATION_MAX_SECONDS = 90;
 const MIN_ACCEPTED_EDGE_PX = 360;
 const LOW_RES_WARNING_EDGE_PX = 480;
-const UPLOADABLE_CODECS = new Set(["h264", "hevc", "mpeg4"]);
 
 export class VideoIngestBlockedError extends Error {
   constructor(blockers) {
@@ -23,6 +27,44 @@ function normalizedCodec(info) {
   return String(info?.codec || info?.codec_name || "").trim().toLowerCase();
 }
 
+export function buildUploadTranscodeArgs({ recorte = [], src, outMp4 }) {
+  return ["-y", "-loglevel", "info", ...recorte, "-i", src,
+    "-vf", "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30,freezedetect=n=-60dB:d=2",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p",
+    "-movflags", "+faststart", "-an", outMp4];
+}
+
+export async function inspectVideoSource(file, runImpl = run) {
+  try {
+    const { stdout } = await runImpl("ffprobe", ["-v", "error", "-select_streams", "v:0",
+      "-show_entries", "stream=width,height,codec_name,pix_fmt:format=duration", "-of", "json", file],
+      { maxBuffer: 1 << 20 });
+    const j = JSON.parse(stdout);
+    const s = j.streams?.[0] || {};
+    const decodable = await isVideoSourceDecodable(file, runImpl);
+    return {
+      dur: parseFloat(j.format?.duration) || 0,
+      w: s.width || 0,
+      h: s.height || 0,
+      codec: s.codec_name || "",
+      pixFmt: s.pix_fmt || "",
+      decodable,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function isVideoSourceDecodable(file, runImpl = run) {
+  try {
+    await runImpl("ffmpeg", ["-v", "error", "-i", file, "-map", "0:v:0", "-an", "-f", "null", "-"],
+      { maxBuffer: 8 << 20 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function decideVideoIngestSafety(info) {
   const blockers = [];
   const warnings = [];
@@ -36,7 +78,7 @@ export function decideVideoIngestSafety(info) {
   const h = Number(info.h);
   const codec = normalizedCodec(info);
 
-  if (!finiteNumber(dur) || dur <= 0 || !finiteNumber(w) || !finiteNumber(h) || w <= 0 || h <= 0) {
+  if (info.decodable === false || !finiteNumber(dur) || dur <= 0 || !finiteNumber(w) || !finiteNumber(h) || w <= 0 || h <= 0) {
     blockers.push("ilegível/corrompido");
   } else {
     if (dur < DURATION_MIN_SECONDS) blockers.push(`curto demais (${dur.toFixed(1)}s)`);
@@ -50,11 +92,7 @@ export function decideVideoIngestSafety(info) {
     }
   }
 
-  if (!codec) {
-    blockers.push("codec incompatível (desconhecido)");
-  } else if (!UPLOADABLE_CODECS.has(codec)) {
-    blockers.push(`codec incompatível (${codec})`);
-  }
+  if (!codec) warnings.push("codec de origem não identificado; ffmpeg validou a decodificação");
 
   return { ready: blockers.length === 0, blockers, warnings };
 }
