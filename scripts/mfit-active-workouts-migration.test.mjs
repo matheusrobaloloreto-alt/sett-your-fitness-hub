@@ -1016,14 +1016,14 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 70);
+  assert.equal(aliasPayload.summary.approved_aliases, 72);
   assert.equal(aliasPayload.summary.runtime_false_medium, 21);
   assert.equal(aliasPayload.summary.blocked_after_visual_review, 21);
   assert.equal(aliasPayload.summary.approved_pending_materialization, 0);
   assert.equal(aliasPayload.summary.pending_medium, 0);
   assert.equal(aliasPayload.summary.never_reviewed_medium, 0);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 112);
+  assert.equal(aliasPayload.summary.unresolved_total, 110);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
   assert.deepEqual(aliasPayload.review_queue.medium, []);
   assert.deepEqual(aliasPayload.review_queue.approved_pending_materialization, []);
@@ -1423,4 +1423,98 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   assert.equal(queuePayload.source_snapshot.alias_map_sha256, currentHash);
   assert.equal(queuePayload.items.length, 52);
   assert.equal(queuePayload.items.filter((item) => item.runtime_eligible).length, 31);
+});
+
+test("final low and no-candidate QA materialization stays narrow and auditable", async () => {
+  const aliasPath = new URL("../docs/project/mfit-exercise-aliases.v1.json", import.meta.url);
+  const ledgerPath = new URL("../docs/project/mfit-low-no-candidate-qa-ledger.v1.json", import.meta.url);
+  const [aliasText, ledgerText] = await Promise.all([
+    readFile(aliasPath, "utf8"),
+    readFile(ledgerPath, "utf8"),
+  ]);
+  const aliasPayload = JSON.parse(aliasText);
+  const ledgerPayload = JSON.parse(ledgerText);
+  const aliasIndex = buildExerciseAliasIndex(aliasPayload);
+
+  assert.equal(aliasPayload.summary.approved_aliases, 72);
+  assert.equal(aliasPayload.summary.blocked_low, 27);
+  assert.equal(aliasPayload.summary.blocked_no_candidate, 62);
+  assert.equal(aliasPayload.summary.unresolved_total, 110);
+  assert.equal(aliasPayload.summary.runtime_false_medium, 21);
+  assert.equal(aliasPayload.summary.blocked_after_visual_review, 21);
+  assert.equal(aliasPayload.summary.approved_pending_materialization, 0);
+  assert.equal(aliasPayload.review_queue.low.length, 26);
+  assert.equal(aliasPayload.review_queue.no_candidate.length, 62);
+
+  const approvedForHistoricalAlias = [
+    {
+      sourceName: "Supino Reto com Barra Reta",
+      normalizedSource: "supino reto com barra reta",
+      targetExerciseId: "b61721db-87fe-41d8-b13e-f6b5833b8550",
+      targetName: "Supino Reto Barra",
+      rejectedTargetId: "8738b381-20aa-48cf-8475-264a24f7a289",
+      rejectedReason: "duplicate_catalog_delta/no_metadata/no_primary_target",
+    },
+    {
+      sourceName: "Flexão Nórdica Inversa",
+      normalizedSource: "flexao nordica inversa",
+      targetExerciseId: "672c0d1e-59af-46c1-b3ec-d3135a745b1b",
+      targetName: "Nórdico Reverso",
+      rejectedTargetId: "1c97bc1e-2dfe-4f83-b329-49ca21a8350a",
+      rejectedReason: "compound_biset_not_standalone_target",
+    },
+  ];
+
+  for (const expected of approvedForHistoricalAlias) {
+    assert.equal(aliasPayload.review_queue.low.includes(expected.sourceName), false);
+    assert.equal(aliasPayload.review_queue.no_candidate.includes(expected.sourceName), false);
+
+    const aliasRow = aliasPayload.aliases.find((row) => row.source_name === expected.sourceName);
+    assert.equal(aliasRow?.target_exercise_id, expected.targetExerciseId);
+    assert.equal(aliasRow?.target_name, expected.targetName);
+    assert.equal(aliasRow?.status, "approved");
+    assert.equal(aliasRow?.confidence, "high");
+    assert.equal(aliasRow?.match_scope, "alias");
+    assert.equal(aliasRow?.independent_review_status, "approved_for_historical_alias");
+    assert.equal(aliasRow?.evidence_source, "qa_mfit_candidate_review_2026-08-24");
+    assert.match(aliasRow?.rationale || "", /hist[oó]ric/iu);
+    assert.match(aliasRow?.rationale || "", /prescritiv/iu);
+
+    const rejected = aliasRow?.rejected_candidates?.find(
+      (candidate) => candidate.target_exercise_id === expected.rejectedTargetId,
+    );
+    assert.equal(rejected?.rejection_reason, expected.rejectedReason);
+
+    const runtimeAlias = aliasIndex.get(expected.normalizedSource);
+    assert.equal(runtimeAlias?.target_exercise_id, expected.targetExerciseId);
+    assert.equal(runtimeAlias?.target_name, expected.targetName);
+    assert.equal(runtimeAlias?.match_scope, "alias");
+  }
+
+  const approvedRows = aliasPayload.aliases.filter(
+    (row) => row.evidence_source === "qa_mfit_candidate_review_2026-08-24",
+  );
+  assert.equal(approvedRows.length, 2);
+
+  assert.equal(ledgerPayload.schema_version, 1);
+  assert.equal(ledgerPayload.contains_pii, false);
+  assert.deepEqual(ledgerPayload.summary, {
+    total_reviewed: 90,
+    approve_alias: 2,
+    block: 46,
+    needs_target_creation: 42,
+  });
+  assert.equal(ledgerPayload.items.length, 90);
+  assert.equal(new Set(ledgerPayload.items.map((item) => item.source_name)).size, 90);
+  assert.deepEqual(
+    ledgerPayload.items
+      .filter((item) => item.decision === "APPROVE_ALIAS")
+      .map((item) => item.source_name)
+      .sort(),
+    ["Flexão Nórdica Inversa", "Supino Reto com Barra Reta"],
+  );
+  assert.ok(ledgerPayload.items.every((item) => item.rationale && !item.runtime_eligible));
+
+  const currentHash = createHash("sha256").update(aliasText).digest("hex");
+  assert.equal(ledgerPayload.source_snapshot.alias_map_sha256, currentHash);
 });

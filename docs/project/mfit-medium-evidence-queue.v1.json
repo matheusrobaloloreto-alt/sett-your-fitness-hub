@@ -5,7 +5,7 @@
   "execution_scope": "offline_evidence_review_only",
   "source_snapshot": {
     "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
-    "alias_map_sha256": "59651b99d51c7279faa4264ae2228b9b19ede59f61cb2f8c198d9d7412609b20",
+    "alias_map_sha256": "f01eaba55e41ebfc7305c746ebf4f5c08bf0363f4102254a79a9345499a46a0f",
     "medium_names": 52,
     "medium_occurrences": 162
   },

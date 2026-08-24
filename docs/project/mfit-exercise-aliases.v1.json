@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 70,
+    "approved_aliases": 72,
     "pending_medium": 0,
-    "blocked_low": 28,
-    "blocked_no_candidate": 63,
+    "blocked_low": 27,
+    "blocked_no_candidate": 62,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 112,
+    "unresolved_total": 110,
     "runtime_false_medium": 21,
     "blocked_after_visual_review": 21,
     "never_reviewed_medium": 0,
@@ -849,6 +849,44 @@
       "independent_review_status": "approved",
       "approved_after_visual_review": true,
       "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Supino Reto com Barra Reta",
+      "target_exercise_id": "b61721db-87fe-41d8-b13e-f6b5833b8550",
+      "target_name": "Supino Reto Barra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": null,
+      "match_scope": "alias",
+      "rationale": "QA independente aprovou equivalência para migração histórica: supino reto com barra reta preserva movimento, implemento barra, apoio no banco reto e configuração do alvo SETT Supino Reto Barra. Readiness prescritiva e curadoria clínica do alvo permanecem separadas deste alias histórico.",
+      "independent_review_status": "approved_for_historical_alias",
+      "evidence_source": "qa_mfit_candidate_review_2026-08-24",
+      "rejected_candidates": [
+        {
+          "target_exercise_id": "8738b381-20aa-48cf-8475-264a24f7a289",
+          "target_name": "Supino Reto Barra",
+          "rejection_reason": "duplicate_catalog_delta/no_metadata/no_primary_target"
+        }
+      ]
+    },
+    {
+      "source_name": "Flexão Nórdica Inversa",
+      "target_exercise_id": "672c0d1e-59af-46c1-b3ec-d3135a745b1b",
+      "target_name": "Nórdico Reverso",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": null,
+      "match_scope": "alias",
+      "rationale": "QA independente aprovou equivalência para migração histórica: flexão nórdica inversa preserva o exercício nórdico reverso, padrão joelho-dominante e peso corporal do alvo SETT standalone. Readiness prescritiva e curadoria clínica do alvo permanecem separadas deste alias histórico.",
+      "independent_review_status": "approved_for_historical_alias",
+      "evidence_source": "qa_mfit_candidate_review_2026-08-24",
+      "rejected_candidates": [
+        {
+          "target_exercise_id": "1c97bc1e-2dfe-4f83-b329-49ca21a8350a",
+          "target_name": "Biset Extensora + Nórdico Reverso",
+          "rejection_reason": "compound_biset_not_standalone_target"
+        }
+      ]
     }
   ],
   "review_queue": {
@@ -879,8 +917,7 @@
       "Serrote",
       "Stiff Unilateral",
       "Subida Lateral Unilateral no Step",
-      "Supino com Carga",
-      "Supino Reto com Barra Reta"
+      "Supino com Carga"
     ],
     "no_candidate": [
       "Abdominal Cruzado",
@@ -905,7 +942,6 @@
       "Bridge Fit Ball III",
       "Combinado",
       "Control and Coordination Fitball",
-      "Flexão Nórdica Inversa",
       "Glúteos 4 Apoios Perna Estendida com Caneleira",
       "Glúteos 4 Apoios Perna Flexionada com Caneleira",
       "Hiperextensao de Lombar Solo",
