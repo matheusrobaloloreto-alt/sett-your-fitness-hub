@@ -1,4 +1,4 @@
-# Wearables SETT/BN — Oura e WHOOP
+# Wearables SETT/BN — Oura, WHOOP, Strava e Polar
 
 Status em 2026-08-20: implementação concluída e infraestrutura validada no staging; **nenhuma conexão OAuth real foi executada porque não há conta/dispositivo de teste nem credenciais de provedor disponíveis**.
 
@@ -45,6 +45,23 @@ Escopos mínimos:
 | Polar | `accesslink.read_all` | preservação AccessLink |
 
 O callback valida os escopos retornados. Strava pode devolvê-los no callback; o token Polar documentado não ecoa `scope`, então o único escopo solicitado é registrado como concedido. Oura/WHOOP sem confirmação ficam `partial_scope`.
+
+### Onboarding por provedor
+
+Use sempre o callback de staging primeiro: `https://<staging-project-ref>.supabase.co/functions/v1/wearable-connect/callback`.
+Produção só entra depois de prova ponta a ponta em staging e aprovação explícita.
+
+| Provedor | App e redirect | Escopos no código | Conta/dispositivo de teste | Review/limite oficial | Env names |
+|---|---|---|---|---|---|
+| Oura | Criar app no Oura Cloud e registrar o callback exato. Fonte: [Oura OAuth](https://api.ouraring.com/docs/authentication). | `daily workout` | Conta Oura autorizada; dispositivo/conta com dados recentes ou sandbox oficial, se aprovado para o app. | Apps começam com limite de 10 usuários e exigem aprovação para público maior; API v1/v2: 5000 requests/5 min. Fontes: [Oura app limit](https://api.ouraring.com/docs/) e [Oura error handling](https://cloud.ouraring.com/docs/error-handling). | `OURA_CLIENT_ID`, `OURA_CLIENT_SECRET` |
+| WHOOP | Criar app no WHOOP Developer Dashboard e registrar o callback exato. Fonte: [WHOOP OAuth](https://developer.whoop.com/docs/developing/oauth/). | `read:recovery read:cycles read:workout read:sleep offline` | Conta WHOOP com consentimento explícito e dados de recovery/cycle/sleep/workout; `offline` é necessário para refresh token. | Launch público exige aprovação; limite padrão: 100 requests/min e 10000/day. Fontes: [WHOOP overview](https://developer.whoop.com/docs/developing/overview), [WHOOP OAuth](https://developer.whoop.com/docs/developing/oauth/) e [WHOOP rate limiting](https://developer.whoop.com/docs/developing/rate-limiting/). | `WHOOP_CLIENT_ID`, `WHOOP_CLIENT_SECRET` |
+| Strava | Criar app Strava e configurar o callback exato. Fonte: [Strava authentication](https://developers.strava.com/docs/authentication/). | `read activity:read_all` | Conta Strava própria/controlada; novos apps começam em single-player e podem ser testados com a conta do criador. | Limite padrão geral: 200 requests/15 min e 2000/day; non-upload: 100 requests/15 min e 1000/day. Fontes: [Strava getting started](https://developers.strava.com/docs/getting-started/) e [Strava rate limits](https://developers.strava.com/docs/rate-limits/). | `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET` |
+| Polar | Criar client em Polar AccessLink admin e registrar o callback exato. Fonte: [Polar AccessLink](https://www.polar.com/accesslink-api/). | `accesslink.read_all` | Conta Polar Flow controlada; após OAuth, registrar o usuário AccessLink antes de buscar dados. | AccessLink v3: 500 + usuários x 20 requests/15 min; 5000 + usuários x 100 requests/24h. Fonte: [Polar AccessLink](https://www.polar.com/accesslink-api/). | `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET` |
+
+Secrets compartilhados obrigatórios para todos os provedores: `WEARABLE_TOKEN_KEYS`,
+`WEARABLE_TOKEN_ACTIVE_KEY_ID`, `APP_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`. Se algum limite, review ou sandbox mudar na documentação oficial, marcar
+o provedor como `verify` antes de ativar novas contas.
 
 ## Ordem segura de ativação futura
 

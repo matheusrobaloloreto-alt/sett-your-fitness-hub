@@ -70,6 +70,28 @@ ASAAS_API_KEY
 ASAAS_WEBHOOK_TOKEN
 ```
 
+Wearables integration secrets are also server-side only. Names only, no values:
+
+```bash
+WEARABLE_TOKEN_KEYS
+WEARABLE_TOKEN_ACTIVE_KEY_ID
+OURA_CLIENT_ID
+OURA_CLIENT_SECRET
+WHOOP_CLIENT_ID
+WHOOP_CLIENT_SECRET
+STRAVA_CLIENT_ID
+STRAVA_CLIENT_SECRET
+POLAR_CLIENT_ID
+POLAR_CLIENT_SECRET
+APP_URL
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+```
+
+Register provider apps and redirect URLs only after approval. Do not place OAuth secrets in the
+Vite bundle, Git history, logs, screenshots, or docs.
+
 Optional:
 
 ```bash
