@@ -161,6 +161,7 @@ export default function StudentPortal() {
   const [studentGoals, setStudentGoals] = useState<any[]>([]);
   const [extraSets, setExtraSets] = useState<Record<number, number>>({});
   const [workoutSessions, setWorkoutSessions] = useState<any[]>([]);
+  const [workoutFeedbacks, setWorkoutFeedbacks] = useState<any[]>([]);
   const [weeklyGoal, setWeeklyGoal] = useState<number>(3);
   const [activeEnrollmentId, setActiveEnrollmentId] = useState<string | null>(null);
   // Prescrições por modalidade (abas condicionais): nutrição + esportes de cardio existentes.
@@ -463,6 +464,15 @@ export default function StudentPortal() {
             .in("workout_id", workoutIds);
 
           if (sessionsData) setWorkoutSessions(sessionsData);
+
+          const { data: feedbackData } = await supabase
+            .from("workout_feedback")
+            .select("id, workout_session_id, notes, trainer_reply, trainer_replied_at, trainer_reply_author_name")
+            .eq("student_id", student.id)
+            .order("created_at", { ascending: false })
+            .limit(50);
+
+          if (feedbackData) setWorkoutFeedbacks(feedbackData);
 
           if (logsData) {
             setAllLogs(logsData);
@@ -825,7 +835,7 @@ export default function StudentPortal() {
     const finishedSession = await session.finishSession(logs, selectedWorkout.exercises, previousBestWeights);
     toast({ title: "Treino concluído! 🎉", description: "Mandou bem — orgulho do seu progresso. Bora pro próximo!" });
 
-    // Abre o popup "Como foi o treino?" — a resposta vai pro WhatsApp do treinador.
+    // Abre o popup "Como foi o treino?" — o registro principal fica no app.
     setFeedbackWorkoutTitle(selectedWorkout.title);
     setFeedbackText("");
     setFeedbackRating(null);
@@ -840,8 +850,8 @@ export default function StudentPortal() {
       const { data, error } = await supabase.functions.invoke("student-workout-feedback", {
         body: {
           student_id: studentId,
-          feedback: feedbackText,
-          rating: feedbackRating,
+          reflection: feedbackText,
+          perception: feedbackRating,
           workout_title: feedbackWorkoutTitle,
           workout_session_id: feedbackSessionId,
         },
@@ -850,11 +860,24 @@ export default function StudentPortal() {
         throw new Error(error?.message || data?.error || "Não foi possível registrar o feedback.");
       }
       toast({
-        title: "Valeu pelo feedback! 💪",
+        title: "Feedback registrado",
         description: data.delivered
           ? "Registrado no app e enviado para a conversa da equipe."
           : "Registrado no painel da equipe para o seu treinador.",
       });
+      if (data.feedback_id) {
+        setWorkoutFeedbacks((current) => [
+          {
+            id: data.feedback_id,
+            workout_session_id: feedbackSessionId,
+            notes: [feedbackRating ? `Percepção: ${feedbackRating}` : null, feedbackText.trim() || null].filter(Boolean).join("\n") || null,
+            trainer_reply: null,
+            trainer_replied_at: null,
+            trainer_reply_author_name: null,
+          },
+          ...current,
+        ]);
+      }
       setFeedbackOpen(false);
       setFeedbackSessionId(null);
     } catch (error) {
@@ -1385,6 +1408,7 @@ export default function StudentPortal() {
             allLogs={allLogs}
             workouts={cycles.flatMap(c => c.workouts.map(w => ({ id: w.id, title: w.title })))}
             sessions={workoutSessions}
+            feedbacks={workoutFeedbacks}
           />
         )}
 
@@ -1412,14 +1436,15 @@ export default function StudentPortal() {
         <PlatformAdSlot audience="student" placement="footer" companyId={companyId} className="mt-8" />
       </div>
 
-      {/* Feedback pós-treino → WhatsApp do treinador */}
+      {/* Feedback pós-treino: app como fonte de verdade, WhatsApp apenas como aviso opcional. */}
       <Dialog open={feedbackOpen} onOpenChange={(o) => { if (!o) setFeedbackOpen(false); }}>
         <DialogContent className="bg-card border-border max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-primary">Como foi o treino?</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">Sua resposta fica registrada no painel da equipe e também vai para a conversa quando o WhatsApp estiver conectado.</p>
+            <p className="text-xs text-muted-foreground">Sua resposta fica registrada no painel da equipe. WhatsApp é só um aviso extra quando estiver conectado.</p>
+            <p className="text-sm font-medium text-foreground">Qual foi sua percepção geral?</p>
             <div className="flex gap-2">
               {[{ e: "😮‍💨", l: "Difícil" }, { e: "👍", l: "Bom" }, { e: "🔥", l: "Ótimo" }].map((o) => (
                 <button
@@ -1436,13 +1461,13 @@ export default function StudentPortal() {
             <Textarea
               value={feedbackText}
               onChange={(e) => setFeedbackText(e.target.value)}
-              placeholder="Conta pro seu treinador: dores, dificuldade, como se sentiu… (opcional)"
+              placeholder="O que você quer que seu treinador saiba? (opcional)"
               className="min-h-[90px]"
             />
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setFeedbackOpen(false)} disabled={sendingFeedback}>Pular</Button>
               <Button className="flex-1" onClick={sendWorkoutFeedback} disabled={sendingFeedback || (!feedbackRating && !feedbackText.trim())}>
-                {sendingFeedback ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar"}
+                {sendingFeedback ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar ao treinador"}
               </Button>
             </div>
           </div>

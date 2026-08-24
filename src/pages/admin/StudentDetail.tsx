@@ -15,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StudentCycleFeedbackCard } from "@/components/admin/StudentCycleFeedbackCard";
+import { StudentWorkoutFeedbackCard } from "@/components/admin/StudentWorkoutFeedbackCard";
 import { PlanVersionsCard } from "@/components/admin/PlanVersionsCard";
 import { AssessmentCompareCard } from "@/components/admin/AssessmentCompareCard";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
@@ -1183,7 +1184,12 @@ export default function StudentDetail() {
                 <StudentFilesPanel studentId={id} companyId={student.company_id} />
               </div>
             )}
-            {id && <StudentCycleFeedbackCard studentId={id} />}
+            {id && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <StudentCycleFeedbackCard studentId={id} />
+                <StudentWorkoutFeedbackCard studentId={id} />
+              </div>
+            )}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Left: Active enrollment + cycles + notes */}
               <div className="space-y-4">

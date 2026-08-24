@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Dumbbell, CalendarDays } from "lucide-react";
+import { Clock, Dumbbell, CalendarDays, MessageSquareReply } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -14,18 +14,38 @@ interface StudentHistoryProps {
   allLogs: any[];
   workouts: WorkoutData[];
   sessions: any[];
+  feedbacks?: WorkoutFeedback[];
+}
+
+interface WorkoutFeedback {
+  id: string;
+  workout_session_id: string | null;
+  notes: string | null;
+  trainer_reply: string | null;
+  trainer_replied_at: string | null;
+  trainer_reply_author_name: string | null;
 }
 
 interface SessionGroup {
   date: string;
   workoutTitle: string;
   workoutId: string;
+  workoutSessionId: string | null;
   totalVolume: number;
   totalSets: number;
   durationSeconds: number | null;
 }
 
-export function StudentHistory({ allLogs, workouts, sessions }: StudentHistoryProps) {
+function feedbackBody(notes: string | null) {
+  if (!notes) return "";
+  return notes
+    .split("\n")
+    .filter((line) => !line.startsWith("Percepção:"))
+    .join("\n")
+    .trim();
+}
+
+export function StudentHistory({ allLogs, workouts, sessions, feedbacks = [] }: StudentHistoryProps) {
   const workoutMap = useMemo(() => {
     const map: Record<string, string> = {};
     workouts.forEach(w => { map[w.id] = w.title; });
@@ -58,6 +78,7 @@ export function StudentHistory({ allLogs, workouts, sessions }: StudentHistoryPr
         date: g.date,
         workoutTitle: workoutMap[g.workoutId] || "Treino",
         workoutId: g.workoutId,
+        workoutSessionId: ws?.id || null,
         totalVolume,
         totalSets,
         durationSeconds: ws?.duration_seconds || null,
@@ -66,6 +87,16 @@ export function StudentHistory({ allLogs, workouts, sessions }: StudentHistoryPr
 
     return result.sort((a, b) => b.date.localeCompare(a.date));
   }, [allLogs, workoutMap, sessions]);
+
+  const feedbackBySession = useMemo(() => {
+    const map: Record<string, WorkoutFeedback> = {};
+    feedbacks.forEach((feedback) => {
+      if (feedback.workout_session_id && !map[feedback.workout_session_id]) {
+        map[feedback.workout_session_id] = feedback;
+      }
+    });
+    return map;
+  }, [feedbacks]);
 
   const formatDuration = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -103,36 +134,60 @@ export function StudentHistory({ allLogs, workouts, sessions }: StudentHistoryPr
           <p className="text-xs text-muted-foreground font-sans uppercase tracking-wider font-semibold">
             {format(parseISO(monthKey + "-01"), "MMMM yyyy", { locale: ptBR })}
           </p>
-          {sessions.map((s, i) => (
+          {sessions.map((s, i) => {
+            const feedback = s.workoutSessionId ? feedbackBySession[s.workoutSessionId] : null;
+            const replyAuthor = feedback?.trainer_reply_author_name || "treinador";
+            return (
             <Card key={`${s.date}-${s.workoutId}-${i}`} className="bg-card border-border">
-              <CardContent className="p-3 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <Dumbbell className="h-4 w-4 text-primary" />
+              <CardContent className="space-y-3 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <Dumbbell className="h-4 w-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground font-sans">{s.workoutTitle}</p>
+                      <p className="text-xs text-muted-foreground font-mono-data">
+                        {format(parseISO(s.date), "dd/MM/yyyy (EEEE)", { locale: ptBR })}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground font-sans">{s.workoutTitle}</p>
-                    <p className="text-xs text-muted-foreground font-mono-data">
-                      {format(parseISO(s.date), "dd/MM/yyyy (EEEE)", { locale: ptBR })}
+                  <div className="flex items-center gap-2">
+                    {s.durationSeconds && (
+                      <Badge variant="secondary" className="text-[10px] gap-1 font-mono-data">
+                        <Clock className="h-3 w-3" />
+                        {formatDuration(s.durationSeconds)}
+                      </Badge>
+                    )}
+                    {s.totalVolume > 0 && (
+                      <Badge variant="outline" className="text-[10px] font-mono-data border-primary/30 text-primary">
+                        {(s.totalVolume / 1000).toFixed(1)}t
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                {feedback && (
+                  <div className="rounded-lg border border-border bg-secondary/35 p-3 text-sm font-sans">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                      <MessageSquareReply className="h-3.5 w-3.5" />
+                      <span>{feedback.trainer_reply ? `Resposta de ${replyAuthor}` : "Feedback enviado"}</span>
+                      {feedback.trainer_replied_at && (
+                        <span className="font-normal">
+                          {format(parseISO(feedback.trainer_replied_at), "dd/MM/yyyy", { locale: ptBR })}
+                        </span>
+                      )}
+                    </div>
+                    {feedbackBody(feedback.notes) && (
+                      <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{feedbackBody(feedback.notes)}</p>
+                    )}
+                    <p className="mt-2 whitespace-pre-wrap text-foreground">
+                      {feedback.trainer_reply || "Feedback enviado. Aguarde o retorno do treinador."}
                     </p>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {s.durationSeconds && (
-                    <Badge variant="secondary" className="text-[10px] gap-1 font-mono-data">
-                      <Clock className="h-3 w-3" />
-                      {formatDuration(s.durationSeconds)}
-                    </Badge>
-                  )}
-                  {s.totalVolume > 0 && (
-                    <Badge variant="outline" className="text-[10px] font-mono-data border-primary/30 text-primary">
-                      {(s.totalVolume / 1000).toFixed(1)}t
-                    </Badge>
-                  )}
-                </div>
+                )}
               </CardContent>
             </Card>
-          ))}
+          );})}
         </div>
       ))}
     </div>
