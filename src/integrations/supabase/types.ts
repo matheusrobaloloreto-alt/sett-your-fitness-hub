@@ -4653,6 +4653,11 @@ export type Database = {
           pain_areas: Json | null
           read_at: string | null
           student_id: string
+          trainer_replied_at: string | null
+          trainer_replied_by: string | null
+          trainer_reply: string | null
+          trainer_reply_author_name: string | null
+          workout_title: string | null
           workout_session_id: string | null
         }
         Insert: {
@@ -4665,6 +4670,11 @@ export type Database = {
           pain_areas?: Json | null
           read_at?: string | null
           student_id: string
+          trainer_replied_at?: string | null
+          trainer_replied_by?: string | null
+          trainer_reply?: string | null
+          trainer_reply_author_name?: string | null
+          workout_title?: string | null
           workout_session_id?: string | null
         }
         Update: {
@@ -4677,6 +4687,11 @@ export type Database = {
           pain_areas?: Json | null
           read_at?: string | null
           student_id?: string
+          trainer_replied_at?: string | null
+          trainer_replied_by?: string | null
+          trainer_reply?: string | null
+          trainer_reply_author_name?: string | null
+          workout_title?: string | null
           workout_session_id?: string | null
         }
         Relationships: []
@@ -5478,6 +5493,10 @@ export type Database = {
         }[]
       }
       private_display_name: { Args: { _full_name: string }; Returns: string }
+      reply_to_workout_feedback: {
+        Args: { _feedback_id: string; _trainer_reply: string }
+        Returns: Database["public"]["Tables"]["workout_feedback"]["Row"]
+      }
       process_automation_triggers: { Args: never; Returns: Json }
       process_enrollment_lifecycle: { Args: never; Returns: undefined }
       recalculate_training_cycles: {
