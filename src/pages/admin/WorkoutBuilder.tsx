@@ -23,7 +23,7 @@ import { regionForLibraryGroup, normalizeGender, BODY_REGION_LABELS, type BodyRe
 import { exerciseThumb, youtubeIdFromUrl, EXERCISE_CATEGORIES } from "@/lib/exerciseCover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { groupWorkoutExercises, WORKOUT_METHODS, GROUPING_METHODS, SINGLE_METHODS, isGroupingMethod, methodNeedsSeconds, type MethodId } from "@/lib/workoutMethods";
-import { normalizeSetType, sanitizeSetTypes } from "@/lib/setTypes";
+import { normalizeSetType, sanitizeSetTypes, sanitizeWorkoutSetTypes } from "@/lib/setTypes";
 import { MethodBadge } from "@/components/workout/MethodBadge";
 import { useMaster } from "@/contexts/MasterContext";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
@@ -259,7 +259,7 @@ export default function WorkoutBuilder() {
     if (data) {
       setTemplateName(data.name || "");
       const ws = Array.isArray(data.workouts) ? data.workouts : [];
-      setWorkouts(ws.length ? ws : [{ title: "Treino A", description: "", exercises: [] }]);
+      setWorkouts(ws.length ? sanitizeWorkoutSetTypes(ws) : [{ title: "Treino A", description: "", exercises: [] }]);
     }
   };
 
@@ -269,7 +269,7 @@ export default function WorkoutBuilder() {
     if (workouts.some((w) => !w.title)) { toast({ title: "Preencha o título de todos os treinos", variant: "destructive" }); return; }
     setSaving(true);
     const { error } = await (supabase as any).from("workout_templates")
-      .update({ name, workouts: workouts as any, updated_at: new Date().toISOString() }).eq("id", tplId);
+      .update({ name, workouts: sanitizeWorkoutSetTypes(workouts) as any, updated_at: new Date().toISOString() }).eq("id", tplId);
     setSaving(false);
     if (error) { toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" }); return; }
     toast({ title: "Treino salvo na biblioteca!" });
@@ -282,7 +282,7 @@ export default function WorkoutBuilder() {
     if (!name || !name.trim()) return;
     if (!effectiveCompanyId) { toast({ title: "Sem empresa em foco para salvar o template", variant: "destructive" }); return; }
     const { error } = await (supabase as any).from("workout_templates").insert({
-      company_id: effectiveCompanyId, name: name.trim(), workouts: workouts as any, created_by: user?.id || null,
+      company_id: effectiveCompanyId, name: name.trim(), workouts: sanitizeWorkoutSetTypes(workouts) as any, created_by: user?.id || null,
     });
     if (error) { toast({ title: "Erro", description: error.message, variant: "destructive" }); return; }
     toast({ title: "Salvo na biblioteca de treinos!" });
@@ -354,12 +354,12 @@ export default function WorkoutBuilder() {
       .order("title");
     
     if (data && data.length > 0) {
-      setWorkouts(data.map(w => ({
+      setWorkouts(sanitizeWorkoutSetTypes(data.map(w => ({
         id: w.id,
         title: w.title,
         description: w.description || "",
         exercises: (w.exercises as unknown as WorkoutExercise[]) || [],
-      })));
+      }))));
     } else {
       // Start with one empty workout
       setWorkouts([{ title: "Treino A", description: "", exercises: [] }]);
@@ -503,6 +503,7 @@ export default function WorkoutBuilder() {
     }
 
     for (const [workoutIndex, workout] of workouts.entries()) {
+      const persistedWorkout = sanitizeWorkoutSetTypes([workout])[0];
       const payload = {
         name: workout.title || `Treino ${WORKOUT_LABELS[workoutIndex] || workoutIndex + 1}`,
         title: workout.title,
@@ -511,7 +512,7 @@ export default function WorkoutBuilder() {
         company_id: saveContext.company_id,
         day_of_week: workoutIndex + 1,
         sort_order: workoutIndex + 1,
-        exercises: workout.exercises as any,
+        exercises: persistedWorkout.exercises as any,
         created_by: user!.id,
         updated_at: new Date().toISOString(),
       };

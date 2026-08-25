@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SET_TYPES, normalizeSetType, sanitizeSetTypes } from "./setTypes";
+import { readFileSync } from "node:fs";
+import { SET_TYPES, normalizeSetType, sanitizeSetTypes, sanitizeWorkoutSetTypes } from "./setTypes";
 import { sanitizeTemplateExercise } from "./sendWorkoutTemplate";
 
 describe("set type W/N/F contract", () => {
@@ -29,5 +30,28 @@ describe("set type W/N/F contract", () => {
     const sanitized = sanitizeTemplateExercise({ method: "dropset", set_types: "drop" });
     expect(sanitized.method).toBe("dropset");
     expect(sanitized.set_types).toBeUndefined();
+  });
+
+  it("sanitizes the exact workout structure loaded and saved by WorkoutBuilder", () => {
+    const workouts = sanitizeWorkoutSetTypes([{
+      title: "Treino legado",
+      exercises: [{
+        set_types: ["drop", "failure"],
+        weekly_prescription: [{ set_types: ["warmup", "drop"] }],
+      }],
+    }]);
+    expect(workouts[0].exercises[0]).toMatchObject({
+      set_types: ["normal", "failure"],
+      weekly_prescription: [{ set_types: ["warmup", "normal"] }],
+    });
+  });
+
+  it("wires the sanitizer into every WorkoutBuilder persistence boundary", () => {
+    const source = readFileSync(`${process.cwd()}/src/pages/admin/WorkoutBuilder.tsx`, "utf8");
+    expect(source).toContain("setWorkouts(ws.length ? sanitizeWorkoutSetTypes(ws)");
+    expect(source).toContain("workouts: sanitizeWorkoutSetTypes(workouts) as any");
+    expect(source).toContain("setWorkouts(sanitizeWorkoutSetTypes(data.map");
+    expect(source).toContain("const persistedWorkout = sanitizeWorkoutSetTypes([workout])[0]");
+    expect(source).not.toContain("exercises: workout.exercises as any");
   });
 });

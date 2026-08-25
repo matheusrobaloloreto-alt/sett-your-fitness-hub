@@ -27,6 +27,13 @@ const catalog: ExerciseCatalogEntry[] = [
   { id: "calf-core", name: "Panturrilha em Pé + Core", muscle_group: "core", equipment: "livre", targets: [{ muscle_group: "panturrilhas" }, { muscle_group: "core" }] },
 ];
 
+const methodCoverageCatalog: ExerciseCatalogEntry[] = [
+  ...catalog,
+  { id: "pec-deck", name: "Voador Peitoral Máquina", muscle_group: "peitoral", equipment: "máquina", targets: [{ muscle_group: "peitoral" }] },
+  { id: "cross-high", name: "Crossover Alto no Cabo", muscle_group: "peitoral", equipment: "cabo", targets: [{ muscle_group: "peitoral" }] },
+  { id: "cross-low", name: "Crossover Baixo no Cabo", muscle_group: "peitoral", equipment: "cabo", targets: [{ muscle_group: "peitoral" }] },
+];
+
 function baseInput(overrides: Partial<PrescriptionInput> = {}): PrescriptionInput {
   return {
     studentName: "Aluno Teste",
@@ -265,6 +272,7 @@ describe("BN Prescription Engine v1", () => {
   it("preserva e ativa a periodização do motor até o contrato exibido ao aluno", () => {
     const program = generateTrainingProgram(baseInput({
       fitnessLevel: "intermediario",
+      experienceMonths: 24,
       objective: "hipertrofia",
       daysPerWeek: 4,
     }));
@@ -395,6 +403,18 @@ describe("BN Prescription Engine v1", () => {
         }
       }
     }
+  });
+
+  it("não presume experiência para F quando meses de musculação estão ausentes", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "intermediario",
+      experienceMonths: null,
+      objective: "hipertrofia",
+      daysPerWeek: 4,
+    }));
+    expect(program.workouts.flatMap((workout) => workout.exercises)
+      .flatMap((exercise) => exercise.weekly_prescription || [])
+      .every((week) => !week.set_types?.includes("failure"))).toBe(true);
   });
 
   it("mantém métodos em acessórios seguros quando a dor é leve e localizada", () => {
@@ -721,6 +741,96 @@ describe("BN Prescription Engine v1", () => {
 
     expect(declared).not.toMatch(/up-set|upset|pir[aâ]mide|pyramid/);
     expect(declared).toMatch(/bi-set|super-set|drop-set|rest-pause|cluster-set|pico|isometria|série gigante|serie gigante|tri-set/);
+  });
+
+  it("emite a união dos 11 métodos pelo motor completo somente em planos elegíveis", () => {
+    const methods = new Set<string>();
+    const programs: ReturnType<typeof generateTrainingProgram>[] = [];
+    for (const sequence of [1, 2, 3, 4]) {
+      programs.push(generateTrainingProgram(baseInput({
+        catalog: methodCoverageCatalog,
+        fitnessLevel: "avancado",
+        experienceMonths: 36,
+        objective: "hipertrofia",
+        daysPerWeek: 5,
+        equipment: "academia completa com máquinas e cabos",
+        blockNumber: sequence,
+      })));
+    }
+    programs.push(generateTrainingProgram(baseInput({
+      catalog: methodCoverageCatalog,
+      fitnessLevel: "intermediario",
+      experienceMonths: 24,
+      objective: "emagrecimento",
+      daysPerWeek: 3,
+      equipment: "academia completa com máquinas e cabos",
+    })));
+    programs.push(generateTrainingProgram(baseInput({
+      catalog: methodCoverageCatalog,
+      fitnessLevel: "avancado",
+      experienceMonths: 36,
+      objective: "forca",
+      daysPerWeek: 5,
+      equipment: "academia completa com máquinas e cabos",
+    })));
+
+    for (const program of programs) {
+      for (const workout of program.workouts) {
+        expect(new Set(workout.exercises.map((exercise) => exercise.exercise_id)).size).toBe(workout.exercises.length);
+        expect(workout.duration_min).toBeLessThanOrEqual(50);
+        const expectedArity: Record<string, number> = { biset: 2, superset: 2, triset: 3, giantset: 4, circuito: 3 };
+        for (let weekIndex = 0; weekIndex < 6; weekIndex += 1) {
+          const emitted = workout.exercises.map((exercise, exerciseIndex) => ({
+            exercise,
+            exerciseIndex,
+            prescription: exercise.weekly_prescription?.[weekIndex],
+          }));
+          expect(new Set(emitted.map((row) => row.prescription?.method).filter(Boolean)).size).toBeLessThanOrEqual(1);
+          for (const method of Object.keys(expectedArity)) {
+            const methodRows = emitted.filter((row) => row.prescription?.method === method);
+            if (!methodRows.length) continue;
+            expect(new Set(methodRows.map((row) => row.prescription?.group_id)).size).toBe(1);
+            expect(methodRows).toHaveLength(expectedArity[method]);
+            expect(methodRows.every((row, index) => index === 0 || row.exerciseIndex === methodRows[index - 1].exerciseIndex + 1)).toBe(true);
+            expect(methodRows.every((row) => !/(agachamento|terra|levantamento|good morning|clean|snatch|thruster|bosu|instavel)/i
+              .test(`${row.exercise.exercise_name} ${row.exercise.equipment || ""}`))).toBe(true);
+            if (method === "triset" || method === "giantset") {
+              expect(new Set(methodRows.map((row) => row.exercise.muscle_group)).size).toBe(1);
+            }
+          }
+        }
+        for (const exercise of workout.exercises) {
+          for (const week of exercise.weekly_prescription || []) if (week.method) methods.add(week.method);
+        }
+      }
+      const largeGroupReview = program.validator.pre_save.volume_review
+        .filter((item) => ["quadriceps", "posterior", "gluteos", "costas", "peitoral"].includes(item.muscle_group));
+      expect(largeGroupReview.every((item) => item.weekly_sets <= 16), JSON.stringify(largeGroupReview)).toBe(true);
+      const volumeByGroup = new Map(largeGroupReview.map((item) => [item.muscle_group, item.weekly_sets]));
+      expect((volumeByGroup.get("quadriceps") || 0) + (volumeByGroup.get("posterior") || 0) + (volumeByGroup.get("gluteos") || 0)).toBeGreaterThan(0);
+      expect(volumeByGroup.get("costas") || 0).toBeGreaterThan(0);
+      expect(volumeByGroup.get("peitoral") || 0).toBeGreaterThan(0);
+    }
+
+    expect([...methods].sort()).toEqual([
+      "biset", "triset", "superset", "giantset", "circuito",
+      "dropset", "restpause", "cluster", "isometria", "pico_contracao", "pico_alongamento",
+    ].sort());
+  });
+
+  it("não força sessão especializada sem catálogo/equipamento e registra o motivo", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "avancado",
+      experienceMonths: 36,
+      objective: "hipertrofia",
+      daysPerWeek: 5,
+      equipment: "halteres e elástico",
+      blockNumber: 3,
+    }));
+
+    expect(program.workouts.flatMap((workout) => workout.exercises)
+      .every((exercise) => exercise.weekly_prescription?.every((week) => !["triset", "giantset"].includes(week.method || "")))).toBe(true);
+    expect(program.library_policy.gaps).toContain("WARNING:advanced_method_unavailable:triset_giantset:catalog_or_equipment");
   });
 
   it("seleciona preset de emagrecimento para iniciante sem subir volume agressivo", () => {

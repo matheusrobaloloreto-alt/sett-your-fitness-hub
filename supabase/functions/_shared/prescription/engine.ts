@@ -32,6 +32,7 @@ type ExerciseSpec = {
   preferredPattern?: string;
   required?: boolean;
   reportGap?: boolean;
+  preferBestMatchOverNovelty?: boolean;
 };
 
 const PHASE_ORDER: Record<string, number> = {
@@ -49,6 +50,46 @@ const PHASE_ORDER: Record<string, number> = {
 
 function isHypertrophyObjective(input: PrescriptionInput) {
   return /(hipertrof|massa|estetica|recompos)/.test(normalizeText(input.objective));
+}
+
+function isFatLossObjective(input: PrescriptionInput) {
+  return /(emagrec|perda|condicion)/.test(normalizeText(input.objective));
+}
+
+function hasFullMethodEquipment(input: PrescriptionInput) {
+  return /(academia completa|maquina|cabo|polia)/.test(normalizeText(input.equipment));
+}
+
+function canUseAdvancedMethodTemplates(input: PrescriptionInput) {
+  return !normalizeText(input.fitnessLevel).includes("inic")
+    && !input.deload
+    && !shouldHoldProgression(input)
+    && !input.isEnduranceAthlete
+    && !input.runningDaysContext;
+}
+
+function isAdvancedLevel(input: PrescriptionInput) {
+  return normalizeText(input.fitnessLevel).includes("avanc");
+}
+
+function stableCatalogEntries(input: PrescriptionInput) {
+  return normalizeCatalog(input.catalog).filter((exercise) =>
+    /(maquina|cabo|polia)/.test(normalizeText(`${exercise.equipment || ""} ${exercise.name}`))
+    && !/(bosu|bola|instavel|suspensao|agachamento livre|levantamento terra|good morning)/.test(normalizeText(exercise.name))
+  );
+}
+
+function hasSpecializationCatalog(input: PrescriptionInput) {
+  return stableCatalogEntries(input).filter((exercise) =>
+    /peitoral|chest/.test(normalizeText(exercise.muscle_group || exercise.targets?.[0]?.muscle_group))
+  ).length >= 4;
+}
+
+function hasCircuitCatalog(input: PrescriptionInput) {
+  const groups = new Set(stableCatalogEntries(input).map((exercise) =>
+    normalizeText(exercise.muscle_group || exercise.targets?.[0]?.muscle_group)
+  ).filter(Boolean));
+  return ["posterior", "costas", "peitoral"].every((group) => groups.has(group));
 }
 
 function isPerformanceObjective(input: PrescriptionInput) {
@@ -175,7 +216,9 @@ function selectExercises(input: PrescriptionInput, specs: ExerciseSpec[], progra
     const exercise = pickCatalogExercise({
       catalog,
       keywords: spec.keywords,
-      usedIds: programUsedIds,
+      // Method templates need the safest semantic station, even when it was
+      // already used on another day. Session uniqueness remains a hard rule.
+      usedIds: spec.preferBestMatchOverNovelty ? undefined : programUsedIds,
       hardExcludedIds: sessionUsedIds,
       restrictions,
       equipment: input.equipment,
@@ -279,6 +322,29 @@ function fullBodySpecs(input: PrescriptionInput): ExerciseSpec[] {
   return applyObjectiveProportions(input, specs);
 }
 
+function upperSpecializationSpecs(): ExerciseSpec[] {
+  const stablePeitoralKeywords = ["peitoral", "chest press", "supino maquina", "voador", "pec deck", "crossover", "cabo"];
+  return [
+    { phase: "mobilidade", keywords: ["mobilidade toracica", "ombro", "toracica"], preferredMuscleGroup: "ombros", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "8-10", rest: 30, rir: "4", cue: "Movimento suave e sem dor.", note: "Preparação curta para a sessão de especialização." },
+    { phase: "ativacao_core", keywords: ["pallof", "prancha", "core", "dead bug"], preferredMuscleGroup: "core", preferredPattern: "core", required: false, reportGap: false, sets: 1, reps: "20-30s", rest: 45, rir: "3-4", cue: "Mantenha tronco e pelve estáveis.", note: "Estabilidade antes das estações de peitoral." },
+    { phase: "forca_especifica", keywords: stablePeitoralKeywords, preferredMuscleGroup: "peitoral", preferredPattern: "empurrar_horizontal", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "8-12", rest: 75, rir: "2-3", cue: "Escápulas firmes e amplitude confortável.", note: "Estação estável de peitoral para aluno avançado." },
+    { phase: "forca_especifica", keywords: stablePeitoralKeywords, preferredMuscleGroup: "peitoral", preferredPattern: "isolado_acessorio", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Controle a volta sem perder tensão.", note: "Estação estável de peitoral para aluno avançado." },
+    { phase: "forca_especifica", keywords: stablePeitoralKeywords, preferredMuscleGroup: "peitoral", preferredPattern: "isolado_acessorio", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Sem compensar tronco ou ombro.", note: "Estação estável de peitoral para aluno avançado." },
+    { phase: "forca_especifica", keywords: stablePeitoralKeywords, preferredMuscleGroup: "peitoral", preferredPattern: "isolado_acessorio", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Mantenha a trajetória e a técnica.", note: "Estação estável de peitoral para aluno avançado." },
+  ];
+}
+
+function metabolicCircuitSpecs(): ExerciseSpec[] {
+  return [
+    { phase: "mobilidade", keywords: ["mobilidade quadril", "tornozelo", "toracica"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "8-10", rest: 30, rir: "4", cue: "Amplitude confortável e respiração calma.", note: "Preparação curta para o circuito." },
+    { phase: "ativacao_core", keywords: ["pallof", "prancha", "core", "dead bug"], preferredMuscleGroup: "core", preferredPattern: "core", required: false, reportGap: false, sets: 1, reps: "20-30s", rest: 40, rir: "3-4", cue: "Tronco estável e respiração contínua.", note: "Estabilidade antes das estações." },
+    { phase: "controle_motor", keywords: ["step", "unilateral", "gluteo", "agachamento caixa"], preferredMuscleGroup: "gluteos", preferredPattern: "unilateral", required: false, reportGap: false, sets: 2, reps: "8 por lado", rest: 60, rir: "3", cue: "Joelho alinhado ao pé.", note: "Controle técnico antes da densidade." },
+    { phase: "forca_especifica", keywords: ["mesa flexora", "flexora", "posterior maquina"], preferredMuscleGroup: "posterior", preferredPattern: "isolado_acessorio", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Controle a fase excêntrica.", note: "Estação segura de membros inferiores." },
+    { phase: "forca_especifica", keywords: ["remada maquina", "remada baixa", "puxada maquina"], preferredMuscleGroup: "costas", preferredPattern: "puxar_horizontal", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Sem balançar o tronco.", note: "Estação segura de puxar." },
+    { phase: "forca_especifica", keywords: ["supino maquina", "chest press", "press convergente"], preferredMuscleGroup: "peitoral", preferredPattern: "empurrar_horizontal", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Escápulas firmes e punhos neutros.", note: "Estação segura de empurrar." },
+  ];
+}
+
 function splitTemplates(input: PrescriptionInput): Array<{ name: string; focus: string; specs: ExerciseSpec[] }> {
   const split = resolveSplit(input);
   const beginner = normalizeText(input.fitnessLevel).includes("inic");
@@ -290,6 +356,23 @@ function splitTemplates(input: PrescriptionInput): Array<{ name: string; focus: 
     { name: "Treino D - Superior e core complementar", focus: "costas, peitoral técnico, ombro saudável e core", specs: upperWorkoutSpecs(input).map((spec) => ({ ...spec, sets: Math.min(spec.sets, extraCap) })) },
     { name: "Treino E - Inferior posterior leve", focus: "cadeia posterior, glúteos e estabilidade", specs: fullBodySpecs(input).map((spec) => ({ ...spec, sets: Math.min(spec.sets, extraCap) })) },
   ];
+  const advancedTemplateEligible = canUseAdvancedMethodTemplates(input);
+  if (advancedTemplateEligible && isAdvancedLevel(input) && isHypertrophyObjective(input) && split.structuredDays >= 4
+    && hasFullMethodEquipment(input) && hasSpecializationCatalog(input)) {
+    base[3] = {
+      name: "Treino D - Especialização segura de peitoral",
+      focus: "peitoral em máquinas e cabos, com volume capado e método somente quando a semana permitir",
+      specs: upperSpecializationSpecs(),
+    };
+  }
+  if (advancedTemplateEligible && isFatLossObjective(input) && split.structuredDays >= 3
+    && hasFullMethodEquipment(input) && hasCircuitCatalog(input)) {
+    base[2] = {
+      name: "Treino C - Circuito técnico de corpo inteiro",
+      focus: "estações estáveis e equilibradas, sem falha e com densidade controlada",
+      specs: metabolicCircuitSpecs(),
+    };
+  }
   return base.slice(0, split.structuredDays);
 }
 
@@ -298,6 +381,15 @@ function buildWorkouts(input: PrescriptionInput) {
   const split = resolveSplit(input);
   const daySlots = distributeDays(split.structuredDays);
   const gaps: string[] = [];
+  const advancedTemplateEligible = canUseAdvancedMethodTemplates(input);
+  if (advancedTemplateEligible && isAdvancedLevel(input) && isHypertrophyObjective(input) && split.structuredDays >= 4
+    && (!hasFullMethodEquipment(input) || !hasSpecializationCatalog(input))) {
+    gaps.push("WARNING:advanced_method_unavailable:triset_giantset:catalog_or_equipment");
+  }
+  if (advancedTemplateEligible && isFatLossObjective(input) && split.structuredDays >= 3
+    && (!hasFullMethodEquipment(input) || !hasCircuitCatalog(input))) {
+    gaps.push("WARNING:advanced_method_unavailable:circuito:catalog_or_equipment");
+  }
   const workouts: TrainingWorkout[] = splitTemplates(input).map((template, index) => {
     const picked = selectExercises(input, template.specs, usedIds);
     gaps.push(...picked.gaps);
@@ -375,8 +467,19 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
   const capped = enforceVolumeCaps(built.workouts, normalizedInput);
   const deloadBudget = applyDeloadVolumeBudget(capped.workouts, normalizedInput);
   const gaps = built.gaps;
-  const workouts = deloadBudget.workouts;
-  const longitudinal = applyLongitudinalProgression(workouts, normalizedInput);
+  const longitudinal = applyLongitudinalProgression(deloadBudget.workouts, normalizedInput);
+  // A fase de acúmulo pode acrescentar uma série depois do primeiro cap. O
+  // contrato publicado precisa continuar sob o mesmo teto, portanto o cap
+  // final é reaplicado à saída longitudinal antes da periodização semanal.
+  const finalCapped = enforceVolumeCaps(deloadBudget.workouts, normalizedInput);
+  const workouts = finalCapped.workouts;
+  const volumeCapAdjustments = [...capped.adjustments, ...finalCapped.adjustments].reduce((merged, adjustment) => {
+    const previous = merged.get(adjustment.muscle_group);
+    merged.set(adjustment.muscle_group, previous
+      ? { ...adjustment, before: previous.before }
+      : adjustment);
+    return merged;
+  }, new Map<string, (typeof capped.adjustments)[number]>());
   const weekly = buildWeeklyPeriodization(workouts, normalizedInput);
   const periodization = buildPeriodizationBlocks(normalizedInput);
   const split = resolveSplit(normalizedInput);
@@ -428,7 +531,7 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
           severity: "leve" as const,
         }]
       : []),
-    ...capped.adjustments.map((adjustment) => ({
+    ...[...volumeCapAdjustments.values()].map((adjustment) => ({
       rule_id: `BN_VOLUME_CAP_${adjustment.muscle_group.toUpperCase()}`,
       category: "volume" as const,
       source: "validador" as const,

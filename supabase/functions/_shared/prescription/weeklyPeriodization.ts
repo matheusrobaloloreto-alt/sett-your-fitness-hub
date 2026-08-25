@@ -128,8 +128,7 @@ function hasHighFatigue(input: PrescriptionInput) {
 
 function isExperiencedForFailure(input: PrescriptionInput) {
   const months = Number(input.experienceMonths);
-  if (Number.isFinite(months) && months > 0) return months >= 12;
-  return resolveLevel(input) !== "iniciante";
+  return Number.isFinite(months) && months >= 12;
 }
 
 function isFailureEligible(exercise: PlannedExercise, input: PrescriptionInput) {
