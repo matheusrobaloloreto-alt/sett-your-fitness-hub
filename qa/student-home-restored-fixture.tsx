@@ -38,6 +38,7 @@ function Fixture() {
         hasCorrida
         hasNatacao
         hasCiclismo
+        hasNutrition
         onNavigate={(view) => setDestination(view)}
       />
     </main>
