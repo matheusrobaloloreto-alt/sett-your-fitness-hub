@@ -5,6 +5,7 @@ import {
   deliverWorkoutFeedbackToWhatsapp,
   normalizeWorkoutFeedbackPayload,
 } from "../../supabase/functions/_shared/student-workout-feedback";
+import { normalizeWhatsAppPhoneKey } from "../../supabase/functions/_shared/whatsappIdentity";
 
 const MIGRATION = "supabase/migrations/20260824120000_workout_feedback_trainer_replies.sql";
 const EDGE = "supabase/functions/student-workout-feedback/index.ts";
@@ -126,6 +127,205 @@ describe("optional workout feedback WhatsApp delivery", () => {
     });
 
     expect(result).toEqual({ delivered: false });
+  });
+
+  it("rejects a legacy 11-digit Brazilian number whose subscriber does not start with 9", () => {
+    expect(normalizeWhatsAppPhoneKey("42077707180")).toBeNull();
+  });
+
+  it("reuses one unlinked direct chat in the same tenant and instance instead of creating a feedback-only duplicate", async () => {
+    const chatInserts: Array<Record<string, unknown>> = [];
+    const messageInserts: Array<Record<string, unknown>> = [];
+
+    const db = {
+      from(table: string) {
+        const filters = new Map<string, unknown>();
+        let remoteJids: string[] | null = null;
+        const query = {
+          select: () => query,
+          eq: (column: string, value: unknown) => {
+            filters.set(column, value);
+            return query;
+          },
+          in: (column: string, values: string[]) => {
+            if (column === "remote_jid") remoteJids = values;
+            return query;
+          },
+          order: () => query,
+          limit: () => query,
+          insert: (row: Record<string, unknown>) => {
+            if (table === "whatsapp_chats") {
+              chatInserts.push(row);
+              return query;
+            }
+            if (table === "whatsapp_messages") {
+              messageInserts.push(row);
+              return Promise.resolve({ error: null });
+            }
+            return query;
+          },
+          update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+          maybeSingle: () => {
+            if (table === "whatsapp_instances") {
+              return Promise.resolve({ data: { id: "instance-1" }, error: null });
+            }
+            if (table === "whatsapp_chats" && filters.has("student_id")) {
+              return Promise.resolve({ data: null, error: null });
+            }
+            if (table === "whatsapp_chats" && remoteJids?.includes("5548991432057@s.whatsapp.net")) {
+              return Promise.resolve({
+                data: { id: "historical-chat", unread_count: 4, student_id: null },
+                error: null,
+              });
+            }
+            if (table === "whatsapp_chats") {
+              return Promise.resolve({ data: { id: "new-chat", unread_count: 0 }, error: null });
+            }
+            return Promise.resolve({ data: null, error: null });
+          },
+        };
+        return query;
+      },
+    };
+
+    const result = await deliverWorkoutFeedbackToWhatsapp({
+      ...baseArgs,
+      db,
+      student: { ...baseArgs.student, whatsapp: "(48) 99143-2057" },
+    });
+
+    expect(result).toEqual({ delivered: true });
+    expect(chatInserts).toEqual([]);
+    expect(messageInserts).toHaveLength(1);
+    expect(messageInserts[0]).toMatchObject({ chat_id: "historical-chat", company_id: "company-1" });
+  });
+
+  it("does not create a chat or mirror a message from an invalid legacy student phone", async () => {
+    const writes: Array<{ table: string; row: Record<string, unknown> }> = [];
+    const db = {
+      from(table: string) {
+        const query = {
+          select: () => query,
+          eq: () => query,
+          in: () => query,
+          order: () => query,
+          limit: () => query,
+          insert: (row: Record<string, unknown>) => {
+            writes.push({ table, row });
+            return table === "whatsapp_messages" ? Promise.resolve({ error: null }) : query;
+          },
+          update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+          maybeSingle: () => table === "whatsapp_instances"
+            ? Promise.resolve({ data: { id: "instance-1" }, error: null })
+            : Promise.resolve({ data: null, error: null }),
+        };
+        return query;
+      },
+    };
+
+    const result = await deliverWorkoutFeedbackToWhatsapp({
+      ...baseArgs,
+      db,
+      student: { ...baseArgs.student, whatsapp: "42077707180" },
+    });
+
+    expect(result).toEqual({ delivered: false });
+    expect(writes).toEqual([]);
+  });
+
+  it("never reuses a same-student chat unless the tenant binding also matches", async () => {
+    const messageInserts: Array<Record<string, unknown>> = [];
+    const db = {
+      from(table: string) {
+        const filters = new Map<string, unknown>();
+        const query = {
+          select: () => query,
+          eq: (column: string, value: unknown) => {
+            filters.set(column, value);
+            return query;
+          },
+          in: () => query,
+          order: () => query,
+          limit: () => query,
+          insert: (row: Record<string, unknown>) => {
+            if (table === "whatsapp_messages") {
+              messageInserts.push(row);
+              return Promise.resolve({ error: null });
+            }
+            return query;
+          },
+          update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+          maybeSingle: () => {
+            if (table === "whatsapp_instances") {
+              return Promise.resolve({ data: { id: "instance-1" }, error: null });
+            }
+            if (table === "whatsapp_chats" && filters.has("student_id") && !filters.has("company_id")) {
+              return Promise.resolve({ data: { id: "cross-tenant-chat", unread_count: 1 }, error: null });
+            }
+            return Promise.resolve({ data: null, error: null });
+          },
+        };
+        return query;
+      },
+    };
+
+    const result = await deliverWorkoutFeedbackToWhatsapp({ ...baseArgs, db });
+
+    expect(result).toEqual({ delivered: false });
+    expect(messageInserts).toEqual([]);
+  });
+
+  it("fails closed instead of creating a duplicate when the linked chat JID disagrees with the student phone", async () => {
+    const chatInserts: Array<Record<string, unknown>> = [];
+    const messageInserts: Array<Record<string, unknown>> = [];
+    const db = {
+      from(table: string) {
+        const filters = new Map<string, unknown>();
+        const query = {
+          select: () => query,
+          eq: (column: string, value: unknown) => {
+            filters.set(column, value);
+            return query;
+          },
+          in: () => query,
+          order: () => query,
+          limit: () => query,
+          insert: (row: Record<string, unknown>) => {
+            if (table === "whatsapp_chats") chatInserts.push(row);
+            if (table === "whatsapp_messages") {
+              messageInserts.push(row);
+              return Promise.resolve({ error: null });
+            }
+            return query;
+          },
+          update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+          maybeSingle: () => {
+            if (table === "whatsapp_instances") {
+              return Promise.resolve({ data: { id: "instance-1" }, error: null });
+            }
+            if (table === "whatsapp_chats" && filters.has("student_id")) {
+              return Promise.resolve({
+                data: {
+                  id: "corrupted-linked-chat",
+                  unread_count: 1,
+                  student_id: "student-1",
+                  remote_jid: "5511999999999@s.whatsapp.net",
+                },
+                error: null,
+              });
+            }
+            return Promise.resolve({ data: null, error: null });
+          },
+        };
+        return query;
+      },
+    };
+
+    const result = await deliverWorkoutFeedbackToWhatsapp({ ...baseArgs, db });
+
+    expect(result).toEqual({ delivered: false });
+    expect(chatInserts).toEqual([]);
+    expect(messageInserts).toEqual([]);
   });
 });
 

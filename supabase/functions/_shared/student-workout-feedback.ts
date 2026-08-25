@@ -1,3 +1,9 @@
+import {
+  directWhatsAppJidVariants,
+  normalizeWhatsAppPhoneKey,
+  sameWhatsAppRecipient,
+} from "./whatsappIdentity.ts";
+
 export interface NormalizedWorkoutFeedbackPayload {
   perception: "Difícil" | "Bom" | "Ótimo" | null;
   reflection: string;
@@ -105,43 +111,72 @@ export async function deliverWorkoutFeedbackToWhatsapp({
   log = console.warn,
 }: DeliverWorkoutFeedbackToWhatsappArgs): Promise<{ delivered: boolean }> {
   try {
-    const { data: existingChat, error: chatLookupError } = await db
+    const phoneKeys = new Set(
+      [student.whatsapp, student.phone]
+        .map(normalizeWhatsAppPhoneKey)
+        .filter((value): value is string => Boolean(value)),
+    );
+    if (phoneKeys.size !== 1) return { delivered: false };
+
+    const canonicalRemoteJid = `55${[...phoneKeys][0]}@s.whatsapp.net`;
+    const { data: inst, error: instanceError } = await db
+      .from("whatsapp_instances")
+      .select("id")
+      .eq("company_id", student.company_id)
+      .order("status")
+      .limit(1)
+      .maybeSingle();
+    if (instanceError) throw instanceError;
+    if (!inst?.id) return { delivered: false };
+
+    const { data: linkedChat, error: linkedChatError } = await db
       .from("whatsapp_chats")
-      .select("id, unread_count")
+      .select("id, unread_count, student_id, remote_jid")
       .eq("student_id", studentId)
+      .eq("company_id", student.company_id)
+      .eq("instance_id", inst.id)
       .order("last_message_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (chatLookupError) throw chatLookupError;
-    let chat = existingChat;
+    if (linkedChatError) throw linkedChatError;
+    if (
+      linkedChat &&
+      !sameWhatsAppRecipient(linkedChat.remote_jid, canonicalRemoteJid)
+    ) return { delivered: false };
+    let chat = linkedChat;
 
     if (!chat) {
-      const digits = String(student.whatsapp || student.phone || "").replace(/\D/g, "");
-      const { data: inst, error: instanceError } = await db
-        .from("whatsapp_instances")
-        .select("id")
+      const { data: phoneChat, error: phoneChatError } = await db
+        .from("whatsapp_chats")
+        .select("id, unread_count, student_id, remote_jid")
         .eq("company_id", student.company_id)
-        .order("status")
+        .eq("instance_id", inst.id)
+        .in("remote_jid", directWhatsAppJidVariants(canonicalRemoteJid))
+        .order("last_message_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (instanceError) throw instanceError;
+      if (phoneChatError) throw phoneChatError;
 
-      if (digits && inst?.id) {
-        const remoteJid = `${digits.startsWith("55") ? digits : "55" + digits}@s.whatsapp.net`;
-        const { data: created, error: createChatError } = await db
-          .from("whatsapp_chats")
-          .insert({
-            company_id: student.company_id,
-            instance_id: inst.id,
-            remote_jid: remoteJid,
-            student_id: studentId,
-            contact_name: student.full_name,
-          })
-          .select("id, unread_count")
-          .maybeSingle();
-        if (createChatError) throw createChatError;
-        chat = created;
-      }
+      if (
+        phoneChat?.student_id && String(phoneChat.student_id) !== studentId
+      ) return { delivered: false };
+      chat = phoneChat;
+    }
+
+    if (!chat) {
+      const { data: created, error: createChatError } = await db
+        .from("whatsapp_chats")
+        .insert({
+          company_id: student.company_id,
+          instance_id: inst.id,
+          remote_jid: canonicalRemoteJid,
+          student_id: studentId,
+          contact_name: student.full_name,
+        })
+        .select("id, unread_count")
+        .maybeSingle();
+      if (createChatError) throw createChatError;
+      chat = created;
     }
 
     if (!chat?.id) {

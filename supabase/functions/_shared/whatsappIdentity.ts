@@ -29,6 +29,11 @@ export function normalizeWhatsAppPhoneKey(value: unknown): string | null {
     digits = `${digits.slice(0, 2)}9${digits.slice(2)}`;
   }
 
+  // Brazilian mobile numbers with 11 local digits must have 9 as the first
+  // subscriber digit. Reject legacy/trunk-shaped values instead of turning
+  // them into a plausible-looking but unverified WhatsApp destination.
+  if (digits.length === 11 && digits[2] !== "9") return null;
+
   return digits.length === 10 || digits.length === 11 ? digits : null;
 }
 
