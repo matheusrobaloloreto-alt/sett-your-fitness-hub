@@ -18,6 +18,11 @@ verify_jwt = false
 [functions.ai-running-plan]
 verify_jwt = false
 
+[functions.update-running-plan-draft]
+# Auth is verified inside the handler with Auth.getUser(token), which supports
+# the project's current and asymmetric signing keys without trusting claims.
+verify_jwt = false
+
 [functions.ai-nutrition-plan]
 verify_jwt = false
 

@@ -40,6 +40,8 @@ import { resolveStudioAnamnesis, studioAnamnesisGenerationBlockReason } from "@/
 import { exerciseThumb, youtubeIdFromUrl } from "@/lib/exerciseCover";
 import { summarizeExerciseWeeklyProgression } from "@/lib/weeklyStrengthPeriodization";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CardioPlanEditor, type CardioPlanDraft } from "@/components/admin/CardioPlanEditor";
+import { captureGeneratedCardioPlan, saveCardioPlanDraft } from "@/lib/cardioPlanPersistence";
 import {
   describeLongitudinalPhase,
   isCycleCurrent,
@@ -181,6 +183,10 @@ export default function PrescriptionStudio() {
   const [modalities, setModalities]   = useState<Set<Modality>>(new Set(["musculacao"]));
   const [status, setStatus]           = useState<Record<string, GenStatus>>({});
   const [results, setResults]         = useState<Record<string, any>>({});
+  const [cardioPlanIds, setCardioPlanIds] = useState<Partial<Record<"corrida" | "natacao" | "ciclismo", string>>>({});
+  const [cardioPlanVersions, setCardioPlanVersions] = useState<Partial<Record<"corrida" | "natacao" | "ciclismo", string>>>({});
+  const [savingCardio, setSavingCardio] = useState<Partial<Record<"corrida" | "natacao" | "ciclismo", boolean>>>({});
+  const [savedCardio, setSavedCardio] = useState<Partial<Record<"corrida" | "natacao" | "ciclismo", boolean>>>({});
   const [generating, setGenerating]   = useState(false);
   const [error, setError]             = useState("");
   const [pdfs, setPdfs]               = useState<any[]>([]);
@@ -546,7 +552,8 @@ export default function PrescriptionStudio() {
     setGenerating(true); setError(""); setPdfs([]); setScheduledSummaries([]);
     const st: Record<string, GenStatus> = {};
     modalities.forEach((modality) => { st[modality] = "idle"; });
-    setStatus(st); setResults({}); setPublished(null); setActiveBundleId(null); setResultCycleId(null);
+    setStatus(st); setResults({}); setCardioPlanIds({}); setCardioPlanVersions({}); setSavingCardio({}); setSavedCardio({});
+    setPublished(null); setActiveBundleId(null); setResultCycleId(null);
 
     const firstTarget = scheduleTargets[0];
     const [strengthHistoryRes, runningHistoryRes, nutritionHistoryRes] = await Promise.all([
@@ -585,6 +592,11 @@ export default function PrescriptionStudio() {
         setStatus({ ...st });
 
         const newResults: Record<string, any> = {};
+        let generatedCardio = {
+          plans: {} as Partial<Record<"corrida" | "natacao" | "ciclismo", CardioPlanDraft>>,
+          planIds: {} as Partial<Record<"corrida" | "natacao" | "ciclismo", string>>,
+          planVersions: {} as Partial<Record<"corrida" | "natacao" | "ciclismo", string>>,
+        };
         let strengthPlan: any = null;
         let strengthPlanId: string | null = null;
         const cardioPlans: Record<string, any> = {};
@@ -692,7 +704,11 @@ export default function PrescriptionStudio() {
             block_number: cycle.cycle_number, program_sequence: programSequence,
           } });
           if (edgeError || data?.error) throw new Error((await readEdgeError(edgeError, data)) || `Falha em ${modality} no ciclo ${cycle.cycle_number}.`);
-          if (!data?.id) throw new Error(`A prescrição de ${modality} foi gerada sem ID persistido.`);
+          generatedCardio = captureGeneratedCardioPlan(
+            generatedCardio,
+            modality as "corrida" | "natacao" | "ciclismo",
+            { id: data?.id, plan: data?.plan, updated_at: data?.updated_at },
+          );
           await linkBundleItem(modality, "running_plan", data.id);
           if (!firstRunningPlanId) firstRunningPlanId = data.id;
           previousCardio[sportMap[modality]] = { id: data.id, ...data.plan };
@@ -772,6 +788,8 @@ export default function PrescriptionStudio() {
         summaries.push({ cycle, modalities: Array.from(modalities) });
         preparedCycleIds.add(cycle.id);
         setResults({ ...newResults });
+        setCardioPlanIds({ ...generatedCardio.planIds });
+        setCardioPlanVersions({ ...generatedCardio.planVersions });
         setResultCycleId(cycle.id);
       }
 
@@ -788,6 +806,30 @@ export default function PrescriptionStudio() {
     } finally {
       setScheduleProgress(null);
       setGenerating(false);
+    }
+  }
+
+  async function saveCardioDraft(modality: "corrida" | "natacao" | "ciclismo", plan: CardioPlanDraft) {
+    const planId = cardioPlanIds[modality];
+    const expectedUpdatedAt = cardioPlanVersions[modality];
+    if (!planId || !expectedUpdatedAt) {
+      toast.error("Não encontrei a versão persistida deste plano. Gere a prescrição novamente antes de salvar.");
+      return;
+    }
+    setSavingCardio((current) => ({ ...current, [modality]: true }));
+    setSavedCardio((current) => ({ ...current, [modality]: false }));
+    try {
+      const saved = await saveCardioPlanDraft(supabase, { planId, expectedUpdatedAt, plan });
+      setResults((current) => ({ ...current, [modality]: saved.plan }));
+      setCardioPlanVersions((current) => ({ ...current, [modality]: saved.updatedAt }));
+      setSavedCardio((current) => ({ ...current, [modality]: true }));
+      const modalityName = modality === "natacao" ? "natação" : modality === "ciclismo" ? "ciclismo" : "corrida";
+      toast.success(`Plano de ${modalityName} salvo no app do aluno.`);
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : "Falha ao salvar a prescrição aeróbica.";
+      toast.error(message);
+    } finally {
+      setSavingCardio((current) => ({ ...current, [modality]: false }));
     }
   }
 
@@ -1891,6 +1933,28 @@ export default function PrescriptionStudio() {
                         </div>
                       )}
                     </div>
+                  )}
+
+                  {(["corrida", "natacao", "ciclismo"] as const).map((modality) => (
+                    results[modality] ? (
+                      <CardioPlanEditor
+                        key={modality}
+                        modality={modality}
+                        plan={results[modality]}
+                        saving={Boolean(savingCardio[modality])}
+                        saved={Boolean(savedCardio[modality])}
+                        onChange={(plan) => {
+                          setResults((current) => ({ ...current, [modality]: plan }));
+                          setSavedCardio((current) => ({ ...current, [modality]: false }));
+                        }}
+                        onSave={(plan) => void saveCardioDraft(modality, plan)}
+                      />
+                    ) : null
+                  ))}
+                  {scheduledSummaries.length > 1 && ["corrida", "natacao", "ciclismo"].some((modality) => results[modality]) && (
+                    <p className="text-xs text-amber-700">
+                      A edição acima corresponde ao último ciclo gerado. Os ciclos anteriores permanecem com a versão gerada.
+                    </p>
                   )}
 
                   {/* Publica o treino de força no app do aluno (o PDF/IA sozinho NÃO aparece pro aluno). */}

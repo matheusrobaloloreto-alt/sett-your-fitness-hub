@@ -580,14 +580,17 @@ INSTRUÇÕES:
       end_date: cycleContext?.end_date ?? null,
       status: cycleContext && cycleContext.start_date > businessDateYmd() ? "scheduled" : "active",
     };
-    if (existingCyclePlan?.id) {
-      await supabase.from("running_plans").update(persistencePayload).eq("id", existingCyclePlan.id).throwOnError();
-    } else {
-      await supabase.from("running_plans").insert(persistencePayload).throwOnError();
+    const persistenceResult = existingCyclePlan?.id
+      ? await supabase.from("running_plans").update(persistencePayload)
+        .eq("id", existingCyclePlan.id).select("id, updated_at").single()
+      : await supabase.from("running_plans").insert(persistencePayload)
+        .select("id, updated_at").single();
+    if (persistenceResult.error || !persistenceResult.data?.updated_at) {
+      throw new HttpError(500, "Falha ao confirmar a versão persistida do plano aeróbico.");
     }
 
     return new Response(
-      JSON.stringify({ id: planId, plan: planJson }),
+      JSON.stringify({ id: planId, updated_at: persistenceResult.data.updated_at, plan: planJson }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
