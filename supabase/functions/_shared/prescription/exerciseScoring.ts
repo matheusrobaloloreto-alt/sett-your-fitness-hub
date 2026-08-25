@@ -45,7 +45,7 @@ function equipmentText(exercise: ExerciseCatalogEntry) {
  * prescribing a machine, cable or bar that the student cannot access.
  */
 export function isEquipmentCompatible(exercise: ExerciseCatalogEntry, requestedEquipment: unknown) {
-  const requested = normalizeText(requestedEquipment);
+  const requested = normalizeText(requestedEquipment).replace(/[_-]+/g, " ");
   if (!requested || /(academia completa|todos? (os )?equipamentos?)/.test(requested)) return true;
 
   const exerciseEquipment = equipmentText(exercise);

@@ -852,6 +852,21 @@ describe("BN Prescription Engine v1", () => {
     expect(program.library_policy.gaps).toContain("WARNING:advanced_method_unavailable:triset_giantset:catalog_or_equipment");
   });
 
+  it("trata o alias legado academia_completa como catálogo sem restrição de equipamento", () => {
+    const program = generateTrainingProgram(baseInput({
+      catalog: methodCoverageCatalog,
+      equipment: "academia_completa",
+      fitnessLevel: "intermediario",
+      daysPerWeek: 3,
+    }));
+    const prescribed = program.workouts.flatMap((workout) => workout.exercises);
+
+    expect(prescribed.some((exercise) => /maquina|máquina|cabo|polia/i.test(
+      `${exercise.exercise_name} ${exercise.equipment || ""}`,
+    ))).toBe(true);
+    expect(program.validator.pre_save.blockers).toEqual([]);
+  });
+
   it("seleciona preset de emagrecimento para iniciante sem subir volume agressivo", () => {
     const program = generateTrainingProgram(baseInput({ objective: "emagrecimento", fitnessLevel: "iniciante", daysPerWeek: 3 }));
 
