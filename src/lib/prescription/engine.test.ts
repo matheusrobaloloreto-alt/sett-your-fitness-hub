@@ -753,7 +753,7 @@ describe("BN Prescription Engine v1", () => {
         experienceMonths: 36,
         objective: "hipertrofia",
         daysPerWeek: 5,
-        equipment: "academia completa com máquinas e cabos",
+        equipment: "academia_completa",
         blockNumber: sequence,
       })));
     }
@@ -763,7 +763,7 @@ describe("BN Prescription Engine v1", () => {
       experienceMonths: 24,
       objective: "emagrecimento",
       daysPerWeek: 3,
-      equipment: "academia completa com máquinas e cabos",
+      equipment: "academia_completa",
     })));
     programs.push(generateTrainingProgram(baseInput({
       catalog: methodCoverageCatalog,
@@ -771,7 +771,7 @@ describe("BN Prescription Engine v1", () => {
       experienceMonths: 36,
       objective: "forca",
       daysPerWeek: 5,
-      equipment: "academia completa com máquinas e cabos",
+      equipment: "academia_completa",
     })));
 
     for (const program of programs) {
@@ -852,19 +852,39 @@ describe("BN Prescription Engine v1", () => {
     expect(program.library_policy.gaps).toContain("WARNING:advanced_method_unavailable:triset_giantset:catalog_or_equipment");
   });
 
-  it("trata o alias legado academia_completa como catálogo sem restrição de equipamento", () => {
+  it.each(["academia_completa", "academia-completa", "  ACADEMIA_COMPLETA  "])(
+    "trata o alias %s como acesso completo sem ampliar o match",
+    (equipment) => {
+      const program = generateTrainingProgram(baseInput({
+        catalog: methodCoverageCatalog,
+        equipment,
+        fitnessLevel: "avancado",
+        experienceMonths: 36,
+        objective: "hipertrofia",
+        daysPerWeek: 5,
+        blockNumber: 1,
+      }));
+      const prescribed = program.workouts.flatMap((workout) => workout.exercises);
+
+      expect(prescribed.some((exercise) => /maquina|máquina|cabo|polia/i.test(
+        `${exercise.exercise_name} ${exercise.equipment || ""}`,
+      ))).toBe(true);
+      expect(program.library_policy.gaps).not.toContain("WARNING:advanced_method_unavailable:triset_giantset:catalog_or_equipment");
+      expect(program.validator.pre_save.blockers).toEqual([]);
+    },
+  );
+
+  it("não trata menção genérica a academia como acesso completo", () => {
     const program = generateTrainingProgram(baseInput({
       catalog: methodCoverageCatalog,
-      equipment: "academia_completa",
-      fitnessLevel: "intermediario",
-      daysPerWeek: 3,
+      equipment: "academia ao ar livre",
+      fitnessLevel: "avancado",
+      experienceMonths: 36,
+      objective: "hipertrofia",
+      daysPerWeek: 5,
     }));
-    const prescribed = program.workouts.flatMap((workout) => workout.exercises);
 
-    expect(prescribed.some((exercise) => /maquina|máquina|cabo|polia/i.test(
-      `${exercise.exercise_name} ${exercise.equipment || ""}`,
-    ))).toBe(true);
-    expect(program.validator.pre_save.blockers).toEqual([]);
+    expect(program.library_policy.gaps).toContain("WARNING:advanced_method_unavailable:triset_giantset:catalog_or_equipment");
   });
 
   it("seleciona preset de emagrecimento para iniciante sem subir volume agressivo", () => {

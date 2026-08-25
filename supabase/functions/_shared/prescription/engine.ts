@@ -1,4 +1,4 @@
-import { pickCatalogExercise } from "./exerciseScoring.ts";
+import { hasFullEquipmentAccess, pickCatalogExercise } from "./exerciseScoring.ts";
 import { correctionsToExplanations, deloadExplanation, enduranceExplanation, explanationsFromRestrictions, frequencyDowngradeExplanation, progressionExplanation } from "./explanations.ts";
 import { normalizeText, objectiveModifier, resolveSplit, selectMethodologyPreset } from "./presets.ts";
 import { allocateDeloadSetCounts, buildPeriodizationBlocks, progressionProtocol, resolveDurationWeeks, shouldHoldProgression } from "./progressionRules.ts";
@@ -57,7 +57,8 @@ function isFatLossObjective(input: PrescriptionInput) {
 }
 
 function hasFullMethodEquipment(input: PrescriptionInput) {
-  return /(academia completa|maquina|cabo|polia)/.test(normalizeText(input.equipment));
+  const equipment = normalizeText(input.equipment);
+  return hasFullEquipmentAccess(input.equipment) || /(maquina|cabo|polia)/.test(equipment);
 }
 
 function canUseAdvancedMethodTemplates(input: PrescriptionInput) {

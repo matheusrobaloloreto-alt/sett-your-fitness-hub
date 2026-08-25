@@ -38,6 +38,15 @@ function equipmentText(exercise: ExerciseCatalogEntry) {
   return normalizeText([exercise.name, exercise.equipment].join(" "));
 }
 
+export function normalizeRequestedEquipment(requestedEquipment: unknown) {
+  return normalizeText(requestedEquipment).replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export function hasFullEquipmentAccess(requestedEquipment: unknown) {
+  const requested = normalizeRequestedEquipment(requestedEquipment);
+  return /^(academia completa|todos? (os )?equipamentos?)$/.test(requested);
+}
+
 /**
  * Equipment is a hard constraint whenever the request names a limited setup.
  * An empty/legacy request remains permissive, while "academia completa" is
@@ -45,8 +54,8 @@ function equipmentText(exercise: ExerciseCatalogEntry) {
  * prescribing a machine, cable or bar that the student cannot access.
  */
 export function isEquipmentCompatible(exercise: ExerciseCatalogEntry, requestedEquipment: unknown) {
-  const requested = normalizeText(requestedEquipment).replace(/[_-]+/g, " ");
-  if (!requested || /(academia completa|todos? (os )?equipamentos?)/.test(requested)) return true;
+  const requested = normalizeRequestedEquipment(requestedEquipment);
+  if (!requested || hasFullEquipmentAccess(requested)) return true;
 
   const exerciseEquipment = equipmentText(exercise);
   const requirements = [
