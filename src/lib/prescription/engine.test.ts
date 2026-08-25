@@ -833,6 +833,25 @@ describe("BN Prescription Engine v1", () => {
     expect(program.library_policy.gaps).toContain("WARNING:advanced_method_unavailable:triset_giantset:catalog_or_equipment");
   });
 
+  it("filtra máquinas, cabos e barras de catálogo misto quando o aluno só tem halteres e elástico", () => {
+    const program = generateTrainingProgram(baseInput({
+      catalog: methodCoverageCatalog,
+      fitnessLevel: "avancado",
+      experienceMonths: 36,
+      objective: "hipertrofia",
+      daysPerWeek: 5,
+      equipment: "halteres e elástico",
+      blockNumber: 3,
+    }));
+    const prescribed = program.workouts.flatMap((workout) => workout.exercises);
+
+    expect(prescribed.length).toBeGreaterThan(0);
+    expect(prescribed.every((exercise) =>
+      !/maquina|máquina|cabo|polia|barra/i.test(`${exercise.exercise_name} ${exercise.equipment || ""}`)
+    ), JSON.stringify(prescribed.map(({ exercise_name, equipment }) => ({ exercise_name, equipment })))).toBe(true);
+    expect(program.library_policy.gaps).toContain("WARNING:advanced_method_unavailable:triset_giantset:catalog_or_equipment");
+  });
+
   it("seleciona preset de emagrecimento para iniciante sem subir volume agressivo", () => {
     const program = generateTrainingProgram(baseInput({ objective: "emagrecimento", fitnessLevel: "iniciante", daysPerWeek: 3 }));
 

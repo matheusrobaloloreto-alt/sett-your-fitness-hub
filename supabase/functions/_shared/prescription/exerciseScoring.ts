@@ -34,6 +34,37 @@ function metadataText(exercise: ExerciseCatalogEntry) {
   ]);
 }
 
+function equipmentText(exercise: ExerciseCatalogEntry) {
+  return normalizeText([exercise.name, exercise.equipment].join(" "));
+}
+
+/**
+ * Equipment is a hard constraint whenever the request names a limited setup.
+ * An empty/legacy request remains permissive, while "academia completa" is
+ * explicitly unrestricted. This prevents a strong keyword match from
+ * prescribing a machine, cable or bar that the student cannot access.
+ */
+export function isEquipmentCompatible(exercise: ExerciseCatalogEntry, requestedEquipment: unknown) {
+  const requested = normalizeText(requestedEquipment);
+  if (!requested || /(academia completa|todos? (os )?equipamentos?)/.test(requested)) return true;
+
+  const exerciseEquipment = equipmentText(exercise);
+  const requirements = [
+    { exercise: /(maquina|smith|guiad|leg press|cadeira extensora|mesa flexora|voador|pec deck)/, available: /(maquina|smith|guiad)/ },
+    { exercise: /(cabo|polia|crossover|pulley)/, available: /(cabo|polia|crossover|pulley)/ },
+    { exercise: /(barra|barbell)/, available: /(barra|barbell)/ },
+    { exercise: /(halter|dumbbell)/, available: /(halter|dumbbell)/ },
+    { exercise: /(elastico|mini band|band)/, available: /(elastico|mini band|band)/ },
+    { exercise: /(kettlebell)/, available: /(kettlebell)/ },
+    { exercise: /(medicine ball|med ball)/, available: /(medicine ball|med ball)/ },
+    { exercise: /(trx|suspensao)/, available: /(trx|suspensao|funcional)/ },
+  ];
+
+  return requirements.every((requirement) =>
+    !requirement.exercise.test(exerciseEquipment) || requirement.available.test(requested)
+  );
+}
+
 export function scoreExercise(exercise: ExerciseCatalogEntry, request: ExercisePickRequest) {
   const text = exerciseText(exercise);
   const meta = metadataText(exercise);
@@ -76,6 +107,7 @@ export function pickCatalogExercise(request: ExercisePickRequest): ExerciseCatal
   );
   const equivalent = request.catalog.find((exercise) =>
     equivalentIds.has(exercise.id) &&
+    isEquipmentCompatible(exercise, request.equipment) &&
     !isHardExcluded(exercise) &&
     !request.usedIds?.has(exercise.id) &&
     scoreExercise(exercise, request) > 0
@@ -83,7 +115,7 @@ export function pickCatalogExercise(request: ExercisePickRequest): ExerciseCatal
   if (equivalent) return equivalent;
 
   const ranked = request.catalog
-    .filter((exercise) => !isHardExcluded(exercise))
+    .filter((exercise) => !isHardExcluded(exercise) && isEquipmentCompatible(exercise, request.equipment))
     .map((exercise) => ({ exercise, score: scoreExercise(exercise, request) }))
     .sort((a, b) => b.score - a.score);
 
