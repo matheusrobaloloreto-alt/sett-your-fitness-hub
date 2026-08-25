@@ -19,6 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { businessDateYmd } from "@/lib/businessDate";
 import { BenitoSprite, type BenitoState } from "@/components/BenitoSprite";
 import { useBenitoProductState } from "@/lib/benitoProductEvents";
+import { useBenitoDrag } from "@/lib/useBenitoDrag";
 
 type StudentBnitoMessage = {
   id: string;
@@ -401,21 +402,14 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
     void askBnito(input);
   };
 
-  // BNITO arrastável: o aluno pode mover o botão pra não atrapalhar finalizar a série.
-  const dragRef = useRef({
-    sx: 0,
-    sy: 0,
-    ox: 0,
-    oy: 0,
-    minX: 0,
-    maxX: 0,
-    minY: 0,
-    maxY: 0,
-    lastClientX: 0,
-    moved: false,
-  });
-  const [bnitoDrag, setBnitoDrag] = useState({ x: 0, y: 0 });
-  const [dragDirection, setDragDirection] = useState<"running-left" | "running-right" | null>(null);
+  // BNITO arrastável: listeners globais mantêm o gesto ativo quando o dedo sai do botão.
+  const {
+    position: bnitoDrag,
+    direction: dragDirection,
+    startDrag,
+    consumeDragGesture,
+  } = useBenitoDrag();
+
   const localPetFallback: BenitoState = loading || missionLoading
     ? "processing"
     : mission && !missionDismissed && mission.urgency === "parar_e_avisar"
@@ -440,62 +434,13 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
                 data-benito-fab="student"
                 aria-label={`Abrir ${name}`}
                 style={{ transform: `translate(${bnitoDrag.x}px, ${bnitoDrag.y}px)`, touchAction: "none" }}
-                onPointerDown={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const baseLeft = rect.left - bnitoDrag.x;
-                  const baseTop = rect.top - bnitoDrag.y;
-                  const minX = 8 - baseLeft;
-                  const maxX = window.innerWidth - 8 - baseLeft - rect.width;
-                  const minY = 8 - baseTop;
-                  const maxY = window.innerHeight - 8 - baseTop - rect.height;
-                  const ox = Math.min(maxX, Math.max(minX, bnitoDrag.x));
-                  const oy = Math.min(maxY, Math.max(minY, bnitoDrag.y));
-
-                  if (ox !== bnitoDrag.x || oy !== bnitoDrag.y) setBnitoDrag({ x: ox, y: oy });
-                  dragRef.current = {
-                    sx: e.clientX,
-                    sy: e.clientY,
-                    ox,
-                    oy,
-                    minX,
-                    maxX,
-                    minY,
-                    maxY,
-                    lastClientX: e.clientX,
-                    moved: false,
-                  };
-                  e.currentTarget.setPointerCapture?.(e.pointerId);
-                }}
-                onPointerMove={(e) => {
-                  const drag = dragRef.current;
-                  const dx = e.clientX - drag.sx;
-                  const dy = e.clientY - drag.sy;
-                  if (Math.abs(dx) > 5 || Math.abs(dy) > 5) drag.moved = true;
-                  if (drag.moved) {
-                    const horizontalDelta = e.clientX - drag.lastClientX;
-                    if (Math.abs(horizontalDelta) >= 3) {
-                      setDragDirection(horizontalDelta < 0 ? "running-left" : "running-right");
-                      drag.lastClientX = e.clientX;
-                    }
-                    setBnitoDrag({
-                      x: Math.min(drag.maxX, Math.max(drag.minX, drag.ox + dx)),
-                      y: Math.min(drag.maxY, Math.max(drag.minY, drag.oy + dy)),
-                    });
-                  }
-                }}
-                onPointerUp={(e) => {
-                  (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-                  setDragDirection(null);
-                  if (!dragRef.current.moved) {
+                onPointerDown={startDrag}
+                onClick={() => {
+                  if (!consumeDragGesture()) {
                     setOpen(true);
                     showPetReaction("greeting");
                   }
                 }}
-                onPointerCancel={(e) => {
-                  e.currentTarget.releasePointerCapture?.(e.pointerId);
-                  setDragDirection(null);
-                }}
-                onLostPointerCapture={() => setDragDirection(null)}
                 className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom,0px))] right-[calc(1.25rem+env(safe-area-inset-right,0px))] z-40 flex h-[76px] w-[76px] cursor-grab items-center justify-center p-0 text-navy outline-none transition-transform duration-200 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring md:bottom-[calc(1.5rem+env(safe-area-inset-bottom,0px))] md:right-6"
               >
                 <BenitoSprite state={petState} size={60} alt="" className="benito-sprite-prominent" />
