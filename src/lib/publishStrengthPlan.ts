@@ -129,6 +129,21 @@ export function buildWorkoutRows(plan: any, cycleId: string, companyId: string):
   });
 }
 
+export function buildTrainingCycleMetadata(
+  plan: any,
+  durationWeeks: number,
+  cycleNumber: number,
+  status: string,
+) {
+  return {
+    status,
+    name: plan?.cycle_name ?? `Ciclo ${cycleNumber}`,
+    objective: plan?.objective ?? null,
+    duration_weeks: durationWeeks,
+    delivery_status: "sent",
+  };
+}
+
 const ymd = businessDateYmd;
 
 // P15 — resumo das edições do professor vs. plano original da IA.
@@ -262,14 +277,9 @@ export async function publishStrengthPlanToStudent(opts: {
         cycle_number: cycleNumber,
         start_date: todayYmd,
         end_date: ymd(end),
-        status: "pending",
         company_id: companyId,
         student_id: studentId,
-        name: plan?.cycle_name ?? "Ciclo de treino",
-        objective: plan?.objective ?? null,
-        duration_weeks: durationWeeks,
-        bundle_id: bundleId,
-        delivery_status: "sent",
+        ...buildTrainingCycleMetadata(plan, durationWeeks, cycleNumber, "pending"),
       })
       .select("id, enrollment_id, cycle_number, start_date, end_date, status")
       .single();
@@ -360,14 +370,7 @@ export async function publishStrengthPlanToStudent(opts: {
     if (closeOldCyclesError) throw new Error(`Falha ao encerrar o ciclo anterior: ${closeOldCyclesError.message}`);
   }
   const { error: activateCycleError } = await db.from("training_cycles")
-    .update({
-      status: cycleStatus,
-      name: plan?.cycle_name ?? `Ciclo ${cycle.cycle_number}`,
-      objective: plan?.objective ?? null,
-      duration_weeks: durationWeeks,
-      bundle_id: bundleId,
-      delivery_status: "sent",
-    })
+    .update(buildTrainingCycleMetadata(plan, durationWeeks, cycle.cycle_number, cycleStatus))
     .eq("id", cycle.id);
   if (activateCycleError) throw new Error(`Falha ao atualizar o ciclo: ${activateCycleError.message}`);
 

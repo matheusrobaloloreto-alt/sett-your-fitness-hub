@@ -1,5 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { mapStrengthExercise, buildWorkoutRows } from "./publishStrengthPlan";
+import { mapStrengthExercise, buildTrainingCycleMetadata, buildWorkoutRows } from "./publishStrengthPlan";
+
+describe("buildTrainingCycleMetadata", () => {
+  it("usa apenas colunas reais de training_cycles; o vínculo do pacote fica na tabela de bundles", () => {
+    const patch = buildTrainingCycleMetadata({ cycle_name: "Ciclo seguro", objective: "hipertrofia" }, 6, 2, "active");
+
+    expect(patch).toEqual({
+      status: "active",
+      name: "Ciclo seguro",
+      objective: "hipertrofia",
+      duration_weeks: 6,
+      delivery_status: "sent",
+    });
+    expect(patch).not.toHaveProperty("bundle_id");
+  });
+});
 
 describe("mapStrengthExercise", () => {
   it("converte o exercício da IA para o formato do app do aluno (tudo string)", () => {
