@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   resolveStudioAnamnesis,
+  studioAnamnesisGenerationBlockReason,
   type LoadStudentPreRegistrationInput,
 } from "@/lib/preRegistrationData";
 import type { PreRegistrationData } from "@/lib/preRegistration";
@@ -184,5 +185,22 @@ describe("resolveStudioAnamnesis", () => {
     })).rejects.toThrow("lead query failed");
     expect(tables).toEqual(["leads"]);
     vi.doUnmock("@/integrations/supabase/client");
+  });
+});
+
+describe("studioAnamnesisGenerationBlockReason", () => {
+  it("blocks generation while anamnesis is still loading", () => {
+    expect(studioAnamnesisGenerationBlockReason({ loading: true, loadError: "" }))
+      .toContain("carregamento");
+  });
+
+  it("blocks generation after an anamnesis load failure", () => {
+    expect(studioAnamnesisGenerationBlockReason({ loading: false, loadError: "falhou" }))
+      .toContain("carregar");
+  });
+
+  it("does not block a genuinely unanswered anamnesis", () => {
+    expect(studioAnamnesisGenerationBlockReason({ loading: false, loadError: "" }))
+      .toBeNull();
   });
 });

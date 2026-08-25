@@ -22,6 +22,18 @@ export type ResolveStudioAnamnesisInput = LoadStudentPreRegistrationInput & {
 
 const LEAD_SELECT = "pre_registration_answers, budget_range, preferred_contact_period, submitted_at, created_at";
 
+export function studioAnamnesisGenerationBlockReason({
+  loading,
+  loadError,
+}: {
+  loading: boolean;
+  loadError: string;
+}): string | null {
+  if (loading) return "Aguarde o carregamento da anamnese antes de gerar a prescrição.";
+  if (loadError) return "Não foi possível carregar a anamnese. Recarregue os dados antes de prescrever.";
+  return null;
+}
+
 export async function resolveStudioAnamnesis({
   studentId,
   companyId,

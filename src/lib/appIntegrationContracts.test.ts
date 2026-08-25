@@ -44,6 +44,9 @@ describe("SETT integration contracts", () => {
     const studio = source("src/pages/admin/PrescriptionStudio.tsx");
     const preRegistrationData = source("src/lib/preRegistrationData.ts");
     expect(studio).toContain("resolveStudioAnamnesis");
+    expect(studio).toContain("studioAnamnesisGenerationBlockReason");
+    expect(studio).toContain("if (anamneseGenerationBlockReason)");
+    expect(studio).toContain("Boolean(anamneseGenerationBlockReason)");
     expect(preRegistrationData).toMatch(/from\("student_anamneses"\)/);
     expect(preRegistrationData).toContain("loadStudentPreRegistration");
     expect(preRegistrationData).toContain("preRegistrationToStudioAnamnesis");

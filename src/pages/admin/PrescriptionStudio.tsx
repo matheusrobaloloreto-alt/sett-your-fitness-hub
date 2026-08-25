@@ -36,7 +36,7 @@ import { openStudentChat } from "@/lib/studentChat";
 import { toast } from "sonner";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
-import { resolveStudioAnamnesis } from "@/lib/preRegistrationData";
+import { resolveStudioAnamnesis, studioAnamnesisGenerationBlockReason } from "@/lib/preRegistrationData";
 import { exerciseThumb, youtubeIdFromUrl } from "@/lib/exerciseCover";
 import { summarizeExerciseWeeklyProgression } from "@/lib/weeklyStrengthPeriodization";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -167,6 +167,10 @@ export default function PrescriptionStudio() {
   const [anamnese, setAnamnese]       = useState<any>(null);
   const [anamneseLoading, setAnamneseLoading] = useState(false);
   const [anamneseLoadError, setAnamneseLoadError] = useState("");
+  const anamneseGenerationBlockReason = studioAnamnesisGenerationBlockReason({
+    loading: anamneseLoading,
+    loadError: anamneseLoadError,
+  });
   const [inviteLink, setInviteLink]   = useState("");
   const [copying, setCopying]         = useState(false);
   const [creatingInvite, setCreatingInvite] = useState(false);
@@ -531,6 +535,7 @@ export default function PrescriptionStudio() {
   // ── Geração integrada e longitudinal das prescrições marcadas ────────────
   async function generate() {
     if (!studentId || !companyId) { setError("Selecione um aluno."); return; }
+    if (anamneseGenerationBlockReason) { setError(anamneseGenerationBlockReason); return; }
     if (modalities.size === 0) { setError("Marque ao menos uma modalidade."); return; }
     if (scheduleTargets.length === 0) { setError("Não há ciclo disponível para esta opção de agendamento."); return; }
     if (scheduleTargets.some((cycle) => cycle.has_workouts || cycle.has_bundle)) {
@@ -1658,8 +1663,14 @@ export default function PrescriptionStudio() {
                   </div>
                 )}
 
+                {anamneseGenerationBlockReason && (
+                  <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                    {anamneseGenerationBlockReason}
+                  </p>
+                )}
+
                 <Button className="w-full mt-4 bg-[#1B2B4A] hover:bg-[#1B2B4A]/90"
-                  onClick={generate} disabled={generating || scheduleLoading || modalities.size === 0 || scheduleTargets.length === 0}>
+                  onClick={generate} disabled={generating || scheduleLoading || Boolean(anamneseGenerationBlockReason) || modalities.size === 0 || scheduleTargets.length === 0}>
                   {generating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {scheduleProgress ? `Gerando ${scheduleProgress.label.toLowerCase()} (${scheduleProgress.current}/${scheduleProgress.total})` : "Gerando"}</>
                     : generationButtonLabel}
                 </Button>
