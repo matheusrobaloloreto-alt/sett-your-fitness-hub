@@ -110,15 +110,41 @@ function biweeklyEyebrow(week: number, durationWeeks?: number | null) {
   return `Semanas ${start}-${end}`;
 }
 
+export const STUDENT_EFFORT_HELP_TEXT = "Quantas repetições você ainda conseguiria fazer mantendo a técnica.";
+
+function studentEffortValue(rir?: string | null) {
+  const withoutAcronym = String(rir || "")
+    .replace(/\bRIR\b/gi, "")
+    .replace(/[–—]/g, "-")
+    .replace(/(\d)\s+a\s+(\d)/gi, "$1-$2")
+    .trim();
+  if (!/^\d+(?:\s*-\s*\d+)?(?:\s*→\s*\d+(?:\s*-\s*\d+)?)*$/.test(withoutAcronym)) return null;
+  return withoutAcronym.replace(/\s*-\s*/g, "-").replace(/\s*→\s*/g, " → ");
+}
+
 function normalizedRirValue(rir?: string | null) {
-  const normalized = String(rir || "").trim().match(/(?:^|\b)RIR\s*(\d+(?:\s*-\s*\d+)?)/i)?.[1]
-    || String(rir || "").trim().match(/^(\d+(?:\s*-\s*\d+)?)$/)?.[1];
-  return normalized ? normalized.replace(/\s+/g, "") : null;
+  return studentEffortValue(rir)?.split(" → ")[0] ?? null;
+}
+
+export function studentEffortLabel(rir?: string | null, options: { compact?: boolean } = {}) {
+  const value = studentEffortValue(rir);
+  if (!value) return null;
+  const label = options.compact ? "Repetições restantes" : "Repetições que ainda conseguiria fazer";
+  return `${label}: ${value}`;
+}
+
+export function studentFacingEffortText(value?: string | null) {
+  return String(value || "")
+    .replace(
+      /\bRIR\b\s*~?\s*(\d+(?:\s*(?:-|–|—|a)\s*\d+)?)/gi,
+      (_, range: string) => `Repetições restantes: ${range.replace(/\s*(?:-|–|—|a)\s*/gi, "-")}`,
+    )
+    .replace(/\bRIR\b/gi, "repetições restantes");
 }
 
 export function studentEffortCue(rir?: string | null) {
   const normalized = normalizedRirValue(rir);
-  return normalized ? `cerca de ${normalized} repetições guardadas` : "esforço controlado conforme as séries do treino";
+  return normalized ? `cerca de ${normalized} repetições ainda possíveis mantendo a técnica` : "esforço controlado conforme as séries do treino";
 }
 
 function studentRirText(rir?: string | null) {
@@ -173,8 +199,18 @@ export function formatBiweeklyProgressionForDisplay(
 ): string[] {
   return summarizeExerciseWeeklyProgression(items).map((block) => {
     const method = block.method || "Séries retas";
-    return `Semanas ${block.weeks}: ${block.setsReps} · Cadência ${block.tempo} · RIR ${block.rir} · ${method}. ${block.instruction}`;
+    return `Semanas ${block.weeks}: ${block.setsReps} · Cadência ${block.tempo} · ${studentEffortLabel(block.rir, { compact: true }) || "Esforço controlado"} · ${method}. ${studentFacingEffortText(block.instruction)}`;
   });
+}
+
+export function studentPeriodizationFocus(focus: string) {
+  const plainFocus = focus
+    .replace(/\s*\(\s*RIR\s*[^)]*\)/gi, "")
+    .replace(/\bRIR\b\s*~?\s*\d+(?:\s*-\s*\d+)?/gi, "")
+    .replace(/\s+([;,.])/g, "$1")
+    .replace(/;\s*;/g, ";")
+    .trim();
+  return studentFacingEffortText(plainFocus);
 }
 
 export function buildStudentProgressionHighlight({
@@ -203,7 +239,7 @@ export function buildStudentProgressionHighlight({
       source: "prescribed_week",
       eyebrow: biweeklyEyebrow(prescribedWeek.week, duration),
       title: "O que muda agora",
-      body: `${prescribedWeekOpening(prescribedWeek.block, methods.length > 0)}${methodText}. ${studentRirText(prescribedWeek.rir)} ${prescribedWeek.instruction}`,
+      body: `${prescribedWeekOpening(prescribedWeek.block, methods.length > 0)}${methodText}. ${studentRirText(prescribedWeek.rir)} ${studentFacingEffortText(prescribedWeek.instruction)}`,
     };
   }
 

@@ -7,6 +7,9 @@ import {
   resolveExerciseForWeek,
   resolveWorkoutForCycleWeek,
   summarizeExerciseWeeklyProgression,
+  STUDENT_EFFORT_HELP_TEXT,
+  studentFacingEffortText,
+  studentEffortLabel,
   weeklyMethodLabel,
 } from "./weeklyStrengthPeriodization";
 
@@ -86,8 +89,27 @@ describe("weekly strength periodization resolver", () => {
       expect.stringContaining("Semanas 3-4"),
     ]);
     expect(display[0]).toContain("Séries retas");
+    expect(display[0]).toContain("Repetições restantes: 3-4 → 3");
+    expect(display.join(" ")).not.toMatch(/\bRIR\b/);
     expect(display[1]).toContain("Rest-pause (20s)");
     expect(display[1]).toContain("Drop-set");
+  });
+
+  it("traduz o esforço para o label principal, versão compacta e ajuda leiga", () => {
+    expect(studentEffortLabel("RIR 2-3")).toBe("Repetições que ainda conseguiria fazer: 2-3");
+    expect(studentEffortLabel("RIR 2–3")).toBe("Repetições que ainda conseguiria fazer: 2-3");
+    expect(studentEffortLabel("RIR 2-3", { compact: true })).toBe("Repetições restantes: 2-3");
+    expect(STUDENT_EFFORT_HELP_TEXT).toBe("Quantas repetições você ainda conseguiria fazer mantendo a técnica.");
+  });
+
+  it("traduz a sigla quando ela chega dentro de instruções dinâmicas", () => {
+    expect(studentFacingEffortText("Encerre com RIR 4-5 e técnica limpa.")).toBe(
+      "Encerre com Repetições restantes: 4-5 e técnica limpa.",
+    );
+    expect(studentFacingEffortText("Sem referência de esforço.")).toBe("Sem referência de esforço.");
+    expect(studentFacingEffortText("Use RIR como referência.")).toBe("Use repetições restantes como referência.");
+    expect(studentFacingEffortText("Encerre com RIR 2–3.")).toBe("Encerre com Repetições restantes: 2-3.");
+    expect(studentFacingEffortText("Prefira repetir com técnica.")).toBe("Prefira repetir com técnica.");
   });
 
   it("prioriza a prescrição semanal autoritativa no resumo aluno-first da quinzena atual", () => {
@@ -107,7 +129,7 @@ describe("weekly strength periodization resolver", () => {
       source: "prescribed_week",
       eyebrow: "Semanas 5-6",
       title: "O que muda agora",
-      body: "Esta quinzena fica mais intensa com Bi-set. Termine as séries com cerca de 2 repetições guardadas. Execute o par em sequência, sem correr a técnica.",
+      body: "Esta quinzena fica mais intensa com Bi-set. Termine as séries com cerca de 2 repetições ainda possíveis mantendo a técnica. Execute o par em sequência, sem correr a técnica.",
     });
     expect(highlight?.body).not.toContain("RIR");
     expect(highlight?.body).not.toContain("weekly_context");
@@ -157,7 +179,7 @@ describe("weekly strength periodization resolver", () => {
         instruction: "Mantenha controle em todas as séries.",
       },
       durationWeeks: 6,
-    }).body).toBe("Esta quinzena fica mais intensa com séries retas. Termine as séries com cerca de 2 repetições guardadas. Mantenha controle em todas as séries.");
+    }).body).toBe("Esta quinzena fica mais intensa com séries retas. Termine as séries com cerca de 2 repetições ainda possíveis mantendo a técnica. Mantenha controle em todas as séries.");
 
     expect(buildStudentProgressionHighlight({
       prescribedWeek: {

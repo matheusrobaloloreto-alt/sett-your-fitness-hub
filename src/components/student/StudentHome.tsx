@@ -1,7 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Dumbbell, BarChart3, CalendarDays, History, Megaphone, Play, Moon, ArrowRight, Utensils, Footprints, Waves, Bike, Watch } from "lucide-react";
+import { Dumbbell, BarChart3, CalendarDays, Megaphone, Play, Moon, ArrowRight, Utensils, Footprints, Waves, Bike, Watch } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -81,11 +81,13 @@ function ProgressionHighlightBlock({
   );
 }
 
-const NAV_ITEMS: readonly NavItem[] = [
+const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
   { view: "treino", label: "Treino", icon: Dumbbell },
+];
+
+const SECONDARY_NAV_ITEMS: readonly NavItem[] = [
   { view: "stats", label: "Estatísticas", icon: BarChart3, sub: "Volume e força" },
   { view: "calendario", label: "Calendário", icon: CalendarDays, sub: "Histórico mensal" },
-  { view: "historico", label: "Histórico", icon: History },
   { view: "integracoes", label: "Integrações", icon: Watch, sub: "Relógios e aplicativos" },
   // "Atividades" removido: cada modalidade prescrita (corrida/natação/ciclismo/nutrição) tem sua própria aba.
   // "Avisos" removido daqui: virou o sino no topo (AnnouncementsBell).
@@ -101,7 +103,6 @@ export function StudentHome({
   weeklySessionCount,
   trainedDays,
   currentDayOfWeek,
-  totalSessions,
   weeklyGoal,
   streak,
   activeWorkoutId,
@@ -134,16 +135,15 @@ export function StudentHome({
 
   // Abas de prescrição que só aparecem quando o treinador publicou aquela modalidade.
   const prescriptionItems: NavItem[] = [
-    hasNutrition ? { view: "nutricao", label: "Dicas Nutricionais", icon: Utensils, sub: "Plano alimentar" } : null,
     hasCorrida ? { view: "corrida", label: "Corrida", icon: Footprints, sub: "Plano de corrida" } : null,
-    hasNatacao ? { view: "natacao", label: "Natação", icon: Waves, sub: "Plano de natação" } : null,
     hasCiclismo ? { view: "ciclismo", label: "Ciclismo", icon: Bike, sub: "Plano de ciclismo" } : null,
+    hasNatacao ? { view: "natacao", label: "Natação", icon: Waves, sub: "Plano de natação" } : null,
+    hasNutrition ? { view: "nutricao", label: "Dicas nutricionais", icon: Utensils, sub: "Plano alimentar" } : null,
   ].filter(Boolean) as NavItem[];
-  const navItems: NavItem[] = [...NAV_ITEMS, ...prescriptionItems];
+  const navItems: NavItem[] = [...PRIMARY_NAV_ITEMS, ...prescriptionItems, ...SECONDARY_NAV_ITEMS];
 
   const subFor = (view: StudentNavView, fallback?: string) => {
     if (view === "treino") return workoutCount > 0 ? `${workoutCount} treinos disponíveis` : "Ver treinos do ciclo";
-    if (view === "historico") return totalSessions > 0 ? `${totalSessions} sessões` : "Sessões passadas";
     return fallback ?? "";
   };
 

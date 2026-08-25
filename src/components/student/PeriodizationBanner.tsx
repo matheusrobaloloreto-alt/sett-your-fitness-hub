@@ -11,7 +11,7 @@ import {
   type MicrocycleType,
 } from "@/lib/periodization";
 import type { ResolvedWeekContext } from "@/lib/weeklyStrengthPeriodization";
-import { buildStudentProgressionHighlight, studentEffortCue, weeklyMethodLabel } from "@/lib/weeklyStrengthPeriodization";
+import { buildStudentProgressionHighlight, studentEffortLabel, studentPeriodizationFocus, weeklyMethodLabel } from "@/lib/weeklyStrengthPeriodization";
 
 const DOT: Record<MicrocycleType, string> = {
   ordinario: "bg-primary",
@@ -138,9 +138,9 @@ export function PeriodizationBanner({
                 )}
               </div>
               <p className="font-sans text-sm leading-relaxed text-foreground">{micro.description}</p>
-              <p className="font-sans text-xs text-muted-foreground">{wk.focus}</p>
+              <p className="font-sans text-xs text-muted-foreground">{studentPeriodizationFocus(wk.focus)}</p>
               <p className="font-mono-data text-[11px] text-muted-foreground">
-                Esforço alvo: {studentEffortCue(isCurrent && prescribedWeek ? prescribedWeek.rir : wk.rir)} · Volume ~{wk.volumePct}% da referência
+                {studentEffortLabel(isCurrent && prescribedWeek ? prescribedWeek.rir : wk.rir) || "Esforço controlado"} · Volume ~{wk.volumePct}% da referência
               </p>
               {isCurrent && prescribedWeek && (
                 <p className="font-sans text-xs font-medium text-primary">

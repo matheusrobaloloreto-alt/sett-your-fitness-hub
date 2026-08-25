@@ -12,7 +12,7 @@ import { ptBR } from "date-fns/locale";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { businessDateYmd } from "@/lib/businessDate";
 import { MethodBadge } from "@/components/workout/MethodBadge";
-import { formatBiweeklyProgressionForDisplay, resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
+import { formatBiweeklyProgressionForDisplay, STUDENT_EFFORT_HELP_TEXT, studentEffortLabel, studentFacingEffortText, resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
 
 interface WorkoutExercise {
@@ -552,7 +552,7 @@ export default function StudentWorkout() {
                                   {ex.notes && (
                                     <div className="bg-card rounded-md p-2">
                                       <p className="text-xs text-muted-foreground font-sans whitespace-pre-wrap">
-                                        <span className="font-medium text-foreground">Obs:</span> {ex.notes}
+                                        <span className="font-medium text-foreground">Obs:</span> {studentFacingEffortText(ex.notes)}
                                       </p>
                                     </div>
                                   )}
@@ -560,9 +560,10 @@ export default function StudentWorkout() {
                                   {(ex.tempo || ex.rir || ex.weekly_instruction) && (
                                     <div className="rounded-lg border border-primary/20 bg-primary/5 p-2">
                                       <p className="font-mono-data text-[11px] font-semibold text-primary">
-                                        {ex.tempo ? `Cadência ${ex.tempo.split("").join("-")}` : ""}{ex.tempo && ex.rir ? " · " : ""}{ex.rir ? `RIR ${ex.rir}` : ""}
+                                        {ex.tempo ? `Cadência ${ex.tempo.split("").join("-")}` : ""}{ex.tempo && ex.rir ? " · " : ""}{ex.rir ? studentEffortLabel(ex.rir) || "Esforço controlado" : ""}
                                       </p>
-                                      {ex.weekly_instruction && <p className="mt-1 text-xs text-foreground">{ex.weekly_instruction}</p>}
+                                      {ex.rir && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{STUDENT_EFFORT_HELP_TEXT}</p>}
+                                      {ex.weekly_instruction && <p className="mt-1 text-xs text-foreground">{studentFacingEffortText(ex.weekly_instruction)}</p>}
                                     </div>
                                   )}
 
