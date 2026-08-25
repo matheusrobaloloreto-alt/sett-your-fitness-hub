@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 const managerSource = readFileSync("supabase/functions/whatsapp-manager/index.ts", "utf8");
 const dispatcherSource = readFileSync("supabase/functions/process-automation-sessions/index.ts", "utf8");
 const crmSource = readFileSync("src/pages/admin/WhatsAppCRM.tsx", "utf8");
+const supabaseConfig = readFileSync("supabase/config.toml", "utf8");
 
 describe("WhatsApp recipient safety contracts", () => {
   it("binds every manual send with a chat to the server-side recipient", () => {
@@ -20,6 +21,10 @@ describe("WhatsApp recipient safety contracts", () => {
     expect(managerSource).toContain('.eq("status", "connected")');
     expect(managerSource).toContain('code: "whatsapp_instance_not_connected"');
     expect(managerSource).toContain("outboundActions.has(action) && (instanceLookupError || !instanceRow)");
+  });
+
+  it("pins JWT verification for the manual WhatsApp manager deploy", () => {
+    expect(supabaseConfig).toMatch(/\[functions\.whatsapp-manager\]\s+verify_jwt\s*=\s*true/);
   });
 
   it("validates a new conversation against the student's registered phone", () => {

@@ -45,6 +45,9 @@ verify_jwt = false
 [functions.student-workout-feedback]
 verify_jwt = false
 
+[functions.whatsapp-manager]
+verify_jwt = true
+
 [functions.push-send]
 verify_jwt = false
 
