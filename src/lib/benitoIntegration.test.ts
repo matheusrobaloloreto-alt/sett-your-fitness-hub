@@ -74,9 +74,9 @@ describe("Benito assistant integration", () => {
     expect(student).toContain("aria-label={`Abrir ${name}`}");
     expect(professor).toContain("onPointerDown={startDrag}");
     expect(professor).toContain('window.addEventListener("pointermove", handlePointerMove');
-    expect(student).toContain("setPointerCapture");
-    expect(student).toContain("onPointerMove");
-    expect(student).toContain("releasePointerCapture");
+    expect(student).toContain('from "@/lib/useBenitoDrag"');
+    expect(student).toContain("onPointerDown={startDrag}");
+    expect(student).toContain("consumeDragGesture()");
     expect(sprite).toContain("data-benito-fallback");
     expect(sprite).toContain("<BrainCircuit");
   });

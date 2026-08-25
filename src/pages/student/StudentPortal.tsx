@@ -66,6 +66,7 @@ import {
   workoutLogTombstoneKey,
 } from "@/lib/workoutDraft";
 import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
+import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
 
 
 type ActiveView = "home" | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
@@ -282,8 +283,8 @@ export default function StudentPortal() {
   const { activeRest, startRest, clearRest } = useRestTimer();
 
   useEffect(() => {
-    if (user) loadStudentData();
-  }, [user]);
+    if (user?.id) loadStudentData();
+  }, [user?.id]);
 
   // Provas/metas alvo do aluno (exibidas no calendário).
   useEffect(() => {
@@ -441,14 +442,11 @@ export default function StudentPortal() {
           void (supabase as any).rpc("mark_training_cycle_viewed", { _cycle_id: chosen.id });
         }
         const todayDow = new Date().getDay();
-        const todaysWorkout = chosen?.workouts.find(w => w.day_of_week === todayDow);
-        if (todaysWorkout) {
-          setSelectedWorkoutId(todaysWorkout.id);
-        } else if (chosen?.workouts.length) {
-          setSelectedWorkoutId(chosen.workouts[0].id);
-        } else {
-          setSelectedWorkoutId(null);
-        }
+        setSelectedWorkoutId((currentWorkoutId) => resolveWorkoutSelectionAfterReload(
+          currentWorkoutId,
+          chosen?.workouts ?? [],
+          todayDow,
+        ));
 
         const workoutIds = materializedWorkouts.map(w => w.id);
         if (workoutIds.length > 0) {
@@ -496,7 +494,10 @@ export default function StudentPortal() {
               if (prevEntry) prevLogMap[key] = prevEntry;
             });
 
-            setLogs(todayLogMap);
+            // Token refreshes and conflict recovery can reload data while a set is
+            // being edited. Keep dirty local checks/cargas until their CAS save is
+            // acknowledged instead of replacing them with an older server snapshot.
+            setLogs((current) => mergeWorkoutDraftLogs(todayLogMap, current));
             setPreviousLogs(prevLogMap);
           }
         }
