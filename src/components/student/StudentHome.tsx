@@ -38,6 +38,7 @@ interface StudentHomeProps {
   streak: number;
   activeWorkoutId?: string | null;
   goalEditor?: React.ReactNode;
+  leaderboard?: React.ReactNode;
   // Abas de prescrição condicionais: só aparecem se a prescrição correspondente existir no app do aluno.
   hasNutrition?: boolean;
   hasCorrida?: boolean;
@@ -105,6 +106,7 @@ export function StudentHome({
   streak,
   activeWorkoutId,
   goalEditor,
+  leaderboard,
   hasNutrition,
   hasCorrida,
   hasNatacao,
@@ -295,6 +297,8 @@ export function StudentHome({
         goalEditor={goalEditor}
       />
 
+      {leaderboard}
+
       {/* Navegação */}
       <nav aria-label="Explorar áreas do app" className="border-t border-border pt-5">
         <div className="mb-3 flex items-end justify-between gap-3">
@@ -310,38 +314,39 @@ export function StudentHome({
             Abrir treino
           </button>
         </div>
-        <ul aria-label="Destinos do portal do aluno" className="divide-y divide-border border-y border-border">
+        <ul aria-label="Destinos do portal do aluno" className="grid grid-cols-2 gap-2">
           {navItems.map((item) => {
             const { view, label, icon: Icon } = item;
             const sub = item.sub;
             const resolvedSub = subFor(view, sub);
             const isToday = view === "treino" && !!primaryWorkout;
             return (
-              <li key={view}>
+              <li key={view} className="min-w-0">
                 <button
                   type="button"
                   aria-label={`${label}: ${resolvedSub}`}
                   onClick={() => onNavigate(view)}
                   className={cn(
-                    "group flex min-h-11 w-full items-center gap-3 py-3 text-left transition-colors hover:bg-secondary/50",
+                    "group flex min-h-11 h-full w-full flex-col rounded-xl border border-border bg-card p-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
                   )}
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 transition-colors group-hover:bg-primary/15">
-                    <Icon className="h-5 w-5 text-primary" />
+                  <span className="flex w-full items-start justify-between gap-2">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 transition-colors group-hover:bg-primary/15">
+                      <Icon className="h-5 w-5 text-primary" aria-hidden="true" />
+                    </span>
+                    {isToday ? (
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[9px] font-semibold uppercase text-primary">Hoje</span>
+                    ) : (
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" aria-hidden="true" />
+                    )}
                   </span>
-                  <span className="min-w-0 flex-1">
+                  <span className="mt-2 min-w-0 w-full flex-1">
                     <span className="flex flex-wrap items-center gap-2">
                       <span className="font-sans text-sm font-semibold text-foreground">{label}</span>
-                      {isToday && (
-                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-primary">
-                          Hoje
-                        </span>
-                      )}
                     </span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">{resolvedSub}</span>
+                    <span className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted-foreground">{resolvedSub}</span>
                   </span>
-                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
                 </button>
               </li>
             );
