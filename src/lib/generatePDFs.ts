@@ -5,6 +5,7 @@
 // Entregável do aluno: completo, legível e bonito. Client-side (jsPDF).
 // ============================================================================
 import { jsPDF } from "jspdf";
+import { studentEffortLabel, studentFacingEffortText } from "@/lib/weeklyStrengthPeriodization";
 
 // Paleta BN
 const NAVY: [number, number, number]   = [27, 43, 74];
@@ -153,7 +154,7 @@ function statCards(doc: jsPDF, cards: [string, string][], y: number): number {
 }
 
 function warningsBlock(doc: jsPDF, warnings: any[], y: number): number {
-  const list = (warnings || []).map(asText).filter(Boolean);
+  const list = (warnings || []).map(asText).map(studentFacingEffortText).filter(Boolean);
   if (!list.length) return y;
   y = sectionTitle(doc, "Avisos de seguranca", y);
   list.forEach((w) => {
@@ -186,10 +187,10 @@ export function generateStrengthPDF(plan: any, meta: PDFMeta): jsPDF {
     MARGIN, y);
   y += 7;
 
-  if (plan.biomechanical_notes) y = calloutBox(doc, asText(plan.biomechanical_notes), y, "info");
+  if (plan.biomechanical_notes) y = calloutBox(doc, studentFacingEffortText(asText(plan.biomechanical_notes)), y, "info");
   if (plan.weekly_structure) {
     doc.setFont("helvetica", "italic"); doc.setFontSize(8); doc.setTextColor(...GRAY);
-    y = wrapText(doc, `Estrutura semanal: ${asText(plan.weekly_structure)}`, MARGIN, y + 1, w - MARGIN * 2, 4.5) + 3;
+    y = wrapText(doc, `Estrutura semanal: ${studentFacingEffortText(asText(plan.weekly_structure))}`, MARGIN, y + 1, w - MARGIN * 2, 4.5) + 3;
   }
 
   (plan.workouts || []).forEach((wk: any) => {
@@ -216,7 +217,10 @@ export function generateStrengthPDF(plan: any, meta: PDFMeta): jsPDF {
       const name = asText(first(ex.exercise_name, ex.name, "Exercício"));
       const sets = asText(first(ex.sets, "—"));
       const reps = asText(first(ex.reps, "—"));
-      const intens = asText(first(ex.load_percent_1rm, ex.intensity)) || (ex.rir ? `RIR ${asText(ex.rir)}` : "");
+      const rawIntensity = asText(first(ex.load_percent_1rm, ex.intensity));
+      const intens = rawIntensity
+        ? studentFacingEffortText(rawIntensity)
+        : (ex.rir ? studentEffortLabel(asText(ex.rir), { compact: true }) || "" : "");
       const rest = asText(first(ex.rest_seconds, ex.rest));
       doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...NAVY);
       doc.text(`•  ${name}`, MARGIN + 2, y);
@@ -229,19 +233,19 @@ export function generateStrengthPDF(plan: any, meta: PDFMeta): jsPDF {
       ].filter(Boolean).join("  ·  ");
       doc.text(detail, w - MARGIN, y, { align: "right" });
       y += 4.2;
-      const cue = asText(first(ex.cues, ex.cue));
+      const cue = studentFacingEffortText(asText(first(ex.cues, ex.cue)));
       if (cue) {
         doc.setFontSize(7); doc.setTextColor(...GRAY);
         y = wrapText(doc, `↳ ${cue}`, MARGIN + 5, y, w - MARGIN * 2 - 6, 3.8) + 0.8;
       }
       if (ex.biomechanical_note) {
         doc.setFontSize(6.8); doc.setTextColor(...BEGE);
-        y = wrapText(doc, `⚙ ${asText(ex.biomechanical_note)}`, MARGIN + 5, y, w - MARGIN * 2 - 6, 3.6) + 0.8;
+        y = wrapText(doc, `⚙ ${studentFacingEffortText(asText(ex.biomechanical_note))}`, MARGIN + 5, y, w - MARGIN * 2 - 6, 3.6) + 0.8;
       }
     });
     if (wk.notes) {
       doc.setFont("helvetica", "italic"); doc.setFontSize(7); doc.setTextColor(...GRAY);
-      y = wrapText(doc, asText(wk.notes), MARGIN + 2, y + 1, w - MARGIN * 2 - 4, 3.8) + 2;
+      y = wrapText(doc, studentFacingEffortText(asText(wk.notes)), MARGIN + 2, y + 1, w - MARGIN * 2 - 4, 3.8) + 2;
     }
     y += 3;
   });
@@ -249,7 +253,7 @@ export function generateStrengthPDF(plan: any, meta: PDFMeta): jsPDF {
   if (plan.progression_protocol) {
     y = sectionTitle(doc, "Progressão para o próximo bloco", y);
     doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...TEXT);
-    y = wrapText(doc, asText(plan.progression_protocol), MARGIN + 2, y, w - MARGIN * 2 - 4) + 3;
+    y = wrapText(doc, studentFacingEffortText(asText(plan.progression_protocol)), MARGIN + 2, y, w - MARGIN * 2 - 4) + 3;
   }
 
   y = warningsBlock(doc, plan.warnings, y);

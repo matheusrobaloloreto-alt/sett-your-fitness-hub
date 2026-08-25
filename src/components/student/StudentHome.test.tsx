@@ -90,7 +90,7 @@ describe("StudentHome progression highlight", () => {
     expect(onNavigate).toHaveBeenCalledWith("treino", null);
   });
 
-  it("preserves every navigation destination in an editorial index with accessible targets", () => {
+  it("orders the student index by training flow and removes only the history shortcut", () => {
     const onNavigate = vi.fn();
     renderHome({
       onNavigate,
@@ -107,22 +107,25 @@ describe("StudentHome progression highlight", () => {
 
     const expectedDestinations = [
       "Treino",
+      "Corrida",
+      "Ciclismo",
+      "Natação",
+      "Dicas nutricionais",
       "Estatísticas",
       "Calendário",
-      "Histórico",
       "Integrações",
-      "Dicas Nutricionais",
-      "Corrida",
-      "Natação",
-      "Ciclismo",
     ];
 
-    for (const label of expectedDestinations) {
-      const item = within(destinationList).getByRole("button", { name: new RegExp(`^${label}:`, "i") });
+    const destinationButtons = within(destinationList).getAllByRole("button");
+    expect(destinationButtons.map((item) => item.getAttribute("aria-label")?.split(":")[0]))
+      .toEqual(expectedDestinations);
+    expect(within(destinationList).queryByRole("button", { name: /^Histórico:/i })).not.toBeInTheDocument();
+
+    for (const item of destinationButtons) {
       expect(item).toHaveClass("min-h-11");
     }
 
-    fireEvent.click(within(destinationList).getByRole("button", { name: /^Dicas Nutricionais:/i }));
+    fireEvent.click(within(destinationList).getByRole("button", { name: /^Dicas nutricionais:/i }));
     expect(onNavigate).toHaveBeenCalledWith("nutricao");
   });
 
@@ -162,7 +165,7 @@ describe("PeriodizationBanner progression highlight", () => {
     expect(screen.getByText(/Esta quinzena fica mais intensa com Bi-set/)).toBeInTheDocument();
   });
 
-  it("normalizes textual RIR in the expanded banner details", () => {
+  it("explains effort without exposing the RIR acronym in expanded student details", () => {
     render(
       <PeriodizationBanner
         objective="Hipertrofia"
@@ -182,7 +185,7 @@ describe("PeriodizationBanner progression highlight", () => {
 
     fireEvent.click(screen.getByRole("button"));
 
-    expect(screen.queryByText(/RIR alvo RIR 2/)).not.toBeInTheDocument();
-    expect(screen.getAllByText(/cerca de 2 repetições guardadas/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/\bRIR\b/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Repetições que ainda conseguiria fazer: 2/)).toBeInTheDocument();
   });
 });

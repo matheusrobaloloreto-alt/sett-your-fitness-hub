@@ -12,7 +12,7 @@ import { SET_TYPE_CONFIG, SET_TYPES, getSetLabel, type SetType } from "@/lib/set
 import { exerciseThumb } from "@/lib/exerciseCover";
 import { isGroupingMethod } from "@/lib/workoutMethods";
 import { MethodBadge } from "@/components/workout/MethodBadge";
-import { formatBiweeklyProgressionForDisplay, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
+import { formatBiweeklyProgressionForDisplay, STUDENT_EFFORT_HELP_TEXT, studentEffortLabel, studentFacingEffortText, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -177,7 +177,7 @@ export function ExerciseCard({
           <div className="border-t border-border px-3 py-3 bg-secondary/30 space-y-3">
             {ex.notes && (
               <p className="text-xs text-muted-foreground font-sans whitespace-pre-wrap break-words">
-                <span className="font-medium text-foreground">Obs:</span> {ex.notes}
+                <span className="font-medium text-foreground">Obs:</span> {studentFacingEffortText(ex.notes)}
               </p>
             )}
 
@@ -185,10 +185,11 @@ export function ExerciseCard({
               <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
                 <div className="flex flex-wrap gap-2 font-mono-data text-[11px] font-semibold text-primary">
                   {ex.tempo && <span>Cadência {ex.tempo.split("").join("-")}</span>}
-                  {ex.rir && <span>RIR {ex.rir}</span>}
+                  {ex.rir && <span>{studentEffortLabel(ex.rir) || "Esforço controlado"}</span>}
                 </div>
+                {ex.rir && <p className="mt-1 font-sans text-[11px] font-normal leading-relaxed text-muted-foreground">{STUDENT_EFFORT_HELP_TEXT}</p>}
                 {ex.weekly_instruction && (
-                  <p className="mt-1 font-sans text-xs leading-relaxed text-foreground">{ex.weekly_instruction}</p>
+                  <p className="mt-1 font-sans text-xs leading-relaxed text-foreground">{studentFacingEffortText(ex.weekly_instruction)}</p>
                 )}
               </div>
             )}
