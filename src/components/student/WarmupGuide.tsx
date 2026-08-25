@@ -83,6 +83,12 @@ export function WarmupGuide({ muscleGroups, exercises = [], open, onOpenChange, 
   }, [running]);
 
   const startTimer = () => { endRef.current = Date.now() + remaining * 1000; setRunning(true); };
+  const openExerciseVideo = (exercise: WarmupExercise) => {
+    // Radix dialogs must not be nested: close the warmup and let its focus
+    // scope/overlay unmount before the video viewer opens on the next frame.
+    onOpenChange(false);
+    window.requestAnimationFrame(() => onVideoPlay?.(exercise));
+  };
   const mm = String(Math.floor(remaining / 60)).padStart(1, "0");
   const ss = String(remaining % 60).padStart(2, "0");
 
@@ -158,7 +164,7 @@ export function WarmupGuide({ muscleGroups, exercises = [], open, onOpenChange, 
                     className="group flex min-h-16 w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     aria-label={actionLabel}
                     title={actionLabel}
-                    onClick={() => onVideoPlay?.(exercise)}
+                    onClick={() => openExerciseVideo(exercise)}
                   >
                     <span className="relative flex h-auto w-24 shrink-0 items-center justify-center overflow-hidden bg-secondary">
                       {thumbnail ? (

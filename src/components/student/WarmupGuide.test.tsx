@@ -26,12 +26,18 @@ const exercises = [
 describe("WarmupGuide exercise previews", () => {
   it("shows a lazy actionable preview for every exercise without mounting any player", () => {
     const onVideoPlay = vi.fn();
+    const onOpenChange = vi.fn();
+    const frameCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frameCallbacks.push(callback);
+      return frameCallbacks.length;
+    });
     render(
       <WarmupGuide
         muscleGroups={["perna", "costa"]}
         exercises={exercises}
         open
-        onOpenChange={() => {}}
+        onOpenChange={onOpenChange}
         onVideoPlay={onVideoPlay}
       />,
     );
@@ -42,10 +48,15 @@ describe("WarmupGuide exercise previews", () => {
     expect(document.querySelector("video, iframe")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Assistir demonstração de Agachamento goblet" }));
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    expect(onVideoPlay).not.toHaveBeenCalled();
+    frameCallbacks.shift()?.(0);
     expect(onVideoPlay).toHaveBeenCalledWith(exercises[0]);
 
     expect(screen.getByText("Vídeo ainda não vinculado")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Buscar demonstração de Remada baixa" }));
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    frameCallbacks.shift()?.(16);
     expect(onVideoPlay).toHaveBeenCalledWith(exercises[1]);
   });
 });
