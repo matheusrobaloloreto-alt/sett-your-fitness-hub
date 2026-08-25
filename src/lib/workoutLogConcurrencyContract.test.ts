@@ -3,6 +3,22 @@ import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 describe("workout log optimistic concurrency", () => {
+  it("resolves the payload alias deterministically in the deployed PL/pgSQL function", () => {
+    const hotfix = readFileSync(
+      "supabase/migrations/20260825173000_fix_workout_log_payload_alias.sql",
+      "utf8",
+    );
+
+    expect(hotfix).toContain("#variable_conflict use_column");
+    expect(hotfix).toContain("create or replace function public.save_workout_logs_if_current(_rows jsonb)");
+    expect(hotfix).toContain("security definer");
+    expect(hotfix).toContain("set search_path = public, pg_temp");
+    expect(hotfix).toContain("revoke all on function public.save_workout_logs_if_current(jsonb) from public, anon");
+    expect(hotfix).toContain("grant execute on function public.save_workout_logs_if_current(jsonb) to authenticated, service_role");
+    const beforeFunction = hotfix.slice(0, hotfix.indexOf("create or replace function"));
+    expect(beforeFunction).not.toMatch(/alter table|create table|drop table|update\s|delete\s|insert\s/i);
+  });
+
   it("saves through a revision-checked RPC instead of a blind upsert", () => {
     const portal = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");
     const migration = readFileSync(
