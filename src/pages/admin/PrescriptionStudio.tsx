@@ -29,7 +29,7 @@ import {
   formatPrescriptionIntegrationSummary,
 } from "@/lib/prescriptionIntegration";
 import { readEdgeError } from "@/lib/edgeError";
-import { publishStrengthPlanToStudent } from "@/lib/publishStrengthPlan";
+import { buildPublishDecisionLog, publishStrengthPlanToStudent } from "@/lib/publishStrengthPlan";
 import { businessDateYmd } from "@/lib/businessDate";
 import { PeriodizationRoadmap } from "@/components/admin/PeriodizationRoadmap";
 import { openStudentChat } from "@/lib/studentChat";
@@ -869,15 +869,14 @@ export default function PrescriptionStudio() {
       try {
         const readiness = (prescriptionIntegration as any)?.readiness?.status ?? null;
         const editedFlag = JSON.stringify(results.musculacao?.workouts || []) !== JSON.stringify((editPlan || results.musculacao)?.workouts || []);
-        const decisions: string[] = [];
-        if (readiness && readiness !== "pronto") decisions.push(`prontidão: ${readiness}`);
-        if (noLib.length) decisions.push(`${noLib.length} fora da biblioteca`);
-        if (editedFlag) decisions.push("editado pelo professor");
-        await db.from("ai_decision_logs").insert({
-          student_id: studentId, company_id: companyId, source: "publish",
-          summary: decisions.length ? decisions.join(" · ") : "publicado como a IA gerou",
-          payload: { readiness, edited: editedFlag, no_library: noLib.length, workouts: (editPlan || results.musculacao)?.workouts?.length || 0 },
-        });
+        await db.from("ai_decision_logs").insert(buildPublishDecisionLog({
+          studentId,
+          companyId,
+          readiness,
+          edited: editedFlag,
+          noLibrary: noLib.length,
+          workouts: (editPlan || results.musculacao)?.workouts?.length || 0,
+        }));
       } catch { /* log opcional */ }
       if (scheduledForFuture) {
         toast.success(`Ciclo ${targetCycle?.cycle_number || "futuro"} agendado. Ele aparecerá ao aluno em ${targetCycle ? formatCycleDate(targetCycle.start_date) : "sua data de início"}.`);

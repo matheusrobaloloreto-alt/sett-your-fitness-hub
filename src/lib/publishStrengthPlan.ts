@@ -144,6 +144,34 @@ export function buildTrainingCycleMetadata(
   };
 }
 
+export function buildPublishDecisionLog(input: {
+  studentId: string;
+  companyId: string;
+  readiness: string | null;
+  edited: boolean;
+  noLibrary: number;
+  workouts: number;
+}) {
+  const decisions: string[] = [];
+  if (input.readiness && input.readiness !== "pronto") decisions.push(`prontidão: ${input.readiness}`);
+  if (input.noLibrary > 0) decisions.push(`${input.noLibrary} fora da biblioteca`);
+  if (input.edited) decisions.push("editado pelo professor");
+
+  return {
+    student_id: input.studentId,
+    company_id: input.companyId,
+    source: "prescricao" as const,
+    summary: decisions.length ? decisions.join(" · ") : "publicado como a IA gerou",
+    payload: {
+      kind: "publish" as const,
+      readiness: input.readiness,
+      edited: input.edited,
+      no_library: input.noLibrary,
+      workouts: input.workouts,
+    },
+  };
+}
+
 const ymd = businessDateYmd;
 
 // P15 — resumo das edições do professor vs. plano original da IA.

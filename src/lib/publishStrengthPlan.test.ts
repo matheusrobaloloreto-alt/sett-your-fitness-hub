@@ -1,5 +1,35 @@
 import { describe, it, expect } from "vitest";
-import { mapStrengthExercise, buildTrainingCycleMetadata, buildWorkoutRows } from "./publishStrengthPlan";
+import {
+  buildPublishDecisionLog,
+  mapStrengthExercise,
+  buildTrainingCycleMetadata,
+  buildWorkoutRows,
+} from "./publishStrengthPlan";
+
+describe("buildPublishDecisionLog", () => {
+  it("uses the existing prescricao source and classifies publish in the payload", () => {
+    expect(buildPublishDecisionLog({
+      studentId: "student-1",
+      companyId: "company-1",
+      readiness: "incompleto",
+      edited: true,
+      noLibrary: 2,
+      workouts: 3,
+    })).toEqual({
+      student_id: "student-1",
+      company_id: "company-1",
+      source: "prescricao",
+      summary: "prontidão: incompleto · 2 fora da biblioteca · editado pelo professor",
+      payload: {
+        kind: "publish",
+        readiness: "incompleto",
+        edited: true,
+        no_library: 2,
+        workouts: 3,
+      },
+    });
+  });
+});
 
 describe("buildTrainingCycleMetadata", () => {
   it("usa apenas colunas reais de training_cycles; o vínculo do pacote fica na tabela de bundles", () => {
