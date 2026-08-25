@@ -13,7 +13,7 @@ export type NormalizedCardioPlanUpdate = {
   safety_check: JsonObject;
   general_tips: string;
   warnings: string[];
-  complementary_strength: unknown[];
+  complementary_strength: string[];
   nutrition_alert: string;
 };
 
@@ -43,6 +43,60 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+function optionalNumberInRange(
+  value: unknown,
+  field: string,
+  min: number,
+  max: number,
+): number | undefined {
+  return value == null ? undefined : numberInRange(value, field, min, max);
+}
+
+function normalizeFcZones(value: JsonObject): JsonObject {
+  const normalized: JsonObject = {};
+  for (const key of ["fcmax", "fcrep", "fc_reserva"] as const) {
+    const numeric = optionalNumberInRange(value[key], key, 0, 400);
+    if (numeric != null) normalized[key] = numeric;
+  }
+  if (value.estimated != null) {
+    if (typeof value.estimated !== "boolean") {
+      throw new CardioPlanValidationError("FC estimada precisa ser booleana.");
+    }
+    normalized.estimated = value.estimated;
+  }
+  for (const zone of ["z1", "z2", "z3", "z4", "z5"] as const) {
+    const rawZone = value[zone];
+    if (rawZone == null) continue;
+    if (!isObject(rawZone)) throw new CardioPlanValidationError(`${zone.toUpperCase()} inválida.`);
+    const min = numberInRange(rawZone.min, `${zone.toUpperCase()} mínima`, 0, 400);
+    const max = numberInRange(rawZone.max, `${zone.toUpperCase()} máxima`, 0, 400);
+    if (min > max) throw new CardioPlanValidationError(`${zone.toUpperCase()} mínima acima da máxima.`);
+    normalized[zone] = { min, max };
+  }
+  return normalized;
+}
+
+function normalizeSafetyCheck(value: JsonObject): JsonObject {
+  const normalized: JsonObject = {};
+  for (const key of ["tsb_status", "eva_status"] as const) {
+    if (value[key] == null) continue;
+    const status = text(value[key], key, 40);
+    if (!["ok", "atencao", "linha_vermelha"].includes(status)) {
+      throw new CardioPlanValidationError(`${key} inválido.`);
+    }
+    normalized[key] = status;
+  }
+  if (value.restrictions != null) {
+    if (!Array.isArray(value.restrictions) || value.restrictions.length > 50) {
+      throw new CardioPlanValidationError("Restrições de segurança inválidas.");
+    }
+    normalized.restrictions = value.restrictions.map((restriction, index) =>
+      text(restriction, `Restrição ${index + 1}`, 1000)
+    );
+  }
+  return normalized;
+}
+
 export function normalizeCardioPlanUpdate(
   input: unknown,
   expectedSport: EditableCardioSport,
@@ -67,6 +121,9 @@ export function normalizeCardioPlanUpdate(
   if (!Array.isArray(input.complementary_strength) || input.complementary_strength.length > 50) {
     throw new CardioPlanValidationError("Força complementar inválida ou acima do limite.");
   }
+  const complementaryStrength = input.complementary_strength.map((exercise, index) =>
+    text(exercise, `Força complementar ${index + 1}`, 1000)
+  );
 
   const seenWeekNumbers = new Set<number>();
   const weeks = input.weeks.map((rawWeek, weekIndex) => {
@@ -104,8 +161,9 @@ export function normalizeCardioPlanUpdate(
       }
       totalMinutes += sessionTotal;
 
+      const tssEstimated = optionalNumberInRange(rawSession.tss_estimado, "TSS da sessão", 0, 100_000);
+
       return {
-        ...rawSession,
         day,
         title,
         type: text(rawSession.type, "Tipo da sessão", 100),
@@ -118,17 +176,21 @@ export function normalizeCardioPlanUpdate(
         zone: text(rawSession.zone, "Zona", 40),
         fc_target: text(rawSession.fc_target, "Alvo de FC", 120),
         intervals: rawSession.intervals == null ? null : text(rawSession.intervals, "Intervalos", 2000),
+        ...(tssEstimated == null ? {} : { tss_estimado: tssEstimated }),
         notes: text(rawSession.notes, "Observações", 5000),
       };
     });
 
+    const tssTotal = optionalNumberInRange(rawWeek.tss_total_estimado, "TSS da semana", 0, 1_400_000);
+
     return {
-      ...rawWeek,
       week_number: Number(weekNumber),
+      type: text(rawWeek.type, `Tipo da semana ${weekIndex + 1}`, 100),
       focus,
       sessions,
       volume_hours: round1(totalMinutes / 60),
       volume_km: expectedSport === "natacao" || !hasDistance ? null : round1(totalDistance),
+      ...(tssTotal == null ? {} : { tss_total_estimado: tssTotal }),
     };
   });
 
@@ -139,11 +201,11 @@ export function normalizeCardioPlanUpdate(
     duration_weeks: weeks.length,
     model: text(input.model, "Modelo", 200),
     weeks,
-    fc_zones: { ...input.fc_zones },
-    safety_check: { ...input.safety_check },
+    fc_zones: normalizeFcZones(input.fc_zones),
+    safety_check: normalizeSafetyCheck(input.safety_check),
     general_tips: text(input.general_tips, "Orientações gerais", 10000),
     warnings,
-    complementary_strength: [...input.complementary_strength],
+    complementary_strength: complementaryStrength,
     nutrition_alert: text(input.nutrition_alert, "Alerta nutricional", 5000),
   };
 }
