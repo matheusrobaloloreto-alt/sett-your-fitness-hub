@@ -160,9 +160,9 @@ async function requireUser(req: Request) {
     global: { headers: { Authorization: authHeader } },
   });
   const token = authHeader.replace("Bearer ", "");
-  const { data, error } = await supa.auth.getClaims(token);
-  if (error || !data?.claims) return null;
-  return data.claims;
+  const { data, error } = await supa.auth.getUser(token);
+  if (error || !data?.user) return null;
+  return { sub: data.user.id };
 }
 
 function aiErrorResponse(status: number) {

@@ -66,6 +66,53 @@ describe("cardio plan update edge contract", () => {
     }, "corrida")).toThrow("1 MB");
   });
 
+  it("allowlists nested plan fields and validates structured metadata", () => {
+    const normalized = normalizeCardioPlanUpdate({
+      ...basePlan,
+      injected_top_level: "discard-me",
+      fc_zones: {
+        fcmax: 190,
+        estimated: true,
+        z1: { min: 110, max: 125, injected: "discard-me" },
+        injected: "discard-me",
+      },
+      safety_check: {
+        tsb_status: "ok",
+        restrictions: ["Sem restrições"],
+        injected: "discard-me",
+      },
+      complementary_strength: ["Panturrilha"],
+      weeks: [{
+        ...basePlan.weeks[0],
+        injected: "discard-me",
+        sessions: [{ ...basePlan.weeks[0].sessions[0], injected: "discard-me" }],
+      }],
+    }, "corrida");
+
+    expect(normalized).not.toHaveProperty("injected_top_level");
+    expect(normalized.weeks[0]).not.toHaveProperty("injected");
+    expect(normalized.weeks[0].sessions[0]).not.toHaveProperty("injected");
+    expect(normalized.fc_zones).toEqual({
+      fcmax: 190,
+      estimated: true,
+      z1: { min: 110, max: 125 },
+    });
+    expect(normalized.safety_check).toEqual({
+      tsb_status: "ok",
+      restrictions: ["Sem restrições"],
+    });
+    expect(normalized.complementary_strength).toEqual(["Panturrilha"]);
+
+    expect(() => normalizeCardioPlanUpdate({
+      ...basePlan,
+      fc_zones: { z1: { min: "110", max: 125 } },
+    }, "corrida")).toThrow("Z1");
+    expect(() => normalizeCardioPlanUpdate({
+      ...basePlan,
+      complementary_strength: [{ exercise: "Panturrilha" }],
+    }, "corrida")).toThrow("Força complementar");
+  });
+
   it("keeps auth, tenant resolution and optimistic concurrency inside the edge", () => {
     const source = readFileSync("supabase/functions/update-running-plan-draft/index.ts", "utf8");
     const config = readFileSync("supabase/config.toml", "utf8");
@@ -79,5 +126,12 @@ describe("cardio plan update edge contract", () => {
     expect(source).not.toContain("body.company_id");
     expect(source).not.toContain("body.student_id");
     expect(config).toContain("[functions.update-running-plan-draft]");
+  });
+
+  it("verifies the generator bearer token with the auth server", () => {
+    const source = readFileSync("supabase/functions/ai-running-plan/index.ts", "utf8");
+
+    expect(source).toContain("auth.getUser(token)");
+    expect(source).not.toContain("auth.getClaims(token)");
   });
 });
