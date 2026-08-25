@@ -125,6 +125,18 @@ describe("StudentHome progression highlight", () => {
     fireEvent.click(within(destinationList).getByRole("button", { name: /^Dicas Nutricionais:/i }));
     expect(onNavigate).toHaveBeenCalledWith("nutricao");
   });
+
+  it("restores the home ranking and compact two-column icon index", () => {
+    renderHome({ leaderboard: <div>Ranking mensal restaurado</div> });
+
+    expect(screen.getByText("Ranking mensal restaurado")).toBeInTheDocument();
+    const destinationList = screen.getByRole("list", { name: "Destinos do portal do aluno" });
+    expect(destinationList).toHaveClass("grid", "grid-cols-2");
+
+    for (const item of within(destinationList).getAllByRole("button")) {
+      expect(item.querySelector("svg")).toBeTruthy();
+    }
+  });
 });
 
 describe("PeriodizationBanner progression highlight", () => {
