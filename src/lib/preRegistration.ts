@@ -115,6 +115,7 @@ export const PRE_REGISTRATION_ANSWER_LABELS: Record<string, string> = {
   interest_cycling: "Interesse em ciclismo",
   interest_nutrition: "Interesse em nutrição",
   requested_services: "Prescrições solicitadas",
+  desired_services: "Prescrições solicitadas",
 };
 
 export const PRE_REGISTRATION_BUDGET_LABELS: Record<string, string> = {
@@ -335,6 +336,8 @@ export function preRegistrationToStudioAnamnesis(
   const modalities = [
     ...studioArray(answers.modalities),
     ...studioArray(answers.requested_services),
+    ...studioArray(answers.desired_services),
+    ...studioArray(answers.prescribed_modalities),
   ];
   const strength = answers.interest_strength !== undefined
     ? studioBool(answers.interest_strength)
@@ -368,6 +371,19 @@ export function preRegistrationToStudioAnamnesis(
     swimming && `NATAÇÃO: ${[answers.swim_pool && `piscina ${studioClean(answers.swim_pool, 80)}`, answers.swim_level && `nível ${studioClean(answers.swim_level, 80)}`, answers.swim_volume && `volume ${studioClean(answers.swim_volume, 120)}`].filter(Boolean).join(", ") || "detalhes não informados"}`,
     cycling && `CICLISMO: ${[answers.bike_type && studioClean(answers.bike_type, 80), answers.bike_volume && `volume ${studioClean(answers.bike_volume, 120)}`, answers.bike_ftp && `FTP/potência ${studioClean(answers.bike_ftp, 60)}`].filter(Boolean).join(", ") || "detalhes não informados"}`,
   ].filter(Boolean);
+  const nutritionContext = [
+    studioClean(answers.nutrition_context || answers.nutrition, 4000),
+    answers.meal_routine && `Rotina alimentar: ${studioClean(answers.meal_routine, 1000)}`,
+    answers.meal_schedule && `Horários: ${studioClean(answers.meal_schedule, 1000)}`,
+    answers.train_time && `Horário de treino: ${studioClean(answers.train_time, 200)}`,
+    answers.train_fasted !== undefined && `Treina em jejum: ${formatPreRegistrationValue(answers.train_fasted)}`,
+    answers.appetite_wake && `Apetite ao acordar: ${studioClean(answers.appetite_wake, 200)}`,
+    answers.food_likes && `Gosta: ${studioClean(answers.food_likes, 1000)}`,
+    answers.food_dislikes && `Não gosta: ${studioClean(answers.food_dislikes, 1000)}`,
+    answers.supplements && `Suplementos: ${studioClean(answers.supplements, 1000)}`,
+    answers.hydration && `Hidratação: ${studioClean(answers.hydration, 500)}`,
+    answers.gi_sensitivities && `Sensibilidade GI: ${studioClean(answers.gi_sensitivities, 500)}`,
+  ].filter(Boolean).join("\n");
   const notes = [
     "Fonte: pré-cadastro novo",
     answers.goals && `Metas: ${studioClean(answers.goals)}`,
@@ -419,9 +435,11 @@ export function preRegistrationToStudioAnamnesis(
     current_volume_weekly: studioNumberOrNull(answers.current_volume_weekly),
     current_volume_unit: answers.current_volume_unit === "hours_week" ? "hours_week" : "km_week",
     cardio_goal: studioClean(answers.cardio_goal || answers.sport_goal, 300) || null,
+    stress_score: studioNumberOrNull(answers.stress_score),
+    sleep_quality: studioNumberOrNull(answers.sleep_quality),
     injuries: clinical || null,
     food_restrictions: studioClean(answers.food_restrictions || answers.food_preferences, 1000) || null,
-    nutrition_context: studioClean(answers.nutrition_context || answers.nutrition, 4000) || null,
+    nutrition_context: nutritionContext || null,
     budget_food: studioClean(answers.budget_food || "moderado", 80) || null,
     meals_per_day: studioNumberOrNull(answers.meals_per_day),
     has_kitchen: answers.has_kitchen === undefined ? true : studioBool(answers.has_kitchen),

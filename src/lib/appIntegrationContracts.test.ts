@@ -42,12 +42,26 @@ describe("SETT integration contracts", () => {
 
   it("passes anamnesis and functional assessment into integrated prescription", () => {
     const studio = source("src/pages/admin/PrescriptionStudio.tsx");
-    expect(studio).toMatch(/from\("student_anamneses"\)/);
-    expect(studio).toContain("loadStudentPreRegistration");
-    expect(studio).toContain("preRegistrationToStudioAnamnesis");
+    const preRegistrationData = source("src/lib/preRegistrationData.ts");
+    expect(studio).toContain("resolveStudioAnamnesis");
+    expect(preRegistrationData).toMatch(/from\("student_anamneses"\)/);
+    expect(preRegistrationData).toContain("loadStudentPreRegistration");
+    expect(preRegistrationData).toContain("preRegistrationToStudioAnamnesis");
     expect(studio).toMatch(/from\("functional_assessments"\)/);
     expect(studio).toContain("assessmentContext");
     expect(studio).toMatch(/anamnese[,:]/);
+  });
+
+  it("clears Studio anamnesis on student changes and separates loading, error, and unanswered states", () => {
+    const studio = source("src/pages/admin/PrescriptionStudio.tsx");
+    expect(studio).toContain("const [anamneseLoading, setAnamneseLoading]");
+    expect(studio).toContain("const [anamneseLoadError, setAnamneseLoadError]");
+    expect(studio).toMatch(/setAnamnese\(null\);\s*setAnamneseLoading\(true\);\s*setAnamneseLoadError\(""\)/);
+    expect(studio).toContain("catch (error)");
+    expect(studio).toContain("if (!active) return;");
+    expect(studio).toContain("Carregando anamnese deste aluno");
+    expect(studio).toContain("Não foi possível carregar a anamnese");
+    expect(studio).toContain("Este aluno ainda não respondeu a anamnese");
   });
 
   it("derives WhatsApp audiences and current cycle from canonical helpers", () => {

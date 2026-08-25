@@ -3,21 +3,63 @@ import {
   canonicalAnamnesisToPreRegistrationAnswers,
   isPreRegistrationRecord,
   preRegistrationPhoneCandidates,
+  preRegistrationToStudioAnamnesis,
   type PreRegistrationData,
 } from "@/lib/preRegistration";
 
-type LoadStudentPreRegistrationInput = {
+export type LoadStudentPreRegistrationInput = {
   studentId?: string | null;
   companyId?: string | null;
   phone?: string | null;
+  includeCanonicalAnamnesis?: boolean;
+  throwOnError?: boolean;
+};
+
+export type ResolveStudioAnamnesisInput = LoadStudentPreRegistrationInput & {
+  db?: any;
+  loadPreRegistration?: (input: LoadStudentPreRegistrationInput) => Promise<PreRegistrationData | null>;
 };
 
 const LEAD_SELECT = "pre_registration_answers, budget_range, preferred_contact_period, submitted_at, created_at";
+
+export async function resolveStudioAnamnesis({
+  studentId,
+  companyId,
+  phone,
+  db = supabase as any,
+  loadPreRegistration = loadStudioPreRegistrationFallback,
+}: ResolveStudioAnamnesisInput): Promise<Record<string, unknown> | null> {
+  if (!studentId) return null;
+
+  let query = db.from("student_anamneses").select("*").eq("student_id", studentId);
+  if (companyId) query = query.eq("company_id", companyId);
+  const { data: canonical, error } = await query.maybeSingle();
+  if (error) {
+    throw new Error(error.message || "Falha ao carregar anamnese canônica do aluno.");
+  }
+  if (canonical) return canonical;
+
+  const preRegistration = await loadPreRegistration({ studentId, companyId, phone });
+  if (!preRegistration) return null;
+  return preRegistrationToStudioAnamnesis(preRegistration, { studentId, companyId: companyId ?? null });
+}
+
+export async function loadStudioPreRegistrationFallback(
+  input: LoadStudentPreRegistrationInput,
+): Promise<PreRegistrationData | null> {
+  return loadStudentPreRegistration({
+    ...input,
+    includeCanonicalAnamnesis: false,
+    throwOnError: true,
+  });
+}
 
 export async function loadStudentPreRegistration({
   studentId,
   companyId,
   phone,
+  includeCanonicalAnamnesis = true,
+  throwOnError = false,
 }: LoadStudentPreRegistrationInput): Promise<PreRegistrationData | null> {
   const db = supabase as any;
   const phoneCandidates = preRegistrationPhoneCandidates(phone);
@@ -42,7 +84,7 @@ export async function loadStudentPreRegistration({
       })()
     : Promise.resolve({ data: null, error: null });
 
-  const anamnesisPromise = studentId
+  const anamnesisPromise = studentId && includeCanonicalAnamnesis
     ? (() => {
         let query = db.from("student_anamneses").select("*").eq("student_id", studentId);
         if (companyId) query = query.eq("company_id", companyId);
@@ -55,6 +97,11 @@ export async function loadStudentPreRegistration({
     leadByPhonePromise,
     anamnesisPromise,
   ]);
+
+  if (throwOnError) {
+    const error = leadByStudent.error || leadByPhone.error || anamnesisResult.error;
+    if (error) throw new Error(error.message || "Falha ao carregar pré-cadastro do aluno.");
+  }
 
   const lead = leadByStudent.data || leadByPhone.data;
   if (lead) {

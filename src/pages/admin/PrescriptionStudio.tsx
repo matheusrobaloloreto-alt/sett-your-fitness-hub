@@ -36,8 +36,7 @@ import { openStudentChat } from "@/lib/studentChat";
 import { toast } from "sonner";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
-import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
-import { preRegistrationToStudioAnamnesis } from "@/lib/preRegistration";
+import { resolveStudioAnamnesis } from "@/lib/preRegistrationData";
 import { exerciseThumb, youtubeIdFromUrl } from "@/lib/exerciseCover";
 import { summarizeExerciseWeeklyProgression } from "@/lib/weeklyStrengthPeriodization";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -166,6 +165,8 @@ export default function PrescriptionStudio() {
 
   // Anamnese state
   const [anamnese, setAnamnese]       = useState<any>(null);
+  const [anamneseLoading, setAnamneseLoading] = useState(false);
+  const [anamneseLoadError, setAnamneseLoadError] = useState("");
   const [inviteLink, setInviteLink]   = useState("");
   const [copying, setCopying]         = useState(false);
   const [creatingInvite, setCreatingInvite] = useState(false);
@@ -252,32 +253,48 @@ export default function PrescriptionStudio() {
 
   // ── Carrega anamnese + avaliação ao trocar aluno ────────────────────────
   useEffect(() => {
-    if (!studentId) return;
+    if (!studentId) {
+      setAnamnese(null);
+      setAnamneseLoading(false);
+      setAnamneseLoadError("");
+      setAssessment(null);
+      setAssessmentId(null);
+      setInviteLink("");
+      return;
+    }
     let active = true;
+    setAnamnese(null);
+    setAnamneseLoading(true);
+    setAnamneseLoadError("");
+    setAssessment(null);
+    setAssessmentId(null);
+    setInviteLink("");
     (async () => {
-      const { data: a } = await db.from("student_anamneses").select("*").eq("student_id", studentId).maybeSingle();
-      let nextAnamnese = a;
-      if (!nextAnamnese && companyId) {
-        const preRegistration = await loadStudentPreRegistration({
+      try {
+        const nextAnamnese = await resolveStudioAnamnesis({
+          db,
           studentId,
           companyId,
           phone: student?.whatsapp || student?.phone,
         });
-        if (preRegistration) {
-          nextAnamnese = preRegistrationToStudioAnamnesis(preRegistration, { studentId, companyId });
+        if (!active) return;
+        setAnamnese(nextAnamnese);
+        // Pré-marca "o que o aluno vai receber" pelas flags da anamnese (já considera nutri/assessoria).
+        if (nextAnamnese) {
+          const next = new Set<Modality>();
+          if ((nextAnamnese as any).wants_strength !== false) next.add("musculacao");
+          if ((nextAnamnese as any).wants_running) next.add("corrida");
+          if ((nextAnamnese as any).wants_swimming) next.add("natacao");
+          if ((nextAnamnese as any).wants_cycling) next.add("ciclismo");
+          if ((nextAnamnese as any).wants_nutrition) next.add("nutricao");
+          if (next.size) setModalities(next);
         }
-      }
-      if (!active) return;
-      setAnamnese(nextAnamnese);
-      // Pré-marca "o que o aluno vai receber" pelas flags da anamnese (já considera nutri/assessoria).
-      if (nextAnamnese) {
-        const next = new Set<Modality>();
-        if ((nextAnamnese as any).wants_strength !== false) next.add("musculacao");
-        if ((nextAnamnese as any).wants_running) next.add("corrida");
-        if ((nextAnamnese as any).wants_swimming) next.add("natacao");
-        if ((nextAnamnese as any).wants_cycling) next.add("ciclismo");
-        if ((nextAnamnese as any).wants_nutrition) next.add("nutricao");
-        if (next.size) setModalities(next);
+      } catch (error) {
+        if (!active) return;
+        setAnamnese(null);
+        setAnamneseLoadError(error instanceof Error ? error.message : "Falha ao carregar a anamnese.");
+      } finally {
+        if (active) setAnamneseLoading(false);
       }
       const { data: assess } = await db.from("functional_assessments")
         .select("id, assessment_json, report_text, created_at").eq("student_id", studentId)
@@ -1309,7 +1326,21 @@ export default function PrescriptionStudio() {
                     text="BNITO"
                   />
                 </div>
-                {anamnese ? (
+                {anamneseLoading ? (
+                  <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Carregando anamnese deste aluno...
+                  </div>
+                ) : anamneseLoadError ? (
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div>
+                        <p className="font-medium">Não foi possível carregar a anamnese.</p>
+                        <p className="mt-1 text-xs text-red-600">{anamneseLoadError}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : anamnese ? (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
                       <CheckCircle2 className="h-4 w-4" /> Anamnese respondida pelo aluno
