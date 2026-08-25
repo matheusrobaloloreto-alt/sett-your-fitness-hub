@@ -102,6 +102,39 @@ export function buildWorkoutFeedbackMessage({
   return `Feedback de treino${titleLine} — ${firstName}\n${ratingLine}${payload.reflection || "(sem comentário adicional)"}`;
 }
 
+export async function persistWorkoutFeedbackOnce({
+  db,
+  record,
+}: {
+  db: any;
+  record: Record<string, unknown> & {
+    student_id: string;
+    workout_session_id?: string | null;
+  };
+}): Promise<{ id: string; duplicate: boolean }> {
+  const { data, error } = await db.from("workout_feedback")
+    .insert(record)
+    .select("id")
+    .single();
+  if (!error && data?.id) return { id: data.id, duplicate: false };
+
+  if (error?.code === "23505" && record.workout_session_id) {
+    const { data: existing, error: existingError } = await db
+      .from("workout_feedback")
+      .select("id")
+      .eq("student_id", record.student_id)
+      .eq("workout_session_id", record.workout_session_id)
+      .single();
+    if (!existingError && existing?.id) {
+      return { id: existing.id, duplicate: true };
+    }
+  }
+
+  throw new Error(
+    `Falha ao registrar feedback: ${error?.message || "registro não retornado"}`,
+  );
+}
+
 export async function deliverWorkoutFeedbackToWhatsapp({
   db,
   studentId,
@@ -119,24 +152,12 @@ export async function deliverWorkoutFeedbackToWhatsapp({
     if (phoneKeys.size !== 1) return { delivered: false };
 
     const canonicalRemoteJid = `55${[...phoneKeys][0]}@s.whatsapp.net`;
-    const { data: inst, error: instanceError } = await db
-      .from("whatsapp_instances")
-      .select("id")
-      .eq("company_id", student.company_id)
-      .order("status")
-      .limit(1)
-      .maybeSingle();
-    if (instanceError) throw instanceError;
-    if (!inst?.id) return { delivered: false };
-
     const { data: linkedChat, error: linkedChatError } = await db
       .from("whatsapp_chats")
-      .select("id, unread_count, student_id, remote_jid")
+      .select("id, unread_count, student_id, remote_jid, instance_id")
       .eq("student_id", studentId)
       .eq("company_id", student.company_id)
-      .eq("instance_id", inst.id)
       .order("last_message_at", { ascending: false })
-      .limit(1)
       .maybeSingle();
     if (linkedChatError) throw linkedChatError;
     if (
@@ -144,6 +165,18 @@ export async function deliverWorkoutFeedbackToWhatsapp({
       !sameWhatsAppRecipient(linkedChat.remote_jid, canonicalRemoteJid)
     ) return { delivered: false };
     let chat = linkedChat;
+
+    let instanceQuery = db.from("whatsapp_instances")
+      .select("id")
+      .eq("company_id", student.company_id)
+      .eq("status", "connected");
+    if (linkedChat?.instance_id) {
+      instanceQuery = instanceQuery.eq("id", linkedChat.instance_id);
+    }
+    const { data: inst, error: instanceError } = await instanceQuery
+      .maybeSingle();
+    if (instanceError) throw instanceError;
+    if (!inst?.id) return { delivered: false };
 
     if (!chat) {
       const { data: phoneChat, error: phoneChatError } = await db
@@ -153,7 +186,6 @@ export async function deliverWorkoutFeedbackToWhatsapp({
         .eq("instance_id", inst.id)
         .in("remote_jid", directWhatsAppJidVariants(canonicalRemoteJid))
         .order("last_message_at", { ascending: false })
-        .limit(1)
         .maybeSingle();
       if (phoneChatError) throw phoneChatError;
 

@@ -24,6 +24,12 @@ Deno.test("keeps Brazilian landlines unchanged", () => {
   if (normalizeWhatsAppPhoneKey("+55 (11) 3456-7890") !== "1134567890") {
     throw new Error("landline");
   }
+  if (normalizeWhatsAppPhoneKey("011 3456-7890") !== "1134567890") {
+    throw new Error("trunk-prefixed landline");
+  }
+  if (normalizeWhatsAppPhoneKey("015 11 3456-7890") !== "1134567890") {
+    throw new Error("carrier-prefixed landline");
+  }
 });
 
 Deno.test("builds all direct JID variants for a Brazilian mobile", () => {

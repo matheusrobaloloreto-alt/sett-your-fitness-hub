@@ -4,12 +4,14 @@ import {
   buildWorkoutFeedbackRecord,
   deliverWorkoutFeedbackToWhatsapp,
   normalizeWorkoutFeedbackPayload,
+  persistWorkoutFeedbackOnce,
 } from "../../supabase/functions/_shared/student-workout-feedback";
 import { normalizeWhatsAppPhoneKey } from "../../supabase/functions/_shared/whatsappIdentity";
 
 const MIGRATION = "supabase/migrations/20260824120000_workout_feedback_trainer_replies.sql";
 const EDGE = "supabase/functions/student-workout-feedback/index.ts";
 const SHARED = "supabase/functions/_shared/student-workout-feedback.ts";
+const IDEMPOTENCY_MIGRATION = "supabase/migrations/20260825150000_workout_feedback_session_idempotency.sql";
 
 const read = (path: string) => readFileSync(path, "utf8");
 
@@ -130,6 +132,12 @@ describe("optional workout feedback WhatsApp delivery", () => {
   });
 
   it("rejects a legacy 11-digit Brazilian number whose subscriber does not start with 9", () => {
+    expect(normalizeWhatsAppPhoneKey("42077707180")).toBeNull();
+  });
+
+  it("keeps trunk-prefixed Brazilian landlines while rejecting malformed mobile-shaped values", () => {
+    expect(normalizeWhatsAppPhoneKey("01134567890")).toBe("1134567890");
+    expect(normalizeWhatsAppPhoneKey("0151134567890")).toBe("1134567890");
     expect(normalizeWhatsAppPhoneKey("42077707180")).toBeNull();
   });
 
@@ -326,6 +334,94 @@ describe("optional workout feedback WhatsApp delivery", () => {
     expect(result).toEqual({ delivered: false });
     expect(chatInserts).toEqual([]);
     expect(messageInserts).toEqual([]);
+  });
+
+  it("requires a connected instance and binds an existing chat to its own instance", async () => {
+    const instanceFilters = new Map<string, unknown>();
+    const db = {
+      from(table: string) {
+        const filters = table === "whatsapp_instances" ? instanceFilters : new Map<string, unknown>();
+        const query = {
+          select: () => query,
+          eq: (column: string, value: unknown) => {
+            filters.set(column, value);
+            return query;
+          },
+          in: () => query,
+          order: () => query,
+          limit: () => query,
+          insert: () => query,
+          update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+          maybeSingle: () => {
+            if (table === "whatsapp_chats" && filters.has("student_id")) {
+              return Promise.resolve({
+                data: {
+                  id: "linked-chat",
+                  instance_id: "bound-instance",
+                  student_id: "student-1",
+                  remote_jid: "5548999999999@s.whatsapp.net",
+                  unread_count: 0,
+                },
+                error: null,
+              });
+            }
+            if (table === "whatsapp_instances") {
+              return Promise.resolve({ data: null, error: null });
+            }
+            return Promise.resolve({ data: null, error: null });
+          },
+        };
+        return query;
+      },
+    };
+
+    const result = await deliverWorkoutFeedbackToWhatsapp({ ...baseArgs, db });
+
+    expect(result).toEqual({ delivered: false });
+    expect(instanceFilters.get("id")).toBe("bound-instance");
+    expect(instanceFilters.get("company_id")).toBe("company-1");
+    expect(instanceFilters.get("status")).toBe("connected");
+  });
+});
+
+describe("workout feedback idempotency", () => {
+  it("recovers the existing feedback after a concurrent duplicate session insert", async () => {
+    const db = {
+      from() {
+        const filters = new Map<string, unknown>();
+        const query = {
+          insert: () => query,
+          select: () => query,
+          eq: (column: string, value: unknown) => {
+            filters.set(column, value);
+            return query;
+          },
+          single: () => filters.has("workout_session_id")
+            ? Promise.resolve({ data: { id: "feedback-existing" }, error: null })
+            : Promise.resolve({ data: null, error: { code: "23505", message: "duplicate" } }),
+        };
+        return query;
+      },
+    };
+
+    const result = await persistWorkoutFeedbackOnce({
+      db,
+      record: {
+        student_id: "student-1",
+        company_id: "company-1",
+        workout_session_id: "session-1",
+      },
+    });
+
+    expect(result).toEqual({ id: "feedback-existing", duplicate: true });
+  });
+
+  it("defines a fail-closed unique session contract without deleting or merging feedback", () => {
+    const migration = read(IDEMPOTENCY_MIGRATION);
+    expect(migration).toContain("workout_feedback_student_session_key");
+    expect(migration).toContain("student_id, workout_session_id");
+    expect(migration).toContain("where workout_session_id is not null");
+    expect(migration).not.toMatch(/^\s*(delete|merge)\b/im);
   });
 });
 

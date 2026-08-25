@@ -7,6 +7,7 @@ import {
   buildWorkoutFeedbackRecord,
   deliverWorkoutFeedbackToWhatsapp,
   normalizeWorkoutFeedbackPayload,
+  persistWorkoutFeedbackOnce,
 } from "../_shared/student-workout-feedback.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -53,9 +54,18 @@ serve(async (req) => {
     });
 
     // Persist first. WhatsApp is an optional delivery channel, never the source of truth.
-    const { data: savedFeedback, error: feedbackError } = await db.from("workout_feedback").insert(feedbackRecord).select("id").single();
-    if (feedbackError || !savedFeedback) {
-      throw new Error(`Falha ao registrar feedback: ${feedbackError?.message || "registro não retornado"}`);
+    const savedFeedback = await persistWorkoutFeedbackOnce({
+      db,
+      record: feedbackRecord,
+    });
+    if (savedFeedback.duplicate) {
+      return json({
+        ok: true,
+        persisted: true,
+        delivered: false,
+        duplicate: true,
+        feedback_id: savedFeedback.id,
+      });
     }
 
     const { data: enrollment } = await db.from("enrollments")

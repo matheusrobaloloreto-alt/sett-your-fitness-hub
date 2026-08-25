@@ -21,6 +21,12 @@ export function normalizeWhatsAppPhoneKey(value: unknown): string | null {
     digits.startsWith("55") && (digits.length === 12 || digits.length === 13)
   ) {
     digits = digits.slice(2);
+  } else if (/^0\d{2}[1-9]{2}\d{8,9}$/.test(digits)) {
+    // Brazilian carrier prefix: 0 + two-digit carrier + DDD + subscriber.
+    digits = digits.slice(3);
+  } else if (/^0[1-9]{2}\d{8}$/.test(digits)) {
+    // Trunk-prefixed landline: 0 + DDD + eight-digit subscriber.
+    digits = digits.slice(1);
   } else if (digits.length > 11) {
     digits = digits.slice(-11);
   }
