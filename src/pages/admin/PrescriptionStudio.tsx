@@ -36,6 +36,8 @@ import { openStudentChat } from "@/lib/studentChat";
 import { toast } from "sonner";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
+import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
+import { preRegistrationToStudioAnamnesis } from "@/lib/preRegistration";
 import { exerciseThumb, youtubeIdFromUrl } from "@/lib/exerciseCover";
 import { summarizeExerciseWeeklyProgression } from "@/lib/weeklyStrengthPeriodization";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -112,7 +114,7 @@ export default function PrescriptionStudio() {
   const assistantName = aiConfig.assistant_name || "Setty";
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [students, setStudents]   = useState<{ id: string; name: string; email?: string | null }[]>([]);
+  const [students, setStudents]   = useState<{ id: string; name: string; email?: string | null; phone?: string | null; whatsapp?: string | null }[]>([]);
   const [studentId, setStudentId] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
   const [studentPickerOpen, setStudentPickerOpen] = useState(false);
@@ -233,37 +235,60 @@ export default function PrescriptionStudio() {
     (async () => {
       const { data: list } = await supabase
         .from("students")
-        .select("id, full_name, email")
+        .select("id, full_name, email, phone, whatsapp")
         .eq("company_id", effectiveCompanyId)
         .order("full_name");
-      setStudents((list || []).map((s: any) => ({ id: s.id, name: s.full_name, email: s.email })));
+      setStudents((list || []).map((s: any) => ({
+        id: s.id,
+        name: s.full_name,
+        email: s.email,
+        phone: s.phone,
+        whatsapp: s.whatsapp,
+      })));
     })();
   }, [effectiveCompanyId]);
+
+  const student = students.find(s => s.id === studentId);
 
   // ── Carrega anamnese + avaliação ao trocar aluno ────────────────────────
   useEffect(() => {
     if (!studentId) return;
+    let active = true;
     (async () => {
       const { data: a } = await db.from("student_anamneses").select("*").eq("student_id", studentId).maybeSingle();
-      setAnamnese(a);
+      let nextAnamnese = a;
+      if (!nextAnamnese && companyId) {
+        const preRegistration = await loadStudentPreRegistration({
+          studentId,
+          companyId,
+          phone: student?.whatsapp || student?.phone,
+        });
+        if (preRegistration) {
+          nextAnamnese = preRegistrationToStudioAnamnesis(preRegistration, { studentId, companyId });
+        }
+      }
+      if (!active) return;
+      setAnamnese(nextAnamnese);
       // Pré-marca "o que o aluno vai receber" pelas flags da anamnese (já considera nutri/assessoria).
-      if (a) {
+      if (nextAnamnese) {
         const next = new Set<Modality>();
-        if ((a as any).wants_strength !== false) next.add("musculacao");
-        if ((a as any).wants_running) next.add("corrida");
-        if ((a as any).wants_swimming) next.add("natacao");
-        if ((a as any).wants_cycling) next.add("ciclismo");
-        if ((a as any).wants_nutrition) next.add("nutricao");
+        if ((nextAnamnese as any).wants_strength !== false) next.add("musculacao");
+        if ((nextAnamnese as any).wants_running) next.add("corrida");
+        if ((nextAnamnese as any).wants_swimming) next.add("natacao");
+        if ((nextAnamnese as any).wants_cycling) next.add("ciclismo");
+        if ((nextAnamnese as any).wants_nutrition) next.add("nutricao");
         if (next.size) setModalities(next);
       }
       const { data: assess } = await db.from("functional_assessments")
         .select("id, assessment_json, report_text, created_at").eq("student_id", studentId)
         .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (!active) return;
       setAssessment(assess);
       setAssessmentId(assess?.id || null);
       setInviteLink("");
     })();
-  }, [studentId]);
+    return () => { active = false; };
+  }, [studentId, companyId, student?.phone, student?.whatsapp]);
 
   useEffect(() => {
     if (!studentId) {
@@ -316,7 +341,6 @@ export default function PrescriptionStudio() {
     return () => { active = false; };
   }, [studentId]);
 
-  const student = students.find(s => s.id === studentId);
   const filteredStudents = useMemo(() => {
     const q = studentSearch.trim().toLowerCase();
     const matches = q

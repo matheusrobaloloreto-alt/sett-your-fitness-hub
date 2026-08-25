@@ -43,6 +43,8 @@ describe("SETT integration contracts", () => {
   it("passes anamnesis and functional assessment into integrated prescription", () => {
     const studio = source("src/pages/admin/PrescriptionStudio.tsx");
     expect(studio).toMatch(/from\("student_anamneses"\)/);
+    expect(studio).toContain("loadStudentPreRegistration");
+    expect(studio).toContain("preRegistrationToStudioAnamnesis");
     expect(studio).toMatch(/from\("functional_assessments"\)/);
     expect(studio).toContain("assessmentContext");
     expect(studio).toMatch(/anamnese[,:]/);

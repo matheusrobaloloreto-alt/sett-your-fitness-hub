@@ -289,3 +289,161 @@ export function preRegistrationPhoneCandidates(phone: string | null | undefined)
   if (!digits.startsWith("55") && digits.length <= 11) candidates.add(`55${digits}`);
   return [...candidates];
 }
+
+function studioNumberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function studioBool(value: unknown) {
+  return value === true || value === "true" || value === "sim";
+}
+
+function studioArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+  if (typeof value === "string") return value.split(",").map((item) => item.trim()).filter(Boolean);
+  return [];
+}
+
+function studioClean(value: unknown, maxLength = 2000) {
+  return String(value ?? "").replace(/[^\x20-\x7E\u00C0-\u017F\n\r\t]/g, "").slice(0, maxLength).trim();
+}
+
+function studioIncludesAny(values: string[], needles: string[]) {
+  const source = values.join(" ").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return needles.some((needle) => source.includes(needle));
+}
+
+function studioDurationMinutes(value: unknown, directValue?: unknown) {
+  const direct = studioNumberOrNull(directValue);
+  if (direct && direct > 0) return direct;
+  const label = String(value ?? "").toLowerCase();
+  if (label.includes("30") && label.includes("45")) return 45;
+  if (label.includes("45") && label.includes("60")) return 60;
+  if (label.includes("60")) return 60;
+  if (label.includes("45")) return 45;
+  if (label.includes("30")) return 30;
+  return null;
+}
+
+export function preRegistrationToStudioAnamnesis(
+  data: PreRegistrationData,
+  context: { studentId: string; companyId: string | null },
+) {
+  const answers = isPreRegistrationRecord(data.answers) ? data.answers : {};
+  const modalities = [
+    ...studioArray(answers.modalities),
+    ...studioArray(answers.requested_services),
+  ];
+  const strength = answers.interest_strength !== undefined
+    ? studioBool(answers.interest_strength)
+    : studioIncludesAny(modalities, ["musculacao", "musculação", "strength", "funcional", "crossfit"]);
+  const running = answers.interest_running !== undefined
+    ? studioBool(answers.interest_running)
+    : studioIncludesAny(modalities, ["corrida", "running", "triathlon"]);
+  const swimming = answers.interest_swimming !== undefined
+    ? studioBool(answers.interest_swimming)
+    : studioIncludesAny(modalities, ["natacao", "natação", "swimming", "triathlon"]);
+  const cycling = answers.interest_cycling !== undefined
+    ? studioBool(answers.interest_cycling)
+    : studioIncludesAny(modalities, ["bike", "ciclismo", "cycling", "triathlon"]);
+  const nutrition = answers.interest_nutrition === undefined
+    ? studioIncludesAny(modalities, ["nutrition", "nutricao", "nutrição"])
+    : studioBool(answers.interest_nutrition);
+  const endurance = running || swimming || cycling;
+  const equipment = [
+    studioClean(answers.training_location, 160),
+    studioArray(answers.available_equipment).join(", "),
+  ].filter(Boolean).join(" | ");
+  const clinical = [
+    studioClean(answers.injuries),
+    answers.current_pain && `Dor atual: ${studioClean(answers.current_pain)}`,
+    answers.diseases && `Doenças/remédios: ${studioClean(answers.diseases)}`,
+    answers.medical_conditions && `Condições médicas: ${studioClean(answers.medical_conditions)}`,
+    answers.medications && `Medicamentos: ${studioClean(answers.medications)}`,
+  ].filter(Boolean).join(" | ");
+  const cardioNotes = [
+    running && `CORRIDA: ${[answers.run_where && studioClean(answers.run_where, 120), answers.run_best_time && `melhor tempo ${studioClean(answers.run_best_time, 120)}`].filter(Boolean).join(", ") || "detalhes não informados"}`,
+    swimming && `NATAÇÃO: ${[answers.swim_pool && `piscina ${studioClean(answers.swim_pool, 80)}`, answers.swim_level && `nível ${studioClean(answers.swim_level, 80)}`, answers.swim_volume && `volume ${studioClean(answers.swim_volume, 120)}`].filter(Boolean).join(", ") || "detalhes não informados"}`,
+    cycling && `CICLISMO: ${[answers.bike_type && studioClean(answers.bike_type, 80), answers.bike_volume && `volume ${studioClean(answers.bike_volume, 120)}`, answers.bike_ftp && `FTP/potência ${studioClean(answers.bike_ftp, 60)}`].filter(Boolean).join(", ") || "detalhes não informados"}`,
+  ].filter(Boolean);
+  const notes = [
+    "Fonte: pré-cadastro novo",
+    answers.goals && `Metas: ${studioClean(answers.goals)}`,
+    answers.training_days && `Semana de treinos: ${studioClean(answers.training_days)}`,
+    answers.profession && `Profissão/rotina: ${studioClean(answers.profession)}`,
+    answers.sleep_hours && `Horas de sono: ${studioClean(answers.sleep_hours, 80)}`,
+    answers.feel_in_3_months && `Como quer se sentir em 3 meses: ${studioClean(answers.feel_in_3_months)}`,
+    answers.biggest_obstacle && `Maior obstáculo: ${studioClean(answers.biggest_obstacle)}`,
+    ...cardioNotes,
+    data.budgetRange && `Investimento mensal em saúde: ${formatPreRegistrationValue(data.budgetRange)}`,
+    data.preferredContactPeriod && `Melhor horário para contato: ${formatPreRegistrationValue(data.preferredContactPeriod)}`,
+    answers.extra_comments && `Comentários: ${studioClean(answers.extra_comments)}`,
+  ].filter(Boolean).join("\n");
+
+  return {
+    id: null,
+    student_id: context.studentId,
+    company_id: context.companyId,
+    source: `pre_registration_${data.source}`,
+    submitted_at: data.submittedAt,
+    updated_at: data.submittedAt,
+    raw_answers: answers,
+    answers,
+    age: studioNumberOrNull(answers.age),
+    body_fat_percent: studioNumberOrNull(answers.body_fat_percent),
+    objective: studioClean(answers.objective || answers.goals, 300) || null,
+    activity_level: studioClean(answers.activity_level, 120) || null,
+    is_endurance_athlete: endurance || studioIncludesAny(modalities, ["triathlon"]),
+    training_modality: studioClean(modalities.filter((item) => !/^nenhum$/i.test(item)).join(" + ") || "nenhum", 300),
+    days_per_week_strength: strength
+      ? (studioNumberOrNull(answers.days_strength) ?? studioNumberOrNull(answers.available_days))
+      : null,
+    days_per_week_cardio: endurance
+      ? (studioNumberOrNull(answers.days_cardio) ?? studioNumberOrNull(answers.available_days))
+      : null,
+    session_duration_min: strength
+      ? studioDurationMinutes(answers.session_duration, answers.session_duration_min)
+      : endurance
+        ? studioDurationMinutes(answers.endurance_session_duration, answers.endurance_session_duration_min)
+        : studioDurationMinutes(answers.session_duration, answers.session_duration_min),
+    endurance_session_duration_min: endurance
+      ? studioDurationMinutes(answers.endurance_session_duration, answers.endurance_session_duration_min)
+      : null,
+    equipment: studioClean(answers.equipment || equipment, 500) || null,
+    experience_months: studioNumberOrNull(answers.experience_months),
+    sport: running ? "corrida" : swimming ? "natacao" : cycling ? "ciclismo" : null,
+    fcmax: studioNumberOrNull(answers.fcmax),
+    fcrep: studioNumberOrNull(answers.fcrep),
+    current_volume_weekly: studioNumberOrNull(answers.current_volume_weekly),
+    current_volume_unit: answers.current_volume_unit === "hours_week" ? "hours_week" : "km_week",
+    cardio_goal: studioClean(answers.cardio_goal || answers.sport_goal, 300) || null,
+    injuries: clinical || null,
+    food_restrictions: studioClean(answers.food_restrictions || answers.food_preferences, 1000) || null,
+    nutrition_context: studioClean(answers.nutrition_context || answers.nutrition, 4000) || null,
+    budget_food: studioClean(answers.budget_food || "moderado", 80) || null,
+    meals_per_day: studioNumberOrNull(answers.meals_per_day),
+    has_kitchen: answers.has_kitchen === undefined ? true : studioBool(answers.has_kitchen),
+    has_nutritionist: studioBool(answers.has_nutritionist),
+    wants_strength: strength,
+    wants_running: running,
+    wants_swimming: swimming,
+    wants_cycling: cycling,
+    wants_nutrition: nutrition,
+    shown_blocks: [
+      "pré-cadastro",
+      "dados",
+      "objetivo",
+      "treino",
+      "saude",
+      nutrition && "nutricao",
+      strength && "musculacao",
+      running && "corrida",
+      swimming && "natacao",
+      cycling && "ciclismo",
+    ].filter(Boolean),
+    custom_answers: answers.custom_answers,
+    notes,
+  };
+}
