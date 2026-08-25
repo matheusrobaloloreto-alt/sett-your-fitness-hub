@@ -46,6 +46,18 @@ const leadPreRegistration: PreRegistrationData = {
 };
 
 describe("resolveStudioAnamnesis", () => {
+  it("fails closed without a company tenant before reading canonical anamnesis", async () => {
+    const db = { from: vi.fn() };
+
+    await expect(resolveStudioAnamnesis({
+      db,
+      studentId: "student-1",
+      companyId: null,
+      phone: "+5548999999999",
+    })).rejects.toThrow("Empresa não definida");
+    expect(db.from).not.toHaveBeenCalled();
+  });
+
   it("keeps canonical student_anamneses precedence and does not call fallback", async () => {
     const canonical = {
       id: "anamnesis-1",

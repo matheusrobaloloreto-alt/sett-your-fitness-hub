@@ -291,8 +291,13 @@ export default function PrescriptionStudio() {
         }
       } catch (error) {
         if (!active) return;
+        console.error("PrescriptionStudio anamnesis load failed", {
+          studentId,
+          companyId,
+          message: error instanceof Error ? error.message : "unknown error",
+        });
         setAnamnese(null);
-        setAnamneseLoadError(error instanceof Error ? error.message : "Falha ao carregar a anamnese.");
+        setAnamneseLoadError("Falha ao carregar a anamnese. Tente novamente antes de prescrever.");
       } finally {
         if (active) setAnamneseLoading(false);
       }

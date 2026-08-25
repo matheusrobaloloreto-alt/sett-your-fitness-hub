@@ -58,6 +58,8 @@ describe("SETT integration contracts", () => {
     expect(studio).toContain("const [anamneseLoadError, setAnamneseLoadError]");
     expect(studio).toMatch(/setAnamnese\(null\);\s*setAnamneseLoading\(true\);\s*setAnamneseLoadError\(""\)/);
     expect(studio).toContain("catch (error)");
+    expect(studio).toContain('console.error("PrescriptionStudio anamnesis load failed"');
+    expect(studio).toContain("Falha ao carregar a anamnese. Tente novamente antes de prescrever.");
     expect(studio).toContain("if (!active) return;");
     expect(studio).toContain("Carregando anamnese deste aluno");
     expect(studio).toContain("Não foi possível carregar a anamnese");

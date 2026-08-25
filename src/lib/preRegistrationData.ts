@@ -30,9 +30,10 @@ export async function resolveStudioAnamnesis({
   loadPreRegistration = loadStudioPreRegistrationFallback,
 }: ResolveStudioAnamnesisInput): Promise<Record<string, unknown> | null> {
   if (!studentId) return null;
+  if (!companyId) throw new Error("Empresa não definida para carregar anamnese do Studio.");
 
   let query = db.from("student_anamneses").select("*").eq("student_id", studentId);
-  if (companyId) query = query.eq("company_id", companyId);
+  query = query.eq("company_id", companyId);
   const { data: canonical, error } = await query.maybeSingle();
   if (error) {
     throw new Error(error.message || "Falha ao carregar anamnese canônica do aluno.");
