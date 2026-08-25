@@ -220,11 +220,12 @@ Deno.serve(async (req) => {
       remote_jid: string;
       student_id: string | null;
       contact_name: string | null;
+      instance_id: string | null;
     } | null = null;
     if (body.chatId) {
       const { data: chatRow } = await adminClient
         .from("whatsapp_chats")
-        .select("id, remote_jid, student_id, contact_name")
+        .select("id, remote_jid, student_id, contact_name, instance_id")
         .eq("id", body.chatId)
         .eq("company_id", resolvedCompanyId)
         .maybeSingle();
@@ -286,13 +287,41 @@ Deno.serve(async (req) => {
       }, 503);
     }
 
-    // Look up instance_name from whatsapp_instances table
-    const { data: instanceRow, error: instanceLookupError } = await adminClient
+    const outboundActions = new Set(["send-message", "send-media"]);
+    if (
+      outboundActions.has(action) && boundChat && !boundChat.instance_id
+    ) {
+      return json({
+        error: "A conversa não possui uma instância WhatsApp vinculada. Reimporte ou reconecte o contato antes de enviar.",
+        code: "whatsapp_instance_not_connected",
+      }, 409);
+    }
+
+    // Outbound text/media must use the exact connected instance persisted on
+    // the chat. A new conversation is allowed only when the tenant has exactly
+    // one connected instance; maybeSingle fails closed on ambiguous rows.
+    let instanceQuery = adminClient
       .from("whatsapp_instances")
-      .select("id, instance_name")
-      .eq("company_id", resolvedCompanyId)
-      .limit(1)
+      .select("id, instance_name, status")
+      .eq("company_id", resolvedCompanyId);
+    if (outboundActions.has(action)) {
+      instanceQuery = instanceQuery.eq("status", "connected");
+      if (boundChat?.instance_id) {
+        instanceQuery = instanceQuery.eq("id", boundChat.instance_id);
+      }
+    } else {
+      instanceQuery = instanceQuery.limit(1);
+    }
+    const { data: instanceRow, error: instanceLookupError } = await instanceQuery
       .maybeSingle();
+    if (
+      outboundActions.has(action) && (instanceLookupError || !instanceRow)
+    ) {
+      return json({
+        error: "A instância WhatsApp vinculada à conversa não está conectada ou é ambígua.",
+        code: "whatsapp_instance_not_connected",
+      }, 409);
+    }
     if (instanceLookupError) {
       throw new Error(`Failed to load WhatsApp instance: ${instanceLookupError.message}`);
     }
