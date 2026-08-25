@@ -406,6 +406,9 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
   const {
     position: bnitoDrag,
     direction: dragDirection,
+    isDragging: isBnitoDragging,
+    suspendTransition: suspendBnitoTransition,
+    attachDragTarget,
     startDrag,
     consumeDragGesture,
   } = useBenitoDrag();
@@ -430,10 +433,12 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                ref={attachDragTarget}
                 type="button"
                 data-benito-fab="student"
+                data-benito-dragging={isBnitoDragging ? "true" : "false"}
                 aria-label={`Abrir ${name}`}
-                style={{ transform: `translate(${bnitoDrag.x}px, ${bnitoDrag.y}px)`, touchAction: "none" }}
+                style={{ transform: `translate(${bnitoDrag.x}px, ${bnitoDrag.y}px)`, touchAction: "none", transition: suspendBnitoTransition ? "none" : undefined }}
                 onPointerDown={startDrag}
                 onClick={() => {
                   if (!consumeDragGesture()) {

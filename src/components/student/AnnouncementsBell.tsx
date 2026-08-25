@@ -23,7 +23,7 @@ export function AnnouncementsBell({ studentId, companyId }: { studentId: string;
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setUnread(0); }}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" aria-label="Avisos">
+        <Button variant="ghost" size="icon" className="relative h-11 w-11" aria-label="Avisos" title="Avisos">
           <Megaphone className="h-4 w-4" />
           {unread > 0 && (
             <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-card" />

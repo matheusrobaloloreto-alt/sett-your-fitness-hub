@@ -31,6 +31,24 @@ describe("editorial visual primitives", () => {
     expect(screen.getByRole("region", { name: "Ações da página" })).toBeInTheDocument();
   });
 
+  it("keeps compact mobile actions in the first grid row with 44px targets", () => {
+    render(
+      <EditorialPageHeader
+        compactMobile
+        overline="Portal do aluno"
+        title="MEU TREINO"
+        context={<span>Nome completo que não pode ser cortado</span>}
+        actions={<button className="h-11 w-11" aria-label="Sair">Sair</button>}
+      />,
+    );
+
+    const header = screen.getByRole("banner");
+    expect(header).toHaveAttribute("data-mobile-layout", "compact");
+    expect(header).toHaveClass("pl-[max(1rem,env(safe-area-inset-left,0px))]", "pr-[max(1rem,env(safe-area-inset-right,0px))]");
+    expect(screen.getByRole("region", { name: "Ações da página" })).toHaveClass("col-start-2", "row-start-1");
+    expect(screen.getByText("Nome completo que não pode ser cortado").parentElement).toHaveClass("break-words");
+  });
+
   it("renders complete editorial tabs with accessible labels and horizontal overflow", () => {
     render(
       <Tabs defaultValue="overview">

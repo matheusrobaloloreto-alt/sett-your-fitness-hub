@@ -17,7 +17,7 @@ import { WorkoutTimer } from "@/components/student/WorkoutTimer";
 import { WorkoutSummary } from "@/components/student/WorkoutSummary";
 import { ExerciseCard } from "@/components/student/ExerciseCard";
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
-import { MethodBadge } from "@/components/workout/MethodBadge";
+import { StudentMethodGroup } from "@/components/student/StudentMethodGroup";
 import { PeriodizationBanner } from "@/components/student/PeriodizationBanner";
 import { WhySafetyCard } from "@/components/student/WhySafetyCard";
 import { CheckinCard } from "@/components/student/CheckinCard";
@@ -145,7 +145,7 @@ export default function StudentPortal() {
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
-  const [videoModal, setVideoModal] = useState<{ type: "path" | "url" | "loading"; value: string; title: string } | null>(null);
+  const [videoModal, setVideoModal] = useState<{ type: "path" | "url" | "loading" | "unavailable"; value: string; title: string } | null>(null);
   // Feedback pós-treino — persiste no painel; WhatsApp é um canal adicional.
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
@@ -779,14 +779,14 @@ export default function StudentPortal() {
     if (ex.youtube_video_id) { setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${ex.youtube_video_id}`, title: ex.exercise_name }); return; }
     // Sem vídeo gravado → puxa um vídeo do YouTube pelo nome do exercício (resolvido/cacheado no servidor).
     setVideoModal({ type: "loading", value: "", title: ex.exercise_name });
-    const search = () => window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(ex.exercise_name + " execução técnica")}`, "_blank");
+    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(ex.exercise_name + " execução técnica")}`;
     try {
       const { data } = await supabase.functions.invoke("youtube-exercise-video", { body: { exercise_id: ex.exercise_id, name: ex.exercise_name } });
       const vid = (data as any)?.video_id as string | null;
       if (vid) setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${vid}`, title: ex.exercise_name });
-      else { search(); setVideoModal(null); }
+      else setVideoModal({ type: "unavailable", value: searchUrl, title: ex.exercise_name });
     } catch {
-      search(); setVideoModal(null);
+      setVideoModal({ type: "unavailable", value: searchUrl, title: ex.exercise_name });
     }
   };
 
@@ -1038,7 +1038,8 @@ export default function StudentPortal() {
   return (
     <div className="min-h-screen bg-background">
       <EditorialPageHeader
-        className="bg-card px-4 sm:px-6"
+        compactMobile
+        className="bg-card sm:px-6"
         innerClassName="mx-auto max-w-2xl"
         overline="Portal do aluno"
         title={viewTitles[activeView]}
@@ -1249,7 +1250,13 @@ export default function StudentPortal() {
                           onResolveBlockedStart={() => setActiveView("treino")}
                         />
 
-                        <WarmupGuide muscleGroups={selectedWorkout.exercises.map((e) => e.muscle_group)} open={warmupOpen} onOpenChange={setWarmupOpen} />
+                        <WarmupGuide
+                          muscleGroups={selectedWorkout.exercises.map((e) => e.muscle_group)}
+                          exercises={selectedWorkout.exercises}
+                          open={warmupOpen}
+                          onOpenChange={setWarmupOpen}
+                          onVideoPlay={openVideoForExercise}
+                        />
 
                         {/* A4 — resumo inline do treino em andamento (volume / séries / tempo) */}
                         {isSessionForCurrentWorkout && (() => {
@@ -1311,7 +1318,11 @@ export default function StudentPortal() {
                         })()}
 
                         <div className="space-y-2">
-                          {groupWorkoutExercises(selectedWorkout.exercises).map((grp) => {
+                          {(() => {
+                            const workoutGroups = groupWorkoutExercises(selectedWorkout.exercises);
+                            const firstGroupedKey = workoutGroups.find((group) => group.grouping)?.key;
+                            let methodBlockNumber = 0;
+                            return workoutGroups.map((grp) => {
                             const cards = grp.items.map(({ ex, idx }) => (
                             <ExerciseCard
                               key={idx}
@@ -1339,27 +1350,30 @@ export default function StudentPortal() {
                               const rounds = parseInt(String(grp.items[0]?.ex.sets ?? "")) || null;
                               const blockRest = grp.items[grp.items.length - 1]?.ex.rest;
                               const isCircuit = grp.method === "circuito";
+                              methodBlockNumber += 1;
+                              const groupInstruction = grp.items.find(({ ex }) => ex.weekly_instruction?.trim())?.ex.weekly_instruction || meta?.hint;
                               return (
-                                <div key={grp.key} className="space-y-2 rounded-2xl border-2 border-primary/50 bg-primary/5 p-2 shadow-sm">
-                                  <div className="flex flex-wrap items-center gap-2 px-1 pt-1">
-                                    <MethodBadge method={grp.method} tone="primary" />
-                                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                                      {isCircuit && rounds ? `×${rounds} voltas` : `${grp.items.length} exercícios em sequência`}
-                                    </span>
-                                    <span className="text-[11px] leading-tight text-muted-foreground">{meta?.hint}</span>
-                                  </div>
-                                  {cards}
-                                  {blockRest && (
+                                <StudentMethodGroup
+                                  key={grp.key}
+                                  blockName={`Bloco ${methodBlockNumber}`}
+                                  method={grp.method}
+                                  instruction={groupInstruction}
+                                  summary={isCircuit && rounds ? `×${rounds} voltas` : `${grp.items.length} exercícios em sequência`}
+                                  defaultOpen={grp.key === firstGroupedKey}
+                                  footer={blockRest ? (
                                     <div className="flex items-center gap-1.5 px-1 pb-0.5 text-[11px] text-muted-foreground">
                                       <Clock className="h-3 w-3" /> Descanso ao fim do bloco:
                                       <span className="font-medium text-foreground">{blockRest}</span>
                                     </div>
-                                  )}
-                                </div>
+                                  ) : null}
+                                >
+                                  {cards}
+                                </StudentMethodGroup>
                               );
                             }
                             return <Fragment key={grp.key}>{cards}</Fragment>;
-                          })}
+                            });
+                          })()}
                         </div>
 
                         <Button className="w-full" onClick={() => saveCurrentLogs()} disabled={savingLogs}>
@@ -1496,6 +1510,12 @@ export default function StudentPortal() {
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
                     <p className="text-xs text-muted-foreground">Buscando demonstração no YouTube…</p>
                   </div>
+                ) : videoModal.type === "unavailable" ? (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-6 text-center">
+                    <Play className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
+                    <p className="text-sm font-medium text-foreground">Vídeo ainda não disponível no catálogo</p>
+                    <p className="text-xs text-muted-foreground">Você pode buscar uma demonstração externa e confirmar a técnica com a equipe.</p>
+                  </div>
                 ) : videoModal.type === "path" ? (
                   <video src={videoModal.value} controls className="w-full h-full rounded-md" />
                 ) : (
@@ -1506,6 +1526,14 @@ export default function StudentPortal() {
                 <Button variant="outline" size="sm" className="w-full" asChild>
                   <a href={videoModal.value} target="_blank" rel="noreferrer">
                     Abrir vídeo original
+                    <ExternalLink className="ml-2 h-4 w-4" />
+                  </a>
+                </Button>
+              )}
+              {videoModal.type === "unavailable" && (
+                <Button variant="outline" size="sm" className="w-full" asChild>
+                  <a href={videoModal.value} target="_blank" rel="noreferrer">
+                    Buscar demonstração no YouTube
                     <ExternalLink className="ml-2 h-4 w-4" />
                   </a>
                 </Button>

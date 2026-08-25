@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Flame, Timer, Check } from "lucide-react";
+import { Flame, Timer, Check, Play, Search, VideoOff } from "lucide-react";
+import { exerciseThumb } from "@/lib/exerciseCover";
+
+export type WarmupExercise = {
+  exercise_id: string;
+  exercise_name: string;
+  muscle_group: string;
+  video_url?: string | null;
+  video_path?: string | null;
+  youtube_video_id?: string | null;
+  thumbnail_url?: string | null;
+};
 
 // A12 — guia de aquecimento ao abrir o treino: preparo de ~5 min com mobilidade/ativação
 // por grupo muscular do dia. Nada de IA, só boas práticas; o aluno entra preparado.
@@ -35,10 +46,12 @@ function categoriesFor(muscleGroups: string[]): string[] {
   return cats.size ? [...cats] : ["geral"];
 }
 
-export function WarmupGuide({ muscleGroups, open, onOpenChange }: {
+export function WarmupGuide({ muscleGroups, exercises = [], open, onOpenChange, onVideoPlay }: {
   muscleGroups: string[];
+  exercises?: WarmupExercise[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  onVideoPlay?: (exercise: WarmupExercise) => void;
 }) {
   const cats = useMemo(() => categoriesFor(muscleGroups), [muscleGroups]);
   const items = useMemo(() => {
@@ -75,7 +88,7 @@ export function WarmupGuide({ muscleGroups, open, onOpenChange }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-primary">
             <Flame className="h-5 w-5" /> Prepare-se para o treino
@@ -95,7 +108,7 @@ export function WarmupGuide({ muscleGroups, open, onOpenChange }: {
           </Button>
         </div>
 
-        <div className="space-y-1.5 max-h-[46vh] overflow-y-auto">
+        <div className="space-y-1.5 max-h-[32vh] overflow-y-auto">
           {items.map((label, i) => {
             const isDone = done.has(i);
             return (
@@ -120,6 +133,71 @@ export function WarmupGuide({ muscleGroups, open, onOpenChange }: {
             );
           })}
         </div>
+
+        {exercises.length > 0 && (
+          <section aria-labelledby="warmup-exercises-title" className="space-y-2 border-t border-border pt-3">
+            <div>
+              <h3 id="warmup-exercises-title" className="font-sans text-sm font-semibold text-foreground">
+                Exercícios do treino
+              </h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Toque em uma prévia para revisar a execução. O vídeo só carrega quando você escolher.
+              </p>
+            </div>
+            <div className="grid max-h-[34vh] grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
+              {exercises.map((exercise, index) => {
+                const thumbnail = exerciseThumb(exercise);
+                const hasLinkedVideo = Boolean(exercise.video_path || exercise.video_url || exercise.youtube_video_id);
+                const actionLabel = hasLinkedVideo
+                  ? `Assistir demonstração de ${exercise.exercise_name}`
+                  : `Buscar demonstração de ${exercise.exercise_name}`;
+                return (
+                  <button
+                    key={`${exercise.exercise_id || exercise.exercise_name}-${index}`}
+                    type="button"
+                    className="group flex min-h-16 w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    aria-label={actionLabel}
+                    title={actionLabel}
+                    onClick={() => onVideoPlay?.(exercise)}
+                  >
+                    <span className="relative flex h-auto w-24 shrink-0 items-center justify-center overflow-hidden bg-secondary">
+                      {thumbnail ? (
+                        <img
+                          src={thumbnail}
+                          alt={`Prévia de ${exercise.exercise_name}`}
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : hasLinkedVideo ? (
+                        <Play className="h-5 w-5 text-primary" aria-hidden="true" />
+                      ) : (
+                        <VideoOff className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+                      )}
+                      {thumbnail && (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/20">
+                          <Play className="h-5 w-5 text-white drop-shadow" aria-hidden="true" />
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col justify-center px-3 py-2">
+                      <span className="break-words text-xs font-medium leading-snug text-foreground">
+                        {exercise.exercise_name}
+                      </span>
+                      <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                        {hasLinkedVideo ? (
+                          <><Play className="h-3 w-3" aria-hidden="true" /> Assistir demonstração</>
+                        ) : (
+                          <><Search className="h-3 w-3" aria-hidden="true" /> Vídeo ainda não vinculado</>
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         <Button onClick={() => onOpenChange(false)} className="w-full">
           {done.size >= items.length ? "Pronto, bora treinar! 💪" : "Pular aquecimento"}
