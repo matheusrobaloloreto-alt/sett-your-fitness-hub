@@ -52,6 +52,7 @@ function sanitize(s: string): string {
 }
 const asText = (v: any) =>
   sanitize(v == null ? "" : typeof v === "string" ? v : Array.isArray(v) ? v.join(", ") : JSON.stringify(v));
+const studentText = (v: any) => studentFacingEffortText(asText(v));
 
 function W(doc: jsPDF) { return doc.internal.pageSize.getWidth(); }
 function H(doc: jsPDF) { return doc.internal.pageSize.getHeight(); }
@@ -265,13 +266,13 @@ export function generateStrengthPDF(plan: any, meta: PDFMeta): jsPDF {
 export function generateCardioPDF(plan: any, meta: PDFMeta, sportLabel: string): jsPDF {
   const doc = new jsPDF();
   const w = W(doc);
-  header(doc, `Prescrição de ${sportLabel}`, asText(first(plan.plan_name, "Plano de Treino")), meta);
+  header(doc, `Prescrição de ${sportLabel}`, studentText(first(plan.plan_name, "Plano de Treino")), meta);
   let y = 42;
 
   doc.setTextColor(...TEXT); doc.setFont("helvetica", "normal"); doc.setFontSize(9);
   const vol = first(plan.volume_weekly_km, plan.volume_weekly_hours);
   doc.text(
-    `Modelo: ${asText(first(plan.model, "—"))}   ·   Duração: ${asText(first(plan.duration_weeks, "—"))} semanas${vol ? `   ·   Volume: ${asText(vol)}${plan.volume_weekly_km ? " km/sem" : " h/sem"}` : ""}`,
+    `Modelo: ${studentText(first(plan.model, "—"))}   ·   Duração: ${studentText(first(plan.duration_weeks, "—"))} semanas${vol ? `   ·   Volume: ${studentText(vol)}${plan.volume_weekly_km ? " km/sem" : " h/sem"}` : ""}`,
     MARGIN, y);
   y += 8;
 
@@ -295,7 +296,7 @@ export function generateCardioPDF(plan: any, meta: PDFMeta, sportLabel: string):
       doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...NAVY);
       doc.text(zk.toUpperCase(), x + zw / 2, y + 6, { align: "center" });
       doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(...TEXT);
-      doc.text(`${asText(first(zd.min, "—"))}-${asText(first(zd.max, "—"))}`, x + zw / 2, y + 12, { align: "center" });
+      doc.text(`${studentText(first(zd.min, "—"))}-${studentText(first(zd.max, "—"))}`, x + zw / 2, y + 12, { align: "center" });
     });
     y += 22;
   }
@@ -304,9 +305,9 @@ export function generateCardioPDF(plan: any, meta: PDFMeta, sportLabel: string):
   const sc = plan.safety_check;
   if (sc) {
     const parts = [
-      sc.tsb_status ? `TSB: ${asText(sc.tsb_status)}` : "",
-      sc.eva_status ? `EVA: ${asText(sc.eva_status)}` : "",
-      (sc.restrictions && sc.restrictions.length) ? `Restrições: ${asText(sc.restrictions)}` : "",
+      sc.tsb_status ? `TSB: ${studentText(sc.tsb_status)}` : "",
+      sc.eva_status ? `EVA: ${studentText(sc.eva_status)}` : "",
+      (sc.restrictions && sc.restrictions.length) ? `Restrições: ${studentText(sc.restrictions)}` : "",
     ].filter(Boolean).join("   ·   ");
     if (parts) { doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...GRAY); doc.text(parts, MARGIN, y); y += 6; }
   }
@@ -315,28 +316,28 @@ export function generateCardioPDF(plan: any, meta: PDFMeta, sportLabel: string):
   const weeks = plan.weeks;
   if (Array.isArray(weeks) && weeks.length) {
     weeks.forEach((wk: any) => {
-      const wkTitle = `Semana ${asText(first(wk.week_number, "?"))}${wk.type ? " — " + asText(wk.type) : ""}`;
+      const wkTitle = `Semana ${studentText(first(wk.week_number, "?"))}${wk.type ? " — " + studentText(wk.type) : ""}`;
       y = sectionTitle(doc, wkTitle, y);
       const meta2 = [
-        wk.volume_km ? `${asText(wk.volume_km)} km` : (wk.volume_hours ? `${asText(wk.volume_hours)} h` : ""),
-        wk.tss_total_estimado ? `TSS ~${asText(wk.tss_total_estimado)}` : "",
-        wk.focus ? asText(wk.focus) : "",
-        wk.resumo ? asText(wk.resumo) : "",
+        wk.volume_km ? `${studentText(wk.volume_km)} km` : (wk.volume_hours ? `${studentText(wk.volume_hours)} h` : ""),
+        wk.tss_total_estimado ? `TSS ~${studentText(wk.tss_total_estimado)}` : "",
+        wk.focus ? studentText(wk.focus) : "",
+        wk.resumo ? studentText(wk.resumo) : "",
       ].filter(Boolean).join("  ·  ");
       if (meta2) { doc.setFont("helvetica", "italic"); doc.setFontSize(7.5); doc.setTextColor(...GRAY); y = wrapText(doc, meta2, MARGIN + 2, y, w - MARGIN * 2 - 4, 4) + 1; }
       (wk.sessions || []).forEach((s: any) => {
         y = ensure(doc, y, 9);
-        const day = asText(first(s.day, s.dia, ""));
-        const titleS = asText(first(s.title, s.type, s.workout, "Sessão"));
+        const day = studentText(first(s.day, s.dia, ""));
+        const titleS = studentText(first(s.title, s.type, s.workout, "Sessão"));
         doc.setFont("helvetica", "bold"); doc.setFontSize(8.2); doc.setTextColor(...NAVY);
         doc.text(`${day}${day ? " · " : ""}${titleS}`, MARGIN + 2, y);
-        const right = [s.zone ? asText(s.zone) : "", s.total_min ? `${asText(s.total_min)}min` : "", s.distance_km ? `${asText(s.distance_km)}km` : ""].filter(Boolean).join(" · ");
+        const right = [s.zone ? studentText(s.zone) : "", s.total_min ? `${studentText(s.total_min)}min` : "", s.distance_km ? `${studentText(s.distance_km)}km` : ""].filter(Boolean).join(" · ");
         doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...TEXT);
         if (right) doc.text(right, w - MARGIN, y, { align: "right" });
         y += 4.2;
-        const sub = [s.fc_target ? asText(s.fc_target) : "", s.intervals ? asText(s.intervals) : ""].filter(Boolean).join("  ·  ");
+        const sub = [s.fc_target ? studentText(s.fc_target) : "", s.intervals ? studentText(s.intervals) : ""].filter(Boolean).join("  ·  ");
         if (sub) { doc.setFontSize(7); doc.setTextColor(...GRAY); y = wrapText(doc, `↳ ${sub}`, MARGIN + 5, y, w - MARGIN * 2 - 6, 3.8) + 0.6; }
-        if (s.notes) { doc.setFontSize(6.8); doc.setTextColor(...GRAY); y = wrapText(doc, asText(s.notes), MARGIN + 5, y, w - MARGIN * 2 - 6, 3.6) + 0.6; }
+        if (s.notes) { doc.setFontSize(6.8); doc.setTextColor(...GRAY); y = wrapText(doc, studentText(s.notes), MARGIN + 5, y, w - MARGIN * 2 - 6, 3.6) + 0.6; }
       });
       y += 3;
     });
@@ -345,25 +346,25 @@ export function generateCardioPDF(plan: any, meta: PDFMeta, sportLabel: string):
     plan.sample_week.forEach((day: any) => {
       y = ensure(doc, y, 8);
       doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...NAVY);
-      doc.text(asText(first(day.day, day.dia, "")), MARGIN + 2, y);
+      doc.text(studentText(first(day.day, day.dia, "")), MARGIN + 2, y);
       doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...TEXT);
-      y = wrapText(doc, asText(first(day.workout, day.treino, day.description, "Descanso")), MARGIN + 30, y, w - MARGIN * 2 - 32, 4.5) + 3;
+      y = wrapText(doc, studentText(first(day.workout, day.treino, day.description, "Descanso")), MARGIN + 30, y, w - MARGIN * 2 - 32, 4.5) + 3;
     });
   }
 
   // Força complementar
-  const comp = (plan.complementary_strength || []).map(asText).filter(Boolean);
+  const comp = (plan.complementary_strength || []).map(studentText).filter(Boolean);
   if (comp.length) {
     y = sectionTitle(doc, "Força complementar", y);
     comp.forEach((c: string) => { doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...TEXT); y = wrapText(doc, `•  ${c}`, MARGIN + 2, y, w - MARGIN * 2 - 4, 4.2) + 1; });
     y += 2;
   }
 
-  if (plan.nutrition_alert) y = calloutBox(doc, `Nutrição: ${asText(plan.nutrition_alert)}`, y, "info");
+  if (plan.nutrition_alert) y = calloutBox(doc, `Nutrição: ${studentText(plan.nutrition_alert)}`, y, "info");
   if (plan.general_tips) {
     y = sectionTitle(doc, "Orientações gerais", y);
     doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...TEXT);
-    y = wrapText(doc, asText(plan.general_tips), MARGIN + 2, y, w - MARGIN * 2 - 4) + 3;
+    y = wrapText(doc, studentText(plan.general_tips), MARGIN + 2, y, w - MARGIN * 2 - 4) + 3;
   }
 
   y = warningsBlock(doc, plan.warnings, y);
