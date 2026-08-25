@@ -2,6 +2,7 @@ import { planAdvancedMethods, type MethodId } from "./advancedMethods.ts";
 import { DELOAD_RULES } from "./methodology.ts";
 import { normalizeText } from "./presets.ts";
 import { resolveDurationWeeks, shouldHoldProgression } from "./progressionRules.ts";
+import { resolveSequenceNumber } from "./longitudinalRules.ts";
 import { deriveRestrictionRules, exerciseConflictsWithRestrictions } from "./restrictionRules.ts";
 import type {
   PrescriptionInput,
@@ -16,6 +17,7 @@ type PlannedExercise = Omit<TrainingExercise, "method"> & {
   method?: MethodId | null;
   group_id?: string | null;
   method_seconds?: number | null;
+  method_reason?: string | null;
   painful?: boolean;
 };
 
@@ -28,7 +30,7 @@ const METHOD_LABELS: Record<string, string> = {
   biset: "Bi-set",
   superset: "Super-set",
   triset: "Tri-set",
-  giantset: "Giant-set",
+  giantset: "Série gigante",
   circuito: "Circuito técnico",
   dropset: "Drop-set",
   restpause: "Rest-pause",
@@ -39,19 +41,6 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 const PREPARATION_PHASES = new Set([
-  "mobilidade",
-  "autoliberacao",
-  "alongamento",
-  "fisioterapia",
-  "controle_motor",
-  "ativacao_core",
-  "ativacao_especifica",
-]);
-
-// O bloco preparatório inteiro é técnico e de baixa fadiga. Agrupá-lo mantém
-// mobilidade -> controle motor -> core -> ativação específica na ordem BN e
-// evita que mobilidades/fisio virem exercícios soltos no treino do aluno.
-const GROUPABLE_PREPARATION_PHASES = new Set([
   "mobilidade",
   "autoliberacao",
   "alongamento",
@@ -112,33 +101,54 @@ function adjustedSets(exercise: TrainingExercise, rule: WeekRule, input: Prescri
 function methodInstruction(method: MethodId | null | undefined, base: string): string {
   if (method === "biset" || method === "superset") return "Execute em sequência com o exercício que tem a mesma marcação; descanse somente depois do par.";
   if (method === "triset") return "Execute os três exercícios com a mesma marcação em sequência; descanse somente ao concluir a volta.";
+  if (method === "giantset") return "Execute os quatro exercícios com a mesma marcação em sequência; descanse somente ao concluir a série gigante.";
   if (method === "circuito") return "Complete os exercícios com a mesma marcação em circuito técnico, sem pressa e sem chegar à falha.";
   if (method === "dropset") return "Na última série, reduza a carga uma vez e continue com boa técnica, sem descanso.";
   if (method === "restpause") return "Na última série, pause 20 segundos e complete um bloco curto de repetições com técnica limpa.";
   if (method === "cluster") return "Divida a série em blocos curtos, com 15 segundos entre eles; interrompa se a velocidade ou a técnica cair.";
+  if (method === "isometria") return "Mantenha a posição indicada por 20 segundos, respirando e sem deixar a técnica se perder.";
+  if (method === "pico_contracao") return "Segure por 2 segundos no ponto de maior contração em cada repetição, sem compensar.";
+  if (method === "pico_alongamento") return "Segure por 2 segundos no ponto de maior alongamento tolerado, sem dor e sem perder tensão.";
   return base;
 }
 
-function groupPreparationExercises(
-  exercises: PlannedExercise[],
-  sessionKey: string,
-  week: number,
-): PlannedExercise[] {
-  const preparationIndexes = exercises
-    .map((exercise, index) => GROUPABLE_PREPARATION_PHASES.has(exercise.phase) ? index : -1)
-    .filter((index) => index >= 0);
-  if (preparationIndexes.length < 2) return exercises;
+function hasRedFlags(input: PrescriptionInput) {
+  const context = [input.restrictions, input.anamneseContext, input.assessmentContext, input.prescriptionIntegration];
+  return /red flag|bandeira vermelha|desmaio|dor no peito|falta de ar|tontura|febre|perda de forca|formigamento progressivo/i
+    .test(context.map((value) => typeof value === "string" ? value : JSON.stringify(value || {})).join(" "));
+}
 
-  const method: MethodId = preparationIndexes.length >= 4
-    ? "circuito"
-    : preparationIndexes.length === 3
-      ? "triset"
-      : "biset";
-  const grouped = new Set(preparationIndexes);
-  const groupId = `preparo-${sessionKey}-s${week}`;
-  return exercises.map((exercise, index) => grouped.has(index)
-    ? { ...exercise, method, group_id: groupId, method_seconds: null }
-    : exercise);
+function hasHighFatigue(input: PrescriptionInput) {
+  const readiness = normalizeText((input.prescriptionIntegration as { readiness?: { status?: unknown } } | null)?.readiness?.status);
+  if (/baixa|low|cautela|bloque/.test(readiness)) return true;
+  return /fadiga alta|fadiga extrema|exaust|sono ruim|recuperacao ruim|recuperação ruim|overreaching/i
+    .test([input.restrictions, input.notes, input.anamneseContext, input.previousPerformanceContext]
+      .map((value) => typeof value === "string" ? value : JSON.stringify(value || {})).join(" "));
+}
+
+function isExperiencedForFailure(input: PrescriptionInput) {
+  const months = Number(input.experienceMonths);
+  if (Number.isFinite(months) && months > 0) return months >= 12;
+  return resolveLevel(input) !== "iniciante";
+}
+
+function isFailureEligible(exercise: PlannedExercise, input: PrescriptionInput) {
+  const objective = normalizeText(input.objective);
+  const equipment = normalizeText(exercise.equipment || exercise.exercise_name);
+  const name = normalizeText(exercise.exercise_name);
+  const objectiveEligible = /hipertrof|massa|forca|performance|recompos/.test(objective) || !objective;
+  return objectiveEligible
+    && isExperiencedForFailure(input)
+    && !input.deload
+    && !shouldHoldProgression(input)
+    && !hasRedFlags(input)
+    && !hasHighFatigue(input)
+    && !input.isEnduranceAthlete
+    && !input.runningDaysContext
+    && !exercise.painful
+    && exercise.phase === "forca_especifica"
+    && /(maquina|máquina|cabo|polia|cadeira|mesa|flexora|extensora|voador|crucifixo)/.test(equipment)
+    && !/(agachamento|terra|levantamento|good morning|desenvolvimento|clean|snatch|thruster)/.test(name);
 }
 
 function buildSetTypes(
@@ -146,8 +156,8 @@ function buildSetTypes(
   sets: number,
   rule: WeekRule,
   input: PrescriptionInput,
-): Array<"warmup" | "normal" | "failure" | "drop"> {
-  const types: Array<"warmup" | "normal" | "failure" | "drop"> = Array.from(
+): Array<"warmup" | "normal" | "failure"> {
+  const types: Array<"warmup" | "normal" | "failure"> = Array.from(
     { length: Math.max(1, sets) },
     () => "normal",
   );
@@ -157,11 +167,7 @@ function buildSetTypes(
   if (exercise.phase === "forca_global" && types.length > 1) types[0] = "warmup";
   if (safeOnly) return types;
 
-  if (exercise.method === "dropset") {
-    types[types.length - 1] = "drop";
-  } else if (exercise.method === "restpause") {
-    types[types.length - 1] = "failure";
-  } else if (rule.week >= 5 && exercise.phase === "forca_especifica") {
+  if ((exercise.method === "dropset" || exercise.method === "restpause") && isFailureEligible(exercise, input)) {
     types[types.length - 1] = "failure";
   }
   return types;
@@ -184,6 +190,7 @@ function prescriptionForWeek(
     method: exercise.method ?? null,
     group_id: exercise.group_id ?? null,
     method_seconds: exercise.method_seconds ?? null,
+    method_reason: exercise.method_reason ?? null,
     set_types: buildSetTypes(exercise, sets, rule, input),
     instruction: methodInstruction(exercise.method, rule.instruction),
   };
@@ -222,11 +229,18 @@ export function buildWeeklyPeriodization(
             microcycle: rule.block === "intensificacao" ? "choque" : "ordinario",
             week: rule.week,
             hasPain: blocked,
+            hasRedFlags: hasRedFlags(input),
+            fatigueHigh: hasHighFatigue(input),
+            isEnduranceAthlete: Boolean(input.isEnduranceAthlete || input.runningDaysContext),
+            objective: String(input.objective || ""),
+            sequenceNumber: resolveSequenceNumber(input),
+            sessionIndex: workoutIndex + 1,
+            equipment: String(input.equipment || ""),
             sessionKey: `w${workoutIndex + 1}`,
           });
       prescriptions.set(
         rule.week,
-        input.deload ? planned : groupPreparationExercises(planned, `w${workoutIndex + 1}`, rule.week),
+        planned,
       );
     }
 

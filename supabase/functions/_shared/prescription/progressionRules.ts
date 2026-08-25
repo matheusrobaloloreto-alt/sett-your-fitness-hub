@@ -45,14 +45,14 @@ export function buildPeriodizationBlocks(input: PrescriptionInput): Periodizatio
   if (duration === 4) {
     return [
       { weeks: "1-2", stimulus: "adaptacao/base tecnica", methods: ["tempo controlado", "progressao dupla leve"], progression_rule: "Aumentar reps mantendo RIR 3 e técnica limpa." },
-      { weeks: "3-4", stimulus: "progressao conservadora", methods: advancedAllowed ? ["piramide leve em padrao estavel"] : ["sem metodos avancados"], progression_rule: "Subir carga 2-5% apenas se sem dor e sem compensação." },
+      { weeks: "3-4", stimulus: "progressao conservadora", methods: advancedAllowed ? ["pico de contracao ou isometria em acessorio estavel"] : ["sem metodos avancados"], progression_rule: "Subir carga 2-5% apenas se sem dor e sem compensação." },
     ];
   }
 
   return [
     { weeks: PROGRESSION_BLOCKS.base.weeks, stimulus: PROGRESSION_BLOCKS.base.stimulus, methods: [...PROGRESSION_BLOCKS.base.methods], progression_rule: technicalPlyometricsAllowed ? "RIR 3-4. Pliometria técnica de baixo volume, sempre antes da força e sem fadiga. Se a técnica cair, remover." : "RIR 3-4. Se RIR acima do alvo: subir reps; se bateu topo com RIR alvo: subir carga e voltar ao piso. Sem pliometria." },
     { weeks: PROGRESSION_BLOCKS.accumulation.weeks, stimulus: PROGRESSION_BLOCKS.accumulation.stimulus, methods: hold ? ["hold/regress por dor ou técnica"] : [...PROGRESSION_BLOCKS.accumulation.methods], progression_rule: hold ? "RIR 2-3. Dor > 3 ou técnica quebrou: manter/regredir." : "RIR 2-3. Adicionar reps antes de carga; +1 série apenas em exercício estável e sem dor." },
-    { weeks: PROGRESSION_BLOCKS.intensification.weeks, stimulus: PROGRESSION_BLOCKS.intensification.stimulus, methods: advancedAllowed && !hold ? ["up-set ou piramide leve em exercicio estavel"] : ["sem metodos avancados"], progression_rule: hold ? "RIR 2. Manter ou regredir até dor <= 3 e técnica estável." : "RIR 2; método avançado só em exercício estável e sem dor." },
+    { weeks: PROGRESSION_BLOCKS.intensification.weeks, stimulus: PROGRESSION_BLOCKS.intensification.stimulus, methods: advancedAllowed && !hold ? ["bi-set, super-set, tri-set, serie gigante, drop-set, rest-pause ou cluster-set conforme politica"] : ["sem metodos avancados"], progression_rule: hold ? "RIR 2. Manter ou regredir até dor <= 3 e técnica estável." : "RIR 2; método avançado só em exercício estável e sem dor." },
   ];
 }
 

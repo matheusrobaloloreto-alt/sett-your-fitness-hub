@@ -1877,7 +1877,10 @@ export default function PrescriptionStudio() {
                                               Semanas {block.weeks}
                                             </span>
                                             {block.method ? (
-                                              <span className="rounded-full bg-[#1B2B4A] px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                                              <span
+                                                className="rounded-full bg-[#1B2B4A] px-1.5 py-0.5 text-[9px] font-semibold text-white"
+                                                title={block.methodReason ? `Política: ${block.methodReason}` : undefined}
+                                              >
                                                 {block.method}
                                               </span>
                                             ) : (

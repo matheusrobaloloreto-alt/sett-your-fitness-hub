@@ -216,7 +216,7 @@ describe("BN Prescription Engine v1", () => {
     }));
 
     expect(program.methodology_preset.key).toBe("hipertrofia_intermediario");
-    expect(program.weekly_periodization[2].methods).toContain("Rest-pause");
+    expect(program.weekly_periodization[2].methods).toContain("Pico de contração");
     expect(program.weekly_periodization[4].methods).toContain("Bi-set");
     expect(program.validator.pre_save.blockers).toEqual([]);
     expect(program.validator.pre_save.corrections.some((item) => item.code === "removed_advanced_methods")).toBe(false);
@@ -228,7 +228,7 @@ describe("BN Prescription Engine v1", () => {
       painReports: [{ region: "joelho", eva: 0 }],
     }));
 
-    expect(program.weekly_periodization[2].methods).toContain("Rest-pause");
+    expect(program.weekly_periodization[2].methods).toContain("Pico de contração");
     expect(program.progression_protocol.toLowerCase()).not.toContain("hold/regress");
   });
 
@@ -304,8 +304,16 @@ describe("BN Prescription Engine v1", () => {
     }));
 
     expect(program.weekly_periodization[5].methods).toContain("Cluster-set");
-    expect(program.workouts.flatMap((workout) => workout.exercises)
-      .some((exercise) => exercise.weekly_prescription?.some((week) => week.week === 6 && week.method === "cluster"))).toBe(true);
+    const clusterEntries = program.workouts.flatMap((workout) => workout.exercises)
+      .flatMap((exercise) => (exercise.weekly_prescription || [])
+        .filter((week) => week.week === 6 && week.method === "cluster")
+        .map((week) => ({ exercise, week })));
+    expect(clusterEntries.length).toBeGreaterThan(0);
+    expect(clusterEntries.every(({ exercise, week }) =>
+      exercise.phase === "forca_global"
+      && /maquina|máquina|smith|guiad/i.test(`${exercise.equipment || ""} ${exercise.exercise_name}`)
+      && week.set_types?.every((setType) => setType !== "failure")
+    )).toBe(true);
   });
 
   it("bloqueia todos os métodos avançados quando há dor ou aluno iniciante", () => {
@@ -324,6 +332,68 @@ describe("BN Prescription Engine v1", () => {
       expect(program.workouts.flatMap((workout) => workout.exercises)
         .every((exercise) => exercise.weekly_prescription?.every((week) =>
           !week.set_types?.some((setType) => setType === "failure" || setType === "drop")))).toBe(true);
+    }
+  });
+
+  it("emite somente W, Normal e F; Drop-set nunca vira tipo D/drop", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "avancado",
+      experienceMonths: 36,
+      objective: "hipertrofia",
+      blockNumber: 1,
+      daysPerWeek: 4,
+    }));
+    const weekly = program.workouts.flatMap((workout) => workout.exercises)
+      .flatMap((exercise) => exercise.weekly_prescription || []);
+    const setTypes = weekly.flatMap((week) => week.set_types || []);
+    expect(new Set(setTypes).isSubsetOf(new Set(["warmup", "normal", "failure"]))).toBe(true);
+    expect(weekly.some((week) => week.method === "dropset")).toBe(true);
+    expect(weekly.filter((week) => week.method === "dropset")
+      .every((week) => week.set_types?.every((setType) => setType !== "drop"))).toBe(true);
+  });
+
+  it("deriva a rotação do número real do ciclo e mantém a sessão como eixo separado", () => {
+    const cycle1 = generateTrainingProgram(baseInput({
+      fitnessLevel: "avancado",
+      experienceMonths: 36,
+      objective: "hipertrofia",
+      blockNumber: 1,
+      daysPerWeek: 4,
+    }));
+    const cycle2 = generateTrainingProgram(baseInput({
+      fitnessLevel: "avancado",
+      experienceMonths: 36,
+      objective: "hipertrofia",
+      blockNumber: 2,
+      daysPerWeek: 4,
+    }));
+    const firstSessionMethod = (program: ReturnType<typeof generateTrainingProgram>) =>
+      program.workouts[0].exercises
+        .flatMap((exercise) => exercise.weekly_prescription || [])
+        .find((week) => week.week === 3 && week.method)?.method;
+
+    expect(cycle1.engineMeta.sequence_number).toBe(1);
+    expect(cycle2.engineMeta.sequence_number).toBe(2);
+    expect(firstSessionMethod(cycle1)).toBe("pico_contracao");
+    expect(firstSessionMethod(cycle2)).toBe("pico_alongamento");
+  });
+
+  it("limita F à última série elegível e nunca usa F em aquecimento, controle motor ou composto de alto risco", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "avancado",
+      experienceMonths: 36,
+      objective: "hipertrofia",
+      daysPerWeek: 5,
+    }));
+    for (const exercise of program.workouts.flatMap((workout) => workout.exercises)) {
+      for (const week of exercise.weekly_prescription || []) {
+        const failureIndexes = (week.set_types || []).flatMap((type, index) => type === "failure" ? [index] : []);
+        if (failureIndexes.length) {
+          expect(failureIndexes).toEqual([Math.max(0, week.sets - 1)]);
+          expect(exercise.phase).toBe("forca_especifica");
+          expect(exercise.exercise_name).not.toMatch(/agachamento|terra|levantamento|good morning|desenvolvimento/i);
+        }
+      }
     }
   });
 
@@ -581,6 +651,21 @@ describe("BN Prescription Engine v1", () => {
     expect(validation.warnings.some((warning) => warning.code === "deload_with_advanced_method")).toBe(true);
   });
 
+  it("bloqueia payload legado contaminado com drop como tipo de série", () => {
+    const input = baseInput({ fitnessLevel: "avancado" });
+    const contaminated = generateTrainingProgram(input);
+    (contaminated.workouts[0].exercises[0].set_types as unknown as string[]) = ["drop"];
+
+    const validation = validateTrainingProgram({
+      program: contaminated,
+      input,
+      preset: contaminated.methodology_preset.rules,
+      catalog,
+    });
+
+    expect(validation.blockers).toContainEqual(expect.objectContaining({ code: "unsupported_drop_set_type" }));
+  });
+
   it("retorna contrato de saída compatível com Studio/PDF/publicação", () => {
     const program = generateTrainingProgram(baseInput());
 
@@ -588,6 +673,8 @@ describe("BN Prescription Engine v1", () => {
       schemaVersion: "bn-prescription-v1",
       engineMeta: {
         version: "v1",
+        method_policy_version: "sett-strength-methods-v1",
+        set_type_policy_version: "sett-set-types-WNF-v1",
         library_only: true,
         requested_days: 3,
         structured_days: 3,
@@ -619,6 +706,21 @@ describe("BN Prescription Engine v1", () => {
       rest_seconds: expect.any(Number),
       exercise_order: expect.any(Number),
     });
+  });
+
+  it("não declara métodos sem implementação no preset ou nos blocos do plano", () => {
+    const program = generateTrainingProgram(baseInput({
+      fitnessLevel: "avancado",
+      objective: "hipertrofia",
+      daysPerWeek: 5,
+    }));
+    const declared = JSON.stringify({
+      preset: program.methodology_preset.rules.methods_by_block,
+      blocks: program.periodization_blocks,
+    }).toLowerCase();
+
+    expect(declared).not.toMatch(/up-set|upset|pir[aâ]mide|pyramid/);
+    expect(declared).toMatch(/bi-set|super-set|drop-set|rest-pause|cluster-set|pico|isometria|série gigante|serie gigante|tri-set/);
   });
 
   it("seleciona preset de emagrecimento para iniciante sem subir volume agressivo", () => {
@@ -1051,7 +1153,7 @@ describe("BN Prescription Engine v1 — hotfix F1..F4", () => {
   it("F1 — sem dor (clean) NÃO trava nem bloqueia avançado (sem falso positivo)", () => {
     const program = generateTrainingProgram(baseInput({ fitnessLevel: "avancado", objective: "hipertrofia", daysPerWeek: 5 }));
     expect(program.progression_protocol.toLowerCase()).not.toContain("hold/regress");
-    expect(JSON.stringify(program.periodization_blocks).toLowerCase()).toMatch(/up-set|piramide/);
+    expect(JSON.stringify(program.periodization_blocks).toLowerCase()).toMatch(/bi-set|super-set|tri-set|serie gigante|drop-set|rest-pause|cluster-set/);
   });
 
   // F2 — endurance só reduz com freq >=3x e só em MMII; superiores preservados.

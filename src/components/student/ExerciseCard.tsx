@@ -8,7 +8,7 @@ import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { prFeedback } from "@/lib/feedback";
 import { RestTimer } from "./RestTimer";
-import { SET_TYPE_CONFIG, SET_TYPES, getSetLabel, type SetType } from "@/lib/setTypes";
+import { SET_TYPE_CONFIG, normalizeSetType, type SetType } from "@/lib/setTypes";
 import { exerciseThumb } from "@/lib/exerciseCover";
 import { isGroupingMethod } from "@/lib/workoutMethods";
 import { MethodBadge } from "@/components/workout/MethodBadge";
@@ -99,7 +99,7 @@ export function ExerciseCard({
   const getSetDisplayLabel = (setIndex: number) => {
     const key = getLogKey(setIndex + 1);
     const log = logs[key];
-    const type: SetType = (log?.set_type as SetType) || (ex.set_types?.[setIndex] as SetType) || 'normal';
+    const type = normalizeSetType(log?.set_type || ex.set_types?.[setIndex]);
     
     if (type !== 'normal') return SET_TYPE_CONFIG[type].label;
     
@@ -108,7 +108,7 @@ export function ExerciseCard({
     for (let i = 0; i <= setIndex; i++) {
       const k = getLogKey(i + 1);
       const l = logs[k];
-      const t: SetType = (l?.set_type as SetType) || (ex.set_types?.[i] as SetType) || 'normal';
+      const t = normalizeSetType(l?.set_type || ex.set_types?.[i]);
       if (t === 'normal') normalCount++;
     }
     return String(normalCount);
@@ -117,7 +117,7 @@ export function ExerciseCard({
   const getSetType = (setIndex: number): SetType => {
     const key = getLogKey(setIndex + 1);
     const log = logs[key];
-    return (log?.set_type as SetType) || (ex.set_types?.[setIndex] as SetType) || 'normal';
+    return normalizeSetType(log?.set_type || ex.set_types?.[setIndex]);
   };
 
   return (
@@ -251,7 +251,6 @@ export function ExerciseCard({
                             warmup: "Aquecimento: peso leve pra preparar o músculo, sem buscar fadiga.",
                             normal: "Série normal: execução padrão com a carga do dia.",
                             failure: "Até a falha: repita até não conseguir mais nenhuma com boa técnica.",
-                            drop: "Drop-set: ao falhar, reduza a carga e continue sem descanso.",
                           };
                           toast(config.name, { description: d[setType] || "" });
                         }}

@@ -13,7 +13,7 @@ export const METHODOLOGY_PRESETS: Record<string, MethodologyPreset> = {
     methods_by_block: {
       "1-2": ["base tecnica", "tempo controlado"],
       "3-4": ["aumento discreto de series ou carga", "progressao dupla"],
-      "5-6": ["up-set leve apenas em exercicio estavel"],
+      "5-6": ["sem metodos avancados; manter progressao dupla e tecnica"],
     },
   },
   hipertrofia_intermediario: {
@@ -25,8 +25,8 @@ export const METHODOLOGY_PRESETS: Record<string, MethodologyPreset> = {
     weeklySetRange: { min: 10, max: 16 },
     methods_by_block: {
       "1-2": ["volume base", "progressao dupla"],
-      "3-4": ["piramide ou up-set em padroes estaveis"],
-      "5-6": ["drop-set seletivo em isoladores seguros"],
+      "3-4": ["pico de contracao, pico de alongamento ou isometria em acessorio estavel"],
+      "5-6": ["bi-set, super-set, drop-set ou rest-pause conforme seguranca e sessao"],
     },
   },
   emagrecimento: {
@@ -52,7 +52,7 @@ export const METHODOLOGY_PRESETS: Record<string, MethodologyPreset> = {
     methods_by_block: {
       "1-2": ["base tecnica e volume moderado"],
       "3-4": ["progressao de carga ou reps"],
-      "5-6": ["piramide/up-set em exercicios estaveis"],
+      "5-6": ["bi-set, super-set, drop-set ou rest-pause em exercicios estaveis"],
     },
   },
   forca: {

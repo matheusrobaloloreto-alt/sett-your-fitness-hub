@@ -116,7 +116,7 @@ Metodologia BN:
 - Sessao bem montada respeita: mobilidade, ativacao de core, ativacao especifica, controle motor, pliometria quando apropriada, forca global e forca especifica.
 - Bloco inicial e/ou aluno iniciante: evitar excesso de complexidade, falha sistematica, pliometria e cargas axiais agressivas.
 - Periodizacao padrao da prescricao: 6 semanas, com troca de estimulo a cada 2 semanas (1-2, 3-4, 5-6). A troca pode ser series, repeticoes, intensidade, descanso ou metodologia avancada quando segura.
-- Metodos avancados permitidos somente com justificativa: up-set, piramide, cluster-set e drop-set seletivo. Nunca aplicar metodo avancado em padrao doloroso ou instavel.
+- Metodos implementados exigem justificativa e seguranca: Bi-set, Tri-set, Super-set, Serie gigante, Circuito, Drop-set, Rest-pause, Cluster-set, Isometria e Picos de contracao/alongamento. Nunca aplicar em padrao doloroso ou instavel, nem empilhar mais de um metodo na mesma sessao.
 - Dor EVA acima de 3: reduzir amplitude, carga, braco de momento e estresse articular; nao progredir padrao doloroso.
 - Dor no joelho/valgo dinamico: olhar volume de quadriceps, escolha de agachamentos/afundos, controle de quadril, gluteo medio, amplitude e impacto.
 - Lombar instavel/butt wink: reduzir sobrecarga axial e amplitude, priorizar controle lombo-pelvico, mobilidade e variacoes mais estaveis.

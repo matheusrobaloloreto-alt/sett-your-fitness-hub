@@ -18,18 +18,27 @@ function collectExerciseIds(program: TrainingProgram) {
 }
 
 function hasAdvancedMethod(program: TrainingProgram) {
-  return /(drop[- ]?set|cluster[- ]?set|piramide|up[- ]?set|rest[- ]?pause)/.test(normalizeText(program));
+  return /(bi[- ]?set|tri[- ]?set|super[- ]?set|serie gigante|giant[- ]?set|circuito|drop[- ]?set|rest[- ]?pause|cluster[- ]?set|isometria|pico de contracao|pico de alongamento|piramide|up[- ]?set)/.test(normalizeText(program));
 }
 
 function hasStructuredDeloadMethod(program: TrainingProgram) {
   if (program.weekly_periodization.some((week) => week.methods.length > 0)) return true;
   return program.workouts.some((workout) => workout.exercises.some((exercise) => {
     if (exercise.method) return true;
-    if (exercise.set_types?.some((setType) => setType === "failure" || setType === "drop")) return true;
+    if (exercise.set_types?.some((setType) => setType === "failure")) return true;
     return exercise.weekly_prescription?.some((week) =>
-      Boolean(week.method) || week.set_types?.some((setType) => setType === "failure" || setType === "drop")
+      Boolean(week.method) || week.set_types?.some((setType) => setType === "failure")
     );
   }));
+}
+
+function hasLegacyDropSetType(program: TrainingProgram) {
+  return program.workouts.some((workout) => workout.exercises.some((exercise) =>
+    exercise.set_types?.some((setType) => String(setType).toLowerCase() === "drop")
+    || exercise.weekly_prescription?.some((week) =>
+      week.set_types?.some((setType) => String(setType).toLowerCase() === "drop")
+    )
+  ));
 }
 
 function exerciseOnlyText(program: TrainingProgram) {
@@ -69,6 +78,16 @@ export function validateTrainingProgram(args: {
     if (warning.severity === "blocker") blockers.push(warning);
     else warnings.push(warning);
   };
+
+  if (hasLegacyDropSetType(args.program)) {
+    add({
+      severity: "blocker",
+      code: "unsupported_drop_set_type",
+      message: "O payload contém o tipo legado de série drop, que não é executável como set type.",
+      recommendation: "Converter o tipo legado para Normal e representar Drop-set somente no campo method.",
+      source: "metodologia_bn",
+    });
+  }
 
   const validIds = new Set(args.catalog.map((exercise) => exercise.id));
   const ids = collectExerciseIds(args.program);

@@ -23,6 +23,7 @@ import { regionForLibraryGroup, normalizeGender, BODY_REGION_LABELS, type BodyRe
 import { exerciseThumb, youtubeIdFromUrl, EXERCISE_CATEGORIES } from "@/lib/exerciseCover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { groupWorkoutExercises, WORKOUT_METHODS, GROUPING_METHODS, SINGLE_METHODS, isGroupingMethod, methodNeedsSeconds, type MethodId } from "@/lib/workoutMethods";
+import { normalizeSetType, sanitizeSetTypes } from "@/lib/setTypes";
 import { MethodBadge } from "@/components/workout/MethodBadge";
 import { useMaster } from "@/contexts/MasterContext";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
@@ -587,7 +588,7 @@ export default function WorkoutBuilder() {
             rest_seconds: Number.parseInt(exercise.rest, 10) || 0,
             exercise_order: exerciseIndex + 1,
             notes: exercise.notes,
-            set_types: exercise.set_types || [],
+            set_types: sanitizeSetTypes(exercise.set_types) || [],
           })),
         })),
       };
@@ -1100,12 +1101,11 @@ export default function WorkoutBuilder() {
                                     <Label className="text-xs text-muted-foreground font-sans">Tipos de Série</Label>
                                     <div className="flex flex-wrap gap-1.5">
                                       {Array.from({ length: numSets }, (_, s) => {
-                                        const type = currentTypes[s] || 'normal';
+                                        const type = normalizeSetType(currentTypes[s]);
                                         const config: Record<string, { label: string; color: string }> = {
                                           warmup: { label: 'W', color: 'bg-yellow-400/20 text-yellow-400 border-yellow-400/40' },
                                           normal: { label: `${s + 1}`, color: 'bg-muted text-foreground border-border' },
                                           failure: { label: 'F', color: 'bg-red-400/20 text-red-400 border-red-400/40' },
-                                          drop: { label: 'D', color: 'bg-blue-400/20 text-blue-400 border-blue-400/40' },
                                         };
                                         const c = config[type] || config.normal;
                                         return (
@@ -1126,7 +1126,6 @@ export default function WorkoutBuilder() {
                                               <SelectItem value="warmup">W — Aquecimento</SelectItem>
                                               <SelectItem value="normal">Normal</SelectItem>
                                               <SelectItem value="failure">F — Falha</SelectItem>
-                                              <SelectItem value="drop">D — Drop</SelectItem>
                                             </SelectContent>
                                           </Select>
                                         );

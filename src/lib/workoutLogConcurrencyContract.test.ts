@@ -3,6 +3,30 @@ import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 describe("workout log optimistic concurrency", () => {
+  it("narrows the guarded RPC set type schema to W/N/F without changing its security contract", () => {
+    const migration = readFileSync(
+      "supabase/migrations/20260825210000_enforce_workout_set_types_wnf.sql",
+      "utf8",
+    );
+    const fn = migration.slice(migration.indexOf("create or replace function"));
+
+    expect(fn).toContain("create or replace function public.save_workout_logs_if_current(_rows jsonb)");
+    expect(fn).toContain("security definer");
+    expect(fn).toContain("set search_path = public, pg_temp");
+    expect(fn).toContain("item_set_type not in ('warmup', 'normal', 'failure')");
+    expect(fn).not.toContain("item_set_type not in ('warmup', 'normal', 'failure', 'drop')");
+    expect(fn).toContain("for update of w");
+    expect(fn).toContain("tc.student_id = s.id");
+    expect(fn).toContain("tc.company_id = s.company_id");
+    expect(fn).toContain("w.company_id = s.company_id");
+    expect(fn).toContain("owner_user_id is distinct from caller_user_id");
+    expect(fn).toContain("public.is_company_staff(caller_user_id, owner_company_id)");
+    expect(fn).toContain("revoke all on function public.save_workout_logs_if_current(jsonb) from public, anon");
+    expect(fn).toContain("grant execute on function public.save_workout_logs_if_current(jsonb) to authenticated, service_role");
+    const beforeFunction = migration.slice(0, migration.indexOf("create or replace function"));
+    expect(beforeFunction).not.toMatch(/alter table|create table|drop table|update\s|delete\s|insert\s/i);
+  });
+
   it("resolves the payload alias deterministically in the deployed PL/pgSQL function", () => {
     const hotfix = readFileSync(
       "supabase/migrations/20260825173000_fix_workout_log_payload_alias.sql",

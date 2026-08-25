@@ -99,5 +99,6 @@ describe("prescription integration", () => {
     expect(orchestration.source_summary).toMatch(/valgo/i);
     expect(orchestration.synchronization_rules)
       .toContain("Todas as IAs recebem o mesmo resultado integrado de anamnese + avaliacao funcional.");
+    expect(JSON.stringify(orchestration.blocks).toLowerCase()).not.toMatch(/up-set|upset|pir[aâ]mide|pyramid/);
   });
 });

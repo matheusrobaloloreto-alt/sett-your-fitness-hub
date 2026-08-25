@@ -4,6 +4,7 @@ import {
   MESOCYCLES,
   weeksBetweenDates,
 } from "@/lib/periodization";
+import { sanitizeSetTypes } from "@/lib/setTypes";
 
 export interface StoredWeeklyExercisePrescription {
   week: number;
@@ -16,6 +17,7 @@ export interface StoredWeeklyExercisePrescription {
   method?: string | null;
   group_id?: string | null;
   method_seconds?: number | null;
+  method_reason?: string | null;
   set_types?: string[];
   instruction?: string;
 }
@@ -28,6 +30,7 @@ export interface WeeklyAwareExercise {
   method?: string | null;
   group_id?: string | null;
   method_seconds?: number | null;
+  method_reason?: string | null;
   set_types?: string[];
   weekly_prescription?: StoredWeeklyExercisePrescription[];
   tempo?: string | null;
@@ -73,6 +76,7 @@ export interface WeeklyProgressionSummary {
   tempo: string;
   rir: string;
   method: string | null;
+  methodReason: string | null;
   instruction: string;
 }
 
@@ -80,7 +84,7 @@ const METHOD_LABELS: Record<string, string> = {
   biset: "Bi-set",
   superset: "Super-set",
   triset: "Tri-set",
-  giantset: "Giant-set",
+  giantset: "Série gigante",
   circuito: "Circuito",
   dropset: "Drop-set",
   restpause: "Rest-pause",
@@ -182,6 +186,9 @@ export function summarizeExerciseWeeklyProgression(
       .filter((item) => item.method)
       .map((item) => item.instruction)
       .filter(Boolean);
+    const methodReasons = [...new Set(period
+      .map((item) => item.method_reason)
+      .filter((reason): reason is string => Boolean(reason)))];
 
     return [{
       weeks: `${start}-${Math.min(end, period.at(-1)?.week || end)}`,
@@ -189,6 +196,7 @@ export function summarizeExerciseWeeklyProgression(
       tempo: compactPair(period.map((item) => item.tempo)),
       rir: compactPair(period.map((item) => item.rir)),
       method: methods.length ? methods.join(" + ") : null,
+      methodReason: methodReasons.length ? methodReasons.join(" + ") : null,
       instruction: instructions.at(-1) || period.at(-1)?.instruction || "Siga os parâmetros do bloco.",
     }];
   });
@@ -297,7 +305,8 @@ export function resolveExerciseForWeek<T extends WeeklyAwareExercise>(exercise: 
     method: prescription.method ?? null,
     group_id: prescription.group_id ?? null,
     method_seconds: prescription.method_seconds ?? null,
-    set_types: Array.isArray(prescription.set_types) ? prescription.set_types : exercise.set_types,
+    method_reason: prescription.method_reason ?? null,
+    set_types: sanitizeSetTypes(prescription.set_types) ?? sanitizeSetTypes(exercise.set_types),
     tempo: prescription.tempo || null,
     rir: prescription.rir || null,
     weekly_instruction: prescription.instruction || null,

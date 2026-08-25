@@ -276,12 +276,12 @@ export function buildBnitoOrchestrationPlan(integration: PrescriptionIntegration
         name: "Progressao de estimulo",
         strength_stimulus: cautiousLoad
           ? "progressao leve de volume ou densidade sem falha e sem padrao doloroso"
-          : "progressao de volume/intensidade com piramide, up-set ou cluster leve em exercicios seguros",
+          : "progressao de volume/intensidade com picos de contracao/alongamento ou isometria em exercicios seguros",
         running_stimulus: isEndurance
           ? "manter predominio Z2 e inserir qualidade moderada se nao conflitar com MMII"
           : "cardio moderado conforme objetivo estetico ou saude",
         nutrition_focus: "carb cycling simples: mais carboidrato nos dias de maior carga e menos nos descansos",
-        advanced_methods: cautiousLoad ? ["up-set tecnico opcional"] : ["up-set", "piramide crescente", "cluster-set conservador"],
+        advanced_methods: cautiousLoad ? ["sem metodos avancados enquanto houver cautela"] : ["pico de contracao", "pico de alongamento", "isometria"],
         safety_gate: "se sono/estresse piorarem ou dor subir, manter bloco 1 e reduzir 10-20% do volume",
       },
       {
@@ -290,12 +290,12 @@ export function buildBnitoOrchestrationPlan(integration: PrescriptionIntegration
         name: "Consolidacao e refinamento",
         strength_stimulus: cautiousLoad
           ? "consolidar padroes, testar progresso sem carga maxima e preparar nova avaliacao"
-          : "estimulo final do ciclo com drop-set seletivo, cluster-set ou piramide apenas em exercicios estaveis",
+          : "estimulo final do ciclo com agrupamentos seguros, drop-set, rest-pause ou cluster-set conforme objetivo",
         running_stimulus: isEndurance
           ? "consolidar volume e qualidade sem exceder recuperacao; semana 6 pode reduzir carga para fechar o ciclo"
           : "ajustar cardio para preservar objetivo principal",
         nutrition_focus: "refinar timing pre/intra/pos-treino e plano de recuperacao para fechar o ciclo",
-        advanced_methods: cautiousLoad ? ["piramide leve se tecnica estiver estavel"] : ["drop-set seletivo", "cluster-set", "piramide", "up-set"],
+        advanced_methods: cautiousLoad ? ["sem metodos avancados enquanto houver cautela"] : ["bi-set", "super-set", "tri-set", "serie gigante", "circuito", "drop-set", "rest-pause", "cluster-set"],
         safety_gate: "sem falha sistematica; liberar novo ciclo apenas com feedback, logs e reavaliacao do professor",
       },
     ],

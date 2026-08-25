@@ -364,7 +364,7 @@ function validatePrescription(args: {
     });
   }
 
-  if ((levelText.includes("inic") || painActive) && /(drop[- ]?set|cluster[- ]?set|piramide|up[- ]?set|rest[- ]?pause)/.test(text)) {
+  if ((levelText.includes("inic") || painActive) && /(bi[- ]?set|tri[- ]?set|super[- ]?set|serie gigante|giant[- ]?set|circuito|drop[- ]?set|rest[- ]?pause|cluster[- ]?set|isometria|pico de contracao|pico de alongamento|piramide|up[- ]?set)/.test(text)) {
     add({
       severity: "warning",
       code: "advanced_method_risky",

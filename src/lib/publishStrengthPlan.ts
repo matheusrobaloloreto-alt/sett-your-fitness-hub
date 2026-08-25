@@ -8,6 +8,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts, hasWorkoutExercises } from "@/lib/workoutPresence";
+import { sanitizeSetTypes } from "@/lib/setTypes";
 
 // Formato que o app do aluno (StudentPortal/StudentWorkout) consome em workouts.exercises[].
 export interface StudentWorkoutExercise {
@@ -22,6 +23,7 @@ export interface StudentWorkoutExercise {
   method?: string | null;
   group_id?: string | null;
   method_seconds?: number | null;
+  method_reason?: string | null;
   weekly_prescription?: Array<{
     week: number;
     block: string;
@@ -33,6 +35,7 @@ export interface StudentWorkoutExercise {
     method?: string | null;
     group_id?: string | null;
     method_seconds?: number | null;
+    method_reason?: string | null;
     set_types?: string[];
     instruction: string;
   }>;
@@ -76,11 +79,13 @@ export function mapStrengthExercise(e: any): StudentWorkoutExercise {
     reps: e?.reps != null ? String(e.reps) : "",
     rest: restSeconds != null && restSeconds !== "" ? `${restSeconds}s` : (e?.rest != null ? String(e.rest) : ""),
     notes: [e?.notes, (e?.cues && String(e.cues).trim()) || e?.biomechanical_note].filter(Boolean).join("\n"),
-    set_types: Array.isArray(e?.set_types) ? e.set_types : undefined,
     method: e?.method ?? null,
     group_id: e?.group_id ?? null,
     method_seconds: e?.method_seconds ?? null,
   };
+  const setTypes = sanitizeSetTypes(e?.set_types);
+  if (setTypes) mapped.set_types = setTypes;
+  if (e?.method_reason != null) mapped.method_reason = e.method_reason;
   if (Array.isArray(e?.weekly_prescription)) {
     mapped.weekly_prescription = e.weekly_prescription
       .filter((week: any) => Number(week?.week) > 0)
@@ -95,7 +100,8 @@ export function mapStrengthExercise(e: any): StudentWorkoutExercise {
         method: week.method ?? null,
         group_id: week.group_id ?? null,
         method_seconds: week.method_seconds ?? null,
-        set_types: Array.isArray(week.set_types) ? week.set_types : undefined,
+        method_reason: week.method_reason ?? null,
+        set_types: sanitizeSetTypes(week.set_types),
         instruction: String(week.instruction || ""),
       }));
   }

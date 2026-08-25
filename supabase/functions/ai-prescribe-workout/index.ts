@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertBundleAccess, assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
-import { planAdvancedMethods } from "../_shared/prescription/advancedMethods.ts";
 import { buildPrescriptionInputFromEdgePayload } from "../_shared/prescription/adapters/inputAdapter.ts";
 import { adaptTrainingProgramForAiStrengthPlan } from "../_shared/prescription/adapters/outputAdapter.ts";
 import { generateTrainingProgram } from "../_shared/prescription/engine.ts";
@@ -134,7 +133,7 @@ const METHODOLOGY_PRESETS = {
     methods_by_block: {
       "1-2": ["base tecnica", "tempo controlado"],
       "3-4": ["aumento discreto de series ou carga", "progressao dupla"],
-      "5-6": ["up-set leve apenas em exercicio estavel"],
+      "5-6": ["sem metodos avancados; manter progressao dupla e tecnica"],
     },
   },
   hipertrofia_intermediario: {
@@ -144,8 +143,8 @@ const METHODOLOGY_PRESETS = {
     rir: "1-3",
     methods_by_block: {
       "1-2": ["volume base", "progressao dupla"],
-      "3-4": ["piramide ou up-set em padroes estaveis"],
-      "5-6": ["drop-set seletivo em isoladores seguros"],
+      "3-4": ["pico de contracao, pico de alongamento ou isometria em acessorio estavel"],
+      "5-6": ["bi-set, super-set, drop-set ou rest-pause conforme seguranca e sessao"],
     },
   },
   emagrecimento: {
@@ -167,7 +166,7 @@ const METHODOLOGY_PRESETS = {
     methods_by_block: {
       "1-2": ["base tecnica e volume moderado"],
       "3-4": ["progressao de carga ou reps"],
-      "5-6": ["piramide/up-set em exercicios estaveis"],
+      "5-6": ["bi-set, super-set, drop-set ou rest-pause em exercicios estaveis"],
     },
   },
   forca: {
@@ -553,7 +552,7 @@ function buildVolumeSummary(plan: unknown, catalog: ExerciseCatalog) {
 
 function hasAdvancedMethod(plan: unknown) {
   const text = normalizeText(plan);
-  return /(drop[- ]?set|cluster[- ]?set|piramide|up[- ]?set|rest[- ]?pause|bi[- ]?set|tri[- ]?set)/.test(text);
+  return /(bi[- ]?set|tri[- ]?set|super[- ]?set|serie gigante|giant[- ]?set|circuito|drop[- ]?set|rest[- ]?pause|cluster[- ]?set|isometria|pico de contracao|pico de alongamento|piramide|up[- ]?set)/.test(text);
 }
 
 function collectPlanExercises(plan: unknown) {
@@ -859,70 +858,25 @@ type FallbackExerciseSpec = {
   tempo?: string;
 };
 
-// Troca de estímulo a cada 2 semanas — instruções ESPECÍFICAS e acionáveis por tipo de exercício.
-const METHOD_LABEL: Record<string, string> = { dropset: "drop-set", restpause: "rest-pause", cluster: "cluster-set" };
-
-// Método do isolador varia por objetivo + ordem (mais variedade; tudo com badge explicado no app).
-function isoMethodFor(objective: string, order: number): string {
-  const o = (objective || "").toLowerCase();
-  if (o.includes("emagre") || o.includes("perda")) return "dropset";          // densidade/metabólico
-  if (o.includes("perfor")) return order % 2 === 0 ? "cluster" : "restpause";  // qualidade com carga
-  return ["dropset", "restpause", "cluster"][order % 3];                        // hipertrofia/saúde: varia
-}
-
-// Progressão inter-blocos POR OBJETIVO (usada nos periodization_blocks do fallback).
-function progressionBlocksFor(objective: string) {
-  const o = (objective || "").toLowerCase();
-  if (o.includes("emagre") || o.includes("perda")) {
-    return [
-      { weeks: "1-2", stimulus: "base tecnica e ritmo constante", methods: ["sem metodos avancados"], progression_rule: "Aprender os movimentos mantendo RIR 3-4, dor <= 3 e descanso completo." },
-      { weeks: "3-4", stimulus: "densidade metabolica", methods: ["reducao de descanso", "drop-set em isoladores"], progression_rule: "Manter cargas e REDUZIR descanso gradualmente (ate ~45s nas fases de forca)." },
-      { weeks: "5-6", stimulus: "densidade consolidada", methods: ["drop-set em isoladores"], progression_rule: "Progredir carga leve SEM alongar o descanso; preparar reavaliacao." },
-    ];
-  }
-  if (o.includes("perfor") || o.includes("forca") || o.includes("força")) {
-    return [
-      { weeks: "1-2", stimulus: "base tecnica com intencao de velocidade", methods: ["sem metodos avancados"], progression_rule: "Tecnica limpa e subida rapida controlada, RIR 3-4." },
-      { weeks: "3-4", stimulus: "forca — carga sobe, reps caem", methods: ["cluster/rest-pause em estaveis"], progression_rule: "Aumentar carga e reduzir reps (ex.: 8-10 -> 5-6) mantendo RIR 2-3." },
-      { weeks: "5-6", stimulus: "forca consolidada", methods: ["cluster em compostos estaveis (avancado)"], progression_rule: "Cargas altas em baixas repeticoes, sem falha; preparar reavaliacao." },
-    ];
-  }
-  if (o.includes("hipertrofia") || o.includes("massa")) {
-    return [
-      { weeks: "1-2", stimulus: "base tecnica e conexao muscular", methods: ["sem metodos avancados"], progression_rule: "Amplitude completa e controle exc, RIR 3-4, dor <= 3." },
-      { weeks: "3-4", stimulus: "acumulo de volume", methods: ["progressao dupla", "metodos de intensidade em isoladores"], progression_rule: "Progressao DUPLA: primeiro reps ate o teto da faixa, depois carga." },
-      { weeks: "5-6", stimulus: "intensificacao controlada", methods: ["piramide em compostos", "drop/rest-pause/cluster em isoladores"], progression_rule: "Piramide crescente nos compostos; consolidar e preparar reavaliacao." },
-    ];
-  }
+// O fallback de último recurso não tem o contexto semanal completo do motor moderno.
+// Portanto ele falha conservador: séries retas e nenhum método avançado declarado.
+function progressionBlocksFor(_objective: string) {
   return [
     { weeks: "1-2", stimulus: "base tecnica e tolerancia", methods: ["sem metodos avancados"], progression_rule: "Aumentar reps dentro da faixa mantendo RIR 3-4 e dor <= 3." },
-    { weeks: "3-4", stimulus: "progressao conservadora", methods: ["progressao dupla"], progression_rule: "Aumentar 1 serie em exercicios estaveis ou carga leve se tecnica estiver limpa." },
-    { weeks: "5-6", stimulus: "consolidacao", methods: ["piramide leve apenas se tecnica estavel"], progression_rule: "Consolidar cargas, sem falha, e preparar reavaliacao." },
+    { weeks: "3-4", stimulus: "progressao conservadora", methods: ["sem metodos avancados"], progression_rule: "Aumentar repeticoes antes da carga se a tecnica estiver limpa." },
+    { weeks: "5-6", stimulus: "consolidacao", methods: ["sem metodos avancados"], progression_rule: "Consolidar cargas, sem falha, e preparar reavaliacao." },
   ];
 }
 
 // Troca de estímulo a cada 2 semanas, específica por TIPO de exercício e por OBJETIVO.
-function blockNote(phase: string, isIso: boolean, objective: string, method: string | null): string {
+function blockNote(phase: string, _isIso: boolean, objective: string, _method: string | null): string {
   const o = (objective || "").toLowerCase();
   const emagre = o.includes("emagre") || o.includes("perda");
   const perf = o.includes("perfor");
   if (phase === "forca_global" || phase === "forca_especifica") {
-    if (!isIso && method) {
-      // Composto estável com cluster (avançado): instrução explícita e segura.
-      return `semana 1 e 2: foco na técnica e na amplitude completa\nsemana 3 e 4: cluster-set — divida a série em mini-blocos com 15-20s de pausa (veja o marcador)\nsemana 5 e 6: progredir a carga mantendo a técnica, sem falha`;
-    }
-    if (isIso) {
-      const lbl = method ? (METHOD_LABEL[method] || method) : "uma técnica de intensidade";
-      const wk34 = emagre
-        ? `reduza o descanso e faça 1 ${lbl} na última série`
-        : perf
-        ? `1 ${lbl} mantendo a qualidade de cada repetição`
-        : `1 ${lbl} na última série (veja o que é no marcador)`;
-      return `semana 1 e 2: foco na execução e conexão muscular\nsemana 3 e 4: ${wk34}\nsemana 5 e 6: progredir a carga e a intensidade`;
-    }
     if (emagre) return "semana 1 e 2: foco na técnica e no ritmo constante\nsemana 3 e 4: reduza o descanso (até ~45s) mantendo a carga\nsemana 5 e 6: progredir a carga sem perder o ritmo";
     if (perf) return "semana 1 e 2: foco na técnica e na velocidade da subida\nsemana 3 e 4: aumentar a carga e baixar as reps (força)\nsemana 5 e 6: cargas altas em baixas repetições, com técnica";
-    return "semana 1 e 2: foco na técnica e na amplitude completa\nsemana 3 e 4: pirâmide crescente — suba a carga e baixe as reps a cada série\nsemana 5 e 6: progredir a carga mantendo a técnica";
+    return "semana 1 e 2: foco na técnica e na amplitude completa\nsemana 3 e 4: aumentar repeticoes antes da carga\nsemana 5 e 6: progredir a carga mantendo a técnica";
   }
   return "semana 1 e 2: aprender o movimento — cadência 2-0-2\nsemana 3 e 4: cadência 3-1-3 (3s descer, 1s pausa, 3s subir)\nsemana 5 e 6: cadência 4-2-4 com amplitude total";
 }
@@ -939,18 +893,9 @@ function fallbackExercise(
   if (!exercise) return null;
   usedIds.add(exercise.id);
   const isIso = params.phase === "forca_especifica" || params.phase === "ativacao_especifica";
-  const pain = /dor|lesa|les[aã]o/i.test(riskText || "");
-  // Isolador: método varia por objetivo (todos os níveis, sem dor).
-  // Composto ESTÁVEL: cluster só para AVANÇADO sem dor, no 2º composto em diante (nunca no 1º pesado)
-  // — doutrina: método avançado só em exercício estável, sem dor e nível permitido; entra na semana 3+ (blockNote).
-  const isCompound = params.phase === "forca_global";
-  const isoMethod = (isIso && !pain) ? isoMethodFor(objective, params.order || 1)
-    : (isCompound && !pain && level === "avancado" && params.order >= 4) ? "cluster"
-    : null;
   const setsN = params.sets;
   const set_types = Array.from({ length: setsN }, (_, i) => {
-    if (!isIso && i === 0 && setsN >= 3) return "warmup";          // 1ª série dos compostos = aquecimento
-    if (isIso && setsN >= 2 && i === setsN - 1) return "failure";  // última do isolador = até a falha
+    if (params.phase === "forca_global" && i === 0 && setsN >= 3) return "warmup";
     return "normal";
   });
   return {
@@ -969,12 +914,12 @@ function fallbackExercise(
     exercise_order: params.order,
     set_types,
     is_isolation: isIso,
-    method: isoMethod,
+    method: null,
     group_id: null,
     method_seconds: null,
     cues: params.cue,
     biomechanical_note: params.note,
-    notes: blockNote(params.phase, isIso, objective, isoMethod),
+    notes: blockNote(params.phase, isIso, objective, null),
     regression: exercise.regressions[0] || "Reduzir amplitude/carga e manter dor <= 3.",
     progression: exercise.progressions[0] || "Progredir reps antes de carga, mantendo técnica.",
   };
@@ -1550,7 +1495,7 @@ INSTRUÇÕES:
 3. O ciclo deve ter EXATAMENTE 6 semanas, dividido em semanas 1-2, 3-4 e 5-6.
 4. Troque o estimulo a cada 2 semanas: series, repeticoes, intensidade, descanso ou metodo.
 5. Siga o PRESET BN OBRIGATORIO: ele define faixa de volume, reps/RIR e metodos por bloco.
-6. Metodos avancados permitidos somente se coerentes com nivel/risco: up-set, piramide, cluster-set e drop-set seletivo. Nunca use metodo avancado em padrao doloroso ou instavel.
+6. Metodos implementados: Bi-set, Tri-set, Super-set, Serie gigante, Circuito, Drop-set, Rest-pause, Cluster-set, Isometria, Pico de contracao e Pico de alongamento. Emita no maximo um metodo por sessao, somente se coerente com fase, objetivo, nivel, equipamento e seguranca; nunca em padrao doloroso ou instavel.
 7. Siga obrigatoriamente a estrutura de 7 etapas em CADA sessão.
 8. Pliometria apenas se block_number >= 2 E criterios_progressao_bn/liberações do resultado integrado permitirem.
 9. Inclua cues técnicos específicos baseados nas falhas do OHS e nos riscos da anamnese.

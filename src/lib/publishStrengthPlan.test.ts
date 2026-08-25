@@ -60,6 +60,8 @@ describe("mapStrengthExercise", () => {
           method: "biset",
           group_id: "m5_1",
           method_seconds: null,
+          method_reason: "selected_safe_pair",
+          set_types: ["normal", "normal", "normal"],
           instruction: "Execute o par em sequência.",
         },
       ],
@@ -72,8 +74,36 @@ describe("mapStrengthExercise", () => {
         tempo: "2010",
         method: "biset",
         group_id: "m5_1",
+        method_reason: "selected_safe_pair",
+        set_types: ["normal", "normal", "normal"],
       }),
     ]);
+  });
+
+  it("normaliza payload legado e nunca publica drop como tipo de série", () => {
+    const out = mapStrengthExercise({
+      exercise_id: "legacy",
+      exercise_name: "Cadeira Extensora",
+      sets: 3,
+      reps: "12",
+      set_types: ["warmup", "normal", "drop"],
+      method: "dropset",
+      weekly_prescription: [{
+        week: 4,
+        block: "acumulacao",
+        sets: 3,
+        reps: "12",
+        rir: "2",
+        rest_seconds: 60,
+        tempo: "2010",
+        method: "dropset",
+        set_types: ["normal", "normal", "drop"],
+        instruction: "Drop-set na última série.",
+      }],
+    });
+    expect(out.method).toBe("dropset");
+    expect(out.set_types).toEqual(["warmup", "normal", "normal"]);
+    expect(out.weekly_prescription?.[0].set_types).toEqual(["normal", "normal", "normal"]);
   });
 });
 

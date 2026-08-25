@@ -23,18 +23,21 @@ export type MethodId =
 
 export const GROUPING_METHODS: MethodId[] = ["biset", "triset", "superset", "giantset", "circuito"];
 export const SINGLE_METHODS: MethodId[] = ["dropset", "restpause", "cluster", "isometria", "pico_contracao", "pico_alongamento"];
+export const ALL_METHOD_IDS: MethodId[] = [...GROUPING_METHODS, ...SINGLE_METHODS];
 
 export interface MethodAwareExercise {
   exercise_id?: string | null;
   exercise_name?: string | null;
   muscle_group?: string | null;
   phase?: string | null;
+  equipment?: string | null;
   is_isolation?: boolean;      // isolador (preferível p/ métodos) vs composto pesado
   painful?: boolean;           // dor/restrição → nunca aplicar
   // saída:
   method?: MethodId | null;
   group_id?: string | null;
   method_seconds?: number | null;
+  method_reason?: string | null;
 }
 
 export interface AdvancedMethodCtx {
@@ -45,13 +48,21 @@ export interface AdvancedMethodCtx {
   microcycle?: "ordinario" | "choque" | "regenerativo"; // default "ordinario"
   week?: number;                                         // 1-based; default 1 (bloco 0)
   hasPain?: boolean;                                     // dor relevante → conservador (nenhum método)
+  hasRedFlags?: boolean;
+  fatigueHigh?: boolean;
+  isEnduranceAthlete?: boolean;
+  objective?: string | null;
+  sequenceNumber?: number | string | null;
+  sessionIndex?: number | string | null;
+  equipment?: string | null;
   sessionKey?: string;                                   // ex.: workout_id/dia — evita colisão de group_id entre sessões
   groupIdFor?: (i: number) => string;                    // override do gerador de id (sem random)
 }
 
 // Heurística simples de isolador quando o motor não marca is_isolation.
 const COMPOUND_RE = /(agachamento|terra|levantamento|supino|desenvolvimento|remada|barra fixa|leg press|stiff|avanço|afundo|clean|snatch|push press|thruster)/i;
-const HEAVY_COMPOUND_RE = /(agachamento|terra|levantamento|leg press|hack|stiff|clean|snatch|push press|thruster)/i;
+const HIGH_RISK_RE = /(agachamento|terra|levantamento|good morning|clean|snatch|push press|thruster|stiff pesado|livre profundo)/i;
+const UNSTABLE_EQUIPMENT_RE = /(bosu|bola|instavel|instável|suspensao|suspensão)/i;
 function normalizeGroup(value: unknown): string {
   return String(value || "")
     .normalize("NFD")
@@ -62,13 +73,19 @@ function normalizeGroup(value: unknown): string {
 function groupFamily(ex: MethodAwareExercise): string | null {
   const group = normalizeGroup(ex.muscle_group);
   const name = normalizeGroup(ex.exercise_name);
-  const text = `${group} ${name}`;
-  if (/peitoral|chest|supino|crucifixo|crossover/.test(text)) return "peitoral";
-  if (/costas|dorsal|remada|puxada|barra fixa|lat/.test(text)) return "costas";
-  if (/biceps|rosca/.test(text)) return "biceps";
-  if (/triceps|testa|corda|paralela/.test(text)) return "triceps";
-  if (/quadriceps|quadric|extensora|leg press|agachamento/.test(text)) return "quadriceps";
-  if (/posterior|isquio|flexora|mesa flexora|stiff|terra romeno/.test(text)) return "posterior";
+  const classify = (text: string) => {
+    if (/peitoral|chest|supino|crucifixo|crossover/.test(text)) return "peitoral";
+    if (/costas|dorsal|remada|puxada|barra fixa|latissim/.test(text)) return "costas";
+    if (/biceps|rosca/.test(text)) return "biceps";
+    if (/triceps|testa|corda|paralela/.test(text)) return "triceps";
+    if (/quadriceps|quadric|extensora|leg press|agachamento/.test(text)) return "quadriceps";
+    if (/posterior|isquio|flexora|mesa flexora|stiff|terra romeno/.test(text)) return "posterior";
+    return null;
+  };
+  const explicitGroup = classify(group);
+  if (explicitGroup) return explicitGroup;
+  const inferredName = classify(name);
+  if (inferredName) return inferredName;
   return null;
 }
 
@@ -93,15 +110,23 @@ function isIsolation(ex: MethodAwareExercise): boolean {
 
 function isStableSingleCandidate(ex: MethodAwareExercise): boolean {
   const phase = String(ex.phase || "").toLowerCase();
-  if (phase) return phase === "forca_especifica" || phase === "acessorio" || phase === "isolado";
-  return isIsolation(ex);
+  if (HIGH_RISK_RE.test(ex.exercise_name || "")) return false;
+  if (UNSTABLE_EQUIPMENT_RE.test(`${ex.exercise_name || ""} ${ex.equipment || ""}`)) return false;
+  if (phase && !["forca_especifica", "acessorio", "isolado"].includes(phase)) return false;
+  return phase ? true : isIsolation(ex);
+}
+
+function isStableClusterCandidate(ex: MethodAwareExercise): boolean {
+  const phase = String(ex.phase || "").toLowerCase();
+  const equipment = normalizeGroup(`${ex.equipment || ""} ${ex.exercise_name || ""}`);
+  if (phase !== "forca_global") return false;
+  if (HIGH_RISK_RE.test(ex.exercise_name || "")) return false;
+  if (UNSTABLE_EQUIPMENT_RE.test(`${ex.exercise_name || ""} ${ex.equipment || ""}`)) return false;
+  return /(maquina|smith|guiad|chest press|leg press)/.test(equipment);
 }
 
 function isSafeGroupingCandidate(ex: MethodAwareExercise): boolean {
-  const phase = String(ex.phase || "").toLowerCase();
-  if (/mobilidade|ativacao_core/.test(phase)) return false;
-  if (HEAVY_COMPOUND_RE.test(ex.exercise_name || "")) return false;
-  return isStableSingleCandidate(ex) || phase === "controle_motor" || phase === "forca_global";
+  return isStableSingleCandidate(ex);
 }
 
 function lastConsecutivePair(indexes: number[]): number[] {
@@ -120,6 +145,147 @@ function lastConsecutiveAntagonistPair(indexes: number[], exercises: MethodAware
   return [];
 }
 
+function normalizedObjective(ctx: AdvancedMethodCtx) {
+  return String(ctx.objective || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function resolvedSequence(ctx: AdvancedMethodCtx) {
+  const sequence = Number(ctx.sequenceNumber);
+  return Number.isFinite(sequence) && sequence > 0 ? Math.floor(sequence) : 0;
+}
+
+function resolvedSession(ctx: AdvancedMethodCtx) {
+  const session = Number(ctx.sessionIndex);
+  return Number.isFinite(session) && session > 0 ? Math.floor(session) : 0;
+}
+
+function rotate<T>(items: readonly T[], offset: number): T[] {
+  if (!items.length) return [];
+  const normalized = ((offset % items.length) + items.length) % items.length;
+  return [...items.slice(normalized), ...items.slice(0, normalized)];
+}
+
+function selectMethod(ctx: AdvancedMethodCtx): MethodId | null {
+  const objective = normalizedObjective(ctx);
+  const sequence = resolvedSequence(ctx);
+  const session = resolvedSession(ctx);
+  const week = ctx.week ?? 1;
+  const hypertrophy = /hipertrof|massa|recompos|estetica/.test(objective) || !objective;
+  const fatLoss = /emagrec|perda|condicion/.test(objective);
+  const strength = /forca|força|performance|potencia/.test(objective);
+
+  if (ctx.mesocycle === "acumulacao") {
+    if (!hypertrophy && !strength) return null;
+    if (ctx.isEnduranceAthlete) return week % 2 === 1 ? "isometria" : "pico_contracao";
+    if (week % 2 === 1) {
+      if (session) return rotate<MethodId>(["pico_contracao", "pico_alongamento", "isometria", "restpause"], sequence - 1)[(session - 1) % 4];
+      if (sequence === 1) return "pico_contracao";
+      if (sequence === 2) return "pico_alongamento";
+      if (sequence === 3) return "isometria";
+      return "restpause";
+    }
+    if (session) return rotate<MethodId>(["dropset", "restpause", "pico_contracao", "pico_alongamento"], sequence - 1)[(session - 1) % 4];
+    if (sequence === 2 && ctx.level === "avancado") return "restpause";
+    return "dropset";
+  }
+
+  if (ctx.mesocycle === "intensificacao") {
+    if (ctx.isEnduranceAthlete) return null;
+    if (!sequence && week % 2 === 1) return "superset";
+    if (fatLoss) return "circuito";
+    if (strength && ctx.level === "avancado" && week >= 6) return "cluster";
+    if (session && week >= 6) {
+      const pool: MethodId[] = ctx.level === "avancado"
+        ? ["cluster", "restpause", "dropset", "pico_contracao"]
+        : ["dropset", "restpause"];
+      return rotate(pool, sequence - 1)[(session - 1) % pool.length];
+    }
+    if (hypertrophy && ctx.level === "avancado" && week >= 6 && sequence === 1) return "cluster";
+    if (hypertrophy && week >= 6) return ctx.level === "avancado" ? "restpause" : "dropset";
+    if (session && hypertrophy) {
+      const pool: MethodId[] = ctx.level === "avancado"
+        ? ["triset", "giantset", "superset", "biset"]
+        : ["superset", "biset"];
+      return rotate(pool, sequence - 1)[(session - 1) % pool.length];
+    }
+    if (hypertrophy && ctx.level === "avancado" && sequence === 1) return "triset";
+    if (hypertrophy && ctx.level === "avancado" && sequence === 2) return "giantset";
+    if (hypertrophy && sequence === 3) return "superset";
+    return "biset";
+  }
+
+  return null;
+}
+
+function methodReason(method: MethodId): string {
+  if (["triset", "giantset", "circuito"].includes(method)) return "selected_metabolic_density";
+  if (method === "superset") return "selected_antagonist_pair";
+  if (method === "biset") return "selected_safe_pair";
+  if (method === "cluster") return "selected_strength_quality";
+  if (["pico_contracao", "pico_alongamento", "isometria"].includes(method)) return "selected_tension_control";
+  return "selected_accessory_intensity";
+}
+
+function requiredGroupSize(method: MethodId) {
+  if (method === "giantset") return 4;
+  if (method === "triset") return 3;
+  if (method === "circuito") return 3;
+  if (method === "biset" || method === "superset") return 2;
+  return 1;
+}
+
+function lastConsecutiveIndexes(indexes: number[], count: number): number[] {
+  for (let end = indexes.length - 1; end >= count - 1; end -= 1) {
+    const slice = indexes.slice(end - count + 1, end + 1);
+    if (slice.every((value, index) => index === 0 || value === slice[index - 1] + 1)) return slice;
+  }
+  return [];
+}
+
+function lastConsecutiveSameFamily(
+  indexes: number[],
+  exercises: MethodAwareExercise[],
+  count: number,
+): number[] {
+  for (let end = indexes.length - 1; end >= count - 1; end -= 1) {
+    const slice = indexes.slice(end - count + 1, end + 1);
+    const family = groupFamily(exercises[slice[0]]);
+    if (family && slice.every((value, index) =>
+      (index === 0 || value === slice[index - 1] + 1) && groupFamily(exercises[value]) === family
+    )) return slice;
+  }
+  return [];
+}
+
+function applyMethod<T extends MethodAwareExercise>(
+  out: Array<T & { method_reason?: string | null }>,
+  indexes: number[],
+  method: MethodId,
+  gid: (i: number) => string,
+) {
+  if (!indexes.length) return false;
+  const group = requiredGroupSize(method) > 1 ? gid(indexes[0]) : null;
+  const reason = methodReason(method);
+  for (const index of indexes) {
+    out[index].method = method;
+    out[index].group_id = group;
+    out[index].method_reason = reason;
+    out[index].method_seconds = method === "cluster"
+      ? 15
+      : method === "restpause"
+        ? 20
+        : method === "isometria"
+          ? 20
+          : ["pico_contracao", "pico_alongamento"].includes(method)
+            ? 2
+          : null;
+  }
+  return true;
+}
+
 /**
  * Aplica sistemas avançados aos exercícios da sessão conforme a fase/microciclo/nível.
  * Não muta a entrada — retorna uma nova lista. Determinístico (sem random).
@@ -133,7 +299,7 @@ export function planAdvancedMethods<T extends MethodAwareExercise>(exercises: T[
   const gid = ctx.groupIdFor || ((i: number) => `m${ctx.sessionKey ? ctx.sessionKey + "_" : ""}${week}_${i}`);
 
   // Bloqueios duros: nada de método avançado.
-  if (ctx.level === "iniciante" || micro === "regenerativo" || ctx.mesocycle === "base" || ctx.hasPain) {
+  if (ctx.level === "iniciante" || micro === "regenerativo" || ctx.mesocycle === "base" || ctx.hasPain || ctx.hasRedFlags || ctx.fatigueHigh) {
     return out;
   }
 
@@ -147,40 +313,37 @@ export function planAdvancedMethods<T extends MethodAwareExercise>(exercises: T[
     .map((e, i) => ({ e, i }))
     .filter(({ e }) => !e.painful && isSafeGroupingCandidate(e))
     .map(({ i }) => i);
-  if (singleIdxs.length === 0 && groupingIdxs.length < 2) return out;
+  const clusterIdxs = out
+    .map((e, i) => ({ e, i }))
+    .filter(({ e }) => !e.painful && isStableClusterCandidate(e))
+    .map(({ i }) => i);
+  if (singleIdxs.length === 0 && groupingIdxs.length < 2 && clusterIdxs.length === 0) return out;
 
-  const adv = ctx.level === "avancado";
-  const choque = micro === "choque" || ctx.mesocycle === "intensificacao";
+  const method = selectMethod(ctx);
+  if (!method) return out;
 
-  if (choque) {
-    // Semana ímpar do bloco final: bi-set seguro. Semana par: técnica de intensidade
-    // em um único acessório. Assim a sessão nunca acumula técnicas demais.
-    if (week % 2 === 1) {
-      const supersetPair = lastConsecutiveAntagonistPair(groupingIdxs, out);
-      const pair = supersetPair.length === 2 ? supersetPair : lastConsecutivePair(groupingIdxs);
-      if (pair.length === 2) {
-        const group = gid(pair[0]);
-        const method: MethodId = supersetPair.length === 2 ? "superset" : "biset";
-        for (const index of pair) {
-          out[index].method = method;
-          out[index].group_id = group;
-        }
-        return out;
-      }
-    }
-    if (singleIdxs.length) {
-      const target = singleIdxs[singleIdxs.length - 1];
-      out[target].method = adv && week % 2 === 0 ? "cluster" : week % 2 === 0 ? "dropset" : "restpause";
-      out[target].method_seconds = out[target].method === "cluster" ? 15 : out[target].method === "restpause" ? 20 : null;
-    }
-  } else {
-    // Acumulação: uma única técnica simples na última série de um acessório.
-    if (singleIdxs.length) {
-      const target = singleIdxs[singleIdxs.length - 1];
-      out[target].method = week % 2 === 1 ? "restpause" : "dropset";
-      out[target].method_seconds = out[target].method === "restpause" ? 20 : null;
-    }
+  if (method === "cluster") {
+    if (clusterIdxs.length) applyMethod(out, [clusterIdxs[clusterIdxs.length - 1]], method, gid);
+    return out;
   }
+
+  if (method === "superset") {
+    const pair = lastConsecutiveAntagonistPair(groupingIdxs, out);
+    if (pair.length === 2) applyMethod(out, pair, method, gid);
+    return out;
+  }
+
+  if (GROUPING_METHODS.includes(method)) {
+    const count = requiredGroupSize(method);
+    const group = method === "triset" || method === "giantset"
+      ? lastConsecutiveSameFamily(groupingIdxs, out, count)
+      : lastConsecutiveIndexes(groupingIdxs, count);
+    const fallbackPair = method === "biset" ? lastConsecutivePair(groupingIdxs) : [];
+    applyMethod(out, group.length ? group : fallbackPair, method, gid);
+    return out;
+  }
+
+  if (singleIdxs.length) applyMethod(out, [singleIdxs[singleIdxs.length - 1]], method, gid);
 
   return out;
 }

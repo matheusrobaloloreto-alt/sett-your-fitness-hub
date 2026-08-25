@@ -37,12 +37,12 @@ export const WORKOUT_METHODS: Record<MethodId, WorkoutMethodMeta> = {
     description: "Dois exercícios de músculos opostos (ex.: bíceps e tríceps, peito e costas) em sequência, sem descanso. Enquanto um trabalha, o outro recupera.",
   },
   giantset: {
-    label: "Série gigante", short: "GIANT-SET", grouping: true, minItems: 3,
+    label: "Série gigante", short: "GIANT-SET", grouping: true, minItems: 4,
     hint: "4+ exercícios em sequência, sem descanso.",
     description: "4 ou mais exercícios em sequência, sem descanso entre eles. Alto volume e intensidade — descanse só ao fim da série gigante.",
   },
   circuito: {
-    label: "Circuito", short: "CIRCUITO", grouping: true, minItems: 2,
+    label: "Circuito", short: "CIRCUITO", grouping: true, minItems: 3,
     hint: "Estações em sequência; descanso só ao fim da volta.",
     description: "Passe por todas as estações em sequência, com pouco ou nenhum descanso entre elas. Descanse só ao terminar a volta completa; depois repita o circuito quantas voltas forem pedidas.",
   },

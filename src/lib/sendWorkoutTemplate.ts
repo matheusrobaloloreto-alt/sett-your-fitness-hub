@@ -4,8 +4,22 @@
 // publishStrengthPlan que remapeia do formato da IA.
 import { supabase } from "@/integrations/supabase/client";
 import { businessDateYmd } from "@/lib/businessDate";
+import { sanitizeSetTypes } from "@/lib/setTypes";
 
 const ymd = businessDateYmd;
+
+export function sanitizeTemplateExercise(exercise: any) {
+  const normalized = { ...exercise };
+  const setTypes = sanitizeSetTypes(exercise?.set_types);
+  normalized.set_types = setTypes;
+  if (Array.isArray(exercise?.weekly_prescription)) {
+    normalized.weekly_prescription = exercise.weekly_prescription.map((week: any) => ({
+      ...week,
+      set_types: sanitizeSetTypes(week?.set_types),
+    }));
+  }
+  return normalized;
+}
 
 export interface TemplateForSend {
   name: string;
@@ -76,7 +90,7 @@ export async function sendTemplateToStudent(opts: {
     day_of_week: null,
     sort_order: i + 1,
     company_id: companyId,
-    exercises: Array.isArray(w?.exercises) ? w.exercises : [],
+    exercises: Array.isArray(w?.exercises) ? w.exercises.map(sanitizeTemplateExercise) : [],
     created_by: createdBy || null,
   }));
   const { error: wErr } = await db.from("workouts").insert(rows);

@@ -99,6 +99,7 @@ export interface TrainingExercise {
   exercise_name: string;
   library_exercise_name: string;
   muscle_group: string;
+  equipment?: string | null;
   /** Multi-group contribution used by the volume engine. */
   targets?: ExerciseTarget[];
   sets: number;
@@ -115,7 +116,8 @@ export interface TrainingExercise {
   method?: string | null;
   group_id?: string | null;
   method_seconds?: number | null;
-  set_types?: Array<"warmup" | "normal" | "failure" | "drop">;
+  method_reason?: string | null;
+  set_types?: Array<"warmup" | "normal" | "failure">;
   weekly_prescription?: WeeklyExercisePrescription[];
 }
 
@@ -130,7 +132,8 @@ export interface WeeklyExercisePrescription {
   method?: string | null;
   group_id?: string | null;
   method_seconds?: number | null;
-  set_types?: Array<"warmup" | "normal" | "failure" | "drop">;
+  method_reason?: string | null;
+  set_types?: Array<"warmup" | "normal" | "failure">;
   instruction: string;
 }
 
@@ -212,6 +215,8 @@ export interface TrainingProgram {
     structured_days: number;
     split: string;
     library_only: true;
+    method_policy_version: "sett-strength-methods-v1";
+    set_type_policy_version: "sett-set-types-WNF-v1";
     sequence_number?: number;
     total_cycles?: number | null;
     sequence_phase?: string;

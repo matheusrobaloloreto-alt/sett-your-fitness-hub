@@ -176,6 +176,32 @@ const PHASE_LABEL: Record<string, string> = {
   forca_especifica: "Força específica",
 };
 
+const STRENGTH_METHOD_LABELS: Record<string, string> = {
+  biset: "Bi-set",
+  triset: "Tri-set",
+  superset: "Super-set",
+  giantset: "Série gigante",
+  circuito: "Circuito",
+  dropset: "Drop-set",
+  restpause: "Rest-pause",
+  cluster: "Cluster-set",
+  isometria: "Isometria",
+  pico_contracao: "Pico de contração",
+  pico_alongamento: "Pico de alongamento",
+};
+
+export function strengthExerciseMethodSummary(exercise: any): string {
+  const weeks = Array.isArray(exercise?.weekly_prescription) ? exercise.weekly_prescription : [];
+  return weeks
+    .filter((week: any) => week?.method)
+    .map((week: any) => {
+      const label = STRENGTH_METHOD_LABELS[String(week.method)] || String(week.method);
+      const seconds = Number(week.method_seconds);
+      return `S${Number(week.week) || "?"} ${label}${Number.isFinite(seconds) && seconds > 0 ? ` ${seconds}s` : ""}`;
+    })
+    .join(" · ");
+}
+
 export function generateStrengthPDF(plan: any, meta: PDFMeta): jsPDF {
   const doc = new jsPDF();
   const w = W(doc);
@@ -238,6 +264,11 @@ export function generateStrengthPDF(plan: any, meta: PDFMeta): jsPDF {
       if (cue) {
         doc.setFontSize(7); doc.setTextColor(...GRAY);
         y = wrapText(doc, `↳ ${cue}`, MARGIN + 5, y, w - MARGIN * 2 - 6, 3.8) + 0.8;
+      }
+      const methodSummary = strengthExerciseMethodSummary(ex);
+      if (methodSummary) {
+        doc.setFontSize(6.9); doc.setTextColor(...AMBER);
+        y = wrapText(doc, `Método semanal: ${methodSummary}`, MARGIN + 5, y, w - MARGIN * 2 - 6, 3.7) + 0.8;
       }
       if (ex.biomechanical_note) {
         doc.setFontSize(6.8); doc.setTextColor(...BEGE);
