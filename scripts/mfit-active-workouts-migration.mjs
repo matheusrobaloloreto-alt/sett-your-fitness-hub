@@ -127,6 +127,15 @@ function firstValue(row, paths) {
   return undefined;
 }
 
+function optionalBoolean(value, fallback = true) {
+  if (value === undefined || value === null || cleanText(value) === "") return fallback;
+  if (value === true || value === false) return value;
+  const text = cleanText(value).toLocaleLowerCase("pt-BR");
+  if (["true", "1", "yes", "sim", "complete", "completed", "captured"].includes(text)) return true;
+  if (["false", "0", "no", "nao", "não", "incomplete", "incompleto", "partial"].includes(text)) return false;
+  return false;
+}
+
 function firstArray(row, keys) {
   for (const key of keys) {
     const value = valueAtPath(row, key);
@@ -636,17 +645,43 @@ export function normalizeMfitPlans(payload) {
   const rawPlans = [];
   collectRawPlans(payload, { client_ids: [], contact: null }, rawPlans);
   return rawPlans.flatMap(({ row, sessions, context }, input_index) => {
-    const normalizedSessions = sessions.map(normalizeMfitSession).filter((session) => session.exercises.length > 0);
-    if (!normalizedSessions.length) return [];
+    const allSessions = sessions.map(normalizeMfitSession);
+    const normalizedSessions = allSessions.filter((session) => session.exercises.length > 0);
+    const derivedEmptySessionCount = allSessions.filter((session) => session.exercises.length === 0).length;
+    const sourceEmptySessionCountValue = firstValue(row, [
+      "source_empty_session_count",
+      "sourceEmptySessionCount",
+      "capture.empty_session_count",
+      "capture.emptySessionCount",
+    ]);
+    const sourceSessionCount = Number(firstValue(row, [
+      "source_session_count",
+      "sourceSessionCount",
+      "capture.session_count",
+      "capture.sessionCount",
+    ])) || allSessions.length;
+    const capturedEmptySessionCount = Number(sourceEmptySessionCountValue);
     const planCore = {
       source_id: cleanText(firstValue(row, ["id", "plan_id", "planId", "ficha_id", "fichaId", "objectID"]))
-        || `plan-${sha256(stableStringify(normalizedSessions)).slice(0, 20)}`,
+        || `plan-${sha256(stableStringify(allSessions)).slice(0, 20)}`,
       name: cleanText(firstValue(row, ["name", "nome", "title", "titulo"])) || "Ficha MFIT",
       objective: cleanText(firstValue(row, ["objective", "objetivo", "goal", "focus"])),
       start_date: parseYmd(firstValue(row, ["start_date", "startDate", "data_inicio", "starts_at"])),
       end_date: parseYmd(firstValue(row, ["end_date", "endDate", "data_fim", "ends_at"])),
       duration_weeks: Number(firstValue(row, ["duration_weeks", "durationWeeks", "semanas", "weeks"])) || null,
       active: !explicitlyInactive(row),
+      source_capture_complete: optionalBoolean(firstValue(row, [
+        "source_capture_complete",
+        "sourceCaptureComplete",
+        "capture.complete",
+        "captureComplete",
+      ]), true),
+      source_empty_session_count: Math.max(
+        0,
+        derivedEmptySessionCount,
+        Number.isFinite(capturedEmptySessionCount) ? capturedEmptySessionCount : 0,
+      ),
+      source_session_count: Math.max(0, sourceSessionCount),
       sessions: normalizedSessions,
       contact: context.contact,
       input_index,
@@ -685,7 +720,7 @@ function intersectCandidates(left, right) {
   return left.filter((candidate) => right.some((other) => sameCandidate(candidate, other)));
 }
 
-function matchContact(source, indexes, sourceNameCount = 1) {
+function matchContact(source, indexes, sourceNameCount = 1, options = {}) {
   const phoneCandidates = uniqueCandidates(indexes.phone, source.phones);
   const emailCandidates = uniqueCandidates(indexes.email, source.emails);
 
@@ -701,15 +736,17 @@ function matchContact(source, indexes, sourceNameCount = 1) {
   if (emailCandidates.length === 1) return { row: emailCandidates[0], method: "email" };
   if (emailCandidates.length > 1) return { reason: "ambiguous_email" };
 
-  if (source.exact_name && sourceNameCount === 1) {
+  if (source.exact_name) {
     const nameCandidates = indexes.name.get(source.exact_name) || [];
-    if (nameCandidates.length === 1) return { row: nameCandidates[0], method: "exact_unique_name" };
     if (nameCandidates.length > 1) return { reason: "ambiguous_name" };
+    if (nameCandidates.length === 0) return { reason: "no_match" };
+    if (options.identityContactOnly) return { reason: "name_only_match_disallowed" };
+    if (sourceNameCount === 1) return { row: nameCandidates[0], method: "exact_unique_name" };
   }
   return { reason: "no_match" };
 }
 
-export function matchMfitClientsToSett(mfitClients, settStudents) {
+export function matchMfitClientsToSett(mfitClients, settStudents, options = {}) {
   const targetIndexes = {
     phone: buildValueIndex(settStudents, "phones"),
     email: buildValueIndex(settStudents, "emails"),
@@ -722,7 +759,7 @@ export function matchMfitClientsToSett(mfitClients, settStudents) {
 
   const matches = new Map();
   for (const client of mfitClients) {
-    const result = matchContact(client, targetIndexes, sourceNameCounts.get(client.exact_name) || 0);
+    const result = matchContact(client, targetIndexes, sourceNameCounts.get(client.exact_name) || 0, options);
     matches.set(client.source_id, result.row
       ? { student: result.row, method: result.method }
       : { reason: result.reason });
@@ -752,15 +789,16 @@ function buildMfitClientLookup(clients) {
   };
 }
 
-function resolvePlanClient(plan, lookup) {
+function resolvePlanClient(plan, lookup, options = {}) {
   if (plan.client_id) {
     const candidates = lookup.byId.get(plan.client_id) || [];
     if (candidates.length === 1) return { client: candidates[0] };
     if (candidates.length > 1) return { reason: "ambiguous_mfit_client_id" };
   }
   if (plan.contact) {
-    const result = matchContact(plan.contact, lookup.indexes, lookup.nameCounts.get(plan.contact.exact_name) || 0);
+    const result = matchContact(plan.contact, lookup.indexes, lookup.nameCounts.get(plan.contact.exact_name) || 0, options);
     if (result.row) return { client: result.row };
+    if (result.reason === "name_only_match_disallowed") return { reason: result.reason };
     return { reason: `plan_client_${result.reason}` };
   }
   return { reason: "plan_without_client" };
@@ -1328,6 +1366,8 @@ export async function runMigration({
   db,
   companyId,
   apply = false,
+  partitionCompletePlans = false,
+  identityContactOnly = false,
   today = businessToday(),
   defaultDurationWeeks = 6,
 }) {
@@ -1345,13 +1385,14 @@ export async function runMigration({
   const allPlans = normalizeMfitPlans(mfitWorkoutsPayload);
   const plans = allPlans.filter((plan) => plan.active);
   const exerciseAliasIndex = buildExerciseAliasIndex(exerciseAliasPayload);
-  const clientMatches = matchMfitClientsToSett(clients, activeStudents);
+  const identityOptions = { identityContactOnly };
+  const clientMatches = matchMfitClientsToSett(clients, activeStudents, identityOptions);
   const clientLookup = buildMfitClientLookup(clients);
   const results = [];
 
   const candidates = [];
   for (const plan of plans) {
-    const clientResult = resolvePlanClient(plan, clientLookup);
+    const clientResult = resolvePlanClient(plan, clientLookup, identityOptions);
     const ref = anonymousRef(plan.client_id || plan.input_index, plan.source_id);
     if (!clientResult.client) {
       results.push({ ref, status: "skipped", reason: clientResult.reason, match_method: null, sessions: plan.sessions.length });
@@ -1425,6 +1466,13 @@ export async function runMigration({
   const catalogAliasMatched = exerciseCoverage
     .filter((item) => item.status === "matched" && item.match_method.startsWith("approved_alias")).length;
   const catalogCoverageBlocked = catalogMissing > 0 || catalogAmbiguous > 0 || catalogInvalidAliases > 0;
+  const planResolutionsFor = (plan, companyId) => plan.sessions
+    .flatMap((session) => session.exercises)
+    .map((exercise) => exerciseResolution.get(`${companyId}\u0000${normalizeCatalogName(exercise.name)}`));
+  const selectedPlanResolutionSets = selected.map((candidate) => planResolutionsFor(candidate.plan, candidate.company_id));
+  const completePlansWithCatalogCoverage = selectedPlanResolutionSets
+    .filter((resolutions) => resolutions.length > 0 && resolutions.every((item) => item?.status === "matched")).length;
+  const blockedIncompletePlans = selectedPlanResolutionSets.length - completePlansWithCatalogCoverage;
   const cyclesByEnrollment = new Map();
   const cyclesById = new Map(cycles.map((cycle) => [cycle.id, cycle]));
   const workoutsByCycle = new Map();
@@ -1451,19 +1499,43 @@ export async function runMigration({
 
   for (const candidate of selected) {
     const { plan, enrollment, company_id: companyId } = candidate;
-    if (catalogCoverageBlocked) {
-      const planResolutions = plan.sessions
-        .flatMap((session) => session.exercises)
-        .map((exercise) => exerciseResolution.get(`${companyId}\u0000${normalizeCatalogName(exercise.name)}`));
-      const reason = planResolutions.some((item) => item?.status === "invalid_alias")
-        ? "exercise_alias_invalid"
-        : planResolutions.some((item) => item?.status === "missing")
-          ? "exercise_not_in_catalog"
-          : planResolutions.some((item) => item?.status === "ambiguous")
-            ? "ambiguous_exact_exercise_name"
-            : "migration_batch_catalog_gate";
-      results.push({ ref: candidate.ref, status: "blocked", reason, match_method: candidate.match_method, sessions: plan.sessions.length });
+    if (plan.source_capture_complete === false || plan.source_empty_session_count > 0 || plan.sessions.length === 0) {
+      results.push({
+        ref: candidate.ref,
+        status: "blocked",
+        reason: "source_capture_incomplete",
+        match_method: candidate.match_method,
+        sessions: plan.sessions.length,
+        source_capture_complete: plan.source_capture_complete,
+        source_empty_session_count: plan.source_empty_session_count,
+      });
       continue;
+    }
+    if (catalogCoverageBlocked) {
+      const planResolutions = planResolutionsFor(plan, companyId);
+      if (partitionCompletePlans) {
+        const planHasFullCoverage = planResolutions.every((item) => item?.status === "matched");
+        if (!planHasFullCoverage) {
+          results.push({
+            ref: candidate.ref,
+            status: "blocked",
+            reason: "partition_plan_catalog_incomplete",
+            match_method: candidate.match_method,
+            sessions: plan.sessions.length,
+          });
+          continue;
+        }
+      } else {
+        const reason = planResolutions.some((item) => item?.status === "invalid_alias")
+          ? "exercise_alias_invalid"
+          : planResolutions.some((item) => item?.status === "missing")
+            ? "exercise_not_in_catalog"
+            : planResolutions.some((item) => item?.status === "ambiguous")
+              ? "ambiguous_exact_exercise_name"
+              : "migration_batch_catalog_gate";
+        results.push({ ref: candidate.ref, status: "blocked", reason, match_method: candidate.match_method, sessions: plan.sessions.length });
+        continue;
+      }
     }
     const durationWeeks = Math.max(1, Number(plan.duration_weeks) || durationFallback);
     const startDate = plan.start_date || parsedToday;
@@ -1673,6 +1745,11 @@ export async function runMigration({
   }
 
   const statuses = summarizeResults(results);
+  const nameOnlyMatchesBlocked = results.filter((result) =>
+    result.reason === "name_only_match_disallowed"
+    || result.reason === "plan_client_name_only_match_disallowed").length;
+  const sourceCaptureIncompletePlans = results.filter((result) =>
+    result.reason === "source_capture_incomplete").length;
   return {
     version: IMPORT_VERSION,
     mode: apply ? "apply" : "dry-run",
@@ -1688,7 +1765,9 @@ export async function runMigration({
       "same marker and payload hash are a no-op",
       "exercise matching is accent/case tolerant within the visible company/global catalog",
       "only versioned high-confidence aliases with an exact visible target id and name are accepted",
-      "100% deterministic exercise-catalog coverage is required for the whole batch",
+      partitionCompletePlans
+        ? "explicit partition mode imports only plans with 100% deterministic exercise-catalog coverage and blocks incomplete plans"
+        : "100% deterministic exercise-catalog coverage is required for the whole batch",
       "exercise-library rows are never created or modified by this migration",
       "only assigned active prescription plans are imported; completed-session history is out of scope",
     ],
@@ -1706,6 +1785,10 @@ export async function runMigration({
       exercise_catalog_invalid_aliases: catalogInvalidAliases,
       exercise_catalog_alias_matched: catalogAliasMatched,
       exercise_aliases_loaded: exerciseAliasIndex.size,
+      complete_plans_with_catalog_coverage: completePlansWithCatalogCoverage,
+      blocked_incomplete_plans: blockedIncompletePlans,
+      name_only_matches_blocked: nameOnlyMatchesBlocked,
+      source_capture_incomplete_plans: sourceCaptureIncompletePlans,
       exercise_catalog_coverage_percent: exerciseCoverage.length
         ? Number(((catalogMatched / exerciseCoverage.length) * 100).toFixed(2))
         : 100,
@@ -1784,6 +1867,8 @@ export function parseArgs(argv) {
     confirmProject: "",
     today: "",
     durationWeeks: 6,
+    partitionCompletePlans: false,
+    identityContactOnly: false,
   };
   const valueFlags = new Map([
     ["--sett-students", "settStudents"],
@@ -1801,6 +1886,14 @@ export function parseArgs(argv) {
     const arg = argv[index];
     if (arg === "--apply") {
       options.apply = true;
+      continue;
+    }
+    if (arg === "--partition-complete-plans") {
+      options.partitionCompletePlans = true;
+      continue;
+    }
+    if (arg === "--identity-contact-only") {
+      options.identityContactOnly = true;
       continue;
     }
     if (arg === "--help" || arg === "-h") {
@@ -1831,6 +1924,8 @@ Usage:
     --mfit-workouts <mfit-active-workouts.json> \\
     [--exercise-aliases <mfit-exercise-aliases.v1.json>] \\
     --company-id <canonical-bn-company-uuid> \\
+    [--partition-complete-plans] \\
+    [--identity-contact-only] \\
     [--report <sanitized-report.json>] [--today YYYY-MM-DD] [--duration-weeks 6]
     [--apply --confirm-project ${EXPECTED_SUPABASE_PROJECT_REF}]
 
@@ -1838,6 +1933,9 @@ Safety:
   Dry-run is the default. Database writes require both --apply and the canonical project confirmation.
   Operational authorization from Matheus via ATENA is still mandatory before using those flags.
   Credentials are read from process environment or supabase status -o env; no .env file is read or written.
+  By default, any unresolved exercise blocks the whole batch. --partition-complete-plans only allows
+  plans with 100% deterministic catalog coverage to proceed and blocks incomplete plans.
+  --identity-contact-only disables exact-name-only identity matching; phone/email evidence remains accepted.
 `;
 
 async function readJson(path, label) {
@@ -1888,6 +1986,8 @@ export async function main(argv = process.argv.slice(2)) {
     db,
     companyId: options.companyId,
     apply: options.apply,
+    partitionCompletePlans: options.partitionCompletePlans,
+    identityContactOnly: options.identityContactOnly,
     today: options.today || businessToday(),
     defaultDurationWeeks: options.durationWeeks,
   });

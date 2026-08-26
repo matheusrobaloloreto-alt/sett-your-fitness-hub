@@ -22,6 +22,12 @@ const IDS = {
   studentEmail: "20000000-0000-4000-8000-000000000002",
   studentName: "20000000-0000-4000-8000-000000000003",
   enrollment: "30000000-0000-4000-8000-000000000001",
+  studentNameOnly: "20000000-0000-4000-8000-000000000006",
+  enrollmentNameOnly: "30000000-0000-4000-8000-000000000006",
+  studentPartitionComplete: "20000000-0000-4000-8000-000000000011",
+  studentPartitionMissing: "20000000-0000-4000-8000-000000000012",
+  enrollmentPartitionComplete: "30000000-0000-4000-8000-000000000011",
+  enrollmentPartitionMissing: "30000000-0000-4000-8000-000000000012",
 };
 
 function baseInput() {
@@ -74,6 +80,129 @@ function baseInput() {
       }],
     },
   };
+}
+
+function partitionInput() {
+  return {
+    companyId: IDS.company,
+    settPayload: {
+      students: [
+        {
+          id: IDS.studentPartitionComplete,
+          company_id: IDS.company,
+          status: "active",
+          full_name: "Aluno Completo",
+          phone: "11999990011",
+        },
+        {
+          id: IDS.studentPartitionMissing,
+          company_id: IDS.company,
+          status: "active",
+          full_name: "Aluno Incompleto",
+          phone: "11999990012",
+        },
+      ],
+    },
+    mfitClientsPayload: {
+      clients: [
+        { id: "mfit-partition-complete", name: "Aluno Completo", phone: "11999990011" },
+        { id: "mfit-partition-missing", name: "Aluno Incompleto", phone: "11999990012" },
+      ],
+    },
+    mfitWorkoutsPayload: {
+      clients: [
+        {
+          id: "mfit-partition-complete",
+          fichas: [{
+            id: "plan-complete",
+            name: "Plano Completo",
+            status: "active",
+            start_date: "2026-08-10",
+            workouts: [{
+              id: "session-complete-a",
+              name: "Treino Completo A",
+              exercises: [{
+                id: "exercise-complete",
+                name: "Supino MFIT Exato",
+                sets: 3,
+                reps: "10",
+              }],
+            }],
+          }],
+        },
+        {
+          id: "mfit-partition-missing",
+          fichas: [{
+            id: "plan-missing",
+            name: "Plano Incompleto",
+            status: "active",
+            start_date: "2026-08-10",
+            workouts: [{
+              id: "session-missing-a",
+              name: "Treino Incompleto A",
+              exercises: [{
+                id: "exercise-missing",
+                name: "Exercício Sem Catálogo",
+                sets: 3,
+                reps: "10",
+              }],
+            }],
+          }],
+        },
+      ],
+    },
+  };
+}
+
+function nameOnlyInput() {
+  return {
+    companyId: IDS.company,
+    settPayload: {
+      students: [{
+        id: IDS.studentNameOnly,
+        company_id: IDS.company,
+        status: "active",
+        full_name: "Nome Somente Identidade",
+      }],
+    },
+    mfitClientsPayload: {
+      clients: [{
+        id: "mfit-name-only-client",
+        name: "Nome Somente Identidade",
+      }],
+    },
+    mfitWorkoutsPayload: {
+      clients: [{
+        id: "mfit-name-only-client",
+        fichas: [{
+          id: "plan-name-only",
+          name: "Plano Name Only",
+          status: "active",
+          start_date: "2026-08-10",
+          workouts: [{
+            id: "session-name-only",
+            name: "Treino Name Only",
+            exercises: [{
+              id: "exercise-name-only",
+              name: "Supino MFIT Exato",
+              sets: 3,
+              reps: "10",
+            }],
+          }],
+        }],
+      }],
+    },
+  };
+}
+
+function sourceCompletenessInput(workouts, sourceFields = {}) {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0] = {
+    ...input.mfitWorkoutsPayload.clients[0].fichas[0],
+    ...sourceFields,
+    workouts,
+  };
+  return input;
 }
 
 class MemoryDb {
@@ -208,7 +337,7 @@ test("CLI remains dry-run unless --apply is explicit", () => {
     "--mfit-workouts", "workouts.json",
     "--exercise-aliases", "aliases.json",
     "--company-id", IDS.company,
-  ]);
+  ], { source_empty_session_count: 0 });
   assert.equal(dryRun.apply, false);
   assert.equal(dryRun.exerciseAliases, "aliases.json");
   assert.throws(
@@ -223,6 +352,20 @@ test("CLI remains dry-run unless --apply is explicit", () => {
     "--mfit-workouts=c",
     `--company-id=${IDS.company}`,
   ]).apply, true);
+  assert.equal(parseArgs([
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+    "--partition-complete-plans",
+  ]).partitionCompletePlans, true);
+  assert.equal(parseArgs([
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+    "--identity-contact-only",
+  ]).identityContactOnly, true);
 });
 
 test("only the canonical SETT Supabase project is accepted", () => {
@@ -278,6 +421,218 @@ test("contradictory phone and email identifiers are blocked", () => {
   const match = matchMfitClientsToSett(clients, students).get("conflict");
   assert.equal(match.student, undefined);
   assert.equal(match.reason, "conflicting_phone_email");
+});
+
+test("identity-contact-only blocks exact-name-only matching while default behavior still accepts it", async () => {
+  const input = nameOnlyInput();
+  const db = new MemoryDb({
+    students: [{ id: IDS.studentNameOnly, company_id: IDS.company, status: "active" }],
+    enrollments: [{
+      id: IDS.enrollmentNameOnly,
+      student_id: IDS.studentNameOnly,
+      company_id: IDS.company,
+      status: "active",
+      created_at: "2026-08-01T00:00:00Z",
+    }],
+  });
+
+  const defaultRun = await runMigration({ ...input, db, today: "2026-08-10" });
+  assert.equal(defaultRun.summary.planned, 1);
+  assert.equal(defaultRun.summary.name_only_matches_blocked, 0);
+  assert.equal(defaultRun.results[0].match_method, "exact_unique_name");
+
+  const contactOnlyRun = await runMigration({
+    ...input,
+    db,
+    today: "2026-08-10",
+    identityContactOnly: true,
+  });
+  assert.equal(contactOnlyRun.summary.candidate_operations, 0);
+  assert.equal(contactOnlyRun.summary.skipped, 1);
+  assert.equal(contactOnlyRun.summary.name_only_matches_blocked, 1);
+  assert.equal(contactOnlyRun.results[0].reason, "name_only_match_disallowed");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("identity-contact-only only counts exact-name-only matches that would have found one SETT student", async () => {
+  const students = normalizeSettStudents({ students: [
+    { id: IDS.studentNameOnly, full_name: "Nome Único Contact Only" },
+    { id: "20000000-0000-4000-8000-000000000021", full_name: "Nome Ambíguo Contact Only" },
+    { id: "20000000-0000-4000-8000-000000000022", full_name: "Nome Ambíguo Contact Only" },
+  ] });
+  const clients = normalizeMfitClients({ clients: [
+    { id: "unique", name: "Nome Único Contact Only" },
+    { id: "missing", name: "Nome Sem SETT Contact Only" },
+    { id: "ambiguous", name: "Nome Ambíguo Contact Only" },
+  ] });
+
+  const matches = matchMfitClientsToSett(clients, students, { identityContactOnly: true });
+  assert.equal(matches.get("unique").reason, "name_only_match_disallowed");
+  assert.equal(matches.get("missing").reason, "no_match");
+  assert.equal(matches.get("ambiguous").reason, "ambiguous_name");
+
+  const input = nameOnlyInput();
+  input.settPayload.students = [
+    { id: IDS.studentNameOnly, company_id: IDS.company, status: "active", full_name: "Nome Único Contact Only" },
+    {
+      id: "20000000-0000-4000-8000-000000000021",
+      company_id: IDS.company,
+      status: "active",
+      full_name: "Nome Ambíguo Contact Only",
+    },
+    {
+      id: "20000000-0000-4000-8000-000000000022",
+      company_id: IDS.company,
+      status: "active",
+      full_name: "Nome Ambíguo Contact Only",
+    },
+  ];
+  input.mfitClientsPayload.clients = [
+    { id: "mfit-contact-only-unique", name: "Nome Único Contact Only" },
+    { id: "mfit-contact-only-missing", name: "Nome Sem SETT Contact Only" },
+    { id: "mfit-contact-only-ambiguous", name: "Nome Ambíguo Contact Only" },
+  ];
+  const basePlan = input.mfitWorkoutsPayload.clients[0].fichas[0];
+  input.mfitWorkoutsPayload.clients = [
+    { id: "mfit-contact-only-unique", fichas: [{ ...structuredClone(basePlan), id: "plan-contact-only-unique" }] },
+    { id: "mfit-contact-only-missing", fichas: [{ ...structuredClone(basePlan), id: "plan-contact-only-missing" }] },
+    { id: "mfit-contact-only-ambiguous", fichas: [{ ...structuredClone(basePlan), id: "plan-contact-only-ambiguous" }] },
+  ];
+
+  const report = await runMigration({
+    ...input,
+    db: new MemoryDb(),
+    today: "2026-08-10",
+    identityContactOnly: true,
+  });
+  assert.equal(report.summary.name_only_matches_blocked, 1);
+  assert.deepEqual(
+    report.results.map((result) => result.reason).sort(),
+    ["ambiguous_name", "name_only_match_disallowed", "no_match"],
+  );
+});
+
+test("source completeness keeps an all-empty active plan visible and blocks it", async () => {
+  const input = sourceCompletenessInput([{
+    id: "session-empty-only",
+    name: "Treino vazio capturado",
+    exercises: [],
+  }]);
+  const plans = normalizeMfitPlans(input.mfitWorkoutsPayload);
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].source_capture_complete, true);
+  assert.equal(plans[0].source_empty_session_count, 1);
+  assert.equal(plans[0].sessions.length, 0);
+
+  const db = new MemoryDb();
+  const report = await runMigration({ ...input, db, today: "2026-08-10" });
+  assert.equal(report.summary.mfit_plans_read, 1);
+  assert.equal(report.summary.active_plans_considered, 1);
+  assert.equal(report.summary.candidate_operations, 0);
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.summary.source_capture_incomplete_plans, 1);
+  assert.equal(report.summary.complete_plans_with_catalog_coverage, 0);
+  assert.equal(report.results[0].reason, "source_capture_incomplete");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("source completeness blocks a zero-session normalized plan even when explicit empty count is zero", async () => {
+  const input = sourceCompletenessInput([{
+    id: "session-malformed-empty-count-zero",
+    name: "Treino sem exercício válido",
+    exercises: [{ id: "nameless-exercise", sets: 3, reps: "10" }],
+  }], { source_empty_session_count: 0 });
+  const plans = normalizeMfitPlans(input.mfitWorkoutsPayload);
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].source_empty_session_count, 1);
+  assert.equal(plans[0].source_session_count, 1);
+  assert.equal(plans[0].sessions.length, 0);
+
+  const db = new MemoryDb();
+  const report = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  assert.equal(report.summary.candidate_operations, 0);
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.summary.source_capture_incomplete_plans, 1);
+  assert.equal(report.results[0].reason, "source_capture_incomplete");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("source completeness blocks a partial empty session instead of applying the rest of the plan", async () => {
+  const input = sourceCompletenessInput([
+    {
+      id: "session-complete",
+      name: "Treino completo",
+      exercises: [{
+        id: "exercise-complete",
+        name: "Supino MFIT Exato",
+        sets: 3,
+        reps: "10",
+      }],
+    },
+    {
+      id: "session-empty-partial",
+      name: "Treino vazio parcial",
+      exercises: [],
+    },
+  ], { source_empty_session_count: 0 });
+  const plans = normalizeMfitPlans(input.mfitWorkoutsPayload);
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].source_empty_session_count, 1);
+  assert.equal(plans[0].sessions.length, 1);
+
+  const db = new MemoryDb();
+  const report = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  assert.equal(report.summary.candidate_operations, 0);
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.summary.source_capture_incomplete_plans, 1);
+  assert.equal(report.results[0].reason, "source_capture_incomplete");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("explicit unknown source_capture_complete values fail closed while absent values remain complete", () => {
+  const absent = normalizeMfitPlans(baseInput().mfitWorkoutsPayload);
+  assert.equal(absent[0].source_capture_complete, true);
+
+  const unknown = sourceCompletenessInput([{
+    id: "session-unknown-capture-flag",
+    name: "Treino com flag desconhecida",
+    exercises: [{
+      id: "exercise-unknown-capture-flag",
+      name: "Supino MFIT Exato",
+      sets: 3,
+      reps: "10",
+    }],
+  }], { source_capture_complete: "talvez" });
+  const plans = normalizeMfitPlans(unknown.mfitWorkoutsPayload);
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].source_capture_complete, false);
+});
+
+test("source_capture_complete=false blocks a plan even when every normalized session has exercises", async () => {
+  const input = sourceCompletenessInput([
+    {
+      id: "session-complete-but-flagged",
+      name: "Treino completo mas captura incompleta",
+      exercises: [{
+        id: "exercise-complete-but-flagged",
+        name: "Supino MFIT Exato",
+        sets: 3,
+        reps: "10",
+      }],
+    },
+  ], { source_capture_complete: false });
+  const plans = normalizeMfitPlans(input.mfitWorkoutsPayload);
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].source_capture_complete, false);
+  assert.equal(plans[0].source_empty_session_count, 0);
+
+  const db = new MemoryDb();
+  const report = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  assert.equal(report.summary.candidate_operations, 0);
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.summary.source_capture_incomplete_plans, 1);
+  assert.equal(report.results[0].reason, "source_capture_incomplete");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
 });
 
 test("unknown MFIT plan statuses fail closed", () => {
@@ -456,6 +811,122 @@ test("a missing exercise blocks the whole batch and never changes the library", 
   assert.equal(report.results[0].reason, "exercise_not_in_catalog");
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
   assert.equal(db.exercises.length, 0);
+});
+
+test("default catalog gate still blocks every selected plan when any exercise is unresolved", async () => {
+  const input = partitionInput();
+  const db = new MemoryDb({
+    exercises: [{
+      id: "60000000-0000-4000-8000-000000000099",
+      company_id: null,
+      name: "Supino MFIT Exato",
+      is_global: true,
+    }],
+    students: [
+      { id: IDS.studentPartitionComplete, company_id: IDS.company, status: "active" },
+      { id: IDS.studentPartitionMissing, company_id: IDS.company, status: "active" },
+    ],
+    enrollments: [
+      {
+        id: IDS.enrollmentPartitionComplete,
+        student_id: IDS.studentPartitionComplete,
+        company_id: IDS.company,
+        status: "active",
+        created_at: "2026-08-01T00:00:00Z",
+      },
+      {
+        id: IDS.enrollmentPartitionMissing,
+        student_id: IDS.studentPartitionMissing,
+        company_id: IDS.company,
+        status: "active",
+        created_at: "2026-08-01T00:00:00Z",
+      },
+    ],
+  });
+
+  const report = await runMigration({ ...input, db, today: "2026-08-10" });
+
+  assert.equal(report.summary.candidate_operations, 0);
+  assert.equal(report.summary.planned || 0, 0);
+  assert.equal(report.summary.blocked, 2);
+  assert.equal(report.summary.complete_plans_with_catalog_coverage, 1);
+  assert.equal(report.summary.blocked_incomplete_plans, 1);
+  assert.deepEqual(new Set(report.results.map((row) => row.reason)), new Set([
+    "migration_batch_catalog_gate",
+    "exercise_not_in_catalog",
+  ]));
+});
+
+test("partition-complete-plans plans and applies only plans with full catalog coverage", async () => {
+  const input = partitionInput();
+  const db = new MemoryDb({
+    exercises: [{
+      id: "60000000-0000-4000-8000-000000000099",
+      company_id: null,
+      name: "Supino MFIT Exato",
+      is_global: true,
+    }],
+    students: [
+      { id: IDS.studentPartitionComplete, company_id: IDS.company, status: "active" },
+      { id: IDS.studentPartitionMissing, company_id: IDS.company, status: "active" },
+    ],
+    enrollments: [
+      {
+        id: IDS.enrollmentPartitionComplete,
+        student_id: IDS.studentPartitionComplete,
+        company_id: IDS.company,
+        status: "active",
+        created_at: "2026-08-01T00:00:00Z",
+      },
+      {
+        id: IDS.enrollmentPartitionMissing,
+        student_id: IDS.studentPartitionMissing,
+        company_id: IDS.company,
+        status: "active",
+        created_at: "2026-08-01T00:00:00Z",
+      },
+    ],
+  });
+
+  const dryRun = await runMigration({
+    ...input,
+    db,
+    today: "2026-08-10",
+    partitionCompletePlans: true,
+  });
+
+  assert.equal(dryRun.summary.candidate_operations, 1);
+  assert.equal(dryRun.summary.planned, 1);
+  assert.equal(dryRun.summary.blocked, 1);
+  assert.equal(dryRun.summary.complete_plans_with_catalog_coverage, 1);
+  assert.equal(dryRun.summary.blocked_incomplete_plans, 1);
+  assert.deepEqual(dryRun.results.map((row) => row.status).sort(), ["blocked", "planned"]);
+  assert.equal(dryRun.results.find((row) => row.status === "blocked").reason, "partition_plan_catalog_incomplete");
+
+  const applied = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    partitionCompletePlans: true,
+  });
+  assert.equal(applied.summary.imported, 1);
+  assert.equal(applied.summary.blocked, 1);
+  assert.equal(db.writes.cycles, 1);
+  assert.equal(db.writes.workouts, 1);
+  assert.equal(db.writes.workoutExercises, 1);
+
+  const writesAfterApply = structuredClone(db.writes);
+  const repeated = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    partitionCompletePlans: true,
+  });
+  assert.equal(repeated.summary.already_imported, 1);
+  assert.equal(repeated.summary.blocked, 1);
+  assert.deepEqual(db.writes, writesAfterApply);
 });
 
 test("only approved high-confidence aliases are executable and reviewed rows stay inert", () => {
