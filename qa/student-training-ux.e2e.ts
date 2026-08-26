@@ -29,9 +29,12 @@ test("student mobile training shell keeps compact actions, accordion state and l
   await expect(page.getByText("Levantamento terra romeno")).toBeVisible();
 
   await page.getByRole("button", { name: "Prepare-se" }).click();
-  await expect(page.getByRole("heading", { name: "Exercícios do treino" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Assistir demonstração de Agachamento goblet" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Buscar demonstração de Supino com halteres" })).toBeVisible();
+  const warmupDialog = page.getByRole("dialog", { name: "Prepare-se para o treino" });
+  await expect(page.getByRole("heading", { name: "Demonstrações do aquecimento" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Assistir demonstração de Agachamento livre (air squat)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Assistir demonstração de Flexão de braço" })).toBeVisible();
+  await expect(warmupDialog.getByRole("button", { name: /Agachamento goblet|Supino com halteres/i })).toHaveCount(0);
+  await expect(page.getByText("Vídeo indisponível para este item").first()).toBeVisible();
   await expect(page.locator("video, iframe")).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });

@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Flame, Timer, Check, Play, Search, VideoOff } from "lucide-react";
 import { exerciseThumb } from "@/lib/exerciseCover";
+import { WARMUP_VIDEO_MATCHES } from "@/lib/warmupVideoMatches";
 
 export type WarmupExercise = {
   exercise_id: string;
@@ -29,6 +30,44 @@ const WARMUP: Record<string, string[]> = {
   geral: ["5 min de esteira/bike em ritmo leve", "Mobilidade de quadril e ombro — 30s cada", "Ativar o músculo-alvo com carga leve — 1×15"],
 };
 
+type WarmupVideoItem = {
+  label: string;
+  exercise: WarmupExercise | null;
+};
+
+function normalizeExerciseName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function warmupMovementName(label: string): string {
+  return normalizeExerciseName(label.split("—")[0] || label);
+}
+
+function resolveWarmupVideoItems(labels: string[], exercises: WarmupExercise[]): WarmupVideoItem[] {
+  const candidatesByName = new Map<string, WarmupExercise[]>();
+  exercises.forEach((exercise) => {
+    const key = normalizeExerciseName(exercise.exercise_name);
+    candidatesByName.set(key, [...(candidatesByName.get(key) || []), exercise]);
+  });
+  const preferredNamesByWarmup = new Map(
+    Object.entries(WARMUP_VIDEO_MATCHES).map(([key, names]) => [normalizeExerciseName(key), names]),
+  );
+
+  return labels.map((label) => {
+    const preferredNames = preferredNamesByWarmup.get(warmupMovementName(label)) || [];
+    const matches = preferredNames.flatMap((name) => candidatesByName.get(normalizeExerciseName(name)) || []);
+    return {
+      label,
+      exercise: matches.length === 1 ? matches[0] : null,
+    };
+  });
+}
+
 function categoriesFor(muscleGroups: string[]): string[] {
   const cats = new Set<string>();
   (muscleGroups || []).forEach((raw) => {
@@ -46,9 +85,9 @@ function categoriesFor(muscleGroups: string[]): string[] {
   return cats.size ? [...cats] : ["geral"];
 }
 
-export function WarmupGuide({ muscleGroups, exercises = [], open, onOpenChange, onVideoPlay }: {
+export function WarmupGuide({ muscleGroups, libraryExercises = [], open, onOpenChange, onVideoPlay }: {
   muscleGroups: string[];
-  exercises?: WarmupExercise[];
+  libraryExercises?: WarmupExercise[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onVideoPlay?: (exercise: WarmupExercise) => void;
@@ -89,6 +128,7 @@ export function WarmupGuide({ muscleGroups, exercises = [], open, onOpenChange, 
     onOpenChange(false);
     window.requestAnimationFrame(() => onVideoPlay?.(exercise));
   };
+  const videoItems = useMemo(() => resolveWarmupVideoItems(items, libraryExercises), [items, libraryExercises]);
   const mm = String(Math.floor(remaining / 60)).padStart(1, "0");
   const ss = String(remaining % 60).padStart(2, "0");
 
@@ -140,18 +180,39 @@ export function WarmupGuide({ muscleGroups, exercises = [], open, onOpenChange, 
           })}
         </div>
 
-        {exercises.length > 0 && (
+        {videoItems.length > 0 && (
           <section aria-labelledby="warmup-exercises-title" className="space-y-2 border-t border-border pt-3">
             <div>
               <h3 id="warmup-exercises-title" className="font-sans text-sm font-semibold text-foreground">
-                Exercícios do treino
+                Demonstrações do aquecimento
               </h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Toque em uma prévia para revisar a execução. O vídeo só carrega quando você escolher.
+                Toque apenas quando houver demonstração ligada ao aquecimento. O vídeo só carrega quando você escolher.
               </p>
             </div>
             <div className="grid max-h-[34vh] grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
-              {exercises.map((exercise, index) => {
+              {videoItems.map(({ label, exercise }, index) => {
+                if (!exercise) {
+                  return (
+                    <div
+                      key={`${label}-${index}`}
+                      className="flex min-h-16 w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-left"
+                      aria-label={`Demonstração indisponível para ${label}`}
+                    >
+                      <span className="relative flex h-auto w-24 shrink-0 items-center justify-center overflow-hidden bg-secondary">
+                        <VideoOff className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+                      </span>
+                      <span className="flex min-w-0 flex-1 flex-col justify-center px-3 py-2">
+                        <span className="break-words text-xs font-medium leading-snug text-foreground">
+                          {label}
+                        </span>
+                        <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <VideoOff className="h-3 w-3" aria-hidden="true" /> Vídeo indisponível para este item
+                        </span>
+                      </span>
+                    </div>
+                  );
+                }
                 const thumbnail = exerciseThumb(exercise);
                 const hasLinkedVideo = Boolean(exercise.video_path || exercise.video_url || exercise.youtube_video_id);
                 const actionLabel = hasLinkedVideo

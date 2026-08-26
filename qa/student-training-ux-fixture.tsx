@@ -9,10 +9,16 @@ import { BenitoSprite } from "../src/components/BenitoSprite";
 import { useBenitoDrag } from "../src/lib/useBenitoDrag";
 import "../src/index.css";
 
-const exercises: WarmupExercise[] = [
+const workoutExercises: WarmupExercise[] = [
   { exercise_id: "squat", exercise_name: "Agachamento goblet", muscle_group: "perna", video_url: "https://example.test/goblet.mp4" },
   { exercise_id: "row", exercise_name: "Remada baixa", muscle_group: "costa", video_url: "https://example.test/remada.mp4" },
   { exercise_id: "press", exercise_name: "Supino com halteres", muscle_group: "peito" },
+];
+
+const warmupLibraryExercises: WarmupExercise[] = [
+  { exercise_id: "air-squat", exercise_name: "Agachamento livre (air squat)", muscle_group: "perna", video_url: "https://example.test/air-squat.mp4" },
+  { exercise_id: "cat-camel", exercise_name: "Cat-camel (gato-camelo)", muscle_group: "costa", video_url: "https://example.test/cat-camel.mp4" },
+  { exercise_id: "flexao", exercise_name: "Flexão de braço", muscle_group: "peito", video_url: "https://example.test/flexao.mp4" },
 ];
 
 function Fixture() {
@@ -90,7 +96,7 @@ function Fixture() {
         <BenitoSprite state={direction ?? (isDragging ? "running-left" : "idle")} size={60} alt="" className="benito-sprite-prominent" />
       </button>
 
-      <WarmupGuide muscleGroups={exercises.map((exercise) => exercise.muscle_group)} exercises={exercises} open={warmupOpen} onOpenChange={setWarmupOpen} onVideoPlay={(exercise) => setSelectedVideo(exercise.exercise_name)} />
+      <WarmupGuide muscleGroups={workoutExercises.map((exercise) => exercise.muscle_group)} libraryExercises={warmupLibraryExercises} open={warmupOpen} onOpenChange={setWarmupOpen} onVideoPlay={(exercise) => setSelectedVideo(exercise.exercise_name)} />
     </main>
   );
 }

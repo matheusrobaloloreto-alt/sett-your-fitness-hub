@@ -24,7 +24,8 @@ import { CheckinCard } from "@/components/student/CheckinCard";
 import { PushBanner } from "@/components/student/PushBanner";
 import { StatsCharts } from "@/components/student/StatsCharts";
 import { VolumeInsights } from "@/components/student/VolumeInsights";
-import { WarmupGuide } from "@/components/student/WarmupGuide";
+import { WarmupGuide, type WarmupExercise } from "@/components/student/WarmupGuide";
+import { WARMUP_VIDEO_LIBRARY_NAMES } from "@/lib/warmupVideoMatches";
 import { useRestTimer } from "@/components/student/RestTimer";
 import { useWakeLock } from "@/hooks/useWakeLock";
 import { WeeklyBar } from "@/components/student/WeeklyBar";
@@ -167,6 +168,7 @@ export default function StudentPortal() {
   const [workoutFeedbacks, setWorkoutFeedbacks] = useState<any[]>([]);
   const [weeklyGoal, setWeeklyGoal] = useState<number>(3);
   const [activeEnrollmentId, setActiveEnrollmentId] = useState<string | null>(null);
+  const [warmupVideoExercises, setWarmupVideoExercises] = useState<WarmupExercise[]>([]);
   // Prescrições por modalidade (abas condicionais): nutrição + esportes de cardio existentes.
   const [hasNutrition, setHasNutrition] = useState(false);
   const [runningSports, setRunningSports] = useState<Set<string>>(new Set());
@@ -352,6 +354,22 @@ export default function StudentPortal() {
         start_date: enrollment.start_date,
         end_date: enrollment.end_date,
       });
+    }
+
+    {
+      const { data: warmupLibraryData } = await (supabase as any)
+        .from("exercise_library")
+        .select("id, name, muscle_group, video_url, video_path, youtube_video_id, thumbnail_url")
+        .in("name", WARMUP_VIDEO_LIBRARY_NAMES);
+      setWarmupVideoExercises((warmupLibraryData || []).map((lib: any) => ({
+        exercise_id: lib.id,
+        exercise_name: lib.name,
+        muscle_group: lib.muscle_group || "",
+        video_url: lib.video_url || null,
+        video_path: lib.video_path || null,
+        youtube_video_id: lib.youtube_video_id ?? null,
+        thumbnail_url: lib.thumbnail_url ?? null,
+      })));
     }
 
     // CICLOS direto por student_id (RLS "students_read_own_cycles") — INDEPENDE da matrícula/plano,
@@ -1252,7 +1270,7 @@ export default function StudentPortal() {
 
                         <WarmupGuide
                           muscleGroups={selectedWorkout.exercises.map((e) => e.muscle_group)}
-                          exercises={selectedWorkout.exercises}
+                          libraryExercises={warmupVideoExercises}
                           open={warmupOpen}
                           onOpenChange={setWarmupOpen}
                           onVideoPlay={openVideoForExercise}
