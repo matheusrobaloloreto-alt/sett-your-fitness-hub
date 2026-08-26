@@ -1,0 +1,1953 @@
+{
+  "schema_version": 1,
+  "contains_pii": false,
+  "created_at": "2026-08-20",
+  "execution_scope": "offline_evidence_review_only",
+  "source_snapshot": {
+    "alias_map_path": "docs/project/mfit-exercise-aliases.v1.json",
+    "alias_map_sha256": "5c3dc887be17caa89d4c061fcd90c488f4a5e1add071d5ef5348645c60d8d4b2",
+    "medium_names": 52,
+    "medium_occurrences": 162
+  },
+  "policy": {
+    "fuzzy_matching": false,
+    "automatic_approval": false,
+    "remote_writes": false,
+    "approval_gate": "high confidence plus independent technical review plus fresh deterministic dry-run"
+  },
+  "provenance": [
+    "docs/project/mfit-exercise-aliases.v1.json",
+    "authenticated MFIT read-only UI for media evidence",
+    "SETT catalog metadata, targets and recording artifacts"
+  ],
+  "summary": {
+    "P0": 7,
+    "P1": 9,
+    "P2": 36,
+    "with_mfit_media_evidence": 36,
+    "needs_more_evidence": 0,
+    "runtime_false_medium": 21,
+    "blocked_after_visual_review": 21,
+    "pending_new_review": 0,
+    "never_reviewed_medium": 0,
+    "approved_pending_materialization": 0
+  },
+  "items": [
+    {
+      "source_name": "Abdução de Quadril Máquina",
+      "proposed_target_exercise_id": "8d9c8d95-ca83-4b41-aece-ded54f6711c7",
+      "proposed_target_name": "Cadeira Abdutora 90",
+      "occurrences": 14,
+      "priority": "P0",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por equivalência visual determinística. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem em revisão separada.",
+      "mfit_media_evidence": {
+        "video_url": "https://vd.mfitpersonal.com.br/515/mp4/515.mp4",
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/515/jpg/md/515_md.0000000.jpg",
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Abdução bilateral de quadril sentada em cadeira abdutora, com tronco apoiado e quadril próximo de 90°."
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved",
+      "runtime_eligible": true
+    },
+    {
+      "source_name": "Face Pull",
+      "proposed_target_exercise_id": "c5888208-17b3-4b1a-9b20-6b1214c89b6d",
+      "proposed_target_name": "Face Pull Corda",
+      "occurrences": 11,
+      "priority": "P0",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "1110",
+        "video_url": "https://vd.mfitpersonal.com.br/v2/1110/mp4/1110_opt.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/v2/1110/jpg/md/1110_md.0000001.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Face pull em pé na polia alta com corda, puxando em direção à face; o vídeo SETT confirma face pull por cabo/corda.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Remada Fechada Unilateral",
+      "proposed_target_exercise_id": "f138a64b-e0d8-4945-8dd3-b64dda059da3",
+      "proposed_target_name": "Remada Baixa Neutra Unilateral",
+      "occurrences": 11,
+      "priority": "P0",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "QA independente visual: movimento baixo e lateralidade batem parcialmente, mas resistência elástica em pé difere materialmente de cabo sentado; exige evidência adicional ou alvo específico antes de runtime.",
+      "mfit_media_evidence": {
+        "media_id": "638",
+        "video_url": "https://vd.mfitpersonal.com.br/638/mp4/638.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/638/jpg/md/638_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Remada unilateral com elástico/pegada fechada ancorado baixo, em base bipodal inclinada em pé; o alvo SETT é remada baixa neutra unilateral sentada em cabo.",
+        "supports": [
+          "movement",
+          "grip_or_width",
+          "laterality"
+        ],
+        "mismatch": [
+          "implement_or_resistance",
+          "support_or_posture",
+          "machine_configuration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "visual_assessment": "source_supported_but_target_requires_more_evidence",
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Crucifixo Inverso com Halteres",
+      "proposed_target_exercise_id": "cad889ac-c8da-4654-b27a-41555e10f212",
+      "proposed_target_name": "Crucifixo Invertido Curvado",
+      "occurrences": 10,
+      "priority": "P0",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "215",
+        "video_url": "https://vd.mfitpersonal.com.br/215/mp4/215.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/215/jpg/md/215_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Crucifixo inverso curvado em pé com halteres; o vídeo SETT demonstra postura curvada com halteres.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Puxada Aberta Barra reta",
+      "proposed_target_exercise_id": "f0d967d8-ff18-4881-8c28-aca104bf5ac6",
+      "proposed_target_name": "Puxada Pronada Polia",
+      "occurrences": 10,
+      "priority": "P0",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "565",
+        "video_url": "https://vd.mfitpersonal.com.br/565/mp4/565.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/565/jpg/md/565_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Puxada vertical sentada na polia, com barra longa, pegada aberta/pronada e apoio para as coxas; o vídeo SETT confirma puxada aberta no pulley com barra longa.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Puxada Neutra triangulo",
+      "proposed_target_exercise_id": "3b59a032-f393-479c-b31f-e9059390c3da",
+      "proposed_target_name": "Puxada Neutra Polia",
+      "occurrences": 9,
+      "priority": "P0",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "QA independente confirmou a fonte, mas o alvo genérico não prova acessório triangular/V-bar fechado; anexar evidência SETT do alvo ou usar alvo específico.",
+      "mfit_media_evidence": {
+        "media_id": "569",
+        "video_url": "https://vd.mfitpersonal.com.br/569/mp4/569.mp4",
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/569/jpg/md/569_md.0000000.jpg",
+        "observed_via": "public_media_read_only_frame_review",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Puxada vertical sentada na polia, bilateral, com pegada neutra em acessório triangular e apoio para as coxas."
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "blocked",
+      "runtime_eligible": false,
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Ativação de Glúteo com Elevação Pélvica",
+      "proposed_target_exercise_id": "a5d763eb-d779-49bc-acd4-665438ab4e01",
+      "proposed_target_name": "Ponte de glúteo",
+      "occurrences": 8,
+      "priority": "P0",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "1065",
+        "video_url": "https://vd.mfitpersonal.com.br/v2/1065/mp4/1065_opt.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/v2/1065/jpg/md/1065_md.0000001.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Ponte bilateral no solo, peso corporal, sem implemento; o vídeo SETT demonstra ponte bilateral no solo.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Agachamento Sumô no Step com Halteres",
+      "proposed_target_exercise_id": "df795cb5-06d1-49a9-848f-ac7b186ff807",
+      "proposed_target_name": "Agachamento Sumô Halter",
+      "occurrences": 6,
+      "priority": "P1",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "QA independente visual: movimento sumô e halter batem, mas os steps elevam o apoio e aumentam ROM; target sem step não preserva a configuração.",
+      "mfit_media_evidence": {
+        "media_id": "78",
+        "video_url": "https://vd.mfitpersonal.com.br/78/mp4/78.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/78/jpg/md/78_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Agachamento sumô com halter sobre steps bilaterais, aumentando a amplitude/ROM; o alvo SETT demonstra sumô com halter no solo, sem step.",
+        "supports": [
+          "movement"
+        ],
+        "mismatch": [
+          "support_or_posture",
+          "machine_configuration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "visual_assessment": "source_supported_but_target_requires_more_evidence",
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Mobilidade de Tornozelo Semi Ajoelhado",
+      "proposed_target_exercise_id": "3f384f30-1259-4e27-a7bf-70889243ac41",
+      "proposed_target_name": "Mobilidade de Tornozelo",
+      "occurrences": 6,
+      "priority": "P1",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "QA independente confirmou a fonte, mas o alvo genérico não prova postura semi-ajoelhada; anexar evidência SETT do alvo ou usar alvo específico.",
+      "mfit_media_evidence": {
+        "video_url": "https://vd.mfitpersonal.com.br/v2/1061/mp4/1061_opt.mp4",
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/v2/1061/jpg/md/1061_md.0000001.jpg",
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Mobilidade de tornozelo em posição semi-ajoelhada, com avanço do joelho sobre o pé, sem implemento."
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "blocked",
+      "runtime_eligible": false,
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Deslocamento Lateral com Elástico",
+      "proposed_target_exercise_id": "e6a748f5-2993-4f31-9e58-cb68e6ed8381",
+      "proposed_target_name": "Caminhada lateral com mini band",
+      "occurrences": 5,
+      "priority": "P1",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "1085",
+        "video_url": "https://vd.mfitpersonal.com.br/v2/1085/mp4/1085_opt.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/v2/1085/jpg/md/1085_md.0000001.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Deslocamento lateral com mini band/elástico nos membros inferiores, em postura semi-agachada; o alvo SETT preserva caminhada lateral com mini band.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Tríceps Testa Barra Reta",
+      "proposed_target_exercise_id": "043b569d-b13d-4ff7-9d4e-a552ff9d85ef",
+      "proposed_target_name": "Tríceps Testa Barra Banco Reto",
+      "occurrences": 5,
+      "priority": "P1",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "558",
+        "video_url": "https://vd.mfitpersonal.com.br/558/mp4/558.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/558/jpg/md/558_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Tríceps testa deitado em banco reto com barra reta; o alvo SETT demonstra tríceps testa com barra em banco reto.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Pulldown Barra Reta",
+      "proposed_target_exercise_id": "afbe8bbe-2cf2-4404-a609-7c9647ec3eeb",
+      "proposed_target_name": "Pulldown barra",
+      "occurrences": 4,
+      "priority": "P1",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "1104",
+        "video_url": "https://vd.mfitpersonal.com.br/v2/1104/mp4/1104_opt.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/v2/1104/jpg/md/1104_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Pulldown de braços estendidos em polia alta com barra reta, em pé com tronco inclinado; o vídeo SETT confirma pulldown de braços estendidos com barra.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Remada Baixa Triangulo",
+      "proposed_target_exercise_id": "0db0d50d-5d72-4ade-97f2-3ec1c64218d8",
+      "proposed_target_name": "Remada Baixa Neutra",
+      "occurrences": 4,
+      "priority": "P1",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "576",
+        "video_url": "https://vd.mfitpersonal.com.br/576/mp4/576.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/576/jpg/md/576_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Remada baixa sentada na polia com puxador triangular/fechado e pegada neutra; o vídeo SETT confirma remada baixa com triângulo.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Abdominal Infra com as Pernas Flexionadas",
+      "proposed_target_exercise_id": "2b6e19be-6b4d-44d6-af4b-04f7a09bef60",
+      "proposed_target_name": "Abdominal Infra Solo",
+      "occurrences": 3,
+      "priority": "P1",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "QA independente visual: ambos são abdominal infra no solo, mas a flexão de joelho/pernas flexionadas altera alavanca e dificuldade; target genérico observado não preserva a variante.",
+      "mfit_media_evidence": {
+        "media_id": "332",
+        "video_url": "https://vd.mfitpersonal.com.br/332/mp4/332.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/332/jpg/md/332_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Abdominal infra no solo com joelhos/pernas flexionadas; o alvo SETT Abdominal Infra Solo demonstra pernas estendidas, mudando alavanca e dificuldade.",
+        "supports": [
+          "movement"
+        ],
+        "mismatch": [
+          "laterality_or_joint_position",
+          "range_or_lever_arm"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "visual_assessment": "source_supported_but_target_requires_more_evidence",
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Agachamento Lateral Alternado",
+      "proposed_target_exercise_id": "2e04727d-35b1-4053-8733-ed0cec7da94f",
+      "proposed_target_name": "Cossack squat",
+      "occurrences": 3,
+      "priority": "P1",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "49",
+        "video_url": "https://vd.mfitpersonal.com.br/49/mp4/49.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/49/jpg/md/49_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Agachamento lateral profundo alternado, peso corporal, base ampla e uma perna estendida; o alvo SETT Cossack squat preserva o padrão.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Remada Máquina (Pegada Neutra)",
+      "proposed_target_exercise_id": "f0705159-aa86-407c-a27e-170374012831",
+      "proposed_target_name": "Remada Cavalinho Máquina Neutra",
+      "occurrences": 3,
+      "priority": "P1",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "540",
+        "video_url": "https://vd.mfitpersonal.com.br/540/mp4/540.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/540/jpg/md/540_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Remada em máquina sentada com pegada neutra, suporte anterior e trajetória horizontal; o alvo SETT preserva remada cavalinho em máquina neutra.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Abdominal Supra no Solo Pés Altos",
+      "proposed_target_exercise_id": "17161c04-540a-441c-9e03-8d9f9aae7b97",
+      "proposed_target_name": "Abdominal Supra Solo",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Abdominal supra no solo preservado; pés altos não consta no SETT.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch A",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Abdução de Quadril em Pé com Caneleira",
+      "proposed_target_exercise_id": "e789f3da-6de9-4be5-b039-adfb38f8a955",
+      "proposed_target_name": "Abdução de Quadril com Caneleira",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: abdução de quadril em pé com caneleira foi considerada equivalente ao alvo SETT Abdução de Quadril com Caneleira para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Abdução de Quadril na Polia Baixa Unilateral",
+      "proposed_target_exercise_id": "fb5c8403-d675-4928-8d39-cec23fc7054b",
+      "proposed_target_name": "Abdução de Quadril Polia",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: abdução unilateral de quadril na polia baixa foi considerada equivalente ao alvo SETT Abdução de Quadril Polia para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Bom dia com Cabo de Vassoura",
+      "proposed_target_exercise_id": "c916c624-2e7c-40b2-8195-4e5f8a4f2c3c",
+      "proposed_target_name": "Bom dia",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Mesmo padrão bom-dia; cabo de vassoura não consta no SETT.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Crucifixo com Halteres",
+      "proposed_target_exercise_id": "430e38a3-2815-45b1-af80-712184dd17c2",
+      "proposed_target_name": "Crucifixo Reto Halteres",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: crucifixo com halteres foi considerado equivalente ao alvo SETT Crucifixo Reto Halteres para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "support_or_posture",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Desenvolvimento Barra Reta",
+      "proposed_target_exercise_id": "7c4dd9a3-c6c2-4e9a-a896-42b7c9911ade",
+      "proposed_target_name": "Desenvolvimento Barra Sentado",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Desenvolvimento com barra preservado; SETT adiciona posição sentada.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch A",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Elevação de Quadril Unilateral",
+      "proposed_target_exercise_id": "a21397db-be10-492f-9e1b-42994ac9d79f",
+      "proposed_target_name": "Ponte de glúteo unilateral",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": null,
+      "mfit_media_evidence": {
+        "video_url": "https://d2vfutiy2j6sqj.cloudfront.net/115171/mp4/vr5q55vify_opt.mp4",
+        "thumbnail_url": "https://d2vfutiy2j6sqj.cloudfront.net/115171/jpg/md/vr5q55vify_md.0000000.jpg",
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Ponte de glúteo unilateral no solo, sem implemento, com uma perna elevada."
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "independent_review_status": "approved",
+      "runtime_eligible": true
+    },
+    {
+      "source_name": "Puxada Articulada Aberta",
+      "proposed_target_exercise_id": "592cf519-f2f5-4f82-9d10-8c2005851cbb",
+      "proposed_target_name": "Puxada Pronada Máquina",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: puxada articulada aberta foi considerada equivalente ao alvo SETT Puxada Pronada Máquina para migração histórica.",
+        "supports": [
+          "movement",
+          "grip_or_width",
+          "support_or_posture",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Remada Alta na Polia Alta com Corda",
+      "proposed_target_exercise_id": "6c2e58df-666f-420a-81e2-192929555fdc",
+      "proposed_target_name": "Remada Alta Polia",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Remada alta e polia preservadas; altura e corda não constam no SETT.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch A",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Remada Curvada com Barra Reta (Pegada Pronada)",
+      "proposed_target_exercise_id": "8fb786df-8ccc-4223-bbea-5fec0fb06c49",
+      "proposed_target_name": "Remada Curvada Pronada Barra",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: remada curvada com barra reta e pegada pronada foi considerada equivalente ao alvo SETT Remada Curvada Pronada Barra para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Remada Curvada com Barra Reta (Pegada Supinada)",
+      "proposed_target_exercise_id": "15e3ad55-f384-4e29-be43-b63cb85a9a5c",
+      "proposed_target_name": "Remada Curvada Supinada Barra",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: remada curvada com barra reta e pegada supinada foi considerada equivalente ao alvo SETT Remada Curvada Supinada Barra para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Remada Fechada com Halteres no Banco Inclinado",
+      "proposed_target_exercise_id": "7c94db20-f60f-4222-b592-afcbd22468c1",
+      "proposed_target_name": "Remada com Peito no Banco Neutra",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Nota confirma retração escapular; banco/pegada neutra preservados, inclinação e halteres não explícitos.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch B",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Rosca direta Banco Inclinado",
+      "proposed_target_exercise_id": "867a6df5-d665-43ac-b297-d46c2b667741",
+      "proposed_target_name": "Rosca Banco 45",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: rosca direta em banco inclinado foi considerada equivalente ao alvo SETT Rosca Banco 45 para migração histórica.",
+        "supports": [
+          "movement",
+          "support_or_posture",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Rosca Direta Barra Reta",
+      "proposed_target_exercise_id": "e1000001-0000-0000-0000-000000000008",
+      "proposed_target_name": "Rosca Direta",
+      "occurrences": 2,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Rosca direta preservada; barra reta não consta no SETT.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch B",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Abdominal com Rodinha Solo com Apoio",
+      "proposed_target_exercise_id": "b459d238-619c-4301-89c7-0e1694d448b5",
+      "proposed_target_name": "Abdominal Rodinha",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "“Abdominal Rodinha” preserva o movimento; apoio/solo não é explicitado no SETT.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch B",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Abdominal Infra com as Pernas Estendidas",
+      "proposed_target_exercise_id": "2b6e19be-6b4d-44d6-af4b-04f7a09bef60",
+      "proposed_target_name": "Abdominal Infra Solo",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: abdominal infra com pernas estendidas foi considerado equivalente ao alvo SETT Abdominal Infra Solo para migração histórica.",
+        "supports": [
+          "movement",
+          "support_or_posture",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Abdução de Quadril Unilateral com Caneleira",
+      "proposed_target_exercise_id": "e789f3da-6de9-4be5-b039-adfb38f8a955",
+      "proposed_target_name": "Abdução de Quadril com Caneleira",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "25",
+        "video_url": "https://vd.mfitpersonal.com.br/25/mp4/25.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/25/jpg/md/25_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Abdução unilateral de quadril com caneleira, em decúbito lateral; o alvo SETT preserva abdução de quadril unilateral com caneleira, com diferença apenas de suporte/postura aceitável para histórico.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Afundo Alternado no Smith",
+      "proposed_target_exercise_id": "1682b804-b531-426d-bb6b-93e5b9b7ceda",
+      "proposed_target_name": "Afundo Smith",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "QA biomecânico: alternado define sequência/lateralidade; o target pode representar afundo estático unilateral.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "conflict_blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch B",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      },
+      "conflict_status": "blocked_conflict",
+      "conflict_reason": "Conflito preservado: revisão anterior manteve fora do runtime por alternância/sequência/lateralidade."
+    },
+    {
+      "source_name": "Barra Fixa Gráviton (Pegada Aberta)",
+      "proposed_target_exercise_id": "6cf6f6ed-9022-459c-b5ae-cbe499ba4b33",
+      "proposed_target_name": "Graviton Pronado",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "QA biomecânico: pronação não preserva necessariamente a largura aberta.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Desenvolvimento com Halteres (Pegada Neutra)",
+      "proposed_target_exercise_id": "77208e72-8b6f-4fdc-99ca-42a18e2889d6",
+      "proposed_target_name": "Desenvolvimento Neutro Halteres Sentado",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Halteres e pegada neutra preservados; SETT adiciona posição sentada.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Desenvolvimento no Smith",
+      "proposed_target_exercise_id": "a863ae76-f3e6-42c0-9757-26e7e1a111a7",
+      "proposed_target_name": "Desenvolvimento Sentado Smith",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: desenvolvimento no Smith foi considerado equivalente ao alvo SETT Desenvolvimento Sentado Smith para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "support_or_posture",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Encolhimento de Ombros no Smith Pela Frente",
+      "proposed_target_exercise_id": "83aeb5e9-935b-4419-9e11-2192f9ed1794",
+      "proposed_target_name": "Encolhimento Smith",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Encolhimento e Smith preservados; posição “pela frente” não consta no SETT.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Flexão de Braços com Apoio",
+      "proposed_target_exercise_id": "be707dcf-d4cc-4788-8d23-551f5730e971",
+      "proposed_target_name": "Flexão Aberta com Apoio do Joelho",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "239",
+        "video_url": "https://vd.mfitpersonal.com.br/239/mp4/239.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/239/jpg/md/239_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Flexão de braços no solo com joelhos apoiados e mãos afastadas em largura compatível com flexão aberta; o vídeo SETT confirma flexão com apoio de joelhos.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Prancha Isometrica com Trx",
+      "proposed_target_exercise_id": "185147fa-6622-4a7d-a7f2-cc61dffe2c45",
+      "proposed_target_name": "Prancha com pés no TRX",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: prancha isométrica com TRX foi considerada equivalente ao alvo SETT Prancha com pés no TRX para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "support_or_posture",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Remada Alta com Barra W",
+      "proposed_target_exercise_id": "b222ffd2-a90e-47a2-9924-a63381446069",
+      "proposed_target_name": "Remada Alta Barra",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "QA biomecânico: barra W altera orientação de punho/antebraço e não é detalhe descartável.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Remada Alta na Polia Baixa com Barra Reta",
+      "proposed_target_exercise_id": "6c2e58df-666f-420a-81e2-192929555fdc",
+      "proposed_target_name": "Remada Alta Polia",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: remada alta na polia baixa com barra reta foi considerada equivalente ao alvo SETT Remada Alta Polia para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Remada Curvada com Carga (Pegada Neutra)",
+      "proposed_target_exercise_id": "ec464c13-8653-4ec4-83b6-0f4ac5855c4a",
+      "proposed_target_name": "Remada Curvada Halteres Neutra",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: remada curvada com carga e pegada neutra foi considerada equivalente ao alvo SETT Remada Curvada Halteres Neutra para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Remada TRX (Pegada Pronada)",
+      "proposed_target_exercise_id": "f0406f4a-06ba-4233-8651-51ad93d5bc88",
+      "proposed_target_name": "Remada Suspenas",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "“Remada suspensa” é candidato funcional a TRX; catálogo tem typo e não explicita pegada.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch D",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Rosca Alternada Banco Inclinado",
+      "proposed_target_exercise_id": "867a6df5-d665-43ac-b297-d46c2b667741",
+      "proposed_target_name": "Rosca Banco 45",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Banco 45 preserva inclinação; alternância não consta no SETT.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch D",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Rosca Alternada com Halteres",
+      "proposed_target_exercise_id": "e1000001-0000-0000-0000-000000000009",
+      "proposed_target_name": "Rosca Alternada",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "QA biomecânico: o target não confirma halteres; alternância também pode existir em cabos independentes.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch E",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Rosca Direta na Polia (Barra Reta)",
+      "proposed_target_exercise_id": "d154f0c1-5df4-4fd4-a487-3cfcaee43988",
+      "proposed_target_name": "Rosca Direta Polia Barra",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: rosca direta na polia com barra reta foi considerada equivalente ao alvo SETT Rosca Direta Polia Barra para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Sobe/Desce no Banco",
+      "proposed_target_exercise_id": "a67f2841-bf56-477d-8743-405c34d8360d",
+      "proposed_target_name": "Subida no caixote (step-up)",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: sobe/desce no banco foi considerado equivalente ao alvo SETT Subida no caixote (step-up) para migração histórica.",
+        "supports": [
+          "movement",
+          "support_or_posture",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Subida no Caixote com Halteres",
+      "proposed_target_exercise_id": "a67f2841-bf56-477d-8743-405c34d8360d",
+      "proposed_target_name": "Subida no caixote (step-up)",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "medium",
+      "decision_status": "blocked_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Subida no caixote preservada; halteres não constam no SETT.",
+      "mfit_media_evidence": null,
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": false,
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch E",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Supino Máquina Inclinado (Pegada Neutra)",
+      "proposed_target_exercise_id": "be15aca9-9af9-4e55-8c54-288689feb7cd",
+      "proposed_target_name": "Supino Inclinado Máquina",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Aprovação independente recebida no handoff: supino em máquina inclinada com pegada neutra foi considerado equivalente ao alvo SETT Supino Inclinado Máquina para migração histórica.",
+        "supports": [
+          "movement",
+          "implement",
+          "support_or_posture",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Tríceps na Polia com Barra Reta",
+      "proposed_target_exercise_id": "d06f7cc9-380d-4fb1-9b60-5bd92a25dc22",
+      "proposed_target_name": "Tríceps Polia Barra",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "reconciled_alias_candidate",
+      "blocker": "Alias aprovado por revisão visual independente. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "media_id": "415",
+        "video_url": "https://vd.mfitpersonal.com.br/415/mp4/415.mp4",
+        "video_url_verified_200": true,
+        "thumbnail_url": "https://vd.mfitpersonal.com.br/415/jpg/md/415_md.0000000.jpg",
+        "thumbnail_observed": true,
+        "observed_via": "authenticated_read_only_browser",
+        "observed_at": "2026-08-20",
+        "visual_finding": "Extensão de cotovelo em pé na polia com barra curta reta; o vídeo SETT confirma tríceps na polia com barra visualmente reta.",
+        "supports": [
+          "movement",
+          "implement",
+          "grip_or_width",
+          "support_or_posture",
+          "laterality",
+          "machine_configuration",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "visual_assessment": "supports_proposed_target",
+      "independent_review_status": "approved"
+    },
+    {
+      "source_name": "Tríceps Testa com Halteres",
+      "proposed_target_exercise_id": "883f77a1-c25f-4626-aed5-9d18c8955508",
+      "proposed_target_name": "Tríceps Testa Halteres Banco Reto",
+      "occurrences": 1,
+      "priority": "P2",
+      "current_confidence": "high",
+      "decision_status": "approved_after_visual_review",
+      "source_bucket": "medium_review_queue",
+      "blocker": "Alias aprovado por revisão independente recebida no handoff. A curadoria clínica/prescritiva e os metadados do alvo SETT permanecem fora deste lote.",
+      "mfit_media_evidence": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "observed_via": "independent_review_handoff",
+        "observed_at": "2026-08-21",
+        "visual_finding": "Revisão visual sanitizada: execução em banco reto com dois halteres, bilateral, preservando extensão de cotovelo/testa com halteres.",
+        "supports": [
+          "movement",
+          "implement",
+          "support_or_posture",
+          "laterality",
+          "visual_demonstration"
+        ]
+      },
+      "required_checks": [
+        "movement",
+        "implement",
+        "grip_or_width",
+        "support_or_posture",
+        "laterality",
+        "machine_configuration",
+        "sett_metadata_and_targets",
+        "visual_demonstration"
+      ],
+      "runtime_eligible": true,
+      "independent_review_status": "approved",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "post-ledger visual review",
+        "source_report": "specialist_chrome_checkpoint_2026-08-21",
+        "contains_pii": false
+      },
+      "visual_assessment": "supports_proposed_target",
+      "visual_finding": "Revisão visual sanitizada: execução em banco reto com dois halteres, bilateral, preservando extensão de cotovelo/testa com halteres."
+    }
+  ]
+}

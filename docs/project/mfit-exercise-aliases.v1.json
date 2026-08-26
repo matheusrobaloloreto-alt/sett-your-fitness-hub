@@ -1,0 +1,1323 @@
+{
+  "schema_version": 1,
+  "version": "2026-08-26-biomechanical-qa-v3",
+  "contains_pii": false,
+  "execution_scope": "dry_run_only_until_full_coverage_and_independent_QA",
+  "source_snapshot": {
+    "workouts_sha256": "6376f8576828a77a5848d58301cb7f6b2a34bfe95d87aec3b13538d94ec4b5f7",
+    "distinct_mfit_names": 313,
+    "exact_unambiguous": 131
+  },
+  "policy": {
+    "accepted": "high confidence only when movement, implement, grip or width, support, posture, laterality and machine configuration are preserved",
+    "blocked": "medium, low, no-candidate and ambiguous entries require additional visual or human evidence",
+    "target_guard": "runtime requires exact visible exercise id and normalized target name"
+  },
+  "summary": {
+    "approved_aliases": 76,
+    "pending_medium": 0,
+    "blocked_low": 27,
+    "blocked_no_candidate": 61,
+    "blocked_ambiguous_exact": 0,
+    "unresolved_total": 109,
+    "runtime_false_medium": 21,
+    "blocked_after_visual_review": 21,
+    "never_reviewed_medium": 0,
+    "approved_pending_materialization": 0
+  },
+  "aliases": [
+    {
+      "source_name": "Abdominal Escalador",
+      "target_exercise_id": "cc4885b7-5983-46eb-836f-4c31b8b2323c",
+      "target_name": "Mountain climbers",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 4,
+      "rationale": "Equivalência nominal PT↔EN: escalador = mountain climbers."
+    },
+    {
+      "source_name": "Abdominal Infra Suspenso Pernas Estendidas",
+      "target_exercise_id": "194582f3-e357-495e-add5-e81bc1811378",
+      "target_name": "Hanging leg raise",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "rationale": "Equivalência nominal PT↔EN e variante preservada: hanging leg raise."
+    },
+    {
+      "source_name": "Abdominal Infra Suspenso Pernas Flexionadas",
+      "target_exercise_id": "f6907426-e6ec-4ceb-8e98-87cb733bc841",
+      "target_name": "Hanging knee raise",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Equivalência nominal PT↔EN e variante preservada: hanging knee raise."
+    },
+    {
+      "source_name": "Abdominal Oblíquo Alternado com Pedalada",
+      "target_exercise_id": "4f30a215-6227-46f8-92a1-f7149eae8c60",
+      "target_name": "Bicycle crunch",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 4,
+      "rationale": "Equivalência nominal PT↔EN: abdominal com pedalada = bicycle crunch."
+    },
+    {
+      "source_name": "Abdominal Supra na Bola Suiça",
+      "target_exercise_id": "68a21d6e-f8ef-4307-adc7-d5399002393b",
+      "target_name": "Abdominal Supra Bola",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Movimento, região e implemento bola preservados."
+    },
+    {
+      "source_name": "Abdução de Quadril Máquina",
+      "target_exercise_id": "8d9c8d95-ca83-4b41-aece-ded54f6711c7",
+      "target_name": "Cadeira Abdutora 90",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 14,
+      "independent_review_status": "approved",
+      "rationale": "Vídeo MFIT e QA independente confirmam abdução bilateral sentada em cadeira abdutora, com tronco apoiado e quadril próximo de 90°; movimento, implemento, suporte, lateralidade e configuração correspondem ao alvo SETT. A curadoria de metadados do alvo permanece separada."
+    },
+    {
+      "source_name": "Afundo Alternado no Smith",
+      "target_exercise_id": "1682b804-b531-426d-bb6b-93e5b9b7ceda",
+      "target_name": "Afundo Smith",
+      "status": "blocked_after_visual_review",
+      "confidence": "medium",
+      "occurrences": 1,
+      "rationale": "QA biomecânico: alternado define sequência/lateralidade; o target pode representar afundo estático unilateral.",
+      "runtime_eligible": false,
+      "decision_status": "blocked_after_visual_review",
+      "independent_review_status": "conflict_blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch B",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      },
+      "conflict_status": "blocked_conflict",
+      "conflict_reason": "Conflito preservado: revisão anterior manteve fora do runtime por alternância/sequência/lateralidade."
+    },
+    {
+      "source_name": "Agachamento com Halter na Frente",
+      "target_exercise_id": "7a8976b1-789e-4ea7-b499-8b81ece87d25",
+      "target_name": "Agachamento Cálice",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "rationale": "Equivalência técnica: halter frontal = agachamento cálice."
+    },
+    {
+      "source_name": "Barra Fixa Gráviton (Pegada Aberta)",
+      "target_exercise_id": "6cf6f6ed-9022-459c-b5ae-cbe499ba4b33",
+      "target_name": "Graviton Pronado",
+      "status": "blocked_after_visual_review",
+      "confidence": "medium",
+      "occurrences": 1,
+      "rationale": "QA biomecânico: pronação não preserva necessariamente a largura aberta.",
+      "runtime_eligible": false,
+      "decision_status": "blocked_after_visual_review",
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Búlgaro Inclinado para Frente",
+      "target_exercise_id": "e9d6bfd4-2980-45b9-beac-855bb6be8c0b",
+      "target_name": "Agachamento Búlgaro Inclinado",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "Movimento e inclinação preservados."
+    },
+    {
+      "source_name": "Crucifixo Inclinado com Halteres",
+      "target_exercise_id": "c2df4c00-a3c7-4ed2-9310-a58b1971fa6f",
+      "target_name": "Crucifixo Inclinado Halteres",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Movimento, inclinação e equipamento preservados."
+    },
+    {
+      "source_name": "Crucifixo Máquina",
+      "target_exercise_id": "e1000001-0000-0000-0000-000000000003",
+      "target_name": "Crucifixo na Máquina",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "rationale": "Movimento e máquina preservados."
+    },
+    {
+      "source_name": "Desenvolvimento Sentado com Halteres (Pegada Neutra)",
+      "target_exercise_id": "77208e72-8b6f-4fdc-99ca-42a18e2889d6",
+      "target_name": "Desenvolvimento Neutro Halteres Sentado",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "rationale": "Movimento, posição, equipamento e pegada preservados."
+    },
+    {
+      "source_name": "Desenvolvimento com Halteres Sentado",
+      "target_exercise_id": "f65e178d-2fb9-467d-8ec7-153df01be7bb",
+      "target_name": "Desenvolvimento Halteres Sentado",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 6,
+      "rationale": "Movimento, equipamento e posição preservados."
+    },
+    {
+      "source_name": "Desenvolvimento no Smith",
+      "target_exercise_id": "a863ae76-f3e6-42c0-9757-26e7e1a111a7",
+      "target_name": "Desenvolvimento Sentado Smith",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: desenvolvimento no Smith preserva movimento de empurrar vertical guiado, barra/máquina Smith e suporte sentado no alvo SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Deslocamento Lateral com Elástico",
+      "target_exercise_id": "e6a748f5-2993-4f31-9e58-cb68e6ed8381",
+      "target_name": "Caminhada lateral com mini band",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 5,
+      "rationale": "QA independente visual: deslocamento lateral, elástico/mini band em membros inferiores, postura semi-agachada e padrão de abdução/controle lateral preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "1085"
+    },
+    {
+      "source_name": "Elevacão Lateral Sentado com Halteres",
+      "target_exercise_id": "bac1aae2-266d-4ebc-82ea-1bce6b01e70c",
+      "target_name": "Elevação Lateral Halteres Sentado",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "Movimento, posição e equipamento preservados; diferença apenas ortográfica."
+    },
+    {
+      "source_name": "Elevação Lateral com Halteres",
+      "target_exercise_id": "15968ffd-1b58-4859-b181-a8b9485a853c",
+      "target_name": "Elevação Lateral Halteres",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 18,
+      "rationale": "Movimento e equipamento preservados."
+    },
+    {
+      "source_name": "Elevação Y na Polia",
+      "target_exercise_id": "e1ee3cf8-d8a4-4023-8ed2-ee967dacea2a",
+      "target_name": "Y na Polia",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Movimento Y e polia preservados."
+    },
+    {
+      "source_name": "Elevação de Quadril",
+      "target_exercise_id": "947b6da5-7e97-4d27-badf-300ee1d5069a",
+      "target_name": "Elevação de Quadril Solo",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 11,
+      "rationale": "Movimento e execução no solo preservados pelo candidato."
+    },
+    {
+      "source_name": "Elevação de Quadril com Barra",
+      "target_exercise_id": "54a3288a-01d2-412f-bf86-f2904b58cb91",
+      "target_name": "Elevação Pélvica Barra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 25,
+      "rationale": "Equivalência técnica e equipamento: elevação de quadril = elevação pélvica com barra."
+    },
+    {
+      "source_name": "Elevação de Quadril na Maquina",
+      "target_exercise_id": "d2e55bc6-411a-4ca9-8b6f-8fb86e8099b8",
+      "target_name": "Elevação Pélvica Máquina",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 5,
+      "rationale": "Equivalência técnica e equipamento máquina preservados."
+    },
+    {
+      "source_name": "Flexora na Bola Suíça",
+      "target_exercise_id": "1a213f58-784c-4218-83fc-6e11a5666275",
+      "target_name": "Flexora na Bola",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 7,
+      "rationale": "Movimento e implemento bola preservados."
+    },
+    {
+      "source_name": "Flexão de Braço (Pegada Fechada)",
+      "target_exercise_id": "6f5aa853-de66-47ad-8061-d488c6f6adf7",
+      "target_name": "Flexão Fechada",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Movimento e pegada fechada preservados."
+    },
+    {
+      "source_name": "Flexão de Braços",
+      "target_exercise_id": "68435077-73bf-4ad9-9f10-1cf1f7fe35b8",
+      "target_name": "Flexão de braço",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 22,
+      "rationale": "Diferença apenas singular/plural."
+    },
+    {
+      "source_name": "Mobilidade Sapinho &#128056;",
+      "target_exercise_id": "ab73db0f-26d0-4e3e-931f-4e22e687e036",
+      "target_name": "Mobilidade Sapinho 🐸",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Mesmo nome; MFIT armazenou o emoji como entidade HTML."
+    },
+    {
+      "source_name": "Panturrilha no Leg Press 45",
+      "target_exercise_id": "9858eb03-5e8e-463c-82ea-98d1635c4e2d",
+      "target_name": "Panturrilha Leg 45",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "rationale": "Movimento e equipamento Leg 45 preservados."
+    },
+    {
+      "source_name": "Prancha Isometrica com Trx",
+      "target_exercise_id": "185147fa-6622-4a7d-a7f2-cc61dffe2c45",
+      "target_name": "Prancha com pés no TRX",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: prancha isométrica com TRX preserva isometria de core, suspensão TRX e suporte com pés no TRX no alvo SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Prancha Isométrica na Bola Suíça",
+      "target_exercise_id": "721e4851-7b5b-47c4-8d90-a8315323ad40",
+      "target_name": "Prancha na bola suíça",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 4,
+      "rationale": "Prancha e bola suíça preservadas; isometria é implícita."
+    },
+    {
+      "source_name": "Pulldown Barra Reta",
+      "target_exercise_id": "afbe8bbe-2cf2-4404-a609-7c9647ec3eeb",
+      "target_name": "Pulldown barra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 4,
+      "rationale": "QA independente visual: extensão de ombro/pulldown de braços estendidos, polia alta, barra reta e suporte em pé preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "1104"
+    },
+    {
+      "source_name": "Pulldown com Corda",
+      "target_exercise_id": "9a667138-66cf-42d3-a36f-0ffb0cd611e9",
+      "target_name": "Pulldown Corda",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 8,
+      "rationale": "Movimento e corda preservados."
+    },
+    {
+      "source_name": "Pullover com Halteres",
+      "target_exercise_id": "e5e6eb77-21c8-4d9b-95c0-3f91c4914375",
+      "target_name": "Pullover Halter",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Diferença apenas plural; movimento e halter preservados."
+    },
+    {
+      "source_name": "Puxada Neutra triangulo",
+      "target_exercise_id": "3b59a032-f393-479c-b31f-e9059390c3da",
+      "target_name": "Puxada Neutra Polia",
+      "status": "blocked_after_visual_review",
+      "confidence": "medium",
+      "occurrences": 9,
+      "rationale": "QA biomecânico: pegada neutra não garante triângulo nem largura fechada.",
+      "runtime_eligible": false,
+      "decision_status": "blocked_after_visual_review",
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P0/P1 visual review",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Remada Alta com Barra W",
+      "target_exercise_id": "b222ffd2-a90e-47a2-9924-a63381446069",
+      "target_name": "Remada Alta Barra",
+      "status": "blocked_after_visual_review",
+      "confidence": "medium",
+      "occurrences": 1,
+      "rationale": "QA biomecânico: barra W altera orientação de punho/antebraço e não é detalhe descartável.",
+      "runtime_eligible": false,
+      "decision_status": "blocked_after_visual_review",
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch C",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Remada Baixa (Pegada Pronada)",
+      "target_exercise_id": "ac085604-d230-44fa-bb9c-393696a3d3e3",
+      "target_name": "Remada Baixa Pronada",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "Movimento e pegada pronada preservados."
+    },
+    {
+      "source_name": "Remada Baixa Triangulo",
+      "target_exercise_id": "0db0d50d-5d72-4ade-97f2-3ec1c64218d8",
+      "target_name": "Remada Baixa Neutra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 4,
+      "rationale": "QA independente visual: padrão de remada baixa, suporte sentado, puxador triangular e pegada neutra/fechada preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "576"
+    },
+    {
+      "source_name": "Remada Curvada com Barra Reta (Pegada Pronada)",
+      "target_exercise_id": "8fb786df-8ccc-4223-bbea-5fec0fb06c49",
+      "target_name": "Remada Curvada Pronada Barra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: remada curvada com barra reta e pegada pronada preserva movimento, implemento e pegada no alvo SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Remada Curvada com Barra Reta (Pegada Supinada)",
+      "target_exercise_id": "15e3ad55-f384-4e29-be43-b63cb85a9a5c",
+      "target_name": "Remada Curvada Supinada Barra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: remada curvada com barra reta e pegada supinada preserva movimento, implemento e pegada no alvo SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Remada Curvada com Halteres (Pegada Neutra)",
+      "target_exercise_id": "ec464c13-8653-4ec4-83b6-0f4ac5855c4a",
+      "target_name": "Remada Curvada Halteres Neutra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 7,
+      "rationale": "Movimento, halteres e pegada neutra preservados."
+    },
+    {
+      "source_name": "Remada Curvada com Halteres (Pegada Pronada)",
+      "target_exercise_id": "9b2b10ed-6a6c-4e43-b17d-d603b7627e2b",
+      "target_name": "Remada Curvada Halteres Pronada",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 11,
+      "rationale": "Movimento, halteres e pegada pronada preservados."
+    },
+    {
+      "source_name": "Remada Unilateral Halteres - Pegada Neutra (Serrote)",
+      "target_exercise_id": "f97ce807-f666-4763-bc5f-70f491c215ec",
+      "target_name": "Serrote Banco",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 7,
+      "rationale": "Serrote no banco é a remada unilateral com halter; padrão preservado."
+    },
+    {
+      "source_name": "Rosca Alternada com Halteres",
+      "target_exercise_id": "e1000001-0000-0000-0000-000000000009",
+      "target_name": "Rosca Alternada",
+      "status": "blocked_after_visual_review",
+      "confidence": "medium",
+      "occurrences": 1,
+      "rationale": "QA biomecânico: o target não confirma halteres; alternância também pode existir em cabos independentes.",
+      "runtime_eligible": false,
+      "decision_status": "blocked_after_visual_review",
+      "independent_review_status": "blocked",
+      "review_provenance": {
+        "evidence_type": "sanitized_independent_review_handoff",
+        "batch": "P2 Batch E",
+        "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+        "contains_pii": false
+      }
+    },
+    {
+      "source_name": "Rosca direta Banco Inclinado",
+      "target_exercise_id": "867a6df5-d665-43ac-b297-d46c2b667741",
+      "target_name": "Rosca Banco 45",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: rosca direta em banco inclinado preserva movimento de flexão de cotovelo e suporte inclinado no alvo SETT Rosca Banco 45. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Rosca Direta com Halteres",
+      "target_exercise_id": "991faa49-4ce9-4bb9-975b-315f78efa964",
+      "target_name": "Rosca Direta Halteres",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 8,
+      "rationale": "Movimento e halteres preservados."
+    },
+    {
+      "source_name": "Rosca Direta na Polia (Barra Reta)",
+      "target_exercise_id": "d154f0c1-5df4-4fd4-a487-3cfcaee43988",
+      "target_name": "Rosca Direta Polia Barra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: rosca direta na polia com barra reta preserva flexão de cotovelo, cabo/polia e barra no alvo SETT Rosca Direta Polia Barra. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Rosca Martelo com Halteres",
+      "target_exercise_id": "f42f4b07-35f7-4deb-872e-3f1987a3dc89",
+      "target_name": "Rosca Martelo Halteres",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Movimento e halteres preservados."
+    },
+    {
+      "source_name": "Rosca Scott Barra H",
+      "target_exercise_id": "bf33e722-9da1-4e32-af62-546bb5176c3a",
+      "target_name": "Rosca Scott Barra",
+      "status": "blocked",
+      "confidence": "low",
+      "occurrences": 1,
+      "rationale": "QA biomecânico: barra H implica pegada neutra/paralela, ausente no target; targets musculares do exercício SETT também são incompatíveis e exigem correção/inspeção."
+    },
+    {
+      "source_name": "Stiff Sumô com Barra",
+      "target_exercise_id": "da6ed290-59ef-49c0-a831-51ee224233bf",
+      "target_name": "Stiff Abduzido Barra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Sumô corresponde à base abduzida; stiff e barra preservados."
+    },
+    {
+      "source_name": "Subida Frontal Unilateral no Step",
+      "target_exercise_id": "a67f2841-bf56-477d-8743-405c34d8360d",
+      "target_name": "Subida no caixote (step-up)",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Equivalência step-up; frontal/unilateral são implícitos no movimento."
+    },
+    {
+      "source_name": "Sobe/Desce no Banco",
+      "target_exercise_id": "a67f2841-bf56-477d-8743-405c34d8360d",
+      "target_name": "Subida no caixote (step-up)",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: sobe/desce no banco preserva o padrão de step-up no alvo SETT Subida no caixote (step-up). A diferença banco/caixote fica registrada como aceita apenas para o alias MFIT→SETT; a curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Supino Máquina Inclinado (Pegada Neutra)",
+      "target_exercise_id": "be15aca9-9af9-4e55-8c54-288689feb7cd",
+      "target_name": "Supino Inclinado Máquina",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: supino inclinado em máquina preserva empurrar inclinado e máquina no alvo SETT Supino Inclinado Máquina. A pegada neutra fica registrada como diferença aceita apenas para o alias MFIT→SETT; a curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Supino Reto com Halteres",
+      "target_exercise_id": "8801e0c9-15b8-4b27-8847-1affbef93da8",
+      "target_name": "Supino Reto Halteres",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 15,
+      "rationale": "Movimento, ângulo e halteres preservados."
+    },
+    {
+      "source_name": "Swing Kettlebell",
+      "target_exercise_id": "d65552e0-a929-4a03-9be0-0bb86899e428",
+      "target_name": "Kettlebell swing",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Mesmas palavras em ordem inversa; movimento e implemento preservados."
+    },
+    {
+      "source_name": "Tríceps Testa na Polia com Corda",
+      "target_exercise_id": "819d50d1-34ac-418b-a989-f71937578072",
+      "target_name": "Tríceps Testa Polia Corda",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "Movimento, polia e corda preservados."
+    },
+    {
+      "source_name": "Tríceps Testa com Halteres",
+      "target_exercise_id": "883f77a1-c25f-4626-aed5-9d18c8955508",
+      "target_name": "Tríceps Testa Halteres Banco Reto",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente visual sanitizado: execução em banco reto com dois halteres, bilateral, preservando extensão de cotovelo/testa com halteres; banco reto aceito para migração histórica.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Tríceps na Polia com Barra Reta",
+      "target_exercise_id": "d06f7cc9-380d-4fb1-9b60-5bd92a25dc22",
+      "target_name": "Tríceps Polia Barra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente visual: extensão de cotovelo na polia, barra reta/curta, suporte em pé e pegada em pronação preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "415"
+    },
+    {
+      "source_name": "Tríceps na Polia com Corda",
+      "target_exercise_id": "3cc40978-bc88-4d1c-88b4-670d761db741",
+      "target_name": "Tríceps Polia Corda",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 11,
+      "rationale": "Movimento, polia e corda preservados."
+    },
+    {
+      "source_name": "Elevação de Quadril Unilateral",
+      "target_exercise_id": "a21397db-be10-492f-9e1b-42994ac9d79f",
+      "target_name": "Ponte de glúteo unilateral",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "independent_review_status": "approved",
+      "rationale": "Vídeo MFIT autenticado confirma ponte de glúteo unilateral no solo, sem implemento, com uma perna elevada; movimento, suporte, lateralidade e configuração correspondem ao alvo SETT."
+    },
+    {
+      "source_name": "Levantamento Terra",
+      "target_exercise_id": "2345fdf0-2bb7-49c0-839d-1d1bfd3024f8",
+      "target_name": "Levantamento Terra",
+      "status": "approved",
+      "confidence": "high",
+      "match_scope": "ambiguous_exact_override",
+      "independent_review_status": "approved",
+      "occurrences": 1,
+      "rationale": "Override independente: os dois IDs usam a mesma demonstração; o alvo escolhido é o registro canônico já ligado à curadoria, enquanto a duplicata não possui metadados nem alvo primário."
+    },
+    {
+      "source_name": "Agachamento Bulgaro",
+      "target_exercise_id": "c452607e-7dff-463d-adb2-a712059a8d26",
+      "target_name": "Agachamento Búlgaro",
+      "status": "approved",
+      "confidence": "high",
+      "match_scope": "ambiguous_exact_override",
+      "independent_review_status": "approved",
+      "occurrences": 1,
+      "rationale": "Override independente: os dois IDs usam a mesma demonstração; o alvo escolhido já possui alvos musculares e vínculo com a curadoria, enquanto a duplicata não possui metadados nem alvo primário."
+    },
+    {
+      "source_name": "Abdução de Quadril Unilateral com Caneleira",
+      "target_exercise_id": "e789f3da-6de9-4be5-b039-adfb38f8a955",
+      "target_name": "Abdução de Quadril com Caneleira",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente visual: movimento primário de abdução de quadril, implemento caneleira e unilateralidade preservados; diferença de suporte decúbito lateral versus em pé com apoio é aceitável para migração histórica.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "25"
+    },
+    {
+      "source_name": "Puxada Aberta Barra reta",
+      "target_exercise_id": "f0d967d8-ff18-4881-8c28-aca104bf5ac6",
+      "target_name": "Puxada Pronada Polia",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 10,
+      "rationale": "QA independente visual: padrão de puxada vertical, polia, barra longa e pegada aberta/pronada preservados; diferença nominal não altera a semântica histórica.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "565"
+    },
+    {
+      "source_name": "Face Pull",
+      "target_exercise_id": "c5888208-17b3-4b1a-9b20-6b1214c89b6d",
+      "target_name": "Face Pull Corda",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 11,
+      "rationale": "QA independente visual: padrão face pull, cabo/polia, corda, suporte em pé e trajetória até a face preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "1110"
+    },
+    {
+      "source_name": "Flexão de Braços com Apoio",
+      "target_exercise_id": "be707dcf-d4cc-4788-8d23-551f5730e971",
+      "target_name": "Flexão Aberta com Apoio do Joelho",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente visual: push-up em cadeia fechada com joelhos apoiados e largura aberta/moderada preservados; o source genérico “com apoio” fica resolvido pela evidência visual.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "239"
+    },
+    {
+      "source_name": "Crucifixo Inverso com Halteres",
+      "target_exercise_id": "cad889ac-c8da-4654-b27a-41555e10f212",
+      "target_name": "Crucifixo Invertido Curvado",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 10,
+      "rationale": "QA independente visual: abdução horizontal/reverse fly em postura curvada, suporte em pé e halteres preservados; o nome SETT omite o implemento, mas a demonstração do alvo confirma halteres.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "215"
+    },
+    {
+      "source_name": "Ativação de Glúteo com Elevação Pélvica",
+      "target_exercise_id": "a5d763eb-d779-49bc-acd4-665438ab4e01",
+      "target_name": "Ponte de glúteo",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 8,
+      "rationale": "QA independente visual: ponte de glúteo bilateral no solo, peso corporal, suporte, movimento e bilateralidade preservados; “ativação” é intenção de uso, não variante mecânica.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "1065"
+    },
+    {
+      "source_name": "Tríceps Testa Barra Reta",
+      "target_exercise_id": "043b569d-b13d-4ff7-9d4e-a552ff9d85ef",
+      "target_name": "Tríceps Testa Barra Banco Reto",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 5,
+      "rationale": "QA independente visual: extensão de cotovelo deitado em banco reto com barra reta; suporte, implemento e movimento preservados.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "558"
+    },
+    {
+      "source_name": "Agachamento Lateral Alternado",
+      "target_exercise_id": "2e04727d-35b1-4053-8733-ed0cec7da94f",
+      "target_name": "Cossack squat",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "rationale": "QA independente visual: agachamento lateral profundo alternado, peso corporal, base ampla e uma perna estendida; padrão Cossack preservado.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "49"
+    },
+    {
+      "source_name": "Remada Máquina (Pegada Neutra)",
+      "target_exercise_id": "f0705159-aa86-407c-a27e-170374012831",
+      "target_name": "Remada Cavalinho Máquina Neutra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "rationale": "QA independente visual: remada em máquina sentada, pegada neutra, suporte anterior/chest-supported e trajetória horizontal preservados; diferença de modelo da máquina não muda a semântica histórica.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "media_id": "540"
+    },
+    {
+      "source_name": "Abdução de Quadril em Pé com Caneleira",
+      "target_exercise_id": "e789f3da-6de9-4be5-b039-adfb38f8a955",
+      "target_name": "Abdução de Quadril com Caneleira",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: abdução de quadril com caneleira preserva movimento e implemento; a variação de postura em pé fica registrada como diferença aceita apenas para o alias MFIT→SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Abdução de Quadril na Polia Baixa Unilateral",
+      "target_exercise_id": "fb5c8403-d675-4928-8d39-cec23fc7054b",
+      "target_name": "Abdução de Quadril Polia",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: abdução de quadril, cabo/polia e unilateralidade preservados; a altura baixa da polia fica registrada como diferença nominal aceita apenas para o alias MFIT→SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Crucifixo com Halteres",
+      "target_exercise_id": "430e38a3-2815-45b1-af80-712184dd17c2",
+      "target_name": "Crucifixo Reto Halteres",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: crucifixo com halteres preserva movimento e implemento; o alvo reto resolve a variante sem ângulo inclinado/declinado explícito. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Puxada Articulada Aberta",
+      "target_exercise_id": "592cf519-f2f5-4f82-9d10-8c2005851cbb",
+      "target_name": "Puxada Pronada Máquina",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 2,
+      "rationale": "QA independente aprovou equivalência para migração histórica: padrão de puxada, máquina e intenção aberta/pronada preservados; a máquina articulada fica registrada como diferença de equipamento aceita apenas para o alias MFIT→SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Abdominal Infra com as Pernas Estendidas",
+      "target_exercise_id": "2b6e19be-6b4d-44d6-af4b-04f7a09bef60",
+      "target_name": "Abdominal Infra Solo",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: abdominal infra no solo com pernas estendidas preserva padrão, suporte e alavanca do alvo SETT Abdominal Infra Solo. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Remada Alta na Polia Baixa com Barra Reta",
+      "target_exercise_id": "6c2e58df-666f-420a-81e2-192929555fdc",
+      "target_name": "Remada Alta Polia",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: remada alta na polia baixa com barra reta preserva remada alta, cabo/polia e barra; a altura baixa fica registrada como diferença aceita apenas para o alias MFIT→SETT. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Remada Curvada com Carga (Pegada Neutra)",
+      "target_exercise_id": "ec464c13-8653-4ec4-83b6-0f4ac5855c4a",
+      "target_name": "Remada Curvada Halteres Neutra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "QA independente aprovou equivalência para migração histórica: remada curvada com carga e pegada neutra foi resolvida para halteres neutros, preservando movimento e pegada. A curadoria clínica/prescritiva do alvo permanece separada.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "approve_alias_handoff_2026-08-21"
+    },
+    {
+      "source_name": "Supino Reto com Barra Reta",
+      "target_exercise_id": "b61721db-87fe-41d8-b13e-f6b5833b8550",
+      "target_name": "Supino Reto Barra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": null,
+      "match_scope": "alias",
+      "rationale": "QA independente aprovou equivalência para migração histórica: supino reto com barra reta preserva movimento, implemento barra, apoio no banco reto e configuração do alvo SETT Supino Reto Barra. Readiness prescritiva e curadoria clínica do alvo permanecem separadas deste alias histórico.",
+      "independent_review_status": "approved_for_historical_alias",
+      "evidence_source": "qa_mfit_candidate_review_2026-08-24",
+      "rejected_candidates": [
+        {
+          "target_exercise_id": "8738b381-20aa-48cf-8475-264a24f7a289",
+          "target_name": "Supino Reto Barra",
+          "rejection_reason": "duplicate_catalog_delta/no_metadata/no_primary_target"
+        }
+      ]
+    },
+    {
+      "source_name": "Flexão Nórdica Inversa",
+      "target_exercise_id": "672c0d1e-59af-46c1-b3ec-d3135a745b1b",
+      "target_name": "Nórdico Reverso",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": null,
+      "match_scope": "alias",
+      "rationale": "QA independente aprovou equivalência para migração histórica: flexão nórdica inversa preserva o exercício nórdico reverso, padrão joelho-dominante e peso corporal do alvo SETT standalone. Readiness prescritiva e curadoria clínica do alvo permanecem separadas deste alias histórico.",
+      "independent_review_status": "approved_for_historical_alias",
+      "evidence_source": "qa_mfit_candidate_review_2026-08-24",
+      "rejected_candidates": [
+        {
+          "target_exercise_id": "1c97bc1e-2dfe-4f83-b329-49ca21a8350a",
+          "target_name": "Biset Extensora + Nórdico Reverso",
+          "rejection_reason": "compound_biset_not_standalone_target"
+        }
+      ]
+    },
+    {
+      "source_name": "Passada com Halteres",
+      "target_exercise_id": "4161c89d-9db9-473f-97ca-acf4ac83b968",
+      "target_name": "Passada Halteres",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "match_scope": "alias",
+      "rationale": "Vídeos MFIT e SETT confirmam passada com halteres; movimento, implemento, apoio e lateralidade são preservados.",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "approved_after_visual_review": true,
+      "evidence_source": "mfit_linked_own_video_alias_evidence_2026-08-26"
+    },
+    {
+      "source_name": "Búlgaro com Halter",
+      "target_exercise_id": "7fa7c63d-5642-4d41-acd3-f3e468e53370",
+      "target_name": "Agachamento búlgaro",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 8,
+      "match_scope": "alias",
+      "rationale": "Vídeos MFIT e SETT confirmam agachamento búlgaro com carga em halter e pé traseiro apoiado; padrão unilateral, implemento e suporte são preservados.",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "approved_after_visual_review": true,
+      "evidence_source": "mfit_linked_own_video_alias_evidence_2026-08-26"
+    },
+    {
+      "source_name": "Agachamento Sumo com Kettlebell",
+      "target_exercise_id": "df795cb5-06d1-49a9-848f-ac7b186ff807",
+      "target_name": "Agachamento Sumô Halter",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "match_scope": "alias",
+      "rationale": "Vídeos MFIT e SETT confirmam agachamento sumô com carga livre central; base, trajetória e posição da carga são preservadas apesar da nomenclatura kettlebell/halter.",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "approved_after_visual_review": true,
+      "evidence_source": "mfit_linked_own_video_alias_evidence_2026-08-26"
+    },
+    {
+      "source_name": "Banco Supino Reto",
+      "target_exercise_id": "b61721db-87fe-41d8-b13e-f6b5833b8550",
+      "target_name": "Supino Reto Barra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "match_scope": "alias",
+      "rationale": "Revisão visual mais recente supera o bloqueio nominal anterior: o vídeo MFIT mostra supino reto com barra, e o vídeo próprio SETT preserva movimento, barra e banco reto.",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "approved_after_visual_review": true,
+      "evidence_source": "mfit_linked_own_video_alias_evidence_2026-08-26"
+    }
+  ],
+  "review_queue": {
+    "medium": [],
+    "low": [
+      "Abdominal Dead Bug",
+      "Abdominal Dead Bug Isométrico",
+      "Abdominal Prancha Isométrica",
+      "Agachamento Hack Invertido",
+      "Búlgaro com Halteres",
+      "Crucifixo Inverso Máquina",
+      "Elevação de Quadril na Cadeira/Sofá",
+      "Elevação Frontal Alternada",
+      "Flexão de Braço no Smith",
+      "Flexão de Braço TRX",
+      "Flexora Unilateral",
+      "Glúteos Coice na Polia",
+      "Leg Press 45 Pés Afastados",
+      "Pallof Press",
+      "Perdigueiro Isométrico",
+      "Perdigueiro Unilateral",
+      "Prancha Isométrica",
+      "Prancha Isometrica Lateral Baixa",
+      "Puxada unilateral",
+      "Remada Alta com Kettlebell",
+      "Rosca Inversa Barra W",
+      "Rosca Inversa com Halteres",
+      "Serrote",
+      "Stiff Unilateral",
+      "Subida Lateral Unilateral no Step",
+      "Supino com Carga"
+    ],
+    "no_candidate": [
+      "Abdominal Cruzado",
+      "Abdominal Oblíquo Máquina Extensão Lombar",
+      "Abdominal Oblíquo na Polia",
+      "Abdução",
+      "Abdução Decúbito Lateral Pernas Flexionados",
+      "Abdução em Pé",
+      "Abdução Ombros",
+      "Adução de Quadril na Polia Unilateral",
+      "Agachamento - Mini Band",
+      "Agachamento Isometrico + Abdução",
+      "Agachamento Isométrico com Panturrilha",
+      "Agachamento no TRX",
+      "Alongamento de Panturrilha",
+      "Alongamento de Panturrilha Espaldar",
+      "Anterior Quadril com Flexão de Tronco",
+      "Ativação de Glúteo com Elevação Pélvica com Step",
+      "Avanço",
+      "Bridge Fit Ball I",
+      "Bridge Fit Ball III",
+      "Combinado",
+      "Control and Coordination Fitball",
+      "Glúteos 4 Apoios Perna Estendida com Caneleira",
+      "Glúteos 4 Apoios Perna Flexionada com Caneleira",
+      "Hiperextensao de Lombar Solo",
+      "Leg Pull Front Fitball",
+      "Mobilidade de Escápula XIII",
+      "Mobilidade de Ombro I",
+      "Mobilidade de Ombro V",
+      "Mobilidade de Ombro VII",
+      "Mobilidade de Ombro VIII",
+      "Mobilidade de Quadril Dinâmico",
+      "Mobilidade de Quadril II",
+      "Mobilidade de Quadril IV",
+      "Mobilidade de Quadril V",
+      "Mobilidade de Quadril VII",
+      "Mobilidade de Quadril VIII",
+      "Mobilidade Dorsal V",
+      "Mobilidade Torácica I",
+      "Mobilidade Torácica III",
+      "Mobilidade Torácica IV",
+      "Mobilidade Torácica VII",
+      "Mobilidade Torárica X",
+      "Panturrilha inclinado na parede",
+      "panturrilha na parede",
+      "Panturrilha Unilateral na Parede",
+      "Plank II Feet on the Fitball",
+      "Plank with Forearm Support I Fitball",
+      "Plank with Forearm Support II Fitball",
+      "Pullover com Anilha",
+      "Pullover TRX",
+      "Puxada Fechada barra reta",
+      "Remo",
+      "Retração Escapular no Banco 45º",
+      "The Leg Pull",
+      "The Saw",
+      "The Side Kick Elevação da Perna de Baixo",
+      "Tríceps Coice com Halteres",
+      "Triceps Coice Unilateral na Polia Baixa",
+      "Tríceps Francês com Anilha",
+      "Tríceps Francês com Halteres",
+      "Tríceps Supinado com Halteres"
+    ],
+    "ambiguous_exact": [],
+    "blocked_after_visual_review": [
+      {
+        "source_name": "Abdominal Infra com as Pernas Flexionadas",
+        "proposed_target_exercise_id": "2b6e19be-6b4d-44d6-af4b-04f7a09bef60",
+        "proposed_target_name": "Abdominal Infra Solo",
+        "confidence": "medium",
+        "occurrences": 3,
+        "blocker": "QA independente visual: ambos são abdominal infra no solo, mas a flexão de joelho/pernas flexionadas altera alavanca e dificuldade; target genérico observado não preserva a variante.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P0/P1 visual review",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Abdominal Supra no Solo Pés Altos",
+        "proposed_target_exercise_id": "17161c04-540a-441c-9e03-8d9f9aae7b97",
+        "proposed_target_name": "Abdominal Supra Solo",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Abdominal supra no solo preservado; pés altos não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch A",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Abdominal com Rodinha Solo com Apoio",
+        "proposed_target_exercise_id": "b459d238-619c-4301-89c7-0e1694d448b5",
+        "proposed_target_name": "Abdominal Rodinha",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "“Abdominal Rodinha” preserva o movimento; apoio/solo não é explicitado no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch B",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Agachamento Sumô no Step com Halteres",
+        "proposed_target_exercise_id": "df795cb5-06d1-49a9-848f-ac7b186ff807",
+        "proposed_target_name": "Agachamento Sumô Halter",
+        "confidence": "medium",
+        "occurrences": 6,
+        "blocker": "QA independente visual: movimento sumô e halter batem, mas os steps elevam o apoio e aumentam ROM; target sem step não preserva a configuração.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P0/P1 visual review",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Bom dia com Cabo de Vassoura",
+        "proposed_target_exercise_id": "c916c624-2e7c-40b2-8195-4e5f8a4f2c3c",
+        "proposed_target_name": "Bom dia",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Mesmo padrão bom-dia; cabo de vassoura não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P0/P1 visual review",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Desenvolvimento Barra Reta",
+        "proposed_target_exercise_id": "7c4dd9a3-c6c2-4e9a-a896-42b7c9911ade",
+        "proposed_target_name": "Desenvolvimento Barra Sentado",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Desenvolvimento com barra preservado; SETT adiciona posição sentada.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch A",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Desenvolvimento com Halteres (Pegada Neutra)",
+        "proposed_target_exercise_id": "77208e72-8b6f-4fdc-99ca-42a18e2889d6",
+        "proposed_target_name": "Desenvolvimento Neutro Halteres Sentado",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "Halteres e pegada neutra preservados; SETT adiciona posição sentada.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch C",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Encolhimento de Ombros no Smith Pela Frente",
+        "proposed_target_exercise_id": "83aeb5e9-935b-4419-9e11-2192f9ed1794",
+        "proposed_target_name": "Encolhimento Smith",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "Encolhimento e Smith preservados; posição “pela frente” não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch C",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Mobilidade de Tornozelo Semi Ajoelhado",
+        "proposed_target_exercise_id": "3f384f30-1259-4e27-a7bf-70889243ac41",
+        "proposed_target_name": "Mobilidade de Tornozelo",
+        "confidence": "medium",
+        "occurrences": 6,
+        "blocker": "Região e objetivo preservados; posição semi-ajoelhada não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P0/P1 visual review",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Remada Alta na Polia Alta com Corda",
+        "proposed_target_exercise_id": "6c2e58df-666f-420a-81e2-192929555fdc",
+        "proposed_target_name": "Remada Alta Polia",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Remada alta e polia preservadas; altura e corda não constam no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch A",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Remada Fechada Unilateral",
+        "proposed_target_exercise_id": "f138a64b-e0d8-4945-8dd3-b64dda059da3",
+        "proposed_target_name": "Remada Baixa Neutra Unilateral",
+        "confidence": "medium",
+        "occurrences": 11,
+        "blocker": "QA independente visual: movimento baixo e lateralidade batem parcialmente, mas resistência elástica em pé difere materialmente de cabo sentado; exige evidência adicional ou alvo específico antes de runtime.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P0/P1 visual review",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Remada Fechada com Halteres no Banco Inclinado",
+        "proposed_target_exercise_id": "7c94db20-f60f-4222-b592-afcbd22468c1",
+        "proposed_target_name": "Remada com Peito no Banco Neutra",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Nota confirma retração escapular; banco/pegada neutra preservados, inclinação e halteres não explícitos.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch B",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Remada TRX (Pegada Pronada)",
+        "proposed_target_exercise_id": "f0406f4a-06ba-4233-8651-51ad93d5bc88",
+        "proposed_target_name": "Remada Suspenas",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "“Remada suspensa” é candidato funcional a TRX; catálogo tem typo e não explicita pegada.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch D",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Rosca Alternada Banco Inclinado",
+        "proposed_target_exercise_id": "867a6df5-d665-43ac-b297-d46c2b667741",
+        "proposed_target_name": "Rosca Banco 45",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "Banco 45 preserva inclinação; alternância não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch D",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Rosca Direta Barra Reta",
+        "proposed_target_exercise_id": "e1000001-0000-0000-0000-000000000008",
+        "proposed_target_name": "Rosca Direta",
+        "confidence": "medium",
+        "occurrences": 2,
+        "blocker": "Rosca direta preservada; barra reta não consta no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch B",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      },
+      {
+        "source_name": "Subida no Caixote com Halteres",
+        "proposed_target_exercise_id": "a67f2841-bf56-477d-8743-405c34d8360d",
+        "proposed_target_name": "Subida no caixote (step-up)",
+        "confidence": "medium",
+        "occurrences": 1,
+        "blocker": "Subida no caixote preservada; halteres não constam no SETT.",
+        "decision_status": "blocked_after_visual_review",
+        "runtime_eligible": false,
+        "independent_review_status": "blocked",
+        "review_provenance": {
+          "evidence_type": "sanitized_independent_review_handoff",
+          "batch": "P2 Batch E",
+          "source_report": "docs/project/RELATORIO-2026-08-14-MFIT-PARA-SETT-READINESS.md",
+          "contains_pii": false
+        }
+      }
+    ],
+    "approved_pending_materialization": []
+  },
+  "limitations": [
+    "Os 180 registros MFIT não têm description, equipment nem muscle_group preenchidos; 13 têm nota de execução, usada apenas quando discriminante.",
+    "Descrição SETT é nula para a maior parte do catálogo; equipamento, muscle_group e exercise_muscle_targets foram consultados em SELECT read-only.",
+    "Confiança é curadoria candidata, não autorização de alias nem decisão automática. Fuzzy/score não foi usado para escolher IDs."
+  ]
+}
