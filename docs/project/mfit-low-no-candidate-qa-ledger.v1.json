@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
-  "version": "2026-08-24-low-no-candidate-qa-ledger-v1",
+  "version": "2026-08-26-low-no-candidate-qa-ledger-v2",
   "contains_pii": false,
   "evidence_source": "qa_mfit_candidate_review_2026-08-24",
   "source_snapshot": {
-    "alias_map_sha256": "f01eaba55e41ebfc7305c746ebf4f5c08bf0363f4102254a79a9345499a46a0f",
+    "alias_map_sha256": "5c3dc887be17caa89d4c061fcd90c488f4a5e1add071d5ef5348645c60d8d4b2",
     "review_queue_total": 90
   },
   "summary": {
     "total_reviewed": 90,
-    "approve_alias": 2,
-    "block": 46,
+    "approve_alias": 3,
+    "block": 45,
     "needs_target_creation": 42
   },
   "items": [
@@ -33,7 +33,7 @@
     { "source_name": "Tríceps Coice com Halteres", "queue": "no_candidate", "decision": "NEEDS_TARGET_CREATION", "target_exercise_id": null, "target_name": null, "rationale": "Sem coice de tríceps com halteres." },
     { "source_name": "Triceps Coice Unilateral na Polia Baixa", "queue": "no_candidate", "decision": "BLOCK", "target_exercise_id": null, "target_name": null, "rationale": "Candidatos de tríceps na polia não preservam coice/polia baixa." },
     { "source_name": "Avanço", "queue": "no_candidate", "decision": "BLOCK", "target_exercise_id": null, "target_name": null, "rationale": "Fonte genérica; candidatos variam barra, halteres e rotação." },
-    { "source_name": "Banco Supino Reto", "queue": "no_candidate", "decision": "BLOCK", "target_exercise_id": null, "target_name": null, "rationale": "Match próximo é exercício de supino/crossover, não banco como source." },
+    { "source_name": "Banco Supino Reto", "queue": "no_candidate", "decision": "APPROVE_ALIAS", "target_exercise_id": "b61721db-87fe-41d8-b13e-f6b5833b8550", "target_name": "Supino Reto Barra", "rationale": "Revisão visual posterior supera o bloqueio nominal: vídeo MFIT mostra supino reto com barra e o vídeo próprio SETT preserva movimento, barra e banco reto.", "supersedes": "2026-08-24 nominal-only BLOCK", "evidence_source": "mfit-linked-own-video-alias-evidence.v1.json" },
     { "source_name": "Abdução em Pé", "queue": "no_candidate", "decision": "BLOCK", "target_exercise_id": null, "target_name": null, "rationale": "Candidato adiciona banda e não tem primary target suficiente." },
     { "source_name": "Agachamento Isometrico + Abdução", "queue": "no_candidate", "decision": "NEEDS_TARGET_CREATION", "target_exercise_id": null, "target_name": null, "rationale": "Sem alvo composto equivalente." },
     { "source_name": "Agachamento Isométrico com Panturrilha", "queue": "no_candidate", "decision": "NEEDS_TARGET_CREATION", "target_exercise_id": null, "target_name": null, "rationale": "Sem alvo composto equivalente." },

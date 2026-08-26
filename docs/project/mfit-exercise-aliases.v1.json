@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "2026-08-17-biomechanical-qa-v2",
+  "version": "2026-08-26-biomechanical-qa-v3",
   "contains_pii": false,
   "execution_scope": "dry_run_only_until_full_coverage_and_independent_QA",
   "source_snapshot": {
@@ -14,12 +14,12 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 72,
+    "approved_aliases": 76,
     "pending_medium": 0,
     "blocked_low": 27,
-    "blocked_no_candidate": 62,
+    "blocked_no_candidate": 61,
     "blocked_ambiguous_exact": 0,
-    "unresolved_total": 110,
+    "unresolved_total": 109,
     "runtime_false_medium": 21,
     "blocked_after_visual_review": 21,
     "never_reviewed_medium": 0,
@@ -887,6 +887,62 @@
           "rejection_reason": "compound_biset_not_standalone_target"
         }
       ]
+    },
+    {
+      "source_name": "Passada com Halteres",
+      "target_exercise_id": "4161c89d-9db9-473f-97ca-acf4ac83b968",
+      "target_name": "Passada Halteres",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "match_scope": "alias",
+      "rationale": "Vídeos MFIT e SETT confirmam passada com halteres; movimento, implemento, apoio e lateralidade são preservados.",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "approved_after_visual_review": true,
+      "evidence_source": "mfit_linked_own_video_alias_evidence_2026-08-26"
+    },
+    {
+      "source_name": "Búlgaro com Halter",
+      "target_exercise_id": "7fa7c63d-5642-4d41-acd3-f3e468e53370",
+      "target_name": "Agachamento búlgaro",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 8,
+      "match_scope": "alias",
+      "rationale": "Vídeos MFIT e SETT confirmam agachamento búlgaro com carga em halter e pé traseiro apoiado; padrão unilateral, implemento e suporte são preservados.",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "approved_after_visual_review": true,
+      "evidence_source": "mfit_linked_own_video_alias_evidence_2026-08-26"
+    },
+    {
+      "source_name": "Agachamento Sumo com Kettlebell",
+      "target_exercise_id": "df795cb5-06d1-49a9-848f-ac7b186ff807",
+      "target_name": "Agachamento Sumô Halter",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "match_scope": "alias",
+      "rationale": "Vídeos MFIT e SETT confirmam agachamento sumô com carga livre central; base, trajetória e posição da carga são preservadas apesar da nomenclatura kettlebell/halter.",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "approved_after_visual_review": true,
+      "evidence_source": "mfit_linked_own_video_alias_evidence_2026-08-26"
+    },
+    {
+      "source_name": "Banco Supino Reto",
+      "target_exercise_id": "b61721db-87fe-41d8-b13e-f6b5833b8550",
+      "target_name": "Supino Reto Barra",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 3,
+      "match_scope": "alias",
+      "rationale": "Revisão visual mais recente supera o bloqueio nominal anterior: o vídeo MFIT mostra supino reto com barra, e o vídeo próprio SETT preserva movimento, barra e banco reto.",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "approved_after_visual_review": true,
+      "evidence_source": "mfit_linked_own_video_alias_evidence_2026-08-26"
     }
   ],
   "review_queue": {
@@ -937,7 +993,6 @@
       "Anterior Quadril com Flexão de Tronco",
       "Ativação de Glúteo com Elevação Pélvica com Step",
       "Avanço",
-      "Banco Supino Reto",
       "Bridge Fit Ball I",
       "Bridge Fit Ball III",
       "Combinado",

@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "version": "2026-08-26-linked-own-video-alias-evidence-v1",
+  "contains_pii": false,
+  "runtime_policy": "reviewed_aliases_only",
+  "source_snapshot": {
+    "private_evidence_file": "mfit-linked-own-video-approved4-evidence-20260826.json",
+    "private_evidence_sha256": "73d440887fdd3892b1cfa0850d64b9a9e18ce3793cceb336d3b0e185a522fb72",
+    "deterministic_dry_run_sha256_json_stringify_without_generated_at": "04b0106ff01906099be1096d77ab7ce0a5d68e53699c09a31605b8526a54423e",
+    "live_catalog_rows": 924,
+    "verified_at": "2026-08-26"
+  },
+  "review_policy": {
+    "similarity": "triage_only",
+    "approval": "source MFIT video and exact linked SETT own video preserve movement, implement or load position, support, posture and laterality",
+    "scope": "historical migration alias only; no exercise creation and no media copy"
+  },
+  "summary": {
+    "batch_reviewed": 20,
+    "approved_high": 4,
+    "blocked_or_more_evidence": 16
+  },
+  "items": [
+    {
+      "source_name": "Passada com Halteres",
+      "source_media_reference": "mfit:272",
+      "target_exercise_id": "4161c89d-9db9-473f-97ca-acf4ac83b968",
+      "target_name": "Passada Halteres",
+      "target_video_path": "biblioteca/4161c89d-9db9-473f-97ca-acf4ac83b968.mp4",
+      "source_video_reviewed": true,
+      "target_own_video_linked": true,
+      "biomechanical_review_status": "approved_high",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "rationale": "Mesmo padrão de passada com halteres; movimento, implemento, apoio e lateralidade preservados."
+    },
+    {
+      "source_name": "Búlgaro com Halter",
+      "source_media_reference": "mfit:pw71ecb7c1p",
+      "target_exercise_id": "7fa7c63d-5642-4d41-acd3-f3e468e53370",
+      "target_name": "Agachamento búlgaro",
+      "target_video_path": "biblioteca/7fa7c63d-5642-4d41-acd3-f3e468e53370.mp4",
+      "source_video_reviewed": true,
+      "target_own_video_linked": true,
+      "biomechanical_review_status": "approved_high",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "rationale": "Mesmo padrão unilateral com pé traseiro apoiado e carga em halter; implemento, suporte e postura preservados."
+    },
+    {
+      "source_name": "Agachamento Sumo com Kettlebell",
+      "source_media_reference": "mfit:184",
+      "target_exercise_id": "df795cb5-06d1-49a9-848f-ac7b186ff807",
+      "target_name": "Agachamento Sumô Halter",
+      "target_video_path": "biblioteca/df795cb5-06d1-49a9-848f-ac7b186ff807.mp4",
+      "source_video_reviewed": true,
+      "target_own_video_linked": true,
+      "biomechanical_review_status": "approved_high",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "rationale": "Mesmo padrão de agachamento sumô e posição central da carga livre; a diferença nominal kettlebell/halter não altera a execução observada."
+    },
+    {
+      "source_name": "Banco Supino Reto",
+      "source_media_reference": "mfit:472",
+      "target_exercise_id": "b61721db-87fe-41d8-b13e-f6b5833b8550",
+      "target_name": "Supino Reto Barra",
+      "target_video_path": "biblioteca/b61721db-87fe-41d8-b13e-f6b5833b8550.mp4",
+      "source_video_reviewed": true,
+      "target_own_video_linked": true,
+      "biomechanical_review_status": "approved_high",
+      "independent_review_status": "approved",
+      "runtime_eligible": true,
+      "supersedes": "2026-08-24 nominal-only BLOCK",
+      "rationale": "A revisão visual atual mostra supino reto com barra na fonte; movimento, barra e banco reto coincidem com o alvo SETT."
+    }
+  ]
+}

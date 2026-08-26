@@ -1487,14 +1487,14 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 72);
+  assert.equal(aliasPayload.summary.approved_aliases, 76);
   assert.equal(aliasPayload.summary.runtime_false_medium, 21);
   assert.equal(aliasPayload.summary.blocked_after_visual_review, 21);
   assert.equal(aliasPayload.summary.approved_pending_materialization, 0);
   assert.equal(aliasPayload.summary.pending_medium, 0);
   assert.equal(aliasPayload.summary.never_reviewed_medium, 0);
   assert.equal(aliasPayload.summary.blocked_ambiguous_exact, 0);
-  assert.equal(aliasPayload.summary.unresolved_total, 110);
+  assert.equal(aliasPayload.summary.unresolved_total, 109);
   assert.deepEqual(aliasPayload.review_queue.ambiguous_exact, []);
   assert.deepEqual(aliasPayload.review_queue.medium, []);
   assert.deepEqual(aliasPayload.review_queue.approved_pending_materialization, []);
@@ -1907,15 +1907,15 @@ test("final low and no-candidate QA materialization stays narrow and auditable",
   const ledgerPayload = JSON.parse(ledgerText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 72);
+  assert.equal(aliasPayload.summary.approved_aliases, 76);
   assert.equal(aliasPayload.summary.blocked_low, 27);
-  assert.equal(aliasPayload.summary.blocked_no_candidate, 62);
-  assert.equal(aliasPayload.summary.unresolved_total, 110);
+  assert.equal(aliasPayload.summary.blocked_no_candidate, 61);
+  assert.equal(aliasPayload.summary.unresolved_total, 109);
   assert.equal(aliasPayload.summary.runtime_false_medium, 21);
   assert.equal(aliasPayload.summary.blocked_after_visual_review, 21);
   assert.equal(aliasPayload.summary.approved_pending_materialization, 0);
   assert.equal(aliasPayload.review_queue.low.length, 26);
-  assert.equal(aliasPayload.review_queue.no_candidate.length, 62);
+  assert.equal(aliasPayload.review_queue.no_candidate.length, 61);
 
   const approvedForHistoricalAlias = [
     {
@@ -1971,8 +1971,8 @@ test("final low and no-candidate QA materialization stays narrow and auditable",
   assert.equal(ledgerPayload.contains_pii, false);
   assert.deepEqual(ledgerPayload.summary, {
     total_reviewed: 90,
-    approve_alias: 2,
-    block: 46,
+    approve_alias: 3,
+    block: 45,
     needs_target_creation: 42,
   });
   assert.equal(ledgerPayload.items.length, 90);
@@ -1982,10 +1982,98 @@ test("final low and no-candidate QA materialization stays narrow and auditable",
       .filter((item) => item.decision === "APPROVE_ALIAS")
       .map((item) => item.source_name)
       .sort(),
-    ["Flexão Nórdica Inversa", "Supino Reto com Barra Reta"],
+    ["Banco Supino Reto", "Flexão Nórdica Inversa", "Supino Reto com Barra Reta"],
   );
   assert.ok(ledgerPayload.items.every((item) => item.rationale && !item.runtime_eligible));
 
   const currentHash = createHash("sha256").update(aliasText).digest("hex");
   assert.equal(ledgerPayload.source_snapshot.alias_map_sha256, currentHash);
+});
+
+test("linked own-video aliases require exact reviewed targets and sanitized evidence", async () => {
+  const aliasPath = new URL("../docs/project/mfit-exercise-aliases.v1.json", import.meta.url);
+  const evidencePath = new URL("../docs/project/mfit-linked-own-video-alias-evidence.v1.json", import.meta.url);
+  const [aliasText, evidenceText] = await Promise.all([
+    readFile(aliasPath, "utf8"),
+    readFile(evidencePath, "utf8"),
+  ]);
+  const aliasPayload = JSON.parse(aliasText);
+  const evidencePayload = JSON.parse(evidenceText);
+  const aliasIndex = buildExerciseAliasIndex(aliasPayload);
+  const expectedAliases = [
+    {
+      sourceName: "Passada com Halteres",
+      normalizedSource: "passada com halteres",
+      targetExerciseId: "4161c89d-9db9-473f-97ca-acf4ac83b968",
+      targetName: "Passada Halteres",
+    },
+    {
+      sourceName: "Búlgaro com Halter",
+      normalizedSource: "bulgaro com halter",
+      targetExerciseId: "7fa7c63d-5642-4d41-acd3-f3e468e53370",
+      targetName: "Agachamento búlgaro",
+    },
+    {
+      sourceName: "Agachamento Sumo com Kettlebell",
+      normalizedSource: "agachamento sumo com kettlebell",
+      targetExerciseId: "df795cb5-06d1-49a9-848f-ac7b186ff807",
+      targetName: "Agachamento Sumô Halter",
+    },
+    {
+      sourceName: "Banco Supino Reto",
+      normalizedSource: "banco supino reto",
+      targetExerciseId: "b61721db-87fe-41d8-b13e-f6b5833b8550",
+      targetName: "Supino Reto Barra",
+    },
+  ];
+
+  assert.equal(aliasPayload.summary.approved_aliases, 76);
+  assert.equal(aliasPayload.summary.blocked_no_candidate, 61);
+  assert.equal(aliasPayload.summary.unresolved_total, 109);
+  assert.equal(evidencePayload.schema_version, 1);
+  assert.equal(evidencePayload.contains_pii, false);
+  assert.equal(evidencePayload.runtime_policy, "reviewed_aliases_only");
+  assert.equal(evidencePayload.items.length, expectedAliases.length);
+  assert.equal(
+    evidencePayload.source_snapshot.private_evidence_file,
+    "mfit-linked-own-video-approved4-evidence-20260826.json",
+  );
+  assert.match(evidencePayload.source_snapshot.private_evidence_sha256, /^[0-9a-f]{64}$/);
+  assert.match(
+    evidencePayload.source_snapshot.deterministic_dry_run_sha256_json_stringify_without_generated_at,
+    /^[0-9a-f]{64}$/,
+  );
+
+  for (const expected of expectedAliases) {
+    const matchingRows = aliasPayload.aliases.filter(
+      (row) => row.source_name.normalize("NFKD").replace(/\p{M}/gu, "").toLocaleLowerCase("pt-BR")
+        === expected.normalizedSource,
+    );
+    assert.equal(matchingRows.length, 1);
+    assert.equal(matchingRows[0].target_exercise_id, expected.targetExerciseId);
+    assert.equal(matchingRows[0].target_name, expected.targetName);
+    assert.equal(matchingRows[0].status, "approved");
+    assert.equal(matchingRows[0].confidence, "high");
+    assert.equal(matchingRows[0].independent_review_status, "approved");
+    assert.equal(matchingRows[0].runtime_eligible, true);
+    assert.equal(aliasPayload.review_queue.no_candidate.includes(expected.sourceName), false);
+    assert.equal(aliasPayload.review_queue.low.includes(expected.sourceName), false);
+
+    const runtimeAlias = aliasIndex.get(expected.normalizedSource);
+    assert.equal(runtimeAlias?.target_exercise_id, expected.targetExerciseId);
+    assert.equal(runtimeAlias?.target_name, expected.targetName);
+
+    const evidence = evidencePayload.items.find((row) => row.source_name === expected.sourceName);
+    assert.equal(evidence?.target_exercise_id, expected.targetExerciseId);
+    assert.equal(evidence?.target_name, expected.targetName);
+    assert.equal(evidence?.source_video_reviewed, true);
+    assert.equal(evidence?.target_own_video_linked, true);
+    assert.equal(evidence?.biomechanical_review_status, "approved_high");
+    assert.equal(evidence?.runtime_eligible, true);
+  }
+
+  assert.equal(
+    new Set(aliasPayload.aliases.map((row) => row.source_name.normalize("NFKD").replace(/\p{M}/gu, "").toLocaleLowerCase("pt-BR"))).size,
+    aliasPayload.aliases.length,
+  );
 });
