@@ -366,6 +366,20 @@ class InvisibleCycleAfterTargetDb extends MemoryDb {
   }
 }
 
+class CyclesChangedBeforeApplyDb extends MemoryDb {
+  constructor(options) {
+    super(options);
+    this.cyclesAfterFirstRead = structuredClone(options.cyclesAfterFirstRead || []);
+    this.cycleReads = 0;
+  }
+
+  async getCycles(enrollmentIds) {
+    this.cycleReads += 1;
+    const rows = this.cycleReads > 1 ? this.cyclesAfterFirstRead : this.cycles;
+    return rows.filter((row) => enrollmentIds.includes(row.enrollment_id));
+  }
+}
+
 const WORKOUT_EXERCISES_SCHEMA = new Set([
   "id",
   "workout_id",
@@ -510,6 +524,56 @@ test("CLI remains dry-run unless --apply is explicit", () => {
     `--company-id=${IDS.company}`,
     "--create-missing-exercise-targets",
   ]).createMissingExerciseTargets, true);
+  assert.equal(parseArgs([
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+  ]).createNewCycleOnAmbiguousEmpty, false);
+  assert.equal(parseArgs([
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+    "--create-new-cycle-on-ambiguous-empty",
+  ]).createNewCycleOnAmbiguousEmpty, true);
+  assert.equal(parseArgs([
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+  ]).mergeOverlapIntoActiveCycle, false);
+  assert.equal(parseArgs([
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+    "--merge-overlap-into-active-cycle",
+  ]).mergeOverlapIntoActiveCycle, true);
+  assert.throws(
+    () => parseArgs([
+      "--apply",
+      `--confirm-project=${EXPECTED_SUPABASE_PROJECT_REF}`,
+      "--sett-students=a",
+      "--mfit-clients=b",
+      "--mfit-workouts=c",
+      `--company-id=${IDS.company}`,
+      "--create-new-cycle-on-ambiguous-empty",
+    ]),
+    /requires 1-5 explicit --include-plan-ref/,
+  );
+  assert.throws(
+    () => parseArgs([
+      "--apply",
+      `--confirm-project=${EXPECTED_SUPABASE_PROJECT_REF}`,
+      "--sett-students=a",
+      "--mfit-clients=b",
+      "--mfit-workouts=c",
+      `--company-id=${IDS.company}`,
+      "--merge-overlap-into-active-cycle",
+    ]),
+    /requires 1-5 explicit --include-plan-ref/,
+  );
   assert.deepEqual(parseArgs([
     "--sett-students=a",
     "--mfit-clients=b",
@@ -1098,6 +1162,59 @@ test("equally plausible empty cycles block import instead of guessing", async ()
   assert.equal(report.summary.blocked, 1);
   assert.equal(report.results[0].reason, "ambiguous_empty_cycle_reuse");
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("explicit ambiguous-empty flag appends a deterministic cycle without touching empty cycles", async () => {
+  const input = baseInput();
+  const emptyCycles = [
+    {
+      id: "40000000-0000-4000-8000-000000000020",
+      enrollment_id: IDS.enrollment,
+      student_id: IDS.studentPhone,
+      company_id: IDS.company,
+      cycle_number: 2,
+      start_date: "2026-08-10",
+      end_date: "2026-09-20",
+      status: "pending",
+    },
+    {
+      id: "40000000-0000-4000-8000-000000000021",
+      enrollment_id: IDS.enrollment,
+      student_id: IDS.studentPhone,
+      company_id: IDS.company,
+      cycle_number: 3,
+      start_date: "2026-08-10",
+      end_date: "2026-09-20",
+      status: "pending",
+    },
+  ];
+  const db = new MemoryDb({ cycles: emptyCycles });
+
+  const first = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    createNewCycleOnAmbiguousEmpty: true,
+  });
+
+  assert.equal(first.summary.imported, 1);
+  assert.equal(db.writes.cycles, 1);
+  assert.equal(db.writes.workouts, 1);
+  assert.equal(db.cycles.length, 3);
+  assert.deepEqual(db.cycles.slice(0, 2), emptyCycles);
+  assert.ok(!emptyCycles.some((cycle) => cycle.id === db.workouts[0].cycle_id));
+
+  const writesAfterFirst = structuredClone(db.writes);
+  const second = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    createNewCycleOnAmbiguousEmpty: true,
+  });
+  assert.equal(second.summary.already_imported, 1);
+  assert.deepEqual(db.writes, writesAfterFirst);
 });
 
 test("a missing exercise blocks the whole batch and never changes the library", async () => {
@@ -2260,6 +2377,240 @@ test("an overlapping materialized SETT cycle blocks import without mutations", a
   assert.equal(report.results[0].reason, "overlapping_cycle_with_workouts");
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
   assert.equal(db.workouts[0].exercises[0].exercise_name, "Treino existente");
+});
+
+test("explicit overlap merge appends deterministic workouts to one covering active cycle", async () => {
+  const input = baseInput();
+  const existingCycle = {
+    id: "40000000-0000-4000-8000-000000000001",
+    enrollment_id: IDS.enrollment,
+    student_id: IDS.studentPhone,
+    company_id: IDS.company,
+    cycle_number: 1,
+    start_date: "2026-08-01",
+    end_date: "2026-09-20",
+    status: "active",
+  };
+  const existingWorkout = {
+    id: "50000000-0000-4000-8000-000000000001",
+    cycle_id: existingCycle.id,
+    company_id: IDS.company,
+    notes: "manual SETT workout",
+    sort_order: 4,
+    exercises: [{ exercise_name: "Treino existente" }],
+  };
+  const db = new MemoryDb({ cycles: [existingCycle], workouts: [existingWorkout] });
+
+  const first = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    mergeOverlapIntoActiveCycle: true,
+  });
+
+  assert.equal(first.summary.imported, 1);
+  assert.equal(db.writes.cycles, 0);
+  assert.equal(db.writes.workouts, 1);
+  assert.equal(db.cycles.length, 1);
+  assert.deepEqual(db.cycles[0], existingCycle);
+  assert.deepEqual(db.workouts[0], existingWorkout);
+  assert.equal(db.workouts[1].cycle_id, existingCycle.id);
+  assert.equal(db.workouts[1].sort_order, 5);
+
+  const writesAfterFirst = structuredClone(db.writes);
+  const second = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    mergeOverlapIntoActiveCycle: true,
+  });
+  assert.equal(second.summary.already_imported, 1);
+  assert.deepEqual(db.writes, writesAfterFirst);
+});
+
+test("overlap merge blocks unless exactly one active cycle covers the reference date", async () => {
+  const input = baseInput();
+  const cycle = (id, status) => ({
+    id,
+    enrollment_id: IDS.enrollment,
+    student_id: IDS.studentPhone,
+    company_id: IDS.company,
+    cycle_number: Number(id.slice(-1)) || 1,
+    start_date: "2026-08-01",
+    end_date: "2026-09-20",
+    status,
+  });
+  const workout = (id, cycleId) => ({
+    id,
+    cycle_id: cycleId,
+    company_id: IDS.company,
+    notes: "manual SETT workout",
+    exercises: [{ exercise_name: "Treino existente" }],
+  });
+
+  for (const db of [
+    new MemoryDb({
+      cycles: [cycle("40000000-0000-4000-8000-000000000041", "completed")],
+      workouts: [workout("50000000-0000-4000-8000-000000000041", "40000000-0000-4000-8000-000000000041")],
+    }),
+    new MemoryDb({
+      cycles: [
+        cycle("40000000-0000-4000-8000-000000000041", "active"),
+        cycle("40000000-0000-4000-8000-000000000042", "active"),
+      ],
+      workouts: [
+        workout("50000000-0000-4000-8000-000000000041", "40000000-0000-4000-8000-000000000041"),
+        workout("50000000-0000-4000-8000-000000000042", "40000000-0000-4000-8000-000000000042"),
+      ],
+    }),
+  ]) {
+    const report = await runMigration({
+      ...input,
+      db,
+      apply: true,
+      today: "2026-08-10",
+      mergeOverlapIntoActiveCycle: true,
+    });
+    assert.equal(report.summary.blocked, 1);
+    assert.equal(report.results[0].reason, "merge_overlap_active_cycle_not_unique_or_not_covering");
+    assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+  }
+});
+
+test("overlap merge blocks deterministic workout payload divergence without touching existing rows", async () => {
+  const input = baseInput();
+  const cycle = {
+    id: "40000000-0000-4000-8000-000000000043",
+    enrollment_id: IDS.enrollment,
+    student_id: IDS.studentPhone,
+    company_id: IDS.company,
+    cycle_number: 1,
+    start_date: "2026-08-01",
+    end_date: "2026-09-20",
+    status: "active",
+  };
+  const db = new MemoryDb({
+    cycles: [cycle],
+    workouts: [{
+      id: "50000000-0000-4000-8000-000000000043",
+      cycle_id: cycle.id,
+      company_id: IDS.company,
+      notes: "manual SETT workout",
+      sort_order: 1,
+      exercises: [{ exercise_name: "Treino existente" }],
+    }],
+  });
+  await runMigration({ ...input, db, apply: true, today: "2026-08-10", mergeOverlapIntoActiveCycle: true });
+  const imported = db.workouts.find((row) => row.notes?.startsWith("mfit-import:v1:"));
+  imported.title = "Conteúdo divergente";
+  const writesBeforeRetry = structuredClone(db.writes);
+
+  const retry = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    mergeOverlapIntoActiveCycle: true,
+  });
+  assert.equal(retry.summary.blocked, 1);
+  assert.equal(retry.results[0].reason, "cycle_contains_different_workouts");
+  assert.deepEqual(db.writes, writesBeforeRetry);
+});
+
+test("overlap merge partial retry appends only the missing deterministic workout", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts.push({
+    id: "session-b",
+    name: "Treino B",
+    day_of_week: 3,
+    exercises: [{
+      id: "mfit-exercise-2",
+      name: "Remada MFIT Exata",
+      sets: 3,
+      reps: "8-10",
+      rest_seconds: 75,
+    }],
+  });
+  const cycle = {
+    id: "40000000-0000-4000-8000-000000000044",
+    enrollment_id: IDS.enrollment,
+    student_id: IDS.studentPhone,
+    company_id: IDS.company,
+    cycle_number: 1,
+    start_date: "2026-08-01",
+    end_date: "2026-09-20",
+    status: "active",
+  };
+  const manualWorkout = {
+    id: "50000000-0000-4000-8000-000000000044",
+    cycle_id: cycle.id,
+    company_id: IDS.company,
+    notes: "manual SETT workout",
+    sort_order: 4,
+    exercises: [{ exercise_name: "Treino existente" }],
+  };
+  const db = new MemoryDb({ cycles: [cycle], workouts: [manualWorkout] });
+  await runMigration({ ...input, db, apply: true, today: "2026-08-10", mergeOverlapIntoActiveCycle: true });
+  const removed = db.workouts.find((row) => row.name === "Treino B");
+  db.workouts = db.workouts.filter((row) => row.id !== removed.id);
+  db.workoutExercises = db.workoutExercises.filter((row) => row.workout_id !== removed.id);
+  const writesBeforeRetry = structuredClone(db.writes);
+
+  const retry = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    mergeOverlapIntoActiveCycle: true,
+  });
+  assert.equal(retry.summary.partial_repaired, 1);
+  assert.equal(db.writes.cycles, writesBeforeRetry.cycles);
+  assert.equal(db.writes.workouts, writesBeforeRetry.workouts + 1);
+  assert.equal(db.writes.workoutExercises, writesBeforeRetry.workoutExercises + 1);
+  assert.deepEqual(db.cycles[0], cycle);
+  assert.deepEqual(db.workouts[0], manualWorkout);
+  assert.deepEqual(
+    db.workouts.filter((row) => row.notes?.startsWith("mfit-import:v1:")).map((row) => row.sort_order),
+    [5, 6],
+  );
+});
+
+test("overlap merge fails closed when the active target changes before apply", async () => {
+  const input = baseInput();
+  const activeCycle = {
+    id: "40000000-0000-4000-8000-000000000045",
+    enrollment_id: IDS.enrollment,
+    student_id: IDS.studentPhone,
+    company_id: IDS.company,
+    cycle_number: 1,
+    start_date: "2026-08-01",
+    end_date: "2026-09-20",
+    status: "active",
+  };
+  const db = new CyclesChangedBeforeApplyDb({
+    cycles: [activeCycle],
+    cyclesAfterFirstRead: [{ ...activeCycle, status: "completed" }],
+    workouts: [{
+      id: "50000000-0000-4000-8000-000000000045",
+      cycle_id: activeCycle.id,
+      company_id: IDS.company,
+      notes: "manual SETT workout",
+      exercises: [{ exercise_name: "Treino existente" }],
+    }],
+  });
+
+  const report = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    mergeOverlapIntoActiveCycle: true,
+  });
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.results[0].reason, "merge_overlap_active_cycle_changed_before_apply");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
 });
 
 test("MFIT native exercise groups preserve protocol, media and bi-sets", () => {

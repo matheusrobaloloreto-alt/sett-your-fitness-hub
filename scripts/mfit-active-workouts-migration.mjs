@@ -1440,8 +1440,14 @@ function analyzeWorkoutRows(existing, expected) {
   return { conflict: false, missing: expected.filter((row) => !seen.has(row.id)) };
 }
 
+function workoutRowsForOperation(workouts, operation) {
+  if (!operation.merge_overlap_into_active_cycle) return workouts;
+  const expectedIds = new Set(operation.workouts.map((workout) => workout.id));
+  return workouts.filter((workout) => expectedIds.has(workout.id));
+}
+
 function operationAlreadyMaterialized(workouts, operation) {
-  const analysis = analyzeWorkoutRows(workouts, operation.workouts);
+  const analysis = analyzeWorkoutRows(workoutRowsForOperation(workouts, operation), operation.workouts);
   return !analysis.conflict && analysis.missing.length === 0;
 }
 
@@ -1533,6 +1539,27 @@ async function applyOperation(db, operation) {
   const currentCycles = await db.getCyclesByIds([operation.cycle.id]);
   let cycle = currentCycles[0] || null;
 
+  if (operation.merge_overlap_into_active_cycle) {
+    const liveCycles = await db.getCycles([operation.cycle.enrollment_id]);
+    const activeCoveringTargets = liveCycles.filter((row) =>
+      cleanText(row.status).toLocaleLowerCase("pt-BR") === "active"
+      && row.enrollment_id === operation.cycle.enrollment_id
+      && row.company_id === operation.cycle.company_id
+      && (!row.student_id || row.student_id === operation.cycle.student_id)
+      && row.start_date <= operation.merge_reference_date
+      && operation.merge_reference_date <= row.end_date);
+    if (
+      !cycle
+      || activeCoveringTargets.length !== 1
+      || activeCoveringTargets[0].id !== operation.cycle.id
+    ) {
+      return withExerciseTargetOutcome({
+        status: "blocked",
+        reason: "merge_overlap_active_cycle_changed_before_apply",
+      });
+    }
+  }
+
   if (!cycle) {
     const siblingCycles = await db.getCycles([operation.cycle.enrollment_id]);
     const siblingWorkouts = await db.getWorkouts(siblingCycles.map((row) => row.id));
@@ -1563,7 +1590,10 @@ async function applyOperation(db, operation) {
   }
 
   let currentWorkouts = await db.getWorkouts([cycle.id]);
-  const workoutAnalysis = analyzeWorkoutRows(currentWorkouts, operation.workouts);
+  const workoutAnalysis = analyzeWorkoutRows(
+    workoutRowsForOperation(currentWorkouts, operation),
+    operation.workouts,
+  );
   if (workoutAnalysis.conflict) {
     return withExerciseTargetOutcome({ status: "blocked", reason: "cycle_contains_different_workouts" });
   }
@@ -1617,6 +1647,8 @@ export async function runMigration({
   identityContactOnly = false,
   exerciseSimilarityFallback = false,
   createMissingExerciseTargets = false,
+  createNewCycleOnAmbiguousEmpty = false,
+  mergeOverlapIntoActiveCycle = false,
   includePlanRefs = [],
   today = businessToday(),
   defaultDurationWeeks = 6,
@@ -1846,14 +1878,49 @@ export async function runMigration({
       continue;
     }
 
-    const reusableCycle = existingCycle || markerCycle
-      ? { cycle: existingCycle || markerCycle, ambiguous: false }
+    const materializedOverlaps = enrollmentCycles.filter((cycle) =>
+      cycle.id !== existingCycle?.id
+      && cycle.id !== markerCycle?.id
+      && rangesOverlap(startDate, endDate, cycle.start_date, cycle.end_date)
+      && (workoutsByCycle.get(cycle.id) || []).some(workoutHasMaterialization));
+    let mergeTargetCycle = null;
+    if (mergeOverlapIntoActiveCycle && !existingCycle && !markerCycle && materializedOverlaps.length) {
+      const activeCoveringTargets = materializedOverlaps.filter((cycle) =>
+        cleanText(cycle.status).toLocaleLowerCase("pt-BR") === "active"
+        && cycle.enrollment_id === enrollment.id
+        && cycle.company_id === companyId
+        && (!cycle.student_id || cycle.student_id === candidate.student.id)
+        && cycle.start_date <= parsedToday
+        && parsedToday <= cycle.end_date);
+      if (activeCoveringTargets.length !== 1) {
+        results.push({
+          ref: candidate.ref,
+          status: "blocked",
+          reason: "merge_overlap_active_cycle_not_unique_or_not_covering",
+          match_method: candidate.match_method,
+          sessions: plan.sessions.length,
+          marker: payloadHash.slice(0, 16),
+        });
+        continue;
+      }
+      [mergeTargetCycle] = activeCoveringTargets;
+    }
+
+    let reusableCycle = existingCycle || markerCycle || mergeTargetCycle
+      ? { cycle: existingCycle || markerCycle || mergeTargetCycle, ambiguous: false }
       : chooseReusableEmptyCycle(enrollmentCycles, workoutsByCycle, startDate, endDate, parsedToday);
+    if (reusableCycle.ambiguous && createNewCycleOnAmbiguousEmpty) {
+      reusableCycle = { cycle: null, ambiguous: false };
+    }
     if (reusableCycle.ambiguous) {
       results.push({ ref: candidate.ref, status: "blocked", reason: "ambiguous_empty_cycle_reuse", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
       continue;
     }
-    const targetExistingCycle = existingCycle || markerCycle || reusableCycle.cycle;
+    const targetExistingCycle = existingCycle || markerCycle || mergeTargetCycle || reusableCycle.cycle;
+    const mergingIntoActiveCycle = Boolean(
+      mergeTargetCycle
+      || (mergeOverlapIntoActiveCycle && markerCycle && markerWorkouts.length),
+    );
     if (targetExistingCycle && (
       targetExistingCycle.enrollment_id !== enrollment.id
       || targetExistingCycle.company_id !== companyId
@@ -1868,7 +1935,7 @@ export async function runMigration({
       cycle.id !== targetCycleId
       && rangesOverlap(startDate, endDate, cycle.start_date, cycle.end_date)
       && (workoutsByCycle.get(cycle.id) || []).some(workoutHasMaterialization));
-    if (overlapping) {
+    if (overlapping && !mergingIntoActiveCycle) {
       results.push({ ref: candidate.ref, status: "blocked", reason: "overlapping_cycle_with_workouts", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
       continue;
     }
@@ -1919,6 +1986,12 @@ export async function runMigration({
       duration_weeks: Math.max(1, Math.ceil((new Date(`${endDate}T00:00:00Z`) - new Date(`${startDate}T00:00:00Z`) + 86400000) / (7 * 86400000))),
       delivery_status: "sent",
     };
+    const existingTargetWorkouts = workoutsByCycle.get(targetCycleId) || [];
+    const mergeBaseSortOrder = mergingIntoActiveCycle
+      ? Math.max(0, ...existingTargetWorkouts
+        .filter((workout) => !markerMatches(workout.notes, marker))
+        .map((workout) => Number(workout.sort_order) || 0))
+      : 0;
     const workoutRows = plan.sessions.map((session, sessionIndex) => ({
       id: deterministicUuid(IMPORT_VERSION, "workout", targetCycleId, session.source_id, sessionIndex),
       cycle_id: targetCycleId,
@@ -1927,7 +2000,7 @@ export async function runMigration({
       title: session.name,
       description: session.description || session.notes || null,
       day_of_week: session.day_of_week,
-      sort_order: sessionIndex + 1,
+      sort_order: mergeBaseSortOrder + sessionIndex + 1,
       exercises: session.exercises.map((exercise) =>
         exerciseJson(exercise, exerciseIds.get(normalizeCatalogName(exercise.name)))),
       notes: [marker, session.notes].filter(Boolean).join("\n"),
@@ -1948,14 +2021,17 @@ export async function runMigration({
       })),
     );
 
-    const existingTargetWorkouts = workoutsByCycle.get(targetCycleId) || [];
-    const existingWorkoutAnalysis = analyzeWorkoutRows(existingTargetWorkouts, workoutRows);
+    const expectedWorkoutIds = new Set(workoutRows.map((workout) => workout.id));
+    const relevantExistingTargetWorkouts = mergingIntoActiveCycle
+      ? existingTargetWorkouts.filter((workout) => expectedWorkoutIds.has(workout.id))
+      : existingTargetWorkouts;
+    const existingWorkoutAnalysis = analyzeWorkoutRows(relevantExistingTargetWorkouts, workoutRows);
     if (existingWorkoutAnalysis.conflict) {
       results.push({ ref: candidate.ref, status: "blocked", reason: "cycle_contains_different_workouts", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
       continue;
     }
 
-    let repairKind = existingTargetWorkouts.length ? "partial_workouts" : null;
+    let repairKind = relevantExistingTargetWorkouts.length ? "partial_workouts" : null;
     if (existingWorkoutAnalysis.missing.length === 0) {
       if (!db.normalizedSupport.available) {
         results.push({ ref: candidate.ref, status: "already_imported", reason: null, match_method: candidate.match_method, sessions: plan.sessions.length, exercises: normalizedRows.length, marker: payloadHash.slice(0, 16) });
@@ -1983,6 +2059,10 @@ export async function runMigration({
       marker,
       marker_hash: payloadHash.slice(0, 16),
       repair_kind: repairKind,
+      merge_overlap_into_active_cycle: mergingIntoActiveCycle,
+      source_start_date: startDate,
+      source_end_date: endDate,
+      merge_reference_date: parsedToday,
       exercise_targets: [...exerciseTargetsById.values()],
       cycle,
       workouts: workoutRows,
@@ -2072,8 +2152,13 @@ export async function runMigration({
       : "unavailable_deprecated_table",
     safeguards: [
       "no updates or deletes",
-      "materialized overlapping cycles are blocked",
       "only one unambiguous empty overlapping cycle can be reused",
+      createNewCycleOnAmbiguousEmpty
+        ? "ambiguous empty cycles are left unchanged while a deterministic import cycle is appended"
+        : "ambiguous empty cycles remain blocked",
+      mergeOverlapIntoActiveCycle
+        ? "overlap merge appends only deterministic workouts to exactly one active cycle that covers the audited reference date"
+        : "materialized overlapping cycles remain blocked",
       "same marker and payload hash are a no-op",
       "exercise matching is accent/case tolerant within the visible company/global catalog",
       "only versioned high-confidence aliases with an exact visible target id and name are accepted",
@@ -2206,6 +2291,8 @@ export function parseArgs(argv) {
     identityContactOnly: false,
     exerciseSimilarityFallback: false,
     createMissingExerciseTargets: false,
+    createNewCycleOnAmbiguousEmpty: false,
+    mergeOverlapIntoActiveCycle: false,
     includePlanRefs: [],
   };
   const valueFlags = new Map([
@@ -2242,6 +2329,14 @@ export function parseArgs(argv) {
       options.createMissingExerciseTargets = true;
       continue;
     }
+    if (arg === "--create-new-cycle-on-ambiguous-empty") {
+      options.createNewCycleOnAmbiguousEmpty = true;
+      continue;
+    }
+    if (arg === "--merge-overlap-into-active-cycle") {
+      options.mergeOverlapIntoActiveCycle = true;
+      continue;
+    }
     if (arg === "--include-plan-ref" || arg.startsWith("--include-plan-ref=")) {
       const value = arg.includes("=") ? arg.split("=", 2)[1] : argv[++index];
       if (!value || value.startsWith("--")) throw new Error("Missing value for --include-plan-ref");
@@ -2275,6 +2370,12 @@ export function parseArgs(argv) {
   if (options.apply && options.createMissingExerciseTargets && options.includePlanRefs.length === 0) {
     throw new Error("--apply with target creation requires 1-5 explicit --include-plan-ref values");
   }
+  if (options.apply && options.createNewCycleOnAmbiguousEmpty && options.includePlanRefs.length === 0) {
+    throw new Error("--apply with ambiguous-empty cycle creation requires 1-5 explicit --include-plan-ref values");
+  }
+  if (options.apply && options.mergeOverlapIntoActiveCycle && options.includePlanRefs.length === 0) {
+    throw new Error("--apply with active-cycle overlap merge requires 1-5 explicit --include-plan-ref values");
+  }
   return options;
 }
 
@@ -2290,6 +2391,8 @@ Usage:
     [--identity-contact-only] \\
     [--exercise-similarity-fallback] \\
     [--create-missing-exercise-targets] \\
+    [--create-new-cycle-on-ambiguous-empty] \\
+    [--merge-overlap-into-active-cycle] \\
     [--include-plan-ref <12-char-sanitized-ref>]... \\
     [--report <sanitized-report.json>] [--today YYYY-MM-DD] [--duration-weeks 6]
     [--apply --confirm-project ${EXPECTED_SUPABASE_PROJECT_REF}]
@@ -2303,7 +2406,9 @@ Safety:
   --identity-contact-only disables exact-name-only identity matching; phone/email evidence remains accepted.
   --exercise-similarity-fallback is audit-only: it records nearest visible tenant/global candidates and still blocks.
   --create-missing-exercise-targets explicitly appends deterministic BN-tenant exercise-library targets for eligible plans.
-  Apply with target creation requires 1-5 explicit sanitized plan refs, enforcing small audited batches.
+  --create-new-cycle-on-ambiguous-empty leaves all empty cycles untouched and appends the deterministic import cycle.
+  --merge-overlap-into-active-cycle appends deterministic MFIT workouts only to one covering active cycle.
+  Apply with target or cycle creation requires 1-5 explicit sanitized plan refs.
 `;
 
 async function readJson(path, label) {
@@ -2358,6 +2463,8 @@ export async function main(argv = process.argv.slice(2)) {
     identityContactOnly: options.identityContactOnly,
     exerciseSimilarityFallback: options.exerciseSimilarityFallback,
     createMissingExerciseTargets: options.createMissingExerciseTargets,
+    createNewCycleOnAmbiguousEmpty: options.createNewCycleOnAmbiguousEmpty,
+    mergeOverlapIntoActiveCycle: options.mergeOverlapIntoActiveCycle,
     includePlanRefs: options.includePlanRefs,
     today: options.today || businessToday(),
     defaultDurationWeeks: options.durationWeeks,
