@@ -9,6 +9,7 @@ import {
   MARKER_PREFIX,
   assertCanonicalSupabaseTarget,
   buildExerciseAliasIndex,
+  createSupabaseAdapter,
   deterministicUuid,
   matchMfitClientsToSett,
   normalizeMfitClients,
@@ -362,6 +363,88 @@ class InvisibleCycleAfterTargetDb extends MemoryDb {
   async insertCycles(rows) {
     this.writes.cycles += rows.length;
     return rows;
+  }
+}
+
+const WORKOUT_EXERCISES_SCHEMA = new Set([
+  "id",
+  "workout_id",
+  "exercise_id",
+  "exercise_name",
+  "exercise_order",
+  "sets",
+  "reps",
+  "rest_seconds",
+  "notes",
+]);
+
+class FakeSupabaseClient {
+  constructor(tables = {}, options = {}) {
+    this.tables = tables;
+    this.options = options;
+    this.calls = [];
+  }
+
+  from(table) {
+    return new FakeSupabaseQuery(this, table);
+  }
+}
+
+class FakeSupabaseQuery {
+  constructor(client, table) {
+    this.client = client;
+    this.table = table;
+    this.selected = "*";
+    this.filters = [];
+    this.rangeValue = null;
+  }
+
+  select(columns) {
+    this.selected = columns;
+    return this;
+  }
+
+  in(column, values) {
+    this.filters.push({ op: "in", column, values: [...values] });
+    return this;
+  }
+
+  eq(column, value) {
+    this.filters.push({ op: "eq", column, value });
+    return this;
+  }
+
+  range(from, to) {
+    this.rangeValue = { from, to };
+    return this.execute();
+  }
+
+  then(resolve, reject) {
+    return this.execute().then(resolve, reject);
+  }
+
+  async execute() {
+    this.client.calls.push({
+      table: this.table,
+      selected: this.selected,
+      filters: structuredClone(this.filters),
+      range: this.rangeValue ? { ...this.rangeValue } : null,
+    });
+    const fail = this.client.options.failOn?.({
+      table: this.table,
+      filters: this.filters,
+      range: this.rangeValue,
+    });
+    if (fail) return { data: null, error: fail };
+    let rows = [...(this.client.tables[this.table] || [])];
+    for (const filter of this.filters) {
+      if (filter.op === "in") rows = rows.filter((row) => filter.values.includes(row[filter.column]));
+      if (filter.op === "eq") rows = rows.filter((row) => row[filter.column] === filter.value);
+    }
+    rows = this.rangeValue
+      ? rows.slice(this.rangeValue.from, this.rangeValue.to + 1)
+      : rows.slice(0, 1000);
+    return { data: rows, error: null };
   }
 }
 
@@ -784,6 +867,139 @@ test("the database adapter exposes append-only mutations and no update or delete
   assert.match(adapter, /insertExercises\(rows\)/);
   assert.match(adapter, /insertStrict\("exercise_library"/);
   assert.doesNotMatch(adapter, /insertIgnoringIds\("exercise_library"/);
+});
+
+test("database adapter paginates ID reads without truncating rows beyond 1000", async () => {
+  const workoutExerciseRows = Array.from({ length: 1205 }, (_, index) => ({
+    id: `we-${String(index).padStart(4, "0")}`,
+    workout_id: "workout-big",
+    exercise_id: `exercise-${index}`,
+    exercise_name: `Exercise ${index}`,
+    exercise_order: index,
+    sets: 3,
+    reps: "10",
+    rest_seconds: 60,
+    notes: null,
+  }));
+  const workoutRows = Array.from({ length: 1205 }, (_, index) => ({
+    id: `workout-${String(index).padStart(4, "0")}`,
+    cycle_id: "cycle-big",
+    company_id: IDS.company,
+    name: `Treino ${index}`,
+    title: `Treino ${index}`,
+    description: null,
+    day_of_week: null,
+    sort_order: index,
+    exercises: [],
+    notes: null,
+  }));
+  const client = new FakeSupabaseClient({
+    workout_exercises: workoutExerciseRows,
+    workouts: workoutRows,
+  });
+  const adapter = createSupabaseAdapter(client, new Map([
+    ["workout_exercises", WORKOUT_EXERCISES_SCHEMA],
+  ]));
+
+  const workoutExercises = await adapter.getWorkoutExercises(["workout-big"]);
+  const workouts = await adapter.getWorkouts(["cycle-big"]);
+
+  assert.equal(workoutExercises.length, 1205);
+  assert.equal(workoutExercises.at(-1).id, "we-1204");
+  assert.equal(workouts.length, 1205);
+  assert.equal(workouts.at(-1).id, "workout-1204");
+  assert.deepEqual(
+    client.calls
+      .filter((call) => call.table === "workout_exercises")
+      .map((call) => call.range),
+    [{ from: 0, to: 999 }, { from: 1000, to: 1999 }],
+  );
+  assert.deepEqual(
+    client.calls
+      .filter((call) => call.table === "workouts")
+      .map((call) => call.range),
+    [{ from: 0, to: 999 }, { from: 1000, to: 1999 }],
+  );
+});
+
+test("database adapter keeps ID batches at 150 while paginating each batch", async () => {
+  const ids = Array.from({ length: 151 }, (_, index) => `workout-${index}`);
+  const workoutRows = ids.map((id, index) => ({
+    id,
+    cycle_id: "cycle-batched",
+    company_id: IDS.company,
+    name: id,
+    title: id,
+    description: null,
+    day_of_week: null,
+    sort_order: index,
+    exercises: [],
+    notes: null,
+  }));
+  const paginatedCycleRows = Array.from({ length: 1001 }, (_, index) => ({
+    id: `cycle-row-${index}`,
+    cycle_id: "cycle-batched",
+    company_id: IDS.company,
+    name: `cycle row ${index}`,
+    title: `cycle row ${index}`,
+    description: null,
+    day_of_week: null,
+    sort_order: index,
+    exercises: [],
+    notes: null,
+  }));
+  const client = new FakeSupabaseClient({ workouts: [...workoutRows, ...paginatedCycleRows] });
+  const adapter = createSupabaseAdapter(client, new Map([
+    ["workout_exercises", WORKOUT_EXERCISES_SCHEMA],
+  ]));
+
+  const rows = await adapter.getWorkoutsByIds(ids);
+  const cycleRows = await adapter.getWorkouts(["cycle-batched"]);
+
+  assert.equal(rows.length, 151);
+  assert.equal(cycleRows.length, 1152);
+  const inCalls = client.calls.filter((call) => call.table === "workouts" && call.filters[0].column === "id");
+  assert.equal(inCalls[0].filters[0].values.length, 150);
+  assert.equal(inCalls[1].filters[0].values.length, 1);
+  assert.deepEqual(inCalls.map((call) => call.range), [
+    { from: 0, to: 999 },
+    { from: 0, to: 999 },
+  ]);
+  assert.deepEqual(
+    client.calls
+      .filter((call) => call.table === "workouts" && call.filters[0].column === "cycle_id")
+      .map((call) => call.range),
+    [{ from: 0, to: 999 }, { from: 1000, to: 1999 }],
+  );
+});
+
+test("database adapter preserves paginated read errors", async () => {
+  const client = new FakeSupabaseClient({
+    workout_exercises: Array.from({ length: 1205 }, (_, index) => ({
+      id: `we-${index}`,
+      workout_id: "workout-error",
+      exercise_id: `exercise-${index}`,
+      exercise_name: `Exercise ${index}`,
+      exercise_order: index,
+      sets: 3,
+      reps: "10",
+      rest_seconds: 60,
+      notes: null,
+    })),
+  }, {
+    failOn: ({ table, range }) =>
+      table === "workout_exercises" && range?.from === 1000
+        ? { code: "PGRST_TIMEOUT" }
+        : null,
+  });
+  const adapter = createSupabaseAdapter(client, new Map([
+    ["workout_exercises", WORKOUT_EXERCISES_SCHEMA],
+  ]));
+
+  await assert.rejects(
+    () => adapter.getWorkoutExercises(["workout-error"]),
+    /workout_exercises select failed \(PGRST_TIMEOUT\)/,
+  );
 });
 
 test("an exact company-scoped exercise is reused without creating or changing it", async () => {

@@ -1208,11 +1208,11 @@ export function createSupabaseAdapter(client, schema) {
   );
   const normalizedHasId = Boolean(normalizedColumns?.has("id"));
 
-  const selectByIds = (table, select, column, ids) => inBatches(ids, async (batch) => {
-    const { data, error } = await client.from(table).select(select).in(column, batch);
-    if (error) throw safeDbError(`${table} select`, error);
-    return data || [];
-  });
+  const selectByIds = (table, select, column, ids) => inBatches(ids, async (batch) =>
+    fetchAllPages(
+      () => client.from(table).select(select).in(column, batch),
+      `${table} select`,
+    ));
 
   const insertIgnoringIds = async (table, rows, select = "id") => {
     if (!rows.length) return [];
