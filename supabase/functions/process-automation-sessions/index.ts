@@ -1,4 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  providerErrorDetails,
+  sanitizeProviderErrorForLog,
+} from "../_shared/provider-error-redaction.ts";
 import { evolutionTextRecipient, resolveVerifiedWhatsAppRecipient } from "../_shared/whatsappIdentity.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -55,6 +59,13 @@ function weeklyContactMessage(context: Record<string, unknown>) {
   return replaceVariables(variants[Math.abs(seed) % variants.length], context);
 }
 
+function providerSendCode(status: number) {
+  if (status === 401 || status === 403) return "whatsapp_provider_unauthorized";
+  if (status === 408 || status === 429) return "whatsapp_provider_busy";
+  if (status === 400 || status === 404) return "whatsapp_recipient_rejected";
+  return "whatsapp_provider_failure";
+}
+
 async function sendText(args: {
   admin: any;
   evoUrl: string;
@@ -71,8 +82,10 @@ async function sendText(args: {
     body: JSON.stringify({ number: evolutionTextRecipient(args.remoteJid), text: args.text }),
   });
   if (!response.ok) {
-    const details = (await response.text()).slice(0, 300);
-    throw new Error(`Evolution ${response.status}: ${details}`);
+    await response.text().catch(() => "");
+    const providerCode = providerSendCode(response.status);
+    console.error("automation WhatsApp send failed", sanitizeProviderErrorForLog(response.status, providerCode));
+    throw new Error(providerErrorDetails(response.status, providerCode));
   }
   const payload = await response.json().catch(() => ({}));
   const sentAt = new Date().toISOString();

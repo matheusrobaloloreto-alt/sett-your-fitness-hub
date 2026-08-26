@@ -5,6 +5,10 @@ import {
   resolveVerifiedWhatsAppRecipient,
   storageObjectPathFromUrl,
 } from "../_shared/whatsappIdentity.ts";
+import {
+  providerErrorDetails,
+  sanitizeProviderErrorForLog,
+} from "../_shared/provider-error-redaction.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -734,11 +738,11 @@ Deno.serve(async (req) => {
       });
 
       if (!sendRes.ok) {
-        const details = (await sendRes.text()).replace(/\s+/g, " ").slice(0, 240);
         const failure = providerSendError(sendRes.status);
+        await sendRes.text().catch(() => "");
+        const details = providerErrorDetails(sendRes.status, failure.code);
         console.error("WhatsApp sendText failed", JSON.stringify({
-          status: sendRes.status,
-          code: failure.code,
+          ...sanitizeProviderErrorForLog(sendRes.status, failure.code),
           companyId: resolvedCompanyId,
           chatId: boundChat?.id || null,
         }));
@@ -904,11 +908,11 @@ Deno.serve(async (req) => {
       }
 
       if (!sendRes.ok) {
-        const details = (await sendRes.text()).replace(/\s+/g, " ").slice(0, 240);
         const failure = providerSendError(sendRes.status);
+        await sendRes.text().catch(() => "");
+        const details = providerErrorDetails(sendRes.status, failure.code);
         console.error("WhatsApp sendMedia failed", JSON.stringify({
-          status: sendRes.status,
-          code: failure.code,
+          ...sanitizeProviderErrorForLog(sendRes.status, failure.code),
           companyId: resolvedCompanyId,
           chatId: boundChat?.id || null,
         }));
