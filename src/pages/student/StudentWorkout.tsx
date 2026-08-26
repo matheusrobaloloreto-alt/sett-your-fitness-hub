@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,8 +12,10 @@ import { ptBR } from "date-fns/locale";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { businessDateYmd } from "@/lib/businessDate";
 import { MethodBadge } from "@/components/workout/MethodBadge";
+import { StudentMethodGroup } from "@/components/student/StudentMethodGroup";
 import { formatBiweeklyProgressionForDisplay, STUDENT_EFFORT_HELP_TEXT, studentEffortLabel, studentFacingEffortText, resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
+import { sanitizeStudentWorkoutDescription } from "@/lib/studentWorkoutDescription";
 
 interface WorkoutExercise {
   exercise_id: string;
@@ -77,6 +79,10 @@ export default function StudentWorkout() {
   const selectedWorkout = useMemo(
     () => resolveWorkoutForCycleWeek(selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks),
     [selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks],
+  );
+  const selectedWorkoutDescription = useMemo(
+    () => sanitizeStudentWorkoutDescription(selectedWorkout?.description),
+    [selectedWorkout?.description],
   );
 
   useEffect(() => {
@@ -459,26 +465,17 @@ export default function StudentWorkout() {
                         {selectedWorkout.exercises.length} exercícios
                       </Badge>
                     </div>
-                    {selectedWorkout.description && (
-                      <p className="text-sm text-muted-foreground font-sans">{selectedWorkout.description}</p>
+                    {selectedWorkoutDescription && (
+                      <p className="text-sm text-muted-foreground font-sans">{selectedWorkoutDescription}</p>
                     )}
 
                     <div className="space-y-3">
-                      {groupWorkoutExercises(selectedWorkout.exercises).map((group) => (
-                        <section
-                          key={group.key}
-                          className={group.grouping ? "rounded-lg border border-primary/30 bg-primary/[0.03] p-2" : undefined}
-                        >
-                          {group.grouping && group.method && (
-                            <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
-                              <MethodBadge method={group.method} tone="primary" />
-                              <p className="text-xs text-muted-foreground">
-                                {WORKOUT_METHODS[group.method as MethodId]?.hint || "Execute os exercícios deste bloco em sequência."}
-                              </p>
-                            </div>
-                          )}
-                          <div className="space-y-2">
-                            {group.items.map(({ ex, idx }) => {
+                      {(() => {
+                        const workoutGroups = groupWorkoutExercises(selectedWorkout.exercises);
+                        const firstGroupedKey = workoutGroups.find((group) => group.grouping)?.key;
+                        let methodBlockNumber = 0;
+                        return workoutGroups.map((group) => {
+                          const cards = group.items.map(({ ex, idx }) => {
                               const isExpanded = expandedExercise === idx;
                               const biweeklyProgression = formatBiweeklyProgressionForDisplay(ex.weekly_prescription);
                               return (
@@ -584,10 +581,40 @@ export default function StudentWorkout() {
                             </CardContent>
                           </Card>
                               );
-                            })}
-                          </div>
-                        </section>
-                      ))}
+                            });
+
+                          if (group.grouping) {
+                            methodBlockNumber += 1;
+                            const rounds = parseInt(String(group.items[0]?.ex.sets ?? ""), 10) || null;
+                            const blockRest = group.items[group.items.length - 1]?.ex.rest;
+                            const isCircuit = group.method === "circuito";
+                            const groupInstruction =
+                              group.items.find(({ ex }) => ex.weekly_instruction?.trim())?.ex.weekly_instruction ||
+                              WORKOUT_METHODS[group.method as MethodId]?.hint;
+
+                            return (
+                              <StudentMethodGroup
+                                key={group.key}
+                                blockName={`Bloco ${methodBlockNumber}`}
+                                method={group.method}
+                                instruction={groupInstruction}
+                                summary={isCircuit && rounds ? `×${rounds} voltas` : `${group.items.length} exercícios em sequência`}
+                                defaultOpen={group.key === firstGroupedKey}
+                                footer={blockRest ? (
+                                  <div className="flex items-center gap-1.5 px-1 pb-0.5 text-[11px] text-muted-foreground">
+                                    <Clock className="h-3 w-3" /> Descanso ao fim do bloco:
+                                    <span className="font-medium text-foreground">{blockRest}</span>
+                                  </div>
+                                ) : null}
+                              >
+                                {cards}
+                              </StudentMethodGroup>
+                            );
+                          }
+
+                          return <Fragment key={group.key}>{cards}</Fragment>;
+                        });
+                      })()}
                     </div>
                   </>
                 )}
