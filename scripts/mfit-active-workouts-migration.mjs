@@ -1987,10 +1987,21 @@ export async function runMigration({
       delivery_status: "sent",
     };
     const existingTargetWorkouts = workoutsByCycle.get(targetCycleId) || [];
+    const markerBaseSortOrders = markerWorkouts
+      .map((workout) => {
+        const sessionIndex = plan.sessions.findIndex((session, index) =>
+          deterministicUuid(IMPORT_VERSION, "workout", targetCycleId, session.source_id, index) === workout.id);
+        return sessionIndex >= 0 ? (Number(workout.sort_order) || 0) - sessionIndex - 1 : null;
+      })
+      .filter((value) => value !== null);
+    const preservedMarkerBaseSortOrder = markerBaseSortOrders.length
+      && new Set(markerBaseSortOrders).size === 1
+      ? markerBaseSortOrders[0]
+      : null;
     const mergeBaseSortOrder = mergingIntoActiveCycle
-      ? Math.max(0, ...existingTargetWorkouts
-        .filter((workout) => !markerMatches(workout.notes, marker))
-        .map((workout) => Number(workout.sort_order) || 0))
+      ? preservedMarkerBaseSortOrder ?? Math.max(0, ...existingTargetWorkouts
+          .filter((workout) => !markerMatches(workout.notes, marker))
+          .map((workout) => Number(workout.sort_order) || 0))
       : 0;
     const workoutRows = plan.sessions.map((session, sessionIndex) => ({
       id: deterministicUuid(IMPORT_VERSION, "workout", targetCycleId, session.source_id, sessionIndex),

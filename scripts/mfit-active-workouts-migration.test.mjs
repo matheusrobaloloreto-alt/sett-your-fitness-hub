@@ -2430,6 +2430,70 @@ test("explicit overlap merge appends deterministic workouts to one covering acti
   assert.deepEqual(db.writes, writesAfterFirst);
 });
 
+test("overlap merge keeps an earlier marker idempotent after another plan is appended", async () => {
+  const firstInput = baseInput();
+  const secondInput = baseInput();
+  secondInput.mfitWorkoutsPayload.clients[0].fichas[0] = {
+    ...secondInput.mfitWorkoutsPayload.clients[0].fichas[0],
+    id: "plan-active-2",
+    name: "Força MFIT",
+    workouts: [{
+      ...secondInput.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0],
+      id: "session-b",
+      name: "Treino B",
+    }],
+  };
+  const activeCycle = {
+    id: "40000000-0000-4000-8000-000000000051",
+    enrollment_id: IDS.enrollment,
+    student_id: IDS.studentPhone,
+    company_id: IDS.company,
+    cycle_number: 1,
+    start_date: "2026-08-01",
+    end_date: "2026-09-20",
+    status: "active",
+  };
+  const db = new MemoryDb({
+    cycles: [activeCycle],
+    workouts: [{
+      id: "50000000-0000-4000-8000-000000000051",
+      cycle_id: activeCycle.id,
+      company_id: IDS.company,
+      notes: "manual SETT workout",
+      sort_order: 4,
+      exercises: [{ exercise_name: "Treino existente" }],
+    }],
+  });
+
+  const first = await runMigration({
+    ...firstInput,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    mergeOverlapIntoActiveCycle: true,
+  });
+  const second = await runMigration({
+    ...secondInput,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    mergeOverlapIntoActiveCycle: true,
+  });
+  assert.equal(first.summary.imported, 1);
+  assert.equal(second.summary.imported, 1);
+  const writesAfterBoth = structuredClone(db.writes);
+
+  const repeatedFirst = await runMigration({
+    ...firstInput,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    mergeOverlapIntoActiveCycle: true,
+  });
+  assert.equal(repeatedFirst.summary.already_imported, 1);
+  assert.deepEqual(db.writes, writesAfterBoth);
+});
+
 test("overlap merge blocks unless exactly one active cycle covers the reference date", async () => {
   const input = baseInput();
   const cycle = (id, status) => ({
