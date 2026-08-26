@@ -5,7 +5,7 @@
 //  - MESOCICLO (ênfase do bloco): base, acumulação, intensificação e polimento (taper).
 // O plano é DERIVADO do objetivo + datas/duração do ciclo do aluno e está alinhado a
 // PROGRESSION_BLOCKS (base RIR 3-4 / acumulação 2-3 / intensificação 2) e DELOAD_RULES
-// (volume 50%, RIR 4-5) do motor de prescrição (supabase/functions/_shared/prescription).
+// (volume 50%, RIR 4) do motor de prescrição (supabase/functions/_shared/prescription).
 
 export type MicrocycleType = "ordinario" | "regenerativo" | "choque";
 export type MesocyclePhase = "base" | "acumulacao" | "intensificacao" | "polimento";
@@ -116,11 +116,11 @@ export function buildPeriodizationPlan(objective?: string | null, durationWeeks?
     let focus = MESOCYCLES[meso].description;
 
     if (shock.has(week)) {
-      micro = "choque"; rir = "1-2"; vol = 115;
+      micro = "choque"; rir = "2"; vol = 115;
       focus = "Pico do bloco: intensidade máxima controlada, perto da falha.";
     }
     if (deload.has(week)) {
-      micro = "regenerativo"; rir = "4-5"; vol = 50;
+      micro = "regenerativo"; rir = "4"; vol = 50;
       if (perf && week === N) {
         meso = "polimento"; vol = 65; rir = "2-3"; focus = MESOCYCLES.polimento.description;
       } else {

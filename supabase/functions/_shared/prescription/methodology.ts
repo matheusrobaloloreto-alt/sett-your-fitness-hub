@@ -147,7 +147,7 @@ export const PROGRESSION_BLOCKS = {
 export const DELOAD_RULES = {
   triggers: ["fim de bloco 4-6 semanas", "fadiga acumulada", "queda de performance", "dor subindo", "antes de reavaliação"],
   volumeReduction: 0.5,
-  rir: "4-5",
+  rir: "4",
   methods: ["sem falha", "sem método avançado", "manter padrões técnicos"],
 } as const;
 

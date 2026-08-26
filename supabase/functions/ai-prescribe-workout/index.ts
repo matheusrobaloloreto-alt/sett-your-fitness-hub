@@ -140,7 +140,7 @@ const METHODOLOGY_PRESETS = {
     label: "Hipertrofia intermediario",
     target_weekly_sets: "10-16 series efetivas por grupo prioritario; 16-20 apenas com justificativa e boa tolerancia",
     reps: "6-12 nos multiarticulares, 10-15 nos acessorios",
-    rir: "1-3",
+    rir: "2-3",
     methods_by_block: {
       "1-2": ["volume base", "progressao dupla"],
       "3-4": ["pico de contracao, pico de alongamento ou isometria em acessorio estavel"],
@@ -173,7 +173,7 @@ const METHODOLOGY_PRESETS = {
     label: "Forca",
     target_weekly_sets: "6-12 series efetivas nos padroes principais; acessorios suficientes para suporte tecnico",
     reps: "3-6 em forca global, 8-12 em suporte",
-    rir: "1-3, nunca falha sistematica",
+    rir: "2-3, nunca falha sistematica",
     methods_by_block: {
       "1-2": ["tecnica e exposicao submaxima"],
       "3-4": ["intensificacao controlada"],

@@ -315,7 +315,7 @@ export function validateTrainingProgram(args: {
       severity: "warning",
       code: "deload_with_advanced_method",
       message: "Deload não deve conter falha ou método avançado.",
-      recommendation: "Reduzir volume 40-50%, usar RIR 4-5 e manter técnica.",
+      recommendation: "Reduzir volume 40-50%, usar RIR 4 e manter técnica.",
       source: "periodizacao",
     });
   }

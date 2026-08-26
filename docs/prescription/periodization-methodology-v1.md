@@ -15,7 +15,7 @@ A periodização tem dois eixos que aparecem juntos para o aluno:
 |---|---|---|---|
 | **Ordinário** | Semana de carga normal e progressiva (adiciona carga/reps vs. semana anterior). | conforme o mesociclo | 100–110% |
 | **Choque** | Semana de pico: intensidade alta, perto da falha. Estímulo mais forte do bloco. | 1–2 | ~115% |
-| **Regenerativo** | Deload: volume e intensidade reduzidos para recuperar e supercompensar. | 4–5 | ~50% |
+| **Regenerativo** | Deload: volume e intensidade reduzidos para recuperar e supercompensar. | 4 | ~50% |
 
 ### Mesociclo (ênfase do BLOCO)
 | Fase | Ênfase | RIR de referência |
@@ -44,7 +44,7 @@ Entrada: `objetivo` + `duração em semanas` (derivada das datas do ciclo se nã
 
 ## 3. Alinhamento com o motor existente
 - RIR por mesociclo bate com `PROGRESSION_BLOCKS` (base 3-4 / accumulation 2-3 / intensification 2).
-- Deload (vol 50%, RIR 4-5) bate com `DELOAD_RULES`.
+- Deload (vol 50%, RIR 4) bate com `DELOAD_RULES`.
 - O que o motor **ainda não nomeia** (e que o frontend já expõe ao aluno): os **tipos de microciclo**
   (ordinário/choque/regenerativo) e as **fases de mesociclo** (base/acumulação/intensificação/polimento).
 

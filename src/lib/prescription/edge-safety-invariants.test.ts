@@ -10,6 +10,15 @@ const src = readFileSync(EDGE, "utf8");
 // fonte sem comentários de linha — para checagens de "statement ativo"
 const noLineComments = src.replace(/^\s*\/\/.*$/gm, "");
 
+function edgePresetRir(presetKey: string) {
+  const match = src.match(new RegExp(`${presetKey}:\\s*{[\\s\\S]*?rir:\\s*["']([^"']+)["']`));
+  return match?.[1] || "";
+}
+
+function numericRirBounds(rir: string) {
+  return (rir.match(/\d+/g) || []).map(Number);
+}
+
 describe("ORDEM 045 — edge safety invariants (estático)", () => {
   // ── segredos: só via ambiente, nada hardcoded ───────────────────────────
   it("não contém JWT/segredos hardcoded", () => {
@@ -40,6 +49,24 @@ describe("ORDEM 045 — edge safety invariants (estático)", () => {
     expect(src).toMatch(/adaptTrainingProgramForAiStrengthPlan/);
     expect(src).toMatch(/buildEmergencyFallbackPlan/);
     expect(src).toMatch(/bn_emergency_fallback/);
+  });
+
+  it("fallback legado da edge mantém presets de hipertrofia intermediária e força dentro de RIR 2-4", () => {
+    const criticalPresets = [
+      { key: "hipertrofia_intermediario", preserveText: null },
+      { key: "forca", preserveText: "nunca falha sistematica" },
+    ];
+
+    for (const preset of criticalPresets) {
+      const rir = edgePresetRir(preset.key);
+      const bounds = numericRirBounds(rir);
+
+      expect(rir, preset.key).toBeTruthy();
+      expect(bounds.length, `${preset.key}: ${rir}`).toBeGreaterThan(0);
+      expect(bounds.every((value) => value >= 2 && value <= 4), `${preset.key}: ${rir}`).toBe(true);
+      expect(rir, preset.key).not.toMatch(/\b1\s*-/);
+      if (preset.preserveText) expect(rir).toContain(preset.preserveText);
+    }
   });
 
   // ── IA / fallback preservados ───────────────────────────────────────────

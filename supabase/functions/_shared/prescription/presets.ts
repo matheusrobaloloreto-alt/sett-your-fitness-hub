@@ -21,7 +21,7 @@ export const METHODOLOGY_PRESETS: Record<string, MethodologyPreset> = {
     label: "Hipertrofia intermediario",
     target_weekly_sets: "10-16 series efetivas por grupo prioritario (teto ativo v1 = 16; faixa 18-20 fica fora da v1)",
     reps: "6-12 nos multiarticulares, 10-15 nos acessorios",
-    rir: "1-3",
+    rir: "2-3",
     weeklySetRange: { min: 10, max: 16 },
     methods_by_block: {
       "1-2": ["volume base", "progressao dupla"],
@@ -60,7 +60,7 @@ export const METHODOLOGY_PRESETS: Record<string, MethodologyPreset> = {
     label: "Forca",
     target_weekly_sets: "6-12 series efetivas nos padroes principais; acessorios suficientes para suporte tecnico",
     reps: "3-6 em forca global, 8-12 em suporte",
-    rir: "1-3, nunca falha sistematica",
+    rir: "2-3, nunca falha sistematica",
     weeklySetRange: { min: 6, max: 12, beginnerMax: 10 },
     methods_by_block: {
       "1-2": ["tecnica e exposicao submaxima"],

@@ -85,6 +85,10 @@ function explanationIds(program: ReturnType<typeof generateTrainingProgram>) {
   return program.explanations.map((explanation) => explanation.rule_id);
 }
 
+function numericRirBounds(rir: string) {
+  return (rir.match(/\d+/g) || []).map(Number);
+}
+
 describe("BN Prescription Engine v1", () => {
   it("ordena controle motor antes das ativações sem deslocar mobilidade e força", () => {
     const program = generateTrainingProgram(baseInput({
@@ -549,39 +553,47 @@ describe("BN Prescription Engine v1", () => {
     expect(blocks).toContain("sem metodos avancados");
   });
 
-  it("aplica deload reduzindo volume, usando RIR 4-5 e removendo métodos avançados", () => {
+  it("aplica deload reduzindo volume, usando RIR 4 e removendo métodos avançados", () => {
     const normal = generateTrainingProgram(baseInput());
     const deload = generateTrainingProgram(baseInput({ deload: true }));
     const normalSets = normal.workouts.flatMap((w) => w.exercises).reduce((sum, e) => sum + e.sets, 0);
     const deloadExercises = deload.workouts.flatMap((w) => w.exercises);
     const deloadSets = deloadExercises.reduce((sum, e) => sum + e.sets, 0);
     const reductionRatio = (normalSets - deloadSets) / normalSets;
+    const deloadContract = JSON.stringify({
+      workouts: deload.workouts,
+      weekly_periodization: deload.weekly_periodization,
+      periodization_blocks: deload.periodization_blocks,
+      progression_protocol: deload.progression_protocol,
+      methodology_preset: deload.methodology_preset,
+    });
 
     expect(normalSets).toBe(52);
     expect(deloadSets).toBe(26);
     expect(reductionRatio).toBeGreaterThanOrEqual(0.4);
     expect(reductionRatio).toBeLessThanOrEqual(0.5);
     expect(deloadSets).toBeLessThan(normalSets);
-    expect(deloadExercises.every((exercise) => exercise.rir === "4-5")).toBe(true);
+    expect(deloadExercises.every((exercise) => exercise.rir === "4")).toBe(true);
     expect(deloadExercises.every((exercise) =>
       !/progred|aument|subir|intensific/i.test(exercise.progression || "")
     )).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.method === null)).toBe(true);
-    expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.rir === "4-5"))).toBe(true);
+    expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.rir === "4"))).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.sets === exercise.sets))).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.method === null))).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) =>
       week.set_types?.every((setType) => setType !== "failure" && setType !== "drop")
     ))).toBe(true);
     expect(deload.weekly_periodization.every((week) =>
-      week.block === "deload" && week.rir === "4-5" && week.volume_percent === 50 && week.methods.length === 0
+      week.block === "deload" && week.rir === "4" && week.volume_percent === 50 && week.methods.length === 0
     )).toBe(true);
     expect(JSON.stringify(deload.weekly_periodization).toLowerCase()).not.toMatch(/alcan[cç]ar|aument|progred|acumulacao|intensificacao/);
     expect(deload.workouts.every((workout) =>
-      workout.volume_load_estimate.includes("RIR 4-5") && !/RIR 2(?:-|\b)/.test(workout.volume_load_estimate)
+      workout.volume_load_estimate.includes("RIR 4") && !/RIR 2(?:-|\b)/.test(workout.volume_load_estimate)
     )).toBe(true);
     expect(JSON.stringify(deload.periodization_blocks).toLowerCase()).not.toMatch(/drop|cluster|rest-pause|up-set|piramide/);
-    expect(deload.periodization_blocks.every((block) => block.progression_rule.includes("RIR 4-5"))).toBe(true);
+    expect(deload.periodization_blocks.every((block) => block.progression_rule.includes("RIR 4"))).toBe(true);
+    expect(deloadContract).not.toContain("RIR 4-5");
     expect(deload.progression_protocol.toLowerCase()).toContain("deload");
     expect(deload.explanations.some((e) => e.category === "deload")).toBe(true);
     expect(deload.explanations.some((e) => e.rule_id === "metodo_avancado_controlado")).toBe(false);
@@ -597,12 +609,12 @@ describe("BN Prescription Engine v1", () => {
     const exercises = deload.workouts.flatMap((workout) => workout.exercises);
 
     expect(deload.engineMeta.sequence_phase).toBe("consolidacao");
-    expect(exercises.every((exercise) => exercise.rir === "4-5")).toBe(true);
+    expect(exercises.every((exercise) => exercise.rir === "4")).toBe(true);
     expect(exercises.every((exercise) =>
       !/progress[aã]o longitudinal|maior intensidade|mais uma s[eé]rie/i.test(exercise.biomechanical_note)
     )).toBe(true);
-    expect(deload.weekly_periodization.every((week) => week.block === "deload" && week.rir === "4-5")).toBe(true);
-    expect(deload.methodology_preset.rules.rir).toBe("4-5");
+    expect(deload.weekly_periodization.every((week) => week.block === "deload" && week.rir === "4")).toBe(true);
+    expect(deload.methodology_preset.rules.rir).toBe("4");
     expect(deload.methodology_preset.rules.target_weekly_sets).toContain("50%");
     expect(deload.methodology_preset.rules.methods_by_block).toEqual({
       deload: ["sem falha", "sem método avançado", "manter padrões técnicos"],
@@ -741,6 +753,119 @@ describe("BN Prescription Engine v1", () => {
 
     expect(declared).not.toMatch(/up-set|upset|pir[aâ]mide|pyramid/);
     expect(declared).toMatch(/bi-set|super-set|drop-set|rest-pause|cluster-set|pico|isometria|série gigante|serie gigante|tri-set/);
+  });
+
+  it("mantém presets vivos de hipertrofia intermediária e força dentro do contrato RIR 2-4", () => {
+    const programs = [
+      generateTrainingProgram(baseInput({
+        fitnessLevel: "intermediario",
+        objective: "hipertrofia",
+        daysPerWeek: 4,
+        equipment: "academia_completa",
+      })),
+      generateTrainingProgram(baseInput({
+        fitnessLevel: "avancado",
+        objective: "forca",
+        daysPerWeek: 4,
+        equipment: "academia_completa",
+      })),
+    ];
+
+    expect(programs.map((program) => program.methodology_preset.key)).toEqual([
+      "hipertrofia_intermediario",
+      "forca",
+    ]);
+    for (const program of programs) {
+      const rir = program.methodology_preset.rules.rir;
+      const bounds = numericRirBounds(rir);
+
+      expect(bounds.length, `${program.methodology_preset.key}: ${rir}`).toBeGreaterThan(0);
+      expect(bounds.every((value) => value >= 2 && value <= 4), `${program.methodology_preset.key}: ${rir}`).toBe(true);
+      expect(rir, program.methodology_preset.key).not.toMatch(/\b1\s*-/);
+    }
+    expect(programs[1].methodology_preset.rules.rir).toContain("nunca falha sistematica");
+  });
+
+  it("mantém method/group_id/method_seconds nulos para iniciante, dor, base e deload", () => {
+    const cases = [
+      {
+        label: "iniciante",
+        input: baseInput({
+          catalog: methodCoverageCatalog,
+          fitnessLevel: "iniciante",
+          objective: "hipertrofia",
+          daysPerWeek: 5,
+          equipment: "academia_completa",
+          blockNumber: 3,
+        }),
+        inspectWeek: (_block: string) => true,
+      },
+      {
+        label: "dor",
+        input: baseInput({
+          catalog: methodCoverageCatalog,
+          fitnessLevel: "avancado",
+          experienceMonths: 36,
+          objective: "hipertrofia",
+          daysPerWeek: 5,
+          equipment: "academia_completa",
+          blockNumber: 3,
+          restrictions: "dor EVA 4 no ombro",
+          painEva: 4,
+          painReports: [{ region: "ombro", eva: 4 }],
+        }),
+        inspectWeek: (_block: string) => true,
+      },
+      {
+        label: "base",
+        input: baseInput({
+          catalog: methodCoverageCatalog,
+          fitnessLevel: "avancado",
+          experienceMonths: 36,
+          objective: "hipertrofia",
+          daysPerWeek: 5,
+          equipment: "academia_completa",
+          blockNumber: 3,
+        }),
+        inspectWeek: (block: string) => block === "base",
+      },
+      {
+        label: "deload",
+        input: baseInput({
+          catalog: methodCoverageCatalog,
+          fitnessLevel: "avancado",
+          experienceMonths: 36,
+          objective: "hipertrofia",
+          daysPerWeek: 5,
+          equipment: "academia_completa",
+          deload: true,
+          programSequence: { sequence_number: 3, total_cycles: 4, phase: "intensificacao" },
+        }),
+        inspectWeek: (_block: string) => true,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const program = generateTrainingProgram(testCase.input);
+      let inspectedWeeklyRows = 0;
+
+      for (const exercise of program.workouts.flatMap((workout) => workout.exercises)) {
+        expect(exercise.method, `${testCase.label}: root method`).toBeNull();
+        expect(exercise.group_id, `${testCase.label}: root group_id`).toBeNull();
+        expect(exercise.method_seconds, `${testCase.label}: root method_seconds`).toBeNull();
+
+        for (const [index, week] of (exercise.weekly_prescription || []).entries()) {
+          const block = program.weekly_periodization[index]?.block || "";
+          if (!testCase.inspectWeek(block)) continue;
+          inspectedWeeklyRows += 1;
+          expect(week.method, `${testCase.label}: week ${week.week} method`).toBeNull();
+          expect(week.group_id, `${testCase.label}: week ${week.week} group_id`).toBeNull();
+          expect(week.method_seconds, `${testCase.label}: week ${week.week} method_seconds`).toBeNull();
+        }
+      }
+
+      expect(inspectedWeeklyRows, `${testCase.label}: nenhuma semana inspecionada`).toBeGreaterThan(0);
+    }
   });
 
   it("emite a união dos 11 métodos pelo motor completo somente em planos elegíveis", () => {

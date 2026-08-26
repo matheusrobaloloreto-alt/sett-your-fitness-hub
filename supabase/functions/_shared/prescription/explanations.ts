@@ -66,7 +66,7 @@ export function deloadExplanation(enabled: boolean): PrescriptionExplanation[] {
     category: "deload",
     source: "feedback_aluno",
     target: "semana de deload",
-    action: "Reduzi volume em 40-50%, usei RIR 4-5 e removi falha/método avançado.",
+    action: "Reduzi volume em 40-50%, usei RIR 4 e removi falha/método avançado.",
     reason: "Deload solicitado ou gatilho de fadiga/dor antes de reavaliação.",
     severity: "leve",
   }];

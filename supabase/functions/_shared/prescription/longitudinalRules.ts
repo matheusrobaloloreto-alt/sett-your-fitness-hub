@@ -35,13 +35,28 @@ function performanceRequiresHold(input: PrescriptionInput): boolean {
   return eva > 3 || (Number.isFinite(adherence) && adherence >= 0 && adherence < 0.65) || Boolean(context.technique_breakdown);
 }
 
+function cloneWorkouts(workouts: TrainingWorkout[]): TrainingWorkout[] {
+  return workouts.map((workout) => ({
+    ...workout,
+    exercises: workout.exercises.map((exercise) => ({
+      ...exercise,
+      set_types: exercise.set_types ? [...exercise.set_types] : undefined,
+      weekly_prescription: exercise.weekly_prescription?.map((week) => ({
+        ...week,
+        set_types: week.set_types ? [...week.set_types] : undefined,
+      })),
+    })),
+  }));
+}
+
 export function applyLongitudinalProgression(workouts: TrainingWorkout[], input: PrescriptionInput) {
   const sequenceNumber = resolveSequenceNumber(input);
   const plannedPhase = resolveLongitudinalPhase(input);
   const hold = performanceRequiresHold(input);
   const phase: LongitudinalPhase = input.deload || hold ? "consolidacao" : plannedPhase;
+  const nextWorkouts = cloneWorkouts(workouts);
 
-  for (const workout of workouts) {
+  for (const workout of nextWorkouts) {
     for (const exercise of workout.exercises) {
       const main = exercise.phase === "forca_global" || exercise.phase === "forca_especifica";
       if (input.deload) {
@@ -91,7 +106,7 @@ export function applyLongitudinalProgression(workouts: TrainingWorkout[], input:
     severity: hold ? "moderada" : "leve",
   };
 
-  return { sequenceNumber, phase, plannedPhase, hold, explanation };
+  return { sequenceNumber, phase, plannedPhase, hold, explanation, workouts: nextWorkouts };
 }
 
 export function previousExerciseIds(input: PrescriptionInput, phase?: string, muscleGroup?: string): Set<string> {

@@ -5,6 +5,7 @@ import {
   applyLongitudinalProgression,
   previousExerciseIds,
 } from "../../../supabase/functions/_shared/prescription/longitudinalRules.ts";
+import { enforceVolumeCaps } from "../../../supabase/functions/_shared/prescription/volumeRules.ts";
 import type {
   PrescriptionInput,
   TrainingWorkout,
@@ -52,14 +53,50 @@ describe("progressão longitudinal determinística", () => {
     const intensity = [workout()];
     const consolidation = [workout(4)];
 
-    expect(applyLongitudinalProgression(accumulation, input(2)).phase).toBe("acumulacao");
-    expect(accumulation[0].exercises[0].sets).toBe(4);
+    const accumulationResult = applyLongitudinalProgression(accumulation, input(2));
+    expect(accumulationResult.phase).toBe("acumulacao");
+    expect(accumulationResult.workouts[0].exercises[0].sets).toBe(4);
+    expect(accumulation[0].exercises[0].sets).toBe(3);
 
-    expect(applyLongitudinalProgression(intensity, input(3)).phase).toBe("intensificacao");
-    expect(intensity[0].exercises[0]).toMatchObject({ reps: "6-8", rir: "2", rest_seconds: 120 });
+    const intensityResult = applyLongitudinalProgression(intensity, input(3));
+    expect(intensityResult.phase).toBe("intensificacao");
+    expect(intensityResult.workouts[0].exercises[0]).toMatchObject({ reps: "6-8", rir: "2", rest_seconds: 120 });
+    expect(intensity[0].exercises[0]).toMatchObject({ reps: "8-10", rir: "3", rest_seconds: 90 });
 
-    expect(applyLongitudinalProgression(consolidation, input(4)).phase).toBe("consolidacao");
-    expect(consolidation[0].exercises[0]).toMatchObject({ sets: 3, rir: "3-4" });
+    const consolidationResult = applyLongitudinalProgression(consolidation, input(4));
+    expect(consolidationResult.phase).toBe("consolidacao");
+    expect(consolidationResult.workouts[0].exercises[0]).toMatchObject({ sets: 3, rir: "3-4" });
+    expect(consolidation[0].exercises[0]).toMatchObject({ sets: 4, rir: "3" });
+  });
+
+  it("retorna workouts progredidos explicitamente sem depender de mutação lateral", () => {
+    const plan = [workout(2)];
+    const result = applyLongitudinalProgression(plan, input(2, { fitnessLevel: "avancado", objective: "hipertrofia" }));
+
+    expect(result.workouts[0].exercises[0]).toMatchObject({
+      sets: 3,
+      rir: "2-3",
+    });
+    expect(plan[0].exercises[0]).toMatchObject({
+      sets: 2,
+      rir: "3",
+    });
+  });
+
+  it("usa o resultado longitudinal para preservar +1 série abaixo do cap e reduzir acima dele", () => {
+    const accumulationInput = input(2, {
+      fitnessLevel: "avancado",
+      objective: "hipertrofia",
+      daysPerWeek: 3,
+    });
+    const belowCap = applyLongitudinalProgression([workout(2)], accumulationInput);
+    const belowCapped = enforceVolumeCaps(belowCap.workouts, accumulationInput);
+    const aboveCap = applyLongitudinalProgression([workout(16)], accumulationInput);
+    const aboveCapped = enforceVolumeCaps(aboveCap.workouts, accumulationInput);
+
+    expect(belowCapped.workouts[0].exercises[0].sets).toBe(3);
+    expect(aboveCap.workouts[0].exercises[0].sets).toBe(17);
+    expect(aboveCapped.workouts[0].exercises[0].sets).toBe(16);
   });
 
   it("não progride automaticamente quando dor, baixa aderência ou técnica pedem manutenção", () => {
@@ -70,7 +107,8 @@ describe("progressão longitudinal determinística", () => {
 
     expect(result).toMatchObject({ phase: "consolidacao", plannedPhase: "acumulacao", hold: true });
     expect(result.explanation.rule_id).toBe("BN_LONGITUDINAL_HOLD_BY_FEEDBACK");
-    expect(plan[0].exercises[0].sets).toBe(3);
+    expect(result.workouts[0].exercises[0].sets).toBe(3);
+    expect(plan[0].exercises[0].sets).toBe(4);
   });
 
   it("prioriza exercícios seguros já usados no bloco anterior", () => {
