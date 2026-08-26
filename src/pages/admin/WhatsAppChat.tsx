@@ -30,7 +30,7 @@ import { useMaster } from "@/contexts/MasterContext";
 import { useLocation, useNavigate } from "react-router-dom";
 import { interpolateTemplate } from "@/lib/templateVars";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
-import { listStudentFiles, signStudentFile } from "@/lib/studentFiles";
+import { listStudentFiles } from "@/lib/studentFiles";
 import { type FunnelStageStudent } from "@/lib/salesFunnelView";
 import { businessDateYmd } from "@/lib/businessDate";
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
@@ -46,6 +46,12 @@ import {
   reconcileWhatsAppMessages,
   upsertWhatsAppMessage,
 } from "@/lib/whatsappMessages";
+import {
+  describeWhatsAppMediaDelivery,
+  resumableWhatsAppUpload,
+  uploadWhatsAppMediaWith,
+} from "@/lib/whatsappMediaUpload";
+import { shouldOfferWhatsAppRecipientReview } from "@/lib/whatsappRecipientReview";
 
 type Chat = {
   id: string;
@@ -245,6 +251,9 @@ export default function WhatsAppChat() {
   const [mineOnly, setMineOnly] = useState(false);
   const [noWorkoutOnly, setNoWorkoutOnly] = useState(false);
   const [sendingAttachment, setSendingAttachment] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [recipientReviewChatId, setRecipientReviewChatId] = useState<string | null>(null);
+  const [unlinkingRecipient, setUnlinkingRecipient] = useState(false);
   const [mediaFallbacks, setMediaFallbacks] = useState<Record<string, string>>({});
   const [failedMediaFetches, setFailedMediaFetches] = useState<Record<string, true>>({});
   const [failedAvatarUrls, setFailedAvatarUrls] = useState<Record<string, true>>({});
@@ -648,11 +657,12 @@ export default function WhatsAppChat() {
   }, [effectiveCompanyId]);
 
   const handleLinkStudent = async (studentId: string) => {
-    if (!selectedChatId) return;
+    if (!selectedChatId || !effectiveCompanyId) return;
     const { error } = await supabase
       .from("whatsapp_chats")
       .update({ student_id: studentId })
-      .eq("id", selectedChatId);
+      .eq("id", selectedChatId)
+      .eq("company_id", effectiveCompanyId);
     if (error) {
       toast.error("Não foi possível vincular o aluno");
       return;
@@ -671,6 +681,27 @@ export default function WhatsAppChat() {
     setLinkSearch(contactName);
     void searchStudentsForLink(contactName);
     setLinkDialogOpen(true);
+  };
+
+  const handleChooseRecipientForReview = async () => {
+    if (!recipientReviewChatId) return;
+    setUnlinkingRecipient(true);
+    try {
+      const reviewChat = chats.find((item) => item.id === recipientReviewChatId) || null;
+      setRecipientReviewChatId(null);
+      if (reviewChat) {
+        const contactName = getContactName(reviewChat);
+        setSelectedChatId(reviewChat.id);
+        setLinkSearch(contactName);
+        void searchStudentsForLink(contactName);
+        setLinkDialogOpen(true);
+      }
+      toast.info("Escolha o aluno correto. O envio permanece bloqueado enquanto o vínculo divergir.");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Não foi possível abrir a revisão do destinatário"));
+    } finally {
+      setUnlinkingRecipient(false);
+    }
   };
 
   // Media fallback
@@ -995,7 +1026,12 @@ export default function WhatsAppChat() {
         }),
       });
       const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || "Erro ao enviar");
+      if (!res.ok) {
+        if (selectedChatId && shouldOfferWhatsAppRecipientReview(payload?.code)) {
+          setRecipientReviewChatId(selectedChatId);
+        }
+        throw new Error(payload?.error || "Erro ao enviar");
+      }
       if (payload?.message && selectedChatId) {
         setMessages((prev) => {
           const hydrated = prev.map((msg) => (msg.id === tempId ? payload.message as Message : msg));
@@ -1064,15 +1100,17 @@ export default function WhatsAppChat() {
     try {
       const studentFiles = await listStudentFiles(chat.student_id);
       const latestFile = studentFiles.find((file) => file.kind === "assessment_report") || studentFiles[0] || null;
-      let mediaUrl: string | null = null;
+      let mediaStorageBucket: "student-files" | "evaluations" | null = null;
+      let mediaStoragePath: string | null = null;
       let fileName = "arquivo.pdf";
 
       if (latestFile) {
-        mediaUrl = await signStudentFile(latestFile.file_path, 3600);
+        mediaStorageBucket = "student-files";
+        mediaStoragePath = latestFile.file_path;
         fileName = latestFile.file_name || latestFile.file_path.split("/").pop() || fileName;
       }
 
-      if (!mediaUrl) {
+      if (!mediaStoragePath) {
         const { data: evaluations } = await supabase
           .from("student_evaluations")
           .select("id, file_url, type, created_at")
@@ -1084,24 +1122,50 @@ export default function WhatsAppChat() {
         if (fileUrl) {
           fileName = fileUrl.split("/").pop() || fileName;
           if (fileUrl.startsWith("http")) {
-            mediaUrl = fileUrl;
+            try {
+              const marker = "/evaluations/";
+              const parsed = new URL(fileUrl);
+              const markerIndex = parsed.pathname.indexOf(marker);
+              mediaStoragePath = markerIndex >= 0
+                ? decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length))
+                : null;
+            } catch {
+              mediaStoragePath = null;
+            }
           } else {
-            const { data: signedData } = await supabase.storage.from("evaluations").createSignedUrl(fileUrl, 3600);
-            mediaUrl = signedData?.signedUrl || null;
+            mediaStoragePath = fileUrl;
           }
+          if (mediaStoragePath) mediaStorageBucket = "evaluations";
         }
       }
 
-      if (!mediaUrl) { toast.error("Nenhum arquivo encontrado na pasta ou nas avaliações do aluno"); return; }
+      if (!mediaStorageBucket || !mediaStoragePath) {
+        toast.error("Nenhum arquivo interno válido foi encontrado na pasta ou nas avaliações do aluno");
+        return;
+      }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { toast.error("Sessão expirada"); return; }
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
-        body: JSON.stringify({ action: "send-media", companyId: effectiveCompanyId, remoteJid: chat.remote_jid, mediaUrl, caption: "Último treino/avaliação", chatId: selectedChatId, fileName }),
+        body: JSON.stringify({
+          action: "send-media",
+          companyId: effectiveCompanyId,
+          remoteJid: chat.remote_jid,
+          caption: "Último treino/avaliação",
+          chatId: selectedChatId,
+          studentId: chat.student_id,
+          fileName,
+          mediaSource: "student-upload",
+          mediaStorageBucket,
+          mediaStoragePath,
+        }),
       });
       const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || "Erro ao enviar arquivo");
+      if (!res.ok) {
+        if (shouldOfferWhatsAppRecipientReview(payload?.code)) setRecipientReviewChatId(selectedChatId);
+        throw new Error(payload?.error || "Erro ao enviar arquivo");
+      }
       appendConfirmedOutgoingMessage(payload);
       toast.success("Arquivo enviado!");
     } catch (error: unknown) { toast.error(getErrorMessage(error, "Erro ao enviar arquivo")); }
@@ -1113,32 +1177,68 @@ export default function WhatsAppChat() {
     const chat = chats.find((c) => c.id === selectedChatId);
     if (!chat) return;
     setSendingAttachment(true);
+    setUploadProgress(0);
+    let uploadedPath: string | null = null;
     try {
-      const ext = file.name.split(".").pop() || "bin";
-      const filePath = `${effectiveCompanyId}/${selectedChatId}/${Date.now()}.${ext}`;
-      const { error: uploadError } = await supabase.storage.from("whatsapp-media").upload(filePath, file);
-      if (uploadError) throw new Error("Erro ao fazer upload: " + uploadError.message);
-      const { data: signed } = await supabase.storage.from("whatsapp-media").createSignedUrl(filePath, 60 * 60 * 24 * 7);
-      const mediaUrl = signed?.signedUrl;
-      if (!mediaUrl) throw new Error("Erro ao gerar URL da mídia");
-      let mediatype: string | undefined;
-      if (file.type.startsWith("image/")) mediatype = "image";
-      else if (file.type.startsWith("video/")) mediatype = "video";
-      else if (file.type.startsWith("audio/")) mediatype = "audio";
-      else mediatype = "document";
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { toast.error("Sessão expirada"); return; }
+      if (!session) throw new Error("Sessão expirada");
+      const ext = (file.name.split(".").pop() || "bin").replace(/[^a-z0-9]/gi, "").toLowerCase() || "bin";
+      const filePath = `${effectiveCompanyId}/${selectedChatId}/${Date.now()}.${ext}`;
+      await uploadWhatsAppMediaWith({
+        file,
+        path: filePath,
+        standardUpload: async (uploadFile, uploadPath, onProgress) => {
+          const { error } = await supabase.storage.from("whatsapp-media").upload(uploadPath, uploadFile, {
+            contentType: uploadFile.type || "application/octet-stream",
+          });
+          if (error) throw new Error(error.message);
+          onProgress?.(100);
+        },
+        resumableUpload: async (uploadFile, uploadPath, onProgress) => {
+          await resumableWhatsAppUpload({
+            file: uploadFile,
+            path: uploadPath,
+            projectUrl: import.meta.env.VITE_SUPABASE_URL,
+            accessToken: session.access_token,
+            onProgress,
+          });
+        },
+        onProgress: setUploadProgress,
+      });
+      uploadedPath = filePath;
+      const delivery = describeWhatsAppMediaDelivery(file);
+      if (delivery.notice) toast.info(delivery.notice);
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
-        body: JSON.stringify({ action: "send-media", companyId: effectiveCompanyId, remoteJid: chat.remote_jid, mediaUrl, chatId: selectedChatId, mediatype, mimeType: file.type, fileName: file.name, caption: "" }),
+        body: JSON.stringify({
+          action: "send-media",
+          companyId: effectiveCompanyId,
+          remoteJid: chat.remote_jid,
+          chatId: selectedChatId,
+          studentId: chat.student_id,
+          mediatype: delivery.mediatype,
+          mimeType: file.type,
+          fileName: file.name,
+          caption: "",
+          mediaSource: "chat-upload",
+          mediaStorageBucket: "whatsapp-media",
+          mediaStoragePath: filePath,
+        }),
       });
       const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || "Erro ao enviar mídia");
+      if (!res.ok) {
+        if (shouldOfferWhatsAppRecipientReview(payload?.code)) setRecipientReviewChatId(selectedChatId);
+        throw new Error(payload?.error || "Erro ao enviar mídia");
+      }
+      uploadedPath = null;
       appendConfirmedOutgoingMessage(payload);
       toast.success("Mídia enviada!");
-    } catch (error: unknown) { toast.error(getErrorMessage(error, "Erro ao enviar mídia")); }
-    finally { setSendingAttachment(false); }
+    } catch (error: unknown) {
+      if (uploadedPath) void supabase.storage.from("whatsapp-media").remove([uploadedPath]);
+      toast.error(getErrorMessage(error, "Erro ao enviar mídia"));
+    }
+    finally { setSendingAttachment(false); setUploadProgress(null); }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1224,25 +1324,31 @@ export default function WhatsAppChat() {
     if (blob.size < 100) { toast.error("Gravação muito curta"); return; }
 
     setSendingAttachment(true);
+    let uploadedPath: string | null = null;
     try {
       const filePath = `${effectiveCompanyId}/${selectedChatId}/${Date.now()}.webm`;
       const { error: uploadError } = await supabase.storage.from("whatsapp-media").upload(filePath, blob, { contentType: "audio/webm" });
       if (uploadError) throw new Error("Erro ao fazer upload: " + uploadError.message);
-      const { data: signed } = await supabase.storage.from("whatsapp-media").createSignedUrl(filePath, 60 * 60 * 24 * 7);
-      const mediaUrl = signed?.signedUrl;
-      if (!mediaUrl) throw new Error("Erro ao gerar URL do áudio");
+      uploadedPath = filePath;
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { toast.error("Sessão expirada"); return; }
+      if (!session) throw new Error("Sessão expirada");
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
-        body: JSON.stringify({ action: "send-media", companyId: effectiveCompanyId, remoteJid: chat.remote_jid, mediaUrl, chatId: selectedChatId, mediatype: "audio", mimeType: "audio/webm", fileName: `audio-${Date.now()}.webm`, caption: "" }),
+        body: JSON.stringify({ action: "send-media", companyId: effectiveCompanyId, remoteJid: chat.remote_jid, chatId: selectedChatId, studentId: chat.student_id, mediatype: "audio", mimeType: "audio/webm", fileName: `audio-${Date.now()}.webm`, caption: "", mediaSource: "chat-upload", mediaStorageBucket: "whatsapp-media", mediaStoragePath: filePath }),
       });
       const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || "Erro ao enviar áudio");
+      if (!res.ok) {
+        if (shouldOfferWhatsAppRecipientReview(payload?.code)) setRecipientReviewChatId(selectedChatId);
+        throw new Error(payload?.error || "Erro ao enviar áudio");
+      }
+      uploadedPath = null;
       appendConfirmedOutgoingMessage(payload);
       toast.success("Áudio enviado!");
-    } catch (error: unknown) { toast.error(getErrorMessage(error, "Erro ao enviar áudio")); }
+    } catch (error: unknown) {
+      if (uploadedPath) void supabase.storage.from("whatsapp-media").remove([uploadedPath]);
+      toast.error(getErrorMessage(error, "Erro ao enviar áudio"));
+    }
     finally { setSendingAttachment(false); }
   };
 
@@ -1351,6 +1457,7 @@ export default function WhatsAppChat() {
   const unreadCount = chats.filter(c => (c.unread_count || 0) > 0).length;
 
   const selectedChat = chats.find((c) => c.id === selectedChatId);
+  const recipientReviewChat = chats.find((c) => c.id === recipientReviewChatId) || null;
   useEffect(() => {
     let cancelled = false;
     if (!selectedChat) {
@@ -1677,6 +1784,49 @@ export default function WhatsAppChat() {
 
   return (
     <>
+      <Dialog open={!!recipientReviewChatId} onOpenChange={(open) => { if (!open) setRecipientReviewChatId(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Revisar destinatário antes de enviar</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-950">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+              <div className="space-y-1 text-sm">
+                <p className="font-medium">A mensagem não foi enviada.</p>
+                <p>
+                  O número desta conversa diverge do telefone cadastrado para
+                  {recipientReviewChat ? ` ${getContactName(recipientReviewChat)}` : " a aluna"}.
+                  O rascunho foi preservado para evitar envio à pessoa errada.
+                </p>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Confira primeiro o cadastro. Se esta conversa for de outro contato, escolha o aluno correto antes de tentar enviar novamente.
+            </p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button variant="ghost" onClick={() => setRecipientReviewChatId(null)} disabled={unlinkingRecipient}>
+                Manter como está
+              </Button>
+              <Button
+                variant="outline"
+                disabled={!recipientReviewChat?.student_id || unlinkingRecipient}
+                onClick={() => {
+                  if (!recipientReviewChat?.student_id) return;
+                  setRecipientReviewChatId(null);
+                  navigate(`/${studioRoutePrefix}/students/${recipientReviewChat.student_id}`);
+                }}
+              >
+                Abrir cadastro do aluno
+              </Button>
+              <Button onClick={handleChooseRecipientForReview} disabled={unlinkingRecipient}>
+                {unlinkingRecipient ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Escolher aluno correto
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <div className="flex flex-col h-[calc(100vh-3.5rem)]">
         <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <div>
@@ -2217,15 +2367,16 @@ export default function WhatsAppChat() {
                       return <Badge key={labelId} className="text-[10px] h-5 text-white" style={{ backgroundColor: label.color }}>{label.name}</Badge>;
                     })}
                     {/* Link student button */}
-                    {!selectedChat.student_id && (
-                      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+                    <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+                      {!selectedChat.student_id && (
                         <DialogTrigger asChild>
                           <Button variant="outline" size="sm" className="h-7 text-xs gap-1">
                             <UserPlus className="h-3.5 w-3.5" />
                             Vincular Aluno
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-md">
+                      )}
+                      <DialogContent className="sm:max-w-md">
                           <DialogHeader>
                             <DialogTitle>Vincular Aluno à Conversa</DialogTitle>
                           </DialogHeader>
@@ -2263,9 +2414,8 @@ export default function WhatsAppChat() {
                               )}
                             </ScrollArea>
                           </div>
-                        </DialogContent>
-                      </Dialog>
-                    )}
+                      </DialogContent>
+                    </Dialog>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -2493,7 +2643,7 @@ export default function WhatsAppChat() {
                   ) : (
                     <div className="flex min-w-0 items-end gap-1.5 rounded-2xl border border-border bg-background p-1.5 shadow-sm sm:gap-2">
                       <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Enviar imagem ou arquivo" onClick={() => fileInputRef.current?.click()} disabled={sendingAttachment}>
-                        <Image className="h-4 w-4" />
+                        {sendingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Image className="h-4 w-4" />}
                       </Button>
                       <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Gravar áudio" onClick={startRecording} disabled={sendingAttachment}>
                         <Mic className="h-4 w-4" />
@@ -2502,6 +2652,11 @@ export default function WhatsAppChat() {
                         <Button variant="ghost" size="icon" className="hidden h-9 w-9 shrink-0 sm:inline-flex" title="Anexar último treino/avaliação" onClick={handleAttachLastEvaluation} disabled={sendingAttachment}>
                           <Paperclip className="h-4 w-4" />
                         </Button>
+                      )}
+                      {uploadProgress !== null && (
+                        <span className="shrink-0 font-mono-data text-[11px] text-muted-foreground" aria-live="polite">
+                          {uploadProgress}%
+                        </span>
                       )}
                       <div className="relative min-w-0 flex-1">
                         <Textarea

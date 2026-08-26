@@ -9,6 +9,11 @@ import {
   providerErrorDetails,
   sanitizeProviderErrorForLog,
 } from "../_shared/provider-error-redaction.ts";
+import {
+  type OutboundWhatsAppMediaSource,
+  resolveOutboundWhatsAppMediaType,
+  validateOutboundWhatsAppMedia,
+} from "../_shared/whatsappMedia.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -61,6 +66,19 @@ function verifiedRecipientError(code: string) {
     error: messages[code] || "Não foi possível confirmar com segurança o destinatário.",
     code,
   };
+}
+
+function outboundMediaError(code: string) {
+  const messages: Record<string, string> = {
+    whatsapp_media_invalid_reference: "O arquivo enviado não pertence a uma origem permitida.",
+    whatsapp_media_scope_mismatch: "O arquivo não pertence a esta empresa, conversa ou aluno.",
+    whatsapp_media_missing: "O arquivo não foi encontrado ou ainda não terminou de carregar.",
+    whatsapp_media_too_large: "O arquivo ultrapassa o limite de 512 MB.",
+    whatsapp_media_mime_mismatch: "O tipo real do arquivo diverge do tipo informado.",
+    whatsapp_media_delivery_type_mismatch: "A forma de envio não corresponde ao tipo real e ao tamanho do arquivo.",
+    whatsapp_media_unsupported_type: "Este tipo de arquivo não é permitido para envio.",
+  };
+  return { error: messages[code] || "Não foi possível validar o arquivo antes do envio.", code };
 }
 
 function extractExternalMessageId(payload: any): string | null {
@@ -851,19 +869,97 @@ Deno.serve(async (req) => {
 
     // ─── SEND MEDIA ───
     if (action === "send-media") {
-      const { remoteJid, mediaUrl, caption, chatId, studentId, fileName, mediatype: clientMediaType, mimeType } = body;
-      if (!remoteJid || !mediaUrl) return json({ error: "remoteJid and mediaUrl required" }, 400);
+      const {
+        remoteJid,
+        mediaUrl: clientMediaUrl,
+        caption,
+        chatId,
+        studentId,
+        fileName,
+        mediatype: clientMediaType,
+        mimeType: claimedMimeType,
+      } = body;
+      if (!remoteJid) return json({ error: "remoteJid required" }, 400);
       const verifiedRecipient = await verifyOutboundRecipient(remoteJid, studentId);
       if (!verifiedRecipient.ok) return json(verifiedRecipientError(verifiedRecipient.code), 409);
       const effectiveMediaRecipient = evolutionTextRecipient(verifiedRecipient.remoteJid);
 
-      // Determine Evolution API mediatype: image, video, audio, document
-      let evoMediaType = clientMediaType || "document";
-      if (!clientMediaType && mimeType) {
-        if (mimeType.startsWith("image/")) evoMediaType = "image";
-        else if (mimeType.startsWith("video/")) evoMediaType = "video";
-        else if (mimeType.startsWith("audio/")) evoMediaType = "audio";
+      // Never forward an arbitrary client URL to the WhatsApp provider. Resolve the
+      // object inside our own Storage project, validate its tenant scope and real
+      // metadata, then create a fresh short-lived URL on the server.
+      const requestedSource = String(body.mediaSource || "").trim() as OutboundWhatsAppMediaSource;
+      let mediaStorageBucket = String(body.mediaStorageBucket || "").trim();
+      let mediaStoragePath = String(body.mediaStoragePath || "").trim();
+      let mediaSource: OutboundWhatsAppMediaSource | "" = requestedSource;
+      const mediaStudentId = String(studentId || boundChat?.student_id || "").trim() || null;
+
+      // Transitional compatibility for a cached frontend: infer only approved
+      // Storage references from the signed URL, then re-sign the local object.
+      if (!mediaStorageBucket || !mediaStoragePath || !mediaSource) {
+        for (const bucket of ["whatsapp-media", "student-files", "evaluations"]) {
+          const inferredPath = storageObjectPathFromUrl(clientMediaUrl, bucket);
+          if (!inferredPath) continue;
+          mediaStorageBucket = bucket;
+          mediaStoragePath = inferredPath;
+          mediaSource = boundChat?.id && inferredPath.startsWith(`${resolvedCompanyId}/${boundChat.id}/`)
+            ? "chat-upload"
+            : "student-upload";
+          break;
+        }
       }
+
+      if (!mediaStorageBucket || !mediaStoragePath || !mediaSource) {
+        return json(outboundMediaError("whatsapp_media_invalid_reference"), 400);
+      }
+
+      const separatorIndex = mediaStoragePath.lastIndexOf("/");
+      const directory = separatorIndex >= 0 ? mediaStoragePath.slice(0, separatorIndex) : "";
+      const objectName = separatorIndex >= 0 ? mediaStoragePath.slice(separatorIndex + 1) : mediaStoragePath;
+      const { data: storedObjects, error: storedObjectError } = await adminClient.storage
+        .from(mediaStorageBucket)
+        .list(directory, { limit: 100, search: objectName });
+      if (storedObjectError) {
+        console.error("Failed to inspect outbound WhatsApp media", JSON.stringify({
+          companyId: resolvedCompanyId,
+          chatId: boundChat?.id || null,
+          bucket: mediaStorageBucket,
+          code: storedObjectError.name || "storage_list_failed",
+        }));
+        return json(outboundMediaError("whatsapp_media_missing"), 400);
+      }
+      const storedObject = (storedObjects || []).find((item) => item.name === objectName) || null;
+      const validation = validateOutboundWhatsAppMedia({
+        source: mediaSource,
+        bucket: mediaStorageBucket,
+        path: mediaStoragePath,
+        companyId: resolvedCompanyId,
+        chatId: boundChat?.id || null,
+        studentId: mediaStudentId,
+        claimedMimeType,
+        objectMimeType: storedObject?.metadata?.mimetype || null,
+        objectSize: Number(storedObject?.metadata?.size || 0),
+      });
+      if (!validation.ok) return json(outboundMediaError(validation.code), 400);
+
+      const { data: signedMedia, error: signedMediaError } = await adminClient.storage
+        .from(mediaStorageBucket)
+        .createSignedUrl(mediaStoragePath, 60 * 60 * 24 * 7);
+      if (signedMediaError || !signedMedia?.signedUrl) {
+        return json(outboundMediaError("whatsapp_media_missing"), 400);
+      }
+      const mediaUrl = signedMedia.signedUrl;
+      const mimeType = validation.mimeType;
+
+      // The provider delivery path is derived from server-validated object
+      // metadata. The browser may only confirm the expected path; it cannot
+      // relabel a PDF as an image or force a large video through inline media.
+      const deliveryType = resolveOutboundWhatsAppMediaType({
+        mimeType,
+        size: validation.size,
+        requestedMediaType: clientMediaType,
+      });
+      if (!deliveryType.ok) return json(outboundMediaError(deliveryType.code), 400);
+      const evoMediaType = deliveryType.mediaType;
 
       let sendRes: Response;
 
@@ -927,8 +1023,6 @@ Deno.serve(async (req) => {
       const dbType = evoMediaType === "image" ? "image" : evoMediaType === "video" ? "video" : evoMediaType === "audio" ? "audio" : "document";
       const dbMediaType = mimeType || (evoMediaType === "image" ? "image/jpeg" : evoMediaType === "video" ? "video/mp4" : evoMediaType === "audio" ? "audio/ogg" : "application/pdf");
       const defaultContent = evoMediaType === "image" ? "📷 Imagem" : evoMediaType === "video" ? "🎬 Vídeo" : evoMediaType === "audio" ? "🎤 Áudio" : `📎 ${fileName || "arquivo.pdf"}`;
-      const mediaStoragePath = storageObjectPathFromUrl(mediaUrl, "whatsapp-media");
-
       let insertedMediaMessage: Record<string, unknown> | null = null;
       if (chatId) {
         const { data: insertedMediaRow, error: messageInsertError } = await adminClient.from("whatsapp_messages").insert({
@@ -942,7 +1036,7 @@ Deno.serve(async (req) => {
           message_id_external: externalMessageId,
           media_url: mediaUrl,
           media_type: dbMediaType,
-          media_storage_path: mediaStoragePath,
+          media_storage_path: mediaStorageBucket === "whatsapp-media" ? mediaStoragePath : null,
           origin: "panel_manual",
           timestamp: new Date().toISOString(),
         }).select("*").maybeSingle();

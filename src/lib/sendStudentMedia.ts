@@ -17,6 +17,7 @@ export async function sendPdfToStudentWhatsApp(opts: {
       .from("whatsapp_chats")
       .select("id, remote_jid")
       .eq("student_id", studentId)
+      .eq("company_id", companyId)
       .limit(1)
       .maybeSingle();
     let remoteJid = (chat as any)?.remote_jid as string | undefined;
@@ -36,17 +37,18 @@ export async function sendPdfToStudentWhatsApp(opts: {
       .from("whatsapp-media")
       .upload(path, blob, { contentType: "application/pdf", upsert: true });
     if (upErr) return { ok: false, error: `upload: ${upErr.message}` };
-    const { data: signed } = await supabase.storage.from("whatsapp-media").createSignedUrl(path, 60 * 60 * 24 * 7);
-    if (!signed?.signedUrl) return { ok: false, error: "Falha ao gerar URL do arquivo." };
-
-    // 3. Envia via whatsapp-manager (mesma action usada no chat para mídia outbound).
+    // 3. Envia via whatsapp-manager. O servidor valida o objeto e gera sua
+    // própria URL temporária; o navegador nunca escolhe uma URL externa.
     const { data, error } = await supabase.functions.invoke("whatsapp-manager", {
       body: {
         action: "send-media",
         companyId,
         remoteJid,
         chatId: chatId ?? null,
-        mediaUrl: signed.signedUrl,
+        studentId,
+        mediaSource: "student-upload",
+        mediaStorageBucket: "whatsapp-media",
+        mediaStoragePath: path,
         mediatype: "document",
         mimeType: "application/pdf",
         fileName,

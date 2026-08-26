@@ -58,7 +58,7 @@ export default function TrainerDashboard() {
     }
     let enrollQuery = supabase
       .from("enrollments")
-      .select("*, students(full_name), plans(name, duration_weeks)")
+      .select("id, student_id, start_date, end_date, status, students(full_name), plans(name, duration_weeks)")
       .eq("company_id", companyId)
       .eq("status", "active");
     if (!canViewCompanyDashboard) enrollQuery = enrollQuery.eq("trainer_id", user.id);
@@ -70,7 +70,7 @@ export default function TrainerDashboard() {
     if (enrollData.length > 0) {
       const ids = enrollData.map((e) => e.id);
       const { data: cycleData } = await supabase
-        .from("training_cycles").select("*")
+        .from("training_cycles").select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at")
         .eq("company_id", companyId)
         .in("enrollment_id", ids)
         .order("end_date", { ascending: true });

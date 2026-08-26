@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef, Fragment } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Fragment, Suspense, lazy } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,8 +22,6 @@ import { PeriodizationBanner } from "@/components/student/PeriodizationBanner";
 import { WhySafetyCard } from "@/components/student/WhySafetyCard";
 import { CheckinCard } from "@/components/student/CheckinCard";
 import { PushBanner } from "@/components/student/PushBanner";
-import { StatsCharts } from "@/components/student/StatsCharts";
-import { VolumeInsights } from "@/components/student/VolumeInsights";
 import { WarmupGuide, type WarmupExercise } from "@/components/student/WarmupGuide";
 import { WARMUP_VIDEO_LIBRARY_NAMES } from "@/lib/warmupVideoMatches";
 import { useRestTimer } from "@/components/student/RestTimer";
@@ -33,23 +31,13 @@ import { AnnouncementsBell } from "@/components/student/AnnouncementsBell";
 import { StudentHome } from "@/components/student/StudentHome";
 import { EditorialPageHeader } from "@/components/EditorialPageHeader";
 import { businessDateYmd } from "@/lib/businessDate";
-import { NutritionPlanView } from "@/components/student/NutritionPlanView";
-import { CardioPlanView } from "@/components/student/CardioPlanView";
-import { WearableIntegrations } from "@/components/student/WearableIntegrations";
 import { PlatformAdSlot } from "@/components/PlatformAdSlot";
-import { StudentCalendar } from "@/components/student/StudentCalendar";
-import { StudentHistory } from "@/components/student/StudentHistory";
 import { WorkoutHeader } from "@/components/student/WorkoutHeader";
 import { WeeklyGoalEditor } from "@/components/student/WeeklyGoalEditor";
-import { AchievementsPanel } from "@/components/student/AchievementsPanel";
-import { MonthlyLeaderboard } from "@/components/student/MonthlyLeaderboard";
 import { resolveActiveWorkoutInCycles, resolveWorkoutForCycleWeek, type ResolvedWeekContext, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 
 import { CycleFeedbackBanner } from "@/components/student/CycleFeedbackBanner";
 import { calculateStreak } from "@/lib/streakCalculator";
-import { ExternalActivitiesList } from "@/components/student/ExternalActivitiesList";
-import { AnnouncementsFeed } from "@/components/student/AnnouncementsFeed";
-import { BodyMeasurements } from "@/components/student/BodyMeasurements";
 import type { Gender } from "@/components/student/BodyMeasurements";
 import { Megaphone, Activity } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -68,6 +56,19 @@ import {
 } from "@/lib/workoutDraft";
 import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
+
+const StatsCharts = lazy(() => import("@/components/student/StatsCharts").then((module) => ({ default: module.StatsCharts })));
+const VolumeInsights = lazy(() => import("@/components/student/VolumeInsights").then((module) => ({ default: module.VolumeInsights })));
+const NutritionPlanView = lazy(() => import("@/components/student/NutritionPlanView").then((module) => ({ default: module.NutritionPlanView })));
+const CardioPlanView = lazy(() => import("@/components/student/CardioPlanView").then((module) => ({ default: module.CardioPlanView })));
+const WearableIntegrations = lazy(() => import("@/components/student/WearableIntegrations").then((module) => ({ default: module.WearableIntegrations })));
+const StudentCalendar = lazy(() => import("@/components/student/StudentCalendar").then((module) => ({ default: module.StudentCalendar })));
+const StudentHistory = lazy(() => import("@/components/student/StudentHistory").then((module) => ({ default: module.StudentHistory })));
+const AchievementsPanel = lazy(() => import("@/components/student/AchievementsPanel").then((module) => ({ default: module.AchievementsPanel })));
+const MonthlyLeaderboard = lazy(() => import("@/components/student/MonthlyLeaderboard").then((module) => ({ default: module.MonthlyLeaderboard })));
+const ExternalActivitiesList = lazy(() => import("@/components/student/ExternalActivitiesList").then((module) => ({ default: module.ExternalActivitiesList })));
+const AnnouncementsFeed = lazy(() => import("@/components/student/AnnouncementsFeed").then((module) => ({ default: module.AnnouncementsFeed })));
+const BodyMeasurements = lazy(() => import("@/components/student/BodyMeasurements").then((module) => ({ default: module.BodyMeasurements })));
 
 
 type ActiveView = "home" | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
@@ -468,28 +469,30 @@ export default function StudentPortal() {
 
         const workoutIds = materializedWorkouts.map(w => w.id);
         if (workoutIds.length > 0) {
-          const { data: logsData } = await supabase
-            .from("workout_logs")
-            .select("*")
-            .eq("student_id", student.id)
-            .in("workout_id", workoutIds);
-
-          // Load workout sessions for history
-          const { data: sessionsData } = await supabase
-            .from("workout_sessions")
-            .select("*")
-            .eq("student_id", student.id)
-            .in("workout_id", workoutIds);
+          const [
+            { data: logsData },
+            { data: sessionsData },
+            { data: feedbackData },
+          ] = await Promise.all([
+            supabase
+              .from("workout_logs")
+              .select("id, workout_id, exercise_index, set_number, weight, reps_done, session_date, set_type, rpe, completed, revision, updated_at, created_at, client_updated_at")
+              .eq("student_id", student.id)
+              .in("workout_id", workoutIds),
+            supabase
+              .from("workout_sessions")
+              .select("id, workout_id, session_date, duration_seconds, total_volume, total_sets_completed, total_sets_prescribed, completed_at")
+              .eq("student_id", student.id)
+              .in("workout_id", workoutIds),
+            supabase
+              .from("workout_feedback")
+              .select("id, workout_session_id, notes, trainer_reply, trainer_replied_at, trainer_reply_author_name")
+              .eq("student_id", student.id)
+              .order("created_at", { ascending: false })
+              .limit(50),
+          ]);
 
           if (sessionsData) setWorkoutSessions(sessionsData);
-
-          const { data: feedbackData } = await supabase
-            .from("workout_feedback")
-            .select("id, workout_session_id, notes, trainer_reply, trainer_replied_at, trainer_reply_author_name")
-            .eq("student_id", student.id)
-            .order("created_at", { ascending: false })
-            .limit(50);
-
           if (feedbackData) setWorkoutFeedbacks(feedbackData);
 
           if (logsData) {
@@ -1105,6 +1108,12 @@ export default function StudentPortal() {
           </div>
         )}
 
+        <Suspense fallback={(
+          <div className="flex min-h-40 items-center justify-center" role="status" aria-live="polite">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <span className="ml-2 text-sm text-muted-foreground">Carregando esta área…</span>
+          </div>
+        )}>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={activeView}
@@ -1471,6 +1480,7 @@ export default function StudentPortal() {
         )}
           </motion.div>
         </AnimatePresence>
+        </Suspense>
         <PlatformAdSlot audience="student" placement="footer" companyId={companyId} className="mt-8" />
       </div>
 

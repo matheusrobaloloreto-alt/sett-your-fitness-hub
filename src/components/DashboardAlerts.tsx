@@ -151,7 +151,8 @@ async function fetchAlerts(
     });
 
     // Todos os ciclos (qualquer status) das matrículas vigentes
-    const { data: allCycles } = await supabase.from("training_cycles").select("*")
+    const { data: allCycles } = await supabase.from("training_cycles")
+      .select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at")
       .in("enrollment_id", enrollIds);
 
     if (allCycles && allCycles.length > 0) {
