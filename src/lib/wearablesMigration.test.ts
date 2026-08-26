@@ -23,6 +23,10 @@ const deterministicWatermarkFix = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260815174923_replace_wearable_sync_deterministically.sql"),
   "utf8",
 ).toLowerCase();
+const legacyTokenRequarantine = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20260826203000_requarantine_wearable_legacy_tokens.sql"),
+  "utf8",
+).toLowerCase();
 const oauthMigration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260805150000_wearable_connections.sql"),
   "utf8",
@@ -87,6 +91,31 @@ describe("wearables migration security contract", () => {
     expect(deviceColumnGrant).not.toContain("refresh_token");
     expect(sql).toContain("delete from public.wearable_oauth_states");
     expect(sql).toContain("function public.acquire_wearable_lease");
+  });
+
+  it("restores the live privilege boundary and forbids plaintext legacy tokens", () => {
+    expect(legacyTokenRequarantine).toContain(
+      "revoke all on public.wearable_devices from public, anon, authenticated",
+    );
+    expect(legacyTokenRequarantine).toContain(
+      "alter table public.wearable_devices enable row level security",
+    );
+    expect(legacyTokenRequarantine).toContain("on public.wearable_devices to authenticated");
+    expect(legacyTokenRequarantine).not.toMatch(
+      /grant select \([^;]*(access_token|refresh_token)[^;]*\)\s*on public\.wearable_devices to authenticated/,
+    );
+    expect(legacyTokenRequarantine).toContain("check (access_token is null) not valid");
+    expect(legacyTokenRequarantine).toContain("check (refresh_token is null) not valid");
+    expect(legacyTokenRequarantine).toContain("wearable_legacy_access_token_not_empty");
+    expect(legacyTokenRequarantine).toContain("wearable_legacy_refresh_token_not_empty");
+    expect(legacyTokenRequarantine).toContain("from pg_policies");
+    expect(legacyTokenRequarantine).toContain(
+      "revoke select (access_token), insert (access_token), update (access_token)",
+    );
+    expect(legacyTokenRequarantine).toContain(
+      "revoke select (refresh_token), insert (refresh_token), update (refresh_token)",
+    );
+    expect(legacyTokenRequarantine).toContain('create policy "wearable devices tenant read"');
   });
 
   it("enforces own-student, staff and master reads without raw membership", () => {
