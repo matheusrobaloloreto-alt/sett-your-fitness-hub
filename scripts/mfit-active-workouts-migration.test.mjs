@@ -5,9 +5,11 @@ import test from "node:test";
 
 import {
   EXPECTED_SUPABASE_PROJECT_REF,
+  IMPORT_VERSION,
   MARKER_PREFIX,
   assertCanonicalSupabaseTarget,
   buildExerciseAliasIndex,
+  deterministicUuid,
   matchMfitClientsToSett,
   normalizeMfitClients,
   normalizeMfitPlans,
@@ -330,6 +332,39 @@ class MemoryDb {
   }
 }
 
+class ConcurrentExerciseInsertDb extends MemoryDb {
+  async insertExercises(rows) {
+    for (const row of rows) {
+      if (!this.exercises.some((existing) => existing.id === row.id)) {
+        this.exercises.push(structuredClone(row));
+      }
+    }
+    const error = new Error("duplicate key value violates unique constraint");
+    error.code = "23505";
+    throw error;
+  }
+}
+
+class ConcurrentNameCollisionDb extends MemoryDb {
+  constructor(options) {
+    super(options);
+    this.exerciseCatalogReads = 0;
+  }
+
+  async getExercises(companyIds) {
+    this.exerciseCatalogReads += 1;
+    if (this.exerciseCatalogReads === 1) return [];
+    return super.getExercises(companyIds);
+  }
+}
+
+class InvisibleCycleAfterTargetDb extends MemoryDb {
+  async insertCycles(rows) {
+    this.writes.cycles += rows.length;
+    return rows;
+  }
+}
+
 test("CLI remains dry-run unless --apply is explicit", () => {
   const dryRun = parseArgs([
     "--sett-students", "sett.json",
@@ -366,6 +401,52 @@ test("CLI remains dry-run unless --apply is explicit", () => {
     `--company-id=${IDS.company}`,
     "--identity-contact-only",
   ]).identityContactOnly, true);
+  assert.equal(parseArgs([
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+  ]).exerciseSimilarityFallback, false);
+  assert.equal(parseArgs([
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+    "--exercise-similarity-fallback",
+  ]).exerciseSimilarityFallback, true);
+  assert.equal(parseArgs([
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+  ]).createMissingExerciseTargets, false);
+  assert.equal(parseArgs([
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+    "--create-missing-exercise-targets",
+  ]).createMissingExerciseTargets, true);
+  assert.deepEqual(parseArgs([
+    "--sett-students=a",
+    "--mfit-clients=b",
+    "--mfit-workouts=c",
+    `--company-id=${IDS.company}`,
+    "--include-plan-ref=abc123def456",
+    "--include-plan-ref=0123456789ab",
+  ]).includePlanRefs, ["abc123def456", "0123456789ab"]);
+  assert.throws(
+    () => parseArgs([
+      "--apply",
+      `--confirm-project=${EXPECTED_SUPABASE_PROJECT_REF}`,
+      "--create-missing-exercise-targets",
+      "--sett-students=a",
+      "--mfit-clients=b",
+      "--mfit-workouts=c",
+      `--company-id=${IDS.company}`,
+    ]),
+    /requires 1-5 explicit --include-plan-ref values/,
+  );
 });
 
 test("only the canonical SETT Supabase project is accepted", () => {
@@ -699,6 +780,9 @@ test("the database adapter exposes append-only mutations and no update or delete
   assert.doesNotMatch(adapter, /\.(?:update|delete)\s*\(/);
   assert.match(adapter, /\.upsert\(/);
   assert.match(adapter, /ignoreDuplicates:\s*true/);
+  assert.match(adapter, /async getExercisesByIds\(ids\)/);
+  assert.match(adapter, /insertExercises\(rows\)/);
+  assert.match(adapter, /insertStrict\("exercise_library"/);
   assert.doesNotMatch(adapter, /insertIgnoringIds\("exercise_library"/);
 });
 
@@ -979,6 +1063,7 @@ test("an approved alias resolves only to its exact visible catalog id and name",
 
   assert.equal(report.summary.exercise_catalog_coverage_percent, 100);
   assert.equal(report.summary.exercise_catalog_alias_matched, 1);
+  assert.equal(report.summary.nearest_alias, 1);
   assert.equal(report.summary.exercise_aliases_loaded, 1);
   assert.equal(report.summary.planned, 1);
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
@@ -1049,6 +1134,585 @@ test("a stale or invisible alias target fails closed", async () => {
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
 });
 
+test("similarity fallback is off by default and never authorizes writes", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Supino MFIT Exato Inclinado";
+  const db = new MemoryDb({
+    exercises: [{
+      id: "60000000-0000-4000-8000-000000000099",
+      company_id: null,
+      name: "Supino MFIT Exato",
+      muscle_group: "Peitoral",
+      equipment: "Banco",
+      is_global: true,
+    }],
+  });
+
+  const report = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(report.summary.exercise_catalog_missing, 1);
+  assert.equal(report.summary.exercise_catalog_similarity_candidates, 0);
+  assert.equal(report.results[0].reason, "exercise_not_in_catalog");
+  assert.deepEqual(report.exercise_similarity_candidates, []);
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("similarity fallback records a deterministic visible candidate above threshold", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Remada Cavalinho";
+  const db = new MemoryDb({
+    exercises: [
+      {
+        id: "60000000-0000-4000-8000-000000000097",
+        company_id: null,
+        name: "Remada Cavalinho B",
+        muscle_group: "Costas",
+        equipment: "Barra",
+        is_global: true,
+      },
+      {
+        id: "60000000-0000-4000-8000-000000000096",
+        company_id: null,
+        name: "Remada Cavalinho A",
+        muscle_group: "Costas",
+        equipment: "Barra",
+        is_global: true,
+      },
+    ],
+  });
+
+  const report = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    exerciseSimilarityFallback: true,
+  });
+
+  assert.equal(report.summary.exercise_catalog_missing, 1);
+  assert.equal(report.summary.exercise_catalog_similarity_candidates, 1);
+  assert.equal(report.summary.exercise_catalog_similarity_below_threshold, 0);
+  assert.equal(report.summary.exercise_catalog_coverage_percent, 0);
+  assert.equal(report.results[0].reason, "exercise_similarity_candidate_requires_review");
+  assert.deepEqual(report.exercise_similarity_candidates, [{
+    source_name: "Remada Cavalinho",
+    candidate_exercise_id: "60000000-0000-4000-8000-000000000096",
+    candidate_name: "Remada Cavalinho A",
+    status: "requires_review",
+    reason: "similarity_candidate_requires_review",
+    score: 0.67,
+  }]);
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("similarity fallback ignores exercises outside tenant/global visibility", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Puxada Neutra Polia";
+  const db = new MemoryDb({
+    exercises: [
+      {
+        id: "60000000-0000-4000-8000-000000000080",
+        company_id: "10000000-0000-4000-8000-999999999999",
+        name: "Puxada Neutra Polia Privada Outra Empresa",
+        muscle_group: "Costas",
+        equipment: "Polia",
+        is_global: false,
+      },
+      {
+        id: "60000000-0000-4000-8000-000000000081",
+        company_id: null,
+        name: "Puxada Neutra na Polia",
+        muscle_group: "Costas",
+        equipment: "Polia",
+        is_global: true,
+      },
+    ],
+  });
+
+  const report = await runMigration({
+    ...input,
+    db,
+    today: "2026-08-10",
+    exerciseSimilarityFallback: true,
+  });
+
+  assert.equal(report.summary.exercise_catalog_similarity_candidates, 1);
+  assert.equal(report.exercise_similarity_candidates[0].candidate_exercise_id, "60000000-0000-4000-8000-000000000081");
+  assert.equal(report.results[0].reason, "exercise_similarity_candidate_requires_review");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("similarity fallback fails closed below threshold and on obvious incompatibility", async () => {
+  const belowThresholdInput = baseInput();
+  belowThresholdInput.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Abdução Misteriosa";
+  const belowThresholdDb = new MemoryDb({
+    exercises: [{
+      id: "60000000-0000-4000-8000-000000000099",
+      company_id: null,
+      name: "Supino MFIT Exato",
+      muscle_group: "Peitoral",
+      equipment: "Banco",
+      is_global: true,
+    }],
+  });
+  const belowThreshold = await runMigration({
+    ...belowThresholdInput,
+    db: belowThresholdDb,
+    today: "2026-08-10",
+    exerciseSimilarityFallback: true,
+  });
+
+  assert.equal(belowThreshold.summary.exercise_catalog_similarity_candidates, 0);
+  assert.equal(belowThreshold.summary.exercise_catalog_similarity_below_threshold, 1);
+  assert.equal(belowThreshold.results[0].reason, "exercise_not_in_catalog");
+
+  const incompatibleInput = baseInput();
+  incompatibleInput.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0] = {
+    id: "mfit-exercise-unsafe",
+    name: "Remada Unilateral com Halter",
+    group: "Costas",
+    equipment: "Halter",
+    sets: 3,
+    reps: "10",
+  };
+  const incompatibleDb = new MemoryDb({
+    exercises: [{
+      id: "60000000-0000-4000-8000-000000000088",
+      company_id: null,
+      name: "Remada Unilateral Máquina",
+      muscle_group: "Costas",
+      equipment: "Máquina",
+      is_global: true,
+    }],
+  });
+  const incompatible = await runMigration({
+    ...incompatibleInput,
+    db: incompatibleDb,
+    today: "2026-08-10",
+    exerciseSimilarityFallback: true,
+  });
+
+  assert.equal(incompatible.summary.exercise_catalog_similarity_incompatible, 1);
+  assert.equal(incompatible.results[0].reason, "exercise_similarity_incompatible");
+  assert.deepEqual(incompatible.exercise_similarity_candidates, [{
+    source_name: "Remada Unilateral com Halter",
+    candidate_exercise_id: "60000000-0000-4000-8000-000000000088",
+    candidate_name: "Remada Unilateral Máquina",
+    status: "blocked",
+    reason: "equipment_or_pattern_incompatible",
+    score: 0.67,
+  }]);
+  assert.deepEqual(belowThresholdDb.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+  assert.deepEqual(incompatibleDb.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("explicit target creation appends a tenant exercise and separates nearest alias from created target", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0] = {
+    id: "mfit-exercise-created-target",
+    name: "Remada Unilateral com Halter",
+    group: "Costas",
+    equipment: "Halter",
+    sets: 3,
+    reps: "10",
+  };
+  const expectedId = deterministicUuid(
+    IMPORT_VERSION,
+    "exercise-library",
+    IDS.company,
+    "remada unilateral com halter",
+  );
+  const db = new MemoryDb({
+    exercises: [{
+      id: "60000000-0000-4000-8000-000000000088",
+      company_id: null,
+      name: "Remada Unilateral Máquina",
+      muscle_group: "Costas",
+      equipment: "Máquina",
+      is_global: true,
+    }],
+  });
+
+  const report = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    exerciseSimilarityFallback: true,
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(report.summary.imported, 1);
+  assert.equal(report.summary.exercise_catalog_created_targets, 1);
+  assert.equal(report.summary.exercises_to_create, 1);
+  assert.equal(report.summary.exercise_catalog_reused_created_targets, 0);
+  assert.equal(report.exercise_similarity_candidates[0].candidate_exercise_id, "60000000-0000-4000-8000-000000000088");
+  assert.deepEqual(report.exercise_created_targets, [{
+    source_name: "Remada Unilateral com Halter",
+    target_exercise_id: expectedId,
+    target_name: "Remada Unilateral com Halter",
+    company_id: IDS.company,
+    status: "created_target",
+    description: "Importado do MFIT; revisar metadados e vídeo",
+  }]);
+  assert.deepEqual(report.rollback_inventory.exercise_library_ids_created, [expectedId]);
+  assert.equal(db.writes.exercises, 1);
+  assert.equal(db.writes.cycles, 1);
+  assert.equal(db.writes.workouts, 1);
+  assert.equal(db.writes.workoutExercises, 1);
+  assert.deepEqual(db.exercises.find((row) => row.id === expectedId), {
+    id: expectedId,
+    company_id: IDS.company,
+    name: "Remada Unilateral com Halter",
+    description: "Importado do MFIT; revisar metadados e vídeo",
+    is_global: false,
+  });
+});
+
+test("explicit target creation dry-run plans deterministic target and workout without writes", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Remada Unilateral com Halter";
+  const expectedId = deterministicUuid(
+    IMPORT_VERSION,
+    "exercise-library",
+    IDS.company,
+    "remada unilateral com halter",
+  );
+  const db = new MemoryDb({ exercises: [] });
+
+  const dryRun = await runMigration({
+    ...input,
+    db,
+    today: "2026-08-10",
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(dryRun.summary.planned, 1);
+  assert.equal(dryRun.summary.exercise_catalog_planned_created_targets, 1);
+  assert.equal(dryRun.summary.exercises_to_create, 1);
+  assert.deepEqual(dryRun.exercise_created_targets, [{
+    source_name: "Remada Unilateral com Halter",
+    target_exercise_id: expectedId,
+    target_name: "Remada Unilateral com Halter",
+    company_id: IDS.company,
+    status: "planned_created_target",
+    description: "Importado do MFIT; revisar metadados e vídeo",
+  }]);
+  assert.deepEqual(dryRun.rollback_inventory.exercise_library_ids_created, []);
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("partition mode treats explicit deterministic targets as complete projected coverage", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Remada Unilateral com Halter";
+  const db = new MemoryDb({ exercises: [] });
+
+  const dryRun = await runMigration({
+    ...input,
+    db,
+    today: "2026-08-10",
+    partitionCompletePlans: true,
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(dryRun.summary.planned, 1);
+  assert.equal(dryRun.summary.complete_plans_with_projected_catalog_coverage, 1);
+  assert.equal(dryRun.summary.blocked_incomplete_projected_plans, 0);
+  assert.equal(dryRun.summary.exercise_catalog_planned_created_targets, 1);
+  assert.equal(dryRun.summary.blocked || 0, 0);
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("dry-run reports one unique planned target when multiple plans share the same missing name", async () => {
+  const input = partitionInput();
+  const sharedName = "Remada Unilateral com Halter";
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = sharedName;
+  input.mfitWorkoutsPayload.clients[1].fichas[0].workouts[0].exercises[0].name = sharedName;
+  const db = new MemoryDb({
+    exercises: [],
+    students: [
+      { id: IDS.studentPartitionComplete, company_id: IDS.company, status: "active" },
+      { id: IDS.studentPartitionMissing, company_id: IDS.company, status: "active" },
+    ],
+    enrollments: [
+      {
+        id: IDS.enrollmentPartitionComplete,
+        student_id: IDS.studentPartitionComplete,
+        company_id: IDS.company,
+        status: "active",
+        created_at: "2026-08-01T00:00:00Z",
+      },
+      {
+        id: IDS.enrollmentPartitionMissing,
+        student_id: IDS.studentPartitionMissing,
+        company_id: IDS.company,
+        status: "active",
+        created_at: "2026-08-01T00:00:00Z",
+      },
+    ],
+  });
+
+  const dryRun = await runMigration({
+    ...input,
+    db,
+    today: "2026-08-10",
+    partitionCompletePlans: true,
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(dryRun.summary.planned, 2);
+  assert.equal(dryRun.summary.exercise_catalog_planned_created_targets, 1);
+  assert.equal(dryRun.summary.exercises_to_create, 1);
+  assert.equal(dryRun.exercise_created_targets.length, 1);
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("an explicit sanitized plan-ref selector limits target and workout operations", async () => {
+  const input = partitionInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Remada A Sem Catálogo";
+  input.mfitWorkoutsPayload.clients[1].fichas[0].workouts[0].exercises[0].name = "Remada B Sem Catálogo";
+  const db = new MemoryDb({
+    exercises: [],
+    students: [
+      { id: IDS.studentPartitionComplete, company_id: IDS.company, status: "active" },
+      { id: IDS.studentPartitionMissing, company_id: IDS.company, status: "active" },
+    ],
+    enrollments: [
+      {
+        id: IDS.enrollmentPartitionComplete,
+        student_id: IDS.studentPartitionComplete,
+        company_id: IDS.company,
+        status: "active",
+        created_at: "2026-08-01T00:00:00Z",
+      },
+      {
+        id: IDS.enrollmentPartitionMissing,
+        student_id: IDS.studentPartitionMissing,
+        company_id: IDS.company,
+        status: "active",
+        created_at: "2026-08-01T00:00:00Z",
+      },
+    ],
+  });
+  const inventory = await runMigration({
+    ...input,
+    db,
+    today: "2026-08-10",
+    partitionCompletePlans: true,
+    createMissingExerciseTargets: true,
+  });
+  const requestedRef = inventory.results.find((result) => result.status === "planned")?.ref;
+  assert.match(requestedRef, /^[0-9a-f]{12}$/);
+
+  const batch = await runMigration({
+    ...input,
+    db,
+    today: "2026-08-10",
+    partitionCompletePlans: true,
+    createMissingExerciseTargets: true,
+    includePlanRefs: [requestedRef],
+  });
+
+  assert.equal(batch.summary.requested_plan_refs, 1);
+  assert.equal(batch.summary.planned, 1);
+  assert.equal(batch.summary.exercise_catalog_planned_created_targets, 1);
+  assert.equal(batch.results.filter((result) => result.reason === "outside_requested_batch").length, 1);
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("target creation blocks a concurrent same-name exercise at a different id", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Remada Unilateral com Halter";
+  const db = new ConcurrentNameCollisionDb({
+    exercises: [{
+      id: "60000000-0000-4000-8000-000000000077",
+      company_id: IDS.company,
+      name: "Remada Unilateral com Halter",
+      description: "Criado em corrida concorrente",
+      is_global: false,
+    }],
+  });
+
+  const report = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.results[0].reason, "exercise_target_creation_blocked");
+  assert.equal(report.exercise_created_targets[0].reason, "target_name_collision");
+  assert.deepEqual(report.rollback_inventory.exercise_library_ids_created, []);
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("target creation blocks deterministic id collisions and tenant mismatches before any write", async () => {
+  const sourceName = "Remada Unilateral com Halter";
+  const expectedId = deterministicUuid(
+    IMPORT_VERSION,
+    "exercise-library",
+    IDS.company,
+    "remada unilateral com halter",
+  );
+  const collisionInput = baseInput();
+  collisionInput.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = sourceName;
+  const collisionDb = new MemoryDb({
+    exercises: [{
+      id: expectedId,
+      company_id: IDS.company,
+      name: "Nome divergente já existente",
+      is_global: false,
+    }],
+  });
+
+  const collision = await runMigration({
+    ...collisionInput,
+    db: collisionDb,
+    apply: true,
+    today: "2026-08-10",
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(collision.summary.blocked, 1);
+  assert.equal(collision.results[0].reason, "exercise_target_creation_blocked");
+  assert.equal(collision.exercise_created_targets[0].status, "blocked");
+  assert.equal(collision.exercise_created_targets[0].reason, "target_id_collision");
+  assert.deepEqual(collisionDb.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+
+  const tenantInput = baseInput();
+  tenantInput.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = sourceName;
+  const tenantDb = new MemoryDb({
+    exercises: [{
+      id: expectedId,
+      company_id: "10000000-0000-4000-8000-999999999999",
+      name: sourceName,
+      is_global: false,
+    }],
+  });
+
+  const tenantMismatch = await runMigration({
+    ...tenantInput,
+    db: tenantDb,
+    apply: true,
+    today: "2026-08-10",
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(tenantMismatch.summary.blocked, 1);
+  assert.equal(tenantMismatch.exercise_created_targets[0].reason, "target_tenant_mismatch");
+  assert.deepEqual(tenantDb.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+
+  const metadataInput = baseInput();
+  metadataInput.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = sourceName;
+  const metadataDb = new ConcurrentNameCollisionDb({
+    exercises: [{
+      id: expectedId,
+      company_id: IDS.company,
+      name: sourceName,
+      description: "Descrição divergente",
+      is_global: false,
+    }],
+  });
+
+  const metadataMismatch = await runMigration({
+    ...metadataInput,
+    db: metadataDb,
+    apply: true,
+    today: "2026-08-10",
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(metadataMismatch.summary.blocked, 1);
+  assert.equal(metadataMismatch.exercise_created_targets[0].reason, "target_metadata_mismatch");
+  assert.deepEqual(metadataDb.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
+test("rollback inventory retains a created target when a later apply preflight becomes partial", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Remada Unilateral com Halter";
+  const expectedId = deterministicUuid(
+    IMPORT_VERSION,
+    "exercise-library",
+    IDS.company,
+    "remada unilateral com halter",
+  );
+  const db = new InvisibleCycleAfterTargetDb({ exercises: [] });
+
+  const report = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(report.summary.partial_retry_required, 1);
+  assert.equal(report.results[0].reason, "cycle_insert_not_visible");
+  assert.deepEqual(report.rollback_inventory.exercise_library_ids_created, [expectedId]);
+  assert.equal(report.exercise_created_targets[0].status, "created_target");
+  assert.deepEqual(db.writes, { exercises: 1, cycles: 1, workouts: 0, workoutExercises: 0 });
+});
+
+test("concurrent duplicate target insert re-reads and becomes a no-op when identity matches", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Remada Unilateral com Halter";
+  const expectedId = deterministicUuid(
+    IMPORT_VERSION,
+    "exercise-library",
+    IDS.company,
+    "remada unilateral com halter",
+  );
+  const db = new ConcurrentExerciseInsertDb({ exercises: [] });
+
+  const report = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(report.summary.imported, 1);
+  assert.equal(report.summary.exercise_catalog_reused_created_targets, 1);
+  assert.equal(report.exercise_created_targets[0].status, "reused_created_target");
+  assert.deepEqual(report.rollback_inventory.exercise_library_ids_created, []);
+  assert.equal(db.exercises.find((row) => row.id === expectedId)?.name, "Remada Unilateral com Halter");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 1, workouts: 1, workoutExercises: 1 });
+});
+
+test("created target import is idempotent on partial retry", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].name = "Remada Unilateral com Halter";
+  const db = new MemoryDb({ exercises: [] });
+
+  const first = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(first.summary.imported, 1);
+  assert.equal(first.summary.exercise_catalog_created_targets, 1);
+  const writesAfterFirst = structuredClone(db.writes);
+
+  const second = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    createMissingExerciseTargets: true,
+  });
+
+  assert.equal(second.summary.already_imported, 1);
+  assert.equal(second.summary.exercise_catalog_created_targets, 0);
+  assert.deepEqual(second.rollback_inventory.exercise_library_ids_created, []);
+  assert.deepEqual(db.writes, writesAfterFirst);
+});
+
 test("an approved high-confidence alias can select one exact duplicate explicitly", async () => {
   const input = baseInput();
   const preferredId = "60000000-0000-4000-8000-000000000097";
@@ -1086,6 +1750,7 @@ test("an approved high-confidence alias can select one exact duplicate explicitl
 
   assert.equal(report.summary.exercise_catalog_ambiguous, 0);
   assert.equal(report.summary.exercise_catalog_alias_matched, 1);
+  assert.equal(report.summary.nearest_alias, 0);
   assert.equal(report.summary.exercise_catalog_coverage_percent, 100);
   assert.equal(report.summary.planned, 1);
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });

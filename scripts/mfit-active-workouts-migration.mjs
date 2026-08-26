@@ -100,6 +100,8 @@ const NORMALIZED_SCHEMA = [
   "rest_seconds",
   "notes",
 ];
+const CREATED_EXERCISE_DESCRIPTION = "Importado do MFIT; revisar metadados e vídeo";
+const SIMILARITY_THRESHOLD = 0.5;
 
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -878,12 +880,112 @@ export function buildExerciseAliasIndex(payload = { schema_version: 1, contains_
   return aliases;
 }
 
-function resolveCatalogExercise(catalog, companyId, sourceName, aliasIndex) {
+function similarityTokens(value) {
+  return [...new Set(normalizeCatalogName(value)
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => !new Set(["de", "da", "do", "das", "dos", "com", "sem", "em", "no", "na", "nos", "nas", "e"]).has(token)))];
+}
+
+function similarityScore(sourceName, candidateName) {
+  const sourceTokens = similarityTokens(sourceName);
+  const candidateTokens = similarityTokens(candidateName);
+  if (!sourceTokens.length || !candidateTokens.length) return 0;
+  const candidateSet = new Set(candidateTokens);
+  const intersection = sourceTokens.filter((token) => candidateSet.has(token)).length;
+  const denominator = Math.max(sourceTokens.length, candidateTokens.length);
+  return Number((intersection / denominator).toFixed(2));
+}
+
+function tokenHasAny(tokens, values) {
+  return values.some((value) => tokens.includes(value));
+}
+
+function obviousSimilarityIncompatibility(sourceExercise, candidate) {
+  const source = similarityTokens([
+    sourceExercise.name,
+    sourceExercise.equipment,
+    sourceExercise.muscle_group,
+    sourceExercise.description,
+  ].filter(Boolean).join(" "));
+  const target = similarityTokens([
+    candidate.name,
+    candidate.equipment,
+    candidate.muscle_group,
+    candidate.description,
+  ].filter(Boolean).join(" "));
+  const equipmentGroups = [
+    ["halter", "dumbbell"],
+    ["maquina", "máquina"],
+    ["polia", "cabo"],
+    ["barra"],
+    ["elastico", "elástico", "band", "mini"],
+  ];
+  const sourceGroups = equipmentGroups.filter((group) => tokenHasAny(source, group));
+  const targetGroups = equipmentGroups.filter((group) => tokenHasAny(target, group));
+  if (sourceGroups.length && targetGroups.length && !sourceGroups.some((group) => targetGroups.includes(group))) {
+    return "equipment_or_pattern_incompatible";
+  }
+  if (source.includes("unilateral") && target.includes("bilateral")) return "lateralidade_incompatible";
+  if (source.includes("bilateral") && target.includes("unilateral")) return "lateralidade_incompatible";
+  const posturePairs = [
+    ["deitado", "em-pe"],
+    ["sentado", "deitado"],
+    ["ajoelhado", "deitado"],
+  ];
+  for (const [left, right] of posturePairs) {
+    if ((source.includes(left) && target.includes(right)) || (source.includes(right) && target.includes(left))) {
+      return "posture_incompatible";
+    }
+  }
+  return "";
+}
+
+function visibleCatalogRows(catalog, companyId) {
+  return catalog.filter((row) => row.is_global === true || row.company_id === companyId);
+}
+
+function resolveSimilarityCandidate(catalog, companyId, exercise) {
+  const candidates = visibleCatalogRows(catalog, companyId)
+    .map((row) => ({
+      row,
+      score: similarityScore(exercise.name, row.name),
+    }))
+    .filter((item) => item.score >= SIMILARITY_THRESHOLD)
+    .sort((a, b) =>
+      b.score - a.score
+      || normalizeCatalogName(a.row.name).localeCompare(normalizeCatalogName(b.row.name), "pt-BR")
+      || cleanText(a.row.id).localeCompare(cleanText(b.row.id)));
+  if (!candidates.length) return { status: "missing", similarity_status: "below_threshold" };
+  const best = candidates[0];
+  const incompatibleReason = obviousSimilarityIncompatibility(exercise, best.row);
+  const similarity = {
+    source_name: exercise.name,
+    candidate_exercise_id: best.row.id,
+    candidate_name: best.row.name,
+    status: incompatibleReason ? "blocked" : "requires_review",
+    reason: incompatibleReason || "similarity_candidate_requires_review",
+    score: best.score,
+  };
+  return incompatibleReason
+    ? { status: "similarity_incompatible", similarity }
+    : { status: "similarity_candidate", similarity };
+}
+
+function resolveCatalogExercise(catalog, companyId, sourceExercise, aliasIndex, options = {}) {
+  const exercise = typeof sourceExercise === "string" ? { name: sourceExercise } : sourceExercise;
+  const sourceName = exercise.name;
   const exact = catalogCandidates(catalog, companyId, sourceName);
   if (exact.length === 1) return { status: "matched", id: exact[0].id, match_method: "exact" };
 
   const alias = aliasIndex.get(normalizeCatalogName(sourceName));
-  if (!alias) return { status: exact.length > 1 ? "ambiguous" : "missing" };
+  if (!alias) {
+    if (exact.length > 1) return { status: "ambiguous" };
+    return options.exerciseSimilarityFallback
+      ? resolveSimilarityCandidate(catalog, companyId, exercise)
+      : { status: "missing" };
+  }
   const visibleTargets = [...new Map(catalog
     .filter((row) => row.id === alias.target_exercise_id)
     .filter((row) => row.is_global === true || row.company_id === companyId)
@@ -906,6 +1008,65 @@ function resolveCatalogExercise(catalog, companyId, sourceName, aliasIndex) {
     id: visibleTargets[0].id,
     match_method: exact.length > 1 ? "approved_alias_exact_override" : "approved_alias",
   };
+}
+
+function createdExerciseTargetRow(companyId, sourceName) {
+  const targetName = cleanText(sourceName);
+  return {
+    id: deterministicUuid(IMPORT_VERSION, "exercise-library", companyId, normalizeCatalogName(targetName)),
+    company_id: companyId,
+    name: targetName,
+    description: CREATED_EXERCISE_DESCRIPTION,
+    is_global: false,
+  };
+}
+
+function targetActionFromRow(row, status) {
+  return {
+    source_name: row.name,
+    target_exercise_id: row.id,
+    target_name: row.name,
+    company_id: row.company_id,
+    status,
+    description: row.description,
+  };
+}
+
+function matchesCreatedTarget(existing, target) {
+  return Boolean(existing)
+    && existing.id === target.id
+    && existing.company_id === target.company_id
+    && existing.is_global === false
+    && normalizeCatalogName(existing.name) === normalizeCatalogName(target.name)
+    && cleanText(existing.description) === target.description;
+}
+
+function targetCollisionReason(existing, target) {
+  if (!existing) return "";
+  if (existing.company_id !== target.company_id || existing.is_global !== false) return "target_tenant_mismatch";
+  if (normalizeCatalogName(existing.name) !== normalizeCatalogName(target.name)) return "target_id_collision";
+  if (cleanText(existing.description) !== target.description) return "target_metadata_mismatch";
+  return "";
+}
+
+function resolutionCanCreateTarget(resolution) {
+  return ["missing", "similarity_candidate", "similarity_incompatible"].includes(resolution?.status);
+}
+
+function reasonForPlanResolutions(planResolutions, createMissingExerciseTargets) {
+  if (planResolutions.some((item) => item?.status === "invalid_alias")) return "exercise_alias_invalid";
+  if (planResolutions.some((item) => item?.status === "ambiguous")) return "ambiguous_exact_exercise_name";
+  if (createMissingExerciseTargets && planResolutions.some((item) => item?.status === "target_creation_blocked")) {
+    return "exercise_target_creation_blocked";
+  }
+  if (!createMissingExerciseTargets && planResolutions.some((item) => item?.status === "similarity_candidate")) {
+    return "exercise_similarity_candidate_requires_review";
+  }
+  if (!createMissingExerciseTargets && planResolutions.some((item) => item?.status === "similarity_incompatible")) {
+    return "exercise_similarity_incompatible";
+  }
+  if (planResolutions.some((item) => item?.status === "missing")) return "exercise_not_in_catalog";
+  return "migration_batch_catalog_gate";
 }
 
 function chooseReusableEmptyCycle(enrollmentCycles, workoutsByCycle, startDate, endDate, today) {
@@ -1067,6 +1228,17 @@ export function createSupabaseAdapter(client, schema) {
     }
     return output;
   };
+  const insertStrict = async (table, rows, select = "id") => {
+    if (!rows.length) return [];
+    const output = [];
+    for (let index = 0; index < rows.length; index += 200) {
+      const batch = rows.slice(index, index + 200);
+      const { data, error } = await client.from(table).insert(batch).select(select);
+      if (error) throw safeDbError(`${table} insert`, error);
+      output.push(...(data || []));
+    }
+    return output;
+  };
 
   return {
     normalizedSupport: { available: normalizedAvailable, has_id: normalizedHasId },
@@ -1120,17 +1292,25 @@ export function createSupabaseAdapter(client, schema) {
     },
     async getExercises(companyIds) {
       const globalRows = await fetchAllPages(
-        () => client.from("exercise_library").select("id,company_id,name,is_global").eq("is_global", true),
+        () => client.from("exercise_library").select("id,company_id,name,description,muscle_group,equipment,is_global").eq("is_global", true),
         "exercise_library select",
       );
       const companyRows = [];
       for (const companyId of [...new Set(companyIds.filter(Boolean))]) {
         companyRows.push(...await fetchAllPages(
-          () => client.from("exercise_library").select("id,company_id,name,is_global").eq("company_id", companyId),
+          () => client.from("exercise_library").select("id,company_id,name,description,muscle_group,equipment,is_global").eq("company_id", companyId),
           "exercise_library select",
         ));
       }
       return [...globalRows, ...companyRows];
+    },
+    async getExercisesByIds(ids) {
+      return selectByIds(
+        "exercise_library",
+        "id,company_id,name,description,muscle_group,equipment,is_global",
+        "id",
+        ids,
+      );
     },
     async getWorkoutExercises(workoutIds) {
       if (!normalizedAvailable) return [];
@@ -1142,6 +1322,9 @@ export function createSupabaseAdapter(client, schema) {
     },
     insertWorkouts(rows) {
       return insertIgnoringIds("workouts", rows, "id,cycle_id,notes,exercises");
+    },
+    insertExercises(rows) {
+      return insertStrict("exercise_library", rows, "id,company_id,name,description,is_global");
     },
     async insertWorkoutExercises(rows) {
       if (!normalizedAvailable || !rows.length) return [];
@@ -1285,6 +1468,68 @@ async function applyOperation(db, operation) {
     return { status: "blocked", reason: "live_enrollment_company_mismatch" };
   }
 
+  const exerciseTargetActions = [];
+  const exerciseLibraryIdsCreated = [];
+  for (const target of operation.exercise_targets || []) {
+    const existingBefore = (await db.getExercisesByIds([target.id]))[0] || null;
+    const beforeCollision = targetCollisionReason(existingBefore, target);
+    if (beforeCollision) {
+      return {
+        status: "blocked",
+        reason: "exercise_target_creation_blocked",
+        exercise_target_actions: [{ ...targetActionFromRow(target, "blocked"), reason: beforeCollision }],
+        exercise_library_ids_created: exerciseLibraryIdsCreated,
+      };
+    }
+    if (matchesCreatedTarget(existingBefore, target)) {
+      exerciseTargetActions.push(targetActionFromRow(target, "reused_created_target"));
+      continue;
+    }
+    const freshVisibleCatalog = await db.getExercises([target.company_id]);
+    const sameNameCollisions = catalogCandidates(freshVisibleCatalog, target.company_id, target.name)
+      .filter((row) => row.id !== target.id);
+    if (sameNameCollisions.length) {
+      return {
+        status: "blocked",
+        reason: "exercise_target_creation_blocked",
+        exercise_target_actions: [{ ...targetActionFromRow(target, "blocked"), reason: "target_name_collision" }],
+        exercise_library_ids_created: exerciseLibraryIdsCreated,
+      };
+    }
+    try {
+      await db.insertExercises([target]);
+    } catch (error) {
+      const existingAfterConflict = (await db.getExercisesByIds([target.id]))[0] || null;
+      const conflictReason = targetCollisionReason(existingAfterConflict, target) || "target_insert_conflict";
+      if (!matchesCreatedTarget(existingAfterConflict, target)) {
+        return {
+          status: "blocked",
+          reason: "exercise_target_creation_blocked",
+          exercise_target_actions: [{ ...targetActionFromRow(target, "blocked"), reason: conflictReason }],
+          exercise_library_ids_created: exerciseLibraryIdsCreated,
+        };
+      }
+      exerciseTargetActions.push(targetActionFromRow(target, "reused_created_target"));
+      continue;
+    }
+    const existingAfterInsert = (await db.getExercisesByIds([target.id]))[0] || null;
+    if (!matchesCreatedTarget(existingAfterInsert, target)) {
+      return {
+        status: "partial_retry_required",
+        reason: "exercise_target_insert_not_visible",
+        exercise_target_actions: exerciseTargetActions,
+        exercise_library_ids_created: exerciseLibraryIdsCreated,
+      };
+    }
+    exerciseLibraryIdsCreated.push(target.id);
+    exerciseTargetActions.push(targetActionFromRow(target, "created_target"));
+  }
+  const withExerciseTargetOutcome = (outcome) => ({
+    ...outcome,
+    exercise_target_actions: exerciseTargetActions,
+    exercise_library_ids_created: exerciseLibraryIdsCreated,
+  });
+
   const currentCycles = await db.getCyclesByIds([operation.cycle.id]);
   let cycle = currentCycles[0] || null;
 
@@ -1306,30 +1551,30 @@ async function applyOperation(db, operation) {
       rangesOverlap(operation.cycle.start_date, operation.cycle.end_date, row.start_date, row.end_date)
       && (workoutsByCycle.get(row.id) || []).some((workout) =>
         isMaterialized(workout) || normalizedWorkoutIds.has(workout.id)));
-    if (conflict) return { status: "blocked", reason: "concurrent_materialized_cycle" };
+    if (conflict) return withExerciseTargetOutcome({ status: "blocked", reason: "concurrent_materialized_cycle" });
 
     await db.insertCycles([operation.cycle]);
     cycle = (await db.getCyclesByIds([operation.cycle.id]))[0] || null;
-    if (!cycle) return { status: "partial_retry_required", reason: "cycle_insert_not_visible" };
+    if (!cycle) return withExerciseTargetOutcome({ status: "partial_retry_required", reason: "cycle_insert_not_visible" });
   }
 
   if (cycle.enrollment_id !== operation.cycle.enrollment_id || cycle.company_id !== operation.cycle.company_id) {
-    return { status: "blocked", reason: "deterministic_cycle_collision" };
+    return withExerciseTargetOutcome({ status: "blocked", reason: "deterministic_cycle_collision" });
   }
 
   let currentWorkouts = await db.getWorkouts([cycle.id]);
   const workoutAnalysis = analyzeWorkoutRows(currentWorkouts, operation.workouts);
   if (workoutAnalysis.conflict) {
-    return { status: "blocked", reason: "cycle_contains_different_workouts" };
+    return withExerciseTargetOutcome({ status: "blocked", reason: "cycle_contains_different_workouts" });
   }
 
   if (workoutAnalysis.missing.length) await db.insertWorkouts(workoutAnalysis.missing);
   currentWorkouts = await db.getWorkouts([cycle.id]);
   if (!operationAlreadyMaterialized(currentWorkouts, operation)) {
-    return {
+    return withExerciseTargetOutcome({
       status: "partial_retry_required",
       reason: "workout_insert_incomplete",
-    };
+    });
   }
 
   if (db.normalizedSupport.available) {
@@ -1340,22 +1585,24 @@ async function applyOperation(db, operation) {
       db.normalizedSupport.has_id,
     );
     if (normalizedAnalysis.conflict) {
-      return {
+      return withExerciseTargetOutcome({
         status: "blocked",
         reason: "normalized_mirror_conflict",
-      };
+      });
     }
     if (normalizedAnalysis.missing.length) await db.insertWorkoutExercises(normalizedAnalysis.missing);
     const insertedEntries = await db.getWorkoutExercises(operation.workouts.map((row) => row.id));
     if (!sameNormalizedRows(insertedEntries, operation.workout_exercises)) {
-      return {
+      return withExerciseTargetOutcome({
         status: "partial_retry_required",
         reason: "normalized_mirror_incomplete",
-      };
+      });
     }
   }
 
-  return { status: "imported" };
+  return withExerciseTargetOutcome({
+    status: "imported",
+  });
 }
 
 export async function runMigration({
@@ -1368,6 +1615,9 @@ export async function runMigration({
   apply = false,
   partitionCompletePlans = false,
   identityContactOnly = false,
+  exerciseSimilarityFallback = false,
+  createMissingExerciseTargets = false,
+  includePlanRefs = [],
   today = businessToday(),
   defaultDurationWeeks = 6,
 }) {
@@ -1389,11 +1639,16 @@ export async function runMigration({
   const clientMatches = matchMfitClientsToSett(clients, activeStudents, identityOptions);
   const clientLookup = buildMfitClientLookup(clients);
   const results = [];
+  const requestedPlanRefs = new Set(includePlanRefs.map(cleanText).filter(Boolean));
 
   const candidates = [];
   for (const plan of plans) {
     const clientResult = resolvePlanClient(plan, clientLookup, identityOptions);
     const ref = anonymousRef(plan.client_id || plan.input_index, plan.source_id);
+    if (requestedPlanRefs.size && !requestedPlanRefs.has(ref)) {
+      results.push({ ref, status: "skipped", reason: "outside_requested_batch", match_method: null, sessions: plan.sessions.length });
+      continue;
+    }
     if (!clientResult.client) {
       results.push({ ref, status: "skipped", reason: clientResult.reason, match_method: null, sessions: plan.sessions.length });
       continue;
@@ -1454,25 +1709,44 @@ export async function runMigration({
       if (exerciseResolution.has(key)) continue;
       exerciseResolution.set(
         key,
-        resolveCatalogExercise(catalog, candidate.company_id, exercise.name, exerciseAliasIndex),
+        resolveCatalogExercise(catalog, candidate.company_id, exercise, exerciseAliasIndex, {
+          exerciseSimilarityFallback,
+        }),
       );
     }
   }
   const exerciseCoverage = [...exerciseResolution.values()];
   const catalogMatched = exerciseCoverage.filter((item) => item.status === "matched").length;
-  const catalogMissing = exerciseCoverage.filter((item) => item.status === "missing").length;
+  const catalogMissing = exerciseCoverage.filter((item) =>
+    ["missing", "similarity_candidate", "similarity_incompatible"].includes(item.status)).length;
   const catalogAmbiguous = exerciseCoverage.filter((item) => item.status === "ambiguous").length;
   const catalogInvalidAliases = exerciseCoverage.filter((item) => item.status === "invalid_alias").length;
+  const catalogSimilarityCandidates = exerciseCoverage.filter((item) => item.status === "similarity_candidate").length;
+  const catalogSimilarityIncompatible = exerciseCoverage.filter((item) => item.status === "similarity_incompatible").length;
+  const catalogSimilarityBelowThreshold = exerciseCoverage.filter((item) =>
+    item.status === "missing" && item.similarity_status === "below_threshold").length;
   const catalogAliasMatched = exerciseCoverage
     .filter((item) => item.status === "matched" && item.match_method.startsWith("approved_alias")).length;
-  const catalogCoverageBlocked = catalogMissing > 0 || catalogAmbiguous > 0 || catalogInvalidAliases > 0;
+  const catalogNearestAliasMatched = exerciseCoverage
+    .filter((item) => item.status === "matched" && item.match_method === "approved_alias").length;
+  const catalogCoverageBlocked = catalogMissing > 0
+    || catalogAmbiguous > 0
+    || catalogInvalidAliases > 0
+    || catalogSimilarityCandidates > 0
+    || catalogSimilarityIncompatible > 0;
   const planResolutionsFor = (plan, companyId) => plan.sessions
     .flatMap((session) => session.exercises)
     .map((exercise) => exerciseResolution.get(`${companyId}\u0000${normalizeCatalogName(exercise.name)}`));
   const selectedPlanResolutionSets = selected.map((candidate) => planResolutionsFor(candidate.plan, candidate.company_id));
+  const resolutionHasProjectedCoverage = (resolution) => resolution?.status === "matched"
+    || (createMissingExerciseTargets && resolutionCanCreateTarget(resolution));
   const completePlansWithCatalogCoverage = selectedPlanResolutionSets
     .filter((resolutions) => resolutions.length > 0 && resolutions.every((item) => item?.status === "matched")).length;
   const blockedIncompletePlans = selectedPlanResolutionSets.length - completePlansWithCatalogCoverage;
+  const completePlansWithProjectedCatalogCoverage = selectedPlanResolutionSets
+    .filter((resolutions) => resolutions.length > 0 && resolutions.every(resolutionHasProjectedCoverage)).length;
+  const blockedIncompleteProjectedPlans = selectedPlanResolutionSets.length
+    - completePlansWithProjectedCatalogCoverage;
   const cyclesByEnrollment = new Map();
   const cyclesById = new Map(cycles.map((cycle) => [cycle.id, cycle]));
   const workoutsByCycle = new Map();
@@ -1514,7 +1788,8 @@ export async function runMigration({
     if (catalogCoverageBlocked) {
       const planResolutions = planResolutionsFor(plan, companyId);
       if (partitionCompletePlans) {
-        const planHasFullCoverage = planResolutions.every((item) => item?.status === "matched");
+        const planHasFullCoverage = planResolutions.length > 0
+          && planResolutions.every(resolutionHasProjectedCoverage);
         if (!planHasFullCoverage) {
           results.push({
             ref: candidate.ref,
@@ -1525,14 +1800,9 @@ export async function runMigration({
           });
           continue;
         }
-      } else {
-        const reason = planResolutions.some((item) => item?.status === "invalid_alias")
-          ? "exercise_alias_invalid"
-          : planResolutions.some((item) => item?.status === "missing")
-            ? "exercise_not_in_catalog"
-            : planResolutions.some((item) => item?.status === "ambiguous")
-              ? "ambiguous_exact_exercise_name"
-              : "migration_batch_catalog_gate";
+      } else if (!createMissingExerciseTargets || planResolutions.some((item) =>
+        item?.status !== "matched" && !resolutionCanCreateTarget(item))) {
+        const reason = reasonForPlanResolutions(planResolutions, createMissingExerciseTargets);
         results.push({ ref: candidate.ref, status: "blocked", reason, match_method: candidate.match_method, sessions: plan.sessions.length });
         continue;
       }
@@ -1609,13 +1879,21 @@ export async function runMigration({
     }
 
     const exerciseIds = new Map();
+    const exerciseTargetsById = new Map();
     for (const exercise of plan.sessions.flatMap((session) => session.exercises)) {
       const normalizedExerciseName = normalizeCatalogName(exercise.name);
       if (exerciseIds.has(normalizedExerciseName)) continue;
-      exerciseIds.set(
-        normalizedExerciseName,
-        exerciseResolution.get(`${companyId}\u0000${normalizedExerciseName}`).id,
-      );
+      const resolution = exerciseResolution.get(`${companyId}\u0000${normalizedExerciseName}`);
+      if (resolution?.status === "matched") {
+        exerciseIds.set(normalizedExerciseName, resolution.id);
+        continue;
+      }
+      if (createMissingExerciseTargets && resolutionCanCreateTarget(resolution)) {
+        const target = createdExerciseTargetRow(companyId, exercise.name);
+        exerciseIds.set(normalizedExerciseName, target.id);
+        exerciseTargetsById.set(target.id, target);
+        continue;
+      }
     }
 
     const cycleNumber = targetExistingCycle?.cycle_number || nextCycleNumber.get(enrollment.id);
@@ -1705,14 +1983,20 @@ export async function runMigration({
       marker,
       marker_hash: payloadHash.slice(0, 16),
       repair_kind: repairKind,
+      exercise_targets: [...exerciseTargetsById.values()],
       cycle,
       workouts: workoutRows,
       workout_exercises: normalizedRows,
     });
   }
 
+  const exerciseTargetActions = [];
+  const exerciseLibraryIdsCreated = [];
   for (const operation of operations) {
     if (!apply) {
+      for (const target of operation.exercise_targets || []) {
+        exerciseTargetActions.push(targetActionFromRow(target, "planned_created_target"));
+      }
       results.push({
         ref: operation.ref,
         status: operation.repair_kind === "normalized_mirror"
@@ -1729,6 +2013,8 @@ export async function runMigration({
       continue;
     }
     const outcome = await applyOperation(db, operation);
+    exerciseTargetActions.push(...(outcome.exercise_target_actions || []));
+    exerciseLibraryIdsCreated.push(...(outcome.exercise_library_ids_created || []));
     results.push({
       ref: operation.ref,
       status: outcome.status === "imported" && operation.repair_kind === "normalized_mirror"
@@ -1750,6 +2036,32 @@ export async function runMigration({
     || result.reason === "plan_client_name_only_match_disallowed").length;
   const sourceCaptureIncompletePlans = results.filter((result) =>
     result.reason === "source_capture_incomplete").length;
+  const exerciseSimilarityCandidates = exerciseCoverage
+    .map((item) => item.similarity)
+    .filter(Boolean)
+    .sort((a, b) =>
+      cleanText(a.source_name).localeCompare(cleanText(b.source_name), "pt-BR")
+      || cleanText(a.candidate_exercise_id).localeCompare(cleanText(b.candidate_exercise_id)));
+  const exerciseTargetStatusPriority = new Map([
+    ["created_target", 4],
+    ["blocked", 3],
+    ["reused_created_target", 2],
+    ["planned_created_target", 1],
+  ]);
+  const exerciseCreatedTargetById = new Map();
+  for (const action of exerciseTargetActions) {
+    const current = exerciseCreatedTargetById.get(action.target_exercise_id);
+    if (!current || (exerciseTargetStatusPriority.get(action.status) || 0)
+      > (exerciseTargetStatusPriority.get(current.status) || 0)) {
+      exerciseCreatedTargetById.set(action.target_exercise_id, action);
+    }
+  }
+  const exerciseCreatedTargets = [...exerciseCreatedTargetById.values()].sort((a, b) =>
+    cleanText(a.source_name).localeCompare(cleanText(b.source_name), "pt-BR")
+    || cleanText(a.target_exercise_id).localeCompare(cleanText(b.target_exercise_id)));
+  const createdTargetCount = exerciseCreatedTargets.filter((item) => item.status === "created_target").length;
+  const plannedCreatedTargetCount = exerciseCreatedTargets.filter((item) => item.status === "planned_created_target").length;
+  const reusedCreatedTargetCount = exerciseCreatedTargets.filter((item) => item.status === "reused_created_target").length;
   return {
     version: IMPORT_VERSION,
     mode: apply ? "apply" : "dry-run",
@@ -1766,9 +2078,16 @@ export async function runMigration({
       "exercise matching is accent/case tolerant within the visible company/global catalog",
       "only versioned high-confidence aliases with an exact visible target id and name are accepted",
       partitionCompletePlans
-        ? "explicit partition mode imports only plans with 100% deterministic exercise-catalog coverage and blocks incomplete plans"
+        ? createMissingExerciseTargets
+          ? "explicit partition mode imports only plans with 100% exact or deterministic projected exercise-catalog coverage and blocks incomplete plans"
+          : "explicit partition mode imports only plans with 100% deterministic exercise-catalog coverage and blocks incomplete plans"
         : "100% deterministic exercise-catalog coverage is required for the whole batch",
-      "exercise-library rows are never created or modified by this migration",
+      createMissingExerciseTargets
+        ? "exercise-library rows may be appended only as deterministic BN-tenant targets under explicit --create-missing-exercise-targets; no updates or deletes"
+        : "exercise-library rows are never created or modified by this migration",
+      requestedPlanRefs.size
+        ? "only explicitly requested sanitized plan refs are eligible in this batch"
+        : "no plan-ref batch filter is active",
       "only assigned active prescription plans are imported; completed-session history is out of scope",
     ],
     summary: {
@@ -1777,23 +2096,39 @@ export async function runMigration({
       mfit_clients_read: clients.length,
       mfit_plans_read: allPlans.length,
       active_plans_considered: plans.length,
+      requested_plan_refs: requestedPlanRefs.size,
       candidate_operations: operations.length,
       exercise_catalog_required: exerciseCoverage.length,
       exercise_catalog_matched: catalogMatched,
       exercise_catalog_missing: catalogMissing,
       exercise_catalog_ambiguous: catalogAmbiguous,
       exercise_catalog_invalid_aliases: catalogInvalidAliases,
+      exercise_catalog_similarity_candidates: catalogSimilarityCandidates,
+      exercise_catalog_similarity_incompatible: catalogSimilarityIncompatible,
+      exercise_catalog_similarity_below_threshold: catalogSimilarityBelowThreshold,
       exercise_catalog_alias_matched: catalogAliasMatched,
+      exercise_catalog_created_targets: createdTargetCount,
+      exercise_catalog_planned_created_targets: plannedCreatedTargetCount,
+      exercise_catalog_reused_created_targets: reusedCreatedTargetCount,
+      created_target: createdTargetCount,
+      nearest_alias: catalogNearestAliasMatched,
       exercise_aliases_loaded: exerciseAliasIndex.size,
       complete_plans_with_catalog_coverage: completePlansWithCatalogCoverage,
       blocked_incomplete_plans: blockedIncompletePlans,
+      complete_plans_with_projected_catalog_coverage: completePlansWithProjectedCatalogCoverage,
+      blocked_incomplete_projected_plans: blockedIncompleteProjectedPlans,
       name_only_matches_blocked: nameOnlyMatchesBlocked,
       source_capture_incomplete_plans: sourceCaptureIncompletePlans,
       exercise_catalog_coverage_percent: exerciseCoverage.length
         ? Number(((catalogMatched / exerciseCoverage.length) * 100).toFixed(2))
         : 100,
-      exercises_to_create: 0,
+      exercises_to_create: createdTargetCount + plannedCreatedTargetCount,
       ...statuses,
+    },
+    exercise_similarity_candidates: exerciseSimilarityCandidates,
+    exercise_created_targets: exerciseCreatedTargets,
+    rollback_inventory: {
+      exercise_library_ids_created: [...new Set(exerciseLibraryIdsCreated)].sort(),
     },
     results,
   };
@@ -1869,6 +2204,9 @@ export function parseArgs(argv) {
     durationWeeks: 6,
     partitionCompletePlans: false,
     identityContactOnly: false,
+    exerciseSimilarityFallback: false,
+    createMissingExerciseTargets: false,
+    includePlanRefs: [],
   };
   const valueFlags = new Map([
     ["--sett-students", "settStudents"],
@@ -1896,6 +2234,23 @@ export function parseArgs(argv) {
       options.identityContactOnly = true;
       continue;
     }
+    if (arg === "--exercise-similarity-fallback") {
+      options.exerciseSimilarityFallback = true;
+      continue;
+    }
+    if (arg === "--create-missing-exercise-targets") {
+      options.createMissingExerciseTargets = true;
+      continue;
+    }
+    if (arg === "--include-plan-ref" || arg.startsWith("--include-plan-ref=")) {
+      const value = arg.includes("=") ? arg.split("=", 2)[1] : argv[++index];
+      if (!value || value.startsWith("--")) throw new Error("Missing value for --include-plan-ref");
+      if (!/^[0-9a-f]{12}$/.test(value)) {
+        throw new Error("--include-plan-ref must be a 12-character sanitized ref");
+      }
+      options.includePlanRefs.push(value);
+      continue;
+    }
     if (arg === "--help" || arg === "-h") {
       options.help = true;
       continue;
@@ -1913,6 +2268,13 @@ export function parseArgs(argv) {
   if (options.apply && options.confirmProject !== EXPECTED_SUPABASE_PROJECT_REF) {
     throw new Error(`--apply requires --confirm-project ${EXPECTED_SUPABASE_PROJECT_REF}`);
   }
+  options.includePlanRefs = [...new Set(options.includePlanRefs)];
+  if (options.includePlanRefs.length > 5) {
+    throw new Error("At most 5 --include-plan-ref values are allowed per batch");
+  }
+  if (options.apply && options.createMissingExerciseTargets && options.includePlanRefs.length === 0) {
+    throw new Error("--apply with target creation requires 1-5 explicit --include-plan-ref values");
+  }
   return options;
 }
 
@@ -1926,6 +2288,9 @@ Usage:
     --company-id <canonical-bn-company-uuid> \\
     [--partition-complete-plans] \\
     [--identity-contact-only] \\
+    [--exercise-similarity-fallback] \\
+    [--create-missing-exercise-targets] \\
+    [--include-plan-ref <12-char-sanitized-ref>]... \\
     [--report <sanitized-report.json>] [--today YYYY-MM-DD] [--duration-weeks 6]
     [--apply --confirm-project ${EXPECTED_SUPABASE_PROJECT_REF}]
 
@@ -1936,6 +2301,9 @@ Safety:
   By default, any unresolved exercise blocks the whole batch. --partition-complete-plans only allows
   plans with 100% deterministic catalog coverage to proceed and blocks incomplete plans.
   --identity-contact-only disables exact-name-only identity matching; phone/email evidence remains accepted.
+  --exercise-similarity-fallback is audit-only: it records nearest visible tenant/global candidates and still blocks.
+  --create-missing-exercise-targets explicitly appends deterministic BN-tenant exercise-library targets for eligible plans.
+  Apply with target creation requires 1-5 explicit sanitized plan refs, enforcing small audited batches.
 `;
 
 async function readJson(path, label) {
@@ -1988,6 +2356,9 @@ export async function main(argv = process.argv.slice(2)) {
     apply: options.apply,
     partitionCompletePlans: options.partitionCompletePlans,
     identityContactOnly: options.identityContactOnly,
+    exerciseSimilarityFallback: options.exerciseSimilarityFallback,
+    createMissingExerciseTargets: options.createMissingExerciseTargets,
+    includePlanRefs: options.includePlanRefs,
     today: options.today || businessToday(),
     defaultDurationWeeks: options.durationWeeks,
   });
