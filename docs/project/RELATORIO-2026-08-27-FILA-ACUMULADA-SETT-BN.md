@@ -40,7 +40,7 @@ A maior parte da fila funcional está integrada e ativa em produção. Nesta rod
 |---|---|
 | Local | Importador MFIT 78/78 e reparo de identidade 11/11 aprovados; suíte Vitest 99 arquivos/664 testes, `tsc -b`, lint com 0 erros, build e gate de bundle aprovados. Deno check das quatro funções consumidoras passou e o scanner determinístico não encontrou segredo novo nos arquivos alterados. |
 | Último commit de código | `e2b012f` (`fix(release): close TypeScript and funnel safety gates`). |
-| Integração | Branch `codex/sett-release-rc-20260826` e `origin/main` apontam para `e2b012f`. |
+| Integração | O código de produção está em `e2b012f`; branch `codex/sett-release-rc-20260826` e `origin/main` o contêm e acrescentam somente os commits documentais deste relatório. |
 | Frontend produção | Deploy Netlify `6a909e37d1f585ada33083ba` pronto e publicado em `www.settapp.com.br`; o `index.html` servido coincide por SHA-256 com o artefato local validado. |
 | Edge produção | `public-registration` v52, `asaas-webhook` v46, `asaas-integration` v55 e `ai-prescribe-workout` v82 ativas; canários `OPTIONS` retornaram 200. Permanecem ativas `whatsapp-manager` v61, `whatsapp-webhook` v55, `process-automation-sessions` v31 e `student-workout-feedback` v37. |
 | Banco produção | Limite de mídia 512 MB; reparos de conversa e cadastro aplicados com backup e auditoria; migrações alinhadas até `20260827170000`, incluindo a telemetria privada com escopo exato de empresa. |
