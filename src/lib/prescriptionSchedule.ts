@@ -129,12 +129,34 @@ export function collapseOverlappingCyclesForDisplay<T extends PrescriptionSchedu
     if ((left.status === "active") !== (right.status === "active")) return right.status === "active" ? right : left;
     return right.cycle_number > left.cycle_number ? right : left;
   };
+  const durationDays = (cycle: T) =>
+    Math.max(1, Math.round((utcDay(cycle.end_date) - utcDay(cycle.start_date)) / DAY_MS) + 1);
+  const canonicalSchedule = (left: T, right: T) => {
+    const leftReasonable = durationDays(left) <= 16 * 7;
+    const rightReasonable = durationDays(right) <= 16 * 7;
+    if (leftReasonable !== rightReasonable) return leftReasonable ? left : right;
+    if (left.cycle_number !== right.cycle_number) return left.cycle_number < right.cycle_number ? left : right;
+    return utcDay(left.end_date) <= utcDay(right.end_date) ? left : right;
+  };
+  const mergeForDisplay = (left: T, right: T): T => {
+    const content = preferred(left, right);
+    const schedule = canonicalSchedule(left, right);
+    if (content.id === schedule.id) return content;
+    return {
+      ...content,
+      enrollment_id: schedule.enrollment_id,
+      cycle_number: schedule.cycle_number,
+      start_date: schedule.start_date,
+      end_date: schedule.end_date,
+      status: schedule.status,
+    };
+  };
 
   const selected: T[] = [];
   for (const cycle of [...cycles].sort((a, b) => utcDay(a.start_date) - utcDay(b.start_date))) {
     const duplicateIndex = selected.findIndex((candidate) => overlapRatio(candidate, cycle) >= 0.8);
     if (duplicateIndex === -1) selected.push(cycle);
-    else selected[duplicateIndex] = preferred(selected[duplicateIndex], cycle);
+    else selected[duplicateIndex] = mergeForDisplay(selected[duplicateIndex], cycle);
   }
   return selected.sort((a, b) => utcDay(a.start_date) - utcDay(b.start_date));
 }

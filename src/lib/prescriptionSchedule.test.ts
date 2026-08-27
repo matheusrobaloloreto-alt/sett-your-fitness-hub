@@ -125,12 +125,29 @@ describe("prescriptionSchedule", () => {
 
   it("colapsa duplicatas MFIT quase idênticas apenas na visualização do perfil", () => {
     const duplicated = [
-      cycle(5, "2026-07-27", "2026-09-06", { status: "active", has_workouts: true }),
+      cycle(5, "2026-07-27", "2026-09-06", { status: "active", has_workouts: false }),
       cycle(11, "2026-07-27", "2026-09-07", { status: "pending", has_workouts: true }),
+      cycle(8, "2026-11-30", "2027-01-10", { status: "pending", has_workouts: false }),
       cycle(12, "2026-11-30", "2027-12-11", { status: "pending", has_workouts: true }),
     ];
 
-    expect(collapseOverlappingCyclesForDisplay(duplicated).map((item) => item.id))
-      .toEqual(["cycle-5", "cycle-12"]);
+    expect(collapseOverlappingCyclesForDisplay(duplicated)).toEqual([
+      expect.objectContaining({
+        id: "cycle-11",
+        cycle_number: 5,
+        start_date: "2026-07-27",
+        end_date: "2026-09-06",
+        status: "active",
+        has_workouts: true,
+      }),
+      expect.objectContaining({
+        id: "cycle-12",
+        cycle_number: 8,
+        start_date: "2026-11-30",
+        end_date: "2027-01-10",
+        status: "pending",
+        has_workouts: true,
+      }),
+    ]);
   });
 });
