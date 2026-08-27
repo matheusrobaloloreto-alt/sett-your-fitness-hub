@@ -10,7 +10,7 @@ A maior parte da fila funcional está integrada e ativa em produção. Nesta rod
 |---|---|---|
 | Estética, índice e cabeçalho do app do aluno | ✅ Produção | Ordem Treino, Corrida, Ciclismo, Natação, Dicas nutricionais, Estatísticas, Calendário e Integrações; Histórico removido do índice; Avisos/Sair compactos. |
 | RIR em linguagem compreensível | ✅ Produção | Superfícies e PDFs do aluno usam explicação leiga; Studio técnico preservado. |
-| Benito sem círculo, maior/nítido e drag estável | ✅ Produção | Estado do drag persiste, respeita viewport/safe-area e cobre cancelamento/perda de ponteiro. Testes de Benito verdes. |
+| Benito sem círculo, maior/nítido e drag estável | ✅ Produção | Estado do drag persiste, respeita viewport/safe-area e cobre cancelamento/perda de ponteiro. A regressão de redimensionamento durante a animação foi corrigida pelo transform efetivamente renderizado; gate Playwright 2/2 do Benito e 4/4 do fluxo móvel. |
 | Ranking, emojis e design compacto | ✅ Produção | Ranking restaurado e layout compacto publicado. |
 | Check do treino não sumir nem trocar A/B | ✅ Produção | Seleção e progresso sobrevivem collapse, avanço e reload; contratos de concorrência e idempotência verdes. |
 | Preparar-se para o treino com vídeos corretos do aquecimento | ✅ Produção | Checklist resolve apenas exercícios permitidos do aquecimento e não reutiliza o primeiro circuito. |
@@ -28,7 +28,7 @@ A maior parte da fila funcional está integrada e ativa em produção. Nesta rod
 | Erro de destinatário da aluna da imagem 1 | ✅ Produção | Causa: número `+1` tratado como brasileiro. Normalizador internacional publicado; cadastro alinhado após backup e 27 mensagens recebidas do provedor como evidência; nenhuma mensagem foi enviada no reparo. |
 | Follow-up de clientes antigos | ✅ Infraestrutura; ❌ canário externo (bloqueado) | Instância conectada; 51/54 conversas vinculadas passam a verificação; 3 alunos não têm telefone. Próximo passo: preencher esses três cadastros e autorizar um destinatário interno para canário real. |
 | Erro de upload e vídeos longos | ✅ Produção; ❌ entrega real (bloqueado) | Bucket em 512 MB, TUS retomável acima de 6 MB, vídeo acima de 64 MB vira documento. Canário de 7 MB armazenou, conferiu tamanho e foi apagado. Envio real depende de destinatário autorizado. |
-| Desempenho aluno/professor | ✅ Otimizações em produção; ❌ medição autenticada (aguardando) | Sessão e troca de usuário protegidas contra corrida, portal inicial reduzido, anúncios compartilhados e rotas pesadas separadas. Gate: 651 testes, TypeScript, build e limite de bundle aprovados. Próximo passo: medir p75 em sessão real de aluno e treinador. |
+| Desempenho aluno/professor | ✅ Otimizações em produção; ❌ medição autenticada (aguardando) | Sessão e troca de usuário protegidas contra corrida, portal inicial reduzido, anúncios compartilhados e rotas pesadas separadas. Gate: 651 testes, TypeScript, build, limite inicial de 848.210 bytes e Playwright móvel 4/4 aprovados. Próximo passo: medir p75 em sessão real de aluno e treinador. |
 | Strava e Polar | ❌ (bloqueado) | OAuth, criptografia, leases, refresh, revoke e disconnect estão no código/Edge, mas não há secrets ativos. As credenciais mostradas em imagem ficaram expostas e devem ser rotacionadas antes de configuração e E2E. |
 
 ## Estágios
@@ -36,9 +36,9 @@ A maior parte da fila funcional está integrada e ativa em produção. Nesta rod
 | Camada | Estado |
 |---|---|
 | Local | Suíte completa: 97 arquivos e 651 testes; TypeScript, build e gate de bundle aprovados. |
-| Último commit de código | `11df2a959a3b19a80869149e8e2b82c0a8f0c5a4`. |
+| Último commit de código | `a64e38c` (`fix(student): reclamp Benito from rendered transform`). |
 | Integração | Branch de release e `origin/main` alinhados no mesmo commit. |
-| Frontend produção | `www.settapp.com.br` serve o bundle com upload retomável, revisão de destinatário e otimizações recentes. |
+| Frontend produção | Deploy Netlify `6a906e94ff0f78692305329f` pronto; `www.settapp.com.br` serve `assets/index-BE-HL8RA.js`, com upload retomável, revisão de destinatário, otimizações recentes e o reclamp do Benito. |
 | Edge produção | `whatsapp-manager` v61, `whatsapp-webhook` v55, `process-automation-sessions` v31 e `student-workout-feedback` v37 ativas com identidade internacional. |
 | Banco produção | Limite de mídia 512 MB; reparos de conversa e cadastro aplicados com backup e auditoria; migrações alinhadas até `20260827133000`. |
 
