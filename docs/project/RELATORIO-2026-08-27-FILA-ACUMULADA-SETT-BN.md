@@ -2,7 +2,7 @@
 
 ## Veredito
 
-A maior parte da fila funcional está integrada e ativa em produção. Nesta rodada foram fechados o contato duplicado, a identidade dos destinatários das imagens de erro, o limite de upload de mídia, o upload retomável de vídeo e a reconciliação MFIT atualizada em 2026-08-27. A fila não está integralmente encerrada: OAuth real de Strava/Polar, oito planos MFIT sem identidade confiável, três cadastros sem telefone e a gravação da biblioteca própria ainda dependem de gates externos ou de novos dados.
+A maior parte da fila funcional está integrada e ativa em produção. Nesta rodada foram fechados o contato duplicado, a identidade dos destinatários das imagens de erro, o limite de upload de mídia, o upload retomável de vídeo e mais oito planos MFIT que antes estavam bloqueados por identidade. A fila não está integralmente encerrada: uma captura MFIT está incompleta, duas fichas já importadas divergem do conteúdo atual do SETT e foram protegidas contra sobrescrita, dois cadastros ativos continuam sem qualquer evidência confiável de telefone, OAuth real de Strava/Polar e a gravação da biblioteca própria ainda dependem de gates externos ou de novos dados.
 
 ## Lista acumulada
 
@@ -22,30 +22,32 @@ A maior parte da fila funcional está integrada e ativa em produção. Nesta rod
 | Observações e mudança a cada duas semanas | ✅ Produção | Blocos 1–2, 3–4 e 5–6 e progressão longitudinal chegam ao plano sem ultrapassar caps. |
 | Vídeos próprios gravados já no app | ✅ Produção, lote atual | 51 exercícios têm `video_path` próprio. Os 54 objetos na triagem são 51 códigos já publicados mais 3 takes duplicados; não existe gravação nova pendente nesse lote. |
 | Biblioteca própria completa | ❌ (aguardando) | 875 itens do roteiro ainda não têm vídeo próprio. Próximo passo: continuar gravação e ingestão por lotes com dry-run e QA. |
-| Migração MFIT dos alunos ativos | ✅ Produção, recorte com identidade confirmada | 87 planos elegíveis tratados; lote de importação: 3 planos, 9 treinos, 66 ocorrências e 3 exercícios exatos. A captura autenticada de 2026-08-27 auditou 264 clientes ativos e, no recorte seguro de 42 clientes, 87 planos e 308 sessões. Cinco mudanças de carga em dois treinos foram aplicadas por compare-and-swap e verificadas por dois pós-audits; 0 mudança inesperada. |
-| MFIT sem identidade confiável | ❌ (bloqueado) | Oito planos de dois clientes só casam por nome; o MFIT não possui e-mail nem WhatsApp nesses cadastros. Outros 192 planos pertencem a pessoas sem correspondência no recorte ativo do SETT. Próximo passo: obter evidência independente de identidade e vínculo ativo antes de qualquer aplicação. |
+| Migração MFIT dos alunos ativos | ✅ Produção, identidade confirmada | Os dois cadastros antes bloqueados ganharam telefone/WhatsApp somente após cruzamento independente com conversa direta, nome do provedor e 89/75 mensagens recebidas. Os 8/8 planos foram aplicados individualmente, com dry-runs pareados e dois pós-audits por plano; a reconciliação global reconhece os oito como `already_imported`. O inventário atual lê 287 planos MFIT: 89 estão idempotentes no SETT, 2 já importados têm divergência protegida e 1 captura da origem está incompleta. |
+| MFIT com ficha divergente ou captura incompleta | ❌ (bloqueado) | Duas fichas com marcador de importação possuem conteúdo diferente do payload esperado; o importador recusou sobrescrita e também recusou duplicação automática. Uma terceira ficha tem captura incompleta na origem. Próximo passo: comparar tecnicamente as duas divergências com o treinador e recapturar a ficha incompleta no MFIT; não forçar atualização nem criar cópia silenciosa. |
+| MFIT sem correspondência com aluno ativo | ❌ (aguardando) | 195 planos da captura não têm correspondência por telefone/e-mail com os 55 alunos elegíveis do recorte SETT. Próximo passo: só migrar quando houver vínculo ativo e identidade independente; nome parecido, sozinho, continua proibido. |
 | Contato duplicado e feedback de treino | ✅ Produção | Conversa duplicada consolidada preservando 223 mensagens; RPC de reparo foi removida após uso. Hoje existem 0 alunos com múltiplas conversas vinculadas. |
 | Erro de destinatário internacional da imagem anterior | ✅ Produção | Causa: número `+1` tratado como brasileiro. Normalizador internacional publicado; cadastro alinhado após backup e 27 mensagens recebidas do provedor como evidência; nenhuma mensagem foi enviada no reparo. |
 | Erro “destinatário salvo diverge do telefone” da captura mais recente | ✅ Produção, verificação sem envio | A captura é anterior ao deploy atual. Hoje o cadastro e a única conversa vinculada normalizam para o mesmo telefone; o resolvedor de produção retorna `ok`, com 45 mensagens e 44 registros do provedor como trilha independente. A revisão assistida continua fail-closed quando houver divergência real. Nenhuma mensagem foi enviada no teste. |
-| Follow-up de clientes antigos | ✅ Infraestrutura; ❌ canário externo (bloqueado) | Instância conectada; 51/54 conversas vinculadas passam a verificação; 3 alunos não têm telefone. Próximo passo: preencher esses três cadastros e autorizar um destinatário interno para canário real. |
+| Follow-up de clientes antigos | ✅ Infraestrutura; ❌ canário externo (bloqueado) | Instância conectada e o resolvedor permanece fail-closed. Após os dois reparos de identidade, restam 2 alunos ativos sem telefone/WhatsApp; a auditoria encontrou 0 correspondência exata no MFIT, 0 conversa pelo nome no provedor e 0 mensagem recebida que autorize preenchimento. Próximo passo: obter o contato correto diretamente e autorizar um destinatário interno para canário real. |
 | Erro de upload e vídeos longos | ✅ Produção; ❌ entrega real (bloqueado) | A captura é anterior ao deploy atual. Bucket privado em 512 MB, TUS retomável em blocos de 6 MB e vídeo acima de 64 MB enviado como documento. Canário de 7 MB armazenou, conferiu tamanho e foi apagado; cinco testes de política/upload estão verdes. Envio real depende de destinatário autorizado. |
-| Desempenho aluno/professor | ✅ Produção e amostra autenticada; ❌ p75 de campo (aguardando) | O detalhe do aluno levava 2,44–3,12 s antes da correção. Em produção, aluno/matrícula iniciam juntos, o cabeçalho aparece antes dos ciclos e o enriquecimento opcional de vídeos não bloqueia a ficha. Depois do deploy, três cargas aquecidas mostraram o cabeçalho em 677–827 ms e o treino completo em 960–1.148 ms; a carga fria ficou em 2.671/2.916 ms. No painel de conversas do treinador, três cargas autenticadas ficaram em 1.292–1.728 ms. A troca rápida de aluno invalida requisições antigas e nunca mistura fichas. Próximo passo: coletar p75 real de uso, sem bloquear a correção já publicada. |
+| Desempenho aluno/professor | ✅ Produção e amostra autenticada; ❌ p75 de campo (aguardando) | O detalhe do aluno levava 2,44–3,12 s antes da correção. Em produção, aluno/matrícula iniciam juntos, o cabeçalho aparece antes dos ciclos e vídeos opcionais não bloqueiam a ficha. Em 12 recargas aquecidas autenticadas, o app do aluno teve p75 de 724 ms para o shell e 944 ms para o treino completo (máximo 980 ms); o painel de conversas do treinador teve p75 de 1.154 ms (faixa 1.033–1.203 ms). São medições sintéticas, não telemetria de usuários reais. Próximo passo: instrumentar RUM para p75 de campo. |
 | Strava e Polar | ❌ (bloqueado) | OAuth, criptografia, leases, refresh, revoke e disconnect estão no código/Edge, mas não há secrets ativos. As credenciais mostradas em imagem ficaram expostas e devem ser rotacionadas antes de configuração e E2E. |
 
 ## Estágios
 
 | Camada | Estado |
 |---|---|
-| Local | Suíte completa: 97 arquivos e 655 testes; TypeScript, lint, build e gate de bundle aprovados. |
-| Último commit de código | `462cb83` (`perf(student): render workout shell early`), após `e75a645` (`fix(student): reduce workout load waterfall`). |
-| Integração | Branch de release, sua branch remota e `origin/main` alinhadas em `462cb83`. |
+| Local | Importador MFIT 78/78 e reparo de identidade 11/11 aprovados; suíte Vitest 97 arquivos/655 testes, TypeScript, lint, build e gate de bundle aprovados. |
+| Último commit de código | `bcb344d` (`feat(mfit): map neutral machine shoulder press`), após `9022716` e `41dfebf`. |
+| Integração | Branch `codex/sett-release-rc-20260826` publicada em `origin`; `origin/main` e o frontend de produção permanecem no release `05a18ee`, sem deploy desnecessário para scripts e relatórios operacionais. |
 | Frontend produção | Deploy Netlify `6a908510ff0f78e3ec05327f` pronto e publicado; `www.settapp.com.br` serve `assets/index-DyFYtT_l.js`. |
 | Edge produção | `whatsapp-manager` v61, `whatsapp-webhook` v55, `process-automation-sessions` v31 e `student-workout-feedback` v37 ativas com identidade internacional. |
 | Banco produção | Limite de mídia 512 MB; reparos de conversa e cadastro aplicados com backup e auditoria; migrações alinhadas até `20260827133000`. |
 
 ## O que não fazer
 
-- Não importar os oito planos MFIT por nome apenas.
+- Não sobrescrever as duas fichas MFIT divergentes nem criar cópia automática sem revisão do conteúdo já editado no SETT.
+- Não preencher os dois contatos restantes por semelhança de nome.
 - Não reutilizar os secrets de Strava/Polar expostos nas capturas.
 - Não chamar upload em Storage de prova de entrega no WhatsApp; o canário do provedor precisa de destinatário autorizado.
 - Não apagar os originais da triagem privada antes de uma política explícita de retenção/rollback.
