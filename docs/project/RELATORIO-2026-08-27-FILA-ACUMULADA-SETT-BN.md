@@ -29,17 +29,17 @@ A maior parte da fila funcional está integrada e ativa em produção. Nesta rod
 | Erro “destinatário salvo diverge do telefone” da captura mais recente | ✅ Produção, verificação sem envio | A captura é anterior ao deploy atual. Hoje o cadastro e a única conversa vinculada normalizam para o mesmo telefone; o resolvedor de produção retorna `ok`, com 45 mensagens e 44 registros do provedor como trilha independente. A revisão assistida continua fail-closed quando houver divergência real. Nenhuma mensagem foi enviada no teste. |
 | Follow-up de clientes antigos | ✅ Infraestrutura; ❌ canário externo (bloqueado) | Instância conectada; 51/54 conversas vinculadas passam a verificação; 3 alunos não têm telefone. Próximo passo: preencher esses três cadastros e autorizar um destinatário interno para canário real. |
 | Erro de upload e vídeos longos | ✅ Produção; ❌ entrega real (bloqueado) | A captura é anterior ao deploy atual. Bucket privado em 512 MB, TUS retomável em blocos de 6 MB e vídeo acima de 64 MB enviado como documento. Canário de 7 MB armazenou, conferiu tamanho e foi apagado; cinco testes de política/upload estão verdes. Envio real depende de destinatário autorizado. |
-| Desempenho aluno/professor | ❌ otimização final do aluno (em andamento) | O treinador já teve quatro cargas autenticadas com FCP de 492–528 ms aquecido e 1,30 s frio; load de 925 ms–1,74 s. No detalhe do aluno, quatro amostras antes da correção levaram 2,44–3,12 s porque cinco consultas eram executadas em cascata. A correção local agora inicia aluno/matrícula em paralelo e não bloqueia a tela pelo enriquecimento opcional de vídeos; 653 testes, TypeScript, lint, build e limite inicial de 848.210 bytes estão verdes. Próximo passo: publicar e repetir a amostra autenticada. |
+| Desempenho aluno/professor | ✅ Produção e amostra autenticada; ❌ p75 de campo (aguardando) | O detalhe do aluno levava 2,44–3,12 s antes da correção. Em produção, aluno/matrícula iniciam juntos, o cabeçalho aparece antes dos ciclos e o enriquecimento opcional de vídeos não bloqueia a ficha. Depois do deploy, três cargas aquecidas mostraram o cabeçalho em 677–827 ms e o treino completo em 960–1.148 ms; a carga fria ficou em 2.671/2.916 ms. No painel de conversas do treinador, três cargas autenticadas ficaram em 1.292–1.728 ms. A troca rápida de aluno invalida requisições antigas e nunca mistura fichas. Próximo passo: coletar p75 real de uso, sem bloquear a correção já publicada. |
 | Strava e Polar | ❌ (bloqueado) | OAuth, criptografia, leases, refresh, revoke e disconnect estão no código/Edge, mas não há secrets ativos. As credenciais mostradas em imagem ficaram expostas e devem ser rotacionadas antes de configuração e E2E. |
 
 ## Estágios
 
 | Camada | Estado |
 |---|---|
-| Local | Suíte completa: 97 arquivos e 653 testes; TypeScript, lint, build e gate de bundle aprovados. Reconciliador MFIT incremental e correção de waterfall do aluno ainda aguardam commit. |
-| Último commit de código | `a64e38c` (`fix(student): reclamp Benito from rendered transform`). |
-| Integração | Branch de release e `origin/main` alinhados no mesmo commit. |
-| Frontend produção | Deploy Netlify `6a906e94ff0f78692305329f` pronto; `www.settapp.com.br` serve `assets/index-BE-HL8RA.js`, com upload retomável, revisão de destinatário, otimizações recentes e o reclamp do Benito. |
+| Local | Suíte completa: 97 arquivos e 655 testes; TypeScript, lint, build e gate de bundle aprovados. |
+| Último commit de código | `462cb83` (`perf(student): render workout shell early`), após `e75a645` (`fix(student): reduce workout load waterfall`). |
+| Integração | Branch de release, sua branch remota e `origin/main` alinhadas em `462cb83`. |
+| Frontend produção | Deploy Netlify `6a908510ff0f78e3ec05327f` pronto e publicado; `www.settapp.com.br` serve `assets/index-DyFYtT_l.js`. |
 | Edge produção | `whatsapp-manager` v61, `whatsapp-webhook` v55, `process-automation-sessions` v31 e `student-workout-feedback` v37 ativas com identidade internacional. |
 | Banco produção | Limite de mídia 512 MB; reparos de conversa e cadastro aplicados com backup e auditoria; migrações alinhadas até `20260827133000`. |
 
