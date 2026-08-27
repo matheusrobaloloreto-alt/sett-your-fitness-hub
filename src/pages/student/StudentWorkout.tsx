@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -72,8 +72,10 @@ export default function StudentWorkout() {
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
   const [videoModal, setVideoModal] = useState<{ type: "path" | "url" | "loading"; value: string; title: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [workoutsLoading, setWorkoutsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
+  const loadRevision = useRef(0);
 
   const selectedWorkoutBase = selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
   const selectedWorkout = useMemo(
@@ -87,6 +89,7 @@ export default function StudentWorkout() {
 
   useEffect(() => {
     if (studentId) loadData();
+    return () => { loadRevision.current += 1; };
   }, [studentId]);
 
   const getStoragePublicUrl = (path: string) => {
@@ -95,8 +98,16 @@ export default function StudentWorkout() {
   };
 
   const loadData = async () => {
+    const revision = ++loadRevision.current;
+    const isCurrentLoad = () => loadRevision.current === revision;
     setLoading(true);
+    setWorkoutsLoading(true);
     setLoadError("");
+    setStudent(null);
+    setCycles([]);
+    setSelectedCycle(null);
+    setSelectedWorkoutId(null);
+    setExpandedExercise(null);
     try {
     const studentRequest = supabase
       .from("students")
@@ -114,6 +125,7 @@ export default function StudentWorkout() {
       { data: studentData, error: studentError },
       { data: enrollmentRows, error: enrollmentError },
     ] = await Promise.all([studentRequest, enrollmentRequest]);
+    if (!isCurrentLoad()) return;
     if (studentError) throw studentError;
     if (enrollmentError) throw enrollmentError;
     const enrollmentData =
@@ -133,6 +145,9 @@ export default function StudentWorkout() {
             }
           : null,
       });
+      // Identity and plan are enough to render the page shell. Cycles and
+      // workouts continue loading below instead of blocking the whole screen.
+      setLoading(false);
     }
 
     if (enrollmentData) {
@@ -141,6 +156,7 @@ export default function StudentWorkout() {
         .select("id, cycle_number, start_date, end_date, status, duration_weeks")
         .eq("enrollment_id", enrollmentData.id)
         .order("cycle_number");
+      if (!isCurrentLoad()) return;
       if (cyclesError) throw cyclesError;
 
       if (cyclesData && cyclesData.length > 0) {
@@ -148,6 +164,7 @@ export default function StudentWorkout() {
           .from("workouts")
           .select("id, title, description, exercises, cycle_id")
           .in("cycle_id", cyclesData.map((c) => c.id));
+        if (!isCurrentLoad()) return;
         if (workoutsError) throw workoutsError;
 
         const materializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
@@ -238,6 +255,7 @@ export default function StudentWorkout() {
         setSelectedCycle(visibleChosen);
         if (visibleChosen?.workouts.length) setSelectedWorkoutId(visibleChosen.workouts[0].id);
         else setSelectedWorkoutId(null);
+        setWorkoutsLoading(false);
 
         // The stored workout is complete enough to render immediately. Library
         // metadata only fills missing video fields and must not block the page.
@@ -247,6 +265,7 @@ export default function StudentWorkout() {
             .from("exercise_library")
             .select("id, video_url, video_path, youtube_video_id, thumbnail_url")
             .in("id", Array.from(exerciseIds));
+          if (!isCurrentLoad()) return;
           if (libraryData?.length) {
             const videoMap: Record<string, { video_url: string | null; video_path: string | null; youtube_video_id: string | null }> = {};
             libraryData.forEach((lib) => {
@@ -260,13 +279,19 @@ export default function StudentWorkout() {
             setSelectedCycle((current) => current ? enrichCyclesWithVideos([current], videoMap)[0] : current);
           }
         }
+      } else {
+        setWorkoutsLoading(false);
       }
+    } else {
+      setWorkoutsLoading(false);
     }
     } catch (error) {
+      if (!isCurrentLoad()) return;
       console.error("student workout load failed", error);
       setLoadError("Não foi possível carregar os treinos. Atualize a página ou fale com seu treinador.");
+      setWorkoutsLoading(false);
     } finally {
-      setLoading(false);
+      if (isCurrentLoad()) setLoading(false);
     }
   };
 
@@ -383,7 +408,12 @@ export default function StudentWorkout() {
         <div>
           <h2 className="text-sm font-sans font-semibold text-muted-foreground uppercase tracking-wider mb-3">Ciclos de Treino</h2>
           <div className="flex gap-2 overflow-x-auto pb-2">
-            {cycles.map((cycle) => {
+            {workoutsLoading ? (
+              <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground font-sans" role="status">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                Carregando ciclos e treinos…
+              </div>
+            ) : cycles.map((cycle) => {
               const isActive = selectedCycle?.id === cycle.id;
               const hasPrescription = cycle.workouts.length > 0;
               const isFutureCycle = Boolean(cycle.start_date && cycle.start_date > businessDateYmd());
@@ -431,8 +461,10 @@ export default function StudentWorkout() {
                 </button>
               );
             })}
-            {cycles.length === 0 && (
-              <p className="text-muted-foreground font-sans text-sm">Nenhum ciclo criado ainda.</p>
+            {!workoutsLoading && cycles.length === 0 && (
+              <p className="text-muted-foreground font-sans text-sm">
+                {loadError || "Nenhum ciclo criado ainda."}
+              </p>
             )}
           </div>
         </div>

@@ -1,18 +1,19 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import StudentWorkout from "./StudentWorkout";
 
-const { fromMock, getPublicUrlMock, invokeMock } = vi.hoisted(() => ({
+const { fromMock, getPublicUrlMock, invokeMock, routeParamsMock } = vi.hoisted(() => ({
   fromMock: vi.fn(),
   getPublicUrlMock: vi.fn(),
   invokeMock: vi.fn(),
+  routeParamsMock: { studentId: "student-1" },
 }));
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
   return {
     ...actual,
-    useParams: () => ({ studentId: "student-1" }),
+    useParams: () => ({ studentId: routeParamsMock.studentId }),
   };
 });
 
@@ -147,6 +148,7 @@ function mockStudentWorkoutData() {
 
 describe("StudentWorkout", () => {
   beforeEach(() => {
+    routeParamsMock.studentId = "student-1";
     fromMock.mockReset();
     getPublicUrlMock.mockReset();
     invokeMock.mockReset();
@@ -253,5 +255,79 @@ describe("StudentWorkout", () => {
 
     expect(await screen.findByRole("heading", { name: "Treino A" })).toBeInTheDocument();
     resolveLibrary({ data: [], error: null });
+  });
+
+  it("renders the student header while cycles and workouts are still loading", async () => {
+    let resolveCycles!: (value: unknown) => void;
+    const cyclesResult = new Promise((resolve) => { resolveCycles = resolve; });
+
+    fromMock.mockImplementation((table: string) => {
+      if (table === "students") {
+        return makeQuery({ data: { full_name: "Aluno Teste" }, error: null }, "single");
+      }
+      if (table === "enrollments") {
+        return makeQuery({
+          data: [{
+            id: "enrollment-1",
+            start_date: "2026-08-01",
+            end_date: "2026-09-30",
+            training_start_date: "2026-08-01",
+            status: "active",
+            plans: { name: "Plano BN" },
+          }],
+          error: null,
+        });
+      }
+      if (table === "training_cycles") return makeQuery(cyclesResult, "order");
+      throw new Error(`Unexpected table ${table}`);
+    });
+
+    render(<StudentWorkout />);
+
+    expect(await screen.findByRole("heading", { name: "MEU TREINO" })).toBeInTheDocument();
+    expect(screen.getByText("Carregando ciclos e treinos…")).toBeInTheDocument();
+    await act(async () => {
+      resolveCycles({ data: [], error: null });
+      await cyclesResult;
+    });
+  });
+
+  it("never mixes a new student header with the previous student's workout", async () => {
+    const view = render(<StudentWorkout />);
+    expect(await screen.findByRole("heading", { name: "Treino A" })).toBeInTheDocument();
+
+    let resolveNewCycles!: (value: unknown) => void;
+    const newCyclesResult = new Promise((resolve) => { resolveNewCycles = resolve; });
+    fromMock.mockImplementation((table: string) => {
+      if (table === "students") {
+        return makeQuery({ data: { full_name: "Novo Aluno" }, error: null }, "single");
+      }
+      if (table === "enrollments") {
+        return makeQuery({
+          data: [{
+            id: "enrollment-2",
+            start_date: "2026-08-01",
+            end_date: "2026-09-30",
+            training_start_date: "2026-08-01",
+            status: "active",
+            plans: { name: "Plano Novo" },
+          }],
+          error: null,
+        });
+      }
+      if (table === "training_cycles") return makeQuery(newCyclesResult, "order");
+      throw new Error(`Unexpected table ${table}`);
+    });
+
+    routeParamsMock.studentId = "student-2";
+    view.rerender(<StudentWorkout />);
+
+    expect(await screen.findByText("Novo Aluno")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Treino A" })).not.toBeInTheDocument();
+    expect(screen.getByText("Carregando ciclos e treinos…")).toBeInTheDocument();
+    await act(async () => {
+      resolveNewCycles({ data: [], error: null });
+      await newCyclesResult;
+    });
   });
 });
