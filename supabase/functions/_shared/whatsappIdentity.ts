@@ -11,11 +11,25 @@ function rawPhoneCandidate(value: unknown): string | null {
     : raw;
 }
 
+function isUnambiguousNorthAmericanE164(phoneKey: string): boolean {
+  // Brazilian local mobile keys use DDD + 9 + subscriber. An 11-digit key
+  // beginning with country code 1 whose third digit is not 9 cannot be that
+  // shape, so it can be preserved as a NANP E.164 destination safely.
+  return /^1\d{10}$/.test(phoneKey) && phoneKey[2] !== "9";
+}
+
+function hasExplicitNorthAmericanCountryCode(value: unknown): boolean {
+  const candidate = rawPhoneCandidate(value);
+  return Boolean(candidate && /^\+1(?:\D|$)/.test(candidate.trim()));
+}
+
 export function normalizeWhatsAppPhoneKey(value: unknown): string | null {
   const candidate = rawPhoneCandidate(value);
   if (!candidate) return null;
   let digits = candidate.replace(/\D/g, "");
   if (!digits) return null;
+
+  if (isUnambiguousNorthAmericanE164(digits)) return digits;
 
   if (
     digits.startsWith("55") && (digits.length === 12 || digits.length === 13)
@@ -49,6 +63,10 @@ export function directWhatsAppJidVariants(remoteJid: unknown): string[] {
 
   const phoneKey = normalizeWhatsAppPhoneKey(raw.split("@")[0]);
   if (!phoneKey) return [raw];
+
+  if (isUnambiguousNorthAmericanE164(phoneKey)) {
+    return [...new Set([raw, `${phoneKey}${DIRECT_JID_SUFFIX}`])];
+  }
 
   const localVariants = new Set<string>([phoneKey]);
   if (phoneKey.length === 11 && phoneKey[2] === "9") {
@@ -103,20 +121,28 @@ export type VerifiedWhatsAppRecipient =
 function canonicalStudentDirectJid(
   student: WhatsAppStudentIdentity,
 ): VerifiedWhatsAppRecipient {
-  const phoneKeys = new Set(
+  const directJids = new Set(
     [student.whatsapp, student.phone]
-      .map(normalizeWhatsAppPhoneKey)
+      .map((value) => {
+        const phoneKey = normalizeWhatsAppPhoneKey(value);
+        if (!phoneKey) return null;
+        const international = hasExplicitNorthAmericanCountryCode(value) ||
+          isUnambiguousNorthAmericanE164(phoneKey);
+        return `${
+          international ? phoneKey : `55${phoneKey}`
+        }${DIRECT_JID_SUFFIX}`;
+      })
       .filter((value): value is string => Boolean(value)),
   );
-  if (phoneKeys.size === 0) {
+  if (directJids.size === 0) {
     return { ok: false, code: "whatsapp_student_phone_missing" };
   }
-  if (phoneKeys.size > 1) {
+  if (directJids.size > 1) {
     return { ok: false, code: "whatsapp_student_phone_ambiguous" };
   }
   return {
     ok: true,
-    remoteJid: `55${[...phoneKeys][0]}${DIRECT_JID_SUFFIX}`,
+    remoteJid: [...directJids][0],
     studentId: student.id,
   };
 }

@@ -32,6 +32,21 @@ Deno.test("keeps Brazilian landlines unchanged", () => {
   }
 });
 
+Deno.test("normalizes North American E.164 numbers without forcing country code 55", () => {
+  if (normalizeWhatsAppPhoneKey("+1 (407) 789-5013") !== "14077895013") {
+    throw new Error("formatted NANP number");
+  }
+  if (normalizeWhatsAppPhoneKey("+1 (297) 555-0123") !== "12975550123") {
+    throw new Error("explicit NANP number overlapping a Brazilian local shape");
+  }
+  if (
+    normalizeWhatsAppPhoneKey("14077895013@s.whatsapp.net") !==
+      "14077895013"
+  ) {
+    throw new Error("provider NANP JID");
+  }
+});
+
 Deno.test("builds all direct JID variants for a Brazilian mobile", () => {
   const variants = directWhatsAppJidVariants("5548991432057@s.whatsapp.net");
   for (
@@ -43,6 +58,13 @@ Deno.test("builds all direct JID variants for a Brazilian mobile", () => {
     ]
   ) {
     if (!variants.includes(expected)) throw new Error(`missing ${expected}`);
+  }
+});
+
+Deno.test("does not generate Brazilian aliases for a North American direct JID", () => {
+  const variants = directWhatsAppJidVariants("14077895013@s.whatsapp.net");
+  if (variants.length !== 1 || variants[0] !== "14077895013@s.whatsapp.net") {
+    throw new Error(`unexpected international variants: ${variants.join(",")}`);
   }
 });
 
@@ -128,6 +150,33 @@ Deno.test("resolves a correctly linked chat from the student's canonical phone",
   });
   if (!result.ok || result.remoteJid !== "5548991432057@s.whatsapp.net") {
     throw new Error("canonical student recipient not resolved");
+  }
+});
+
+Deno.test("resolves a linked North American chat without prepending country code 55", () => {
+  const result = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: "14077895013@s.whatsapp.net",
+    chatRemoteJid: "14077895013@s.whatsapp.net",
+    chatStudentId: "student-us",
+    requestedStudentId: "student-us",
+    student: { id: "student-us", whatsapp: "+1 (407) 789-5013" },
+  });
+  if (!result.ok || result.remoteJid !== "14077895013@s.whatsapp.net") {
+    throw new Error("canonical North American recipient not resolved");
+  }
+
+  const overlappingShape = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: "12975550123@s.whatsapp.net",
+    chatRemoteJid: "12975550123@s.whatsapp.net",
+    chatStudentId: "student-nanp",
+    requestedStudentId: "student-nanp",
+    student: { id: "student-nanp", whatsapp: "+1 (297) 555-0123" },
+  });
+  if (
+    !overlappingShape.ok ||
+    overlappingShape.remoteJid !== "12975550123@s.whatsapp.net"
+  ) {
+    throw new Error("explicit NANP recipient was treated as Brazilian local");
   }
 });
 
