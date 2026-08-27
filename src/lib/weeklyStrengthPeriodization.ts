@@ -70,6 +70,14 @@ export type ActiveWorkoutInCycles<TCycle, TWorkout> =
   | { kind: "resolved"; cycle: TCycle; workout: TWorkout }
   | { kind: "stale"; workoutId: string };
 
+type WorkoutFromCycle<TCycle extends { workouts: Array<{ id: string }> }> = TCycle["workouts"][number];
+
+type ResolvedWeeklyWorkout<TWorkout extends { exercises: WeeklyAwareExercise[] }> =
+  Omit<TWorkout, "exercises"> & {
+    exercises: Array<TWorkout["exercises"][number] & WeeklyAwareExercise>;
+    weekly_context?: ResolvedWeekContext;
+  };
+
 export interface WeeklyProgressionSummary {
   weeks: string;
   setsReps: string;
@@ -280,12 +288,11 @@ export function resolveStudentHomeWorkoutTarget<TWorkout extends StudentHomeWork
 }
 
 export function resolveActiveWorkoutInCycles<
-  TWorkout extends { id: string },
-  TCycle extends { workouts: TWorkout[] },
+  TCycle extends { workouts: Array<{ id: string }> },
 >(
   cycles: TCycle[] | undefined | null,
   activeWorkoutId?: string | null,
-): ActiveWorkoutInCycles<TCycle, TWorkout> {
+): ActiveWorkoutInCycles<TCycle, WorkoutFromCycle<TCycle>> {
   if (!activeWorkoutId) return { kind: "none" };
   for (const cycle of cycles ?? []) {
     const workout = cycle.workouts.find((item) => item.id === activeWorkoutId);
@@ -314,17 +321,16 @@ export function resolveExerciseForWeek<T extends WeeklyAwareExercise>(exercise: 
 }
 
 export function resolveWorkoutForCycleWeek<
-  TExercise extends WeeklyAwareExercise,
-  TWorkout extends { exercises: TExercise[] },
+  TWorkout extends { exercises: WeeklyAwareExercise[] },
 >(
   workout: TWorkout | null,
   startDate?: string | null,
   durationWeeks?: number | null,
   today: Date = new Date(),
-): (TWorkout & { weekly_context?: ResolvedWeekContext }) | null {
+): ResolvedWeeklyWorkout<TWorkout> | null {
   if (!workout) return null;
   const week = currentWeekIndex(startDate, durationWeeks || 6, today) + 1;
-  const exercises = workout.exercises.map((exercise) => resolveExerciseForWeek(exercise, week));
+  const exercises = workout.exercises.map((exercise) => resolveExerciseForWeek(exercise, week)) as TWorkout["exercises"];
   const active = exercises
     .map((exercise) => exercise.weekly_prescription?.find((item) => Number(item.week) === week))
     .filter((item): item is StoredWeeklyExercisePrescription => Boolean(item));

@@ -31,6 +31,17 @@ interface RecentStudent {
   onboarding_instructions_sent_at: string | null;
 }
 
+interface AttentionItem {
+  key: string;
+  tone: string;
+  label: string;
+  title: string;
+  subtitle: string;
+  action: () => void | Promise<void>;
+  resolveId?: string;
+  birthday?: Birthday;
+}
+
 interface AlertsData {
   birthdays: Birthday[];
   missingWorkouts: MissingWorkout[];
@@ -298,7 +309,7 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
   const itemClass = "flex items-center justify-between p-2 rounded-lg cursor-pointer hover:brightness-110 transition-all";
 
   if (compact) {
-    const attentionItems = [
+    const attentionItems: AttentionItem[] = [
       ...pendingActions.map((a: any) => ({
         key: `alert-${a.id}`,
         tone: a.severity === "error" ? "danger" : a.severity === "warning" ? "warning" : "info",

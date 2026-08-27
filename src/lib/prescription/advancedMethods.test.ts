@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ALL_METHOD_IDS,
   planAdvancedMethods,
+  type MethodAwareExercise,
   type MethodId,
 } from "../../../supabase/functions/_shared/prescription/advancedMethods.ts";
 
@@ -26,7 +27,7 @@ const STABLE_CLUSTER_EXERCISES = [
 
 function emittedMethod(
   ctx: Parameters<typeof planAdvancedMethods>[1],
-  exercises = SAFE_ACCESSORIES,
+  exercises: MethodAwareExercise[] = SAFE_ACCESSORIES,
 ): MethodId | undefined {
   return planAdvancedMethods(exercises, ctx).find((exercise) => exercise.method)?.method || undefined;
 }

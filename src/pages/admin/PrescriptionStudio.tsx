@@ -513,7 +513,8 @@ export default function PrescriptionStudio() {
         .eq("cycle_id", previousCycle.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       db.from("workouts").select("id, exercises").eq("cycle_id", previousCycle.id),
     ]);
-    const workoutIds = filterMaterializedWorkouts(workouts || []).map((workout) => workout.id);
+    const workoutIds = filterMaterializedWorkouts<{ id: string; exercises?: unknown }>(workouts || [])
+      .map((workout) => workout.id);
     let completedDays = 0;
     if (workoutIds.length) {
       const { data: sessions } = await db.from("workout_sessions").select("session_date")

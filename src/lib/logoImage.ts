@@ -190,7 +190,9 @@ export async function prepareLogoImage(file: File): Promise<PreparedLogo> {
       width,
       height,
     });
-    context.putImageData(new ImageData(result.data, width, height), 0, 0);
+    const transparentImage = context.createImageData(width, height);
+    transparentImage.data.set(result.data);
+    context.putImageData(transparentImage, 0, 0);
 
     const blob = await canvasToBlob(canvas);
     const baseName = file.name.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]+/gi, "-") || "logo";

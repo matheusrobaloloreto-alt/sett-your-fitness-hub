@@ -290,8 +290,11 @@ function applyMethod<T extends MethodAwareExercise>(
  * Aplica sistemas avançados aos exercícios da sessão conforme a fase/microciclo/nível.
  * Não muta a entrada — retorna uma nova lista. Determinístico (sem random).
  */
-export function planAdvancedMethods<T extends MethodAwareExercise>(exercises: T[], ctx: AdvancedMethodCtx): T[] {
-  const out = (exercises || []).map((e) => ({ ...e }));
+export function planAdvancedMethods<T extends MethodAwareExercise>(
+  exercises: T[],
+  ctx: AdvancedMethodCtx,
+): Array<T & MethodAwareExercise> {
+  const out: Array<T & MethodAwareExercise> = (exercises || []).map((e) => ({ ...e }));
   const micro = ctx.microcycle ?? "ordinario";   // motor ainda não rastreia microciclo → ordinário
   const week = ctx.week ?? 1;                     // nem semana → bloco 0 (sem rotação) até passarem
   // group_id único DENTRO da lista da sessão (o app só agrupa consecutivos numa lista).

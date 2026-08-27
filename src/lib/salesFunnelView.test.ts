@@ -41,6 +41,7 @@ describe("salesFunnelView", () => {
     expect(funnelStageProgress("contacted")).toBeLessThan(funnelStageProgress("fiscal_registration_pending"));
     expect(funnelStageProgress("payment_pending")).toBeLessThan(funnelStageProgress("active_onboarding"));
     expect(funnelStageProgress("active")).toBe(100);
+    expect(funnelStageProgress("lost")).toBe(0);
   });
 
   it("uses explicit action labels that remain clear on narrow funnel cards", () => {

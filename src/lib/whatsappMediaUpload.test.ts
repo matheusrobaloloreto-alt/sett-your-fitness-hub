@@ -69,7 +69,7 @@ describe("WhatsApp media upload policy", () => {
           resumeFromPreviousUpload: () => undefined,
           start: () => {
             suppliedOptions.onProgress?.(6, 12);
-            suppliedOptions.onSuccess?.();
+            suppliedOptions.onSuccess?.({ lastResponse: {} as never });
           },
         };
       },

@@ -41,9 +41,11 @@ describe("weekly strength periodization resolver", () => {
   });
 
   it("resolve automaticamente a semana vigente pela data de início do ciclo", () => {
-    const workout = { id: "workout-1", exercises: [exercise] };
+    const workout = { id: "workout-1", title: "Treino A", exercises: [exercise] };
     const resolved = resolveWorkoutForCycleWeek(workout, "2026-07-06", 6, new Date("2026-08-05T12:00:00"));
 
+    expect(resolved?.id).toBe("workout-1");
+    expect(resolved?.title).toBe("Treino A");
     expect(resolved?.weekly_context).toMatchObject({ week: 5, block: "intensificacao", methods: ["biset"] });
     expect(resolved?.exercises[0].method).toBe("biset");
   });

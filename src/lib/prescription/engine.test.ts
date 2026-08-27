@@ -324,7 +324,7 @@ describe("BN Prescription Engine v1", () => {
     expect(clusterEntries.every(({ exercise, week }) =>
       exercise.phase === "forca_global"
       && /maquina|máquina|smith|guiad/i.test(`${exercise.equipment || ""} ${exercise.exercise_name}`)
-      && week.set_types?.every((setType) => setType !== "failure")
+      && week.set_types?.every((setType) => String(setType) !== "failure")
     )).toBe(true);
   });
 
@@ -343,7 +343,7 @@ describe("BN Prescription Engine v1", () => {
         .every((exercise) => exercise.weekly_prescription?.every((week) => !week.method || !intensityMethod.test(week.method)))).toBe(true);
       expect(program.workouts.flatMap((workout) => workout.exercises)
         .every((exercise) => exercise.weekly_prescription?.every((week) =>
-          !week.set_types?.some((setType) => setType === "failure" || setType === "drop")))).toBe(true);
+          !week.set_types?.some((setType) => String(setType) === "failure" || String(setType) === "drop")))).toBe(true);
     }
   });
 
@@ -358,10 +358,11 @@ describe("BN Prescription Engine v1", () => {
     const weekly = program.workouts.flatMap((workout) => workout.exercises)
       .flatMap((exercise) => exercise.weekly_prescription || []);
     const setTypes = weekly.flatMap((week) => week.set_types || []);
-    expect(new Set(setTypes).isSubsetOf(new Set(["warmup", "normal", "failure"]))).toBe(true);
+    const allowedSetTypes = new Set(["warmup", "normal", "failure"]);
+    expect(setTypes.every((setType) => allowedSetTypes.has(setType))).toBe(true);
     expect(weekly.some((week) => week.method === "dropset")).toBe(true);
     expect(weekly.filter((week) => week.method === "dropset")
-      .every((week) => week.set_types?.every((setType) => setType !== "drop"))).toBe(true);
+      .every((week) => week.set_types?.every((setType) => String(setType) !== "drop"))).toBe(true);
   });
 
   it("deriva a rotação do número real do ciclo e mantém a sessão como eixo separado", () => {
@@ -582,7 +583,7 @@ describe("BN Prescription Engine v1", () => {
     expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.sets === exercise.sets))).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.method === null))).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) =>
-      week.set_types?.every((setType) => setType !== "failure" && setType !== "drop")
+      week.set_types?.every((setType) => String(setType) !== "failure" && String(setType) !== "drop")
     ))).toBe(true);
     expect(deload.weekly_periodization.every((week) =>
       week.block === "deload" && week.rir === "4" && week.volume_percent === 50 && week.methods.length === 0

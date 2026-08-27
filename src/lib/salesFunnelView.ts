@@ -100,9 +100,9 @@ export function normalizeLeadSalesStage(stage?: string | null): FunnelStageKey {
 }
 
 export function funnelStageProgress(stage: FunnelStageKey): number {
+  if (stage === "lost") return 0;
   const activeOrder = FUNNEL_STAGE_ORDER.filter((key) => key !== "lost");
   const idx = Math.max(0, activeOrder.indexOf(stage));
-  if (stage === "lost") return 0;
   return Math.round((idx / Math.max(1, activeOrder.length - 1)) * 100);
 }
 

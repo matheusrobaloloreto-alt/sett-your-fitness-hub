@@ -89,7 +89,6 @@ export interface MutableWorkoutSetLog extends VersionedWorkoutLog {
   workout_id: string;
   exercise_index: number;
   set_number: number;
-  [key: string]: unknown;
 }
 
 export interface PersistedWorkoutSetIdentity {
@@ -181,11 +180,15 @@ function timestamp(value: VersionedWorkoutLog | undefined) {
  * O rascunho local só vence quando é uma edição pendente baseada na mesma
  * revisão do servidor. Uma revisão maior do servidor sempre vence.
  */
-export function mergeWorkoutDraftLogs<T extends VersionedWorkoutLog>(
-  serverLogs: Record<string, T>,
-  localLogs: Record<string, T>,
+export function mergeWorkoutDraftLogs<
+  TServer extends VersionedWorkoutLog,
+  TLocal extends VersionedWorkoutLog,
+>(
+  serverLogs: Record<string, TServer>,
+  localLogs: Record<string, TLocal>,
 ) {
-  const merged: Record<string, T> = { ...serverLogs };
+  type MergedLog = TServer | TLocal;
+  const merged: Record<string, MergedLog> = { ...serverLogs };
   for (const [key, local] of Object.entries(localLogs)) {
     const server = serverLogs[key];
     if (!server) {
@@ -224,11 +227,14 @@ export function mergeWorkoutDraftLogs<T extends VersionedWorkoutLog>(
  * devolvida pelo servidor. Os campos locais continuam pendentes, mas o próximo
  * CAS parte da nova revisão em vez de repetir a revisão obsoleta.
  */
-export function reconcileWorkoutLogResponse<T extends VersionedWorkoutLog>(
-  current: T | undefined,
+export function reconcileWorkoutLogResponse<
+  TCurrent extends VersionedWorkoutLog,
+  TServer extends VersionedWorkoutLog,
+>(
+  current: TCurrent | undefined,
   sent: VersionedWorkoutLog | undefined,
-  server: T,
-): T {
+  server: TServer,
+): TServer | (TServer & TCurrent) {
   const editedDuringRequest = !!current?.client_updated_at
     && current.client_updated_at !== sent?.client_updated_at;
   if (!editedDuringRequest || !current) return { ...server, dirty: false };

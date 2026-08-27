@@ -882,7 +882,7 @@ export default function TeamManager() {
       .eq("user_id", member.user_id)
       .eq("permission", "company_dashboard_full")
       .maybeSingle();
-    setEditFullDashboard(data?.enabled === true);
+    setEditFullDashboard((data as { enabled?: boolean } | null)?.enabled === true);
   };
 
   const toggleEditRole = (role: string) => {

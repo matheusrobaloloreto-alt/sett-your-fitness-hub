@@ -2,6 +2,14 @@ type SupabaseAdmin = {
   from: (table: string) => any;
 };
 
+type DenoGlobal = typeof globalThis & {
+  Deno?: { env?: { get?: (key: string) => string | undefined } };
+};
+
+function readEdgeEnv(key: string): string {
+  return (globalThis as DenoGlobal).Deno?.env?.get?.(key) || "";
+}
+
 export type FunnelMessageResult = {
   sent: boolean;
   reason?: string;
@@ -145,12 +153,12 @@ export async function sendFunnelWhatsAppMessage(args: {
       throw new Error("WhatsApp da empresa não está conectado.");
     }
 
-    const evoUrl = Deno.env.get("EVOLUTION_API_URL") || "";
-    const evoKey = Deno.env.get("EVOLUTION_API_KEY") || "";
+    const evoUrl = readEdgeEnv("EVOLUTION_API_URL");
+    const evoKey = readEdgeEnv("EVOLUTION_API_KEY");
     if (!evoUrl || !evoKey) throw new Error("Evolution API não configurada.");
 
     let chatResult = await args.admin.from("whatsapp_chats")
-      .select("id")
+      .select("id, student_id")
       .eq("company_id", args.companyId)
       .eq("remote_jid", remoteJid)
       .order("updated_at", { ascending: false })
@@ -169,6 +177,9 @@ export async function sendFunnelWhatsAppMessage(args: {
       }).select("id").single();
       if (chatResult.error) throw chatResult.error;
     } else {
+      if (chatResult.data.student_id && chatResult.data.student_id !== args.studentId) {
+        throw new Error("Conversa vinculada a outro aluno. Envio bloqueado para revisão.");
+      }
       await args.admin.from("whatsapp_chats").update({
         student_id: args.studentId,
         contact_name: args.fullName,
@@ -181,7 +192,7 @@ export async function sendFunnelWhatsAppMessage(args: {
       body: JSON.stringify({ number: remoteJid.replace(/@.*$/, ""), text: args.text }),
     });
     if (!response.ok) {
-      throw new Error(`Evolution ${response.status}: ${(await response.text()).slice(0, 300)}`);
+      throw new Error(`Falha no provedor WhatsApp (status ${response.status}).`);
     }
     const providerPayload = await response.json().catch(() => ({}));
     const sentAt = new Date().toISOString();

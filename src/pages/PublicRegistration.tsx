@@ -873,15 +873,15 @@ export default function PublicRegistration() {
                   </div>
                   <div className="grid gap-3 sm:grid-cols-5">
                     {[
-                      ["Tornozelo", evaTornozelo, setEvaTornozelo],
-                      ["Joelho", evaJoelho, setEvaJoelho],
-                      ["Quadril", evaQuadril, setEvaQuadril],
-                      ["Lombar", evaLombar, setEvaLombar],
-                      ["Ombro", evaOmbro, setEvaOmbro],
-                    ].map(([label, value, setter]) => (
-                      <div className="space-y-1" key={label as string}>
+                      { label: "Tornozelo", value: evaTornozelo, setter: setEvaTornozelo },
+                      { label: "Joelho", value: evaJoelho, setter: setEvaJoelho },
+                      { label: "Quadril", value: evaQuadril, setter: setEvaQuadril },
+                      { label: "Lombar", value: evaLombar, setter: setEvaLombar },
+                      { label: "Ombro", value: evaOmbro, setter: setEvaOmbro },
+                    ].map(({ label, value, setter }) => (
+                      <div className="space-y-1" key={label}>
                         <Label className="text-xs">{label} EVA</Label>
-                        <Input type="number" min={0} max={10} value={value as string} onChange={e => (setter as (next: string) => void)(e.target.value)} placeholder="Ex: 0" />
+                        <Input type="number" min={0} max={10} value={value} onChange={e => setter(e.target.value)} placeholder="Ex: 0" />
                       </div>
                     ))}
                   </div>
