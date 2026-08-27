@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { summarizeActiveStudentContactCoverage } from "./audit-live-integrations-core.mjs";
 
 const ROOT = process.cwd();
 
@@ -91,7 +92,7 @@ const [
   automationFlows,
   flowSessions,
 ] = await Promise.all([
-  rows("students", "id,status,sales_stage,assigned_trainer_id,user_id,weekly_contact_enabled,assessment_due_at,onboarding_instructions_sent_at", companyFilter),
+  rows("students", "id,status,sales_stage,assigned_trainer_id,user_id,weekly_contact_enabled,assessment_due_at,onboarding_instructions_sent_at,phone,whatsapp", companyFilter),
   rows("whatsapp_chats", "id,student_id,unread_count,remote_jid", companyFilter),
   rows("enrollments", "id,student_id,status,start_date,end_date", companyFilter),
   rows("student_anamneses", "id,student_id,wants_strength,wants_running,wants_swimming,wants_cycling,wants_nutrition", companyFilter),
@@ -121,6 +122,7 @@ const legacyAnamnesisStudents = new Set(legacyAnamneses.map((anamnesis) => anamn
 const anyAnamnesisStudents = new Set([...anamnesisStudents, ...legacyAnamnesisStudents]);
 const assessmentStudents = new Set(assessments.map((assessment) => assessment.student_id));
 const linkedChatStudents = new Set(chats.map((chat) => chat.student_id).filter(Boolean));
+const contactCoverage = summarizeActiveStudentContactCoverage(activeStudents, chats);
 const materializedCycleIds = new Set(
   workouts
     .filter((workout) => Array.isArray(workout.exercises) && workout.exercises.length > 0)
@@ -206,6 +208,16 @@ issue(
   activeStudents.filter((student) => !student.user_id).length,
   "Aluno ativo sem user_id para entrar no portal.",
 );
+issue(
+  "active_without_reliable_phone",
+  contactCoverage.active_students_without_reliable_phone,
+  "Aluno ativo sem telefone/WhatsApp que passe pelo mesmo normalizador fail-closed usado no envio.",
+);
+issue(
+  "active_with_ambiguous_phone",
+  contactCoverage.active_students_with_ambiguous_phone,
+  "Aluno ativo com telefone e WhatsApp normalizados para destinatários diferentes.",
+);
 
 const output = {
   audited_at: new Date().toISOString(),
@@ -218,6 +230,7 @@ const output = {
     whatsapp_chats: chats.length,
     chats_linked_to_students: chats.filter((chat) => chat.student_id).length,
     active_students_with_chat: activeStudents.filter((student) => linkedChatStudents.has(student.id)).length,
+    ...contactCoverage,
     renewal_due_within_7d: renewalDueStudents.size,
     canonical_anamneses: anamneses.length,
     legacy_anamneses: legacyAnamneses.length,
