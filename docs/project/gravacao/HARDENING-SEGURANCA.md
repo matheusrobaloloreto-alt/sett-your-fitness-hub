@@ -8,7 +8,8 @@
   ou constar em `RECORDING_OPERATOR_USER_IDS` **e** ter vínculo em `company_members` com
   `RECORDING_COMPANY_ID`. Metadado editável do usuário não participa da autorização.
 - CORS devolve a origem exata somente para a allowlist `RECORDING_ALLOWED_ORIGINS`; não há `*`.
-- O par código/exercise ID precisa existir no mapa versionado de 926 exercícios e no banco vivo.
+- O par código/exercise ID precisa existir no mapa versionado de 924 exercícios vivos e no banco.
+  Códigos históricos retirados ficam registrados em `roteiro-retirados.json` e nunca são reutilizados.
 - A assinatura exige UUID v4 único, MIME de vídeo permitido e no máximo 64 MB. Há limite de rajada,
   limite persistente por operador e limite global da fila. Cada tentativa reserva de forma atômica
   `_requests/<hash-operador>/<request-id>.mp4` no bucket privado; replays e conflitos retornam 409
@@ -37,6 +38,12 @@
 6. `public/gravacao/modelo-3-13b57ff210.html`
 
 O gerador sincroniza os seis arquivos e `recording-exercise-allowlist.json` numa única execução.
+Para retirar referências que desapareceram da biblioteca viva, use o modo conservador com a lista
+exata esperada; divergência aborta antes de qualquer escrita:
+
+```bash
+python3 scripts/gerar-material-gravacao.py --prune-stale-only --confirm-prune-codes 355,396
+```
 
 ## Preparação sem escrita em produção
 
@@ -64,6 +71,7 @@ O gerador sincroniza os seis arquivos e `recording-exercise-allowlist.json` numa
    deno check supabase/functions/library-video-ingest/index.ts
    deno test supabase/functions/library-video-ingest/security.test.ts
    node scripts/test-recording-hardening.mjs
+   python3 scripts/test-recording-roster-reconcile.py
    node --test scripts/video-ingest-safety.test.mjs
    node scripts/test-recording-http-headers.mjs
    node --check scripts/video-ingest.mjs

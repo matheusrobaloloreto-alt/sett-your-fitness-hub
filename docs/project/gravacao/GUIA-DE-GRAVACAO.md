@@ -1,7 +1,11 @@
 # Guia de Gravação — Vídeos da Biblioteca BN
 
-**Para os 3 modelos.** São 926 exercícios divididos em 3 listas (~309 cada), já agrupadas por
+**Para os 3 modelos.** São 924 exercícios vivos divididos em 3 listas (308, 309 e 307), já agrupadas por
 **estação da academia** — grave tudo de uma estação antes de trocar, é o que faz render.
+
+Os códigos históricos `355` e `396` permanecem como lacunas intencionais: os exercícios correspondentes
+não existem mais na biblioteca viva, não aparecem em treino/template ativo e foram registrados em
+`roteiro-retirados.json`. Nunca reutilize esses códigos para outro exercício.
 
 ---
 

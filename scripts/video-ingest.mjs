@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Ingestão dos vídeos gravados → biblioteca de exercícios (926 exercícios).
+ * Ingestão dos vídeos gravados → roteiro versionado da biblioteca (924 exercícios vivos).
  *
  * Fluxo: baixa do Drive → casa arquivo↔exercício (código no nome, fallback por similaridade) →
  * QA (corrompido/duração/resolução/congelado) → comprime com ffmpeg (720p, sem áudio, faststart)
@@ -306,7 +306,7 @@ async function processar(m) {
   }
   const mb = statSync(outMp4).size / 1048576;
   rmSync(outMp4, { force: true }); rmSync(outJpg, { force: true });
-  if (!KEEP) rmSync(src, { force: true }); // libera disco: 926 originais de celular passam de 30GB
+  if (!KEEP) rmSync(src, { force: true }); // libera disco: centenas de originais passam de 30GB
   return {
     commit: { id: m.ex.id, video_path: `${base}.mp4` },
     mb, avisos,

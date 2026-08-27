@@ -15,7 +15,7 @@ const htmlFiles = [
   "public/gravacao/modelo-2-57d17ab40a.html",
   "public/gravacao/modelo-3-13b57ff210.html",
 ];
-const expectedCounts = [309, 309, 308, 309, 309, 308];
+const expectedCounts = [308, 309, 307, 308, 309, 307];
 
 for (const [index, path] of htmlFiles.entries()) {
   const source = read(path);
@@ -53,8 +53,17 @@ for (let model = 1; model <= 3; model += 1) {
 
 const codeMap = JSON.parse(read("docs/project/gravacao/codigo-para-exercicio.json"));
 const edgeAllowlist = JSON.parse(read("supabase/functions/library-video-ingest/recording-exercise-allowlist.json"));
-assert.equal(Object.keys(codeMap).length, 926, "mapa canônico deve manter 926 exercícios");
+const retired = JSON.parse(read("docs/project/gravacao/roteiro-retirados.json"));
+assert.equal(Object.keys(codeMap).length, 924, "mapa canônico deve manter 924 exercícios vivos");
 assert.deepEqual(edgeAllowlist, codeMap, "allowlist da edge divergiu do mapa de gravação");
+assert.deepEqual(retired.map((item) => item.codigo), ["355", "396"], "códigos retirados divergiram");
+for (const item of retired) {
+  assert.equal(item.motivo, "exercise_absent_from_live_library", "motivo de retirada inesperado");
+  assert.equal(codeMap[item.codigo], undefined, `código retirado ${item.codigo} permaneceu no mapa`);
+  for (const source of htmlFiles.map(read)) {
+    assert.doesNotMatch(source, new RegExp(`data-cod="${item.codigo}"`), `código retirado ${item.codigo} permaneceu no HTML`);
+  }
+}
 
 const edge = read("supabase/functions/library-video-ingest/index.ts");
 assert.doesNotMatch(edge, /Access-Control-Allow-Origin["']?:\s*["']\*["']/, "CORS wildcard reintroduzido");

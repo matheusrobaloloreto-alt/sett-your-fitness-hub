@@ -12,7 +12,7 @@ O código de 3 dígitos é a identidade do exercício no fluxo de gravação —
 codigo-para-exercicio.json já existe, os códigos dele são PRESERVADOS e só exercícios novos
 recebem código no fim da fila. Nunca renumere: os modelos gravam com esses nomes de arquivo.
 """
-import base64, hashlib, json, csv, re, html, unicodedata, os, urllib.request
+import argparse, base64, hashlib, json, csv, re, html, unicodedata, os, urllib.request
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -239,13 +239,144 @@ document.getElementById('q').addEventListener('input',filtra);
 document.getElementById('est').addEventListener('change',filtra);
 prog();setButtons();validarSessao();"""
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Gera o material de gravação da biblioteca SETT.")
+    parser.add_argument(
+        "--prune-stale-only",
+        action="store_true",
+        help=(
+            "retira do roteiro somente IDs que não existem mais na biblioteca viva; "
+            "preserva códigos, distribuição entre modelos e demais metadados"
+        ),
+    )
+    parser.add_argument(
+        "--confirm-prune-codes",
+        default="",
+        help="lista exata de códigos esperados, separada por vírgulas; obrigatória quando houver retirada",
+    )
+    return parser.parse_args()
+
+
+def prune_stale_artifacts(mapa, stale_entries, expected_codes=None):
+    stale_codes = {codigo for codigo, _ in stale_entries}
+    stale_ids = {item["id"] for _, item in stale_entries}
+    if not stale_codes:
+        print("  reconciliação: nenhuma referência ausente; artefatos preservados")
+        return
+    if expected_codes != stale_codes:
+        raise RuntimeError(
+            "Retirada não confirmada ou biblioteca divergente: "
+            f"esperados={sorted(expected_codes or set())}, encontrados={sorted(stale_codes)}."
+        )
+    if len(stale_entries) != len(stale_codes) or len(stale_entries) != len(stale_ids):
+        raise RuntimeError("Referências ausentes contêm código ou ID duplicado; reconciliação abortada.")
+
+    complete_path = OUT / "shot-list-completo.csv"
+    with open(complete_path, encoding="utf-8-sig", newline="") as source:
+        complete_rows = list(csv.DictReader(source))
+    # DictReader.fieldnames é perdido ao fechar o contexto em algumas versões; o contrato é fixo.
+    complete_fields = ["codigo", "arquivo_final", "nome_exercicio", "grupo_muscular", "estacao",
+                       "prioridade", "video_referencia", "como_executar", "exercise_id"]
+    removed_complete = [row for row in complete_rows if row["exercise_id"] in stale_ids]
+    if {row["exercise_id"] for row in removed_complete} != stale_ids:
+        raise RuntimeError("Roteiro completo não contém exatamente todos os IDs ausentes.")
+
+    model_hits = {codigo: 0 for codigo in stale_codes}
+    html_hits = {codigo: 0 for codigo in stale_codes}
+    public_hits = {codigo: 0 for codigo in stale_codes}
+    csv_outputs = {}
+    html_outputs = {}
+
+    for model in range(1, MODELOS + 1):
+        csv_path = OUT / f"shot-list-modelo-{model}.csv"
+        with open(csv_path, encoding="utf-8-sig", newline="") as source:
+            reader = csv.DictReader(source)
+            fields = reader.fieldnames
+            rows = list(reader)
+        for row in rows:
+            if row["codigo"] in stale_codes:
+                model_hits[row["codigo"]] += 1
+        csv_outputs[csv_path] = (fields, [row for row in rows if row["codigo"] not in stale_codes])
+
+        for html_path, hits in (
+            (OUT / f"gravacao-modelo-{model}.html", html_hits),
+            (PUBLIC_OUT / PUBLIC_NAMES[model], public_hits),
+        ):
+            source = html_path.read_text(encoding="utf-8")
+            for codigo in stale_codes:
+                pattern = rf'<li data-cod="{re.escape(codigo)}"[^>]*>.*?</li>'
+                source, count = re.subn(pattern, "", source, count=1, flags=re.DOTALL)
+                hits[codigo] += count
+            remaining = len(re.findall(r'<li data-cod="\d{3}"', source))
+            source, count = re.subn(
+                r'(<div class="sub">)\d+( exercícios)',
+                rf'\g<1>{remaining}\2',
+                source,
+                count=1,
+            )
+            if count != 1:
+                raise RuntimeError(f"Cabeçalho de contagem não encontrado em {html_path}.")
+            html_outputs[html_path] = source
+
+    if any(count != 1 for count in model_hits.values()):
+        raise RuntimeError(f"Cada código ausente deve existir em um único CSV de modelo: {model_hits}")
+    if any(count != 1 for count in html_hits.values()):
+        raise RuntimeError(f"Cada código ausente deve existir em um único HTML interno: {html_hits}")
+    if any(count != 1 for count in public_hits.values()):
+        raise RuntimeError(f"Cada código ausente deve existir em um único HTML público: {public_hits}")
+
+    for csv_path, (fields, rows) in csv_outputs.items():
+        with open(csv_path, "w", encoding="utf-8-sig", newline="") as target:
+            writer = csv.DictWriter(target, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+    for html_path, source in html_outputs.items():
+        html_path.write_text(source, encoding="utf-8")
+
+    with open(complete_path, "w", encoding="utf-8-sig", newline="") as target:
+        writer = csv.DictWriter(target, fieldnames=complete_fields)
+        writer.writeheader()
+        writer.writerows(row for row in complete_rows if row["exercise_id"] not in stale_ids)
+
+    mapa_preservado = {codigo: item for codigo, item in mapa.items() if codigo not in stale_codes}
+    mapa_json = json.dumps(mapa_preservado, ensure_ascii=False, indent=1)
+    (OUT / "codigo-para-exercicio.json").write_text(mapa_json, encoding="utf-8")
+    EDGE_ALLOWLIST.write_text(mapa_json, encoding="utf-8")
+    retirados = [
+        {"codigo": codigo, "id": item["id"], "nome": item["nome"],
+         "motivo": "exercise_absent_from_live_library"}
+        for codigo, item in stale_entries
+    ]
+    (OUT / "roteiro-retirados.json").write_text(
+        json.dumps(retirados, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(
+        f"  reconciliação: {len(mapa_preservado)} códigos vivos preservados · "
+        f"{len(retirados)} referência(s) ausente(s) retirada(s) · 0 exercício novo"
+    )
+
+
 def main():
+    args = parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     PUBLIC_OUT.mkdir(parents=True, exist_ok=True)
     lib = carregar_biblioteca()
     mapa_path = OUT / "codigo-para-exercicio.json"
     mapa = json.loads(mapa_path.read_text(encoding="utf-8")) if mapa_path.exists() else {}
     por_id = {v["id"]: k for k, v in mapa.items()}
+
+    if args.prune_stale_only:
+        live_ids = {e["id"] for e in lib}
+        stale_entries = [
+            (codigo, item) for codigo, item in mapa.items() if item["id"] not in live_ids
+        ]
+        stale_entries.sort(key=lambda entry: entry[0])
+        expected_codes = {
+            code.strip() for code in args.confirm_prune_codes.split(",") if code.strip()
+        }
+        prune_stale_artifacts(mapa, stale_entries, expected_codes)
+        return
 
     # Prioridade ALTA = vídeo atual frágil. Vem da auditoria de 2026-08-04 (vídeo era de outro
     # exercício, virou vídeo-aula, sumiu do YouTube, ou casou só parcialmente) somada a quem
