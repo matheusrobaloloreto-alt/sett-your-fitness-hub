@@ -85,6 +85,20 @@ function readVisualViewport(): BenitoViewport {
     : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
 }
 
+function readRenderedTranslation(target: HTMLElement, fallback: DragPosition): DragPosition {
+  const transform = window.getComputedStyle(target).transform;
+  if (!transform || transform === "none") return fallback;
+  try {
+    const matrix = new DOMMatrixReadOnly(transform);
+    if (Number.isFinite(matrix.m41) && Number.isFinite(matrix.m42)) {
+      return { x: matrix.m41, y: matrix.m42 };
+    }
+  } catch {
+    // Keep the state translation when a browser exposes a non-matrix value.
+  }
+  return fallback;
+}
+
 export function useBenitoDrag() {
   const dragRef = useRef<DragBounds | null>(null);
   const dragAbortRef = useRef<AbortController | null>(null);
@@ -121,9 +135,13 @@ export function useBenitoDrag() {
     if (!target) return candidate;
     const current = positionRef.current;
     const bounds = target.getBoundingClientRect();
+    const rendered = readRenderedTranslation(target, current);
     return clampBenitoDragPosition(candidate, {
-      baseLeft: bounds.left - current.x,
-      baseTop: bounds.top - current.y,
+      // A resize may fire while the previous CSS transition is still between
+      // state positions. Derive the base from the transform actually painted,
+      // otherwise the reclamp can finish a few pixels outside the safe area.
+      baseLeft: bounds.left - rendered.x,
+      baseTop: bounds.top - rendered.y,
       width: bounds.width,
       height: bounds.height,
     }, readVisualViewport(), safeAreaRef.current);
