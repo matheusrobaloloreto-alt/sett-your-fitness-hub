@@ -185,4 +185,73 @@ describe("StudentWorkout", () => {
     expect(groupTrigger).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText(/Obs:/)).toBeInTheDocument();
   });
+
+  it("starts the independent student and enrollment requests together", async () => {
+    let resolveStudent!: (value: unknown) => void;
+    let resolveEnrollment!: (value: unknown) => void;
+    const studentResult = new Promise((resolve) => { resolveStudent = resolve; });
+    const enrollmentResult = new Promise((resolve) => { resolveEnrollment = resolve; });
+
+    fromMock.mockImplementation((table: string) => {
+      if (table === "students") return makeQuery(studentResult, "single");
+      if (table === "enrollments") return makeQuery(enrollmentResult);
+      throw new Error(`Unexpected table ${table}`);
+    });
+
+    render(<StudentWorkout />);
+
+    await waitFor(() => {
+      expect(fromMock).toHaveBeenCalledWith("students");
+      expect(fromMock).toHaveBeenCalledWith("enrollments");
+    });
+
+    resolveStudent({ data: { full_name: "Aluno Teste" }, error: null });
+    resolveEnrollment({ data: [], error: null });
+    expect(await screen.findByText("Aluno Teste")).toBeInTheDocument();
+  });
+
+  it("renders the workout before optional exercise-library video enrichment completes", async () => {
+    let resolveLibrary!: (value: unknown) => void;
+    const libraryResult = new Promise((resolve) => { resolveLibrary = resolve; });
+
+    fromMock.mockImplementation((table: string) => {
+      if (table === "students") {
+        return makeQuery({ data: { full_name: "Aluno Teste" }, error: null }, "single");
+      }
+      if (table === "enrollments") {
+        return makeQuery({
+          data: [{
+            id: "enrollment-1",
+            start_date: "2026-08-01",
+            end_date: "2026-09-30",
+            training_start_date: "2026-08-01",
+            status: "active",
+            plans: { name: "Plano BN" },
+          }],
+          error: null,
+        });
+      }
+      if (table === "training_cycles") {
+        return makeQuery({
+          data: [{
+            id: "cycle-1",
+            cycle_number: 1,
+            start_date: "2026-08-01",
+            end_date: "2026-09-30",
+            status: "active",
+            duration_weeks: 8,
+          }],
+          error: null,
+        }, "order");
+      }
+      if (table === "workouts") return makeQuery({ data: workoutRows, error: null }, "in");
+      if (table === "exercise_library") return makeQuery(libraryResult, "in");
+      throw new Error(`Unexpected table ${table}`);
+    });
+
+    render(<StudentWorkout />);
+
+    expect(await screen.findByRole("heading", { name: "Treino A" })).toBeInTheDocument();
+    resolveLibrary({ data: [], error: null });
+  });
 });

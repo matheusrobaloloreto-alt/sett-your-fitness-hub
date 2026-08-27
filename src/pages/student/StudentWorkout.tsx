@@ -98,19 +98,23 @@ export default function StudentWorkout() {
     setLoading(true);
     setLoadError("");
     try {
-    const { data: studentData, error: studentError } = await supabase
+    const studentRequest = supabase
       .from("students")
       .select("full_name")
       .eq("id", studentId!)
       .single();
-    if (studentError) throw studentError;
-
-    const { data: enrollmentRows, error: enrollmentError } = await supabase
+    const enrollmentRequest = supabase
       .from("enrollments")
       .select("id, start_date, end_date, training_start_date, plan_id, status, plans(name)")
       .eq("student_id", studentId!)
       .order("created_at", { ascending: false })
       .limit(20);
+
+    const [
+      { data: studentData, error: studentError },
+      { data: enrollmentRows, error: enrollmentError },
+    ] = await Promise.all([studentRequest, enrollmentRequest]);
+    if (studentError) throw studentError;
     if (enrollmentError) throw enrollmentError;
     const enrollmentData =
       enrollmentRows?.find((enrollment) => enrollment.status === "active") ||
@@ -155,23 +159,21 @@ export default function StudentWorkout() {
           exs.forEach(ex => { if (ex.exercise_id) exerciseIds.add(ex.exercise_id); });
         });
 
-        // Fetch video data from exercise library
-        const videoMap: Record<string, { video_url: string | null; video_path: string | null; youtube_video_id: string | null }> = {};
-        if (exerciseIds.size > 0) {
-          const { data: libraryData } = await supabase
-            .from("exercise_library")
-            .select("id, video_url, video_path, youtube_video_id, thumbnail_url")
-            .in("id", Array.from(exerciseIds));
-          if (libraryData) {
-            libraryData.forEach(lib => {
-              videoMap[lib.id] = {
-                video_url: lib.video_url,
-                video_path: lib.video_path,
-                youtube_video_id: lib.youtube_video_id ?? null,
-              };
-            });
-          }
-        }
+        const enrichCyclesWithVideos = (
+          sourceCycles: Cycle[],
+          videoMap: Record<string, { video_url: string | null; video_path: string | null; youtube_video_id: string | null }>,
+        ): Cycle[] => sourceCycles.map((cycle) => ({
+          ...cycle,
+          workouts: cycle.workouts.map((workout) => ({
+            ...workout,
+            exercises: workout.exercises.map((ex) => ({
+              ...ex,
+              video_url: (ex.video_url && ex.video_url.trim()) || videoMap[ex.exercise_id]?.video_url || null,
+              video_path: (ex.video_path && ex.video_path.trim()) || videoMap[ex.exercise_id]?.video_path || null,
+              youtube_video_id: ex.youtube_video_id || videoMap[ex.exercise_id]?.youtube_video_id || null,
+            })),
+          })),
+        }));
 
         const enriched: Cycle[] = cyclesData.map((c) => {
           const cycleWorkouts = materializedWorkouts
@@ -180,12 +182,7 @@ export default function StudentWorkout() {
               id: w.id,
               title: w.title,
               description: w.description,
-              exercises: ((w.exercises as unknown as WorkoutExercise[]) || []).map(ex => ({
-                ...ex,
-                video_url: (ex.video_url && ex.video_url.trim()) || videoMap[ex.exercise_id]?.video_url || null,
-                video_path: (ex.video_path && ex.video_path.trim()) || videoMap[ex.exercise_id]?.video_path || null,
-                youtube_video_id: ex.youtube_video_id || videoMap[ex.exercise_id]?.youtube_video_id || null,
-              })),
+              exercises: (w.exercises as unknown as WorkoutExercise[]) || [],
             }));
           return { ...c, workouts: cycleWorkouts };
         });
@@ -241,6 +238,28 @@ export default function StudentWorkout() {
         setSelectedCycle(visibleChosen);
         if (visibleChosen?.workouts.length) setSelectedWorkoutId(visibleChosen.workouts[0].id);
         else setSelectedWorkoutId(null);
+
+        // The stored workout is complete enough to render immediately. Library
+        // metadata only fills missing video fields and must not block the page.
+        setLoading(false);
+        if (exerciseIds.size > 0) {
+          const { data: libraryData } = await supabase
+            .from("exercise_library")
+            .select("id, video_url, video_path, youtube_video_id, thumbnail_url")
+            .in("id", Array.from(exerciseIds));
+          if (libraryData?.length) {
+            const videoMap: Record<string, { video_url: string | null; video_path: string | null; youtube_video_id: string | null }> = {};
+            libraryData.forEach((lib) => {
+              videoMap[lib.id] = {
+                video_url: lib.video_url,
+                video_path: lib.video_path,
+                youtube_video_id: lib.youtube_video_id ?? null,
+              };
+            });
+            setCycles((current) => enrichCyclesWithVideos(current, videoMap));
+            setSelectedCycle((current) => current ? enrichCyclesWithVideos([current], videoMap)[0] : current);
+          }
+        }
       }
     }
     } catch (error) {
