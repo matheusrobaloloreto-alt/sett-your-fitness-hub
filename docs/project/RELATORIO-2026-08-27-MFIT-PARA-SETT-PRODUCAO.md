@@ -4,7 +4,7 @@
 
 A importação acumulada fechou 87 planos ativos elegíveis do recorte MFIT disponível, sem importar por nome apenas e sem substituir exercícios por semelhança duvidosa. O lote novo desta rodada adicionou 3 planos, 9 treinos e 66 ocorrências de exercícios. Três exercícios ausentes foram criados com os nomes exatos da origem.
 
-Esta evidência não significa que todo o MFIT esteja encerrado: a captura de origem foi feita em 2026-08-26. Oito planos de dois clientes permanecem bloqueados porque só existe correspondência por nome, e 192 planos pertencem a pessoas sem correspondência na base ativa do SETT usada nesta auditoria.
+Esta evidência não significa que todo o MFIT esteja encerrado: a captura de origem foi feita em 2026-08-26. Oito planos de dois clientes permanecem bloqueados porque só existe correspondência por nome, e 192 planos pertencem a pessoas sem correspondência na base ativa do SETT usada nesta auditoria. Uma revisão logada dos dois cadastros no MFIT em 2026-08-27 confirmou que os campos de e-mail e WhatsApp estão vazios na própria origem.
 
 ## Resultado do lote novo
 
@@ -46,7 +46,7 @@ A reconciliação global também foi repetida duas vezes:
 
 ## Gates que continuam fechados
 
-1. Não importar os 8 planos com correspondência apenas por nome. Próximo passo: confirmar telefone ou e-mail dos dois clientes na origem ou obter uma evidência independente de identidade.
+1. Não importar os 8 planos com correspondência apenas por nome. O MFIT não possui telefone nem e-mail nesses dois cadastros; próximo passo: obter evidência independente de identidade e só então reconciliar os registros no SETT.
 2. Não declarar a migração integralmente encerrada com uma captura MFIT de 2026-08-26. Próximo passo: gerar uma captura nova e repetir a reconciliação global.
 3. Curar vídeo, equipamento e metadados dos três exercícios criados. Isso não bloqueia a fidelidade do treino, mas permanece como acabamento de biblioteca.
 
