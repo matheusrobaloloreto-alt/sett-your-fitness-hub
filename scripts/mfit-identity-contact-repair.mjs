@@ -143,11 +143,22 @@ async function updateStudentCas(db, companyId, decision) {
   return rows[0];
 }
 
-async function updateChatCas(db, companyId, decision) {
+async function ensureChatLinked(db, companyId, decision) {
+  const currentRows = must(await db.from("whatsapp_chats")
+    .select("id,company_id,student_id,remote_jid,contact_name,updated_at")
+    .eq("id", decision.chat.id).eq("company_id", companyId), "chat_recheck");
+  if (currentRows.length !== 1) throw new Error("chat_recheck_failed");
+  const current = currentRows[0];
+  if (current.remote_jid !== decision.chat.remote_jid
+    || normalizeName(current.contact_name) !== normalizeName(decision.chat.contact_name)) {
+    throw new Error("chat_identity_changed_before_apply");
+  }
+  if (current.student_id === decision.student.id) return current;
+  if (current.student_id !== decision.chat.student_id) throw new Error("chat_link_changed_before_apply");
   let query = db.from("whatsapp_chats").update({ student_id: decision.student.id })
-    .eq("id", decision.chat.id).eq("company_id", companyId).eq("updated_at", decision.chat.updated_at)
-    .eq("remote_jid", decision.chat.remote_jid);
-  query = applyOriginal(query, "student_id", decision.chat.student_id);
+    .eq("id", decision.chat.id).eq("company_id", companyId).eq("updated_at", current.updated_at)
+    .eq("remote_jid", current.remote_jid);
+  query = applyOriginal(query, "student_id", current.student_id);
   const rows = must(await query.select("id,company_id,student_id,remote_jid,contact_name,updated_at"), "chat_compare_and_swap");
   if (rows.length !== 1) throw new Error("chat_compare_and_swap_failed");
   return rows[0];
@@ -156,18 +167,29 @@ async function updateChatCas(db, companyId, decision) {
 async function rollbackCompleted(db, companyId, completed) {
   const failures = [];
   for (const item of [...completed].reverse()) {
-    if (item.chatAfter) {
-      const chatResult = await db.from("whatsapp_chats").update({ student_id: item.decision.chat.student_id })
-        .eq("id", item.decision.chat.id).eq("company_id", companyId)
-        .eq("student_id", item.decision.student.id).select("id");
-      if (chatResult.error || chatResult.data?.length !== 1) failures.push("chat");
-    }
     const studentResult = await db.from("students").update({
       phone: item.decision.student.phone,
       whatsapp: item.decision.student.whatsapp,
     }).eq("id", item.decision.student.id).eq("company_id", companyId)
       .eq("phone", item.decision.e164Phone).eq("whatsapp", item.decision.e164Phone).select("id");
     if (studentResult.error || studentResult.data?.length !== 1) failures.push("student");
+    const currentChatResult = await db.from("whatsapp_chats").select("id,student_id")
+      .eq("id", item.decision.chat.id).eq("company_id", companyId);
+    if (currentChatResult.error || currentChatResult.data?.length !== 1) {
+      failures.push("chat_read");
+      continue;
+    }
+    const currentChat = currentChatResult.data[0];
+    if (currentChat.student_id === item.decision.chat.student_id) continue;
+    if (currentChat.student_id !== item.decision.student.id) {
+      failures.push("chat_conflict");
+      continue;
+    }
+    let chatRollback = db.from("whatsapp_chats").update({ student_id: item.decision.chat.student_id })
+      .eq("id", item.decision.chat.id).eq("company_id", companyId)
+      .eq("student_id", item.decision.student.id);
+    const chatResult = await chatRollback.select("id");
+    if (chatResult.error || chatResult.data?.length !== 1) failures.push("chat");
   }
   if (failures.length) throw new Error("repair_failed_rollback_incomplete");
 }
@@ -237,7 +259,7 @@ async function main(argv = process.argv.slice(2)) {
       decisions.filter(({ decision }) => decision.status === "ready"),
       {
         updateStudent: (decision) => updateStudentCas(db, options.companyId, decision),
-        updateChat: (decision) => updateChatCas(db, options.companyId, decision),
+        updateChat: (decision) => ensureChatLinked(db, options.companyId, decision),
         rollback: (rows) => rollbackCompleted(db, options.companyId, rows),
       },
     );
