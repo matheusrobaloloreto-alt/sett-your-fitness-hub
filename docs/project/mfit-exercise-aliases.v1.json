@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "2026-08-26-biomechanical-qa-v3",
+  "version": "2026-08-27-biomechanical-qa-v4",
   "contains_pii": false,
   "execution_scope": "dry_run_only_until_full_coverage_and_independent_QA",
   "source_snapshot": {
@@ -14,7 +14,7 @@
     "target_guard": "runtime requires exact visible exercise id and normalized target name"
   },
   "summary": {
-    "approved_aliases": 76,
+    "approved_aliases": 77,
     "pending_medium": 0,
     "blocked_low": 27,
     "blocked_no_candidate": 61,
@@ -172,6 +172,18 @@
       "confidence": "high",
       "occurrences": 6,
       "rationale": "Movimento, equipamento e posição preservados."
+    },
+    {
+      "source_name": "Desenvolvimento Máquina (Pegada Neutra)",
+      "target_exercise_id": "7f9fbd65-d234-4b84-b198-faca46343915",
+      "target_name": "Desenvolvimento Neutro Máquina",
+      "status": "approved",
+      "confidence": "high",
+      "occurrences": 1,
+      "rationale": "Movimento de empurrar vertical, máquina, grupo de ombro e pegada neutra preservados; evita a substituição inadequada por halteres.",
+      "independent_review_status": "approved",
+      "approved_after_visual_review": true,
+      "evidence_source": "mfit_alias_qa_2026-08-27"
     },
     {
       "source_name": "Desenvolvimento no Smith",

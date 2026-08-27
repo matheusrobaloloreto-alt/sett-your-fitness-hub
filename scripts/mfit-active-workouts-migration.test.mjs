@@ -3191,7 +3191,7 @@ test("versioned exact-duplicate overrides stay explicit, reviewed and traceable"
   const queuePayload = JSON.parse(queueText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 76);
+  assert.equal(aliasPayload.summary.approved_aliases, 77);
   assert.equal(aliasPayload.summary.runtime_false_medium, 21);
   assert.equal(aliasPayload.summary.blocked_after_visual_review, 21);
   assert.equal(aliasPayload.summary.approved_pending_materialization, 0);
@@ -3611,7 +3611,7 @@ test("final low and no-candidate QA materialization stays narrow and auditable",
   const ledgerPayload = JSON.parse(ledgerText);
   const aliasIndex = buildExerciseAliasIndex(aliasPayload);
 
-  assert.equal(aliasPayload.summary.approved_aliases, 76);
+  assert.equal(aliasPayload.summary.approved_aliases, 77);
   assert.equal(aliasPayload.summary.blocked_low, 27);
   assert.equal(aliasPayload.summary.blocked_no_candidate, 61);
   assert.equal(aliasPayload.summary.unresolved_total, 109);
@@ -3731,7 +3731,7 @@ test("linked own-video aliases require exact reviewed targets and sanitized evid
     },
   ];
 
-  assert.equal(aliasPayload.summary.approved_aliases, 76);
+  assert.equal(aliasPayload.summary.approved_aliases, 77);
   assert.equal(aliasPayload.summary.blocked_no_candidate, 61);
   assert.equal(aliasPayload.summary.unresolved_total, 109);
   assert.equal(evidencePayload.schema_version, 1);
