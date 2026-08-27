@@ -24,7 +24,7 @@ const deterministicWatermarkFix = readFileSync(
   "utf8",
 ).toLowerCase();
 const legacyTokenRequarantine = readFileSync(
-  resolve(process.cwd(), "supabase/migrations/20260826203000_requarantine_wearable_legacy_tokens.sql"),
+  resolve(process.cwd(), "supabase/migrations/20260826231737_requarantine_wearable_legacy_tokens.sql"),
   "utf8",
 ).toLowerCase();
 const oauthMigration = readFileSync(

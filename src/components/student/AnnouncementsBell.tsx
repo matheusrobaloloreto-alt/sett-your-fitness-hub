@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
-import { Megaphone } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { Loader2, Megaphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AnnouncementsFeed, getUnreadAnnouncementCount } from "./AnnouncementsFeed";
+import { getUnreadAnnouncementCount } from "@/lib/studentAnnouncements";
+
+const AnnouncementsFeed = lazy(() => import("./AnnouncementsFeed").then((module) => ({ default: module.AnnouncementsFeed })));
 
 /**
  * Sino de avisos no topo: ícone discreto com bolinha vermelha quando há avisos não lidos.
@@ -32,7 +34,11 @@ export function AnnouncementsBell({ studentId, companyId }: { studentId: string;
       </PopoverTrigger>
       <PopoverContent align="end" className="max-h-[70vh] w-[min(92vw,380px)] overflow-y-auto p-3">
         <p className="mb-2 font-mono-data text-xs font-semibold uppercase tracking-wide text-primary">Avisos</p>
-        <AnnouncementsFeed studentId={studentId} companyId={companyId} />
+        {open && (
+          <Suspense fallback={<div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>}>
+            <AnnouncementsFeed studentId={studentId} companyId={companyId} />
+          </Suspense>
+        )}
       </PopoverContent>
     </Popover>
   );

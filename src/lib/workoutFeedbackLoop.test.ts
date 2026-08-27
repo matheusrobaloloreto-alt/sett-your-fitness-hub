@@ -8,10 +8,10 @@ import {
 } from "../../supabase/functions/_shared/student-workout-feedback";
 import { normalizeWhatsAppPhoneKey } from "../../supabase/functions/_shared/whatsappIdentity";
 
-const MIGRATION = "supabase/migrations/20260824120000_workout_feedback_trainer_replies.sql";
+const MIGRATION = "supabase/migrations/20260824114442_workout_feedback_trainer_replies.sql";
 const EDGE = "supabase/functions/student-workout-feedback/index.ts";
 const SHARED = "supabase/functions/_shared/student-workout-feedback.ts";
-const IDEMPOTENCY_MIGRATION = "supabase/migrations/20260825150000_workout_feedback_session_idempotency.sql";
+const IDEMPOTENCY_MIGRATION = "supabase/migrations/20260825180817_workout_feedback_session_idempotency.sql";
 
 const read = (path: string) => readFileSync(path, "utf8");
 

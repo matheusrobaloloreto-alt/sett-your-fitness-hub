@@ -71,6 +71,7 @@ assert.match(edge, /async function coverage[\s\S]*?fetchLibraryRows\(/, "cobertu
 const cli = read("scripts/video-ingest.mjs");
 assert.match(cli, /idsPublicados\.add\(item\.id\)/, "CLI não registra commits individuais concluídos");
 assert.match(cli, /stagingNamesForSuccessfulCommits\(processedStaging, idsPublicados\)/, "CLI pode limpar staging sem commit individual");
+assert.match(cli, /ausente\(s\) da biblioteca/, "CLI não distingue roteiro pendente de exercício ausente da biblioteca");
 
 const hostingHeaders = read("public/_headers");
 assert.match(hostingHeaders, /\/gravacao\/\*/, "rota de gravação sem headers dedicados");

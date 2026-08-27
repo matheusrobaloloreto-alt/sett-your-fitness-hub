@@ -106,11 +106,17 @@ if (PRUNE_LEDGER) {
 if (STATUS) {
   const cov = await call({ action: "coverage" });
   const lib = (await call({ action: "list" })).items;
+  const libraryIds = new Set(lib.map((exercise) => exercise.id));
   const comVideo = new Set(lib.filter((e) => e.video_path).map((e) => e.id));
   const faltam = Object.entries(codeMap).filter(([, v]) => !comVideo.has(v.id));
+  const ausentes = Object.entries(codeMap).filter(([, v]) => !libraryIds.has(v.id));
   console.log(`\nCobertura: ${cov.proprio}/${cov.total} com vídeo próprio`);
   console.log(`  MFIT: ${cov.mfit} · YouTube: ${cov.youtube} · sem vídeo: ${cov.sem_video}`);
   console.log(`\nAinda faltam gravar/importar: ${faltam.length}`);
+  if (ausentes.length) {
+    console.log(`  Atenção: ${ausentes.length} entrada(s) do roteiro estão ausente(s) da biblioteca:`);
+    for (const [cod, v] of ausentes) console.log(`    ${cod} ${v.nome}`);
+  }
   for (const [cod, v] of faltam.slice(0, 20)) console.log(`  ${cod} ${v.nome}`);
   if (faltam.length > 20) console.log(`  ... e mais ${faltam.length - 20}`);
   process.exit(0);

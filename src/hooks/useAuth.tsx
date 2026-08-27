@@ -38,46 +38,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const roleFetchedFor = useRef<string | null>(null);
+  const roleFetchInFlight = useRef<{ userId: string; promise: Promise<void> } | null>(null);
 
   const fetchRoleAndCompany = async (userId: string) => {
-    try {
-      const [roleRes, companyRes] = await Promise.all([
-        supabase.rpc("get_user_role", { _user_id: userId }),
-        supabase.from("company_members").select("company_id").eq("user_id", userId).limit(1),
-      ]);
-
-      let resolvedRole = (roleRes.data as AppRole) || null;
-
-      if (roleRes.error || !resolvedRole) {
-        if (roleRes.error) {
-          console.warn("Failed to resolve role via RPC, falling back to user_roles:", roleRes.error.message);
-        }
-
-        const fallbackRes = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", userId);
-
-        if (fallbackRes.error) {
-          console.error("Failed to resolve role from user_roles:", fallbackRes.error.message);
-        } else {
-          resolvedRole = resolvePrimaryRole((fallbackRes.data || []).map((row) => row.role));
-        }
-      }
-
-      if (companyRes.error) {
-        console.warn("Failed to resolve company membership:", companyRes.error.message);
-      }
-
-      setRole(resolvedRole);
-      setCompanyId(companyRes.data?.[0]?.company_id || null);
-      roleFetchedFor.current = userId;
-    } catch (err) {
-      console.error("Failed to fetch role/company:", err);
-      setRole(null);
-      setCompanyId(null);
+    if (roleFetchedFor.current === userId) {
+      setLoading(false);
+      return;
     }
-    setLoading(false);
+    if (roleFetchInFlight.current?.userId === userId) {
+      await roleFetchInFlight.current.promise;
+      return;
+    }
+
+    const request = (async () => {
+      try {
+        const [roleRes, companyRes] = await Promise.all([
+          supabase.rpc("get_user_role", { _user_id: userId }),
+          supabase.from("company_members").select("company_id").eq("user_id", userId).limit(1),
+        ]);
+
+        let resolvedRole = (roleRes.data as AppRole) || null;
+
+        if (roleRes.error || !resolvedRole) {
+          if (roleRes.error) {
+            console.warn("Failed to resolve role via RPC, falling back to user_roles:", roleRes.error.message);
+          }
+
+          const fallbackRes = await supabase
+            .from("user_roles")
+            .select("role")
+            .eq("user_id", userId);
+
+          if (fallbackRes.error) {
+            console.error("Failed to resolve role from user_roles:", fallbackRes.error.message);
+          } else {
+            resolvedRole = resolvePrimaryRole((fallbackRes.data || []).map((row) => row.role));
+          }
+        }
+
+        if (companyRes.error) {
+          console.warn("Failed to resolve company membership:", companyRes.error.message);
+        }
+
+        setRole(resolvedRole);
+        setCompanyId(companyRes.data?.[0]?.company_id || null);
+        roleFetchedFor.current = userId;
+      } catch (err) {
+        console.error("Failed to fetch role/company:", err);
+        setRole(null);
+        setCompanyId(null);
+      }
+      setLoading(false);
+    })();
+
+    roleFetchInFlight.current = { userId, promise: request };
+    try {
+      await request;
+    } finally {
+      if (roleFetchInFlight.current?.promise === request) roleFetchInFlight.current = null;
+    }
   };
 
   useEffect(() => {
@@ -116,6 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setRole(null);
     setCompanyId(null);
     roleFetchedFor.current = null;
+    roleFetchInFlight.current = null;
   };
 
   return (

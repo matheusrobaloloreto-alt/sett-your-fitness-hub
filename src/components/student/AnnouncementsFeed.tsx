@@ -151,17 +151,3 @@ export function AnnouncementsFeed({ studentId, companyId }: Props) {
     </div>
   );
 }
-
-export async function getUnreadAnnouncementCount(studentId: string, companyId: string): Promise<number> {
-  const { data: ann } = await supabase
-    .from("announcements")
-    .select("id")
-    .eq("company_id", companyId);
-  if (!ann || ann.length === 0) return 0;
-  const { data: reads } = await supabase
-    .from("announcement_reads")
-    .select("announcement_id")
-    .eq("student_id", studentId);
-  const readSet = new Set((reads || []).map(r => r.announcement_id));
-  return ann.filter(a => !readSet.has(a.id)).length;
-}

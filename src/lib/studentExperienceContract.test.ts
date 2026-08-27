@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 const homeSource = readFileSync("src/components/student/StudentHome.tsx", "utf8");
 const checkinSource = readFileSync("src/components/student/CheckinCard.tsx", "utf8");
 const portalSource = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");
+const announcementsBellSource = readFileSync("src/components/student/AnnouncementsBell.tsx", "utf8");
 const bnitoSource = readFileSync("src/components/StudentBnitoAssistant.tsx", "utf8");
 const workoutSessionSource = readFileSync("src/hooks/useWorkoutSession.ts", "utf8");
 
@@ -30,6 +31,13 @@ describe("student-first experience contract", () => {
     expect(homeSource).not.toContain("achievementsPanel");
     expect(portalSource).toContain("studentId && totalSessions > 0");
     expect(portalSource).toContain("<MonthlyLeaderboard companyId={companyId} />");
+  });
+
+  it("keeps removed history code out of the portal and defers the announcement feed", () => {
+    expect(portalSource).not.toContain('activeView === "historico"');
+    expect(portalSource).not.toContain("const StudentHistory = lazy");
+    expect(announcementsBellSource).toContain('lazy(() => import("./AnnouncementsFeed")');
+    expect(announcementsBellSource).not.toContain('import { AnnouncementsFeed, getUnreadAnnouncementCount }');
   });
 
   it("uses explicit readiness labels instead of emoji-only scales", () => {

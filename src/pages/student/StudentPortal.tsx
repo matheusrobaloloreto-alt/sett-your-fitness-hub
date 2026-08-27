@@ -63,7 +63,6 @@ const NutritionPlanView = lazy(() => import("@/components/student/NutritionPlanV
 const CardioPlanView = lazy(() => import("@/components/student/CardioPlanView").then((module) => ({ default: module.CardioPlanView })));
 const WearableIntegrations = lazy(() => import("@/components/student/WearableIntegrations").then((module) => ({ default: module.WearableIntegrations })));
 const StudentCalendar = lazy(() => import("@/components/student/StudentCalendar").then((module) => ({ default: module.StudentCalendar })));
-const StudentHistory = lazy(() => import("@/components/student/StudentHistory").then((module) => ({ default: module.StudentHistory })));
 const AchievementsPanel = lazy(() => import("@/components/student/AchievementsPanel").then((module) => ({ default: module.AchievementsPanel })));
 const MonthlyLeaderboard = lazy(() => import("@/components/student/MonthlyLeaderboard").then((module) => ({ default: module.MonthlyLeaderboard })));
 const ExternalActivitiesList = lazy(() => import("@/components/student/ExternalActivitiesList").then((module) => ({ default: module.ExternalActivitiesList })));
@@ -71,7 +70,7 @@ const AnnouncementsFeed = lazy(() => import("@/components/student/AnnouncementsF
 const BodyMeasurements = lazy(() => import("@/components/student/BodyMeasurements").then((module) => ({ default: module.BodyMeasurements })));
 
 
-type ActiveView = "home" | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
+type ActiveView = "home" | "treino" | "stats" | "calendario" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
 const MAX_EXTRA_SETS = 5;
 const STALE_ACTIVE_SESSION_MESSAGE = "Há uma sessão ativa que não está mais na sua ficha. Encerre essa sessão antes de iniciar outro treino.";
 
@@ -1044,7 +1043,6 @@ export default function StudentPortal() {
     treino: "TREINO",
     stats: "ESTATÍSTICAS",
     calendario: "CALENDÁRIO",
-    historico: "HISTÓRICO",
     atividades: "ATIVIDADES",
     avisos: "AVISOS",
     medidas: "MEDIDAS",
@@ -1446,16 +1444,6 @@ export default function StudentPortal() {
             cycleEndDate={selectedCycle.end_date}
             workoutSessions={workoutSessions}
             goals={studentGoals}
-          />
-        )}
-
-        {/* HISTORICO VIEW */}
-        {activeView === "historico" && (
-          <StudentHistory
-            allLogs={allLogs}
-            workouts={cycles.flatMap(c => c.workouts.map(w => ({ id: w.id, title: w.title })))}
-            sessions={workoutSessions}
-            feedbacks={workoutFeedbacks}
           />
         )}
 

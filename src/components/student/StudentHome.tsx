@@ -48,7 +48,7 @@ interface StudentHomeProps {
 }
 
 export type StudentNavView =
-  | "treino" | "stats" | "calendario" | "historico" | "atividades" | "avisos" | "medidas"
+  | "treino" | "stats" | "calendario" | "atividades" | "avisos" | "medidas"
   | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
 
 type NavItem = { view: StudentNavView; label: string; icon: typeof Dumbbell; sub?: string };
