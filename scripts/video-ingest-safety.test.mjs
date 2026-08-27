@@ -13,6 +13,7 @@ import {
   decideVideoIngestSafety,
   inspectVideoSource,
   localStagingFileName,
+  partitionRecordingRoster,
   selectLatestStagingItems,
   stagingCodeFromName,
   stagingNamesForSuccessfulCommits,
@@ -55,6 +56,22 @@ test("a limpeza remove somente o take processado cujo commit individual passou",
 
 test("nomes remotos fora do contrato não viram caminho local", () => {
   assert.throws(() => localStagingFileName("../../take.mp4"), /inválido/i);
+});
+
+test("cobertura separa gravação pendente de ID antigo ausente da biblioteca", () => {
+  const codeMap = {
+    "001": { id: "with-video", nome: "Com vídeo" },
+    "002": { id: "pending", nome: "Pendente" },
+    "003": { id: "stale", nome: "ID antigo" },
+  };
+  const result = partitionRecordingRoster(
+    codeMap,
+    new Set(["with-video", "pending"]),
+    new Set(["with-video"]),
+  );
+
+  assert.deepEqual(result.pending.map(([code]) => code), ["002"]);
+  assert.deepEqual(result.absent.map(([code]) => code), ["003"]);
 });
 
 test("canário final 360x480 H264/yuv420p segue publicável", () => {

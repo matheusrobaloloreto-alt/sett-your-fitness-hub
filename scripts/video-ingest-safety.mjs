@@ -151,3 +151,10 @@ export function stagingNamesForSuccessfulCommits(processed, successfulIds) {
   }
   return names;
 }
+
+export function partitionRecordingRoster(codeMap, libraryIds, videoIds) {
+  const entries = Object.entries(codeMap || {});
+  const absent = entries.filter(([, item]) => !libraryIds.has(item.id));
+  const pending = entries.filter(([, item]) => libraryIds.has(item.id) && !videoIds.has(item.id));
+  return { pending, absent };
+}

@@ -33,6 +33,7 @@ import {
   decideVideoIngestSafety,
   inspectVideoSource,
   localStagingFileName,
+  partitionRecordingRoster,
   selectLatestStagingItems,
   stagingCodeFromName,
   stagingNamesForSuccessfulCommits,
@@ -108,8 +109,7 @@ if (STATUS) {
   const lib = (await call({ action: "list" })).items;
   const libraryIds = new Set(lib.map((exercise) => exercise.id));
   const comVideo = new Set(lib.filter((e) => e.video_path).map((e) => e.id));
-  const faltam = Object.entries(codeMap).filter(([, v]) => !comVideo.has(v.id));
-  const ausentes = Object.entries(codeMap).filter(([, v]) => !libraryIds.has(v.id));
+  const { pending: faltam, absent: ausentes } = partitionRecordingRoster(codeMap, libraryIds, comVideo);
   console.log(`\nCobertura: ${cov.proprio}/${cov.total} com vídeo próprio`);
   console.log(`  MFIT: ${cov.mfit} · YouTube: ${cov.youtube} · sem vídeo: ${cov.sem_video}`);
   console.log(`\nAinda faltam gravar/importar: ${faltam.length}`);
