@@ -18,9 +18,10 @@ function isUnambiguousNorthAmericanE164(phoneKey: string): boolean {
   return /^1\d{10}$/.test(phoneKey) && phoneKey[2] !== "9";
 }
 
-function hasExplicitNorthAmericanCountryCode(value: unknown): boolean {
+function hasExplicitNonBrazilianCountryCode(value: unknown): boolean {
   const candidate = rawPhoneCandidate(value);
-  return Boolean(candidate && /^\+1(?:\D|$)/.test(candidate.trim()));
+  const compact = candidate?.replace(/[\s().-]/g, "") || "";
+  return /^\+(?!55)[1-9]\d{0,14}$/.test(compact);
 }
 
 export function normalizeWhatsAppPhoneKey(value: unknown): string | null {
@@ -35,6 +36,13 @@ export function normalizeWhatsAppPhoneKey(value: unknown): string | null {
     digits.startsWith("55") && (digits.length === 12 || digits.length === 13)
   ) {
     digits = digits.slice(2);
+  } else if (
+    digits.length >= 12 && digits.length <= 15 &&
+    (hasExplicitNonBrazilianCountryCode(value) || !digits.startsWith("0"))
+  ) {
+    // An explicit/fully-qualified international destination is already E.164.
+    // Preserve it instead of truncating it into a plausible Brazilian local number.
+    return digits;
   } else if (/^0\d{2}[1-9]{2}\d{8,9}$/.test(digits)) {
     // Brazilian carrier prefix: 0 + two-digit carrier + DDD + subscriber.
     digits = digits.slice(3);
@@ -65,6 +73,9 @@ export function directWhatsAppJidVariants(remoteJid: unknown): string[] {
   if (!phoneKey) return [raw];
 
   if (isUnambiguousNorthAmericanE164(phoneKey)) {
+    return [...new Set([raw, `${phoneKey}${DIRECT_JID_SUFFIX}`])];
+  }
+  if (phoneKey.length >= 12 && !phoneKey.startsWith("55")) {
     return [...new Set([raw, `${phoneKey}${DIRECT_JID_SUFFIX}`])];
   }
 
@@ -126,7 +137,7 @@ function canonicalStudentDirectJid(
       .map((value) => {
         const phoneKey = normalizeWhatsAppPhoneKey(value);
         if (!phoneKey) return null;
-        const international = hasExplicitNorthAmericanCountryCode(value) ||
+        const international = hasExplicitNonBrazilianCountryCode(value) ||
           isUnambiguousNorthAmericanE164(phoneKey);
         return `${
           international ? phoneKey : `55${phoneKey}`

@@ -23,6 +23,11 @@ verify_jwt = false
 # the project's current and asymmetric signing keys without trusting claims.
 verify_jwt = false
 
+[functions.update-strength-plan-draft]
+# Auth e vínculo de tenant são verificados dentro do handler; a versão do plano
+# é exigida para impedir que duas edições se sobrescrevam silenciosamente.
+verify_jwt = false
+
 [functions.ai-nutrition-plan]
 verify_jwt = false
 

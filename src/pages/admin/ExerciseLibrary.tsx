@@ -16,6 +16,7 @@ import { Plus, Search, Pencil, Trash2, Play, Globe, Building2, Upload, Loader2, 
 import { exerciseThumb } from "@/lib/exerciseCover";
 import { useMaster } from "@/contexts/MasterContext";
 import { buildExerciseTargetPayload, replaceExerciseMuscleTargets } from "@/lib/exerciseTargetConfig";
+import { resolveExerciseUploadScope } from "@/lib/exerciseUploadScope";
 
 interface Exercise {
   id: string;
@@ -79,6 +80,7 @@ export default function ExerciseLibrary() {
   const { user, role, companyId } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
+  const isMaster = role === "master";
   const muscleGroups = useMuscleGroups(effectiveCompanyId);
   const MUSCLE_GROUPS = muscleGroups.length > 0 ? muscleGroups.map((g) => g.name) : MUSCLE_GROUP_NAMES_FALLBACK;
   const { toast } = useToast();
@@ -91,7 +93,7 @@ export default function ExerciseLibrary() {
   const [videoModal, setVideoModal] = useState<{ type: "path" | "url"; value: string } | null>(null);
   const [form, setForm] = useState({
     name: "", description: "", muscle_group: "geral",
-    video_url: "", is_global: false,
+    video_url: "", is_global: isMaster,
   });
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -113,8 +115,6 @@ export default function ExerciseLibrary() {
   const [targetsByExercise, setTargetsByExercise] = useState<Record<string, MuscleTarget[]>>({});
   // Per-company volume overrides for the editing exercise: muscle_group_id -> volume_percentage
   const [companyVolumes, setCompanyVolumes] = useState<Record<string, number>>({});
-
-  const isMaster = role === "master";
 
   const loadExercises = useCallback(async () => {
     const { data, error } = await supabase
@@ -204,12 +204,29 @@ export default function ExerciseLibrary() {
       });
       return;
     }
+    let uploadScope;
+    try {
+      uploadScope = resolveExerciseUploadScope({
+        isMaster,
+        isEditing: Boolean(editing),
+        existingIsGlobal: editing?.is_global === true,
+        effectiveCompanyId,
+        companyId,
+      });
+    } catch (error) {
+      toast({
+        title: "Empresa não identificada",
+        description: error instanceof Error ? error.message : "Selecione uma empresa antes de salvar.",
+        variant: "destructive",
+      });
+      return;
+    }
     setUploading(true);
 
     let videoPath: string | null = editing?.video_path || null;
 
     if (videoFile) {
-      const uploadCompanyId = (isMaster && form.is_global) ? "global" : (effectiveCompanyId || companyId || "unknown");
+      const uploadCompanyId = uploadScope.storage_scope;
       const ext = videoFile.name.split(".").pop() || "mp4";
       const filePath = `${uploadCompanyId}/${crypto.randomUUID()}.${ext}`;
 
@@ -231,8 +248,8 @@ export default function ExerciseLibrary() {
       muscle_group: form.muscle_group,
       video_url: form.video_url || null,
       video_path: videoPath,
-      is_global: isMaster ? form.is_global : false,
-      company_id: (isMaster && form.is_global) ? null : (effectiveCompanyId || companyId),
+      is_global: uploadScope.is_global,
+      company_id: uploadScope.company_id,
       created_by: user!.id,
     };
 
@@ -325,6 +342,13 @@ export default function ExerciseLibrary() {
     setOpen(true);
   };
 
+  const openCreate = () => {
+    setEditing(null);
+    setForm({ name: "", description: "", muscle_group: "geral", video_url: "", is_global: isMaster });
+    setVideoFile(null);
+    setOpen(true);
+  };
+
   const resetForm = () => {
     setOpen(false);
     setEditing(null);
@@ -332,7 +356,7 @@ export default function ExerciseLibrary() {
     setPrimaryMuscleIds([]);
     setSecondaryMuscleIds([]);
     setCompanyVolumes({});
-    setForm({ name: "", description: "", muscle_group: "geral", video_url: "", is_global: false });
+    setForm({ name: "", description: "", muscle_group: "geral", video_url: "", is_global: isMaster });
   };
 
   const getEmbedUrl = (url: string) => {
@@ -363,7 +387,14 @@ export default function ExerciseLibrary() {
     if (!file || !ex) return;
     setUploadingId(ex.id);
     try {
-      const uploadCompanyId = ex.is_global ? "global" : (ex.company_id || effectiveCompanyId || companyId || "unknown");
+      const quickUploadScope = resolveExerciseUploadScope({
+        isMaster,
+        isEditing: true,
+        existingIsGlobal: ex.is_global,
+        effectiveCompanyId: ex.company_id || effectiveCompanyId,
+        companyId,
+      });
+      const uploadCompanyId = quickUploadScope.storage_scope;
       const ext = file.name.split(".").pop() || "mp4";
       const filePath = `${uploadCompanyId}/${crypto.randomUUID()}.${ext}`;
       const { error: upErr } = await supabase.storage.from("exercises-videos").upload(filePath, file);
@@ -619,8 +650,8 @@ export default function ExerciseLibrary() {
         difficulty: ex.difficulty || "intermediate",
         video_url: ex.video_url,
         thumbnail_url: ex.thumbnail_url,
-        is_global: isMaster && !effectiveCompanyId,
-        company_id: (isMaster && !effectiveCompanyId) ? null : (effectiveCompanyId || companyId),
+        is_global: isMaster,
+        company_id: isMaster ? null : (effectiveCompanyId || companyId),
         created_by: user!.id,
       }));
 
@@ -686,7 +717,7 @@ export default function ExerciseLibrary() {
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <Upload className="h-4 w-4 mr-2" />Importar MFIT
             </Button>
-            <Button onClick={() => setOpen(true)}>
+            <Button onClick={openCreate}>
               <Plus className="h-4 w-4 mr-2" />Novo Exercício
             </Button>
           </div>
@@ -1099,12 +1130,16 @@ export default function ExerciseLibrary() {
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={form.is_global}
-                  onChange={(e) => setForm({ ...form, is_global: e.target.checked })}
+                  checked={editing ? editing.is_global : true}
+                  disabled
                   className="h-4 w-4 rounded border-border"
                   id="is_global"
                 />
-                <Label htmlFor="is_global" className="font-sans">Exercício Global (visível para todas as empresas)</Label>
+                <Label htmlFor="is_global" className="font-sans">
+                  {editing?.is_global === false
+                    ? "Exercício privado existente (não será promovido automaticamente)"
+                    : "Base Global (visível para todas as empresas)"}
+                </Label>
               </div>
             )}
             <Button onClick={handleSave} className="w-full" disabled={uploading}>

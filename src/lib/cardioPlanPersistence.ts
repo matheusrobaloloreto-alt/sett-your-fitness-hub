@@ -93,3 +93,49 @@ export async function saveCardioPlanDraft(client: RunningPlanEdgeClient, input: 
   }
   return { id: data.id, updatedAt: data.updated_at, plan: data.plan };
 }
+
+type StrengthPlanDraft = Record<string, unknown>;
+
+export function captureGeneratedStrengthPlan(response: {
+  id?: string | null;
+  plan?: StrengthPlanDraft | null;
+  updated_at?: string | null;
+}) {
+  if (!response.id || !response.plan || !response.updated_at) {
+    throw new Error("A prescrição de musculação foi gerada sem ID ou versão persistida.");
+  }
+  return { planId: response.id, planVersion: response.updated_at, plan: response.plan };
+}
+
+type StrengthPlanEdgeClient = {
+  functions: {
+    invoke: (
+      functionName: "update-strength-plan-draft",
+      options: { body: { plan_id: string; expected_updated_at: string; plan: StrengthPlanDraft } },
+    ) => Promise<{
+      data: { id?: string; updated_at?: string; plan?: StrengthPlanDraft; error?: string } | null;
+      error: { message?: string; context?: Response } | null;
+    }>;
+  };
+};
+
+export async function saveStrengthPlanDraft(
+  client: StrengthPlanEdgeClient,
+  input: { planId: string; expectedUpdatedAt: string; plan: StrengthPlanDraft },
+) {
+  if (!input.planId || !input.expectedUpdatedAt) {
+    throw new Error("Plano e versão persistida são obrigatórios para salvar.");
+  }
+  const { data, error } = await client.functions.invoke("update-strength-plan-draft", {
+    body: {
+      plan_id: input.planId,
+      expected_updated_at: input.expectedUpdatedAt,
+      plan: input.plan,
+    },
+  });
+  if (error || data?.error) throw new Error(await edgeErrorMessage(error, data));
+  if (!data?.id || !data.updated_at || !data.plan) {
+    throw new Error("O servidor não confirmou a versão salva do plano.");
+  }
+  return { id: data.id, updatedAt: data.updated_at, plan: data.plan };
+}

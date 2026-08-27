@@ -4,6 +4,7 @@ import {
   buildAssessmentOnboardingMessage,
   buildPaymentLinkMessage,
   isoDate,
+  normalizeFunnelRemoteJid,
   sendFunnelWhatsAppMessage,
 } from "../../supabase/functions/_shared/sales-funnel.ts";
 
@@ -12,6 +13,13 @@ afterEach(() => {
 });
 
 describe("sales funnel", () => {
+  it("normalizes Brazilian and explicit foreign recipients without changing their country", () => {
+    expect(normalizeFunnelRemoteJid("11 99999-9999", "BR")).toBe("5511999999999@s.whatsapp.net");
+    expect(normalizeFunnelRemoteJid("14155552671", "US")).toBe("14155552671@s.whatsapp.net");
+    expect(normalizeFunnelRemoteJid("351912345678", "PT")).toBe("351912345678@s.whatsapp.net");
+    expect(normalizeFunnelRemoteJid("123", "US")).toBeNull();
+  });
+
   it("counts five business days without Saturday and Sunday", () => {
     const thursday = new Date("2026-07-30T12:00:00.000Z");
     expect(isoDate(addBusinessDays(thursday, 5))).toBe("2026-08-06");

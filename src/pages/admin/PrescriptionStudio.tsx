@@ -41,7 +41,12 @@ import { exerciseThumb, youtubeIdFromUrl } from "@/lib/exerciseCover";
 import { summarizeExerciseWeeklyProgression } from "@/lib/weeklyStrengthPeriodization";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CardioPlanEditor, type CardioPlanDraft } from "@/components/admin/CardioPlanEditor";
-import { captureGeneratedCardioPlan, saveCardioPlanDraft } from "@/lib/cardioPlanPersistence";
+import {
+  captureGeneratedCardioPlan,
+  captureGeneratedStrengthPlan,
+  saveCardioPlanDraft,
+  saveStrengthPlanDraft,
+} from "@/lib/cardioPlanPersistence";
 import {
   describeLongitudinalPhase,
   isCycleCurrent,
@@ -187,6 +192,10 @@ export default function PrescriptionStudio() {
   const [cardioPlanVersions, setCardioPlanVersions] = useState<Partial<Record<"corrida" | "natacao" | "ciclismo", string>>>({});
   const [savingCardio, setSavingCardio] = useState<Partial<Record<"corrida" | "natacao" | "ciclismo", boolean>>>({});
   const [savedCardio, setSavedCardio] = useState<Partial<Record<"corrida" | "natacao" | "ciclismo", boolean>>>({});
+  const [strengthPlanId, setStrengthPlanId] = useState<string | null>(null);
+  const [strengthPlanVersion, setStrengthPlanVersion] = useState<string | null>(null);
+  const [savingStrength, setSavingStrength] = useState(false);
+  const [savedStrength, setSavedStrength] = useState(false);
   const [generating, setGenerating]   = useState(false);
   const [error, setError]             = useState("");
   const [pdfs, setPdfs]               = useState<any[]>([]);
@@ -554,6 +563,7 @@ export default function PrescriptionStudio() {
     const st: Record<string, GenStatus> = {};
     modalities.forEach((modality) => { st[modality] = "idle"; });
     setStatus(st); setResults({}); setCardioPlanIds({}); setCardioPlanVersions({}); setSavingCardio({}); setSavedCardio({});
+    setStrengthPlanId(null); setStrengthPlanVersion(null); setSavedStrength(false);
     setPublished(null); setActiveBundleId(null); setResultCycleId(null);
 
     const firstTarget = scheduleTargets[0];
@@ -669,7 +679,10 @@ export default function PrescriptionStudio() {
           } });
           if (edgeError || data?.error) throw new Error((await readEdgeError(edgeError, data)) || `Falha na musculação do ciclo ${cycle.cycle_number}.`);
           if (!data?.id) throw new Error("A musculação foi gerada sem ID persistido.");
-          strengthPlanId = data.id; strengthPlan = data.plan; newResults.musculacao = data.plan;
+          const generatedStrength = captureGeneratedStrengthPlan(data);
+          strengthPlanId = generatedStrength.planId; strengthPlan = generatedStrength.plan; newResults.musculacao = generatedStrength.plan;
+          setStrengthPlanId(generatedStrength.planId);
+          setStrengthPlanVersion(generatedStrength.planVersion);
           await linkBundleItem("musculacao", "ai_strength_plan", data.id);
           const { error: linkError } = await db.from("prescription_bundles").update({ strength_plan_id: data.id }).eq("id", bundleId);
           if (linkError) throw new Error(`Falha ao ligar musculação: ${linkError.message}`);
@@ -834,6 +847,31 @@ export default function PrescriptionStudio() {
     }
   }
 
+  async function saveStrengthDraft() {
+    if (!strengthPlanId || !strengthPlanVersion || !editPlan) {
+      toast.error("Não encontrei a versão persistida da musculação. Gere a prescrição novamente.");
+      return;
+    }
+    setSavingStrength(true);
+    setSavedStrength(false);
+    try {
+      const saved = await saveStrengthPlanDraft(supabase, {
+        planId: strengthPlanId,
+        expectedUpdatedAt: strengthPlanVersion,
+        plan: editPlan,
+      });
+      setEditPlan(saved.plan);
+      setResults((current) => ({ ...current, musculacao: saved.plan }));
+      setStrengthPlanVersion(saved.updatedAt);
+      setSavedStrength(true);
+      toast.success("Alterações da musculação salvas.");
+    } catch (saveError) {
+      toast.error(saveError instanceof Error ? saveError.message : "Falha ao salvar a musculação.");
+    } finally {
+      setSavingStrength(false);
+    }
+  }
+
   // ── Publica o treino de força gerado para o app do aluno ────────────────
   async function publishToStudent() {
     if (!results.musculacao || !studentId || !companyId) return;
@@ -899,7 +937,10 @@ export default function PrescriptionStudio() {
 
   // Espelha o plano de força gerado num rascunho editável (publicar usa esta versão).
   useEffect(() => {
-    if (results.musculacao) { try { setEditPlan(JSON.parse(JSON.stringify(results.musculacao))); } catch { setEditPlan(results.musculacao); } }
+    if (results.musculacao) {
+      try { setEditPlan(JSON.parse(JSON.stringify(results.musculacao))); } catch { setEditPlan(results.musculacao); }
+      setShowEdit(true);
+    }
     else setEditPlan(null);
   }, [results.musculacao]);
   // Biblioteca de exercícios para o seletor ao adicionar exercício na edição.
@@ -1028,8 +1069,12 @@ export default function PrescriptionStudio() {
       </button>
     );
   };
+  const updateEditableStrengthPlan = (updater: (plan: any) => any) => {
+    setSavedStrength(false);
+    setEditPlan(updater);
+  };
   const updateExField = (wi: number, ei: number, field: string, value: any) =>
-    setEditPlan((p: any) => {
+    updateEditableStrengthPlan((p: any) => {
       if (!p) return p;
       const n = JSON.parse(JSON.stringify(p));
       const exercise = n.workouts?.[wi]?.exercises?.[ei];
@@ -1058,11 +1103,11 @@ export default function PrescriptionStudio() {
       return n;
     });
   const updateWName = (wi: number, value: string) =>
-    setEditPlan((p: any) => { if (!p) return p; const n = JSON.parse(JSON.stringify(p)); if (n.workouts?.[wi]) n.workouts[wi].name = value; return n; });
+    updateEditableStrengthPlan((p: any) => { if (!p) return p; const n = JSON.parse(JSON.stringify(p)); if (n.workouts?.[wi]) n.workouts[wi].name = value; return n; });
   const renumberExercises = (exercises: any[] = []) =>
     exercises.map((exercise, index) => ({ ...exercise, exercise_order: index + 1 }));
   const removeExercise = (wi: number, ei: number) =>
-    setEditPlan((p: any) => {
+    updateEditableStrengthPlan((p: any) => {
       if (!p) return p;
       const n = JSON.parse(JSON.stringify(p));
       if (n.workouts?.[wi]?.exercises) {
@@ -1072,7 +1117,7 @@ export default function PrescriptionStudio() {
       return n;
     });
   const moveExerciseTo = (wi: number, fromIndex: number, toIndex: number) =>
-    setEditPlan((p: any) => {
+    updateEditableStrengthPlan((p: any) => {
       if (!p) return p;
       const n = JSON.parse(JSON.stringify(p));
       const exercises = n.workouts?.[wi]?.exercises;
@@ -1084,15 +1129,15 @@ export default function PrescriptionStudio() {
       return n;
     });
   const addExercise = (wi: number) =>
-    setEditPlan((p: any) => {
+    updateEditableStrengthPlan((p: any) => {
       if (!p) return p; const n = JSON.parse(JSON.stringify(p));
       if (n.workouts?.[wi]) { n.workouts[wi].exercises = n.workouts[wi].exercises || []; n.workouts[wi].exercises.push({ exercise_name: "", sets: 3, reps: "10-12", rest_seconds: 60, cues: "", exercise_order: n.workouts[wi].exercises.length + 1 }); n.workouts[wi].exercises = renumberExercises(n.workouts[wi].exercises); }
       return n;
     });
   const removeWorkout = (wi: number) =>
-    setEditPlan((p: any) => { if (!p) return p; const n = JSON.parse(JSON.stringify(p)); n.workouts?.splice(wi, 1); return n; });
+    updateEditableStrengthPlan((p: any) => { if (!p) return p; const n = JSON.parse(JSON.stringify(p)); n.workouts?.splice(wi, 1); return n; });
   const addWorkout = () =>
-    setEditPlan((p: any) => {
+    updateEditableStrengthPlan((p: any) => {
       if (!p) return p; const n = JSON.parse(JSON.stringify(p)); n.workouts = n.workouts || [];
       n.workouts.push({ name: `Treino ${String.fromCharCode(65 + n.workouts.length)}`, day_of_week: n.workouts.length + 1, exercises: [] });
       return n;
@@ -1101,7 +1146,7 @@ export default function PrescriptionStudio() {
   const pickExercise = (lib: StudioLibraryExercise) => {
     if (!pickerTarget) return;
     const { wi, ei } = pickerTarget;
-    setEditPlan((p: any) => {
+    updateEditableStrengthPlan((p: any) => {
       if (!p) return p; const n = JSON.parse(JSON.stringify(p));
       const w = n.workouts?.[wi]; if (!w) return n;
       w.exercises = w.exercises || [];
@@ -1779,8 +1824,11 @@ export default function PrescriptionStudio() {
                     <div className="border rounded-lg p-3 mt-2 bg-slate-50/60">
                       <div className="flex items-center gap-3 flex-wrap">
                         <button type="button" onClick={() => setShowEdit(s => !s)} className="text-sm font-medium text-[#1B2B4A] underline">
-                          {showEdit ? "Ocultar edição" : "✏️ Revisar e editar o treino antes de enviar"}
+                          {showEdit ? "Ocultar ajuste da musculação" : "✏️ Ajustar musculação"}
                         </button>
+                        <Button type="button" size="sm" onClick={() => void saveStrengthDraft()} disabled={savingStrength || !strengthPlanId || !strengthPlanVersion}>
+                          {savingStrength ? "Salvando…" : savedStrength ? "Musculação salva" : "Salvar alterações de musculação"}
+                        </Button>
                         <button type="button" onClick={saveAsTemplate} disabled={savingTemplate}
                           className="text-xs text-[#8B7355] underline disabled:opacity-50">
                           {savingTemplate ? "Salvando…" : "💾 Salvar como template"}

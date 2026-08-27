@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  canMoveOperationalStudentToStage,
+  canReconcileActiveStage,
   funnelStageProgress,
   normalizeLeadSalesStage,
   normalizeSalesStage,
@@ -8,9 +10,27 @@ import {
 } from "./salesFunnelView";
 
 describe("salesFunnelView", () => {
-  it("prioritizes explicit sales_stage over legacy student status", () => {
+  it("permite corrigir no kanban um aluno operacionalmente ativo sem liberar um pendente", () => {
+    expect(canReconcileActiveStage("active")).toBe(true);
+    expect(canReconcileActiveStage("awaiting_renewal")).toBe(true);
+    expect(canReconcileActiveStage("pending")).toBe(false);
+  });
+
+  it("não deixa o Kanban rebaixar uma matrícula operacionalmente ativa", () => {
+    expect(canMoveOperationalStudentToStage("active", "active")).toBe(true);
+    expect(canMoveOperationalStudentToStage("active", "active_onboarding")).toBe(true);
+    expect(canMoveOperationalStudentToStage("active", "payment_pending")).toBe(false);
+    expect(canMoveOperationalStudentToStage("awaiting_renewal", "interested")).toBe(false);
+    expect(canMoveOperationalStudentToStage("pending", "payment_pending")).toBe(true);
+  });
+  it("keeps explicit pre-active stages for non-active students", () => {
     expect(normalizeSalesStage({ status: "pending", sales_stage: "fiscal_registration_pending" })).toBe("fiscal_registration_pending");
     expect(normalizeSalesStage({ status: "active", sales_stage: "active_onboarding" })).toBe("active_onboarding");
+  });
+
+  it("does not show an active student in a stale pre-registration stage", () => {
+    expect(normalizeSalesStage({ status: "active", sales_stage: "payment_pending" })).toBe("active");
+    expect(normalizeSalesStage({ status: "awaiting_renewal", sales_stage: "contacted" })).toBe("active");
   });
 
   it("maps legacy status to the current sales funnel", () => {

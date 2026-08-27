@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   daysUntilCycleEnd,
+  collapseOverlappingCyclesForDisplay,
   isCycleCurrent,
   longitudinalPhase,
   scheduleSpanWeeks,
   selectCurrentCyclePerEnrollment,
+  selectPreferredVisibleCycle,
   selectPrescriptionEnrollment,
   selectPrescriptionTargets,
   selectSequentialScheduleCycles,
@@ -77,6 +79,26 @@ describe("prescriptionSchedule", () => {
       .toEqual(["cycle-6", "cycle-1"]);
   });
 
+  it("mostra ao professor o mesmo ciclo materializado que o aluno vê quando o ativo está vazio", () => {
+    const overlapping = [
+      cycle(5, "2026-07-01", "2026-08-30", { status: "active", has_workouts: false, has_bundle: false }),
+      cycle(11, "2026-07-01", "2026-08-31", { status: "pending", has_workouts: true }),
+    ];
+
+    expect(selectCurrentCyclePerEnrollment(overlapping, today).map((item) => item.id))
+      .toEqual(["cycle-11"]);
+  });
+
+  it("usa uma única regra para o ciclo visível ao professor e ao aluno", () => {
+    const candidates = [
+      cycle(5, "2026-07-01", "2026-08-30", { status: "active", has_workouts: false }),
+      cycle(11, "2026-07-01", "2026-08-31", { status: "pending", has_workouts: true }),
+      cycle(12, "2026-09-01", "2026-10-12", { status: "pending", has_workouts: true }),
+    ];
+
+    expect(selectPreferredVisibleCycle(candidates, today)?.id).toBe("cycle-11");
+  });
+
   it("mantém o Studio na matrícula vigente e não mistura ciclos de matrículas antigas", () => {
     expect(selectPrescriptionEnrollment([
       { id: "inactive", status: "inactive", created_at: "2026-07-30" },
@@ -99,5 +121,16 @@ describe("prescriptionSchedule", () => {
     const selected = selectSequentialScheduleCycles(corrupted);
     expect(selected.map((item) => item.cycle_number)).toEqual([1, 2, 3, 6]);
     expect(scheduleSpanWeeks(selected)).toBe(20);
+  });
+
+  it("colapsa duplicatas MFIT quase idênticas apenas na visualização do perfil", () => {
+    const duplicated = [
+      cycle(5, "2026-07-27", "2026-09-06", { status: "active", has_workouts: true }),
+      cycle(11, "2026-07-27", "2026-09-07", { status: "pending", has_workouts: true }),
+      cycle(12, "2026-11-30", "2027-12-11", { status: "pending", has_workouts: true }),
+    ];
+
+    expect(collapseOverlappingCyclesForDisplay(duplicated).map((item) => item.id))
+      .toEqual(["cycle-5", "cycle-12"]);
   });
 });

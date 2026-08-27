@@ -3,6 +3,7 @@ import { resolveAnamnesisDurations } from "../_shared/anamnesis-duration.ts";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
 import { preRegistrationResponseDeadline } from "../_shared/pre-registration-confirmation.ts";
 import { validatePreRegistrationSubmission } from "../_shared/pre-registration-validation.ts";
+import { fiscalRegistrationValidation, normalizeCountryCode } from "../_shared/fiscal-registration.ts";
 import {
   buildFiscalRegistrationMessage,
   buildPaymentLinkMessage,
@@ -162,20 +163,6 @@ function buildNutritionContext(body: Record<string, unknown>) {
     body.gi_sensitivities && `Desconfortos digestivos: ${cleanLongText(body.gi_sensitivities, 200)}`,
     body.fueling_strategy && `Nutrição em treino/prova longa: ${cleanLongText(body.fueling_strategy, 200)}`,
   ].filter(Boolean).join(" | ");
-}
-
-function fiscalValidation(student: Record<string, unknown>): string[] {
-  const missing: string[] = [];
-  if (!normalizeEmail(student.email) || !normalizeEmail(student.email).includes("@")) missing.push("e-mail válido");
-  if (![11, 14].includes(onlyDigits(student.cpf).length)) missing.push("CPF/CNPJ");
-  if (onlyDigits(student.cep).length !== 8) missing.push("CEP");
-  if (onlyDigits(student.whatsapp || student.phone).length < 10) missing.push("WhatsApp");
-  if (!cleanText(student.address)) missing.push("rua");
-  if (!cleanText(student.address_number)) missing.push("número");
-  if (!cleanText(student.neighborhood)) missing.push("bairro");
-  if (!cleanText(student.city)) missing.push("cidade");
-  if (cleanText(student.state).length !== 2) missing.push("estado");
-  return missing;
 }
 
 async function findExistingStudent(companyId: string, student: Record<string, unknown>) {
@@ -560,7 +547,7 @@ async function createRegistrationLink(req: Request, studentId: unknown) {
   const tenant = await requireStaff(req, studentId);
   const { data: student, error: studentError } = await supabase
     .from("students")
-    .select("id, full_name, status, sales_stage, phone, whatsapp")
+    .select("id, full_name, status, sales_stage, phone, whatsapp, country_code")
     .eq("id", studentId)
     .eq("company_id", tenant.companyId)
     .maybeSingle();
@@ -615,6 +602,7 @@ async function sendRegistrationLink(req: Request, studentId: unknown, attemptId?
     full_name: string;
     phone: string | null;
     whatsapp: string | null;
+    country_code: string | null;
   };
   const registrationUrl = `${APP_URL}/cadastro-fiscal/${registration.token}`;
   const phoneCandidates = [student.phone, student.whatsapp]
@@ -628,6 +616,7 @@ async function sendRegistrationLink(req: Request, studentId: unknown, attemptId?
     companyId: registration.company_id,
     fullName: student.full_name,
     phone: phoneCandidates[0] || null,
+    countryCode: student.country_code,
     text: buildFiscalRegistrationMessage(student.full_name, registrationUrl),
     eventType: "fiscal_registration_link_sent",
     eventKey: `fiscal_registration_link_sent:${eventAttempt}`,
@@ -670,7 +659,7 @@ async function createPaymentLink(studentId: string, companyId: string) {
 
 const allowedStudentFields = [
   "birth_date", "email", "phone", "cpf", "cep", "address", "address_number",
-  "neighborhood", "city", "state", "whatsapp",
+  "neighborhood", "city", "state", "whatsapp", "country_code",
 ] as const;
 
 function fiscalPayload(student: Record<string, unknown>) {
@@ -684,15 +673,16 @@ function fiscalPayload(student: Record<string, unknown>) {
   payload.whatsapp = onlyDigits(student.whatsapp || student.phone);
   payload.phone = onlyDigits(student.phone || student.whatsapp);
   payload.state = cleanText(student.state).toUpperCase();
+  payload.country_code = normalizeCountryCode(student.country_code);
   return payload;
 }
 
 async function completeFiscalRegistration(link: RegistrationLink, studentInput: Record<string, unknown>) {
-  const missing = fiscalValidation(studentInput);
+  const missing = fiscalRegistrationValidation(studentInput);
   if (missing.length) throw new HttpError(422, `Complete os dados fiscais: ${missing.join(", ")}.`);
 
   const { data: currentStudent, error: studentError } = await supabase.from("students")
-    .select("id, full_name, status, whatsapp, phone")
+    .select("id, full_name, status, whatsapp, phone, country_code")
     .eq("id", link.student_id)
     .eq("company_id", link.company_id)
     .maybeSingle();
@@ -726,6 +716,7 @@ async function completeFiscalRegistration(link: RegistrationLink, studentInput: 
     companyId: link.company_id,
     fullName: currentStudent.full_name,
     phone,
+    countryCode: String(payload.country_code || currentStudent.country_code || "BR"),
     text: buildPaymentLinkMessage(currentStudent.full_name, paymentUrl),
     eventType: "payment_link_sent",
     eventKey: `payment_link_sent:${paymentLink.id}`,
@@ -751,7 +742,7 @@ async function legacyRegistration(companyId: string, student: Record<string, unk
   const { data: company } = await supabase.from("companies")
     .select("id").eq("id", companyId).eq("is_active", true).maybeSingle();
   if (!company) throw new HttpError(400, "Empresa inválida.");
-  const missing = fiscalValidation(student);
+  const missing = fiscalRegistrationValidation(student);
   if (missing.length) throw new HttpError(422, `Complete os dados fiscais: ${missing.join(", ")}.`);
 
   const payload = {
@@ -824,7 +815,7 @@ Deno.serve(async (req) => {
         const [{ data: student, error: studentError }, { data: company, error: companyError }, branding] =
           await Promise.all([
             supabase.from("students")
-              .select("id, full_name, birth_date, email, phone, cpf, cep, address, address_number, neighborhood, city, state, whatsapp")
+              .select("id, full_name, birth_date, email, phone, cpf, cep, address, address_number, neighborhood, city, state, whatsapp, country_code")
               .eq("id", link.student_id).eq("company_id", link.company_id).maybeSingle(),
             supabase.from("companies")
               .select("id, name, slug").eq("id", link.company_id).eq("is_active", true).maybeSingle(),

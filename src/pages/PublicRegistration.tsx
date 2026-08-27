@@ -90,8 +90,10 @@ export default function PublicRegistration() {
   const [neighborhood, setNeighborhood] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
+  const [countryCode, setCountryCode] = useState("BR");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
+  const isBrazil = countryCode === "BR";
   const [objective, setObjective] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
@@ -178,6 +180,7 @@ export default function PublicRegistration() {
 
   // CEP → endereço (e endereço → CEP) automático via ViaCEP
   const fillFromCep = async (cepValue: string) => {
+    if (!isBrazil) return;
     const r = await lookupCep(cepValue);
     if (!r) return;
     if (r.logradouro) setAddress(r.logradouro);
@@ -186,6 +189,7 @@ export default function PublicRegistration() {
     if (r.uf) setState(r.uf);
   };
   const fillCepFromAddress = async () => {
+    if (!isBrazil) return;
     if (cep.replace(/\D/g, "").length === 8) return; // já tem CEP, não sobrescreve
     const r = await lookupCepByAddress(state, city, address);
     if (r?.cep) {
@@ -215,6 +219,7 @@ export default function PublicRegistration() {
         setNeighborhood(data.student.neighborhood || "");
         setCity(data.student.city || "");
         setState(data.student.state || "");
+        setCountryCode(data.student.country_code || "BR");
         setWhatsapp(formatPhone(data.student.whatsapp || data.student.phone || ""));
         setEmail(data.student.email || "");
       }
@@ -391,13 +396,14 @@ export default function PublicRegistration() {
     const missing: string[] = [];
     if (!fullName) missing.push("Nome Completo");
     if (!birthDate) missing.push("Data de Nascimento");
-    if (!cpf) missing.push("CPF");
-    if (!cep) missing.push("CEP");
+    if (isBrazil && !cpf) missing.push("CPF");
+    if (isBrazil && !cep) missing.push("CEP");
     if (!address) missing.push("Rua");
-    if (!addressNumber) missing.push("Número");
-    if (!neighborhood) missing.push("Bairro");
+    if (isBrazil && !addressNumber) missing.push("Número");
+    if (isBrazil && !neighborhood) missing.push("Bairro");
     if (!city) missing.push("Cidade");
     if (!state) missing.push("Estado");
+    if (!/^[A-Z]{2}$/.test(countryCode)) missing.push("País (código de 2 letras)");
     if (!whatsapp) missing.push("WhatsApp");
     if (!email) missing.push("Email");
 
@@ -428,6 +434,7 @@ export default function PublicRegistration() {
           neighborhood,
           city,
           state,
+          country_code: countryCode,
           whatsapp: whatsapp.replace(/\D/g, ""),
           // selected_plan_id propositalmente omitido — pagamento é fluxo separado.
         },
@@ -1053,28 +1060,58 @@ export default function PublicRegistration() {
             )}
             {fiscalMode && <>
             <div className="space-y-2">
+              <Label className="font-sans">País de residência *</Label>
+              <Select
+                value={isBrazil ? "BR" : "FOREIGN"}
+                onValueChange={(value) => {
+                  setCountryCode(value === "BR" ? "BR" : "");
+                  if (value !== "BR") {
+                    setCpf("");
+                    setCep("");
+                  }
+                }}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BR">Brasil</SelectItem>
+                  <SelectItem value="FOREIGN">Exterior</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {!isBrazil && (
+              <div className="space-y-2">
+                <Label className="font-sans">Código do país (ISO, 2 letras) *</Label>
+                <Input
+                  value={countryCode}
+                  onChange={(event) => setCountryCode(event.target.value.replace(/[^a-z]/gi, "").slice(0, 2).toUpperCase())}
+                  placeholder="Ex: PT, US, GB"
+                  maxLength={2}
+                />
+              </div>
+            )}
+            <div className="space-y-2">
               <Label className="font-sans">Data de Nascimento *</Label>
               <Input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} />
             </div>
-            <div className="space-y-2">
+            {isBrazil && <div className="space-y-2">
               <Label className="font-sans">CPF *</Label>
               <Input value={cpf} onChange={e => setCpf(formatCPF(e.target.value))} placeholder="000.000.000-00" />
-            </div>
-            <div className="space-y-2">
+            </div>}
+            {isBrazil && <div className="space-y-2">
               <Label className="font-sans">CEP *</Label>
               <Input value={cep} onChange={e => { const m = formatCEP(e.target.value); setCep(m); if (m.replace(/\D/g, "").length === 8) void fillFromCep(m); }} placeholder="00000-000" />
-            </div>
+            </div>}
             <div className="space-y-2">
               <Label className="font-sans">Rua *</Label>
               <Input value={address} onChange={e => setAddress(e.target.value)} onBlur={fillCepFromAddress} placeholder="Ex: Rua das Flores" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="font-sans">Número *</Label>
+                <Label className="font-sans">Número {isBrazil ? "*" : "(opcional)"}</Label>
                 <Input value={addressNumber} onChange={e => setAddressNumber(e.target.value)} placeholder="Ex: 123" />
               </div>
               <div className="space-y-2">
-                <Label className="font-sans">Bairro *</Label>
+                <Label className="font-sans">Bairro {isBrazil ? "*" : "(opcional)"}</Label>
                 <Input value={neighborhood} onChange={e => setNeighborhood(e.target.value)} placeholder="Ex: Centro" />
               </div>
             </div>
@@ -1084,8 +1121,8 @@ export default function PublicRegistration() {
                 <Input value={city} onChange={e => setCity(e.target.value)} onBlur={fillCepFromAddress} placeholder="Ex: Florianópolis" />
               </div>
               <div className="space-y-2">
-                <Label className="font-sans">Estado *</Label>
-                <Input value={state} onChange={e => setState(e.target.value)} onBlur={fillCepFromAddress} placeholder="Ex: SC" maxLength={2} />
+                <Label className="font-sans">Estado / região *</Label>
+                <Input value={state} onChange={e => setState(e.target.value)} onBlur={fillCepFromAddress} placeholder={isBrazil ? "Ex: SC" : "Ex: Porto"} maxLength={isBrazil ? 2 : 80} />
               </div>
             </div>
             <div className="space-y-2">

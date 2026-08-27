@@ -13,12 +13,13 @@ export function formatCEP(v: string) {
 }
 
 export function formatPhone(v: string) {
+  const input = v.trimStart();
   // If starts with + keep it as international — allow up to 15 digits
-  if (v.startsWith("+")) {
-    const d = v.replace(/[^\d+]/g, "").slice(0, 16); // +  up to 15 digits
+  if (input.startsWith("+")) {
+    const d = `+${input.slice(1).replace(/\D/g, "").slice(0, 15)}`;
     return d;
   }
-  const d = v.replace(/\D/g, "").slice(0, 11);
+  const d = input.replace(/\D/g, "").slice(0, 11);
   if (d.length <= 2) return `(${d}`;
   if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;

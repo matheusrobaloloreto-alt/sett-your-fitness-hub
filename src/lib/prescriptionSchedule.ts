@@ -29,7 +29,10 @@ function utcDay(value: string | Date): number {
   return Date.UTC(year, Math.max(0, month - 1), day);
 }
 
-export function isCycleCurrent(cycle: PrescriptionScheduleCycle, today = new Date()): boolean {
+export function isCycleCurrent(
+  cycle: Pick<PrescriptionScheduleCycle, "start_date" | "end_date">,
+  today = new Date(),
+): boolean {
   const now = utcDay(today);
   return now >= utcDay(cycle.start_date) && now <= utcDay(cycle.end_date);
 }
@@ -61,15 +64,79 @@ export function selectCurrentCyclePerEnrollment(
   });
 
   return Array.from(grouped.values()).map((group) => [...group].sort((a, b) => {
-    const aActive = a.status === "active";
-    const bActive = b.status === "active";
-    if (aActive !== bActive) return Number(bActive) - Number(aActive);
     const aPrepared = Boolean(a.has_workouts || a.has_bundle);
     const bPrepared = Boolean(b.has_workouts || b.has_bundle);
     if (aPrepared !== bPrepared) return Number(bPrepared) - Number(aPrepared);
+    const aActive = a.status === "active";
+    const bActive = b.status === "active";
+    if (aActive !== bActive) return Number(bActive) - Number(aActive);
     if (a.cycle_number !== b.cycle_number) return b.cycle_number - a.cycle_number;
     return utcDay(b.start_date) - utcDay(a.start_date);
   })[0]);
+}
+
+/**
+ * Fonte única para o ciclo que deve ser aberto nas telas do professor e aluno.
+ * Conteúdo materializado vence um ciclo apenas marcado como ativo mas vazio;
+ * ciclos futuros nunca vazam antes da vigência.
+ */
+export function selectPreferredVisibleCycle<T extends {
+  id: string;
+  cycle_number: number;
+  start_date: string;
+  end_date: string;
+  status: string;
+  has_workouts?: boolean;
+  has_bundle?: boolean;
+}>(cycles: T[], today = new Date()): T | null {
+  const prepared = (cycle: T) => Boolean(cycle.has_workouts || cycle.has_bundle);
+  const started = (cycle: T) => utcDay(cycle.start_date) <= utcDay(today);
+  const rank = (left: T, right: T) => {
+    const statusDifference = Number(right.status === "active") - Number(left.status === "active");
+    if (statusDifference !== 0) return statusDifference;
+    if (left.cycle_number !== right.cycle_number) return right.cycle_number - left.cycle_number;
+    return utcDay(right.start_date) - utcDay(left.start_date);
+  };
+
+  return cycles.filter((cycle) => isCycleCurrent(cycle, today) && prepared(cycle)).sort(rank)[0]
+    ?? cycles.filter((cycle) => started(cycle) && prepared(cycle)).sort((left, right) =>
+      utcDay(right.start_date) - utcDay(left.start_date) || rank(left, right)
+    )[0]
+    ?? cycles.filter((cycle) => isCycleCurrent(cycle, today)).sort(rank)[0]
+    ?? null;
+}
+
+/**
+ * Ciclos importados legados chegaram a ser anexados com datas um dia maiores
+ * que o ciclo original. No perfil, colapsa somente sobreposições quase totais
+ * da mesma matrícula; os registros continuam preservados no banco/auditoria.
+ */
+export function collapseOverlappingCyclesForDisplay<T extends PrescriptionScheduleCycle>(cycles: T[]): T[] {
+  const overlapRatio = (left: T, right: T) => {
+    if ((left.enrollment_id || "") !== (right.enrollment_id || "")) return 0;
+    const leftStart = utcDay(left.start_date);
+    const leftEnd = utcDay(left.end_date);
+    const rightStart = utcDay(right.start_date);
+    const rightEnd = utcDay(right.end_date);
+    const intersection = Math.max(0, Math.min(leftEnd, rightEnd) - Math.max(leftStart, rightStart) + DAY_MS);
+    const shorter = Math.min(leftEnd - leftStart + DAY_MS, rightEnd - rightStart + DAY_MS);
+    return shorter > 0 ? intersection / shorter : 0;
+  };
+  const preferred = (left: T, right: T) => {
+    const leftPrepared = Boolean(left.has_workouts || left.has_bundle);
+    const rightPrepared = Boolean(right.has_workouts || right.has_bundle);
+    if (leftPrepared !== rightPrepared) return rightPrepared ? right : left;
+    if ((left.status === "active") !== (right.status === "active")) return right.status === "active" ? right : left;
+    return right.cycle_number > left.cycle_number ? right : left;
+  };
+
+  const selected: T[] = [];
+  for (const cycle of [...cycles].sort((a, b) => utcDay(a.start_date) - utcDay(b.start_date))) {
+    const duplicateIndex = selected.findIndex((candidate) => overlapRatio(candidate, cycle) >= 0.8);
+    if (duplicateIndex === -1) selected.push(cycle);
+    else selected[duplicateIndex] = preferred(selected[duplicateIndex], cycle);
+  }
+  return selected.sort((a, b) => utcDay(a.start_date) - utcDay(b.start_date));
 }
 
 /**

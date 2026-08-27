@@ -803,6 +803,17 @@ test("source completeness keeps an all-empty active plan visible and blocks it",
   assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
 });
 
+test("blocks an implausibly long MFIT source window before creating a duplicate cycle", async () => {
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas[0].end_date = "2027-12-11";
+  const db = new MemoryDb();
+  const report = await runMigration({ ...input, db, today: "2026-08-10" });
+  assert.equal(report.summary.candidate_operations, 0);
+  assert.equal(report.results[0].status, "blocked");
+  assert.equal(report.results[0].reason, "source_range_anomaly");
+  assert.deepEqual(db.writes, { exercises: 0, cycles: 0, workouts: 0, workoutExercises: 0 });
+});
+
 test("source completeness blocks a zero-session normalized plan even when explicit empty count is zero", async () => {
   const input = sourceCompletenessInput([{
     id: "session-malformed-empty-count-zero",
@@ -2496,7 +2507,7 @@ test("an overlapping materialized SETT cycle blocks import without mutations", a
   assert.equal(db.workouts[0].exercises[0].exercise_name, "Treino existente");
 });
 
-test("CLI keeps pending-overlap cycle creation default-off and gated to explicit apply refs", () => {
+test("CLI keeps pending-overlap cycle creation available for diagnosis but freezes apply", () => {
   assert.equal(parseArgs([
     "--sett-students=a",
     "--mfit-clients=b",
@@ -2519,8 +2530,9 @@ test("CLI keeps pending-overlap cycle creation default-off and gated to explicit
       "--mfit-workouts=c",
       `--company-id=${IDS.company}`,
       "--create-pending-cycle-on-overlap",
+      "--include-plan-ref=0123456789ab",
     ]),
-    /requires 1-5 explicit --include-plan-ref/,
+    /temporarily disabled for apply/,
   );
 });
 

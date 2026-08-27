@@ -41,6 +41,8 @@ import {
   FUNNEL_STAGE_META,
   FUNNEL_STAGE_ORDER,
   type FunnelStageKey,
+  canMoveOperationalStudentToStage,
+  canReconcileActiveStage,
   funnelStageProgress,
   isOpenFunnelStage,
   normalizeLeadSalesStage,
@@ -647,11 +649,30 @@ export default function RegistrationManager() {
 
   const moveCardToStage = async (student: StudentWithStage, targetStage: FunnelStageKey) => {
     if (student.stage === targetStage) return;
+    if (
+      student.entityType === "student" &&
+      !canMoveOperationalStudentToStage(student.status, targetStage)
+    ) {
+      toast.error("Aluno com matrícula ativa não pode voltar para uma etapa anterior. Ajuste apenas o acompanhamento ou o onboarding.");
+      return;
+    }
     const cardId = cardIdFor(student);
     setMovingCardId(cardId);
     try {
       if (targetStage === "active") {
-        toast.error("A conclusão do onboarding depende da avaliação e da liberação do treino. Use o fluxo normal.");
+        if (student.entityType !== "student" || !canReconcileActiveStage(student.status)) {
+          toast.error("Para evitar liberar aluno sem pagamento, somente cadastros já ativos podem ser reconciliados diretamente.");
+          return;
+        }
+        const { error } = await (supabase as any)
+          .from("students")
+          .update({ sales_stage: "active", updated_at: new Date().toISOString() })
+          .eq("id", student.id)
+          .eq("company_id", effectiveCompanyId);
+        if (error) throw error;
+        toast.success("Cadastro ativo reconciliado no Kanban. Nenhuma mensagem foi enviada.");
+        setActiveStage("all");
+        await loadPipeline();
         return;
       }
 
@@ -725,7 +746,8 @@ export default function RegistrationManager() {
           sales_stage: targetStage,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", student.id);
+        .eq("id", student.id)
+        .eq("company_id", effectiveCompanyId);
       if (error) throw error;
       toast.success(`Movido para ${FUNNEL_STAGE_META[targetStage].label}.`);
       setActiveStage("all");

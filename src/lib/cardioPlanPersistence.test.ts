@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildCardioPlanPatch, captureGeneratedCardioPlan, saveCardioPlanDraft } from "@/lib/cardioPlanPersistence";
+import * as planPersistence from "@/lib/cardioPlanPersistence";
+
+const { buildCardioPlanPatch, captureGeneratedCardioPlan, saveCardioPlanDraft } = planPersistence;
 
 const plan = {
   plan_name: "Base 10 km",
@@ -65,5 +67,46 @@ describe("cardio plan persistence", () => {
         plan: buildCardioPlanPatch(plan),
       },
     });
+  });
+});
+
+describe("strength plan persistence", () => {
+  it("retains the persisted strength row id and version with the editable draft", () => {
+    expect(typeof (planPersistence as any).captureGeneratedStrengthPlan).toBe("function");
+    const captured = (planPersistence as any).captureGeneratedStrengthPlan({
+      id: "strength-1",
+      plan: { workouts: [{ name: "Treino A", exercises: [] }] },
+      updated_at: generatedAt,
+    });
+    expect(captured).toEqual({
+      planId: "strength-1",
+      planVersion: generatedAt,
+      plan: { workouts: [{ name: "Treino A", exercises: [] }] },
+    });
+  });
+
+  it("saves a strength draft with compare-and-swap versioning", async () => {
+    expect(typeof (planPersistence as any).saveStrengthPlanDraft).toBe("function");
+    const invoke = vi.fn().mockResolvedValue({
+      data: {
+        id: "strength-1",
+        updated_at: "2026-08-25T18:01:00.000Z",
+        plan: { workouts: [{ name: "Treino A", exercises: [] }] },
+      },
+      error: null,
+    });
+    const result = await (planPersistence as any).saveStrengthPlanDraft({ functions: { invoke } }, {
+      planId: "strength-1",
+      expectedUpdatedAt: generatedAt,
+      plan: { workouts: [{ name: "Treino A", exercises: [] }] },
+    });
+    expect(invoke).toHaveBeenCalledWith("update-strength-plan-draft", {
+      body: {
+        plan_id: "strength-1",
+        expected_updated_at: generatedAt,
+        plan: { workouts: [{ name: "Treino A", exercises: [] }] },
+      },
+    });
+    expect(result.updatedAt).toBe("2026-08-25T18:01:00.000Z");
   });
 });

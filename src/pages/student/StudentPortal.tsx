@@ -56,6 +56,7 @@ import {
 } from "@/lib/workoutDraft";
 import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
+import { selectPreferredVisibleCycle } from "@/lib/prescriptionSchedule";
 
 const StatsCharts = lazy(() => import("@/components/student/StatsCharts").then((module) => ({ default: module.StatsCharts })));
 const VolumeInsights = lazy(() => import("@/components/student/VolumeInsights").then((module) => ({ default: module.VolumeInsights })));
@@ -437,23 +438,10 @@ export default function StudentPortal() {
         setCycles(enriched);
 
         const today = new Date();
-        const inRange = (c: Cycle) => {
-          try { return isWithinInterval(today, { start: parseISO(c.start_date), end: parseISO(c.end_date) }); }
-          catch { return false; }
-        };
-        const hasStarted = (c: Cycle) => !c.start_date || c.start_date <= todayStr;
-        // Vários ciclos podem ter períodos sobrepostos (re-publicações). Prioriza ciclo vigente com treino real.
-        const byNewest = [...enriched].sort((a, b) => (b.cycle_number || 0) - (a.cycle_number || 0));
-        // Prescrição futura nunca vaza antes da data. O status ajuda, mas a
-        // vigência é a fonte de verdade para o que o aluno enxerga hoje.
-        const chosen =
-          byNewest.find(c => c.status === "active" && inRange(c) && c.workouts.length > 0) ||
-          byNewest.find(c => inRange(c) && c.workouts.length > 0) ||
-          byNewest.find(c => c.status === "active" && c.workouts.length > 0 && (!c.start_date || !c.end_date)) ||
-          byNewest.find(c => hasStarted(c) && c.workouts.length > 0) ||
-          byNewest.find(c => inRange(c)) ||
-          byNewest.find(c => c.status === "active" && (!c.start_date || !c.end_date)) ||
-          null;
+        const chosen = selectPreferredVisibleCycle(
+          enriched.map((cycle) => ({ ...cycle, has_workouts: cycle.workouts.length > 0 })),
+          today,
+        );
         setSelectedCycle(chosen);
         // P6 — marca a prescrição como vista assim que o aluno abre o ciclo escolhido.
         if (chosen?.id && (chosen as any).delivery_status !== "viewed") {

@@ -339,7 +339,11 @@ export default function StudentsManager() {
       start_date: format(startDate, "yyyy-MM-dd"), end_date: format(endDate, "yyyy-MM-dd"),
       created_by: session.user.id, status: "awaiting_training", company_id: effectiveCompanyId,
     });
-    if (!error) await supabase.from("students").update({ status: "active" }).eq("id", s.id);
+    if (!error) await supabase.from("students").update({
+      status: "active",
+      sales_stage: "active",
+      activated_at: new Date().toISOString(),
+    }).eq("id", s.id).eq("company_id", effectiveCompanyId);
     setSaving(false);
     if (error) { toast({ title: "Erro ao criar matrícula", description: error.message, variant: "destructive" }); return; }
     toast({ title: "Matrícula criada! Aguardando prescrição do treinador." });

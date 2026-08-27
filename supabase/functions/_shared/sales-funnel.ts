@@ -1,3 +1,5 @@
+import { normalizeWhatsAppPhoneKey } from "./whatsappIdentity.ts";
+
 type SupabaseAdmin = {
   from: (table: string) => any;
 };
@@ -63,11 +65,27 @@ export function buildAssessmentOnboardingMessage(args: {
   ].join("\n\n");
 }
 
-function normalizeRemoteJid(phone: string): string | null {
-  let digits = phone.replace(/\D/g, "");
+export function normalizeFunnelRemoteJid(
+  phone: string,
+  countryCode?: string | null,
+): string | null {
+  const normalizedCountry = String(countryCode || "").trim().toUpperCase();
+  const digits = phone.replace(/\D/g, "");
   if (!digits) return null;
-  if (digits.length <= 11) digits = `55${digits}`;
-  return `${digits}@s.whatsapp.net`;
+
+  if (normalizedCountry && normalizedCountry !== "BR") {
+    return /^[1-9]\d{7,14}$/.test(digits)
+      ? `${digits}@s.whatsapp.net`
+      : null;
+  }
+
+  const phoneKey = normalizeWhatsAppPhoneKey(phone);
+  if (!phoneKey) return null;
+  const explicitForeign = /^\+(?!55)/.test(phone.trim()) ||
+    (phoneKey.length >= 12 && !phoneKey.startsWith("55")) ||
+    (/^1\d{10}$/.test(phoneKey) && phoneKey[2] !== "9");
+  const canonical = explicitForeign ? phoneKey : `55${phoneKey}`;
+  return `${canonical}@s.whatsapp.net`;
 }
 
 export async function claimFunnelEvent(
@@ -129,6 +147,7 @@ export async function sendFunnelWhatsAppMessage(args: {
   companyId: string;
   fullName: string;
   phone: string | null;
+  countryCode?: string | null;
   text: string;
   eventType: string;
   eventKey: string;
@@ -138,7 +157,7 @@ export async function sendFunnelWhatsAppMessage(args: {
   if (!claimed) return { sent: true, reason: "already_processed" };
 
   try {
-    const remoteJid = normalizeRemoteJid(args.phone || "");
+    const remoteJid = normalizeFunnelRemoteJid(args.phone || "", args.countryCode);
     if (!remoteJid) throw new Error("Aluno sem WhatsApp válido.");
 
     const instanceResult = await args.admin.from("whatsapp_instances")

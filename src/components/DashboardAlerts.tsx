@@ -234,7 +234,7 @@ async function fetchAlerts(
       activated_at: student.activated_at,
       assessment_due_at: student.assessment_due_at,
       onboarding_instructions_sent_at: student.onboarding_instructions_sent_at,
-    }));
+    })).filter((student) => normalizeSalesStage(student) !== "active");
   }
 
   return { birthdays, missingWorkouts, awaitingTrainer, awaitingTrainingDate, missingEnrollment, incompleteBilling, recentStudents };

@@ -45,6 +45,13 @@ describe("pre-registration server contract", () => {
     });
   });
 
+  it("accepts a valid international E.164 WhatsApp with up to 15 digits", () => {
+    expect(validatePreRegistrationSubmission({
+      ...complete,
+      whatsapp: "+123 456 789 012 345",
+    }).phone).toBe("123456789012345");
+  });
+
   it.each([
     [{ answers: { objective: "saude" } }, "incompleto"],
     [{ answers: { ...completeAnswers, eva_joelho: 99 } }, "dor no joelho"],

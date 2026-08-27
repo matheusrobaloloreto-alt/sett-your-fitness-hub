@@ -123,7 +123,7 @@ describe("B7 — contract tests estáticos da edge (Deno; não executável no Vi
   });
   it("5) STATIC: resposta serve o planJson preenchido pelo engine v1", () => {
     expect(EDGE.includes("planJson = engineOutput.plan")).toBe(true);
-    expect(EDGE.includes("JSON.stringify({ id: planId, plan: planJson })")).toBe(true);
+    expect(EDGE.includes("JSON.stringify({ id: planId, plan: planJson, updated_at: persistence.data.updated_at })")).toBe(true);
   });
   it("6) STATIC: erro no shadow é capturado (try/catch dedicado)", () => {
     expect(EDGE.includes("catch (shadowError)")).toBe(true);
@@ -137,7 +137,7 @@ describe("B7 — contract tests estáticos da edge (Deno; não executável no Vi
   it("16) STATIC: Anthropic continua presente", () => {
     expect(EDGE.includes("ANTHROPIC_API_KEY")).toBe(true);
   });
-  it("19) STATIC: contrato de resposta padrão continua { id, plan }", () => {
-    expect(EDGE.includes("JSON.stringify({ id: planId, plan: planJson })")).toBe(true);
+  it("19) STATIC: contrato de resposta padrão inclui id, plano e versão para edição CAS", () => {
+    expect(EDGE.includes("JSON.stringify({ id: planId, plan: planJson, updated_at: persistence.data.updated_at })")).toBe(true);
   });
 });

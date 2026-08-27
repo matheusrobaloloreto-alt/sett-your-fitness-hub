@@ -340,7 +340,7 @@ Deno.serve(async (req) => {
     ) {
       const [{ data: previousStudent }, { data: previousEnrollment }] = await Promise.all([
         supabaseAdmin.from("students")
-          .select("status, activated_at, full_name, whatsapp, phone, company_id")
+          .select("status, activated_at, full_name, whatsapp, phone, country_code, company_id")
           .eq("id", studentId)
           .maybeSingle(),
         supabaseAdmin.from("enrollments")
@@ -402,6 +402,7 @@ Deno.serve(async (req) => {
           companyId: previousStudent.company_id,
           fullName: previousStudent.full_name,
           phone: previousStudent.whatsapp || previousStudent.phone,
+          countryCode: previousStudent.country_code,
           text: buildAssessmentOnboardingMessage({
             fullName: previousStudent.full_name,
             dueDate: formattedDueDate,

@@ -1727,14 +1727,13 @@ INSTRUÇÕES:
       sequence_number: Number(effectiveProgramSequence.sequence_number) || 1,
       sequence_phase: planJson.program_sequence?.phase ?? null,
     };
-    if (existingCyclePlan?.id) {
-      await supabase.from("ai_strength_plans").update(persistencePayload).eq("id", existingCyclePlan.id).throwOnError();
-    } else {
-      await supabase.from("ai_strength_plans").insert(persistencePayload).throwOnError();
-    }
+    const persistence = existingCyclePlan?.id
+      ? await supabase.from("ai_strength_plans").update(persistencePayload).eq("id", existingCyclePlan.id).select("updated_at").single()
+      : await supabase.from("ai_strength_plans").insert(persistencePayload).select("updated_at").single();
+    if (persistence.error || !persistence.data?.updated_at) throw persistence.error || new Error("Versão do plano não confirmada.");
 
     return new Response(
-      JSON.stringify({ id: planId, plan: planJson }),
+      JSON.stringify({ id: planId, plan: planJson, updated_at: persistence.data.updated_at }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {

@@ -125,7 +125,11 @@ export default function CoordinatorDashboard() {
     }
 
     // Update student status
-    await supabase.from("students").update({ status: "active" }).eq("id", selectedStudent.id);
+    await supabase.from("students").update({
+      status: "active",
+      sales_stage: "active",
+      activated_at: new Date().toISOString(),
+    }).eq("id", selectedStudent.id).eq("company_id", companyId);
 
     toast({ title: "Aluno matriculado e liberado!" });
     setEnrollOpen(false);

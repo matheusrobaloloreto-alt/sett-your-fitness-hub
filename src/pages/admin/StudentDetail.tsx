@@ -51,6 +51,7 @@ import { formatCPF, formatCEP, formatPhone } from "@/lib/masks";
 import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { collapseOverlappingCyclesForDisplay } from "@/lib/prescriptionSchedule";
 // Heavy children loaded only when their tab is opened (chunk size win)
 const WorkoutAnalysis = lazy(() => import("@/components/trainer/WorkoutAnalysis").then(m => ({ default: m.WorkoutAnalysis })));
 const TrainerWeeklyBar = lazy(() => import("@/components/trainer/TrainerWeeklyBar").then(m => ({ default: m.TrainerWeeklyBar })));
@@ -488,26 +489,17 @@ export default function StudentDetail() {
     const { data: workouts } = await supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").in("cycle_id", cycleIds);
     const materializedWorkouts = filterMaterializedWorkouts(workouts || []);
     const workoutCycleIds = new Set(materializedWorkouts.map((w) => w.cycle_id));
-    const prescribedCycleIds = new Set(workoutCycleIds);
-    cycleData.forEach((cycle) => {
-      if (cycle.prescribed_offline_at) prescribedCycleIds.add(cycle.id);
-    });
     setAllWorkouts(materializedWorkouts);
 
-    setCycles(cycleData.map((c) => ({ ...c, has_workout: workoutCycleIds.has(c.id) })));
+    const displayCycles = collapseOverlappingCyclesForDisplay(cycleData.map((c) => ({
+      ...c,
+      has_workout: workoutCycleIds.has(c.id),
+      has_workouts: workoutCycleIds.has(c.id),
+    })));
+    setCycles(displayCycles);
 
-    // Auto-fix: if enrollment is "awaiting_training" but already has workouts, update to "active"
-    const awaitingEnrollments = enrollmentData.filter((e: any) => e.status === "awaiting_training");
-    for (const enrollment of awaitingEnrollments) {
-      const enrollmentCycles = cycleData.filter((c) => c.enrollment_id === enrollment.id);
-      const allCyclesHaveWorkouts = enrollmentCycles.length > 0 && enrollmentCycles.every((c) => prescribedCycleIds.has(c.id));
-      if (allCyclesHaveWorkouts) {
-        await supabase.from("enrollments").update({ status: "active" }).eq("id", enrollment.id);
-        // Update local state
-        const idx = enrichedEnrollments.findIndex((e) => e.id === enrollment.id);
-        if (idx !== -1) enrichedEnrollments[idx].status = "active";
-      }
-    }
+    // Carregar um perfil é uma operação de leitura. Transições de matrícula
+    // precisam acontecer por uma ação explícita e auditável, nunca no page load.
     setEnrollments([...enrichedEnrollments]);
 
     setLoading(false);

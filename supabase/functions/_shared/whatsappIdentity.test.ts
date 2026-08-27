@@ -47,6 +47,24 @@ Deno.test("normalizes North American E.164 numbers without forcing country code 
   }
 });
 
+Deno.test("preserves explicit E.164 destinations outside Brazil and NANP", () => {
+  for (const [input, expected] of [
+    ["+351 912 345 678", "351912345678"],
+    ["+44 7700 900123", "447700900123"],
+  ]) {
+    if (normalizeWhatsAppPhoneKey(input) !== expected) throw new Error(`did not preserve ${input}`);
+    const result = resolveVerifiedWhatsAppRecipient({
+      clientRemoteJid: `${expected}@s.whatsapp.net`,
+      chatRemoteJid: `${expected}@s.whatsapp.net`,
+      requestedStudentId: "student-international",
+      student: { id: "student-international", whatsapp: input },
+    });
+    if (!result.ok || result.remoteJid !== `${expected}@s.whatsapp.net`) {
+      throw new Error(`international recipient was rewritten: ${input}`);
+    }
+  }
+});
+
 Deno.test("builds all direct JID variants for a Brazilian mobile", () => {
   const variants = directWhatsAppJidVariants("5548991432057@s.whatsapp.net");
   for (

@@ -1952,6 +1952,20 @@ export async function runMigration({
     const endDate = plan.end_date && plan.end_date >= startDate
       ? plan.end_date
       : addDays(startDate, durationWeeks * 7 - 1);
+    const sourceWindowDays = Math.floor(
+      (new Date(`${endDate}T00:00:00Z`) - new Date(`${startDate}T00:00:00Z`)) / 86_400_000,
+    ) + 1;
+    if (!Number.isFinite(sourceWindowDays) || sourceWindowDays < 1 || sourceWindowDays > 16 * 7) {
+      results.push({
+        ref: candidate.ref,
+        status: "blocked",
+        reason: "source_range_anomaly",
+        match_method: candidate.match_method,
+        sessions: plan.sessions.length,
+        source_window_days: sourceWindowDays,
+      });
+      continue;
+    }
     const normalizedPlan = {
       source_id: plan.source_id,
       name: plan.name,
@@ -2538,6 +2552,9 @@ export function parseArgs(argv) {
   }
   if (options.apply && options.confirmProject !== EXPECTED_SUPABASE_PROJECT_REF) {
     throw new Error(`--apply requires --confirm-project ${EXPECTED_SUPABASE_PROJECT_REF}`);
+  }
+  if (options.apply && options.createPendingCycleOnOverlap) {
+    throw new Error("--create-pending-cycle-on-overlap is temporarily disabled for apply while duplicate-cycle reconciliation is pending");
   }
   options.includePlanRefs = [...new Set(options.includePlanRefs)];
   if (options.includePlanRefs.length > 5) {

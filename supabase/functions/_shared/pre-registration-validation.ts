@@ -76,7 +76,7 @@ export function validatePreRegistrationSubmission(body: Record<string, unknown>)
     || nameParts.some(part => !/\p{L}/u.test(part))) {
     throw new HttpError(422, "Informe seu nome completo.");
   }
-  if (phone.length < 10 || phone.length > 13 || /^(\d)\1+$/.test(phone)) {
+  if (phone.length < 10 || phone.length > 15 || /^(\d)\1+$/.test(phone)) {
     throw new HttpError(422, "Informe um WhatsApp válido.");
   }
   if (!INVESTMENT_RANGES.has(budgetRange)) throw new HttpError(422, "Selecione a faixa de investimento.");

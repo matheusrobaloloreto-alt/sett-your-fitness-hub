@@ -78,15 +78,27 @@ export const FUNNEL_STAGE_META: Record<FunnelStageKey, {
   },
 };
 
+export function canReconcileActiveStage(status?: string | null): boolean {
+  return status === "active" || status === "awaiting_renewal";
+}
+
+export function canMoveOperationalStudentToStage(
+  status: string | null | undefined,
+  targetStage: FunnelStageKey,
+): boolean {
+  if (!canReconcileActiveStage(status)) return true;
+  return targetStage === "active" || targetStage === "active_onboarding";
+}
+
 export function normalizeSalesStage(student: FunnelStageStudent): FunnelStageKey {
   const stage = student.sales_stage as FunnelStageKey | null | undefined;
+  if (student.status === "active" || student.status === "awaiting_renewal") {
+    if (stage === "active_onboarding") return "active_onboarding";
+    return "active";
+  }
   if (stage && FUNNEL_STAGE_ORDER.includes(stage)) return stage;
 
   if (student.status === "inactive") return "lost";
-  if (student.status === "active" || student.status === "awaiting_renewal") {
-    if (student.assessment_due_at && !student.onboarding_instructions_sent_at) return "active_onboarding";
-    return "active";
-  }
   if (student.status === "pending") return "payment_pending";
   return "interested";
 }

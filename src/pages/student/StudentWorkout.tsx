@@ -17,6 +17,7 @@ import { formatBiweeklyProgressionForDisplay, STUDENT_EFFORT_HELP_TEXT, studentE
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
 import { sanitizeStudentWorkoutDescription } from "@/lib/studentWorkoutDescription";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
+import { selectPreferredVisibleCycle } from "@/lib/prescriptionSchedule";
 
 interface WorkoutExercise {
   exercise_id: string;
@@ -225,37 +226,13 @@ export default function StudentWorkout() {
         });
 
         const today = new Date();
-        const inRange = (cycle: Cycle) => {
-          try {
-            return isWithinInterval(today, { start: parseISO(cycle.start_date), end: parseISO(cycle.end_date) });
-          } catch { return false; }
-        };
         const todayYmd = businessDateYmd(today);
         const isFuture = (cycle: Cycle) => Boolean(cycle.start_date && cycle.start_date > todayYmd);
-        const hasStarted = (cycle: Cycle) => !cycle.start_date || cycle.start_date <= todayYmd;
 
-        const currentCandidates = enriched
-          .filter((cycle) => inRange(cycle) && cycle.workouts.length > 0)
-          .sort((left, right) =>
-            Number(right.status === "active") - Number(left.status === "active") ||
-            right.cycle_number - left.cycle_number ||
-            (right.start_date || "").localeCompare(left.start_date || "")
-          );
-        const startedWithWorkout = enriched
-          .filter((cycle) => hasStarted(cycle) && cycle.workouts.length > 0)
-          .sort((left, right) =>
-            (right.start_date || "").localeCompare(left.start_date || "") ||
-            right.cycle_number - left.cycle_number
-          );
-        const currentWithoutWorkout = enriched
-          .filter((cycle) => inRange(cycle))
-          .sort((left, right) => left.cycle_number - right.cycle_number);
-
-        const chosen =
-          currentCandidates[0] ||
-          startedWithWorkout[0] ||
-          currentWithoutWorkout[0] ||
-          null;
+        const chosen = selectPreferredVisibleCycle(
+          enriched.map((cycle) => ({ ...cycle, has_workouts: cycle.workouts.length > 0 })),
+          today,
+        );
 
         const visibleCycles = enriched
           .filter((cycle) => {
