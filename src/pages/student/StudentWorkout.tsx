@@ -16,6 +16,7 @@ import { StudentMethodGroup } from "@/components/student/StudentMethodGroup";
 import { formatBiweeklyProgressionForDisplay, STUDENT_EFFORT_HELP_TEXT, studentEffortLabel, studentFacingEffortText, resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
 import { sanitizeStudentWorkoutDescription } from "@/lib/studentWorkoutDescription";
+import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
 
 interface WorkoutExercise {
   exercise_id: string;
@@ -76,6 +77,9 @@ export default function StudentWorkout() {
   const [loadError, setLoadError] = useState("");
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
   const loadRevision = useRef(0);
+  const performanceStartedAt = useRef(0);
+  const performanceCompanyId = useRef<string | null>(null);
+  const recordedPerformanceMetrics = useRef(new Set<"shell_ready" | "content_ready">());
 
   const selectedWorkoutBase = selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
   const selectedWorkout = useMemo(
@@ -97,9 +101,23 @@ export default function StudentWorkout() {
     return data.publicUrl;
   };
 
+  const recordLoadPerformance = (metric: "shell_ready" | "content_ready") => {
+    if (recordedPerformanceMetrics.current.has(metric)) return;
+    recordedPerformanceMetrics.current.add(metric);
+    void recordAppPerformanceSample({
+      routeGroup: "student_workout",
+      metric,
+      durationMs: performance.now() - performanceStartedAt.current,
+      companyId: performanceCompanyId.current,
+    });
+  };
+
   const loadData = async () => {
     const revision = ++loadRevision.current;
     const isCurrentLoad = () => loadRevision.current === revision;
+    performanceStartedAt.current = performance.now();
+    performanceCompanyId.current = null;
+    recordedPerformanceMetrics.current.clear();
     setLoading(true);
     setWorkoutsLoading(true);
     setLoadError("");
@@ -111,7 +129,7 @@ export default function StudentWorkout() {
     try {
     const studentRequest = supabase
       .from("students")
-      .select("full_name")
+      .select("full_name, company_id")
       .eq("id", studentId!)
       .single();
     const enrollmentRequest = supabase
@@ -134,6 +152,7 @@ export default function StudentWorkout() {
       null;
 
     if (studentData) {
+      performanceCompanyId.current = studentData.company_id;
       setStudent({
         full_name: studentData.full_name,
         enrollment: enrollmentData
@@ -148,6 +167,7 @@ export default function StudentWorkout() {
       // Identity and plan are enough to render the page shell. Cycles and
       // workouts continue loading below instead of blocking the whole screen.
       setLoading(false);
+      recordLoadPerformance("shell_ready");
     }
 
     if (enrollmentData) {
@@ -260,6 +280,7 @@ export default function StudentWorkout() {
         // The stored workout is complete enough to render immediately. Library
         // metadata only fills missing video fields and must not block the page.
         setLoading(false);
+        recordLoadPerformance("content_ready");
         if (exerciseIds.size > 0) {
           const { data: libraryData } = await supabase
             .from("exercise_library")
@@ -281,9 +302,11 @@ export default function StudentWorkout() {
         }
       } else {
         setWorkoutsLoading(false);
+        recordLoadPerformance("content_ready");
       }
     } else {
       setWorkoutsLoading(false);
+      recordLoadPerformance("content_ready");
     }
     } catch (error) {
       if (!isCurrentLoad()) return;

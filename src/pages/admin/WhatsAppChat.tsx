@@ -52,6 +52,7 @@ import {
   uploadWhatsAppMediaWith,
 } from "@/lib/whatsappMediaUpload";
 import { shouldOfferWhatsAppRecipientReview } from "@/lib/whatsappRecipientReview";
+import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
 
 type Chat = {
   id: string;
@@ -227,6 +228,12 @@ export default function WhatsAppChat() {
   const chatsLoadedRef = useRef(false);
   const [loadingChats, setLoadingChats] = useState(true);
   const [chatLoadError, setChatLoadError] = useState<string | null>(null);
+  const performanceStartedAt = useRef(performance.now());
+  const recordedChatPerformance = useRef(false);
+  useEffect(() => {
+    performanceStartedAt.current = performance.now();
+    recordedChatPerformance.current = false;
+  }, [effectiveCompanyId]);
   const selectedChatIdRef = useRef<string | null>(null);
   useEffect(() => { selectedChatIdRef.current = selectedChatId; }, [selectedChatId]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -361,6 +368,15 @@ export default function WhatsAppChat() {
         lastMessage: chat.last_message || "",
       }));
       setChats(chatsWithPreview);
+      if (!recordedChatPerformance.current) {
+        recordedChatPerformance.current = true;
+        void recordAppPerformanceSample({
+          routeGroup: "trainer_whatsapp",
+          metric: "content_ready",
+          durationMs: performance.now() - performanceStartedAt.current,
+          companyId: effectiveCompanyId,
+        });
+      }
     }
     setLoadingChats(false);
     chatsLoadedRef.current = true;
