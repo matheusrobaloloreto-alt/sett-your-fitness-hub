@@ -37,6 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<AppRole>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const activeUserId = useRef<string | null>(null);
   const roleFetchedFor = useRef<string | null>(null);
   const roleFetchInFlight = useRef<{ userId: string; promise: Promise<void> } | null>(null);
 
@@ -80,15 +81,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.warn("Failed to resolve company membership:", companyRes.error.message);
         }
 
+        if (activeUserId.current !== userId) return;
         setRole(resolvedRole);
         setCompanyId(companyRes.data?.[0]?.company_id || null);
         roleFetchedFor.current = userId;
       } catch (err) {
         console.error("Failed to fetch role/company:", err);
+        if (activeUserId.current !== userId) return;
         setRole(null);
         setCompanyId(null);
       }
-      setLoading(false);
+      if (activeUserId.current === userId) setLoading(false);
     })();
 
     roleFetchInFlight.current = { userId, promise: request };
@@ -100,8 +103,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    let authEventRevision = 0;
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        authEventRevision += 1;
+        const nextUserId = session?.user.id ?? null;
+        activeUserId.current = nextUserId;
+        if (nextUserId && roleFetchedFor.current !== nextUserId) {
+          setRole(null);
+          setCompanyId(null);
+          setLoading(true);
+          roleFetchedFor.current = null;
+        }
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
@@ -115,7 +128,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
+    const bootstrapRevision = authEventRevision;
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (authEventRevision !== bootstrapRevision) return;
+      activeUserId.current = session?.user.id ?? null;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -125,10 +141,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      authEventRevision += 1;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signOut = async () => {
+    activeUserId.current = null;
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);

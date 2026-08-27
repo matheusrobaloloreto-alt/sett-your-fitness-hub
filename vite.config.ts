@@ -34,17 +34,12 @@ export default defineConfig({
     target: "es2020",
     rollupOptions: {
       output: {
+        onlyExplicitManualChunks: true,
         manualChunks: {
           "react-vendor": ["react", "react-dom", "react-router-dom"],
           "supabase": ["@supabase/supabase-js"],
-          "recharts": ["recharts"],
           "xyflow": ["@xyflow/react"],
-          "radix": [
-            "@radix-ui/react-dialog",
-            "@radix-ui/react-dropdown-menu",
-            "@radix-ui/react-popover",
-            "@radix-ui/react-select",
-            "@radix-ui/react-tabs",
+          "radix-core": [
             "@radix-ui/react-toast",
             "@radix-ui/react-tooltip",
           ],
