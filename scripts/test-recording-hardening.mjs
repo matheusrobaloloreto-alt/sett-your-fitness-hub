@@ -65,6 +65,8 @@ assert.match(edge, /exercise-video-staging/, "bucket privado de triagem ausente"
 assert.match(edge, /validateStagingBucketPolicy/, "policy de MIME\/tamanho ausente");
 assert.match(edge, /replayGuard\.assertFresh/, "proteção de replay ausente");
 assert.match(edge, /_requests\/\$\{operatorTag\}/, "reserva persistente de replay ausente");
+assert.match(edge, /async function fetchLibraryRows[\s\S]*?\.range\(from, from \+ pageSize - 1\)/, "leitura paginada da biblioteca ausente");
+assert.match(edge, /async function coverage[\s\S]*?fetchLibraryRows\(/, "cobertura pode voltar a truncar em 1.000 exercícios");
 
 const cli = read("scripts/video-ingest.mjs");
 assert.match(cli, /idsPublicados\.add\(item\.id\)/, "CLI não registra commits individuais concluídos");

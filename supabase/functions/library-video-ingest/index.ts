@@ -383,17 +383,15 @@ async function signRecording(
   });
 }
 
-async function listLibrary(
-  req: Request,
+async function fetchLibraryRows(
   admin: ReturnType<typeof adminClient>,
+  columns: string,
 ) {
   const all: unknown[] = [];
   const pageSize = 1000;
   for (let from = 0;; from += pageSize) {
     const { data, error } = await admin.from("exercise_library")
-      .select(
-        "id, name, muscle_group, equipment, description, video_path, video_url, youtube_video_id, thumbnail_url",
-      )
+      .select(columns)
       .order("muscle_group").order("name").range(from, from + pageSize - 1);
     if (error) {
       throw new ApiError(
@@ -405,6 +403,17 @@ async function listLibrary(
     all.push(...(data || []));
     if (!data || data.length < pageSize) break;
   }
+  return all;
+}
+
+async function listLibrary(
+  req: Request,
+  admin: ReturnType<typeof adminClient>,
+) {
+  const all = await fetchLibraryRows(
+    admin,
+    "id, name, muscle_group, equipment, description, video_path, video_url, youtube_video_id, thumbnail_url",
+  );
   return response(req, { total: all.length, items: all });
 }
 
@@ -533,17 +542,14 @@ async function pruneRecordingLedger(
 }
 
 async function coverage(req: Request, admin: ReturnType<typeof adminClient>) {
-  const { data, error } = await admin.from("exercise_library").select(
-    "video_path, video_url, youtube_video_id",
-  );
-  if (error) {
-    throw new ApiError(
-      503,
-      "coverage_failed",
-      "Não foi possível consultar a cobertura.",
-    );
-  }
-  const rows = data || [];
+  const rows = await fetchLibraryRows(
+    admin,
+    "id, name, muscle_group, video_path, video_url, youtube_video_id",
+  ) as Array<{
+    video_path?: string | null;
+    video_url?: string | null;
+    youtube_video_id?: string | null;
+  }>;
   return response(req, {
     total: rows.length,
     proprio: rows.filter((row) => row.video_path).length,
