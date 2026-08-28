@@ -10,6 +10,7 @@ import {
   selectPrescriptionEnrollment,
   selectPrescriptionTargets,
   selectSequentialScheduleCycles,
+  isSupersededCycle,
   type PrescriptionScheduleCycle,
 } from "./prescriptionSchedule";
 
@@ -149,5 +150,24 @@ describe("prescriptionSchedule", () => {
         has_workouts: true,
       }),
     ]);
+  });
+
+  it("remove ciclos substituídos de todas as seleções sem apagar o registro", () => {
+    const canonical = cycle(5, "2026-07-01", "2026-08-30", { status: "active", has_workouts: true });
+    const superseded = cycle(11, "2026-07-01", "2026-08-31", {
+      status: "superseded",
+      superseded_by_cycle_id: canonical.id,
+      has_workouts: true,
+    });
+    const future = cycle(6, "2026-08-31", "2026-10-11");
+
+    expect(isSupersededCycle(superseded)).toBe(true);
+    expect(scheduleSpanWeeks([canonical, superseded])).toBe(scheduleSpanWeeks([canonical]));
+    expect(selectPreferredVisibleCycle([canonical, superseded], today)?.id).toBe(canonical.id);
+    expect(selectCurrentCyclePerEnrollment([canonical, superseded], today).map((item) => item.id)).toEqual([canonical.id]);
+    expect(collapseOverlappingCyclesForDisplay([canonical, superseded]).map((item) => item.id)).toEqual([canonical.id]);
+    expect(selectSequentialScheduleCycles([canonical, superseded, future]).map((item) => item.id)).toEqual([canonical.id, future.id]);
+    expect(selectPrescriptionTargets({ cycles: [canonical, superseded, future], mode: "remaining", today }).map((item) => item.id))
+      .toEqual([future.id]);
   });
 });

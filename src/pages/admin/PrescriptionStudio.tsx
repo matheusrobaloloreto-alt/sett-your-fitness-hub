@@ -368,7 +368,7 @@ export default function PrescriptionStudio() {
         rows = (fallback || []).map((cycle: any) => ({ ...cycle, has_workouts: false, has_bundle: false }));
       } else {
         rows = ((data || []) as PrescriptionScheduleCycle[])
-          .filter((cycle) => cycle.enrollment_id === currentEnrollment.id);
+          .filter((cycle) => cycle.enrollment_id === currentEnrollment.id && cycle.status !== "superseded");
       }
       rows = selectSequentialScheduleCycles(rows);
       setScheduleCycles(rows);

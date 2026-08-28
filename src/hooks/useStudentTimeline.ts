@@ -47,7 +47,7 @@ export function useStudentTimeline(studentId: string | null) {
         (data ?? []).forEach((e: any) => out.push({ id: `aval-${e.id}`, kind: "avaliacao", date: pickDate(e.evaluation_date, e.created_at), title: "Avaliação funcional", subtitle: e.type || undefined }));
       }),
       safe(async () => {
-        const { data } = await supabase.from("training_cycles" as any).select("id, cycle_number, name, objective, created_at, start_date, delivery_status").eq("student_id", studentId);
+        const { data } = await supabase.from("training_cycles" as any).select("id, cycle_number, name, objective, created_at, start_date, delivery_status").eq("student_id", studentId).neq("status", "superseded");
         (data ?? []).forEach((c: any) => {
           const base = c.name || c.objective || "";
           // P6 — status de entrega visível pro professor na linha do tempo.

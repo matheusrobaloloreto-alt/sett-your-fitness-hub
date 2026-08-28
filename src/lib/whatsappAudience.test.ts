@@ -42,4 +42,12 @@ describe("WhatsApp audience integration", () => {
     ], "2026-07-31");
     expect(selected?.id).toBe("current");
   });
+
+  it("nunca usa um ciclo MFIT substituído como contexto da conversa", () => {
+    const selected = selectCurrentCycle([
+      { id: "mfit", start_date: "2026-07-27", end_date: "2026-09-07", status: "superseded" },
+      { id: "studio", start_date: "2026-07-27", end_date: "2026-09-06", status: "active" },
+    ], "2026-08-27");
+    expect(selected?.id).toBe("studio");
+  });
 });

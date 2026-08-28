@@ -293,6 +293,7 @@ export async function publishStrengthPlanToStudent(opts: {
       .from("training_cycles")
       .select("cycle_number")
       .eq("enrollment_id", enrollmentId)
+      .neq("status", "superseded")
       .order("cycle_number", { ascending: false })
       .limit(1)
       .maybeSingle();

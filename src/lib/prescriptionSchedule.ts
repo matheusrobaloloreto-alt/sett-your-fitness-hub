@@ -7,6 +7,7 @@ export interface PrescriptionScheduleCycle {
   start_date: string;
   end_date: string;
   status: string;
+  superseded_by_cycle_id?: string | null;
   has_workouts?: boolean;
   has_bundle?: boolean;
 }
@@ -20,6 +21,12 @@ export interface PrescriptionEnrollment {
 export type LongitudinalPhase = "base" | "acumulacao" | "intensificacao" | "consolidacao";
 
 const DAY_MS = 86_400_000;
+
+export function isSupersededCycle(
+  cycle: Pick<PrescriptionScheduleCycle, "status" | "superseded_by_cycle_id">,
+): boolean {
+  return cycle.status === "superseded" || Boolean(cycle.superseded_by_cycle_id);
+}
 
 function utcDay(value: string | Date): number {
   if (value instanceof Date) {
@@ -56,7 +63,7 @@ export function selectCurrentCyclePerEnrollment(
 ): PrescriptionScheduleCycle[] {
   const grouped = new Map<string, PrescriptionScheduleCycle[]>();
 
-  cycles.filter((cycle) => isCycleCurrent(cycle, today)).forEach((cycle) => {
+  cycles.filter((cycle) => !isSupersededCycle(cycle) && isCycleCurrent(cycle, today)).forEach((cycle) => {
     const key = cycle.enrollment_id || cycle.id;
     const group = grouped.get(key) || [];
     group.push(cycle);
@@ -98,11 +105,12 @@ export function selectPreferredVisibleCycle<T extends {
     return utcDay(right.start_date) - utcDay(left.start_date);
   };
 
-  return cycles.filter((cycle) => isCycleCurrent(cycle, today) && prepared(cycle)).sort(rank)[0]
-    ?? cycles.filter((cycle) => started(cycle) && prepared(cycle)).sort((left, right) =>
+  const visible = cycles.filter((cycle) => !isSupersededCycle(cycle));
+  return visible.filter((cycle) => isCycleCurrent(cycle, today) && prepared(cycle)).sort(rank)[0]
+    ?? visible.filter((cycle) => started(cycle) && prepared(cycle)).sort((left, right) =>
       utcDay(right.start_date) - utcDay(left.start_date) || rank(left, right)
     )[0]
-    ?? cycles.filter((cycle) => isCycleCurrent(cycle, today)).sort(rank)[0]
+    ?? visible.filter((cycle) => isCycleCurrent(cycle, today)).sort(rank)[0]
     ?? null;
 }
 
@@ -153,7 +161,7 @@ export function collapseOverlappingCyclesForDisplay<T extends PrescriptionSchedu
   };
 
   const selected: T[] = [];
-  for (const cycle of [...cycles].sort((a, b) => utcDay(a.start_date) - utcDay(b.start_date))) {
+  for (const cycle of [...cycles].filter((item) => !isSupersededCycle(item)).sort((a, b) => utcDay(a.start_date) - utcDay(b.start_date))) {
     const duplicateIndex = selected.findIndex((candidate) => overlapRatio(candidate, cycle) >= 0.8);
     if (duplicateIndex === -1) selected.push(cycle);
     else selected[duplicateIndex] = mergeForDisplay(selected[duplicateIndex], cycle);
@@ -191,7 +199,7 @@ export function selectPrescriptionEnrollment<T extends PrescriptionEnrollment>(
 export function selectSequentialScheduleCycles(
   cycles: PrescriptionScheduleCycle[],
 ): PrescriptionScheduleCycle[] {
-  const ordered = [...cycles].sort((a, b) => {
+  const ordered = [...cycles].filter((cycle) => !isSupersededCycle(cycle)).sort((a, b) => {
     if (a.cycle_number !== b.cycle_number) return a.cycle_number - b.cycle_number;
     return utcDay(a.start_date) - utcDay(b.start_date);
   });
@@ -208,9 +216,10 @@ export function selectSequentialScheduleCycles(
 }
 
 export function scheduleSpanWeeks(cycles: PrescriptionScheduleCycle[]): number {
-  if (!cycles.length) return 0;
-  const start = Math.min(...cycles.map((cycle) => utcDay(cycle.start_date)));
-  const end = Math.max(...cycles.map((cycle) => utcDay(cycle.end_date)));
+  const visible = cycles.filter((cycle) => !isSupersededCycle(cycle));
+  if (!visible.length) return 0;
+  const start = Math.min(...visible.map((cycle) => utcDay(cycle.start_date)));
+  const end = Math.max(...visible.map((cycle) => utcDay(cycle.end_date)));
   return Math.max(1, Math.ceil((end - start + DAY_MS) / (7 * DAY_MS)));
 }
 
@@ -230,7 +239,9 @@ export function selectPrescriptionTargets(args: {
   includeAlreadyPrepared?: boolean;
 }): PrescriptionScheduleCycle[] {
   const today = args.today ?? new Date();
-  const ordered = [...args.cycles].sort((a, b) => a.cycle_number - b.cycle_number);
+  const ordered = [...args.cycles]
+    .filter((cycle) => !isSupersededCycle(cycle))
+    .sort((a, b) => a.cycle_number - b.cycle_number);
 
   if (args.mode === "single") {
     const selected = ordered.find((cycle) => cycle.id === args.selectedCycleId);

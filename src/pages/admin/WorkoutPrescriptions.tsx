@@ -89,6 +89,7 @@ export default function WorkoutPrescriptions() {
         .from("training_cycles")
         .select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at")
         .in("enrollment_id", enrollmentIds)
+        .neq("status", "superseded")
         .order("cycle_number");
       cyclesData = data || [];
     }

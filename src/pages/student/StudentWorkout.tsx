@@ -181,10 +181,14 @@ export default function StudentWorkout() {
       if (cyclesError) throw cyclesError;
 
       if (cyclesData && cyclesData.length > 0) {
-        const { data: workoutsData, error: workoutsError } = await supabase
-          .from("workouts")
-          .select("id, title, description, exercises, cycle_id")
-          .in("cycle_id", cyclesData.map((c) => c.id));
+        const schedulableCycles = cyclesData.filter((cycle) => cycle.status !== "superseded");
+        const workoutResult = schedulableCycles.length > 0
+          ? await supabase
+            .from("workouts")
+            .select("id, title, description, exercises, cycle_id")
+            .in("cycle_id", schedulableCycles.map((c) => c.id))
+          : { data: [], error: null };
+        const { data: workoutsData, error: workoutsError } = workoutResult;
         if (!isCurrentLoad()) return;
         if (workoutsError) throw workoutsError;
 
@@ -213,7 +217,7 @@ export default function StudentWorkout() {
           })),
         }));
 
-        const enriched: Cycle[] = cyclesData.map((c) => {
+        const enriched: Cycle[] = schedulableCycles.map((c) => {
           const cycleWorkouts = materializedWorkouts
             .filter((w) => w.cycle_id === c.id)
             .map((w) => ({

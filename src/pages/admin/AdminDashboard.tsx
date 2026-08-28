@@ -159,6 +159,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     const { data: cycleRows, error: cycleRowsError } = await supabase.from("training_cycles")
       .select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at")
       .in("enrollment_id", enrollIds)
+      .neq("status", "superseded")
       .order("cycle_number");
     if (cycleRowsError) throw new Error(`Falha ao carregar trocas de treino: ${cycleRowsError.message}`);
     const allCycles = cycleRows || [];

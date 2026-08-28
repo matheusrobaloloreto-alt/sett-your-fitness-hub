@@ -73,6 +73,7 @@ export default function TrainerDashboard() {
         .from("training_cycles").select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at")
         .eq("company_id", companyId)
         .in("enrollment_id", ids)
+        .neq("status", "superseded")
         .order("end_date", { ascending: true });
 
       const grouped: Record<string, Cycle[]> = {};

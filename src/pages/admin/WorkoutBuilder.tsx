@@ -293,11 +293,12 @@ export default function WorkoutBuilder() {
 
     const { data, error: cycleError } = await supabase
       .from("training_cycles")
-      .select("cycle_number, enrollment_id, company_id")
+      .select("cycle_number, enrollment_id, company_id, status")
       .eq("id", cycleId!)
       .maybeSingle();
     if (cycleError) throw cycleError;
     if (!data) throw new Error("Ciclo de treino nao encontrado.");
+    if (data.status === "superseded") throw new Error("Este ciclo foi substituido por uma prescricao mais recente.");
 
     const { data: enrollment, error: enrollmentError } = await supabase
       .from("enrollments")

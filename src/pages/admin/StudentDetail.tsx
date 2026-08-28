@@ -489,13 +489,16 @@ export default function StudentDetail() {
       return;
     }
 
-    const cycleIds = cycleData.map((c) => c.id);
-    const { data: workouts } = await supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").in("cycle_id", cycleIds);
+    const schedulableCycleData = cycleData.filter((cycle) => cycle.status !== "superseded");
+    const cycleIds = schedulableCycleData.map((c) => c.id);
+    const workouts = cycleIds.length > 0
+      ? (await supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").in("cycle_id", cycleIds)).data
+      : [];
     const materializedWorkouts = filterMaterializedWorkouts(workouts || []);
     const workoutCycleIds = new Set(materializedWorkouts.map((w) => w.cycle_id));
     setAllWorkouts(materializedWorkouts);
 
-    const displayCycles = collapseOverlappingCyclesForDisplay(cycleData.map((c) => ({
+    const displayCycles = collapseOverlappingCyclesForDisplay(schedulableCycleData.map((c) => ({
       ...c,
       has_workout: workoutCycleIds.has(c.id),
       has_workouts: workoutCycleIds.has(c.id),

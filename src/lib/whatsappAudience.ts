@@ -58,7 +58,9 @@ export function matchesWhatsAppStatusFilter(
 }
 
 export function selectCurrentCycle<T extends CycleWindow>(cycles: T[], today: string): T | null {
-  const ordered = [...cycles].sort((a, b) => a.start_date.localeCompare(b.start_date));
+  const ordered = cycles
+    .filter((cycle) => cycle.status !== "superseded")
+    .sort((a, b) => a.start_date.localeCompare(b.start_date));
   return ordered.find((cycle) => cycle.start_date <= today && cycle.end_date >= today)
     || [...ordered].reverse().find((cycle) => cycle.start_date <= today)
     || ordered[0]

@@ -414,10 +414,13 @@ export default function StudentPortal() {
         .order("cycle_number");
 
       if (cyclesData && cyclesData.length > 0) {
-        const { data: workoutsData } = await supabase
-          .from("workouts")
-          .select("id, name, title, description, exercises, cycle_id, day_of_week")
-          .in("cycle_id", cyclesData.map(c => c.id));
+        const schedulableCycles = cyclesData.filter((cycle) => cycle.status !== "superseded");
+        const workoutsData = schedulableCycles.length > 0
+          ? (await supabase
+            .from("workouts")
+            .select("id, name, title, description, exercises, cycle_id, day_of_week")
+            .in("cycle_id", schedulableCycles.map(c => c.id))).data
+          : [];
 
         const materializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
 
@@ -440,7 +443,7 @@ export default function StudentPortal() {
           }
         }
 
-        const enriched: Cycle[] = cyclesData.map(c => {
+        const enriched: Cycle[] = schedulableCycles.map(c => {
           const cycleWorkouts = materializedWorkouts
             .filter(w => w.cycle_id === c.id)
             .map(w => ({

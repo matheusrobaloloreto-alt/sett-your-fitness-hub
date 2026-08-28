@@ -69,6 +69,7 @@ export async function sendTemplateToStudent(opts: {
   await db.from("training_cycles").update({ status: "completed" }).eq("enrollment_id", enrollmentId).eq("status", "active");
   const { data: maxc } = await db
     .from("training_cycles").select("cycle_number").eq("enrollment_id", enrollmentId)
+    .neq("status", "superseded")
     .order("cycle_number", { ascending: false }).limit(1).maybeSingle();
   const cycleNumber = (Number(maxc?.cycle_number) || 0) + 1;
   const { data: cycle, error: cycErr } = await db

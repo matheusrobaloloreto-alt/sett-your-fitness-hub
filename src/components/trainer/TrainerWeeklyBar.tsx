@@ -48,7 +48,8 @@ export function TrainerWeeklyBar({ studentId }: Props) {
     const { data: cycles } = await supabase
       .from("training_cycles")
       .select("id")
-      .eq("enrollment_id", enrollment.id);
+      .eq("enrollment_id", enrollment.id)
+      .neq("status", "superseded");
 
     if (!cycles?.length) { setLoading(false); return; }
 
