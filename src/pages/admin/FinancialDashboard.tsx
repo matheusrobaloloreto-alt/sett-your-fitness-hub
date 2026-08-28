@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useNavigate } from "react-router-dom";
+import { isBrazilianCountry } from "@/lib/fiscalRegistration";
 
 interface FinancialStats {
   monthRevenueBilling: number;
@@ -268,15 +269,23 @@ export default function FinancialDashboard() {
   };
 
   const handleIssueInvoice = async (asaasPaymentId: string) => {
-    // P3 — valida cadastro fiscal (CPF + endereço/CEP) antes de emitir. Evita NFS-e vazia/erro.
+    // P3 — valida o cadastro antes de emitir sem exigir documentos brasileiros de residentes estrangeiros.
     const pay: any = allPayments.find((p) => p.asaas_payment_id === asaasPaymentId);
     if (pay?.student_id) {
       let s: any = null;
       try {
-        const { data } = await supabase.from("students").select("cpf, cep, address").eq("id", pay.student_id).maybeSingle();
+        const { data } = await supabase.from("students").select("cpf, cep, address, country_code").eq("id", pay.student_id).maybeSingle();
         s = data;
       } catch { s = null; }
       if (s) {
+        if (!isBrazilianCountry(s.country_code)) {
+          toast({
+            title: "NFS-e automática indisponível",
+            description: "Este cadastro é internacional. Faça a emissão fiscal pelo fluxo contábil apropriado ao país.",
+            variant: "destructive",
+          });
+          return;
+        }
         const cpf = String(s.cpf || "").replace(/\D/g, "");
         const cep = String(s.cep || "").replace(/\D/g, "");
         const missing: string[] = [];

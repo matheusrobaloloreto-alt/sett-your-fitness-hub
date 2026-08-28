@@ -20,7 +20,8 @@ import { cadenceTone, formatCadence } from "@/lib/contactCadence";
 import { StudentChatButton } from "@/components/admin/StudentChatButton";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useToast } from "@/hooks/use-toast";
-import { formatCEP, formatCPF, formatPhone } from "@/lib/masks";
+import { formatCEP, formatCPF, formatPhoneForCountry } from "@/lib/masks";
+import { isBrazilianCountry } from "@/lib/fiscalRegistration";
 
 interface Collaborator { user_id: string; full_name: string; roles: string[] }
 interface PortfolioStudent {
@@ -28,6 +29,7 @@ interface PortfolioStudent {
   email: string | null; birth_date: string | null; cpf: string | null; cep: string | null;
   address: string | null; address_number: string | null; neighborhood: string | null;
   city: string | null; state: string | null; notes: string | null;
+  country_code: string | null;
   cycle_end?: string | null; chat_id?: string | null; hours_since_contact?: number | null;
 }
 
@@ -102,7 +104,7 @@ export default function Portfolio() {
     setLoading(true);
     const { data: studs } = await supabase
       .from("students")
-      .select("id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, notes")
+      .select("id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, country_code, notes")
       .eq("company_id", effectiveCompanyId)
       .eq("assigned_trainer_id", selectedId)
       .order("full_name");
@@ -136,15 +138,16 @@ export default function Portfolio() {
   useEffect(() => { load(); }, [load]);
 
   const openEditStudent = (student: PortfolioStudent) => {
+    const brazilian = isBrazilianCountry(student.country_code);
     setEditingStudent(student);
     setStudentForm({
       full_name: student.full_name,
       email: student.email || "",
       phone: student.phone || "",
-      whatsapp: student.whatsapp ? formatPhone(student.whatsapp) : "",
+      whatsapp: student.whatsapp ? formatPhoneForCountry(student.whatsapp, student.country_code) : "",
       birth_date: student.birth_date || "",
-      cpf: student.cpf ? formatCPF(student.cpf) : "",
-      cep: student.cep ? formatCEP(student.cep) : "",
+      cpf: student.cpf ? (brazilian ? formatCPF(student.cpf) : student.cpf) : "",
+      cep: student.cep ? (brazilian ? formatCEP(student.cep) : student.cep) : "",
       address: student.address || "",
       address_number: student.address_number || "",
       neighborhood: student.neighborhood || "",
@@ -157,6 +160,7 @@ export default function Portfolio() {
 
   const saveStudent = async () => {
     if (!editingStudent || !studentForm.full_name.trim()) return;
+    const brazilian = isBrazilianCountry(editingStudent.country_code);
     setSavingStudent(true);
     const { error } = await supabase.from("students").update({
       full_name: studentForm.full_name.trim(),
@@ -164,8 +168,8 @@ export default function Portfolio() {
       phone: studentForm.phone.trim() || null,
       whatsapp: studentForm.whatsapp.replace(/\D/g, "") || null,
       birth_date: studentForm.birth_date || null,
-      cpf: studentForm.cpf.replace(/\D/g, "") || null,
-      cep: studentForm.cep.replace(/\D/g, "") || null,
+      cpf: (brazilian ? studentForm.cpf.replace(/\D/g, "") : studentForm.cpf.trim()) || null,
+      cep: (brazilian ? studentForm.cep.replace(/\D/g, "") : studentForm.cep.trim()) || null,
       address: studentForm.address.trim() || null,
       address_number: studentForm.address_number.trim() || null,
       neighborhood: studentForm.neighborhood.trim() || null,
@@ -180,7 +184,7 @@ export default function Portfolio() {
       return;
     }
     try {
-      await supabase.functions.invoke("asaas-integration", {
+      if (brazilian) await supabase.functions.invoke("asaas-integration", {
         body: {
           action: "update-customer",
           studentId: editingStudent.id,
@@ -345,11 +349,11 @@ export default function Portfolio() {
             <div className="space-y-2"><Label>Nome completo *</Label><Input value={studentForm.full_name} onChange={(event) => setStudentForm({ ...studentForm, full_name: event.target.value })} /></div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2"><Label>E-mail</Label><Input value={studentForm.email} onChange={(event) => setStudentForm({ ...studentForm, email: event.target.value })} /></div>
-              <div className="space-y-2"><Label>WhatsApp</Label><Input value={studentForm.whatsapp} onChange={(event) => setStudentForm({ ...studentForm, whatsapp: formatPhone(event.target.value) })} /></div>
+              <div className="space-y-2"><Label>WhatsApp</Label><Input value={studentForm.whatsapp} onChange={(event) => setStudentForm({ ...studentForm, whatsapp: formatPhoneForCountry(event.target.value, editingStudent?.country_code) })} /></div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2"><Label>CPF</Label><Input value={studentForm.cpf} onChange={(event) => setStudentForm({ ...studentForm, cpf: formatCPF(event.target.value) })} /></div>
-              <div className="space-y-2"><Label>CEP</Label><Input value={studentForm.cep} onChange={(event) => setStudentForm({ ...studentForm, cep: formatCEP(event.target.value) })} /></div>
+              <div className="space-y-2"><Label>CPF {isBrazilianCountry(editingStudent?.country_code) ? "" : "(opcional)"}</Label><Input value={studentForm.cpf} onChange={(event) => setStudentForm({ ...studentForm, cpf: isBrazilianCountry(editingStudent?.country_code) ? formatCPF(event.target.value) : event.target.value.slice(0, 32) })} /></div>
+              <div className="space-y-2"><Label>CEP {isBrazilianCountry(editingStudent?.country_code) ? "" : "(opcional)"}</Label><Input value={studentForm.cep} onChange={(event) => setStudentForm({ ...studentForm, cep: isBrazilianCountry(editingStudent?.country_code) ? formatCEP(event.target.value) : event.target.value.slice(0, 20) })} /></div>
             </div>
             <div className="space-y-2"><Label>Rua</Label><Input value={studentForm.address} onChange={(event) => setStudentForm({ ...studentForm, address: event.target.value })} /></div>
             <div className="grid gap-4 sm:grid-cols-2">

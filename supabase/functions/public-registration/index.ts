@@ -3,7 +3,7 @@ import { resolveAnamnesisDurations } from "../_shared/anamnesis-duration.ts";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
 import { preRegistrationResponseDeadline } from "../_shared/pre-registration-confirmation.ts";
 import { validatePreRegistrationSubmission } from "../_shared/pre-registration-validation.ts";
-import { fiscalRegistrationValidation, normalizeCountryCode } from "../_shared/fiscal-registration.ts";
+import { countryAwareFiscalFields, fiscalRegistrationValidation, normalizeCountryCode, normalizeFiscalDocument, supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
 import {
   buildFiscalRegistrationMessage,
   buildPaymentLinkMessage,
@@ -167,7 +167,8 @@ function buildNutritionContext(body: Record<string, unknown>) {
 
 async function findExistingStudent(companyId: string, student: Record<string, unknown>) {
   const email = normalizeEmail(student.email);
-  const cpf = onlyDigits(student.cpf);
+  const countryCode = normalizeCountryCode(student.country_code);
+  const cpf = normalizeFiscalDocument(student.cpf, countryCode);
   if (email) {
     const { data } = await supabase
       .from("students")
@@ -178,13 +179,27 @@ async function findExistingStudent(companyId: string, student: Record<string, un
     if (data?.id) return data;
   }
   if (cpf) {
-    const { data } = await supabase
-      .from("students")
-      .select("id, full_name, status")
-      .eq("company_id", companyId)
-      .eq("cpf", cpf)
-      .maybeSingle();
-    if (data?.id) return data;
+    if (countryCode === "BR") {
+      const { data } = await supabase
+        .from("students")
+        .select("id, full_name, status")
+        .eq("company_id", companyId)
+        .eq("cpf", cpf)
+        .maybeSingle();
+      if (data?.id) return data;
+    } else {
+      const { data } = await supabase
+        .from("students")
+        .select("id, full_name, status, cpf, country_code")
+        .eq("company_id", companyId)
+        .eq("country_code", countryCode)
+        .not("cpf", "is", null)
+        .limit(2000);
+      const match = (data || []).find((candidate) =>
+        normalizeFiscalDocument(candidate.cpf, candidate.country_code) === cpf
+      );
+      if (match?.id) return match;
+    }
   }
   return null;
 }
@@ -668,12 +683,9 @@ function fiscalPayload(student: Record<string, unknown>) {
     if (student[key] !== undefined) payload[key] = student[key];
   }
   payload.email = normalizeEmail(student.email);
-  payload.cpf = onlyDigits(student.cpf);
-  payload.cep = onlyDigits(student.cep);
+  Object.assign(payload, countryAwareFiscalFields(student));
   payload.whatsapp = onlyDigits(student.whatsapp || student.phone);
   payload.phone = onlyDigits(student.phone || student.whatsapp);
-  payload.state = cleanText(student.state).toUpperCase();
-  payload.country_code = normalizeCountryCode(student.country_code);
   return payload;
 }
 
@@ -706,6 +718,14 @@ async function completeFiscalRegistration(link: RegistrationLink, studentInput: 
   await supabase.from("public_registration_links")
     .update({ completed_at: link.completed_at || completedAt })
     .eq("id", link.id);
+
+  if (!supportsAsaasBilling(studentInput.country_code)) {
+    return {
+      studentId: currentStudent.id,
+      manualPaymentRequired: true,
+      paymentMessageSent: false,
+    };
+  }
 
   const paymentLink = await createPaymentLink(currentStudent.id, link.company_id);
   const paymentUrl = `${APP_URL}/pagamento/${paymentLink.token}`;
@@ -771,6 +791,14 @@ async function legacyRegistration(companyId: string, student: Record<string, unk
     studentId = created.data.id;
   }
   if (!studentId) throw new HttpError(500, "Falha ao identificar o cadastro criado.");
+  if (!supportsAsaasBilling(student.country_code)) {
+    return {
+      studentId,
+      existing: !!existing,
+      manualPaymentRequired: true,
+      paymentMessageSent: false,
+    };
+  }
   const paymentLink = await createPaymentLink(studentId, companyId);
   return {
     studentId,

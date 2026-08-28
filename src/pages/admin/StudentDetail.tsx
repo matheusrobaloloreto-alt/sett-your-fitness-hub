@@ -47,8 +47,9 @@ function safeFormatDate(value: string | null | undefined, fmt: string, opts?: Pa
     return "—";
   }
 }
-import { formatCPF, formatCEP, formatPhone } from "@/lib/masks";
+import { formatCPF, formatCEP, formatPhoneForCountry } from "@/lib/masks";
 import { lookupCep, lookupCepByAddress } from "@/lib/cep";
+import { isBrazilianCountry } from "@/lib/fiscalRegistration";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { collapseOverlappingCyclesForDisplay } from "@/lib/prescriptionSchedule";
@@ -87,6 +88,7 @@ interface Student {
   city: string | null;
   state: string | null;
   whatsapp: string | null;
+  country_code: string | null;
   selected_plan_id: string | null;
   assigned_trainer_id: string | null;
   company_id: string | null;
@@ -381,6 +383,7 @@ export default function StudentDetail() {
 
   // CEP ↔ endereço automático no editar aluno
   const fillFromCepStudent = async (cepValue: string) => {
+    if (!isBrazilianCountry(student?.country_code)) return;
     const r = await lookupCep(cepValue);
     if (!r) return;
     setStudentForm((f) => ({
@@ -393,6 +396,7 @@ export default function StudentDetail() {
     }));
   };
   const fillCepFromAddressStudent = async () => {
+    if (!isBrazilianCountry(student?.country_code)) return;
     if (studentForm.cep.replace(/\D/g, "").length === 8) return;
     const r = await lookupCepByAddress(studentForm.state, studentForm.city, studentForm.address);
     if (r?.cep) setStudentForm((f) => ({ ...f, cep: formatCEP(r.cep), neighborhood: f.neighborhood || r.bairro }));
@@ -742,24 +746,27 @@ export default function StudentDetail() {
   // ---- EDIT STUDENT ----
   const openEditStudent = () => {
     if (!student) return;
+    const brazilian = isBrazilianCountry(student.country_code);
     setStudentForm({
       full_name: student.full_name, email: student.email || "", phone: student.phone || "",
-      birth_date: student.birth_date || "", cpf: student.cpf ? formatCPF(student.cpf) : "",
-      cep: student.cep ? formatCEP(student.cep) : "", address: student.address || "",
+      birth_date: student.birth_date || "", cpf: student.cpf ? (brazilian ? formatCPF(student.cpf) : student.cpf) : "",
+      cep: student.cep ? (brazilian ? formatCEP(student.cep) : student.cep) : "", address: student.address || "",
       address_number: student.address_number || "", neighborhood: student.neighborhood || "",
       city: student.city || "", state: student.state || "",
-      whatsapp: student.whatsapp ? formatPhone(student.whatsapp) : "", status: student.status, notes: student.notes || "",
+      whatsapp: student.whatsapp ? formatPhoneForCountry(student.whatsapp, student.country_code) : "", status: student.status, notes: student.notes || "",
     });
     setEditStudentOpen(true);
   };
 
   const handleSaveStudent = async () => {
     if (!id || !studentForm.full_name.trim()) return;
+    const brazilian = isBrazilianCountry(student?.country_code);
     setSaving(true);
     const { error } = await supabase.from("students").update({
       full_name: studentForm.full_name.trim(), email: studentForm.email.trim() || null,
       phone: studentForm.phone.trim() || null, birth_date: studentForm.birth_date || null,
-      cpf: studentForm.cpf.replace(/\D/g, "") || null, cep: studentForm.cep.replace(/\D/g, "") || null,
+      cpf: (brazilian ? studentForm.cpf.replace(/\D/g, "") : studentForm.cpf.trim()) || null,
+      cep: (brazilian ? studentForm.cep.replace(/\D/g, "") : studentForm.cep.trim()) || null,
       address: studentForm.address.trim() || null, address_number: studentForm.address_number.trim() || null,
       neighborhood: studentForm.neighborhood.trim() || null, city: studentForm.city.trim() || null,
       state: studentForm.state.trim() || null,
@@ -768,20 +775,24 @@ export default function StudentDetail() {
     }).eq("id", id);
     setSaving(false);
     if (error) { toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" }); return; }
-    // Sync address to Asaas
-    try {
-      await supabase.functions.invoke("asaas-integration", {
-        body: {
-          action: "update-customer", studentId: id,
-          name: studentForm.full_name.trim(), email: studentForm.email.trim() || undefined,
-          mobilePhone: studentForm.whatsapp.replace(/\D/g, "") || undefined,
-          postalCode: studentForm.cep.replace(/\D/g, "") || undefined,
-          address: studentForm.address.trim() || undefined,
-          addressNumber: studentForm.address_number.trim() || undefined,
-          province: studentForm.neighborhood.trim() || undefined,
-        },
-      });
-    } catch (e) { console.error("Erro ao sincronizar com Asaas:", e); }
+    // Sync address to Asaas only for the Brazilian fiscal flow.
+    if (brazilian) {
+      try {
+        await supabase.functions.invoke("asaas-integration", {
+          body: {
+            action: "update-customer", studentId: id,
+            name: studentForm.full_name.trim(), email: studentForm.email.trim() || undefined,
+            mobilePhone: studentForm.whatsapp.replace(/\D/g, "") || undefined,
+            postalCode: studentForm.cep.replace(/\D/g, "") || undefined,
+            address: studentForm.address.trim() || undefined,
+            addressNumber: studentForm.address_number.trim() || undefined,
+            province: studentForm.neighborhood.trim() || undefined,
+          },
+        });
+      } catch (e) {
+        console.error("Erro ao sincronizar com Asaas:", e);
+      }
+    }
     toast({ title: "Dados atualizados!" });
     setEditStudentOpen(false);
     loadData(id);
@@ -1102,7 +1113,7 @@ export default function StudentDetail() {
               {student.whatsapp && (
                 <span className="inline-flex items-center gap-1">
                   <MessageCircle className="h-3.5 w-3.5 shrink-0" />
-                  {formatPhone(student.whatsapp)}
+                  {formatPhoneForCountry(student.whatsapp, student.country_code)}
                 </span>
               )}
               {trainerName && (
@@ -1264,9 +1275,9 @@ export default function StudentDetail() {
                 }>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm font-sans">
                       {student.birth_date && <div className="flex items-center gap-2 text-muted-foreground"><Cake className="h-4 w-4" />{safeFormatDate(student.birth_date, "dd/MM/yyyy")}</div>}
-                      {student.cpf && <div className="flex items-center gap-2 text-muted-foreground"><CreditCard className="h-4 w-4" />{formatCPF(student.cpf)}</div>}
-                      {student.phone && <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" />{formatPhone(student.phone)}</div>}
-                      {student.cep && <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-4 w-4" />CEP: {formatCEP(student.cep)}</div>}
+                      {student.cpf && <div className="flex items-center gap-2 text-muted-foreground"><CreditCard className="h-4 w-4" />{isBrazilianCountry(student.country_code) ? formatCPF(student.cpf) : student.cpf}</div>}
+                      {student.phone && <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" />{formatPhoneForCountry(student.phone, student.country_code)}</div>}
+                      {student.cep && <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-4 w-4" />{isBrazilianCountry(student.country_code) ? `CEP: ${formatCEP(student.cep)}` : `Código postal: ${student.cep}`}</div>}
                     </div>
                     {(student.address || student.neighborhood || student.city) && (
                       <p className="text-sm text-muted-foreground font-sans mt-2 flex items-start gap-2">
@@ -1830,11 +1841,11 @@ export default function StudentDetail() {
               <div className="space-y-2"><Label className="font-sans">Nome completo *</Label><Input value={studentForm.full_name} onChange={e => setStudentForm({ ...studentForm, full_name: e.target.value })} className="bg-secondary border-border" /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2"><Label className="font-sans">Email</Label><Input value={studentForm.email} onChange={e => setStudentForm({ ...studentForm, email: e.target.value })} className="bg-secondary border-border" /></div>
-                <div className="space-y-2"><Label className="font-sans">WhatsApp</Label><Input value={studentForm.whatsapp} onChange={e => setStudentForm({ ...studentForm, whatsapp: formatPhone(e.target.value) })} className="bg-secondary border-border" placeholder="(00) 00000-0000" /></div>
+                <div className="space-y-2"><Label className="font-sans">WhatsApp</Label><Input value={studentForm.whatsapp} onChange={e => setStudentForm({ ...studentForm, whatsapp: formatPhoneForCountry(e.target.value, student?.country_code) })} className="bg-secondary border-border" placeholder={isBrazilianCountry(student?.country_code) ? "(00) 00000-0000" : "+351912345678"} /></div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label className="font-sans">CPF</Label><Input value={studentForm.cpf} onChange={e => setStudentForm({ ...studentForm, cpf: formatCPF(e.target.value) })} className="bg-secondary border-border" placeholder="000.000.000-00" /></div>
-                <div className="space-y-2"><Label className="font-sans">CEP</Label><Input value={studentForm.cep} onChange={e => { const m = formatCEP(e.target.value); setStudentForm(f => ({ ...f, cep: m })); if (m.replace(/\D/g, "").length === 8) void fillFromCepStudent(m); }} className="bg-secondary border-border" placeholder="00000-000" /></div>
+                <div className="space-y-2"><Label className="font-sans">CPF {isBrazilianCountry(student?.country_code) ? "" : "(opcional)"}</Label><Input value={studentForm.cpf} onChange={e => setStudentForm({ ...studentForm, cpf: isBrazilianCountry(student?.country_code) ? formatCPF(e.target.value) : e.target.value.slice(0, 32) })} className="bg-secondary border-border" placeholder={isBrazilianCountry(student?.country_code) ? "000.000.000-00" : "Documento fiscal, se houver"} /></div>
+                <div className="space-y-2"><Label className="font-sans">CEP {isBrazilianCountry(student?.country_code) ? "" : "(opcional)"}</Label><Input value={studentForm.cep} onChange={e => { const m = isBrazilianCountry(student?.country_code) ? formatCEP(e.target.value) : e.target.value.slice(0, 20); setStudentForm(f => ({ ...f, cep: m })); if (isBrazilianCountry(student?.country_code) && m.replace(/\D/g, "").length === 8) void fillFromCepStudent(m); }} className="bg-secondary border-border" placeholder={isBrazilianCountry(student?.country_code) ? "00000-000" : "Código postal"} /></div>
               </div>
               <div className="space-y-2"><Label className="font-sans">Rua</Label><Input value={studentForm.address} onChange={e => setStudentForm({ ...studentForm, address: e.target.value })} onBlur={fillCepFromAddressStudent} className="bg-secondary border-border" /></div>
               <div className="grid grid-cols-2 gap-4">

@@ -3487,6 +3487,7 @@ export type Database = {
           cep: string | null
           city: string | null
           company_id: string | null
+          country_code: string
           cpf: string | null
           created_at: string
           email: string | null
@@ -3527,6 +3528,7 @@ export type Database = {
           cep?: string | null
           city?: string | null
           company_id?: string | null
+          country_code?: string
           cpf?: string | null
           created_at?: string
           email?: string | null
@@ -3567,6 +3569,7 @@ export type Database = {
           cep?: string | null
           city?: string | null
           company_id?: string | null
+          country_code?: string
           cpf?: string | null
           created_at?: string
           email?: string | null

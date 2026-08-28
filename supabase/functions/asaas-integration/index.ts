@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
+import { supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
 import {
   addBusinessDays,
   buildAssessmentOnboardingMessage,
@@ -278,12 +279,15 @@ async function createPayment(body: any) {
   // Get customer id
   const { data: student } = await supabaseAdmin
     .from("students")
-    .select("asaas_customer_id, company_id, selected_plan_id, full_name, email, cpf, phone, whatsapp, cep, address, address_number, neighborhood, city, state")
+    .select("asaas_customer_id, company_id, selected_plan_id, full_name, email, cpf, phone, whatsapp, cep, address, address_number, neighborhood, city, state, country_code")
     .eq("id", studentId)
     .single();
 
   if (!student) {
     throw new Error("Aluno não encontrado.");
+  }
+  if (!supportsAsaasBilling(student.country_code)) {
+    throw new HttpError(422, "Pagamento internacional não é processado pelo Asaas. Entre em contato com a equipe para combinar o pagamento.");
   }
 
   // SECURITY: amount comes from the plan in the DB, never from the client body.
@@ -432,12 +436,15 @@ async function createCardPayment(body: any) {
 
   const { data: student } = await supabaseAdmin
     .from("students")
-    .select("asaas_customer_id, company_id, selected_plan_id, full_name, email, cpf, phone, whatsapp, cep, address, address_number, neighborhood, city, state")
+    .select("asaas_customer_id, company_id, selected_plan_id, full_name, email, cpf, phone, whatsapp, cep, address, address_number, neighborhood, city, state, country_code")
     .eq("id", studentId)
     .single();
 
   if (!student) {
     throw new Error("Aluno não encontrado.");
+  }
+  if (!supportsAsaasBilling(student.country_code)) {
+    throw new HttpError(422, "Pagamento internacional não é processado pelo Asaas. Entre em contato com a equipe para combinar o pagamento.");
   }
 
   // SECURITY: amount comes from the plan in the DB, never from the client body.
@@ -540,9 +547,13 @@ async function createInvoice(body: any) {
   if (localPayment?.student_id) {
     const { data: student } = await supabaseAdmin
       .from("students")
-      .select("id, asaas_customer_id, full_name, email, phone, whatsapp, cpf, cep, address, address_number, neighborhood")
+      .select("id, asaas_customer_id, full_name, email, phone, whatsapp, cpf, cep, address, address_number, neighborhood, country_code")
       .eq("id", localPayment.student_id)
       .single();
+
+    if (student && !supportsAsaasBilling(student.country_code)) {
+      throw new HttpError(422, "A emissão automática de NFS-e está disponível apenas para cadastros brasileiros.");
+    }
 
     if (student?.asaas_customer_id) {
       const normalizedCep = (student.cep || "").replace(/\D/g, "");

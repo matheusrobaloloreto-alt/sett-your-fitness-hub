@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
-import { formatCPF, formatCEP, formatPhone } from "@/lib/masks";
+import { formatCPF, formatCEP, formatPhone, formatPhoneForCountry } from "@/lib/masks";
 import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { applyTheme } from "@/contexts/ThemeContext";
 import { SUPPORTED_TRAINING_MODALITIES } from "@/lib/anamnesisOptions";
@@ -75,6 +75,7 @@ export default function PublicRegistration() {
   const [done, setDone] = useState(false);
   const [paymentToken, setPaymentToken] = useState<string | null>(null);
   const [paymentMessageSent, setPaymentMessageSent] = useState(false);
+  const [manualPaymentRequired, setManualPaymentRequired] = useState(false);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [branding, setBranding] = useState<CompanyBranding | null>(null);
   const [fiscalMode, setFiscalMode] = useState(false);
@@ -210,17 +211,18 @@ export default function PublicRegistration() {
       setCompanyId(data.company.id);
       setFiscalMode(data.mode === "fiscal");
       if (data.student) {
+        const storedCountryCode = String(data.student.country_code || "BR").toUpperCase();
         setFullName(data.student.full_name || "");
         setBirthDate(data.student.birth_date || "");
-        setCpf(formatCPF(data.student.cpf || ""));
-        setCep(formatCEP(data.student.cep || ""));
+        setCpf(storedCountryCode === "BR" ? formatCPF(data.student.cpf || "") : String(data.student.cpf || ""));
+        setCep(storedCountryCode === "BR" ? formatCEP(data.student.cep || "") : String(data.student.cep || ""));
         setAddress(data.student.address || "");
         setAddressNumber(data.student.address_number || "");
         setNeighborhood(data.student.neighborhood || "");
         setCity(data.student.city || "");
         setState(data.student.state || "");
-        setCountryCode(data.student.country_code || "BR");
-        setWhatsapp(formatPhone(data.student.whatsapp || data.student.phone || ""));
+        setCountryCode(storedCountryCode);
+        setWhatsapp(formatPhoneForCountry(data.student.whatsapp || data.student.phone || "", storedCountryCode));
         setEmail(data.student.email || "");
       }
       if (data.branding) {
@@ -427,8 +429,8 @@ export default function PublicRegistration() {
           birth_date: birthDate,
           email,
           phone: whatsapp,
-          cpf: cpf.replace(/\D/g, ""),
-          cep: cep.replace(/\D/g, ""),
+          cpf: isBrazil ? cpf.replace(/\D/g, "") : cpf.trim(),
+          cep: isBrazil ? cep.replace(/\D/g, "") : cep.trim(),
           address,
           address_number: addressNumber,
           neighborhood,
@@ -441,15 +443,16 @@ export default function PublicRegistration() {
       },
     });
 
-    if (error || !data?.studentId || !data?.paymentToken) {
+    if (error || !data?.studentId || (!data?.paymentToken && data?.manualPaymentRequired !== true)) {
       setSaving(false);
       toast({ title: "Erro ao salvar cadastro", description: error?.message || data?.error || "Falha ao cadastrar", variant: "destructive" });
       return;
     }
 
     setSaving(false);
-    setPaymentToken(data.paymentToken);
+    setPaymentToken(data.paymentToken || null);
     setPaymentMessageSent(data.paymentMessageSent === true);
+    setManualPaymentRequired(data.manualPaymentRequired === true);
     setDone(true);
   };
 
@@ -500,8 +503,9 @@ export default function PublicRegistration() {
             <CheckCircle className="h-16 w-16 text-primary mx-auto" />
             <h2 className="text-3xl text-primary">CADASTRO RECEBIDO!</h2>
             <p className="text-muted-foreground font-sans">
-              Seus dados fiscais foram registrados. Agora escolha o plano e faça o pagamento
-              com segurança pelo Asaas.
+              {manualPaymentRequired
+                ? "Seu cadastro internacional foi concluído. A equipe entrará em contato para combinar o pagamento por um meio compatível com o seu país."
+                : "Seus dados fiscais foram registrados. Agora escolha o plano e faça o pagamento com segurança pelo Asaas."}
             </p>
             {paymentMessageSent && (
               <p className="text-xs text-muted-foreground font-sans">
@@ -1127,7 +1131,7 @@ export default function PublicRegistration() {
             </div>
             <div className="space-y-2">
               <Label className="font-sans">WhatsApp *</Label>
-              <Input value={whatsapp} onChange={e => setWhatsapp(formatPhone(e.target.value))} placeholder="(00) 00000-0000" />
+              <Input value={whatsapp} onChange={e => setWhatsapp(formatPhoneForCountry(e.target.value, countryCode))} placeholder={isBrazil ? "(00) 00000-0000" : "+351912345678"} />
             </div>
             <div className="space-y-2">
               <Label className="font-sans">Email *</Label>

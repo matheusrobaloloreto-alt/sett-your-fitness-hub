@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { fiscalRegistrationValidation, normalizeCountryCode } from "./fiscal-registration.ts";
+import { countryAwareFiscalFields, fiscalRegistrationValidation, normalizeCountryCode, normalizeFiscalDocument, supportsAsaasBilling } from "./fiscal-registration.ts";
 
 Deno.test("cadastro brasileiro continua exigindo CPF, CEP e endereço completo", () => {
   const missing = fiscalRegistrationValidation({
@@ -46,4 +46,43 @@ Deno.test("bloqueia telefone brasileiro com formato de celular impossível", () 
     state: "SC",
   });
   assertEquals(missing.includes("WhatsApp brasileiro válido"), true);
+});
+
+Deno.test("preserva documento e código postal alfanuméricos de estrangeiro", () => {
+  assertEquals(countryAwareFiscalFields({
+    country_code: "GB",
+    cpf: "AB-123-XY",
+    cep: "SW1A 1AA",
+    state: "Greater London",
+  }), {
+    country_code: "GB",
+    cpf: "AB-123-XY",
+    cep: "SW1A 1AA",
+    state: "Greater London",
+  });
+});
+
+Deno.test("mantém normalização brasileira em dígitos e UF maiúscula", () => {
+  assertEquals(countryAwareFiscalFields({
+    country_code: "BR",
+    cpf: "123.456.789-01",
+    cep: "88000-000",
+    state: "sc",
+  }), {
+    country_code: "BR",
+    cpf: "12345678901",
+    cep: "88000000",
+    state: "SC",
+  });
+});
+
+Deno.test("checkout Asaas permanece explicitamente restrito ao Brasil", () => {
+  assertEquals(supportsAsaasBilling("BR"), true);
+  assertEquals(supportsAsaasBilling("PT"), false);
+  assertEquals(supportsAsaasBilling("GB"), false);
+});
+
+Deno.test("deduplicação preserva identidade alfanumérica estrangeira", () => {
+  assertEquals(normalizeFiscalDocument("ab-123 xy", "GB"), "AB123XY");
+  assertEquals(normalizeFiscalDocument("123.456.789-01", "BR"), "12345678901");
 });

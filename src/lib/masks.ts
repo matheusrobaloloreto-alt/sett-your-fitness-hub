@@ -24,3 +24,10 @@ export function formatPhone(v: string) {
   if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
+
+export function formatPhoneForCountry(v: string, countryCode: string | null | undefined) {
+  if (String(countryCode || "BR").toUpperCase() === "BR") return formatPhone(v);
+  const input = v.trimStart();
+  const digits = input.replace(/\D/g, "").slice(0, 15);
+  return input.startsWith("+") ? `+${digits}` : digits;
+}

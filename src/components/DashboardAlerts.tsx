@@ -11,6 +11,7 @@ import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { buildStudentChatMap, openStudentChat, birthdayMessage } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { FUNNEL_STAGE_META, normalizeSalesStage, stageNextAction } from "@/lib/salesFunnelView";
+import { fiscalRegistrationValidation } from "@/lib/fiscalRegistration";
 
 interface Birthday { full_name: string; birth_date: string; student_id: string; isToday: boolean; day: number; }
 interface MissingWorkout { student_name: string; student_id: string; cycle_number: number; cycle_id: string; start_date: string; end_date: string; trainer_name?: string; }
@@ -194,22 +195,13 @@ async function fetchAlerts(
   let recentStudents: RecentStudent[] = [];
   if (!trainerId) {
     let billingQuery = supabase.from("students")
-      .select("id, full_name, cpf, cep, phone, whatsapp, address, address_number, neighborhood")
+      .select("id, full_name, email, cpf, cep, phone, whatsapp, country_code, address, address_number, neighborhood, city, state")
       .in("status", ["active", "pending"]);
     if (effectiveCompanyId) billingQuery = billingQuery.eq("company_id", effectiveCompanyId);
     const { data: billingStudents } = await billingQuery;
     const flagged: IncompleteBilling[] = [];
     (billingStudents || []).forEach((s: any) => {
-      const cpfDigits = (s.cpf || "").replace(/\D/g, "");
-      const cepDigits = (s.cep || "").replace(/\D/g, "");
-      const phoneDigits = (s.whatsapp || s.phone || "").replace(/\D/g, "");
-      const missing: string[] = [];
-      if (cpfDigits.length !== 11) missing.push("CPF");
-      if (cepDigits.length !== 8) missing.push("CEP");
-      if (phoneDigits.length < 10) missing.push("WhatsApp");
-      if (!s.address) missing.push("Rua");
-      if (!s.address_number) missing.push("Número");
-      if (!s.neighborhood) missing.push("Bairro");
+      const missing = fiscalRegistrationValidation(s);
       if (missing.length > 0) flagged.push({ student_name: s.full_name, student_id: s.id, missing });
     });
     incompleteBilling = flagged.sort((a, b) => b.missing.length - a.missing.length);

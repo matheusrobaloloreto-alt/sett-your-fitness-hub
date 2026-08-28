@@ -11,28 +11,22 @@ export function normalizeCountryCode(value: unknown): string {
   return /^[A-Z]{2}$/.test(code) ? code : "";
 }
 
-export function countryAwareFiscalFields(student: Record<string, unknown>) {
-  const countryCode = normalizeCountryCode(student.country_code);
-  const isBrazil = !countryCode || countryCode === "BR";
-  return {
-    country_code: countryCode,
-    cpf: isBrazil ? digits(student.cpf) : text(student.cpf),
-    cep: isBrazil ? digits(student.cep) : text(student.cep),
-    state: isBrazil ? text(student.state).toUpperCase() : text(student.state),
-  };
-}
-
-export function supportsAsaasBilling(value: unknown): boolean {
-  return normalizeCountryCode(value) === "BR";
+export function isBrazilianCountry(value: unknown): boolean {
+  const code = normalizeCountryCode(value);
+  return !code || code === "BR";
 }
 
 export function normalizeFiscalDocument(value: unknown, countryCode: unknown): string {
   const raw = text(value);
-  return normalizeCountryCode(countryCode) === "BR"
+  return isBrazilianCountry(countryCode)
     ? digits(raw)
     : raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+/**
+ * Espelho frontend do contrato fiscal aplicado pela Edge de cadastro público.
+ * Mantém CPF/CEP e endereço brasileiro obrigatórios apenas para residentes BR.
+ */
 export function fiscalRegistrationValidation(student: Record<string, unknown>): string[] {
   const missing: string[] = [];
   const countryCode = normalizeCountryCode(student.country_code);
@@ -60,5 +54,6 @@ export function fiscalRegistrationValidation(student: Record<string, unknown>): 
     if (!text(student.neighborhood)) missing.push("bairro");
     if (text(student.state).length !== 2) missing.push("estado com 2 letras");
   }
-  return missing;
+
+  return [...new Set(missing)];
 }
