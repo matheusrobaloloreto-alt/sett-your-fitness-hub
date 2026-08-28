@@ -57,6 +57,7 @@ import {
 import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
 import { selectPreferredVisibleCycle } from "@/lib/prescriptionSchedule";
+import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
 
 const StatsCharts = lazy(() => import("@/components/student/StatsCharts").then((module) => ({ default: module.StatsCharts })));
 const VolumeInsights = lazy(() => import("@/components/student/VolumeInsights").then((module) => ({ default: module.VolumeInsights })));
@@ -156,6 +157,7 @@ export default function StudentPortal() {
   const [feedbackSessionId, setFeedbackSessionId] = useState<string | null>(null);
   const [sendingFeedback, setSendingFeedback] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [contentLoading, setContentLoading] = useState(true);
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
   const [warmupOpen, setWarmupOpen] = useState(false);
   const [logs, setLogs] = useState<Record<string, WorkoutLog>>({});
@@ -206,6 +208,9 @@ export default function StudentPortal() {
   const workoutUiRestoredKeyRef = useRef<string | null>(null);
   const extraSetsWorkoutRef = useRef<string | null>(null);
   const extraSetsByWorkoutRef = useRef<Record<string, Record<number, number>>>({});
+  const performanceStartedAt = useRef(0);
+  const performanceCompanyId = useRef<string | null>(null);
+  const recordedPerformanceMetrics = useRef(new Set<"shell_ready" | "content_ready">());
 
   // Mantém a tela acesa durante o treino (academia: evita destravar de mão suada).
   useWakeLock(session.isActive);
@@ -289,6 +294,17 @@ export default function StudentPortal() {
     if (user?.id) loadStudentData();
   }, [user?.id]);
 
+  const recordLoadPerformance = (metric: "shell_ready" | "content_ready") => {
+    if (recordedPerformanceMetrics.current.has(metric)) return;
+    recordedPerformanceMetrics.current.add(metric);
+    void recordAppPerformanceSample({
+      routeGroup: "student_workout",
+      metric,
+      durationMs: performance.now() - performanceStartedAt.current,
+      companyId: performanceCompanyId.current,
+    });
+  };
+
   // Provas/metas alvo do aluno (exibidas no calendário).
   useEffect(() => {
     if (!studentId) return;
@@ -301,6 +317,11 @@ export default function StudentPortal() {
   }, [studentId]);
 
   const loadStudentData = async () => {
+    performanceStartedAt.current = performance.now();
+    performanceCompanyId.current = null;
+    recordedPerformanceMetrics.current.clear();
+    setLoading(true);
+    setContentLoading(true);
     try {
     const { data: student } = await supabase
       .from("students")
@@ -308,12 +329,20 @@ export default function StudentPortal() {
       .eq("user_id", user!.id)
       .maybeSingle();
 
-    if (!student) { return; }
+    if (!student) {
+      setContentLoading(false);
+      return;
+    }
+    performanceCompanyId.current = student.company_id;
     setStudentId(student.id);
     setStudentName(student.full_name);
     setCompanyId(student.company_id);
     setGender((student as any).gender === "male" || (student as any).gender === "female" ? (student as any).gender : null);
     setWeeklyGoal((student as any).weekly_workout_goal || 3);
+    // O shell real do portal (cabeçalho + identidade) já pode ser exibido
+    // enquanto as prescrições e o histórico terminam de carregar.
+    setLoading(false);
+    recordLoadPerformance("shell_ready");
 
     // Detecta quais prescrições existem para mostrar as abas condicionais (nutrição/corrida/natação/ciclismo).
     // RLS já permite o aluno ler nutrition_plans e running_plans próprios.
@@ -511,8 +540,11 @@ export default function StudentPortal() {
         }
       }
     }
+    setContentLoading(false);
+    recordLoadPerformance("content_ready");
     } catch (err) {
       console.error("Erro ao carregar dados do aluno:", err);
+      setContentLoading(false);
       toast({ title: "Erro ao carregar seus dados", description: "Tente recarregar a página.", variant: "destructive" });
     } finally {
       setLoading(false);
@@ -1111,6 +1143,15 @@ export default function StudentPortal() {
         {/* HOME VIEW */}
         {activeView === "home" && (
           <div className="space-y-3">
+          {contentLoading ? (
+            <Card className="border-border bg-card">
+              <CardContent className="flex min-h-40 items-center justify-center p-6" role="status" aria-live="polite">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <span className="ml-2 text-sm text-muted-foreground">Carregando seu treino…</span>
+              </CardContent>
+            </Card>
+          ) : (
+          <>
           {user?.id && <PushBanner userId={user.id} companyId={companyId} />}
           {studentId && <CheckinCard studentId={studentId} companyId={companyId} />}
           <PlatformAdSlot audience="student" placement="dashboard_banner" companyId={companyId} />
@@ -1136,6 +1177,8 @@ export default function StudentPortal() {
             hasCiclismo={hasCiclismo}
             onNavigate={handleNavigate}
           />
+          </>
+          )}
           </div>
         )}
 

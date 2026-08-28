@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const studentSource = readFileSync(resolve(process.cwd(), "src/pages/student/StudentWorkout.tsx"), "utf8");
+const studentPortalSource = readFileSync(resolve(process.cwd(), "src/pages/student/StudentPortal.tsx"), "utf8");
 const trainerSource = readFileSync(resolve(process.cwd(), "src/pages/admin/WhatsAppChat.tsx"), "utf8");
 const migrationPath = resolve(
   process.cwd(),
@@ -17,6 +18,16 @@ describe("app performance telemetry wiring", () => {
     expect(studentSource).toContain("companyId: performanceCompanyId.current");
     expect(studentSource).toContain('recordLoadPerformance("shell_ready")');
     expect(studentSource).toContain('recordLoadPerformance("content_ready")');
+  });
+
+  it("records the real /aluno portal shell and content milestones", () => {
+    expect(studentPortalSource).toContain("recordAppPerformanceSample");
+    expect(studentPortalSource).toContain('routeGroup: "student_workout"');
+    expect(studentPortalSource).toContain("companyId: performanceCompanyId.current");
+    expect(studentPortalSource).toContain('recordLoadPerformance("shell_ready")');
+    expect(studentPortalSource).toContain('recordLoadPerformance("content_ready")');
+    expect(studentPortalSource).toContain("setLoading(false);");
+    expect(studentPortalSource).toContain("Carregando seu treino…");
   });
 
   it("records trainer chat readiness after the first successful chat list", () => {
