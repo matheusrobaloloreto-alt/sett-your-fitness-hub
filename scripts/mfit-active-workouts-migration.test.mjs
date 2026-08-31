@@ -2351,6 +2351,222 @@ test("apply is append-only and a second identical run is a no-op", async () => {
   assert.equal(db.exercises.length, 2);
 });
 
+test("reparented marker workouts remain idempotent when IDs were generated from the old cycle", async () => {
+  const input = baseInput();
+  const db = new MemoryDb();
+  await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  const writesAfterFirst = structuredClone(db.writes);
+  const oldCycle = structuredClone(db.cycles[0]);
+  const canonicalCycle = {
+    ...oldCycle,
+    id: "40000000-0000-4000-8000-000000000071",
+    cycle_number: oldCycle.cycle_number + 1,
+    name: "Ciclo canonico ativo",
+  };
+  db.cycles.push(canonicalCycle);
+  for (const workout of db.workouts) {
+    workout.cycle_id = canonicalCycle.id;
+  }
+
+  const repeated = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(repeated.summary.already_imported, 1);
+  assert.deepEqual(db.writes, writesAfterFirst);
+  assert.equal(db.workouts.length, 1);
+  assert.equal(db.workouts[0].cycle_id, canonicalCycle.id);
+  assert.ok(db.workouts[0].notes.startsWith(MARKER_PREFIX));
+  assert.equal(db.workoutExercises[0].workout_id, db.workouts[0].id);
+});
+
+test("reparented marker workouts repair a missing normalized mirror with preserved real workout IDs", async () => {
+  const input = baseInput();
+  const db = new MemoryDb();
+  await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  const oldCycle = structuredClone(db.cycles[0]);
+  const canonicalCycle = {
+    ...oldCycle,
+    id: "40000000-0000-4000-8000-000000000074",
+    cycle_number: oldCycle.cycle_number + 1,
+  };
+  db.cycles.push(canonicalCycle);
+  for (const workout of db.workouts) {
+    workout.cycle_id = canonicalCycle.id;
+  }
+  const preservedWorkoutId = db.workouts[0].id;
+  db.workoutExercises = [];
+  const writesBeforeRepair = structuredClone(db.writes);
+
+  const repair = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(repair.summary.normalized_repaired, 1);
+  assert.equal(repair.summary.already_imported || 0, 0);
+  assert.equal(db.writes.workoutExercises, writesBeforeRepair.workoutExercises + 1);
+  assert.equal(db.writes.cycles, writesBeforeRepair.cycles);
+  assert.equal(db.writes.workouts, writesBeforeRepair.workouts);
+  assert.equal(db.workoutExercises[0].workout_id, preservedWorkoutId);
+  assert.equal(db.workoutExercises[0].id, deterministicUuid(IMPORT_VERSION, "workout-exercise", preservedWorkoutId, 0));
+});
+
+test("reparented marker workouts still block on a separate materialized overlap", async () => {
+  const input = baseInput();
+  const db = new MemoryDb();
+  await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  const oldCycle = structuredClone(db.cycles[0]);
+  const canonicalCycle = {
+    ...oldCycle,
+    id: "40000000-0000-4000-8000-000000000075",
+    cycle_number: oldCycle.cycle_number + 1,
+  };
+  const overlappingCycle = {
+    ...oldCycle,
+    id: "40000000-0000-4000-8000-000000000076",
+    cycle_number: oldCycle.cycle_number + 2,
+  };
+  db.cycles.push(canonicalCycle, overlappingCycle);
+  for (const workout of db.workouts) {
+    workout.cycle_id = canonicalCycle.id;
+  }
+  db.workouts.push({
+    id: "50000000-0000-4000-8000-000000000076",
+    cycle_id: overlappingCycle.id,
+    company_id: IDS.company,
+    notes: "manual SETT workout",
+    exercises: [{ exercise_name: "Treino existente" }],
+  });
+  const writesBeforeRetry = structuredClone(db.writes);
+
+  const retry = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(retry.summary.blocked, 1);
+  assert.equal(retry.results[0].reason, "overlapping_cycle_with_workouts");
+  assert.deepEqual(db.writes, writesBeforeRetry);
+});
+
+test("reparented marker workouts reserve their range before another same-batch reparented marker", async () => {
+  const firstInput = baseInput();
+  firstInput.mfitWorkoutsPayload.clients[0].fichas[0].id = "plan-active-a";
+  const secondInput = baseInput();
+  secondInput.mfitWorkoutsPayload.clients[0].fichas[0] = {
+    ...secondInput.mfitWorkoutsPayload.clients[0].fichas[0],
+    id: "plan-active-b",
+    name: "Forca MFIT",
+    workouts: [{
+      ...secondInput.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0],
+      id: "session-b",
+      name: "Treino B",
+    }],
+  };
+  const firstDb = new MemoryDb();
+  const secondDb = new MemoryDb();
+  await runMigration({ ...firstInput, db: firstDb, apply: true, today: "2026-08-10" });
+  await runMigration({ ...secondInput, db: secondDb, apply: true, today: "2026-08-10" });
+  const canonicalCycle = {
+    ...firstDb.cycles[0],
+    id: "40000000-0000-4000-8000-000000000078",
+    cycle_number: 3,
+  };
+  const db = new MemoryDb({
+    cycles: [
+      firstDb.cycles[0],
+      secondDb.cycles[0],
+      canonicalCycle,
+    ],
+    workouts: [
+      { ...firstDb.workouts[0], cycle_id: canonicalCycle.id },
+      { ...secondDb.workouts[0], cycle_id: canonicalCycle.id },
+    ],
+    workoutExercises: [
+      ...firstDb.workoutExercises,
+      ...secondDb.workoutExercises,
+    ],
+  });
+  const input = baseInput();
+  input.mfitWorkoutsPayload.clients[0].fichas = [
+    firstInput.mfitWorkoutsPayload.clients[0].fichas[0],
+    secondInput.mfitWorkoutsPayload.clients[0].fichas[0],
+  ];
+  const writesBeforeRetry = structuredClone(db.writes);
+
+  const retry = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(retry.summary.already_imported, 1);
+  assert.equal(retry.summary.blocked, 1);
+  assert.equal(retry.results[1].reason, "overlapping_plan_in_same_import");
+  assert.deepEqual(db.writes, writesBeforeRetry);
+});
+
+test("reparented marker workouts block when the preserved marker hides divergent workout content", async () => {
+  const input = baseInput();
+  const db = new MemoryDb();
+  await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  const oldCycle = structuredClone(db.cycles[0]);
+  const canonicalCycle = {
+    ...oldCycle,
+    id: "40000000-0000-4000-8000-000000000072",
+    cycle_number: oldCycle.cycle_number + 1,
+  };
+  db.cycles.push(canonicalCycle);
+  for (const workout of db.workouts) {
+    workout.cycle_id = canonicalCycle.id;
+  }
+  db.workouts[0].title = "Treino divergente com marker preservado";
+  const writesBeforeRetry = structuredClone(db.writes);
+
+  const retry = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(retry.summary.blocked, 1);
+  assert.equal(retry.results[0].reason, "marker_payload_mismatch");
+  assert.deepEqual(db.writes, writesBeforeRetry);
+});
+
+test("reparented marker workouts fail closed when sort order drifted during reparenting", async () => {
+  const input = baseInput();
+  const db = new MemoryDb();
+  await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  const oldCycle = structuredClone(db.cycles[0]);
+  const canonicalCycle = {
+    ...oldCycle,
+    id: "40000000-0000-4000-8000-000000000077",
+    cycle_number: oldCycle.cycle_number + 1,
+  };
+  db.cycles.push(canonicalCycle);
+  for (const workout of db.workouts) {
+    workout.cycle_id = canonicalCycle.id;
+    workout.sort_order += 1;
+  }
+  const writesBeforeRetry = structuredClone(db.writes);
+
+  const retry = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(retry.summary.blocked, 1);
+  assert.equal(retry.results[0].reason, "marker_payload_mismatch");
+  assert.deepEqual(db.writes, writesBeforeRetry);
+});
+
+test("reparented marker workouts block when the normalized mirror diverges", async () => {
+  const input = baseInput();
+  const db = new MemoryDb();
+  await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+  const oldCycle = structuredClone(db.cycles[0]);
+  const canonicalCycle = {
+    ...oldCycle,
+    id: "40000000-0000-4000-8000-000000000073",
+    cycle_number: oldCycle.cycle_number + 1,
+  };
+  db.cycles.push(canonicalCycle);
+  for (const workout of db.workouts) {
+    workout.cycle_id = canonicalCycle.id;
+  }
+  db.workoutExercises[0].reps = "1";
+  const writesBeforeRetry = structuredClone(db.writes);
+
+  const retry = await runMigration({ ...input, db, apply: true, today: "2026-08-10" });
+
+  assert.equal(retry.summary.blocked, 1);
+  assert.equal(retry.results[0].reason, "normalized_mirror_conflict");
+  assert.deepEqual(db.writes, writesBeforeRetry);
+});
+
 test("a repeated run repairs only a missing normalized mirror", async () => {
   const input = baseInput();
   const db = new MemoryDb();

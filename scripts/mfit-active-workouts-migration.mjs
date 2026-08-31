@@ -1431,6 +1431,19 @@ function canonicalWorkout(row) {
   });
 }
 
+function canonicalWorkoutMaterial(row) {
+  return stableStringify({
+    company_id: cleanText(row.company_id),
+    name: cleanText(row.name),
+    title: cleanText(row.title),
+    description: cleanText(row.description),
+    day_of_week: row.day_of_week === null || row.day_of_week === undefined ? null : Number(row.day_of_week),
+    sort_order: Number(row.sort_order) || 0,
+    exercises: Array.isArray(row.exercises) ? row.exercises : [],
+    notes: cleanText(row.notes),
+  });
+}
+
 function materializedOverlapSnapshot(cycles, workoutsByCycle, startDate, endDate, normalizedRows = [], excludedCycleId = "") {
   const normalizedByWorkout = new Map();
   for (const row of normalizedRows) {
@@ -1504,8 +1517,50 @@ function analyzeWorkoutRows(existing, expected) {
   return { conflict: false, missing: expected.filter((row) => !seen.has(row.id)) };
 }
 
+function pairMarkerWorkoutRows(existing, expected) {
+  if (existing.length !== expected.length) return { conflict: true };
+  const existingByMaterial = new Map();
+  for (const workout of existing) {
+    const key = canonicalWorkoutMaterial(workout);
+    const rows = existingByMaterial.get(key) || [];
+    if (rows.length) return { conflict: true };
+    rows.push(workout);
+    existingByMaterial.set(key, rows);
+  }
+  const pairs = [];
+  const expectedMaterials = new Set();
+  for (const workout of expected) {
+    const key = canonicalWorkoutMaterial(workout);
+    if (expectedMaterials.has(key)) return { conflict: true };
+    expectedMaterials.add(key);
+    const rows = existingByMaterial.get(key) || [];
+    const existingWorkout = rows.shift();
+    if (!existingWorkout) return { conflict: true };
+    pairs.push({ existing: existingWorkout, expected: workout });
+    if (!rows.length) existingByMaterial.delete(key);
+  }
+  return existingByMaterial.size ? { conflict: true } : { conflict: false, pairs };
+}
+
+function reparentNormalizedRows(expectedRows, pairs, hasId) {
+  const realWorkoutIdByExpectedId = new Map(pairs.map((pair) => [pair.expected.id, pair.existing.id]));
+  const rows = [];
+  for (const row of expectedRows) {
+    const workoutId = realWorkoutIdByExpectedId.get(row.workout_id);
+    if (!workoutId) return null;
+    rows.push({
+      ...row,
+      ...(hasId
+        ? { id: deterministicUuid(IMPORT_VERSION, "workout-exercise", workoutId, Number(row.exercise_order) || 0) }
+        : {}),
+      workout_id: workoutId,
+    });
+  }
+  return rows;
+}
+
 function workoutRowsForOperation(workouts, operation) {
-  if (!operation.merge_overlap_into_active_cycle) return workouts;
+  if (!operation.merge_overlap_into_active_cycle && !operation.reparented_marker_repair) return workouts;
   const expectedIds = new Set(operation.workouts.map((workout) => workout.id));
   return workouts.filter((workout) => expectedIds.has(workout.id));
 }
@@ -1989,10 +2044,6 @@ export async function runMigration({
       continue;
     }
     const markerCycle = markerCycleIds.length ? cyclesById.get(markerCycleIds[0]) : null;
-    if (existingCycle && markerCycle && existingCycle.id !== markerCycle.id) {
-      results.push({ ref: candidate.ref, status: "blocked", reason: "marker_cycle_mismatch", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
-      continue;
-    }
 
     const deterministicWorkouts = existingCycle ? (workoutsByCycle.get(existingCycle.id) || []) : [];
     if (deterministicWorkouts.some((workout) => workoutHasMaterialization(workout) && !markerMatches(workout.notes, marker))) {
@@ -2050,8 +2101,8 @@ export async function runMigration({
       && !markerCycle
       && !mergeTargetCycle
       && materializedOverlaps.length > 0;
-    let reusableCycle = existingCycle || markerCycle || mergeTargetCycle || shouldCreatePendingOverlapCycle
-      ? { cycle: existingCycle || markerCycle || mergeTargetCycle || null, ambiguous: false }
+    let reusableCycle = markerCycle || existingCycle || mergeTargetCycle || shouldCreatePendingOverlapCycle
+      ? { cycle: markerCycle || existingCycle || mergeTargetCycle || null, ambiguous: false }
       : chooseReusableEmptyCycle(enrollmentCycles, workoutsByCycle, startDate, endDate, parsedToday);
     if (reusableCycle.ambiguous && createNewCycleOnAmbiguousEmpty) {
       reusableCycle = { cycle: null, ambiguous: false };
@@ -2060,7 +2111,7 @@ export async function runMigration({
       results.push({ ref: candidate.ref, status: "blocked", reason: "ambiguous_empty_cycle_reuse", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
       continue;
     }
-    const targetExistingCycle = existingCycle || markerCycle || mergeTargetCycle || reusableCycle.cycle;
+    const targetExistingCycle = markerCycle || existingCycle || mergeTargetCycle || reusableCycle.cycle;
     const mergingIntoActiveCycle = Boolean(
       mergeTargetCycle
       || (mergeOverlapIntoActiveCycle && markerCycle && markerWorkouts.length),
@@ -2080,15 +2131,6 @@ export async function runMigration({
       && rangesOverlap(startDate, endDate, cycle.start_date, cycle.end_date)
       && (workoutsByCycle.get(cycle.id) || []).some(workoutHasMaterialization));
     const creatingPendingOverlapCycle = Boolean(createPendingCycleOnOverlap && overlapping && !mergingIntoActiveCycle);
-    if (overlapping && !mergingIntoActiveCycle && !creatingPendingOverlapCycle) {
-      results.push({ ref: candidate.ref, status: "blocked", reason: "overlapping_cycle_with_workouts", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
-      continue;
-    }
-    const reserved = reservedRanges.get(enrollment.id) || [];
-    if (reserved.some((range) => rangesOverlap(startDate, endDate, range.start, range.end))) {
-      results.push({ ref: candidate.ref, status: "blocked", reason: "overlapping_plan_in_same_import", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
-      continue;
-    }
 
     const exerciseIds = new Map();
     const exerciseTargetsById = new Map();
@@ -2180,6 +2222,82 @@ export async function runMigration({
     );
 
     const expectedWorkoutIds = new Set(workoutRows.map((workout) => workout.id));
+    const hasReparentedMarkerWorkouts = markerWorkouts.length > 0
+      && markerWorkouts.some((workout) => !expectedWorkoutIds.has(workout.id));
+    if (overlapping && !mergingIntoActiveCycle && !creatingPendingOverlapCycle) {
+      results.push({ ref: candidate.ref, status: "blocked", reason: "overlapping_cycle_with_workouts", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
+      continue;
+    }
+    const reserved = reservedRanges.get(enrollment.id) || [];
+    if (reserved.some((range) => rangesOverlap(startDate, endDate, range.start, range.end))) {
+      results.push({ ref: candidate.ref, status: "blocked", reason: "overlapping_plan_in_same_import", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
+      continue;
+    }
+    if (hasReparentedMarkerWorkouts) {
+      const deterministicMaterializedWorkouts = existingCycle && existingCycle.id !== markerCycle?.id
+        ? (workoutsByCycle.get(existingCycle.id) || []).filter(workoutHasMaterialization)
+        : [];
+      if (deterministicMaterializedWorkouts.length) {
+        results.push({ ref: candidate.ref, status: "blocked", reason: "marker_cycle_mismatch", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
+        continue;
+      }
+      const markerWorkoutAnalysis = pairMarkerWorkoutRows(markerWorkouts, workoutRows);
+      if (markerWorkoutAnalysis.conflict) {
+        results.push({ ref: candidate.ref, status: "blocked", reason: "marker_payload_mismatch", match_method: candidate.match_method, sessions: plan.sessions.length, exercises: normalizedRows.length, marker: payloadHash.slice(0, 16) });
+        continue;
+      }
+      if (db.normalizedSupport.available) {
+        const markerWorkoutIds = new Set(markerWorkouts.map((workout) => workout.id));
+        const markerMirror = existingNormalizedRows.filter((row) => markerWorkoutIds.has(row.workout_id));
+        const reparentedNormalizedRows = reparentNormalizedRows(
+          normalizedRows,
+          markerWorkoutAnalysis.pairs,
+          db.normalizedSupport.has_id,
+        );
+        if (!reparentedNormalizedRows) {
+          results.push({ ref: candidate.ref, status: "blocked", reason: "reparented_marker_repair_unsafe", match_method: candidate.match_method, sessions: plan.sessions.length, exercises: normalizedRows.length, marker: payloadHash.slice(0, 16) });
+          continue;
+        }
+        const markerMirrorAnalysis = analyzeNormalizedRows(
+          markerMirror,
+          reparentedNormalizedRows,
+          db.normalizedSupport.has_id,
+        );
+        if (markerMirrorAnalysis.conflict) {
+          results.push({ ref: candidate.ref, status: "blocked", reason: "normalized_mirror_conflict", match_method: candidate.match_method, sessions: plan.sessions.length, exercises: normalizedRows.length, marker: payloadHash.slice(0, 16) });
+          continue;
+        }
+        if (markerMirrorAnalysis.missing.length) {
+          reserved.push({ start: startDate, end: endDate });
+          reservedRanges.set(enrollment.id, reserved);
+          operations.push({
+            ref: candidate.ref,
+            match_method: candidate.match_method,
+            marker,
+            marker_hash: payloadHash.slice(0, 16),
+            repair_kind: "normalized_mirror",
+            reparented_marker_repair: true,
+            merge_overlap_into_active_cycle: false,
+            create_pending_cycle_on_overlap: false,
+            overlap_import_mode: null,
+            verified_empty_source_sessions: verifiedEmptySourceSessions ? plan.source_empty_session_count : 0,
+            pending_overlap_snapshot: [],
+            source_start_date: startDate,
+            source_end_date: endDate,
+            merge_reference_date: parsedToday,
+            exercise_targets: [],
+            cycle,
+            workouts: markerWorkouts,
+            workout_exercises: reparentedNormalizedRows,
+          });
+          continue;
+        }
+      }
+      reserved.push({ start: startDate, end: endDate });
+      reservedRanges.set(enrollment.id, reserved);
+      results.push({ ref: candidate.ref, status: "already_imported", reason: null, match_method: candidate.match_method, sessions: plan.sessions.length, exercises: normalizedRows.length, marker: payloadHash.slice(0, 16), overlap_import_mode: null, verified_empty_source_sessions: verifiedEmptySourceSessions ? plan.source_empty_session_count : 0 });
+      continue;
+    }
     const relevantExistingTargetWorkouts = mergingIntoActiveCycle
       ? existingTargetWorkouts.filter((workout) => expectedWorkoutIds.has(workout.id))
       : existingTargetWorkouts;
