@@ -10,6 +10,7 @@ import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { effectiveCoverageWindow, normalizeTargetWeight } from "@/lib/volumeStats";
+import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
 
 interface Props {
   studentId: string;
@@ -198,7 +199,8 @@ export function WorkoutAnalysis({ studentId }: Props) {
     const mgData: Record<string, MuscleGroupVolume> = {};
 
     (targets || []).forEach(t => {
-      const mgName = t.muscle_group_name || "Desconhecido";
+      const mgName = canonicalAnatomicalMuscleGroup(t.muscle_group_name);
+      if (!mgName) return;
       if (!mgData[mgName]) {
         mgData[mgName] = { name: mgName, prescribedSets: 0, executedSets: 0 };
       }

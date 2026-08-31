@@ -76,6 +76,31 @@ describe("fractionalSetsByMuscleGroup", () => {
       { group: "Tríceps", sets: 0.5 },
     ]);
   });
+
+  it("ignora targets contaminados e agrega apenas grupos anatômicos", () => {
+    const meta = buildExerciseMeta(cycles);
+    const logs = [
+      { session_date: "2026-06-08", workout_id: "w1", exercise_index: 0 },
+    ];
+    const out = fractionalSetsByMuscleGroup(logs, meta, [
+      { exerciseId: "ex-supino", muscleGroup: "Performance", role: "primary", volumePercentage: 100 },
+      { exerciseId: "ex-supino", muscleGroup: "Core", role: "secondary", volumePercentage: 50 },
+      { exerciseId: "ex-supino", muscleGroup: "Peito", role: "primary", volumePercentage: 100 },
+    ]);
+    expect(out).toEqual([{ group: "Peitoral", sets: 1 }]);
+  });
+
+  it("só aceita fallback de muscle_group quando ele é anatômico", () => {
+    const logs = [
+      { session_date: "2026-06-08", workout_id: "w2", exercise_index: 0 },
+      { session_date: "2026-06-08", workout_id: "w2", exercise_index: 1 },
+    ];
+    const meta = buildExerciseMeta([{ workouts: [{ id: "w2", exercises: [
+      { exercise_name: "Prancha", muscle_group: "Core" },
+      { exercise_name: "Remada", muscle_group: "Costas" },
+    ] }] }]);
+    expect(fractionalSetsByMuscleGroup(logs, meta)).toEqual([{ group: "Dorsal", sets: 1 }]);
+  });
 });
 
 describe("normalizeTargetWeight", () => {

@@ -3,6 +3,7 @@
 // (workout_id + exercise_index → exercise.muscle_group), igual ao StatsCharts.
 import { differenceInCalendarDays, format, parseISO, startOfWeek, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
 
 export interface VolumeLogLike {
   completed?: boolean | null;
@@ -158,11 +159,13 @@ export function fractionalSetsByMuscleGroup(
     const exerciseTargets = exercise.exerciseId ? targetsByExercise.get(exercise.exerciseId) : undefined;
     if (exerciseTargets?.length) {
       for (const target of exerciseTargets) {
-        if (!target.muscleGroup) continue;
-        sets[target.muscleGroup] = (sets[target.muscleGroup] || 0) + normalizeTargetWeight(target);
+        const group = canonicalAnatomicalMuscleGroup(target.muscleGroup);
+        if (!group) continue;
+        sets[group] = (sets[group] || 0) + normalizeTargetWeight(target);
       }
-    } else if (exercise.muscleGroup) {
-      sets[exercise.muscleGroup] = (sets[exercise.muscleGroup] || 0) + 1;
+    } else {
+      const group = canonicalAnatomicalMuscleGroup(exercise.muscleGroup);
+      if (group) sets[group] = (sets[group] || 0) + 1;
     }
   }
   return Object.entries(sets)

@@ -13,7 +13,8 @@ import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Search, Pencil, Trash2, Play, Globe, Building2, Upload, Loader2, Dumbbell } from "lucide-react";
-import { exerciseThumb } from "@/lib/exerciseCover";
+import { exerciseThumb, normalizedExerciseLibraryGroup } from "@/lib/exerciseCover";
+import { canonicalAnatomicalMuscleGroup, isAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
 import { useMaster } from "@/contexts/MasterContext";
 import { buildExerciseTargetPayload, replaceExerciseMuscleTargets } from "@/lib/exerciseTargetConfig";
 import { resolveExerciseUploadScope } from "@/lib/exerciseUploadScope";
@@ -82,7 +83,13 @@ export default function ExerciseLibrary() {
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
   const isMaster = role === "master";
   const muscleGroups = useMuscleGroups(effectiveCompanyId);
-  const MUSCLE_GROUPS = muscleGroups.length > 0 ? muscleGroups.map((g) => g.name) : MUSCLE_GROUP_NAMES_FALLBACK;
+  const ANATOMICAL_MUSCLE_GROUP_NAMES = useMemo(() => {
+    const source = muscleGroups.length > 0 ? muscleGroups.map((group) => group.name) : MUSCLE_GROUP_NAMES_FALLBACK;
+    return Array.from(new Set(source.flatMap((name) => {
+      const canonical = canonicalAnatomicalMuscleGroup(name);
+      return canonical ? [canonical] : [];
+    })));
+  }, [muscleGroups]);
   const { toast } = useToast();
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [search, setSearch] = useState("");
@@ -427,17 +434,21 @@ export default function ExerciseLibrary() {
 
   const filtered = useMemo(() => exercises.filter((ex) => {
     const matchSearch = ex.name.toLowerCase().includes(search.toLowerCase());
-    const matchGroup = filterGroup === "all" || ex.muscle_group === filterGroup;
+    const matchGroup = filterGroup === "all" || normalizedExerciseLibraryGroup(ex) === filterGroup;
     return matchSearch && matchGroup;
   }), [exercises, filterGroup, search]);
 
   const visibleExercises = filtered.slice(0, visibleCount);
   const grouped = visibleExercises.reduce<Record<string, Exercise[]>>((acc, ex) => {
-    const g = ex.muscle_group;
+    const g = normalizedExerciseLibraryGroup(ex) || "Sem categoria";
     if (!acc[g]) acc[g] = [];
     acc[g].push(ex);
     return acc;
   }, {});
+
+  const FILTER_GROUPS = useMemo(() => Array.from(new Set(
+    exercises.map((exercise) => normalizedExerciseLibraryGroup(ex)).filter((group): group is string => Boolean(group)),
+  )).sort((a, b) => a.localeCompare(b, "pt-BR")), [exercises]);
 
   const allSelectedIds = [...primaryMuscleIds, ...secondaryMuscleIds];
 
@@ -740,7 +751,7 @@ export default function ExerciseLibrary() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os grupos</SelectItem>
-              {MUSCLE_GROUPS.map((g) => (
+              {FILTER_GROUPS.map((g) => (
                 <SelectItem key={g} value={g} className="capitalize">{g}</SelectItem>
               ))}
             </SelectContent>
@@ -940,7 +951,7 @@ export default function ExerciseLibrary() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {MUSCLE_GROUPS.map((g) => (
+                  {ANATOMICAL_MUSCLE_GROUP_NAMES.map((g) => (
                     <SelectItem key={g} value={g} className="capitalize">{g}</SelectItem>
                   ))}
                 </SelectContent>
@@ -979,6 +990,7 @@ export default function ExerciseLibrary() {
                             <SelectContent>
                               <SelectItem value="none">Remover</SelectItem>
                               {muscleGroups
+                                .filter(mg => isAnatomicalMuscleGroup(mg.name) || mg.id === mgId)
                                 .filter(mg => mg.id === mgId || !allSelectedIds.includes(mg.id))
                                 .map(mg => (
                                   <SelectItem key={mg.id} value={mg.id}>{mg.name}</SelectItem>
@@ -1020,6 +1032,7 @@ export default function ExerciseLibrary() {
                             <SelectContent>
                               <SelectItem value="none">Remover</SelectItem>
                               {muscleGroups
+                                .filter(mg => isAnatomicalMuscleGroup(mg.name) || mg.id === mgId)
                                 .filter(mg => mg.id === mgId || !allSelectedIds.includes(mg.id))
                                 .map(mg => (
                                   <SelectItem key={mg.id} value={mg.id}>{mg.name}</SelectItem>

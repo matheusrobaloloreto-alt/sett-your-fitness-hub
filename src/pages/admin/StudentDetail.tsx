@@ -35,6 +35,7 @@ import { EditorialTabStrip } from "@/components/EditorialTabStrip";
 import { ProgressPhotosPanel } from "@/components/ProgressPhotosPanel";
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
 import type { PreRegistrationData } from "@/lib/preRegistration";
+import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
 
 // Safely format a date string. Returns "—" when value is missing or invalid.
 function safeFormatDate(value: string | null | undefined, fmt: string, opts?: Parameters<typeof format>[2]): string {
@@ -1039,7 +1040,8 @@ export default function StudentDetail() {
                         {cycleWorkouts.map((w: any) => {
                           const exercises = (w.exercises as any[]) || [];
                           const muscleVolumes = exercises.reduce((acc: any[], ex: any) => {
-                            const mg = ex.muscle_group || "Outro";
+                            const mg = canonicalAnatomicalMuscleGroup(ex.muscle_group);
+                            if (!mg) return acc;
                             const sets = parseInt(ex.sets) || 0;
                             const existing = acc.find((a: any) => a.muscleGroup === mg);
                             if (existing) existing.volume += sets;

@@ -14,6 +14,7 @@ import {
 import { format, parseISO, differenceInCalendarDays, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { MuscleRadar } from "./MuscleRadar";
+import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
 
 interface StatsChartsProps {
   allLogs: any[];
@@ -63,9 +64,10 @@ export function StatsCharts({ allLogs, cycles, todayStr }: StatsChartsProps) {
     const v: Record<string, number> = {};
     filteredLogs.forEach((l: any) => {
       const meta = findMeta(l.workout_id, l.exercise_index);
-      if (!meta?.muscleGroup) return;
+      const muscleGroup = canonicalAnatomicalMuscleGroup(meta?.muscleGroup);
+      if (!muscleGroup) return;
       const t = (Number(l.weight) || 0) * (Number(l.reps_done) || 0);
-      if (t > 0) v[meta.muscleGroup] = (v[meta.muscleGroup] || 0) + t;
+      if (t > 0) v[muscleGroup] = (v[muscleGroup] || 0) + t;
     });
     return Object.entries(v).map(([muscleGroup, volume]) => ({ muscleGroup, volume }));
   }, [filteredLogs, allExercisesMeta]);
@@ -159,9 +161,10 @@ export function StatsCharts({ allLogs, cycles, todayStr }: StatsChartsProps) {
     const map: Record<string, Set<string>> = {};
     filteredLogs.forEach((l: any) => {
       const meta = findMeta(l.workout_id, l.exercise_index);
-      if (!meta?.muscleGroup) return;
-      if (!map[meta.muscleGroup]) map[meta.muscleGroup] = new Set();
-      map[meta.muscleGroup].add(l.session_date);
+      const muscleGroup = canonicalAnatomicalMuscleGroup(meta?.muscleGroup);
+      if (!muscleGroup) return;
+      if (!map[muscleGroup]) map[muscleGroup] = new Set();
+      map[muscleGroup].add(l.session_date);
     });
     return Object.entries(map)
       .map(([muscle, dates]) => ({ muscle, sessions: dates.size }))

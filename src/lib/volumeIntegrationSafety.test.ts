@@ -42,4 +42,19 @@ describe("volume integration safety contracts", () => {
     expect(migration).toContain("delete from public.exercise_muscle_targets");
     expect(migration).toContain("insert into public.exercise_muscle_targets");
   });
+
+  it("aplica a allowlist anatômica em aluno, professor e prescritor", async () => {
+    const sources = await Promise.all([
+      read("src/lib/volumeStats.ts"),
+      read("src/components/student/StatsCharts.tsx"),
+      read("src/components/student/MuscleRadar.tsx"),
+      read("src/components/trainer/WorkoutAnalysis.tsx"),
+      read("src/pages/admin/StudentDetail.tsx"),
+      read("src/pages/admin/WorkoutBuilder.tsx"),
+    ]);
+    for (const source of sources) {
+      expect(source).toContain("canonicalAnatomicalMuscleGroup");
+    }
+    expect(sources[5]).toContain("anatomicalBnitoVolumeReview");
+  });
 });

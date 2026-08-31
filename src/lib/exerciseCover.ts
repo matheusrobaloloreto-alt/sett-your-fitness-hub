@@ -1,3 +1,5 @@
+import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
+
 // Capa (thumbnail) do exercício + categorias do seletor estilo Mywellness.
 
 const YT_RE = /(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([0-9A-Za-z_-]{11})/;
@@ -39,17 +41,87 @@ export type ExerciseCategory = {
   hint?: string;
 };
 
-// Ordem dos chips (igual ao pedido + extras Fisio/Pliometria).
+const normalizeCategoryId = (value: unknown) => String(value ?? "")
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase()
+  .trim()
+  .replace(/[^a-z0-9]+/g, "_")
+  .replace(/^_+|_+$/g, "");
+
+const physiotherapyReplacement = (exercise: {
+  name?: string | null;
+  description?: string | null;
+  muscle_group?: string | null;
+}) => {
+  const text = normalizeCategoryId(`${exercise.name ?? ""} ${exercise.description ?? ""} ${exercise.muscle_group ?? ""}`)
+    .replace(/_/g, " ");
+  if (/salto|jump|hop|bound|drop|pliometr|arremesso|slam|rebote|aterriss/.test(text)) return "pliometria";
+  if (/mobil|along|libera|foam|amplitude|rotacao articular/.test(text)) return "mobilidade";
+  if (/prancha|abdom|pallof|bird dog|dead bug/.test(text)) return "core";
+  if (/mini band|thera band|ativ|isometr/.test(text)) return "ativacao";
+  if (/maquina|polia|leg press|cadeira|mesa flexora/.test(text)) return "maquinas";
+  if (/halter|barra|kettlebell|anilha/.test(text)) return "pesos_livres";
+  if (/agach|terra|levantamento|supino|remada|puxada/.test(text)) return "base";
+  return "funcionais";
+};
+
+export function normalizeExerciseCategory(
+  value: unknown,
+  exercise: { name?: string | null; description?: string | null; muscle_group?: string | null } = {},
+): string | null {
+  const id = normalizeCategoryId(value);
+  if (!id) return null;
+  if (["controle_motor", "funcional", "funcionais"].includes(id)) return "funcionais";
+  if (id === "performance") return "pliometria";
+  if (["fisioterapia", "fisio"].includes(id)) return physiotherapyReplacement(exercise);
+  return id;
+}
+
+export function normalizedExerciseCategories(exercise: {
+  category?: string | null;
+  categories?: string[] | null;
+  name?: string | null;
+  description?: string | null;
+  muscle_group?: string | null;
+}): string[] {
+  const raw = exercise.categories?.length
+    ? exercise.categories
+    : exercise.category
+      ? [exercise.category]
+      : [];
+  return [...new Set(raw.flatMap((category) => {
+    const normalized = normalizeExerciseCategory(category, exercise);
+    return normalized ? [normalized] : [];
+  }))];
+}
+
+export function normalizedExerciseLibraryGroup(exercise: {
+  muscle_group?: string | null;
+  name?: string | null;
+  description?: string | null;
+}): string | null {
+  const raw = String(exercise.muscle_group ?? "").trim();
+  const id = normalizeCategoryId(raw);
+  if (!id) return null;
+  if (["controle_motor", "funcional", "funcionais"].includes(id)) return "Funcionais";
+  if (id === "performance") return "Pliometria";
+  if (["fisioterapia", "fisio"].includes(id)) {
+    const category = physiotherapyReplacement(exercise);
+    return EXERCISE_CATEGORIES.find((item) => item.id === category)?.label ?? "Funcionais";
+  }
+  return canonicalAnatomicalMuscleGroup(raw) ?? raw;
+}
+
+// Filtros canônicos. IDs legados são normalizados no cliente até a migration ser aplicada.
 export const EXERCISE_CATEGORIES: ExerciseCategory[] = [
   { id: "mobilidade", label: "Mobilidade", hint: "mobilidade, estabilidade, foam roll" },
-  { id: "controle_motor", label: "Controle Motor" },
+  { id: "funcionais", label: "Funcionais", hint: "controle motor, estabilidade, propriocepção" },
   { id: "ativacao", label: "Ativação", hint: "mini band, tera band" },
   { id: "core", label: "Core" },
-  { id: "performance", label: "Performance", hint: "reativos, wall drills, propulsão, med ball" },
   { id: "base", label: "Base", hint: "agachamento, terra…" },
   { id: "pesos_livres", label: "Pesos Livres" },
   { id: "peso_corporal", label: "Peso Corporal" },
   { id: "maquinas", label: "Máquinas" },
-  { id: "fisioterapia", label: "Fisioterapia" },
   { id: "pliometria", label: "Pliometria" },
 ];

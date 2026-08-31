@@ -20,7 +20,8 @@ import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useAssistantName } from "@/hooks/useAssistantName";
 import { BodyMap } from "@/components/body/BodyMap";
 import { regionForLibraryGroup, normalizeGender, BODY_REGION_LABELS, type BodyRegionId } from "@/lib/bodyMap";
-import { exerciseThumb, youtubeIdFromUrl, EXERCISE_CATEGORIES } from "@/lib/exerciseCover";
+import { exerciseThumb, youtubeIdFromUrl, EXERCISE_CATEGORIES, normalizedExerciseCategories } from "@/lib/exerciseCover";
+import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
 import { Checkbox } from "@/components/ui/checkbox";
 import { groupWorkoutExercises, WORKOUT_METHODS, GROUPING_METHODS, SINGLE_METHODS, isGroupingMethod, methodNeedsSeconds, type MethodId } from "@/lib/workoutMethods";
 import { normalizeSetType, sanitizeSetTypes, sanitizeWorkoutSetTypes } from "@/lib/setTypes";
@@ -635,9 +636,10 @@ export default function WorkoutBuilder() {
         
         targets.forEach(target => {
           const mg = muscleGroupsList.find(g => g.id === target.muscle_group_id);
-          if (mg) {
+          const anatomicalGroup = canonicalAnatomicalMuscleGroup(mg?.name);
+          if (anatomicalGroup) {
             const weighted = sets * (target.volume_percentage / 100);
-            volume[mg.name] = (volume[mg.name] || 0) + weighted;
+            volume[anatomicalGroup] = (volume[anatomicalGroup] || 0) + weighted;
           }
         });
       });
@@ -656,7 +658,7 @@ export default function WorkoutBuilder() {
 
   const filteredLib = useMemo(() => libraryExercises.filter((ex) => {
     const matchSearch = ex.name.toLowerCase().includes(libSearch.toLowerCase());
-    const exCats = ex.categories || (ex.category ? [ex.category] : []);
+    const exCats = normalizedExerciseCategories(ex);
     const matchCategory = libCats.length === 0 || exCats.some((c) => libCats.includes(c));
     const matchGroup = libGroup === "all" || ex.muscle_group === libGroup;
     const exRegions = ex.body_regions || [];
@@ -768,6 +770,12 @@ export default function WorkoutBuilder() {
   };
 
   const bnitoResult = bnitoResponse?.result;
+  const anatomicalBnitoVolumeReview = Array.isArray(bnitoResult?.volume_review)
+    ? bnitoResult.volume_review.flatMap((item) => {
+      const muscleGroup = canonicalAnatomicalMuscleGroup(item.muscle_group);
+      return muscleGroup ? [{ ...item, muscle_group: muscleGroup }] : [];
+    })
+    : [];
   const shouldOfferStudentNotice = bnitoResult?.next_intent?.type === "notify_student_prescription_ready";
   const allValidationWarnings = [
     ...(validationResult?.blockers || []),
@@ -1317,10 +1325,10 @@ export default function WorkoutBuilder() {
                       </div>
                     )}
 
-                    {Array.isArray(bnitoResult.volume_review) && bnitoResult.volume_review.length > 0 && (
+                    {anatomicalBnitoVolumeReview.length > 0 && (
                       <div className="space-y-1">
                         <p className="text-xs font-semibold text-foreground font-sans">Volume</p>
-                        {bnitoResult.volume_review.slice(0, 5).map((item, idx) => (
+                        {anatomicalBnitoVolumeReview.slice(0, 5).map((item, idx) => (
                           <div key={`${item.muscle_group || "volume"}-${idx}`} className="flex items-center justify-between gap-2 text-xs font-sans">
                             <span className="text-muted-foreground">{item.muscle_group || "Grupo"}</span>
                             <span className="text-foreground">

@@ -6,6 +6,7 @@ import {
   PolarAngleAxis,
   ResponsiveContainer,
 } from "recharts";
+import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
 
 interface MuscleVolume {
   muscleGroup: string;
@@ -21,8 +22,9 @@ export function MuscleRadar({ muscleVolumes }: MuscleRadarProps) {
   const { data, hasData, maxVolume } = useMemo(() => {
     const agg: Record<string, number> = {};
     muscleVolumes.forEach(({ muscleGroup, volume }) => {
-      if (!muscleGroup) return;
-      agg[muscleGroup] = (agg[muscleGroup] || 0) + (volume || 0);
+      const anatomicalGroup = canonicalAnatomicalMuscleGroup(muscleGroup);
+      if (!anatomicalGroup) return;
+      agg[anatomicalGroup] = (agg[anatomicalGroup] || 0) + (volume || 0);
     });
 
     const entries = Object.entries(agg)

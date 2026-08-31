@@ -51,11 +51,67 @@ function compact(items) {
   return [...new Set(items.filter(Boolean))];
 }
 
+const anatomicalGroupAliases = new Map(Object.entries({
+  peito: "Peitoral",
+  peitoral: "Peitoral",
+  peitorais: "Peitoral",
+  costas: "Dorsal",
+  dorsal: "Dorsal",
+  dorsais: "Dorsal",
+  ombro: "Ombro",
+  ombros: "Ombro",
+  deltoide: "Ombro",
+  deltoides: "Ombro",
+  "deltoide anterior": "Deltoide Anterior",
+  "deltoide lateral": "Deltoide Lateral",
+  "deltoide posterior": "Deltoide Posterior",
+  biceps: "Bíceps",
+  triceps: "Tríceps",
+  antebraco: "Antebraço",
+  braquiorradial: "Braquiorradial",
+  abdomen: "Abdominais",
+  abdominal: "Abdominais",
+  abdominais: "Abdominais",
+  trapezio: "Trapézio",
+  "trapezio inferior": "Trapézio Inferior",
+  lombar: "Lombar / Eretores",
+  "lombar eretores": "Lombar / Eretores",
+  eretores: "Lombar / Eretores",
+  gluteo: "Glúteo",
+  gluteos: "Glúteo",
+  quadriceps: "Quadríceps",
+  "reto femoral": "Reto Femoral",
+  posterior: "Posterior de Coxa",
+  posteriores: "Posterior de Coxa",
+  "posterior de coxa": "Posterior de Coxa",
+  isquiotibiais: "Posterior de Coxa",
+  adutor: "Adutores",
+  adutores: "Adutores",
+  "adutor magno": "Adutor Magno",
+  abdutor: "Abdutores",
+  abdutores: "Abdutores",
+  panturrilha: "Panturrilha",
+  panturrilhas: "Panturrilha",
+  "tibial anterior": "Tibial Anterior",
+  "flexores de quadril": "Flexores de Quadril",
+  iliopsoas: "Flexores de Quadril",
+  manguito: "Manguito",
+  "manguito rotador": "Manguito",
+  serratil: "Serrátil",
+  "serratil anterior": "Serrátil",
+}));
+
+function canonicalAnatomicalGroup(value) {
+  return anatomicalGroupAliases.get(normalize(value)) || null;
+}
+
 function inferMuscleGroup(exercise) {
   const text = normalize(`${exercise.name} ${exercise.description || ""} ${exercise.muscle_group || ""}`);
-  const explicit = normalize(exercise.muscle_group);
+  const explicit = canonicalAnatomicalGroup(exercise.muscle_group);
 
-  if (/abdomen|abdominal|core|prancha|pallof|bird dog|perdigueiro|anti rotacao|medball/.test(text)) return "Abdominais";
+  if (explicit) return explicit;
+
+  if (/abdomen|abdominal|prancha|pallof|bird dog|perdigueiro|anti rotacao/.test(text)) return "Abdominais";
   if (/glute|quadril|abducao|ponte|elevacao pelvica|hip thrust|mini band/.test(text)) return "Glúteo";
   if (/posterior|isquio|flexao de joelho|stiff|deadlift|terra|hamstring/.test(text)) return "Posterior de Coxa";
   if (/quadriceps|agach|squat|leg press|afundo|passada|lunge|step|bulgar|knee drive|front squat/.test(text)) return "Quadríceps";
@@ -67,16 +123,15 @@ function inferMuscleGroup(exercise) {
   if (/biceps|rosca/.test(text)) return "Bíceps";
   if (/triceps|paralela|frances|testa/.test(text)) return "Tríceps";
   if (/lombar|eretor|superman|extensao da coluna/.test(text)) return "Lombar / Eretores";
-  if (/cardio|corrida|esteira|bike|bicicleta|pedal|natacao/.test(text)) return "Cardio Longo";
-  if (/mobilidade|along|liberacao|rolinho/.test(text)) return "Mobilidade";
-  if (/fisio|fisioterapia/.test(text)) return "Fisioterapia";
-  if (/controle motor|estabilidade|reativo|propriocepcao/.test(text)) return "Controle Motor";
-  if (/performance|plio|jump|hops|bound|drop|shuffle|wall drill|snatch|swing/.test(text)) return "Performance";
-  if (/pilates|swan dive/.test(text)) return "Peso Corporal";
-  if (/musculacao/.test(text)) return "Funcional";
+  // Categorias de filtro nunca podem virar muscle_group. Sem pista anatômica,
+  // deixe o item para revisão em vez de poluir alvos/volume futuros.
+  if (/cardio|corrida|esteira|bike|bicicleta|pedal|natacao/.test(text)) return null;
+  if (/mobilidade|along|liberacao|rolinho/.test(text)) return null;
+  if (/fisio|fisioterapia|controle motor|estabilidade|propriocepcao/.test(text)) return null;
+  if (/performance|plio|jump|hops|bound|drop|shuffle|wall drill|snatch|swing/.test(text)) return null;
+  if (/pilates|swan dive|musculacao/.test(text)) return null;
 
-  if (explicit) return exercise.muscle_group;
-  return "Mobilidade";
+  return null;
 }
 
 function inferEquipment(exercise) {
@@ -175,7 +230,7 @@ const unresolvedGroups = [];
 
 for (const exercise of exercises) {
   const groupName = inferMuscleGroup(exercise);
-  const group = groupByName.get(normalize(groupName)) || groupByName.get(normalize(exercise.muscle_group));
+  const group = groupName ? groupByName.get(normalize(groupName)) : null;
   if (!group) {
     unresolvedGroups.push({ id: exercise.id, name: exercise.name, groupName, current: exercise.muscle_group });
     continue;
