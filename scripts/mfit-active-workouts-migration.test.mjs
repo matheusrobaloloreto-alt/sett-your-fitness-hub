@@ -3219,6 +3219,81 @@ test("overlap merge blocks deterministic workout payload divergence without touc
   assert.deepEqual(db.writes, writesBeforeRetry);
 });
 
+test("overlap merge treats date-derived MFIT marker drift as already imported without writes", async () => {
+  const input = baseInput();
+  delete input.mfitWorkoutsPayload.clients[0].fichas[0].start_date;
+  delete input.mfitWorkoutsPayload.clients[0].fichas[0].end_date;
+  const cycle = {
+    id: "40000000-0000-4000-8000-000000000043",
+    enrollment_id: IDS.enrollment,
+    student_id: IDS.studentPhone,
+    company_id: IDS.company,
+    cycle_number: 1,
+    start_date: "2026-08-01",
+    end_date: "2026-09-20",
+    status: "active",
+  };
+  const db = new MemoryDb({ cycles: [cycle] });
+  const first = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    mergeOverlapIntoActiveCycle: true,
+  });
+  assert.equal(first.summary.imported, 1);
+  const writesBeforeRetry = structuredClone(db.writes);
+
+  const retry = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-11",
+    mergeOverlapIntoActiveCycle: true,
+  });
+
+  assert.equal(retry.summary.already_imported, 1);
+  assert.equal(retry.results[0].marker_drift_equivalent, true);
+  assert.deepEqual(db.writes, writesBeforeRetry);
+});
+
+test("marker-drift equivalence still blocks changed exercise prescriptions", async () => {
+  const input = baseInput();
+  const cycle = {
+    id: "40000000-0000-4000-8000-000000000043",
+    enrollment_id: IDS.enrollment,
+    student_id: IDS.studentPhone,
+    company_id: IDS.company,
+    cycle_number: 1,
+    start_date: "2026-08-01",
+    end_date: "2026-09-20",
+    status: "active",
+  };
+  const db = new MemoryDb({ cycles: [cycle] });
+  await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-10",
+    mergeOverlapIntoActiveCycle: true,
+  });
+  const imported = db.workouts.find((row) => row.notes?.startsWith(MARKER_PREFIX));
+  imported.exercises[0].reps = "99";
+  const writesBeforeRetry = structuredClone(db.writes);
+
+  const retry = await runMigration({
+    ...input,
+    db,
+    apply: true,
+    today: "2026-08-11",
+    mergeOverlapIntoActiveCycle: true,
+  });
+
+  assert.equal(retry.summary.blocked, 1);
+  assert.equal(retry.results[0].reason, "cycle_contains_different_workouts");
+  assert.deepEqual(db.writes, writesBeforeRetry);
+});
+
 test("overlap merge partial retry appends only the missing deterministic workout", async () => {
   const input = baseInput();
   input.mfitWorkoutsPayload.clients[0].fichas[0].workouts.push({

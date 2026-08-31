@@ -1462,6 +1462,49 @@ function canonicalWorkoutMaterial(row) {
   });
 }
 
+function mfitMarkerBody(notes) {
+  const lines = cleanText(notes).split("\n");
+  if (!/^mfit-import:v1:[0-9a-f]{64}$/.test(lines[0] || "")) return null;
+  return lines.slice(1).join("\n");
+}
+
+function canonicalWorkoutForMarkerDrift(row) {
+  const markerBody = mfitMarkerBody(row.notes);
+  if (markerBody === null) return null;
+  return stableStringify({
+    id: cleanText(row.id),
+    cycle_id: cleanText(row.cycle_id),
+    company_id: cleanText(row.company_id),
+    name: cleanText(row.name),
+    title: cleanText(row.title),
+    description: cleanText(row.description),
+    day_of_week: row.day_of_week === null || row.day_of_week === undefined ? null : Number(row.day_of_week),
+    exercises: Array.isArray(row.exercises) ? row.exercises : [],
+    marker_body: markerBody,
+  });
+}
+
+function analyzeMfitMarkerDriftRows(existing, expected) {
+  if (existing.length !== expected.length || existing.length === 0) return { equivalent: false };
+  const existingById = new Map(existing.map((row) => [row.id, row]));
+  if (existingById.size !== existing.length) return { equivalent: false };
+  const sortOrders = [];
+  for (const expectedRow of expected) {
+    const existingRow = existingById.get(expectedRow.id);
+    const existingCanonical = existingRow && canonicalWorkoutForMarkerDrift(existingRow);
+    const expectedCanonical = canonicalWorkoutForMarkerDrift(expectedRow);
+    if (!existingCanonical || !expectedCanonical || existingCanonical !== expectedCanonical) {
+      return { equivalent: false };
+    }
+    sortOrders.push(Number(existingRow.sort_order) || 0);
+  }
+  if (new Set(sortOrders).size !== sortOrders.length) return { equivalent: false };
+  for (let index = 1; index < sortOrders.length; index += 1) {
+    if (sortOrders[index] !== sortOrders[index - 1] + 1) return { equivalent: false };
+  }
+  return { equivalent: true };
+}
+
 function materializedOverlapSnapshot(cycles, workoutsByCycle, startDate, endDate, normalizedRows = [], excludedCycleId = "") {
   const normalizedByWorkout = new Map();
   for (const row of normalizedRows) {
@@ -2321,6 +2364,27 @@ export async function runMigration({
       : existingTargetWorkouts;
     const existingWorkoutAnalysis = analyzeWorkoutRows(relevantExistingTargetWorkouts, workoutRows);
     if (existingWorkoutAnalysis.conflict) {
+      const markerDriftAnalysis = analyzeMfitMarkerDriftRows(relevantExistingTargetWorkouts, workoutRows);
+      if (markerDriftAnalysis.equivalent && db.normalizedSupport.available) {
+        const workoutIds = new Set(workoutRows.map((workout) => workout.id));
+        const existingMirror = existingNormalizedRows.filter((row) => workoutIds.has(row.workout_id));
+        const mirrorAnalysis = analyzeNormalizedRows(existingMirror, normalizedRows, db.normalizedSupport.has_id);
+        if (!mirrorAnalysis.conflict && mirrorAnalysis.missing.length === 0) {
+          results.push({
+            ref: candidate.ref,
+            status: "already_imported",
+            reason: null,
+            match_method: candidate.match_method,
+            sessions: plan.sessions.length,
+            exercises: normalizedRows.length,
+            marker: payloadHash.slice(0, 16),
+            overlap_import_mode: null,
+            verified_empty_source_sessions: verifiedEmptySourceSessions ? plan.source_empty_session_count : 0,
+            marker_drift_equivalent: true,
+          });
+          continue;
+        }
+      }
       results.push({ ref: candidate.ref, status: "blocked", reason: "cycle_contains_different_workouts", match_method: candidate.match_method, sessions: plan.sessions.length, marker: payloadHash.slice(0, 16) });
       continue;
     }
