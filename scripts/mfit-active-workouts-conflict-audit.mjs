@@ -111,11 +111,11 @@ function parseArgs(argv) {
   return options;
 }
 
-function planRef(plan) {
+export function planRef(plan) {
   return sha256([IMPORT_VERSION, plan.client_id || plan.input_index, plan.source_id].join("\u0000")).slice(0, 12);
 }
 
-function chooseEnrollment(rows) {
+export function chooseEnrollment(rows) {
   const priority = new Map(ACTIVE_ENROLLMENT_STATUSES.map((status, index) => [status, index]));
   return [...rows]
     .map((row) => ({ ...row, status: clean(row.status).toLocaleLowerCase("pt-BR") }))
@@ -124,7 +124,7 @@ function chooseEnrollment(rows) {
       || clean(b.created_at).localeCompare(clean(a.created_at)))[0] || null;
 }
 
-function resolveExerciseId(catalog, companyId, exercise, aliases) {
+export function resolveExerciseId(catalog, companyId, exercise, aliases) {
   const name = normalizedName(exercise.name);
   const own = catalog.filter((row) => row.company_id === companyId
     && row.is_global !== true && normalizedName(row.name) === name);
@@ -140,7 +140,7 @@ function resolveExerciseId(catalog, companyId, exercise, aliases) {
   return target[0].id;
 }
 
-function projectedExercise(exercise, exerciseId) {
+export function projectedExercise(exercise, exerciseId) {
   return {
     exercise_id: exerciseId,
     exercise_name: exercise.name,
@@ -192,7 +192,7 @@ function exerciseDiffs(existing, expected) {
   return counts;
 }
 
-function sourceSessionNotes(notes) {
+export function sourceSessionNotes(notes) {
   const lines = clean(notes).split("\n");
   return lines[0]?.startsWith("mfit-import:v1:") ? lines.slice(1).join("\n") : clean(notes);
 }
@@ -372,4 +372,3 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exitCode = 1;
   });
 }
-
