@@ -14,7 +14,16 @@ test("performance readiness stays aggregate-only and fail-closed", async () => {
   assert.match(sql, /samples, 0\) >= 30/);
   assert.match(sql, /actor_days, 0\) >= 10/);
   assert.match(sql, /active_dates, 0\) >= 3/);
-  assert.match(sql, /viewport_buckets, 0\) >= 2/);
+  assert.match(sql, /array\['xs', 'sm'\]::text\[\]/);
+  assert.match(sql, /array\['xs', 'sm', 'lg', 'xl'\]::text\[\], true, true/);
+  assert.match(sql, /sample\.viewport_bucket = any\(expected\.expected_viewports\)/);
+  assert.match(sql, /compact_samples, 0\) >= 10/);
+  assert.match(sql, /compact_actor_days, 0\) >= 3/);
+  assert.match(sql, /compact_active_dates, 0\) >= 2/);
+  assert.match(sql, /wide_samples, 0\) >= 10/);
+  assert.match(sql, /wide_actor_days, 0\) >= 3/);
+  assert.match(sql, /wide_active_dates, 0\) >= 2/);
+  assert.match(sql, /expected_viewport_pct/);
   assert.match(sql, /bool_and\(segment_ready\) over \(\)/);
   assert.doesNotMatch(sql, /full_name|email|phone|student_id|user_id|\n\s*actor_bucket\s*,/i);
 });
