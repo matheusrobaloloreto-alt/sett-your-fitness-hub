@@ -28,7 +28,7 @@ async function callAsaas(checkoutToken: string, action: string, body: Record<str
   return data;
 }
 
-type Step = "select_plan" | "choose" | "pix" | "card" | "success";
+type Step = "select_plan" | "choose" | "pix" | "card" | "pending" | "success";
 
 interface PlanOption {
   id: string;
@@ -368,7 +368,6 @@ export default function PublicPayment() {
       };
       if (installments > 1) {
         payload.installmentCount = installments;
-        payload.installmentValue = Number((planValue / installments).toFixed(2));
       }
       const { status, paymentId } = await callAsaas(token, "create-card-payment", payload);
 
@@ -385,11 +384,9 @@ export default function PublicPayment() {
       } else if (status === "PENDING" || status === "AWAITING_RISK_ANALYSIS") {
         toast({ title: "Pagamento em análise", description: "Você receberá a confirmação em breve." });
         abandonedRecordedRef.current = true;
-        setStep("success");
+        setStep("pending");
       } else {
-        toast({ title: "Pagamento processado", description: `Status: ${status}` });
-        abandonedRecordedRef.current = true;
-        setStep("success");
+        throw new Error(`O pagamento não foi confirmado (status: ${status}).`);
       }
     } catch (err: any) {
       toast({
@@ -439,6 +436,22 @@ export default function PublicPayment() {
                 A avaliação e o início do treino serão conduzidos em até 5 dias úteis.
               </p>
             )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (step === "pending") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="max-w-md w-full bg-card border-border text-center">
+          <CardContent className="pt-8 pb-8 space-y-4">
+            <Loader2 className="h-16 w-16 text-primary mx-auto animate-spin" />
+            <h2 className="text-3xl text-primary">PAGAMENTO EM ANÁLISE</h2>
+            <p className="text-muted-foreground font-sans">
+              A operadora ainda não confirmou a cobrança. Avisaremos assim que a análise terminar; seu plano só será ativado após a confirmação.
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -537,17 +550,15 @@ export default function PublicPayment() {
                 {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <QrCode className="h-5 w-5" />}
                 Pagar com Pix via Asaas
               </Button>
-              {isRenewal && (
-                <Button
-                  variant="outline"
-                  className="w-full h-14 text-lg gap-3"
-                  onClick={() => setStep("card")}
-                  disabled={loading}
-                >
-                  <CreditCard className="h-5 w-5" />
-                  Pagar com Cartão
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                className="w-full h-14 text-lg gap-3"
+                onClick={() => setStep("card")}
+                disabled={loading}
+              >
+                <CreditCard className="h-5 w-5" />
+                Pagar com Cartão
+              </Button>
               <Button variant="ghost" size="sm" className="w-full" onClick={() => setStep("select_plan")}>
                 ← Trocar plano
               </Button>
@@ -634,6 +645,7 @@ export default function PublicPayment() {
                     <p className="text-xs text-muted-foreground font-sans">
                       {installments}x de R$ {formatBRL(planValue / installments)} = <strong className="text-foreground">R$ {formatBRL(planValue)}</strong>
                     </p>
+                    <p className="text-xs text-primary font-sans font-semibold mt-1">Sem juros para você</p>
                   </div>
                 </div>
               )}
@@ -643,6 +655,7 @@ export default function PublicPayment() {
                   <p className="text-xs text-muted-foreground font-sans">
                     Pagamento à vista no cartão
                   </p>
+                  <p className="text-xs text-primary font-sans font-semibold mt-1">Sem juros para você</p>
                 </div>
               )}
 

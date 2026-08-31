@@ -5,8 +5,10 @@ import { preRegistrationResponseDeadline } from "../_shared/pre-registration-con
 import { validatePreRegistrationSubmission } from "../_shared/pre-registration-validation.ts";
 import { countryAwareFiscalFields, fiscalRegistrationValidation, normalizeCountryCode, normalizeFiscalDocument, supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
 import {
+  buildPreRegistrationConfirmationMessage,
   buildFiscalRegistrationMessage,
   buildPaymentLinkMessage,
+  sendPreRegistrationConfirmation,
   sendFunnelWhatsAppMessage,
 } from "../_shared/sales-funnel.ts";
 
@@ -256,6 +258,8 @@ async function requireCompanyStaff(req: Request, companyId: unknown) {
 }
 
 async function preRegister(body: Record<string, unknown>) {
+  const whatsappConfirmed = body.whatsappConfirmed === true;
+  if (!whatsappConfirmed) throw new HttpError(422, "Confirme o número de WhatsApp antes de enviar o pré-cadastro.");
   const validated = validatePreRegistrationSubmission(body);
   const company = await resolveCompanyById(body.companyId) || await resolveCompany(cleanText(body.slug) || null);
   if (!company) throw new HttpError(400, "Empresa inválida.");
@@ -295,7 +299,21 @@ async function preRegister(body: Record<string, unknown>) {
     leadId = created.data.id;
   }
 
-  return { leadId, firstName: fullName.split(/\s+/)[0], deadline: preRegistrationResponseDeadline() };
+  const deadline = preRegistrationResponseDeadline();
+  const confirmation = await sendPreRegistrationConfirmation({
+    admin: supabase,
+    leadId,
+    companyId: company.id,
+    fullName,
+    phone,
+    text: buildPreRegistrationConfirmationMessage(fullName, deadline),
+  });
+  return {
+    leadId,
+    firstName: fullName.split(/\s+/)[0],
+    deadline,
+    confirmationMessageSent: confirmation.sent,
+  };
 }
 
 async function loadLeadForStaff(req: Request, leadId: unknown) {

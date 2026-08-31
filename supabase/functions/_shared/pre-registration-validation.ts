@@ -5,7 +5,7 @@ const INVESTMENT_RANGES = new Set(["200_300", "300_400", "400_500"]);
 const CONTACT_PERIODS = new Set(["morning", "afternoon", "evening"]);
 const ENVELOPE_KEYS = new Set([
   "action", "companyId", "slug", "fullName", "whatsapp", "budgetRange",
-  "preferredContactPeriod", "answers",
+  "preferredContactPeriod", "whatsappConfirmed", "answers",
 ]);
 const ANSWER_KEYS = new Set([
   "age", "gender", "weight_kg", "height_cm", "body_fat_percent", "objective",

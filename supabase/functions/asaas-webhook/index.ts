@@ -97,51 +97,32 @@ async function createInvoice(asaasPaymentId: string) {
   }
 }
 
-async function ensureEnrollmentExists(studentId: string) {
+async function ensureEnrollmentExists(studentId: string, planId: string, companyId: string) {
   const { data: existing } = await supabaseAdmin
     .from("enrollments")
     .select("id, end_date, plan_id, payment_status, status")
     .eq("student_id", studentId)
+    .eq("company_id", companyId)
     .in("status", ["active", "awaiting_training", "awaiting_renewal"])
     .maybeSingle();
 
   const { data: student } = await supabaseAdmin
     .from("students")
-    .select("selected_plan_id, assigned_trainer_id, company_id")
+    .select("assigned_trainer_id, company_id")
     .eq("id", studentId)
+    .eq("company_id", companyId)
     .single();
-
-  if (!student?.selected_plan_id) {
-    console.error(`Student ${studentId} has no selected_plan_id, cannot auto-create enrollment`);
-    return null;
-  }
-
-  let studentCompanyId = student.company_id;
-  if (!studentCompanyId && student.selected_plan_id) {
-    const { data: plan } = await supabaseAdmin
-      .from("plans")
-      .select("company_id")
-      .eq("id", student.selected_plan_id)
-      .single();
-    if (plan?.company_id) {
-      studentCompanyId = plan.company_id;
-      // Also fix the student record
-      await supabaseAdmin
-        .from("students")
-        .update({ company_id: studentCompanyId })
-        .eq("id", studentId);
-      console.log(`Fixed student ${studentId} company_id to ${studentCompanyId} via plan`);
-    }
-  }
+  if (!student) throw new Error("Aluno não encontrado na empresa do pagamento.");
 
   const { data: plan } = await supabaseAdmin
     .from("plans")
     .select("duration_weeks, duration_days, cycle_duration_days, company_id")
-    .eq("id", student.selected_plan_id)
+    .eq("id", planId)
+    .eq("company_id", companyId)
     .single();
 
   if (!plan) {
-    console.error(`Plan ${student.selected_plan_id} not found`);
+    console.error("Payment plan snapshot was not found in its company");
     return null;
   }
 
@@ -150,7 +131,7 @@ async function ensureEnrollmentExists(studentId: string) {
 
   if (existing && existing.payment_status !== "paid") {
     await supabaseAdmin.from("enrollments").update({
-      plan_id: student.selected_plan_id,
+      plan_id: planId,
       status: "active",
       payment_status: "paid",
       payment_date: todayYmd,
@@ -168,7 +149,7 @@ async function ensureEnrollmentExists(studentId: string) {
     const newEndStr = businessDateYmd(newEnd);
     await supabaseAdmin.from("enrollments").update({
       end_date: newEndStr,
-      plan_id: student.selected_plan_id,
+      plan_id: planId,
       status: "active",
       payment_status: "paid",
       payment_date: todayYmd,
@@ -196,7 +177,7 @@ async function ensureEnrollmentExists(studentId: string) {
         start_date: businessDateYmd(cycleStart),
         end_date: businessDateYmd(cycleEnd),
         status: "pending",
-        company_id: studentCompanyId || plan.company_id || null,
+        company_id: companyId,
       });
       cycleNumber += 1;
       cycleStart = new Date(cycleEnd);
@@ -213,14 +194,14 @@ async function ensureEnrollmentExists(studentId: string) {
     .from("enrollments")
     .insert({
       student_id: studentId,
-      plan_id: student.selected_plan_id,
+      plan_id: planId,
       trainer_id: student.assigned_trainer_id || null,
       start_date: businessDateYmd(today),
       end_date: businessDateYmd(endDate),
       payment_status: "paid",
       payment_date: businessDateYmd(today),
       status: "active",
-      company_id: studentCompanyId || null,
+      company_id: companyId,
     })
     .select("id")
     .single();
@@ -295,7 +276,7 @@ Deno.serve(async (req) => {
       .from("payments")
       .update({ status: newStatus })
       .eq("asaas_payment_id", asaasPaymentId)
-      .select("student_id")
+      .select("student_id, company_id, plan_id, enrollment_id")
       .single();
 
     if (paymentError) {
@@ -313,6 +294,11 @@ Deno.serve(async (req) => {
     }
 
     const studentId = localPayment.student_id;
+    const companyId = localPayment.company_id;
+    const planId = localPayment.plan_id;
+    if (!companyId || !planId) {
+      throw new Error("Pagamento sem empresa ou plano imutável; ciclo de ativação bloqueado.");
+    }
     const isConfirmed = ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"].includes(newStatus);
     let shouldApplyPaymentLifecycle = true;
     if (isConfirmed) {
@@ -320,6 +306,7 @@ Deno.serve(async (req) => {
         .from("students")
         .select("company_id")
         .eq("id", studentId)
+        .eq("company_id", companyId)
         .maybeSingle();
       if (!lifecycleStudent?.company_id) throw new Error("Aluno sem empresa para aplicar pagamento.");
       const eventKey = `payment_lifecycle:${asaasPaymentId}`;
@@ -328,7 +315,7 @@ Deno.serve(async (req) => {
         companyId: lifecycleStudent.company_id,
         eventType: "payment_confirmed",
         eventKey,
-        payload: { payment_id: asaasPaymentId, status: newStatus },
+        payload: { payment_id: asaasPaymentId, status: newStatus, plan_id: planId },
       });
       if (shouldApplyPaymentLifecycle) claimedFunnelEvent = { studentId, eventKey };
     }
@@ -342,10 +329,12 @@ Deno.serve(async (req) => {
         supabaseAdmin.from("students")
           .select("status, activated_at, full_name, whatsapp, phone, country_code, company_id")
           .eq("id", studentId)
+          .eq("company_id", companyId)
           .maybeSingle(),
         supabaseAdmin.from("enrollments")
           .select("id")
           .eq("student_id", studentId)
+          .eq("company_id", companyId)
           .in("status", ["active", "awaiting_training", "awaiting_renewal"])
           .limit(1)
           .maybeSingle(),
@@ -362,10 +351,14 @@ Deno.serve(async (req) => {
           activated_at: previousStudent?.activated_at || new Date().toISOString(),
           assessment_due_at: isFirstActivation ? isoDate(dueDate) : undefined,
         })
-        .eq("id", studentId);
+        .eq("id", studentId)
+        .eq("company_id", companyId);
 
       // Ensure enrollment exists (auto-create if missing)
-      const enrollmentId = await ensureEnrollmentExists(studentId);
+      const enrollmentId = await ensureEnrollmentExists(studentId, planId, companyId);
+      if (enrollmentId && localPayment.enrollment_id !== enrollmentId) {
+        await supabaseAdmin.from("payments").update({ enrollment_id: enrollmentId }).eq("asaas_payment_id", asaasPaymentId);
+      }
 
       // Update existing enrollment payment status
       await supabaseAdmin
@@ -375,6 +368,7 @@ Deno.serve(async (req) => {
           payment_date: businessDateYmd(),
         })
         .eq("student_id", studentId)
+        .eq("company_id", companyId)
         .eq("status", "active");
 
       console.log(
@@ -420,7 +414,7 @@ Deno.serve(async (req) => {
         if (result.sent) {
           await supabaseAdmin.from("students").update({
             onboarding_instructions_sent_at: new Date().toISOString(),
-          }).eq("id", studentId);
+          }).eq("id", studentId).eq("company_id", companyId);
         }
       }
       if (claimedFunnelEvent) {
@@ -437,6 +431,7 @@ Deno.serve(async (req) => {
         .from("enrollments")
         .update({ payment_status: "overdue" })
         .eq("student_id", studentId)
+        .eq("company_id", companyId)
         .eq("status", "active");
 
       console.log(`Student ${studentId} payment overdue`);
@@ -448,12 +443,14 @@ Deno.serve(async (req) => {
       await supabaseAdmin
         .from("students")
         .update({ status: "pending" })
-        .eq("id", studentId);
+        .eq("id", studentId)
+        .eq("company_id", companyId);
 
       await supabaseAdmin
         .from("enrollments")
         .update({ payment_status: "refunded" })
         .eq("student_id", studentId)
+        .eq("company_id", companyId)
         .eq("status", "active");
 
       console.log(`Student ${studentId} deactivated after refund/delete`);

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { isChatViewportNearBottom, shouldAutoScrollChat } from "@/lib/chatScroll";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -244,6 +245,9 @@ export default function WhatsAppChat() {
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const messageRequestRef = useRef(0);
   const suppressMessageAutoScrollRef = useRef(false);
+  const initialMessageAutoScrollRef = useRef(false);
+  const forceOwnMessageAutoScrollRef = useRef(false);
+  const messageViewportNearBottomRef = useRef(true);
   const chatRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const historySyncAttemptsRef = useRef(new Set<string>());
   const [newMessage, setNewMessage] = useState("");
@@ -267,6 +271,7 @@ export default function WhatsAppChat() {
   const avatarFetchesRef = useRef<Set<string>>(new Set());
   const avatarMissesRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -488,6 +493,8 @@ export default function WhatsAppChat() {
   const loadMessages = useCallback(async (chatId: string) => {
     const requestId = ++messageRequestRef.current;
     setMessagesLoading(true);
+    initialMessageAutoScrollRef.current = true;
+    messageViewportNearBottomRef.current = true;
     setMessagesError(null);
     setHasOlderMessages(false);
     setMessages([]);
@@ -564,6 +571,9 @@ export default function WhatsAppChat() {
   const loadOlderMessages = useCallback(async () => {
     if (!selectedChatId || loadingOlderMessages || !hasOlderMessages || messages.length === 0) return;
     const oldestTimestamp = getMessageDateValue(messages[0]);
+    const viewport = messagesScrollAreaRef.current?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") || null;
+    const previousScrollHeight = viewport?.scrollHeight ?? 0;
+    const previousScrollTop = viewport?.scrollTop ?? 0;
     setLoadingOlderMessages(true);
 
     const { data, error } = await supabase
@@ -582,6 +592,12 @@ export default function WhatsAppChat() {
       suppressMessageAutoScrollRef.current = true;
       setMessages((prev) => reconcileWhatsAppMessages([...page].reverse().concat(prev)));
       setHasOlderMessages(page.length === MESSAGE_PAGE_SIZE);
+      if (viewport) {
+        requestAnimationFrame(() => {
+          viewport.scrollTop = previousScrollTop + Math.max(0, viewport.scrollHeight - previousScrollHeight);
+          messageViewportNearBottomRef.current = isChatViewportNearBottom(viewport);
+        });
+      }
     }
     setLoadingOlderMessages(false);
   }, [hasOlderMessages, loadingOlderMessages, messages, selectedChatId]);
@@ -951,7 +967,17 @@ export default function WhatsAppChat() {
       suppressMessageAutoScrollRef.current = false;
       return;
     }
-    messagesEndRef.current?.scrollIntoView({ behavior: messagesLoading ? "auto" : "smooth" });
+    const shouldScroll = shouldAutoScrollChat({
+      isInitialLoad: initialMessageAutoScrollRef.current,
+      isNearBottom: messageViewportNearBottomRef.current,
+      isOwnMessage: forceOwnMessageAutoScrollRef.current,
+    });
+    const wasInitial = initialMessageAutoScrollRef.current;
+    initialMessageAutoScrollRef.current = false;
+    forceOwnMessageAutoScrollRef.current = false;
+    if (shouldScroll) {
+      messagesEndRef.current?.scrollIntoView({ behavior: messagesLoading || wasInitial ? "auto" : "smooth" });
+    }
   }, [messages, messagesLoading]);
 
   // Auto-fetch media when the provider only stored a temporary WhatsApp URL.
@@ -993,6 +1019,7 @@ export default function WhatsAppChat() {
     const reply = replyingTo;
     const tempId = `temp-${Date.now()}`;
     if (selectedChatId) {
+      forceOwnMessageAutoScrollRef.current = true;
       setMessages((prev) => [...prev, {
         id: tempId,
         content,
@@ -2468,7 +2495,16 @@ export default function WhatsAppChat() {
                   </div>
                 </div>
 
-                <ScrollArea className="flex-1 bg-white p-3 md:p-4">
+                <ScrollArea
+                  ref={messagesScrollAreaRef}
+                  className="flex-1 bg-white p-3 md:p-4"
+                  onScrollCapture={(event) => {
+                    const viewport = event.target as HTMLElement;
+                    if (viewport.matches?.("[data-radix-scroll-area-viewport]")) {
+                      messageViewportNearBottomRef.current = isChatViewportNearBottom(viewport);
+                    }
+                  }}
+                >
                   {messagesLoading ? (
                     <div className="flex h-full min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />

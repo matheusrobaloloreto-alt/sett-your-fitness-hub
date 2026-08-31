@@ -1,0 +1,76 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+const uiSource = readFileSync("src/pages/PublicPayment.tsx", "utf8");
+const edgeSource = readFileSync("supabase/functions/asaas-integration/index.ts", "utf8");
+const installmentSource = readFileSync("supabase/functions/_shared/payment-installments.ts", "utf8");
+const webhookSource = readFileSync("supabase/functions/asaas-webhook/index.ts", "utf8");
+const migrationSource = readFileSync("supabase/migrations/20260831193000_harden_payment_checkout_orders.sql", "utf8");
+
+describe("public credit-card checkout contract", () => {
+  it("offers credit card to first purchases as well as renewals", () => {
+    const chooser = uiSource.slice(uiSource.indexOf('{step === "choose"'), uiSource.indexOf('{step === "pix"'));
+    expect(chooser).toContain("Pagar com Cartão");
+    expect(chooser).not.toContain("{isRenewal &&");
+  });
+
+  it("enforces 1x, 6x and 12x limits on the server from the plan duration", () => {
+    expect(edgeSource).toContain("maxInstallmentsForPlanDuration");
+    expect(edgeSource).toContain("plan.duration_weeks");
+    expect(installmentSource).toContain("Quantidade de parcelas não permitida para este plano");
+  });
+
+  it("uses the authoritative total for installments and never trusts a client installment value", () => {
+    const start = edgeSource.indexOf("async function createCardPayment");
+    const end = edgeSource.indexOf("async function createInvoice", start);
+    const handler = edgeSource.slice(start, end);
+    expect(handler).toContain("paymentPayload.totalValue = Number(value)");
+    expect(handler).not.toContain("paymentPayload.installmentValue");
+  });
+
+  it("creates an idempotent local order and snapshots the plan before calling Asaas", () => {
+    const start = edgeSource.indexOf("async function createCardPayment");
+    const end = edgeSource.indexOf("async function createInvoice", start);
+    const handler = edgeSource.slice(start, end);
+    expect(handler.indexOf('status: "CREATING"')).toBeLessThan(handler.indexOf('asaasFetch("/payments"'));
+    expect(handler).toContain("checkout_request_key: checkoutRequestKey");
+    expect(handler).toContain("plan_id: plan.id");
+    expect(migrationSource).toContain("payments_checkout_request_key_unique");
+  });
+
+  it("activates from the payment snapshot and scopes lifecycle writes to the company", () => {
+    expect(webhookSource).toContain('select("student_id, company_id, plan_id, enrollment_id")');
+    expect(webhookSource).toContain("ensureEnrollmentExists(studentId, planId, companyId)");
+    expect(webhookSource).toContain('.eq("company_id", companyId)');
+  });
+
+  it("releases the Pix idempotency key after a terminal provider status", () => {
+    const start = edgeSource.indexOf("async function createPayment");
+    const end = edgeSource.indexOf("async function getPixQrCode", start);
+    const handler = edgeSource.slice(start, end);
+    expect(handler).toContain('.update({ checkout_request_key: null })');
+    expect(handler).toContain('throw new HttpError(409, "A cobrança Pix anterior ainda está sendo conciliada.")');
+    expect(handler).toContain("plan:${plan.id}:${billingType}");
+    expect(handler.indexOf('status: "CREATING"')).toBeLessThan(handler.indexOf('asaasFetch("/payments"'));
+  });
+
+  it("does not infer the paid plan from the student's current selection during sync", () => {
+    const start = edgeSource.indexOf("async function syncPayments");
+    const handler = edgeSource.slice(start);
+    expect(handler).toContain('existing.plan_id && existing.company_id');
+    expect(handler).not.toContain("applyPaymentStatusEffects(student.id, ap.status, ap.id, student.selected_plan_id");
+    expect(migrationSource).not.toContain("set plan_id = s.selected_plan_id");
+  });
+
+  it("scopes fallback overdue and refund writes to the payment company", () => {
+    const start = edgeSource.indexOf("async function applyPaymentStatusEffects");
+    const end = edgeSource.indexOf("async function getPaymentStatus", start);
+    const handler = edgeSource.slice(start, end);
+    expect(handler.match(/\.eq\("company_id", companyId\)/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("blocks confirmed fallback lifecycle when the immutable paid plan is missing", () => {
+    expect(edgeSource).toContain("Pagamento confirmado sem snapshot imutável do plano");
+    expect(edgeSource).toContain("Pagamento confirmado, mas o plano pago precisa de conciliação manual");
+  });
+});

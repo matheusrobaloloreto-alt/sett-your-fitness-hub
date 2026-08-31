@@ -101,6 +101,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+  const [confirmingWhatsapp, setConfirmingWhatsapp] = useState(false);
+  const [confirmationMessageSent, setConfirmationMessageSent] = useState(false);
   const [step, setStep] = useState(1);
   const [studentName, setStudentName] = useState("");
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -418,12 +420,16 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
     setStep(current => Math.min(current + 1, activeSteps.length));
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (whatsappConfirmed = false) => {
     for (let targetStep = 1; targetStep <= activeSteps.length; targetStep += 1) {
       if (!validateStep(targetStep)) {
         setStep(targetStep);
         return;
       }
+    }
+    if (isPreRegistration && !whatsappConfirmed) {
+      setConfirmingWhatsapp(true);
+      return;
     }
     setSaving(true);
 
@@ -544,6 +550,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
             slug: slug ?? null,
             fullName,
             whatsapp,
+            whatsappConfirmed: true,
             budgetRange,
             preferredContactPeriod,
             answers: {
@@ -574,6 +581,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
 
     if (isPreRegistration) {
       setDeadlineMessage(data.deadline || "Vamos analisar o seu perfil e, se pudermos realmente te ajudar, você receberá um retorno nosso em até 48 horas.");
+      setConfirmationMessageSent(data.confirmationMessageSent === true);
     }
     setDone(true);
   };
@@ -589,6 +597,34 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                 ? "Este link de pré-cadastro não está disponível. Fale com a equipe para receber o endereço correto."
                 : "Este convite é inválido ou expirou. Peça um novo link à equipe e abra-o no mesmo navegador da sua conta."}
             </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isPreRegistration && confirmingWhatsapp && !done) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="max-w-lg w-full rounded-2xl bg-card border-border text-center">
+          <CardContent className="px-6 py-10 space-y-5">
+            <p className="text-eyebrow">Última confirmação</p>
+            <h2 className="font-display text-3xl text-primary">CONFIRME SEU WHATSAPP</h2>
+            <p className="text-sm leading-relaxed text-muted-foreground font-sans">
+              Este é o número que você informou no início do pré-cadastro:
+            </p>
+            <p className="rounded-xl border border-primary/30 bg-primary/10 px-4 py-4 font-sans text-xl font-semibold text-primary">
+              {whatsapp}
+            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground font-sans">
+              Nossa equipe entrará em contato por esse número. Ao confirmar, você também receberá nele a mensagem final do pré-cadastro.
+            </p>
+            <Button className="w-full" onClick={() => void handleSubmit(true)} disabled={saving}>
+              {saving ? "Enviando..." : "Esse é o número certo — confirmar e enviar"}
+            </Button>
+            <Button type="button" variant="outline" className="w-full" onClick={() => { setConfirmingWhatsapp(false); setStep(1); }} disabled={saving}>
+              Corrigir número
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -614,6 +650,11 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
               </p>
               <p className="text-sm leading-relaxed text-muted-foreground font-sans">
                 Nosso retorno será feito pelo WhatsApp informado, respeitando a forma e o horário que você escolheu.
+              </p>
+              <p className="text-xs text-muted-foreground font-sans">
+                {confirmationMessageSent
+                  ? "A confirmação deste pré-cadastro também foi enviada para o seu WhatsApp."
+                  : "Seu pré-cadastro foi salvo. Se a confirmação não aparecer no WhatsApp, nossa equipe ainda usará o número confirmado para falar com você."}
               </p>
               <p className="text-sm text-muted-foreground font-sans">
                 No próximo contato, faremos sua Avaliação de Movimento e escolheremos o plano ideal para alcançarmos o seu objetivo juntos.
@@ -1504,7 +1545,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
                   Avançar
                 </Button>
               ) : (
-                <Button className="flex-1" onClick={handleSubmit} disabled={saving}>
+                <Button className="flex-1" onClick={() => void handleSubmit(false)} disabled={saving}>
                   {saving ? "Salvando..." : isPreRegistration ? "Enviar pré-cadastro" : "Finalizar Anamnese"}
                 </Button>
               )}

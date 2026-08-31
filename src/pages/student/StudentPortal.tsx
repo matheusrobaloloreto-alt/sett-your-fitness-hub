@@ -35,6 +35,7 @@ import { PlatformAdSlot } from "@/components/PlatformAdSlot";
 import { WorkoutHeader } from "@/components/student/WorkoutHeader";
 import { WeeklyGoalEditor } from "@/components/student/WeeklyGoalEditor";
 import { resolveActiveWorkoutInCycles, resolveWorkoutForCycleWeek, type ResolvedWeekContext, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
+import { collectTrainedDaysForWeek } from "@/lib/studentWeek";
 
 import { CycleFeedbackBanner } from "@/components/student/CycleFeedbackBanner";
 import { calculateStreak } from "@/lib/streakCalculator";
@@ -561,20 +562,28 @@ export default function StudentPortal() {
     if (!selectedWorkout) return;
     const workoutId = selectedWorkout.id;
     const key = getLogKey(workoutId, exIdx, setNum);
-    setLogs(prev => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        workout_id: workoutId,
-        exercise_index: exIdx,
-        set_number: setNum,
-        weight: prev[key]?.weight ?? null,
-        reps_done: prev[key]?.reps_done ?? null,
-        [field]: value,
-        client_updated_at: new Date().toISOString(),
-        dirty: true,
-      },
-    }));
+    setLogs(prev => {
+      const next = {
+        ...prev,
+        [key]: {
+          ...prev[key],
+          workout_id: workoutId,
+          exercise_index: exIdx,
+          set_number: setNum,
+          weight: prev[key]?.weight ?? null,
+          reps_done: prev[key]?.reps_done ?? null,
+          [field]: value,
+          client_updated_at: new Date().toISOString(),
+          dirty: true,
+        },
+      };
+      // iOS pode suspender a PWA antes de React executar um effect ou pagehide.
+      // Grave cada edição imediatamente; o autosave remoto continua em paralelo.
+      if (studentId) {
+        try { localStorage.setItem(`sett_logs_${studentId}_${todayStr}`, JSON.stringify(next)); } catch { /* quota/private mode */ }
+      }
+      return next;
+    });
   };
 
   const getTotalSets = (exIdx: number) => {
@@ -986,26 +995,12 @@ export default function StudentPortal() {
   }, [selectedWorkout, expandedExercise, selectedCycle, logs]);
 
   // Computed values for Home — based on actual sessions, not day_of_week
-  const trainedDays = useMemo(() => {
-    const now = new Date();
-    const jsDow = now.getDay();
-    const mondayOffset = jsDow === 0 ? -6 : 1 - jsDow;
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() + mondayOffset);
-    weekStart.setHours(0, 0, 0, 0);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
-
-    const days = new Set<number>();
-    allLogs.forEach((l: any) => {
-      if (l.session_date) {
-        const logDate = new Date(l.session_date + "T12:00:00");
-        if (logDate >= weekStart && logDate <= weekEnd) days.add(logDate.getDay());
-      }
-    });
-    return days;
-  }, [allLogs]);
+  const trainedDays = useMemo(() => collectTrainedDaysForWeek({
+    now: new Date(),
+    persistedLogs: allLogs,
+    localLogs: Object.values(logs),
+    localSessionDate: todayStr,
+  }), [allLogs, logs, todayStr]);
 
   const weeklySessionCount = useMemo(() => trainedDays.size, [trainedDays]);
 

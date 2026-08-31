@@ -49,6 +49,14 @@ export function buildFiscalRegistrationMessage(fullName: string, registrationUrl
   ].join("\n\n");
 }
 
+export function buildPreRegistrationConfirmationMessage(fullName: string, deadline: string): string {
+  return [
+    `Oi, ${firstName(fullName)}! Recebemos seu pré-cadastro na BN Performance Training.`,
+    `${deadline} Nossa equipe entrará em contato por este WhatsApp para conversar sobre sua Avaliação de Movimento e ajudar a escolher o plano ideal para o seu objetivo.`,
+    "Até daqui a pouco!",
+  ].join("\n\n");
+}
+
 export function buildAssessmentOnboardingMessage(args: {
   fullName: string;
   dueDate: string;
@@ -239,5 +247,132 @@ export async function sendFunnelWhatsAppMessage(args: {
     const message = error instanceof Error ? error.message : "Falha ao enviar mensagem do funil.";
     await completeFunnelEvent(args.admin, args.studentId, args.eventKey, "failed", message);
     return { sent: false, reason: message };
+  }
+}
+
+export async function sendPreRegistrationConfirmation(args: {
+  admin: SupabaseAdmin;
+  leadId: string;
+  companyId: string;
+  fullName: string;
+  phone: string;
+  text: string;
+}): Promise<FunnelMessageResult> {
+  const eventKey = "pre_registration_received:v1";
+  const inserted = await args.admin.from("lead_funnel_events").insert({
+    lead_id: args.leadId,
+    company_id: args.companyId,
+    event_type: "pre_registration_received",
+    event_key: eventKey,
+    status: "processing",
+    payload: {},
+  });
+  if (inserted.error) {
+    if (inserted.error.code !== "23505") {
+      return { sent: false, reason: `Falha ao registrar confirmação: ${inserted.error.message}` };
+    }
+    const existing = await args.admin.from("lead_funnel_events")
+      .select("status")
+      .eq("lead_id", args.leadId)
+      .eq("event_key", eventKey)
+      .maybeSingle();
+    if (existing.data?.status === "completed") return { sent: true, reason: "already_processed" };
+    if (existing.data?.status === "processing") return { sent: false, reason: "already_processing" };
+    const retried = await args.admin.from("lead_funnel_events").update({
+      status: "processing",
+      error: null,
+      processed_at: null,
+      updated_at: new Date().toISOString(),
+    }).eq("lead_id", args.leadId).eq("event_key", eventKey).eq("status", "failed");
+    if (retried.error) return { sent: false, reason: retried.error.message };
+  }
+
+  const finish = async (status: "completed" | "failed", error?: string) => {
+    await args.admin.from("lead_funnel_events").update({
+      status,
+      error: error ? error.slice(0, 1000) : null,
+      processed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("lead_id", args.leadId).eq("event_key", eventKey);
+  };
+
+  try {
+    const remoteJid = normalizeFunnelRemoteJid(args.phone);
+    if (!remoteJid) throw new Error("WhatsApp inválido para confirmação.");
+    const instanceResult = await args.admin.from("whatsapp_instances")
+      .select("id, instance_name, status")
+      .eq("company_id", args.companyId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (instanceResult.error) throw instanceResult.error;
+    const instance = instanceResult.data;
+    if (!instance?.instance_name || instance.status !== "connected") {
+      throw new Error("WhatsApp da empresa não está conectado.");
+    }
+
+    let chatResult = await args.admin.from("whatsapp_chats")
+      .select("id, student_id")
+      .eq("company_id", args.companyId)
+      .eq("instance_id", instance.id)
+      .eq("remote_jid", remoteJid)
+      .maybeSingle();
+    if (chatResult.error) throw chatResult.error;
+    if (!chatResult.data) {
+      chatResult = await args.admin.from("whatsapp_chats").insert({
+        company_id: args.companyId,
+        instance_id: instance.id,
+        remote_jid: remoteJid,
+        contact_name: args.fullName,
+        unread_count: 0,
+      }).select("id, student_id").single();
+      if (chatResult.error) {
+        // Uma mensagem recebida pode ter criado a conversa entre a leitura e o insert.
+        chatResult = await args.admin.from("whatsapp_chats")
+          .select("id, student_id")
+          .eq("company_id", args.companyId)
+          .eq("instance_id", instance.id)
+          .eq("remote_jid", remoteJid)
+          .maybeSingle();
+        if (chatResult.error || !chatResult.data) throw chatResult.error || new Error("Falha ao abrir conversa.");
+      }
+    }
+
+    const evoUrl = readEdgeEnv("EVOLUTION_API_URL");
+    const evoKey = readEdgeEnv("EVOLUTION_API_KEY");
+    if (!evoUrl || !evoKey) throw new Error("Evolution API não configurada.");
+    const response = await fetch(`${evoUrl}/message/sendText/${instance.instance_name}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: evoKey },
+      body: JSON.stringify({ number: remoteJid.replace(/@.*$/, ""), text: args.text }),
+    });
+    if (!response.ok) throw new Error(`Falha no provedor WhatsApp (status ${response.status}).`);
+    const providerPayload = await response.json().catch(() => ({}));
+    const sentAt = new Date().toISOString();
+    const messageResult = await args.admin.from("whatsapp_messages").insert({
+      chat_id: chatResult.data.id,
+      company_id: args.companyId,
+      content: args.text,
+      source: "outgoing",
+      type: "text",
+      is_from_me: true,
+      message_id_external: providerPayload?.key?.id || null,
+      origin: "automation",
+      timestamp: sentAt,
+    });
+    if (messageResult.error) throw messageResult.error;
+    await args.admin.from("whatsapp_chats").update({
+      contact_name: args.fullName,
+      last_message: args.text,
+      last_message_at: sentAt,
+      updated_at: sentAt,
+      unread_count: 0,
+    }).eq("id", chatResult.data.id).eq("company_id", args.companyId);
+    await finish("completed");
+    return { sent: true, chatId: chatResult.data.id };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Falha ao enviar confirmação.";
+    await finish("failed", reason);
+    return { sent: false, reason };
   }
 }
