@@ -78,9 +78,16 @@ test("linked CLI remains dry-run only while forwarding audited planning modes", 
     "--create-new-cycle-on-ambiguous-empty",
     "--merge-overlap-into-active-cycle",
     "--create-pending-cycle-on-overlap",
+    "--include-plan-ref", "abcdef123456",
+    "--include-plan-ref=abcdef123456",
   ]);
   assert.equal(options.allowVerifiedEmptySourceSessions, true);
   assert.equal(options.createNewCycleOnAmbiguousEmpty, true);
   assert.equal(options.mergeOverlapIntoActiveCycle, true);
   assert.equal(options.createPendingCycleOnOverlap, true);
+  assert.deepEqual(options.includePlanRefs, ["abcdef123456"]);
+  assert.throws(
+    () => parseArgs(Array.from({ length: 6 }, (_, index) => ["--include-plan-ref", `${index}`.padStart(12, "0")]).flat()),
+    /At most 5/,
+  );
 });

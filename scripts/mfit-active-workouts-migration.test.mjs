@@ -3378,6 +3378,49 @@ test("MFIT native exercise groups preserve protocol, media and bi-sets", () => {
   assert.equal(session.exercises[2].rest, "45s");
 });
 
+test("MFIT mounted exercise objects preserve insertion order, combinations and alternatives", () => {
+  const plans = normalizeMfitPlans({
+    plans: [{
+      id: "plan-mounted",
+      client_id: "mfit-client-mounted",
+      active: true,
+      source_capture_complete: true,
+      workouts: [{
+        id: "session-mounted",
+        exerciciosMontados: {
+          first: [{ id: "ordinary", name: "Mobilidade", isCombinado: false, series: [{ tipo: 0, repeticao: "2 x 10" }] }],
+          second: [
+            { id: "combo-a", name: "Remada", isCombinado: "true", series: [{ tipo: 0, repeticao: "3 x 12" }] },
+            { id: "combo-b", name: "Supino", isCombinado: "true", series: [{ tipo: 0, repeticao: "3 x 10" }] },
+          ],
+          third: [
+            { id: "primary", name: "Leg press", isCombinado: false, series: [{ tipo: 0, repeticao: "3 x 10" }] },
+            { id: "alternative", name: "Agachamento guiado", isCombinado: false, series: [{ tipo: 0, repeticao: "3 x 10" }] },
+          ],
+          fourth: [
+            { id: "combo-number-a", name: "Rosca", isCombinado: 1, series: [{ tipo: 0, repeticao: "3 x 12" }] },
+            { id: "combo-number-b", name: "Tríceps", isCombinado: 1, series: [{ tipo: 0, repeticao: "3 x 12" }] },
+          ],
+        },
+      }],
+    }],
+  });
+
+  assert.equal(plans.length, 1);
+  const exercises = plans[0].sessions[0].exercises;
+  assert.deepEqual(
+    exercises.map((exercise) => exercise.name),
+    ["Mobilidade", "Remada", "Supino", "Leg press", "Rosca", "Tríceps"],
+  );
+  assert.equal(exercises[1].method, "biset");
+  assert.equal(exercises[2].method, "biset");
+  assert.equal(exercises[1].group_id, exercises[2].group_id);
+  assert.match(exercises[3].notes, /Alternativas MFIT: Agachamento guiado/);
+  assert.equal(exercises[4].method, "biset");
+  assert.equal(exercises[5].method, "biset");
+  assert.equal(exercises[4].group_id, exercises[5].group_id);
+});
+
 test("MFIT alternatives retain the primary exercise and a review note", () => {
   const plans = normalizeMfitPlans({
     clients: [{

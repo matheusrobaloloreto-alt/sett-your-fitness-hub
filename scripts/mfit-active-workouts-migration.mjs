@@ -303,8 +303,26 @@ function rawClientIds(row) {
   return [...new Set(ids.filter(Boolean))];
 }
 
+function mountedExerciseGroups(row) {
+  const mounted = asObject(valueAtPath(row, "exerciciosMontados"));
+  if (!mounted) return null;
+  const groups = Object.entries(mounted)
+    .filter(([, exercises]) => Array.isArray(exercises))
+    .map(([id, exercises], index) => ({
+      id,
+      type: exercises.some((exercise) => optionalBoolean(asObject(exercise)?.isCombinado, false))
+        ? 1
+        : exercises.length > 1
+          ? 2
+          : 0,
+      order: index + 1,
+      exercises,
+    }));
+  return groups.length ? groups : null;
+}
+
 function hasExerciseArray(row) {
-  return Boolean(asObject(row) && firstArray(row, EXERCISE_KEYS));
+  return Boolean(asObject(row) && (firstArray(row, EXERCISE_KEYS) || mountedExerciseGroups(row)));
 }
 
 function collectRawPlans(node, inherited, output) {
@@ -615,7 +633,7 @@ function normalizeMfitGroupedExercises(groups) {
 
 function normalizeMfitSession(raw, index) {
   const row = asObject(raw) || {};
-  const rawGroups = firstArray(row, ["exercs"]);
+  const rawGroups = firstArray(row, ["exercs"]) || mountedExerciseGroups(row);
   const rawExercises = firstArray(row, EXERCISE_KEYS) || [];
   const exercises = rawGroups
     ? normalizeMfitGroupedExercises(rawGroups)

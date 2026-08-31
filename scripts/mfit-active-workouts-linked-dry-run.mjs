@@ -185,6 +185,7 @@ export function parseArgs(argv) {
     createNewCycleOnAmbiguousEmpty: false,
     mergeOverlapIntoActiveCycle: false,
     createPendingCycleOnOverlap: false,
+    includePlanRefs: [],
   };
   const valueFlags = new Map([
     ["--mfit-clients", "mfitClients"],
@@ -210,6 +211,15 @@ export function parseArgs(argv) {
       options.createPendingCycleOnOverlap = true;
       continue;
     }
+    if (arg === "--include-plan-ref" || arg.startsWith("--include-plan-ref=")) {
+      const value = arg.includes("=") ? arg.split("=", 2)[1] : argv[++index];
+      if (!value || value.startsWith("--")) throw new Error("Missing value for --include-plan-ref");
+      if (!/^[0-9a-f]{12}$/.test(value)) {
+        throw new Error("--include-plan-ref must be a 12-character sanitized ref");
+      }
+      options.includePlanRefs.push(value);
+      continue;
+    }
     if (arg === "--apply") throw new Error("Linked mode is dry-run only; --apply is forbidden");
     if (arg === "--help" || arg === "-h") {
       options.help = true;
@@ -221,6 +231,10 @@ export function parseArgs(argv) {
     const value = inlineValue ?? argv[++index];
     if (!value || value.startsWith("--")) throw new Error(`Missing value for ${flag}`);
     options[key] = value;
+  }
+  options.includePlanRefs = [...new Set(options.includePlanRefs)];
+  if (options.includePlanRefs.length > 5) {
+    throw new Error("At most 5 --include-plan-ref values are allowed per batch");
   }
   return options;
 }
@@ -245,7 +259,7 @@ function businessToday() {
 export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
-    process.stdout.write("Usage: node scripts/mfit-active-workouts-linked-dry-run.mjs --mfit-clients <json> --mfit-workouts <json> [--exercise-aliases <json>] [--allow-verified-empty-source-sessions] [--create-new-cycle-on-ambiguous-empty] [--merge-overlap-into-active-cycle] [--create-pending-cycle-on-overlap] [--report <json>]\n");
+    process.stdout.write("Usage: node scripts/mfit-active-workouts-linked-dry-run.mjs --mfit-clients <json> --mfit-workouts <json> [--exercise-aliases <json>] [--allow-verified-empty-source-sessions] [--create-new-cycle-on-ambiguous-empty] [--merge-overlap-into-active-cycle] [--create-pending-cycle-on-overlap] [--include-plan-ref <12-char-ref>]... [--report <json>]\n");
     return 0;
   }
   if (!options.mfitClients || !options.mfitWorkouts) {
@@ -283,7 +297,7 @@ export async function main(argv = process.argv.slice(2)) {
     mergeOverlapIntoActiveCycle: options.mergeOverlapIntoActiveCycle,
     createPendingCycleOnOverlap: options.createPendingCycleOnOverlap,
     allowVerifiedEmptySourceSessions: options.allowVerifiedEmptySourceSessions,
-    includePlanRefs: [],
+    includePlanRefs: options.includePlanRefs,
     today: businessToday(),
     defaultDurationWeeks: 6,
   });
