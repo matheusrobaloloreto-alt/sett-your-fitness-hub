@@ -6,6 +6,10 @@ const edgeSource = readFileSync("supabase/functions/asaas-integration/index.ts",
 const installmentSource = readFileSync("supabase/functions/_shared/payment-installments.ts", "utf8");
 const webhookSource = readFileSync("supabase/functions/asaas-webhook/index.ts", "utf8");
 const migrationSource = readFileSync("supabase/migrations/20260831193000_harden_payment_checkout_orders.sql", "utf8");
+const lifecycleMigrationSource = readFileSync(
+  "supabase/migrations/20260901123000_atomic_payment_lifecycle.sql",
+  "utf8",
+);
 
 describe("public credit-card checkout contract", () => {
   it("offers credit card to first purchases as well as renewals", () => {
@@ -40,8 +44,19 @@ describe("public credit-card checkout contract", () => {
 
   it("activates from the payment snapshot and scopes lifecycle writes to the company", () => {
     expect(webhookSource).toContain('select("student_id, company_id, plan_id, enrollment_id")');
-    expect(webhookSource).toContain("ensureEnrollmentExists(studentId, planId, companyId)");
+    expect(webhookSource).toContain('"apply_paid_payment_lifecycle"');
+    expect(webhookSource.indexOf('"apply_paid_payment_lifecycle"')).toBeLessThan(
+      webhookSource.indexOf("await claimFunnelEvent"),
+    );
+    expect(webhookSource).not.toContain("ensureEnrollmentExists");
     expect(webhookSource).toContain('.eq("company_id", companyId)');
+  });
+
+  it("asks the provider to retry a concurrent or locally missing webhook", () => {
+    expect(webhookSource).toContain('eventClaim === "processing"');
+    expect(webhookSource).toContain("status: 409");
+    expect(webhookSource).toContain("Pagamento confirmado no provedor, mas não encontrado localmente.");
+    expect(webhookSource).toContain("Falha ao concluir evento Asaas");
   });
 
   it("releases the Pix idempotency key after a terminal provider status", () => {
@@ -72,5 +87,40 @@ describe("public credit-card checkout contract", () => {
   it("blocks confirmed fallback lifecycle when the immutable paid plan is missing", () => {
     expect(edgeSource).toContain("Pagamento confirmado sem snapshot imutável do plano");
     expect(edgeSource).toContain("Pagamento confirmado, mas o plano pago precisa de conciliação manual");
+  });
+
+  it("applies the local lifecycle before reused or reconciled paid checkouts return success", () => {
+    expect(edgeSource.match(/\.select\("id, student_id, company_id, plan_id, asaas_payment_id, status, invoice_url"\)/g))
+      .toHaveLength(2);
+    expect(edgeSource.match(/await applyExistingPaymentLifecycle\(/g)?.length).toBe(4);
+
+    const helperStart = edgeSource.indexOf("async function applyExistingPaymentLifecycle");
+    const helperEnd = edgeSource.indexOf("async function createPayment", helperStart);
+    const helper = edgeSource.slice(helperStart, helperEnd);
+    expect(helper).toContain("assertExistingPaymentScope");
+    expect(helper).toContain("PAID_PAYMENT_STATUSES.has(status)");
+    expect(helper).toContain("existingPayment.plan_id !== expectedPlanId");
+    expect(helper).toContain("await applyPaymentStatusEffects(");
+    expect(helper).toContain("existingPayment.company_id");
+
+    const lifecycleStart = edgeSource.indexOf("async function applyPaymentStatusEffects");
+    const lifecycleEnd = edgeSource.indexOf("async function getPaymentStatus", lifecycleStart);
+    const lifecycle = edgeSource.slice(lifecycleStart, lifecycleEnd);
+    expect(lifecycle).toContain('"apply_paid_payment_lifecycle"');
+    expect(lifecycle).toContain("Pagamento confirmado sem matrícula local aplicada");
+    expect(lifecycle.indexOf('"apply_paid_payment_lifecycle"')).toBeLessThan(
+      lifecycle.indexOf("await claimFunnelEvent"),
+    );
+    expect(lifecycle).toContain("_assessment_due_date: isoDate(dueDate)");
+    expect(edgeSource.match(/await ensureEnrollmentExists\(/g)).toBeNull();
+
+    expect(lifecycleMigrationSource).toContain("for update");
+    expect(lifecycleMigrationSource).toContain("lifecycle_applied_at");
+    expect(lifecycleMigrationSource).toContain("v_payment.lifecycle_applied_at is not null");
+    expect(lifecycleMigrationSource).toContain("set end_date = v_new_end");
+    expect(lifecycleMigrationSource).toContain("when v_first_activation then _assessment_due_date::timestamptz");
+    expect(lifecycleMigrationSource).not.toContain("_business_date + 5");
+    expect(lifecycleMigrationSource).toContain("lifecycle_enrollment_id = v_enrollment_id");
+    expect(lifecycleMigrationSource).toContain("return query select v_enrollment_id, v_first_activation, false");
   });
 });
