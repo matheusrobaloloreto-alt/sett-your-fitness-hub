@@ -160,9 +160,9 @@ function canonicalStudentDirectJid(
 
 /**
  * Resolves an outbound destination from independently persisted student data.
- * A chat row is never the canonical identity for a linked student: both the
- * stored chat JID and the client confirmation must agree with the student's
- * phone before any provider request is allowed.
+ * Student phones remain the canonical equivalence check. A stored direct JID
+ * is only reused as the provider route after it and the client confirmation
+ * both agree with that canonical identity.
  */
 export function resolveVerifiedWhatsAppRecipient(args: {
   clientRemoteJid: unknown;
@@ -198,6 +198,12 @@ export function resolveVerifiedWhatsAppRecipient(args: {
     }
     if (!sameWhatsAppRecipient(clientRemoteJid, canonical.remoteJid)) {
       return { ok: false, code: "whatsapp_recipient_mismatch" };
+    }
+    // A direct JID persisted from the provider is the routable identity. Once
+    // it has passed the same canonical-student checks above, preserve its
+    // exact legacy 8/9-digit form instead of reconstructing a different alias.
+    if (expectedStudentId && chatRemoteJid.endsWith(DIRECT_JID_SUFFIX)) {
+      return { ...canonical, remoteJid: chatRemoteJid };
     }
     return canonical;
   }

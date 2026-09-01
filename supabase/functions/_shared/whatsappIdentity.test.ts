@@ -171,6 +171,31 @@ Deno.test("resolves a correctly linked chat from the student's canonical phone",
   }
 });
 
+Deno.test("preserves the verified provider JID for a Brazilian legacy chat", () => {
+  const result = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: "551199999999@s.whatsapp.net",
+    chatRemoteJid: "551199999999@s.whatsapp.net",
+    chatStudentId: "student-legacy-br",
+    requestedStudentId: "student-legacy-br",
+    student: { id: "student-legacy-br", whatsapp: "+55 (11) 99999-9999" },
+  });
+  if (!result.ok || result.remoteJid !== "551199999999@s.whatsapp.net") {
+    throw new Error("verified provider JID was replaced by a reconstructed alias");
+  }
+});
+
+Deno.test("preserves a verified legacy JID when an unlinked chat names the student explicitly", () => {
+  const result = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: "551199999999@s.whatsapp.net",
+    chatRemoteJid: "551199999999@s.whatsapp.net",
+    requestedStudentId: "student-explicit-br",
+    student: { id: "student-explicit-br", phone: "+55 (11) 99999-9999" },
+  });
+  if (!result.ok || result.remoteJid !== "551199999999@s.whatsapp.net") {
+    throw new Error("verified explicit-student provider JID was replaced");
+  }
+});
+
 Deno.test("resolves a linked North American chat without prepending country code 55", () => {
   const result = resolveVerifiedWhatsAppRecipient({
     clientRemoteJid: "14077895013@s.whatsapp.net",
