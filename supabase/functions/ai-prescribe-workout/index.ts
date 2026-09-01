@@ -1395,7 +1395,6 @@ serve(async (req) => {
     };
     const aiConfig = await loadCompanyAiConfig(supabase, authorizedCompanyId);
     const exerciseCatalog = await loadExerciseCatalog(supabase, authorizedCompanyId);
-    const exerciseCatalogText = formatExerciseCatalog(exerciseCatalog);
     const adaptedPrescription = buildPrescriptionInputFromEdgePayload({
       payload: {
         student_name,
@@ -1431,7 +1430,10 @@ serve(async (req) => {
     );
     const selectedPreset = METHODOLOGY_PRESETS[presetKey as keyof typeof METHODOLOGY_PRESETS];
 
-    const athleteContext = `
+    // Mantém o prompt legado disponível para um enriquecimento futuro, mas não o
+    // materializa no caminho determinístico. Montar este texto percorria e
+    // serializava a biblioteca inteira sem que o resultado fosse consumido.
+    const buildLegacyAthleteContext = () => `
 DADOS DO ATLETA:
 Nome: ${clean(student_name || "não informado")}
 Objetivo: ${clean(objective)}
@@ -1462,7 +1464,7 @@ ANAMNESE E CONTEXTO CLÍNICO/ROTINA:
 ${anamnese_context ? compactJson(anamnese_context, 8000) : "Sem anamnese estruturada adicional."}
 
 BIBLIOTECA DE EXERCÍCIOS DO APP:
-${exerciseCatalogText}
+${formatExerciseCatalog(exerciseCatalog)}
 
 REGRA DE MAPA PARA O APP:
 Use somente os exercícios acima. Para cada exercício prescrito, retorne exercise_id e exercise_name exatamente como aparecem na biblioteca.
@@ -1507,6 +1509,7 @@ INSTRUÇÕES:
 15. Seja compacto: no máximo 6 exercícios por sessão, textos de cues/notas com até 140 caracteres, sem parágrafos longos.
 16. Não explique a metodologia fora dos campos do JSON; priorize fechar JSON válido completo.
     `.trim();
+    void buildLegacyAthleteContext;
 
     let planJson: any = null;
     let fallbackReason: string | null = null;

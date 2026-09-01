@@ -74,7 +74,7 @@ function isAdvancedLevel(input: PrescriptionInput) {
 }
 
 function stableCatalogEntries(input: PrescriptionInput) {
-  return normalizeCatalog(input.catalog).filter((exercise) =>
+  return input.catalog.filter((exercise) =>
     /(maquina|cabo|polia)/.test(normalizeText(`${exercise.equipment || ""} ${exercise.name}`))
     && !/(bosu|bola|instavel|suspensao|agachamento livre|levantamento terra|good morning)/.test(normalizeText(exercise.name))
   );
@@ -202,9 +202,13 @@ function hasSessionExcludedEligibleAlternative(args: {
   }));
 }
 
-function selectExercises(input: PrescriptionInput, specs: ExerciseSpec[], programUsedIds: Set<string>) {
-  const catalog = normalizeCatalog(input.catalog);
-  const restrictions = deriveRestrictionRules(input);
+function selectExercises(
+  input: PrescriptionInput,
+  specs: ExerciseSpec[],
+  programUsedIds: Set<string>,
+  restrictions: ReturnType<typeof deriveRestrictionRules>,
+) {
+  const catalog = input.catalog;
   const sessionUsedIds = new Set<string>();
   const gaps: string[] = [];
   const pickedExercises: Array<{ specIndex: number; exercise: TrainingExercise }> = [];
@@ -379,6 +383,7 @@ function splitTemplates(input: PrescriptionInput): Array<{ name: string; focus: 
 
 function buildWorkouts(input: PrescriptionInput) {
   const usedIds = new Set<string>();
+  const restrictions = deriveRestrictionRules(input);
   const split = resolveSplit(input);
   const daySlots = distributeDays(split.structuredDays);
   const gaps: string[] = [];
@@ -392,7 +397,7 @@ function buildWorkouts(input: PrescriptionInput) {
     gaps.push("WARNING:advanced_method_unavailable:circuito:catalog_or_equipment");
   }
   const workouts: TrainingWorkout[] = splitTemplates(input).map((template, index) => {
-    const picked = selectExercises(input, template.specs, usedIds);
+    const picked = selectExercises(input, template.specs, usedIds, restrictions);
     gaps.push(...picked.gaps);
     return {
       name: template.name,
