@@ -182,17 +182,148 @@ interface AiFunctionalAssessmentResponse {
   frame_findings?: AiFrameFinding[];
 }
 
-export default function VideoAssessment({ studentId, companyId, assessmentContext, onComplete, initialVideoUrl, onInitialVideoConsumed }: {
+export interface WhatsAppAssessmentVideoHandoff {
+  version: 1;
+  studentId: string;
+  chatId: string;
+  messageId: string;
+  messageExternalId?: string | null;
+  mediaStoragePath?: string | null;
+}
+
+interface WhatsAppFetchMediaResponse {
+  base64?: string | null;
+  mimetype?: string | null;
+  mediaUrl?: string | null;
+}
+
+function base64VideoBlob(base64: string, mimeType: string): Blob {
+  const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+  return new Blob([bytes], { type: mimeType });
+}
+
+async function fetchVideoBlob(url: string): Promise<Blob> {
+  const response = await fetch(url, { credentials: "omit" });
+  if (!response.ok) throw new Error(`Falha ao baixar o vídeo (HTTP ${response.status}).`);
+  const blob = await response.blob();
+  if (blob.type && !blob.type.startsWith("video/")) {
+    throw new Error("A mídia recebida não é um vídeo válido.");
+  }
+  return blob;
+}
+
+async function resolveWhatsAppAssessmentVideoBlob({
+  handoff,
+  companyId,
+  studentId,
+}: {
+  handoff: WhatsAppAssessmentVideoHandoff;
+  companyId: string;
+  studentId: string;
+}): Promise<Blob> {
+  if (handoff.studentId !== studentId) {
+    throw new Error("Este vídeo pertence a outro aluno. Volte à conversa correta e tente novamente.");
+  }
+
+  const { data: chat, error: chatError } = await supabase
+    .from("whatsapp_chats")
+    .select("id, company_id, student_id, remote_jid")
+    .eq("id", handoff.chatId)
+    .eq("company_id", companyId)
+    .eq("student_id", studentId)
+    .maybeSingle();
+  if (chatError || !chat) {
+    throw new Error("A conversa não pertence a este aluno ou a esta empresa.");
+  }
+
+  const { data: message, error: messageError } = await supabase
+    .from("whatsapp_messages")
+    .select("id, chat_id, company_id, source, type, media_type, media_url, media_storage_path, message_id_external, sender_id")
+    .eq("id", handoff.messageId)
+    .eq("chat_id", handoff.chatId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (messageError || !message) {
+    throw new Error("A mensagem de vídeo não foi encontrada nesta conversa.");
+  }
+  if (handoff.messageExternalId && message.message_id_external && handoff.messageExternalId !== message.message_id_external) {
+    throw new Error("A identidade da mensagem mudou. Reabra o vídeo na conversa e tente novamente.");
+  }
+  if (message.source !== "incoming") {
+    throw new Error("Somente vídeos recebidos do aluno podem iniciar esta avaliação.");
+  }
+  if (message.type !== "video" && !message.media_type?.startsWith("video/")) {
+    throw new Error("A mensagem selecionada não contém um vídeo.");
+  }
+
+  const storagePath = message.media_storage_path;
+  if (handoff.mediaStoragePath && storagePath && handoff.mediaStoragePath !== storagePath) {
+    throw new Error("A referência do vídeo mudou. Reabra a mensagem e tente novamente.");
+  }
+  if (storagePath) {
+    const expectedPrefix = `${companyId}/${handoff.chatId}/`;
+    if (!storagePath.startsWith(expectedPrefix)) {
+      throw new Error("O vídeo não está vinculado à conversa selecionada.");
+    }
+    const { data: storedVideo, error: storageError } = await supabase.storage
+      .from("whatsapp-media")
+      .download(storagePath);
+    if (!storageError && storedVideo) {
+      if (storedVideo.type && !storedVideo.type.startsWith("video/")) {
+        throw new Error("O arquivo armazenado não é um vídeo válido.");
+      }
+      return storedVideo;
+    }
+  }
+
+  if (message.message_id_external) {
+    const { data: fetched, error: fetchError } = await supabase.functions.invoke<WhatsAppFetchMediaResponse>("whatsapp-manager", {
+      body: {
+        action: "fetch-media",
+        companyId,
+        chatId: handoff.chatId,
+        messageDbId: handoff.messageId,
+        messageId: message.message_id_external,
+        remoteJid: message.sender_id || chat.remote_jid,
+        fromMe: false,
+        mimeType: message.media_type,
+      },
+    });
+    if (!fetchError && fetched?.mediaUrl) {
+      try {
+        return await fetchVideoBlob(fetched.mediaUrl);
+      } catch {
+        // Em navegadores que bloqueiam o fetch da signed URL, usa o base64
+        // autenticado retornado pela mesma função como último fallback.
+      }
+    }
+    if (!fetchError && fetched?.base64) {
+      const mimeType = fetched.mimetype || message.media_type || "video/mp4";
+      if (!mimeType.startsWith("video/")) throw new Error("A mídia recuperada não é um vídeo.");
+      return base64VideoBlob(fetched.base64, mimeType);
+    }
+  }
+
+  // A URL é o último recurso e vem da linha validada no banco. O valor do
+  // history.state nunca é usado para apontar para outra mídia.
+  if (message.media_url) return fetchVideoBlob(message.media_url);
+
+  throw new Error("Não foi possível recuperar o vídeo. Tente novamente ou reabra a mídia no WhatsApp.");
+}
+
+export default function VideoAssessment({ studentId, companyId, assessmentContext, onComplete, initialWhatsAppVideo, onInitialVideoConsumed }: {
   studentId: string;
   companyId: string;
   assessmentContext?: AssessmentContext;
   onComplete?: (id: string, result?: VideoAssessmentResult) => void;
-  // Vídeo vindo do WhatsApp (handshake do chat → Studio): carrega e extrai frames automaticamente.
-  initialVideoUrl?: string | null;
+  // O Studio entrega IDs estáveis; este componente revalida tenant/aluno/mensagem.
+  initialWhatsAppVideo?: WhatsAppAssessmentVideoHandoff | null;
   onInitialVideoConsumed?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoLoaded, setVideoLoaded] = useState(false);
+  const [initialVideoLoading, setInitialVideoLoading] = useState(false);
+  const [initialVideoError, setInitialVideoError] = useState("");
   const [extracting, setExtracting]   = useState(false);
   const [progress, setProgress]       = useState(0);
   const [frames, setFrames]           = useState<Frame[]>([]);
@@ -210,6 +341,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
   const annotationBaseRef = useRef<ImageData | null>(null);
   const annotationDrawingRef = useRef(false);
   const annotationStartRef = useRef<{ x: number; y: number } | null>(null);
+  const initialVideoRequestRef = useRef(0);
   const activeProtocol = PROTOCOL_PRESETS[autoProtocol];
   // Entrega do laudo: popup "enviar para o aluno" após salvar a avaliação.
   const [deliverOpen, setDeliverOpen] = useState(false);
@@ -446,12 +578,16 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
     return luminanceSum / count < 12 && bright / count < 0.05;
   }
 
-  async function extractAutoFrames(video: HTMLVideoElement, protocol: typeof activeProtocol) {
+  async function extractAutoFrames(
+    video: HTMLVideoElement,
+    protocol: typeof activeProtocol,
+    shouldContinue: () => boolean = () => true,
+  ): Promise<boolean> {
     const dur = video.duration;
     if (!isFinite(dur) || dur <= 0) {
       setError("Não foi possível ler o vídeo. Tente outro formato (MP4).");
       setExtracting(false);
-      return;
+      return false;
     }
 
     setFrames([]);
@@ -461,18 +597,24 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
     setExtracting(true);
     setProgress(0);
 
-    const list: Frame[] = [];
-    for (let i = 0; i < protocol.vistas.length; i++) {
-      const t = dur * protocol.fractions[i];
-      const { preview, blob, time } = await captureUsableFrame(video, t, dur);
-      list.push({
-        id: crypto.randomUUID(), time, preview, blob,
-        vista: protocol.vistas[i] || `Corte ${i + 1}`, findings: [], aiAnalyzed: false,
-      });
-      setFrames([...list]);
-      setProgress(i + 1);
+    try {
+      const list: Frame[] = [];
+      for (let i = 0; i < protocol.vistas.length; i++) {
+        if (!shouldContinue()) return false;
+        const t = dur * protocol.fractions[i];
+        const { preview, blob, time } = await captureUsableFrame(video, t, dur);
+        if (!shouldContinue()) return false;
+        list.push({
+          id: crypto.randomUUID(), time, preview, blob,
+          vista: protocol.vistas[i] || `Corte ${i + 1}`, findings: [], aiAnalyzed: false,
+        });
+        setFrames([...list]);
+        setProgress(i + 1);
+      }
+      return true;
+    } finally {
+      if (shouldContinue()) setExtracting(false);
     }
-    setExtracting(false);
   }
 
   async function reextractCurrentVideo() {
@@ -553,42 +695,65 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
     await extractAutoFrames(video, activeProtocol);
   }
 
-  // ── Carrega vídeo a partir de uma URL (ex.: vídeo recebido no WhatsApp) ───
-  // fetch→blob→objectURL evita o canvas-taint de URLs cross-origin (o objectURL é same-origin),
-  // permitindo o captureFrame (canvas.toBlob) funcionar. data:URL base64 também passa direto.
-  async function loadVideoFromUrl(remoteUrl: string) {
-    setError("");
+  async function loadInitialWhatsAppVideo(requestVersion = ++initialVideoRequestRef.current) {
+    if (!initialWhatsAppVideo) return;
+    const isCurrentRequest = () => initialVideoRequestRef.current === requestVersion;
     const video = videoRef.current;
     if (!video) return;
+    setInitialVideoLoading(true);
+    setInitialVideoError("");
+    setError("");
     try {
-      const res = await fetch(remoteUrl);
-      if (!res.ok) throw new Error(`Não foi possível baixar o vídeo (HTTP ${res.status}).`);
-      const blob = await res.blob();
+      const blob = await resolveWhatsAppAssessmentVideoBlob({
+        handoff: initialWhatsAppVideo,
+        companyId,
+        studentId,
+      });
+      if (!isCurrentRequest()) return;
       const url = URL.createObjectURL(blob);
       video.src = url;
       await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          cleanup();
+          reject(new Error("O vídeo demorou demais para abrir."));
+        }, 15_000);
         const onLoad = () => { cleanup(); resolve(); };
-        const onErr = () => { cleanup(); reject(new Error("Falha ao carregar o vídeo.")); };
-        const cleanup = () => { video.removeEventListener("loadedmetadata", onLoad); video.removeEventListener("error", onErr); };
+        const onErr = () => { cleanup(); reject(new Error("Falha ao abrir o vídeo recuperado.")); };
+        const cleanup = () => {
+          window.clearTimeout(timeout);
+          video.removeEventListener("loadedmetadata", onLoad);
+          video.removeEventListener("error", onErr);
+        };
         video.addEventListener("loadedmetadata", onLoad);
         video.addEventListener("error", onErr);
       });
+      if (!isCurrentRequest()) return;
       setVideoLoaded(true);
-      await extractAutoFrames(video, activeProtocol);
-    } catch (err: any) {
-      setError(err?.message || "Falha ao carregar o vídeo do WhatsApp. Abra o vídeo no chat antes de enviar para a avaliação.");
+      const extracted = await extractAutoFrames(video, activeProtocol, isCurrentRequest);
+      if (!isCurrentRequest()) return;
+      if (!extracted) throw new Error("O vídeo abriu, mas os cortes não puderam ser extraídos.");
+      onInitialVideoConsumed?.();
+    } catch (loadError: unknown) {
+      if (isCurrentRequest()) setInitialVideoError(errorMessage(loadError));
+    } finally {
+      if (isCurrentRequest()) setInitialVideoLoading(false);
     }
   }
 
-  // Recebe o vídeo do WhatsApp via prop (uma única vez) e dispara a extração.
-  const initialVideoHandledRef = useRef(false);
+  // Tenta automaticamente uma vez por mensagem; falhas mantêm o handoff para retry manual.
+  const initialVideoAttemptRef = useRef<string | null>(null);
   useEffect(() => {
-    if (initialVideoUrl && !initialVideoHandledRef.current) {
-      initialVideoHandledRef.current = true;
-      loadVideoFromUrl(initialVideoUrl).finally(() => onInitialVideoConsumed?.());
-    }
+    if (!initialWhatsAppVideo || !studentId || !companyId) return;
+    const key = `${initialWhatsAppVideo.chatId}:${initialWhatsAppVideo.messageId}:${studentId}:${companyId}`;
+    if (initialVideoAttemptRef.current === key) return;
+    initialVideoAttemptRef.current = key;
+    const requestVersion = ++initialVideoRequestRef.current;
+    void loadInitialWhatsAppVideo(requestVersion);
+    return () => {
+      if (initialVideoRequestRef.current === requestVersion) initialVideoRequestRef.current += 1;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialVideoUrl]);
+  }, [initialWhatsAppVideo, studentId, companyId]);
 
   // ── Captura frame manual (treinador pausa onde quiser) ───────────────────
   async function captureManual() {
@@ -883,6 +1048,22 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
           <video ref={videoRef} muted playsInline controls
             style={{ display: videoLoaded ? "block" : "none", width: "100%", maxHeight: 280, borderRadius: 8, background: "#000" }} />
 
+          {initialWhatsAppVideo && initialVideoLoading && (
+            <div className="mb-3 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Carregando o vídeo da conversa com acesso autenticado…
+            </div>
+          )}
+
+          {initialWhatsAppVideo && initialVideoError && !initialVideoLoading && (
+            <div className="mb-3 space-y-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+              <p className="text-sm text-red-700">{initialVideoError}</p>
+              <Button type="button" size="sm" variant="outline" onClick={() => void loadInitialWhatsAppVideo()}>
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Tentar carregar novamente
+              </Button>
+            </div>
+          )}
+
           {!videoLoaded && (
             <div style={{ position: "relative" }}
               className="border-2 border-dashed border-slate-300 hover:border-[#8B7355] rounded-xl bg-slate-50 transition cursor-pointer">
@@ -926,6 +1107,8 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
           )}
         </CardContent>
       </Card>
+
+      {error && frames.length === 0 && <p className="text-sm text-red-500">{error}</p>}
 
       {/* Botão analisar */}
       {frames.length > 0 && !extracting && (

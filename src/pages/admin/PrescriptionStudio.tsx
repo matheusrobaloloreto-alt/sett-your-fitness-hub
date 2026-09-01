@@ -18,7 +18,7 @@ import {
   Loader2, Copy, CheckCircle2, Circle, AlertCircle, Send, Download, Wand2,
   Dumbbell, Activity, Waves, Bike, Apple, FileText, GripVertical, CalendarRange, Layers3, Play,
 } from "lucide-react";
-import VideoAssessment from "@/components/VideoAssessment";
+import VideoAssessment, { type WhatsAppAssessmentVideoHandoff } from "@/components/VideoAssessment";
 import { generateAllPDFs, generateAssessmentPDF } from "@/lib/generatePDFs";
 import { sendPdfToStudentWhatsApp } from "@/lib/sendStudentMedia";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Tabs, TabsContent, TabsList, TabsTrigger } from "@/lib/studioUi";
@@ -62,6 +62,15 @@ import {
 type Modality = "musculacao" | "corrida" | "natacao" | "ciclismo" | "nutricao";
 type GenStatus = "idle" | "generating" | "done" | "error";
 const db = supabase as any;
+
+function isWhatsAppAssessmentVideoHandoff(value: unknown): value is WhatsAppAssessmentVideoHandoff {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<WhatsAppAssessmentVideoHandoff>;
+  return candidate.version === 1
+    && typeof candidate.studentId === "string" && candidate.studentId.length > 0
+    && typeof candidate.chatId === "string" && candidate.chatId.length > 0
+    && typeof candidate.messageId === "string" && candidate.messageId.length > 0;
+}
 
 type StudioLibraryExercise = {
   id: string;
@@ -210,8 +219,8 @@ export default function PrescriptionStudio() {
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleProgress, setScheduleProgress] = useState<{ current: number; total: number; label: string } | null>(null);
   const [scheduledSummaries, setScheduledSummaries] = useState<Array<{ cycle: PrescriptionScheduleCycle; modalities: string[] }>>([]);
-  // Vídeo vindo do WhatsApp (handshake do chat → Studio) para a Avaliação Funcional.
-  const [pendingVideoUrl, setPendingVideoUrl] = useState<string | null>(null);
+  // Vídeo vindo do WhatsApp, vinculado a aluno + conversa + mensagem.
+  const [pendingWhatsAppVideo, setPendingWhatsAppVideo] = useState<WhatsAppAssessmentVideoHandoff | null>(null);
   const location = useLocation();
 
   const scheduleTargets = useMemo(() => selectPrescriptionTargets({
@@ -235,18 +244,21 @@ export default function PrescriptionStudio() {
     setAuthChecked(true);
   }, [authLoading, user, nav]);
 
-  // Handshake do WhatsAppChat: "Usar na avaliação" navega pra cá com { studentId, videoUrl }.
-  // Seleciona o aluno, abre a aba de Avaliação e injeta o vídeo no VideoAssessment.
+  // O history.state permanece intacto até o vídeo ser validado, aberto e cortado.
+  // Assim, falha de rede/permissão não destrói a possibilidade de retry.
   useEffect(() => {
-    const st = location.state as { studentId?: string; videoUrl?: string; tab?: "anamnese" | "avaliacao" | "prescricao" } | null;
-    if (st?.studentId) {
-      setStudentId(st.studentId);
-      setTab(st.videoUrl ? "avaliacao" : (st.tab || "prescricao"));
-      if (st.videoUrl) setPendingVideoUrl(st.videoUrl);
-      nav(location.pathname, { replace: true, state: null }); // consome o state (evita reinjeção)
+    const state = location.state as { whatsappAssessmentHandoff?: unknown } | null;
+    if (isWhatsAppAssessmentVideoHandoff(state?.whatsappAssessmentHandoff)) {
+      setStudentId(state.whatsappAssessmentHandoff.studentId);
+      setTab("avaliacao");
+      setPendingWhatsAppVideo(state.whatsappAssessmentHandoff);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [location.state]);
+
+  const consumeWhatsAppAssessmentHandoff = () => {
+    setPendingWhatsAppVideo(null);
+    nav(location.pathname, { replace: true, state: null });
+  };
 
   // ── Carrega alunos da empresa efetiva ─────────────────────────────────────
   useEffect(() => {
@@ -1499,10 +1511,11 @@ export default function PrescriptionStudio() {
               </CardContent></Card>
             )}
             <VideoAssessment
+              key={studentId}
               studentId={studentId}
               companyId={companyId!}
-              initialVideoUrl={pendingVideoUrl}
-              onInitialVideoConsumed={() => setPendingVideoUrl(null)}
+              initialWhatsAppVideo={pendingWhatsAppVideo?.studentId === studentId ? pendingWhatsAppVideo : null}
+              onInitialVideoConsumed={consumeWhatsAppAssessmentHandoff}
               onComplete={(id, videoResult) => {
                 setAssessmentId(id);
                 if (videoResult) {

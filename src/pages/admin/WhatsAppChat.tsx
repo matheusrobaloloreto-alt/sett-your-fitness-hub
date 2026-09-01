@@ -2625,7 +2625,18 @@ export default function WhatsAppChat() {
                                     className="mt-1.5 w-full h-7 text-xs"
                                     onClick={() => {
                                       if (!selectedChat?.student_id) { toast.error("Vincule um aluno a esta conversa primeiro."); return; }
-                                      navigate(`/${studioRoutePrefix}/studio`, { state: { studentId: selectedChat.student_id, videoUrl: mediaSrc } });
+                                      navigate(`/${studioRoutePrefix}/studio`, {
+                                        state: {
+                                          whatsappAssessmentHandoff: {
+                                            version: 1,
+                                            studentId: selectedChat.student_id,
+                                            chatId: selectedChat.id,
+                                            messageId: msg.id,
+                                            messageExternalId: msg.message_id_external,
+                                            mediaStoragePath: msg.media_storage_path || null,
+                                          },
+                                        },
+                                      });
                                     }}
                                   >
                                     <Activity className="h-3.5 w-3.5 mr-1" /> Usar na avaliação
