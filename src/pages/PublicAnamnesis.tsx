@@ -640,27 +640,15 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
               <CheckCircle className="h-16 w-16 text-primary mx-auto" />
               <h2 className="font-display text-3xl text-primary">PRÉ-CADASTRO RECEBIDO</h2>
               <p className="text-muted-foreground font-sans">
-                Recebi sua aplicação, {fullName.trim().split(/\s+/)[0]}.
+                Pronto, {fullName.trim().split(/\s+/)[0]}. Seu pré-cadastro foi recebido.
               </p>
-              <p className="text-sm leading-relaxed text-muted-foreground font-sans">
-                Recebemos muitos interessados em treinar com a gente e mantemos um número limitado de alunos por vez para garantir esse acompanhamento de perto.
-              </p>
-              <p className="rounded-xl bg-primary/10 px-4 py-3 font-sans font-semibold text-primary">
-                {deadlineMessage}
-              </p>
-              <p className="text-sm leading-relaxed text-muted-foreground font-sans">
-                Nosso retorno será feito pelo WhatsApp informado, respeitando a forma e o horário que você escolheu.
-              </p>
-              <p className="text-xs text-muted-foreground font-sans">
+              <p className="rounded-xl bg-primary/10 px-4 py-3 text-sm font-sans font-semibold text-primary">
                 {confirmationMessageSent
-                  ? "A confirmação deste pré-cadastro também foi enviada para o seu WhatsApp."
-                  : "Seu pré-cadastro foi salvo. Se a confirmação não aparecer no WhatsApp, nossa equipe ainda usará o número confirmado para falar com você."}
+                  ? "A confirmação foi enviada para o WhatsApp que você confirmou."
+                  : "Seu pré-cadastro foi salvo, mas a confirmação não chegou ao WhatsApp. A equipe ainda usará o número confirmado para falar com você."}
               </p>
               <p className="text-sm text-muted-foreground font-sans">
-                No próximo contato, faremos sua Avaliação de Movimento e escolheremos o plano ideal para alcançarmos o seu objetivo juntos.
-              </p>
-              <p className="text-sm font-semibold text-primary font-sans">
-                Até daqui a pouco!
+                {deadlineMessage}
               </p>
             </CardContent>
           </Card>

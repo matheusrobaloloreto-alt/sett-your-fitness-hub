@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -455,6 +455,12 @@ export default function PublicRegistration() {
     setManualPaymentRequired(data.manualPaymentRequired === true);
     setDone(true);
   };
+
+  // This page owns fiscal completion only. Any legacy mount without a fiscal
+  // token must use the canonical pre-registration flow instead.
+  if (!token) {
+    return <Navigate to={slug ? `/cadastro/${encodeURIComponent(slug)}` : "/cadastro"} replace />;
+  }
 
   if (notFound) {
     return (
