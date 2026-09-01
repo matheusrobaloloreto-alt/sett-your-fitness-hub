@@ -67,6 +67,11 @@ async function fetchAlerts(
     if (effectiveCompanyId) return query.eq("company_id", effectiveCompanyId);
     return query;
   };
+  let influencerPlansQuery = supabase.from("plans").select("id").eq("plan_kind", "influencer");
+  if (effectiveCompanyId) influencerPlansQuery = influencerPlansQuery.eq("company_id", effectiveCompanyId);
+  const { data: influencerPlans, error: influencerPlansError } = await influencerPlansQuery;
+  if (influencerPlansError) throw influencerPlansError;
+  const influencerPlanIds = new Set((influencerPlans || []).map((plan) => plan.id));
 
   const queries: any[] = [
     addCompanyFilter(supabase.from("students").select("id, full_name, birth_date, assigned_trainer_id, status")
@@ -74,11 +79,11 @@ async function fetchAlerts(
   ];
 
   if (!trainerId) {
-    queries.push(addCompanyFilter(supabase.from("enrollments").select("id, student_id, trainer_id, students(full_name)")
+    queries.push(addCompanyFilter(supabase.from("enrollments").select("id, student_id, trainer_id, students(full_name, selected_plan_id)")
       .in("status", ["active", "awaiting_training", "awaiting_renewal"]).is("trainer_id", null)));
-    queries.push(addCompanyFilter(supabase.from("enrollments").select("id, student_id, trainer_id, created_at, students(full_name)")
+    queries.push(addCompanyFilter(supabase.from("enrollments").select("id, student_id, trainer_id, created_at, students(full_name, selected_plan_id)")
       .in("status", ["active", "awaiting_training"]).is("training_start_date", null)));
-    queries.push(addCompanyFilter(supabase.from("students").select("id, full_name").eq("status", "active")));
+    queries.push(addCompanyFilter(supabase.from("students").select("id, full_name, selected_plan_id").eq("status", "active")));
     queries.push(addCompanyFilter(
       supabase.from("enrollments")
         .select("student_id, trainer_id, training_start_date")
@@ -126,6 +131,7 @@ async function fetchAlerts(
 
   if (!trainerId) {
     awaitingTrainer = (results[1].data || [])
+      .filter((e: any) => !influencerPlanIds.has(e.students?.selected_plan_id))
       .map((e: any) => ({ student_name: e.students?.full_name || "—", student_id: e.student_id }));
     // Alunos que já têm alguma matrícula (ativa/aguardando) com data de treino definida — não devem aparecer como "sem data"
     const studentsWithTrainingDate = new Set(
@@ -133,6 +139,7 @@ async function fetchAlerts(
     );
     const seenAwaitingDate = new Set<string>();
     awaitingTrainingDate = (results[2].data || [])
+      .filter((e: any) => !influencerPlanIds.has(e.students?.selected_plan_id))
       .filter((e: any) => !studentsWithTrainingDate.has(e.student_id))
       .filter((e: any) => {
         if (seenAwaitingDate.has(e.student_id)) return false;
@@ -145,7 +152,9 @@ async function fetchAlerts(
       }));
     const activeStudents = results[3].data || [];
     const enrolledIds = new Set((results[4].data || []).map((e: any) => e.student_id));
-    missingEnrollment = activeStudents.filter((s: any) => !enrolledIds.has(s.id))
+    missingEnrollment = activeStudents
+      .filter((s: any) => !influencerPlanIds.has(s.selected_plan_id))
+      .filter((s: any) => !enrolledIds.has(s.id))
       .map((s: any) => ({ student_name: s.full_name, student_id: s.id }));
     nextIdx = 5;
   } else {
@@ -195,12 +204,12 @@ async function fetchAlerts(
   let recentStudents: RecentStudent[] = [];
   if (!trainerId) {
     let billingQuery = supabase.from("students")
-      .select("id, full_name, email, cpf, cep, phone, whatsapp, country_code, address, address_number, neighborhood, city, state")
+      .select("id, full_name, email, cpf, cep, phone, whatsapp, country_code, address, address_number, neighborhood, city, state, selected_plan_id")
       .in("status", ["active", "pending"]);
     if (effectiveCompanyId) billingQuery = billingQuery.eq("company_id", effectiveCompanyId);
     const { data: billingStudents } = await billingQuery;
     const flagged: IncompleteBilling[] = [];
-    (billingStudents || []).forEach((s: any) => {
+    (billingStudents || []).filter((s: any) => !influencerPlanIds.has(s.selected_plan_id)).forEach((s: any) => {
       const missing = fiscalRegistrationValidation(s);
       if (missing.length > 0) flagged.push({ student_name: s.full_name, student_id: s.id, missing });
     });

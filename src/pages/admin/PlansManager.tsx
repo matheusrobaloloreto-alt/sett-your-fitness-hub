@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { useMaster } from "@/contexts/MasterContext";
+import { INFLUENCER_PLAN_KIND, STANDARD_PLAN_KIND, type PlanKind } from "@/lib/influencerPlan";
 
 interface Plan {
   id: string;
@@ -20,13 +21,23 @@ interface Plan {
   description: string | null;
   is_active: boolean;
   cycle_duration_days: number;
+  plan_kind: PlanKind;
 }
+
+const emptyPlanForm = {
+  name: "",
+  duration_weeks: 12,
+  price: 0,
+  description: "",
+  cycle_duration_days: 42,
+  plan_kind: STANDARD_PLAN_KIND as PlanKind,
+};
 
 export default function PlansManager() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Plan | null>(null);
-  const [form, setForm] = useState({ name: "", duration_weeks: 12, price: 0, description: "", cycle_duration_days: 42 });
+  const [form, setForm] = useState({ ...emptyPlanForm });
   const { toast } = useToast();
   const { companyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
@@ -44,12 +55,23 @@ export default function PlansManager() {
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.duration_weeks) return;
+    const isInfluencer = form.plan_kind === INFLUENCER_PLAN_KIND;
+    const name = isInfluencer ? "Influenciador(a)" : form.name.trim();
+    if (!name || (!isInfluencer && !form.duration_weeks)) return;
+    const payload = {
+      name,
+      plan_kind: form.plan_kind,
+      duration_weeks: isInfluencer ? 4 : form.duration_weeks,
+      price: isInfluencer ? 0 : form.price,
+      description: form.description || null,
+      cycle_duration_days: isInfluencer ? 30 : form.cycle_duration_days,
+      duration_days: isInfluencer ? 30 : form.duration_weeks * 7,
+    };
 
     if (editing) {
       const { error } = await supabase
         .from("plans")
-        .update({ name: form.name, duration_weeks: form.duration_weeks, price: form.price, description: form.description || null, cycle_duration_days: form.cycle_duration_days, duration_days: form.duration_weeks * 7 })
+        .update(payload)
         .eq("id", editing.id);
       if (error) {
         toast({ title: "Erro", description: error.message, variant: "destructive" });
@@ -59,7 +81,7 @@ export default function PlansManager() {
     } else {
       const { error } = await supabase
         .from("plans")
-        .insert({ name: form.name, duration_weeks: form.duration_weeks, price: form.price, description: form.description || null, cycle_duration_days: form.cycle_duration_days, duration_days: form.duration_weeks * 7, company_id: effectiveCompanyId });
+        .insert({ ...payload, company_id: effectiveCompanyId });
       if (error) {
         toast({ title: "Erro", description: error.message, variant: "destructive" });
         return;
@@ -69,7 +91,7 @@ export default function PlansManager() {
 
     setOpen(false);
     setEditing(null);
-    setForm({ name: "", duration_weeks: 12, price: 0, description: "", cycle_duration_days: 42 });
+    setForm({ ...emptyPlanForm });
     loadPlans();
   };
 
@@ -85,7 +107,14 @@ export default function PlansManager() {
 
   const openEdit = (plan: Plan) => {
     setEditing(plan);
-    setForm({ name: plan.name, duration_weeks: plan.duration_weeks, price: plan.price, description: plan.description || "", cycle_duration_days: plan.cycle_duration_days || 42 });
+    setForm({
+      name: plan.name,
+      duration_weeks: plan.duration_weeks,
+      price: plan.price,
+      description: plan.description || "",
+      cycle_duration_days: plan.cycle_duration_days || 42,
+      plan_kind: plan.plan_kind || STANDARD_PLAN_KIND,
+    });
     setOpen(true);
   };
 
@@ -97,7 +126,7 @@ export default function PlansManager() {
             <h1 className="text-4xl text-primary">PLANOS</h1>
             <p className="text-muted-foreground font-sans">Gerencie os planos da consultoria</p>
           </div>
-          <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setEditing(null); setForm({ name: "", duration_weeks: 12, price: 0, description: "", cycle_duration_days: 42 }); } }}>
+          <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setEditing(null); setForm({ ...emptyPlanForm }); } }}>
             <DialogTrigger asChild>
               <Button><Plus className="h-4 w-4 mr-2" />Novo Plano</Button>
             </DialogTrigger>
@@ -107,15 +136,38 @@ export default function PlansManager() {
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
+                  <Label className="font-sans">Tipo operacional</Label>
+                  <Select
+                    value={form.plan_kind}
+                    disabled={!!editing}
+                    onValueChange={(value: PlanKind) => setForm((current) => ({
+                      ...current,
+                      plan_kind: value,
+                      name: value === INFLUENCER_PLAN_KIND
+                        ? "Influenciador(a)"
+                        : current.plan_kind === INFLUENCER_PLAN_KIND && current.name === "Influenciador(a)"
+                          ? ""
+                          : current.name,
+                    }))}
+                  >
+                    <SelectTrigger className="bg-secondary border-border"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={STANDARD_PLAN_KIND}>Plano com matrícula e pagamento</SelectItem>
+                      <SelectItem value={INFLUENCER_PLAN_KIND}>Influenciador(a) — sem matrícula/pagamento</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
                   <Label className="font-sans">Nome do Plano</Label>
                   <Input
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    disabled={form.plan_kind === INFLUENCER_PLAN_KIND}
                     placeholder="Ex: PRO 24 Semanas"
                     className="bg-secondary border-border"
                   />
                 </div>
-                <div className="space-y-2">
+                {form.plan_kind === STANDARD_PLAN_KIND && <div className="space-y-2">
                   <Label className="font-sans">Duração (semanas)</Label>
                   <Input
                     type="number"
@@ -124,8 +176,8 @@ export default function PlansManager() {
                     min={1}
                     className="bg-secondary border-border"
                   />
-                </div>
-                <div className="space-y-2">
+                </div>}
+                {form.plan_kind === STANDARD_PLAN_KIND && <div className="space-y-2">
                   <Label className="font-sans">Duração do Ciclo (dias)</Label>
                   <Select value={String(form.cycle_duration_days)} onValueChange={(v) => setForm({ ...form, cycle_duration_days: Number(v) })}>
                     <SelectTrigger className="bg-secondary border-border">
@@ -138,8 +190,8 @@ export default function PlansManager() {
                       <SelectItem value="90">90 dias</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="space-y-2">
+                </div>}
+                {form.plan_kind === STANDARD_PLAN_KIND && <div className="space-y-2">
                   <Label className="font-sans">Preço (R$)</Label>
                   <Input
                     type="number"
@@ -150,7 +202,12 @@ export default function PlansManager() {
                     placeholder="0,00"
                     className="bg-secondary border-border"
                   />
-                </div>
+                </div>}
+                {form.plan_kind === INFLUENCER_PLAN_KIND && (
+                  <p className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary font-sans">
+                    Este tipo classifica e ativa sem treinador, matrícula, data inicial ou pagamento.
+                  </p>
+                )}
                 <div className="space-y-2">
                   <Label className="font-sans">Descrição</Label>
                   <Textarea
@@ -174,8 +231,14 @@ export default function PlansManager() {
               <CardHeader className="flex flex-row items-start justify-between">
                 <div>
                    <CardTitle className="text-primary text-lg">{plan.name}</CardTitle>
-                   <p className="text-muted-foreground text-sm font-sans">{plan.duration_weeks} semanas · Ciclo de {plan.cycle_duration_days || 42} dias</p>
-                   <p className="text-foreground text-sm font-sans font-semibold">R$ {plan.price.toFixed(2).replace(".", ",")}</p>
+                   {plan.plan_kind === INFLUENCER_PLAN_KIND ? (
+                     <p className="text-muted-foreground text-sm font-sans">Categoria ativa · sem matrícula ou cobrança</p>
+                   ) : (
+                     <>
+                       <p className="text-muted-foreground text-sm font-sans">{plan.duration_weeks} semanas · Ciclo de {plan.cycle_duration_days || 42} dias</p>
+                       <p className="text-foreground text-sm font-sans font-semibold">R$ {plan.price.toFixed(2).replace(".", ",")}</p>
+                     </>
+                   )}
                  </div>
                 <div className="flex gap-1">
                   <Button variant="ghost" size="icon" onClick={() => openEdit(plan)}>

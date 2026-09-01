@@ -101,6 +101,7 @@ async function validatePlan(planId: unknown, companyId: string) {
     .eq("id", planId)
     .eq("company_id", companyId)
     .eq("is_active", true)
+    .eq("plan_kind", "standard")
     .gt("price", 0)
     .maybeSingle();
   if (error) throw new HttpError(500, `Falha ao validar plano: ${error.message}`);
@@ -209,6 +210,7 @@ Deno.serve(async (req) => {
           .select("id, name, price, duration_weeks, description")
           .eq("company_id", link.company_id)
           .eq("is_active", true)
+          .eq("plan_kind", "standard")
           .gt("price", 0)
           .order("price"),
         supabase.from("enrollments")

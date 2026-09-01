@@ -267,10 +267,10 @@ async function resolvePlanPrice(student: any, planId?: string) {
   }
   const { data: plan } = await supabaseAdmin
     .from("plans")
-    .select("id, name, price, duration_weeks, company_id, is_active")
+    .select("id, name, price, duration_weeks, company_id, is_active, plan_kind")
     .eq("id", effectivePlanId)
     .maybeSingle();
-  if (!plan || plan.price == null || !plan.is_active) {
+  if (!plan || plan.price == null || !plan.is_active || plan.plan_kind !== "standard") {
     throw new Error("Plano inválido, inativo ou sem preço definido.");
   }
   if (plan.company_id && student?.company_id && plan.company_id !== student.company_id) {

@@ -2153,6 +2153,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           name: string
+          plan_kind: string
           price: number | null
           updated_at: string
         }
@@ -2166,6 +2167,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           name: string
+          plan_kind?: string
           price?: number | null
           updated_at?: string
         }
@@ -2179,6 +2181,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           name?: string
+          plan_kind?: string
           price?: number | null
           updated_at?: string
         }
@@ -5156,6 +5159,15 @@ export type Database = {
           bucket: string
           media_nps: number
           pct_ajuste: number
+        }[]
+      }
+      classify_influencer_student: {
+        Args: { _plan_id: string; _student_id: string }
+        Returns: {
+          category_id: string
+          plan_id: string
+          status: string
+          student_id: string
         }[]
       }
       commit_wearable_connection: {

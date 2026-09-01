@@ -21,6 +21,7 @@ import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { StudentChatButton } from "@/components/admin/StudentChatButton";
 import { preRegistrationUrl } from "@/lib/publicFlowLinks";
 import { fiscalRegistrationValidation, isBrazilianCountry, normalizeCountryCode, normalizeFiscalDocument } from "@/lib/fiscalRegistration";
+import { isInfluencerPlan } from "@/lib/influencerPlan";
 
 interface Student {
   id: string;
@@ -50,6 +51,7 @@ interface Plan {
   id: string;
   name: string;
   duration_weeks: number;
+  plan_kind: string;
 }
 
 interface Trainer {
@@ -152,7 +154,7 @@ export default function StudentsManager() {
     if (!effectiveCompanyId) return;
 
     const studentsQuery = supabase.from("students").select("*").eq("company_id", effectiveCompanyId).order("full_name");
-    const plansQuery = supabase.from("plans").select("id, name, duration_weeks").eq("is_active", true).eq("company_id", effectiveCompanyId).order("name");
+    const plansQuery = supabase.from("plans").select("id, name, duration_weeks, plan_kind").eq("is_active", true).eq("company_id", effectiveCompanyId).order("name");
     // Restrict trainer/coordinator/admin lookup to the current company via company_members
     const membersQuery = supabase.from("company_members").select("user_id").eq("company_id", effectiveCompanyId);
 
@@ -334,22 +336,40 @@ export default function StudentsManager() {
   };
 
   const handleChangePlan = async (studentId: string, planId: string) => {
-    const { error } = await supabase.from("students").update({ selected_plan_id: planId }).eq("id", studentId);
+    const selectedPlan = plans.find((plan) => plan.id === planId);
+    if (!selectedPlan || !effectiveCompanyId) return;
+    const { error } = isInfluencerPlan(selectedPlan)
+      ? await supabase.rpc("classify_influencer_student", {
+          _student_id: studentId,
+          _plan_id: planId,
+        })
+      : await supabase
+          .from("students")
+          .update({ selected_plan_id: planId })
+          .eq("id", studentId)
+          .eq("company_id", effectiveCompanyId);
     if (error) {
       console.error("[handleChangePlan] update failed:", error);
       toast({ title: "Erro ao alterar plano", description: `${error.message}${error.code ? ` (código ${error.code})` : ""}`, variant: "destructive" });
       return;
     }
-    toast({ title: "Plano atualizado!" });
+    toast({
+      title: isInfluencerPlan(selectedPlan) ? "Influenciador(a) classificado e ativado!" : "Plano atualizado!",
+      description: isInfluencerPlan(selectedPlan) ? "Nenhuma matrícula, cobrança, data inicial ou treinador foi criado." : undefined,
+    });
     loadData();
   };
 
   const handleStartEnrollment = async (s: Student) => {
+    const plan = plans.find(p => p.id === s.selected_plan_id);
+    if (isInfluencerPlan(plan)) {
+      await handleChangePlan(s.id, plan.id);
+      return;
+    }
     if (!s.selected_plan_id || !s.assigned_trainer_id || !session?.user?.id) {
       toast({ title: "Atenção", description: "Selecione o plano e o treinador antes.", variant: "destructive" });
       return;
     }
-    const plan = plans.find(p => p.id === s.selected_plan_id);
     if (!plan) return;
     setSaving(true);
     const startDate = new Date();
@@ -546,6 +566,10 @@ export default function StudentsManager() {
           {filtered.map(s => (
             <Card key={s.id} className="bg-card border-border">
               <CardContent className="pt-6 space-y-3">
+                {(() => {
+                  const selectedPlan = plans.find((plan) => plan.id === s.selected_plan_id);
+                  const influencer = isInfluencerPlan(selectedPlan);
+                  return <>
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -595,9 +619,9 @@ export default function StudentsManager() {
                 {/* Trainer & Plan assignment */}
                 <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border">
                   <div className="flex-1 space-y-1">
-                    <Label className="text-xs font-sans text-muted-foreground">Treinador</Label>
-                    <Select value={s.assigned_trainer_id || ""} onValueChange={v => handleAssignTrainer(s.id, v)}>
-                      <SelectTrigger className="bg-secondary border-border h-8 text-xs"><SelectValue placeholder="Atribuir treinador" /></SelectTrigger>
+                    <Label className="text-xs font-sans text-muted-foreground">Treinador{influencer ? " (opcional)" : ""}</Label>
+                    <Select value={s.assigned_trainer_id || ""} onValueChange={v => handleAssignTrainer(s.id, v)} disabled={influencer}>
+                      <SelectTrigger className="bg-secondary border-border h-8 text-xs"><SelectValue placeholder={influencer ? "Não exigido" : "Atribuir treinador"} /></SelectTrigger>
                       <SelectContent>{trainers.map(t => <SelectItem key={t.user_id} value={t.user_id}>{t.full_name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
@@ -609,6 +633,8 @@ export default function StudentsManager() {
                     </Select>
                   </div>
                 </div>
+                  </>;
+                })()}
               </CardContent>
             </Card>
           ))}

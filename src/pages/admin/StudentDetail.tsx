@@ -54,6 +54,7 @@ import { isBrazilianCountry } from "@/lib/fiscalRegistration";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { collapseOverlappingCyclesForDisplay } from "@/lib/prescriptionSchedule";
+import { isInfluencerPlan, planOperationalRequirements } from "@/lib/influencerPlan";
 // Heavy children loaded only when their tab is opened (chunk size win)
 const WorkoutAnalysis = lazy(() => import("@/components/trainer/WorkoutAnalysis").then(m => ({ default: m.WorkoutAnalysis })));
 const TrainerWeeklyBar = lazy(() => import("@/components/trainer/TrainerWeeklyBar").then(m => ({ default: m.TrainerWeeklyBar })));
@@ -134,6 +135,7 @@ interface Plan {
   name: string;
   duration_weeks: number;
   duration_days: number | null;
+  plan_kind: string;
 }
 
 interface Trainer {
@@ -451,7 +453,7 @@ export default function StudentDetail() {
     const trainerIds = [...new Set(enrollmentData.map((e) => e.trainer_id).filter((id): id is string => !!id))];
 
     const [{ data: plansData }, { data: profiles }] = await Promise.all([
-      supabase.from("plans").select("id, name, duration_weeks, duration_days").in("id", planIds),
+      supabase.from("plans").select("id, name, duration_weeks, duration_days, plan_kind").in("id", planIds),
       trainerIds.length > 0
         ? supabase.from("profiles").select("user_id, full_name").in("user_id", trainerIds)
         : Promise.resolve({ data: [] as { user_id: string; full_name: string | null }[] }),
@@ -576,7 +578,7 @@ export default function StudentDetail() {
       const [{ data: plansData, error: plansError }, { data: membersData, error: membersError }] = await Promise.all([
         supabase
           .from("plans")
-          .select("id, name, duration_weeks, duration_days")
+          .select("id, name, duration_weeks, duration_days, plan_kind")
           .eq("company_id", targetCompanyId)
           .eq("is_active", true)
           .order("name"),
@@ -629,7 +631,8 @@ export default function StudentDetail() {
   };
 
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
-  const computedEndDate = selectedPlan
+  const selectedPlanRequirements = planOperationalRequirements(selectedPlan?.plan_kind);
+  const computedEndDate = selectedPlan && selectedPlanRequirements.requiresStartDate
     ? addDays(startDate, (selectedPlan.duration_days || (selectedPlan.duration_weeks ?? 4) * 7) - 1)
     : null;
 
@@ -668,11 +671,31 @@ export default function StudentDetail() {
   );
 
   const handleCreateEnrollment = async () => {
-    if (!selectedPlanId || !selectedTrainerId || !id || !session?.user?.id || !computedEndDate) return;
+    if (!selectedPlanId || !selectedPlan || !id) return;
     if (!student?.company_id) {
       toast({ title: "Empresa não identificada", description: "Atualize o cadastro do aluno antes de criar a matrícula.", variant: "destructive" });
       return;
     }
+    if (isInfluencerPlan(selectedPlan)) {
+      setSaving(true);
+      const { error } = await supabase.rpc("classify_influencer_student", {
+        _student_id: id,
+        _plan_id: selectedPlanId,
+      });
+      setSaving(false);
+      if (error) {
+        toast({ title: "Erro ao classificar influenciador(a)", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "Influenciador(a) classificado e ativado!",
+        description: "Nenhuma matrícula, cobrança, data inicial ou treinador foi criado.",
+      });
+      setEnrollOpen(false);
+      loadData(id);
+      return;
+    }
+    if (!selectedTrainerId || !session?.user?.id || !computedEndDate) return;
     if (!student.status || !["active", "awaiting_renewal"].includes(student.status)) {
       toast({
         title: "Pagamento ainda não confirmado",
@@ -1791,23 +1814,33 @@ export default function StudentDetail() {
         {/* Enrollment Dialog */}
         <Dialog open={enrollOpen} onOpenChange={setEnrollOpen}>
           <DialogContent className="bg-card border-border">
-            <DialogHeader><DialogTitle className="text-primary">NOVA MATRÍCULA</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle className="text-primary">
+                {isInfluencerPlan(selectedPlan) ? "CLASSIFICAR INFLUENCIADOR(A)" : "NOVA MATRÍCULA"}
+              </DialogTitle>
+            </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label className="font-sans">Plano *</Label>
                 <Select value={selectedPlanId} onValueChange={setSelectedPlanId}>
                   <SelectTrigger className="bg-secondary border-border"><SelectValue placeholder="Selecione um plano" /></SelectTrigger>
-                  <SelectContent>{plans.map((p) => <SelectItem key={p.id} value={p.id}>{p.name} ({p.duration_weeks} semanas)</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    {plans.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}{isInfluencerPlan(p) ? " · sem matrícula/pagamento" : ` (${p.duration_weeks} semanas)`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
+              {selectedPlanRequirements.requiresTrainer && <div className="space-y-2">
                 <Label className="font-sans">Treinador *</Label>
                 <Select value={selectedTrainerId} onValueChange={setSelectedTrainerId}>
                   <SelectTrigger className="bg-secondary border-border"><SelectValue placeholder="Selecione um treinador" /></SelectTrigger>
                   <SelectContent>{trainers.map((t) => <SelectItem key={t.user_id} value={t.user_id}>{t.full_name}</SelectItem>)}</SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-2">
+              </div>}
+              {selectedPlanRequirements.requiresStartDate && <div className="space-y-2">
                 <Label className="font-sans">Data de início</Label>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -1819,7 +1852,12 @@ export default function StudentDetail() {
                     <Calendar mode="single" selected={startDate} onSelect={(d) => d && setStartDate(d)} locale={ptBR} className="pointer-events-auto" />
                   </PopoverContent>
                 </Popover>
-              </div>
+              </div>}
+              {isInfluencerPlan(selectedPlan) && (
+                <p className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary font-sans">
+                  A pessoa será classificada e ativada como Influenciador(a), sem treinador, matrícula, data inicial ou pagamento.
+                </p>
+              )}
               {computedEndDate && (
                 <div className="space-y-2">
                   <Label className="font-sans">Data de término (calculada)</Label>
@@ -1831,8 +1869,11 @@ export default function StudentDetail() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setEnrollOpen(false)}>Cancelar</Button>
-              <Button onClick={handleCreateEnrollment} disabled={!selectedPlanId || !selectedTrainerId || saving}>
-                {saving ? "Salvando..." : "Criar Matrícula"}
+              <Button
+                onClick={handleCreateEnrollment}
+                disabled={!selectedPlanId || (selectedPlanRequirements.requiresTrainer && !selectedTrainerId) || saving}
+              >
+                {saving ? "Salvando..." : isInfluencerPlan(selectedPlan) ? "Classificar e ativar" : "Criar Matrícula"}
               </Button>
             </DialogFooter>
           </DialogContent>
