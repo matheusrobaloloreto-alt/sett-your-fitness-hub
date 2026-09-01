@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 
 const uiSource = readFileSync("src/pages/PublicPayment.tsx", "utf8");
 const edgeSource = readFileSync("supabase/functions/asaas-integration/index.ts", "utf8");
+const asaasEnvironmentSource = readFileSync(
+  "supabase/functions/_shared/asaas-environment.ts",
+  "utf8",
+);
 const installmentSource = readFileSync("supabase/functions/_shared/payment-installments.ts", "utf8");
 const webhookSource = readFileSync("supabase/functions/asaas-webhook/index.ts", "utf8");
 const migrationSource = readFileSync("supabase/migrations/20260831193000_harden_payment_checkout_orders.sql", "utf8");
@@ -12,6 +16,37 @@ const lifecycleMigrationSource = readFileSync(
 );
 
 describe("public credit-card checkout contract", () => {
+  it("fails closed unless the Asaas base URL is an explicitly allowed environment", () => {
+    expect(edgeSource).toContain('resolveAsaasApiConfig(Deno.env.get("ASAAS_BASE_URL"))');
+    expect(edgeSource).toContain("asaasApiUrl(config, path)");
+    expect(edgeSource).not.toContain('const ASAAS_BASE_URL = "https://api.asaas.com/v3"');
+    expect(webhookSource).toContain('resolveAsaasApiConfig(Deno.env.get("ASAAS_BASE_URL"))');
+    expect(webhookSource).toContain("asaasApiUrl(asaasConfig,");
+    expect(webhookSource).not.toContain('const ASAAS_BASE_URL = "https://api.asaas.com/v3"');
+    expect(asaasEnvironmentSource).toContain('"https://api.asaas.com/v3"');
+    expect(asaasEnvironmentSource).toContain('"https://api-sandbox.asaas.com/v3"');
+  });
+
+  it("authenticates the webhook before resolving or calling the configured Asaas environment", () => {
+    const handler = webhookSource.slice(webhookSource.indexOf("Deno.serve"));
+    expect(handler.indexOf('token !== ASAAS_WEBHOOK_TOKEN')).toBeLessThan(
+      handler.indexOf("const asaasConfig = requireAsaasApiConfig()"),
+    );
+    expect(handler.indexOf("const asaasConfig = requireAsaasApiConfig()")).toBeLessThan(
+      handler.indexOf("const remotePaymentResponse = await fetch"),
+    );
+  });
+
+  it("does not write the raw fiscal provider response to webhook logs", () => {
+    const createInvoice = webhookSource.slice(
+      webhookSource.indexOf("async function createInvoice"),
+      webhookSource.indexOf("Deno.serve"),
+    );
+    expect(createInvoice).not.toContain('JSON.stringify(data)');
+    expect(createInvoice).toContain('providerErrorCode');
+    expect(createInvoice).toContain('providerStatus');
+  });
+
   it("offers credit card to first purchases as well as renewals", () => {
     const chooser = uiSource.slice(uiSource.indexOf('{step === "choose"'), uiSource.indexOf('{step === "pix"'));
     expect(chooser).toContain("Pagar com Cartão");

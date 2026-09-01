@@ -1,4 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  asaasApiUrl,
+  type AsaasApiConfig,
+  resolveAsaasApiConfig,
+} from "../_shared/asaas-environment.ts";
 import { businessDateYmd } from "../_shared/business-date.ts";
 import {
   addBusinessDays,
@@ -22,11 +27,18 @@ const supabaseAdmin = createClient(
 
 const ASAAS_WEBHOOK_TOKEN = Deno.env.get("ASAAS_WEBHOOK_TOKEN");
 const ASAAS_API_KEY = Deno.env.get("ASAAS_API_KEY") || "";
-const ASAAS_BASE_URL = "https://api.asaas.com/v3";
 
 class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message);
+  }
+}
+
+function requireAsaasApiConfig(): AsaasApiConfig {
+  try {
+    return resolveAsaasApiConfig(Deno.env.get("ASAAS_BASE_URL"));
+  } catch {
+    throw new HttpError(503, "Ambiente Asaas não configurado com segurança.");
   }
 }
 
@@ -58,10 +70,10 @@ async function claimEvent(eventId: string, eventType: string) {
   return "claimed" as const;
 }
 
-async function createInvoice(asaasPaymentId: string) {
+async function createInvoice(asaasPaymentId: string, asaasConfig: AsaasApiConfig) {
   try {
     const today = businessDateYmd();
-    const res = await fetch(`${ASAAS_BASE_URL}/invoices`, {
+    const res = await fetch(asaasApiUrl(asaasConfig, "/invoices"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -88,10 +100,19 @@ async function createInvoice(asaasPaymentId: string) {
     });
     const data = await res.json();
     if (!res.ok) {
-      console.error("Erro ao emitir NFS-e:", JSON.stringify(data));
+      const providerErrorCode = typeof data?.errors?.[0]?.code === "string"
+        ? data.errors[0].code
+        : null;
+      console.error("Falha ao solicitar NFS-e no Asaas", {
+        status: res.status,
+        providerErrorCode,
+      });
       return null;
     }
-    console.log("NFS-e agendada com sucesso:", JSON.stringify(data));
+    console.log("NFS-e agendada com sucesso", {
+      status: res.status,
+      providerStatus: typeof data?.status === "string" ? data.status : null,
+    });
     return data;
   } catch (err) {
     console.error("Falha ao criar NFS-e:", err);
@@ -125,6 +146,7 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const asaasConfig = requireAsaasApiConfig();
 
     const event = await req.json();
     const { event: eventType, payment } = event;
@@ -137,7 +159,10 @@ Deno.serve(async (req) => {
     }
 
     const asaasPaymentId = payment.id;
-    const remotePaymentResponse = await fetch(`${ASAAS_BASE_URL}/payments/${encodeURIComponent(asaasPaymentId)}`, {
+    const remotePaymentResponse = await fetch(asaasApiUrl(
+      asaasConfig,
+      `/payments/${encodeURIComponent(asaasPaymentId)}`,
+    ), {
       headers: { access_token: ASAAS_API_KEY },
     });
     if (!remotePaymentResponse.ok) {
@@ -226,7 +251,7 @@ Deno.serve(async (req) => {
 
       if (shouldApplyExternalEffects) {
         // Emitir NFS-e automaticamente
-        await createInvoice(asaasPaymentId);
+        await createInvoice(asaasPaymentId, asaasConfig);
 
         if (isFirstActivation && previousStudent.full_name) {
         const { data: anamnesis } = await supabaseAdmin

@@ -18,4 +18,18 @@ describe("pre-registration WhatsApp confirmation", () => {
     expect(handler).toContain("sendPreRegistrationConfirmation");
     expect(handler).toContain("confirmationMessageSent");
   });
+
+  it("offers a fail-closed staging canary without writing or sending", () => {
+    const start = edgeSource.indexOf("async function preRegisterCanary");
+    const end = edgeSource.indexOf("async function loadLeadForStaff", start);
+    const canary = edgeSource.slice(start, end);
+    expect(canary).toContain("PROJECT_REF === PRODUCTION_PROJECT_REF");
+    expect(canary).toContain('Deno.env.get("PRE_REGISTRATION_CANARY_TOKEN")');
+    expect(canary).toContain('req.headers.get("x-pre-registration-canary")');
+    expect(canary).toContain("validatePreRegistrationSubmission(body)");
+    expect(canary).toContain("confirmationMessageReady");
+    expect(canary).not.toContain('.from("leads")');
+    expect(canary).not.toContain("sendPreRegistrationConfirmation");
+    expect(canary).not.toContain("sendFunnelWhatsAppMessage");
+  });
 });

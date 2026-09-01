@@ -3,6 +3,11 @@ import { businessDateYmd } from "../_shared/business-date.ts";
 import { supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
 import { assertInstallmentCountAllowed, maxInstallmentsForPlanDuration } from "../_shared/payment-installments.ts";
 import {
+  asaasApiUrl,
+  type AsaasApiConfig,
+  resolveAsaasApiConfig,
+} from "../_shared/asaas-environment.ts";
+import {
   addBusinessDays,
   buildAssessmentOnboardingMessage,
   claimFunnelEvent,
@@ -18,7 +23,6 @@ const corsHeaders = {
 };
 
 const ASAAS_API_KEY = Deno.env.get("ASAAS_API_KEY") || "";
-const ASAAS_BASE_URL = "https://api.asaas.com/v3";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -32,13 +36,22 @@ class HttpError extends Error {
   }
 }
 
+function requireAsaasApiConfig(): AsaasApiConfig {
+  try {
+    return resolveAsaasApiConfig(Deno.env.get("ASAAS_BASE_URL"));
+  } catch {
+    throw new HttpError(503, "Ambiente Asaas não configurado com segurança.");
+  }
+}
+
 async function asaasFetch(path: string, options: RequestInit = {}) {
   if (!ASAAS_API_KEY) throw new HttpError(503, "Integração Asaas não configurada no servidor.");
-  const res = await fetch(`${ASAAS_BASE_URL}${path}`, {
+  const config = requireAsaasApiConfig();
+  const res = await fetch(asaasApiUrl(config, path), {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      "User-Agent": "SETT-BNApp/1.0 (Supabase Edge; production)",
+      "User-Agent": `SETT-BNApp/1.0 (Supabase Edge; ${config.environment})`,
       access_token: ASAAS_API_KEY,
       ...(options.headers || {}),
     },
@@ -60,10 +73,11 @@ async function asaasFetch(path: string, options: RequestInit = {}) {
 }
 
 async function checkConnection() {
+  const config = requireAsaasApiConfig();
   await asaasFetch("/customers?limit=1&offset=0");
   return {
     connected: true,
-    environment: "production",
+    environment: config.environment,
   };
 }
 

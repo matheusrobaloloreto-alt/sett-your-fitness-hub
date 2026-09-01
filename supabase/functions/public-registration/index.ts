@@ -15,11 +15,15 @@ import {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type, x-pre-registration-canary, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+const PRODUCTION_PROJECT_REF = "zshrcgbyhzxpnlccssyz";
+const PROJECT_REF = (() => {
+  try { return new URL(SUPABASE_URL).hostname.split(".")[0] || ""; } catch { return ""; }
+})();
 const APP_URL = (Deno.env.get("PUBLIC_APP_URL") || "https://www.settapp.com.br").replace(/\/+$/, "");
 const supabase = createClient(
   SUPABASE_URL,
@@ -31,6 +35,18 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function constantTimeEqual(left: string, right: string) {
+  const encoder = new TextEncoder();
+  const leftBytes = encoder.encode(left);
+  const rightBytes = encoder.encode(right);
+  if (leftBytes.length !== rightBytes.length) return false;
+  let mismatch = 0;
+  for (let index = 0; index < leftBytes.length; index += 1) {
+    mismatch |= leftBytes[index] ^ rightBytes[index];
+  }
+  return mismatch === 0;
 }
 
 async function resolveCompany(slug: string | null) {
@@ -313,6 +329,32 @@ async function preRegister(body: Record<string, unknown>) {
     firstName: fullName.split(/\s+/)[0],
     deadline,
     confirmationMessageSent: confirmation.sent,
+  };
+}
+
+async function preRegisterCanary(req: Request, body: Record<string, unknown>) {
+  // Este caminho existe apenas para validar staging sem criar lead, conversa,
+  // evento ou mensagem. Mesmo que o secret seja copiado por engano para prod,
+  // o project ref canônico mantém o canário fechado.
+  if (PROJECT_REF === PRODUCTION_PROJECT_REF) throw new HttpError(404, "Ação inválida.");
+  const expected = Deno.env.get("PRE_REGISTRATION_CANARY_TOKEN") || "";
+  const received = req.headers.get("x-pre-registration-canary") || "";
+  if (expected.length < 32 || !constantTimeEqual(received, expected)) {
+    throw new HttpError(404, "Ação inválida.");
+  }
+  if (body.whatsappConfirmed !== true) {
+    throw new HttpError(422, "Confirme o número de WhatsApp antes de validar o pré-cadastro.");
+  }
+  const validated = validatePreRegistrationSubmission(body);
+  const company = await resolveCompanyById(body.companyId) || await resolveCompany(cleanText(body.slug) || null);
+  if (!company) throw new HttpError(400, "Empresa inválida.");
+  const deadline = preRegistrationResponseDeadline();
+  const message = buildPreRegistrationConfirmationMessage(validated.fullName, deadline);
+  return {
+    valid: true,
+    environment: "staging",
+    companyFound: true,
+    confirmationMessageReady: message.length > 0,
   };
 }
 
@@ -845,6 +887,10 @@ Deno.serve(async (req) => {
 
     if (action === "pre-register") {
       return json(await preRegister(body));
+    }
+
+    if (action === "pre-register-canary") {
+      return json(await preRegisterCanary(req, body));
     }
 
     if (action === "mark-lead-contacted") {
