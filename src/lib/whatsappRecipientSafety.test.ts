@@ -9,6 +9,10 @@ const dispatcherSource = readFileSync(
   "supabase/functions/process-automation-sessions/index.ts",
   "utf8",
 );
+const webhookSource = readFileSync(
+  "supabase/functions/whatsapp-webhook/index.ts",
+  "utf8",
+);
 const crmSource = readFileSync("src/pages/admin/WhatsAppCRM.tsx", "utf8");
 const supabaseConfig = readFileSync("supabase/config.toml", "utf8");
 
@@ -81,6 +85,21 @@ describe("WhatsApp recipient safety contracts", () => {
     expect(managerSource).not.toContain("JSON.stringify(createData)");
     expect(managerSource).toContain(
       '"[createFreshInstance] provider response:",',
+    );
+  });
+
+  it("redacts provider bodies from webhook repair logs", () => {
+    expect(webhookSource).not.toContain(
+      'console.error("[repair-sync] webhook/set failed:", await webhookRes.text())',
+    );
+    expect(webhookSource).toContain(
+      "sanitizeProviderErrorForLog(\n            webhookRes.status,",
+    );
+    expect(webhookSource).not.toContain(
+      'console.error("[flow] Send failed:", await res.text())',
+    );
+    expect(webhookSource).toContain(
+      "sanitizeProviderErrorForLog(res.status, issue, rawBody)",
     );
   });
 
