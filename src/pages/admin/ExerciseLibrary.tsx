@@ -447,7 +447,7 @@ export default function ExerciseLibrary() {
   }, {});
 
   const FILTER_GROUPS = useMemo(() => Array.from(new Set(
-    exercises.map((exercise) => normalizedExerciseLibraryGroup(ex)).filter((group): group is string => Boolean(group)),
+    exercises.map((exercise) => normalizedExerciseLibraryGroup(exercise)).filter((group): group is string => Boolean(group)),
   )).sort((a, b) => a.localeCompare(b, "pt-BR")), [exercises]);
 
   const allSelectedIds = [...primaryMuscleIds, ...secondaryMuscleIds];
