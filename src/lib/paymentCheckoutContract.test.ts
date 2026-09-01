@@ -65,6 +65,9 @@ describe("public credit-card checkout contract", () => {
     const handler = edgeSource.slice(start, end);
     expect(handler).toContain("paymentPayload.totalValue = Number(value)");
     expect(handler).not.toContain("paymentPayload.installmentValue");
+    expect(handler).not.toContain("paymentPayload.interest");
+    expect(uiSource).toContain("Sem juros para você");
+    expect(uiSource).toContain("planValue / installments");
   });
 
   it("creates an idempotent local order and snapshots the plan before calling Asaas", () => {
