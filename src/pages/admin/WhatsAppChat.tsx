@@ -55,6 +55,11 @@ import {
 import { shouldOfferWhatsAppRecipientReview } from "@/lib/whatsappRecipientReview";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
 import { persistWhatsAppAssessmentHandoff } from "@/lib/whatsappAssessmentHandoff";
+import {
+  messageEditEligibility,
+  normalizeEditedMessageText,
+  shouldApplyWhatsAppMessageEditResult,
+} from "@/lib/whatsappMessageEdit";
 
 type Chat = {
   id: string;
@@ -86,6 +91,7 @@ type Chat = {
 
 type Message = {
   id: string;
+  chat_id?: string;
   content: string | null;
   source: string;
   type: string;
@@ -96,6 +102,9 @@ type Message = {
   media_type: string | null;
   media_storage_path?: string | null;
   message_id_external: string | null;
+  is_from_me?: boolean | null;
+  edited_at?: string | null;
+  edited_by?: string | null;
   quoted_message_id?: string | null;
   quoted_message_external_id?: string | null;
   quoted_message_preview?: string | null;
@@ -253,6 +262,20 @@ export default function WhatsAppChat() {
   const historySyncAttemptsRef = useRef(new Set<string>());
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [editingMessage, setEditingMessage] = useState<{
+    message: Message;
+    chatId: string;
+    previousDraft: string;
+  } | null>(null);
+  const [editingSaving, setEditingSaving] = useState(false);
+  const [editEligibilityNow, setEditEligibilityNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setEditEligibilityNow(Date.now()),
+      15_000,
+    );
+    return () => window.clearInterval(timer);
+  }, []);
   const [searchTerm, setSearchTerm] = useState("");
   const [contactNames, setContactNames] = useState<Record<string, string>>({});
   const [senderNames, setSenderNames] = useState<Record<string, string>>({});
@@ -960,6 +983,14 @@ export default function WhatsAppChat() {
     }
   }, [selectedChatId, loadMessages]);
   useEffect(() => {
+    if (!editingMessage || editingMessage.chatId === selectedChatId) return;
+    setEditingMessage(null);
+    setEditingSaving(false);
+    setNewMessage("");
+    setReplyingTo(null);
+    setShowTemplates(false);
+  }, [editingMessage, selectedChatId]);
+  useEffect(() => {
     const selected = chats.find((chat) => chat.id === selectedChatId);
     if (selected) void syncChatHistory(selected);
   }, [chats, selectedChatId, syncChatHistory]);
@@ -1007,6 +1038,13 @@ export default function WhatsAppChat() {
         }
         scheduleChatsRefresh();
       })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "whatsapp_messages", filter: `company_id=eq.${effectiveCompanyId}` }, (payload) => {
+        const updatedMsg = payload.new as Message & { chat_id: string };
+        if (updatedMsg.chat_id === selectedChatIdRef.current) {
+          setMessages((prev) => upsertWhatsAppMessage(prev, updatedMsg));
+        }
+        scheduleChatsRefresh();
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "whatsapp_chats", filter: `company_id=eq.${effectiveCompanyId}` }, () => { scheduleChatsRefresh(); })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -1032,6 +1070,7 @@ export default function WhatsAppChat() {
         media_url: null,
         media_type: null,
         message_id_external: null,
+        is_from_me: true,
         quoted_message_id: reply?.id || null,
         quoted_message_external_id: reply?.message_id_external || null,
         quoted_message_preview: reply ? getMessagePreview(reply) : null,
@@ -1104,6 +1143,124 @@ export default function WhatsAppChat() {
     } finally { setSending(false); }
   };
 
+  const cancelMessageEdit = () => {
+    if (!editingMessage || editingSaving) return;
+    setNewMessage(editingMessage.previousDraft);
+    setEditingMessage(null);
+    setShowTemplates(false);
+  };
+
+  const beginMessageEdit = (msg: Message) => {
+    if (!selectedChatId || sending || sendingAttachment || isRecording) {
+      toast.error("Conclua a ação atual antes de editar a mensagem.");
+      return;
+    }
+    const eligibility = messageEditEligibility(msg);
+    if (!eligibility.ok) {
+      toast.error(
+        eligibility.code === "whatsapp_edit_window_expired"
+          ? "O prazo de 15 minutos para editar esta mensagem expirou."
+          : "Esta mensagem não pode ser editada.",
+      );
+      return;
+    }
+    setEditingMessage({
+      message: msg,
+      chatId: selectedChatId,
+      previousDraft: newMessage,
+    });
+    setNewMessage(msg.content || "");
+    setReplyingTo(null);
+    setShowTemplates(false);
+  };
+
+  const handleSaveMessageEdit = async () => {
+    if (!editingMessage || editingSaving) return;
+    const editState = editingMessage;
+    const editChatId = editState.chatId;
+    if (selectedChatId !== editChatId) {
+      toast.error("A conversa mudou. Cancele a edição e tente novamente.");
+      return;
+    }
+
+    const eligibility = messageEditEligibility(editState.message);
+    if (!eligibility.ok) {
+      toast.error(
+        eligibility.code === "whatsapp_edit_window_expired"
+          ? "O prazo de 15 minutos para editar esta mensagem expirou."
+          : "Esta mensagem não pode mais ser editada.",
+      );
+      return;
+    }
+    const editedText = normalizeEditedMessageText(
+      newMessage,
+      editState.message.content,
+    );
+    if (!editedText.ok) {
+      toast.error(
+        editedText.code === "whatsapp_edit_content_unchanged"
+          ? "A mensagem não foi alterada."
+          : "Digite uma mensagem de até 4.096 caracteres.",
+      );
+      return;
+    }
+
+    setEditingSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Sessão expirada");
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          },
+          body: JSON.stringify({
+            action: "edit-message",
+            companyId: effectiveCompanyId,
+            chatId: editChatId,
+            messageId: editState.message.message_id_external,
+            content: editedText.text,
+          }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || "Não foi possível editar a mensagem.");
+      }
+
+      const updatedMessage = payload?.message as Message | undefined;
+      if (!updatedMessage) throw new Error("A edição não foi confirmada localmente.");
+      if (!shouldApplyWhatsAppMessageEditResult({
+        activeChatId: selectedChatIdRef.current,
+        editChatId,
+        message: updatedMessage,
+      })) {
+        scheduleChatsRefresh();
+        if (selectedChatIdRef.current === editChatId) {
+          setNewMessage(editState.previousDraft);
+          setEditingMessage(null);
+          setShowTemplates(false);
+        }
+        toast.info("Edição confirmada. A conversa será atualizada em segundo plano.");
+        return;
+      }
+      setMessages((prev) => upsertWhatsAppMessage(prev, updatedMessage));
+      setNewMessage(editState.previousDraft);
+      setEditingMessage(null);
+      setShowTemplates(false);
+      scheduleChatsRefresh();
+      toast.success("Mensagem editada");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Não foi possível editar a mensagem"));
+    } finally {
+      setEditingSaving(false);
+    }
+  };
+
   const handleDeleteMessage = async (msg: Message) => {
     if (!selectedChatId || !msg.message_id_external) {
       toast.error("Não é possível apagar esta mensagem");
@@ -1137,6 +1294,10 @@ export default function WhatsAppChat() {
   };
 
   const handleAttachLastEvaluation = async () => {
+    if (editingMessage) {
+      toast.error("Cancele a edição antes de anexar um arquivo.");
+      return;
+    }
     if (!selectedChatId) return;
     const chat = chats.find((c) => c.id === selectedChatId);
     if (!chat?.student_id) { toast.error("Nenhum aluno vinculado a esta conversa"); return; }
@@ -1217,6 +1378,10 @@ export default function WhatsAppChat() {
   };
 
   const sendFileAttachment = async (file: File) => {
+    if (editingMessage) {
+      toast.error("Cancele a edição antes de anexar um arquivo.");
+      return;
+    }
     if (!selectedChatId) return;
     const chat = chats.find((c) => c.id === selectedChatId);
     if (!chat) return;
@@ -1289,6 +1454,10 @@ export default function WhatsAppChat() {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
+    if (editingMessage) {
+      toast.error("Cancele a edição antes de anexar um arquivo.");
+      return;
+    }
     await sendFileAttachment(file);
   };
 
@@ -1296,6 +1465,10 @@ export default function WhatsAppChat() {
     const file = Array.from(event.clipboardData.files || [])[0];
     if (!file) return;
     event.preventDefault();
+    if (editingMessage) {
+      toast.error("Anexos não são permitidos durante a edição.");
+      return;
+    }
     await sendFileAttachment(file);
   };
 
@@ -1335,6 +1508,10 @@ export default function WhatsAppChat() {
 
   // ─── Audio Recording ───
   const startRecording = async () => {
+    if (editingMessage) {
+      toast.error("Cancele a edição antes de gravar um áudio.");
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm" });
@@ -2554,6 +2731,7 @@ export default function WhatsAppChat() {
                       const isAudio = msg.media_type?.startsWith("audio/") || msg.type === "audio";
                       const quotedPreview = (msg.quoted_message_preview || "").trim();
                       const quotedLabel = msg.quoted_message_source === "outgoing" ? "Você" : getContactName(selectedChat);
+                      const editEligibility = messageEditEligibility(msg, editEligibilityNow);
                       const previousMessage = index > 0 ? messages[index - 1] : null;
                       const showDateDivider = !previousMessage || !isSameDay(new Date(getMessageDateValue(previousMessage)), new Date(messageDateValue));
                       return (
@@ -2575,19 +2753,29 @@ export default function WhatsAppChat() {
                             "relative flex w-full min-w-0 items-center gap-1",
                             msg.source === "outgoing" ? "justify-end" : "justify-start",
                           )}>
-                            {msg.source === "outgoing" && msg.message_id_external && (
+                            {!editingMessage && editEligibility.ok && (
+                              <button
+                                onClick={() => beginMessageEdit(msg)}
+                                className="rounded-full p-1 text-muted-foreground opacity-100 transition-opacity hover:bg-muted hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
+                                title="Editar mensagem"
+                                aria-label="Editar mensagem"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {!editingMessage && msg.source === "outgoing" && msg.message_id_external && (
                               <button
                                 onClick={() => handleDeleteMessage(msg)}
-                                className="rounded-full p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/20 hover:text-destructive group-hover:opacity-100"
+                                className="rounded-full p-1 text-muted-foreground opacity-100 transition-opacity hover:bg-destructive/20 hover:text-destructive md:opacity-0 md:group-hover:opacity-100"
                                 title="Apagar para todos"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
-                            {msg.message_id_external && (
+                            {!editingMessage && msg.message_id_external && (
                               <button
                                 onClick={() => setReplyingTo(msg)}
-                                className="rounded-full p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                                className="rounded-full p-1 text-muted-foreground opacity-100 transition-opacity hover:bg-muted hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
                                 title="Responder"
                               >
                                 <Reply className="h-3.5 w-3.5" />
@@ -2662,7 +2850,10 @@ export default function WhatsAppChat() {
                               </div>
                             ) : null}
                             <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</p>
-                            <p className={cn("mt-1.5 text-[10px] font-mono-data", msg.source === "outgoing" ? "text-primary-foreground/70" : "text-muted-foreground")}>{formatMessageTimestamp(messageDateValue)}</p>
+                            <p className={cn("mt-1.5 flex items-center justify-end gap-1 text-[10px] font-mono-data", msg.source === "outgoing" ? "text-primary-foreground/70" : "text-muted-foreground")}>
+                              <span>{formatMessageTimestamp(messageDateValue)}</span>
+                              {msg.edited_at && <span aria-label="Mensagem editada">• editada</span>}
+                            </p>
                             </div>
                           </div>
                         </div>
@@ -2674,7 +2865,26 @@ export default function WhatsAppChat() {
                   )}
                 </ScrollArea>
 
-                {replyingTo && (
+                {editingMessage && (
+                  <div className="border-t border-border bg-white px-3 pt-2">
+                    <div className="flex items-center gap-2 rounded-2xl border-l-4 border-amber-500 bg-amber-50 p-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-semibold text-amber-800">Editando mensagem</p>
+                        <p className="truncate text-xs text-amber-700">Salve em até 15 minutos após o envio.</p>
+                      </div>
+                      <button
+                        onClick={cancelMessageEdit}
+                        disabled={editingSaving}
+                        className="rounded-full p-1 text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50"
+                        title="Cancelar edição"
+                        aria-label="Cancelar edição"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {replyingTo && !editingMessage && (
                   <div className="border-t border-border bg-white px-3 pt-2">
                     <div className="flex items-center gap-2 rounded-2xl border-l-4 border-primary bg-sky-50 p-2">
                       <div className="flex-1 min-w-0">
@@ -2714,14 +2924,14 @@ export default function WhatsAppChat() {
                     </div>
                   ) : (
                     <div className="flex min-w-0 items-end gap-1.5 rounded-2xl border border-border bg-background p-1.5 shadow-sm sm:gap-2">
-                      <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Enviar imagem ou arquivo" onClick={() => fileInputRef.current?.click()} disabled={sendingAttachment}>
+                      <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Enviar imagem ou arquivo" onClick={() => fileInputRef.current?.click()} disabled={sendingAttachment || Boolean(editingMessage)}>
                         {sendingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Image className="h-4 w-4" />}
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Gravar áudio" onClick={startRecording} disabled={sendingAttachment}>
+                      <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Gravar áudio" onClick={startRecording} disabled={sendingAttachment || Boolean(editingMessage)}>
                         <Mic className="h-4 w-4" />
                       </Button>
                       {selectedChat.student_id && (
-                        <Button variant="ghost" size="icon" className="hidden h-9 w-9 shrink-0 sm:inline-flex" title="Anexar último treino/avaliação" onClick={handleAttachLastEvaluation} disabled={sendingAttachment}>
+                        <Button variant="ghost" size="icon" className="hidden h-9 w-9 shrink-0 sm:inline-flex" title="Anexar último treino/avaliação" onClick={handleAttachLastEvaluation} disabled={sendingAttachment || Boolean(editingMessage)}>
                           <Paperclip className="h-4 w-4" />
                         </Button>
                       )}
@@ -2732,12 +2942,12 @@ export default function WhatsAppChat() {
                       )}
                       <div className="relative min-w-0 flex-1">
                         <Textarea
-                          placeholder="Digite / para templates..."
+                          placeholder={editingMessage ? "Edite a mensagem..." : "Digite / para templates..."}
                           value={newMessage}
                           onChange={(e) => {
                             const val = e.target.value;
                             setNewMessage(val);
-                            if (val.startsWith("/")) {
+                            if (!editingMessage && val.startsWith("/")) {
                               setShowTemplates(true);
                               setTemplateFilter(val.slice(1).toLowerCase());
                             } else {
@@ -2748,15 +2958,22 @@ export default function WhatsAppChat() {
                             e.target.style.height = Math.min(e.target.scrollHeight, 200) + "px";
                           }}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey && !showTemplates) { e.preventDefault(); handleSend(); }
-                            if (e.key === "Escape") setShowTemplates(false);
+                            if (e.key === "Enter" && !e.shiftKey && !showTemplates) {
+                              e.preventDefault();
+                              if (editingMessage) void handleSaveMessageEdit();
+                              else void handleSend();
+                            }
+                            if (e.key === "Escape") {
+                              if (editingMessage) cancelMessageEdit();
+                              else setShowTemplates(false);
+                            }
                           }}
                           onPaste={handleComposerPaste}
-                          disabled={sending}
+                          disabled={sending || editingSaving}
                           className="min-h-10 max-h-32 min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                           rows={1}
                         />
-                        {showTemplates && (
+                        {showTemplates && !editingMessage && (
                           <div ref={templatePopoverRef} className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-60 overflow-y-auto rounded-2xl border border-border bg-popover shadow-lg">
                             {templates
                               .filter(t => !templateFilter || t.title.toLowerCase().includes(templateFilter) || (t.shortcut && t.shortcut.toLowerCase().includes(templateFilter)))
@@ -2794,8 +3011,14 @@ export default function WhatsAppChat() {
                           </div>
                         )}
                       </div>
-                      <Button onClick={handleSend} disabled={sending || !newMessage.trim()} size="icon" className="h-9 w-9 shrink-0" title="Enviar mensagem">
-                        {sending ? <Clock className="h-4 w-4 animate-pulse" /> : <Send className="h-4 w-4" />}
+                      <Button
+                        onClick={editingMessage ? handleSaveMessageEdit : handleSend}
+                        disabled={sending || editingSaving || !newMessage.trim()}
+                        size="icon"
+                        className="h-9 w-9 shrink-0"
+                        title={editingMessage ? "Salvar edição" : "Enviar mensagem"}
+                      >
+                        {sending || editingSaving ? <Clock className="h-4 w-4 animate-pulse" /> : editingMessage ? <Pencil className="h-4 w-4" /> : <Send className="h-4 w-4" />}
                       </Button>
                     </div>
                   )}

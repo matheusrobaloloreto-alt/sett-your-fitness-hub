@@ -29,9 +29,9 @@ describe("WhatsApp recipient safety contracts", () => {
     );
   });
 
-  it("binds text and media sends to the chat instance and requires it to be connected", () => {
-    expect(managerSource).toContain(
-      'const outboundActions = new Set(["send-message", "send-media"])',
+  it("binds text, media and edit operations to the chat instance and requires it to be connected", () => {
+    expect(managerSource).toMatch(
+      /const outboundActions = new Set\(\[[\s\S]*"send-message",[\s\S]*"send-media",[\s\S]*"edit-message",[\s\S]*\]\)/,
     );
     expect(managerSource).toContain('.eq("id", boundChat.instance_id)');
     expect(managerSource).toContain('.eq("status", "connected")');
@@ -52,7 +52,7 @@ describe("WhatsApp recipient safety contracts", () => {
       /await persistInstance\(\{\s*status: "disconnected",\s*phone_number: null,\s*qr_code: null,?\s*\}\)/,
     );
     expect(managerSource.match(/await verifyLiveOutboundInstance\(\)/g))
-      .toHaveLength(2);
+      .toHaveLength(3);
   });
 
   it("pins JWT verification for the manual WhatsApp manager deploy", () => {

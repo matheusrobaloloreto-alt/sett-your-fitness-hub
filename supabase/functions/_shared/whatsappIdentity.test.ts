@@ -297,3 +297,28 @@ Deno.test("formats only direct phone JIDs for Evolution sendText", () => {
     throw new Error("group recipient");
   }
 });
+
+Deno.test("preserves only the exact persisted recipient for an unlinked group chat", () => {
+  const groupJid = "120363012345678@g.us";
+  const accepted = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: groupJid,
+    chatRemoteJid: groupJid,
+    chatStudentId: null,
+    requestedStudentId: null,
+    student: null,
+  });
+  if (!accepted.ok || accepted.remoteJid !== groupJid || accepted.studentId !== null) {
+    throw new Error("exact persisted group recipient was not preserved");
+  }
+
+  const rejected = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: "120363012345679@g.us",
+    chatRemoteJid: groupJid,
+    chatStudentId: null,
+    requestedStudentId: null,
+    student: null,
+  });
+  if (rejected.ok || rejected.code !== "whatsapp_recipient_mismatch") {
+    throw new Error("different unlinked group recipient was accepted");
+  }
+});

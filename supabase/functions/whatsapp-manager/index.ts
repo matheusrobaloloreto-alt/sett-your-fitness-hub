@@ -25,6 +25,12 @@ import {
   probeZapiFallback,
   safeProviderHost,
 } from "../_shared/whatsappProviderDiagnostics.ts";
+import {
+  isTransientWhatsAppEditCommitError,
+  messageEditEligibility,
+  normalizeEditedMessageText,
+  type WhatsAppMessageEditErrorCode,
+} from "../_shared/whatsappMessageEdit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -141,6 +147,19 @@ function outboundMediaError(code: string) {
       "Não foi possível validar o arquivo antes do envio.",
     code,
   };
+}
+
+function messageEditError(code: WhatsAppMessageEditErrorCode) {
+  const messages: Record<WhatsAppMessageEditErrorCode, string> = {
+    whatsapp_edit_not_outgoing: "Só é possível editar mensagens enviadas por você.",
+    whatsapp_edit_not_text: "O WhatsApp permite editar apenas mensagens de texto.",
+    whatsapp_edit_external_id_missing: "Esta mensagem ainda não foi confirmada pelo WhatsApp.",
+    whatsapp_edit_timestamp_invalid: "Não foi possível confirmar quando a mensagem foi enviada.",
+    whatsapp_edit_window_expired: "O prazo de 15 minutos para editar esta mensagem expirou.",
+    whatsapp_edit_content_invalid: "Digite uma mensagem de até 4.096 caracteres.",
+    whatsapp_edit_content_unchanged: "A mensagem não foi alterada.",
+  };
+  return { error: messages[code], code };
 }
 
 function extractExternalMessageId(payload: any): string | null {
@@ -434,7 +453,11 @@ Deno.serve(async (req) => {
       }, 503);
     }
 
-    const outboundActions = new Set(["send-message", "send-media"]);
+    const outboundActions = new Set([
+      "send-message",
+      "send-media",
+      "edit-message",
+    ]);
     if (
       outboundActions.has(action) && boundChat && !boundChat.instance_id
     ) {
@@ -445,7 +468,7 @@ Deno.serve(async (req) => {
       }, 409);
     }
 
-    // Outbound text/media must use the exact connected instance persisted on
+    // Outbound text/media/edit must use the exact connected instance persisted on
     // the chat. A new conversation is allowed only when the tenant has exactly
     // one connected instance; maybeSingle fails closed on ambiguous rows.
     let instanceQuery = adminClient
@@ -1945,6 +1968,135 @@ Deno.serve(async (req) => {
         );
 
       return json({ groups });
+    }
+
+    // ─── EDIT TEXT MESSAGE ───
+    if (action === "edit-message") {
+      const messageId = typeof body.messageId === "string"
+        ? body.messageId.trim()
+        : "";
+      if (!boundChat || !messageId) {
+        return json({
+          error: "Conversa e mensagem são obrigatórias para editar.",
+          code: "whatsapp_edit_invalid_request",
+        }, 400);
+      }
+
+      const { data: storedMessage, error: messageLookupError } =
+        await adminClient
+          .from("whatsapp_messages")
+          .select(
+            "id, chat_id, company_id, content, source, type, is_from_me, message_id_external, timestamp, created_at",
+          )
+          .eq("chat_id", boundChat.id)
+          .eq("company_id", resolvedCompanyId)
+          .eq("message_id_external", messageId)
+          .maybeSingle();
+
+      if (messageLookupError) {
+        console.error("edit-message lookup failed", {
+          code: messageLookupError.code || "database_error",
+        });
+        return json({
+          error: "Não foi possível validar a mensagem para edição.",
+          code: "whatsapp_edit_lookup_failed",
+        }, 500);
+      }
+      if (!storedMessage) {
+        return json({
+          error: "Mensagem não encontrada nesta conversa.",
+          code: "whatsapp_edit_message_not_found",
+        }, 404);
+      }
+
+      const eligibility = messageEditEligibility(storedMessage);
+      if (!eligibility.ok) {
+        return json(messageEditError(eligibility.code), 409);
+      }
+      const editedText = normalizeEditedMessageText(
+        body.content,
+        storedMessage.content,
+      );
+      if (!editedText.ok) {
+        return json(messageEditError(editedText.code), 400);
+      }
+
+      const verifiedRecipient = await verifyOutboundRecipient(
+        boundChat.remote_jid,
+        boundChat.student_id,
+      );
+      if (!verifiedRecipient.ok) {
+        return json(verifiedRecipientError(verifiedRecipient.code), 409);
+      }
+      const effectiveEditJid = verifiedRecipient.remoteJid;
+      if (!effectiveEditJid) {
+        return json({
+          error: "A conversa não possui um destinatário WhatsApp válido.",
+          code: "whatsapp_edit_recipient_missing",
+        }, 409);
+      }
+
+      const liveInstance = await verifyLiveOutboundInstance();
+      if (!liveInstance.ok) {
+        const failure = providerIssueError(liveInstance.issue);
+        return json(failure, providerIssueHttpStatus(liveInstance.issue));
+      }
+
+      const providerUrl = `${evoUrl}/chat/updateMessage/${instanceName}`;
+      const updateRes = await fetch(providerUrl, {
+        method: "POST",
+        headers: evoHeaders,
+        body: JSON.stringify({
+          number: evolutionTextRecipient(effectiveEditJid),
+          text: editedText.text,
+          key: {
+            id: messageId,
+            remoteJid: effectiveEditJid,
+            fromMe: true,
+          },
+        }),
+      });
+
+      if (!updateRes.ok) {
+        const rawBody = await updateRes.text().catch(() => "");
+        const issue = providerIssueFromResponse(updateRes.status, rawBody);
+        console.error(
+          "edit-message provider error",
+          sanitizeProviderErrorForLog(updateRes.status, issue, rawBody),
+        );
+        return json({
+          ...providerIssueError(issue),
+          details: providerErrorDetails(updateRes.status, issue, rawBody),
+        }, providerIssueHttpStatus(issue));
+      }
+
+      const commitLocalEdit = () => adminClient.rpc(
+        "commit_whatsapp_message_edit",
+        {
+          _company_id: resolvedCompanyId,
+          _chat_id: boundChat.id,
+          _message_external_id: messageId,
+          _content: editedText.text,
+          _edited_by: userId,
+        },
+      );
+      let commitResult = await commitLocalEdit();
+      if (isTransientWhatsAppEditCommitError(commitResult.error)) {
+        commitResult = await commitLocalEdit();
+      }
+      const { data: updatedMessage, error: commitError } = commitResult;
+      if (commitError || !updatedMessage) {
+        console.error("edit-message local commit failed", {
+          code: commitError?.code || "empty_result",
+        });
+        return json({
+          error:
+            "A mensagem foi editada no WhatsApp, mas a atualização local não foi confirmada. Recarregue a conversa.",
+          code: "whatsapp_edit_local_sync_pending",
+        }, 500);
+      }
+
+      return json({ success: true, message: updatedMessage });
     }
 
     // ─── DELETE MESSAGE FOR EVERYONE ───
