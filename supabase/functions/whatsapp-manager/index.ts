@@ -23,6 +23,7 @@ import {
   evolutionBaseCandidates,
   probeProviderEndpoint,
   probeZapiFallback,
+  safeProviderHost,
 } from "../_shared/whatsappProviderDiagnostics.ts";
 
 const corsHeaders = {
@@ -602,6 +603,7 @@ Deno.serve(async (req) => {
       return json({
         evolution: {
           configured: Boolean(evoUrl && evoKey),
+          host: safeProviderHost(evoUrl),
           configuredBaseHasPath: (() => {
             try {
               return new URL(evoUrl).pathname.replace(/\/+$/, "") !== "";

@@ -2,6 +2,7 @@ import {
   evolutionBaseCandidates,
   probeProviderEndpoint,
   probeZapiFallback,
+  safeProviderHost,
 } from "./whatsappProviderDiagnostics.ts";
 
 Deno.test("Evolution diagnostics test configured base and origin without exposing either URL", () => {
@@ -14,6 +15,19 @@ Deno.test("Evolution diagnostics test configured base and origin without exposin
   }
   if (candidates[1] !== "https://provider.example.test") {
     throw new Error("origin fallback was not derived");
+  }
+});
+
+Deno.test("provider host is exposed only for credential-free HTTPS URLs", () => {
+  if (
+    safeProviderHost("https://evolution.example.test/manager") !==
+      "evolution.example.test"
+  ) throw new Error("safe host was not extracted");
+  if (safeProviderHost("https://user:pass@example.test") !== null) {
+    throw new Error("credential-bearing host must remain redacted");
+  }
+  if (safeProviderHost("http://example.test") !== null) {
+    throw new Error("non-HTTPS provider host must remain redacted");
   }
 });
 

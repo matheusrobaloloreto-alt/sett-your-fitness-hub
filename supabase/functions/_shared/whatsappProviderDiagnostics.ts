@@ -36,6 +36,19 @@ export function evolutionBaseCandidates(configuredUrl: string): string[] {
   }
 }
 
+export function safeProviderHost(configuredUrl: string): string | null {
+  try {
+    const parsed = new URL(configuredUrl);
+    if (
+      parsed.protocol !== "https:" || parsed.username || parsed.password ||
+      parsed.search || parsed.hash
+    ) return null;
+    return parsed.hostname || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function probeProviderEndpoint(
   fetcher: SafeFetcher,
   url: string,
