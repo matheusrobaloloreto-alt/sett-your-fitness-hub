@@ -19,6 +19,11 @@ import {
   providerIssueFromResponse,
   type WhatsAppProviderIssue,
 } from "../_shared/whatsappProviderState.ts";
+import {
+  evolutionBaseCandidates,
+  probeProviderEndpoint,
+  probeZapiFallback,
+} from "../_shared/whatsappProviderDiagnostics.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -296,6 +301,7 @@ Deno.serve(async (req) => {
       "restart-connection",
       "disconnect",
       "check-status",
+      "provider-diagnostics",
       "refresh-qr",
       "disable-external-bot",
       "fetch-bot-settings",
@@ -308,6 +314,9 @@ Deno.serve(async (req) => {
     const evoUrl = Deno.env.get("EVOLUTION_API_URL") || "";
     const evoKey = Deno.env.get("EVOLUTION_API_KEY") || "";
     const webhookSecret = Deno.env.get("WHATSAPP_WEBHOOK_SECRET") || "";
+    const zapiInstanceId = Deno.env.get("ZAPI_INSTANCE_ID") || "";
+    const zapiToken = Deno.env.get("ZAPI_TOKEN") || "";
+    const zapiClientToken = Deno.env.get("ZAPI_CLIENT_TOKEN") || "";
 
     const evoHeaders: Record<string, string> = {
       "Content-Type": "application/json",
@@ -411,7 +420,10 @@ Deno.serve(async (req) => {
       return json(updatedChat);
     }
 
-    if (!evoUrl || !evoKey || !webhookSecret) {
+    if (
+      action !== "provider-diagnostics" &&
+      (!evoUrl || !evoKey || !webhookSecret)
+    ) {
       if (action === "check-status") {
         return json({ status: "not_configured", configured: false });
       }
@@ -437,7 +449,7 @@ Deno.serve(async (req) => {
     // one connected instance; maybeSingle fails closed on ambiguous rows.
     let instanceQuery = adminClient
       .from("whatsapp_instances")
-      .select("id, instance_name, status")
+      .select("id, instance_name, status, phone_number")
       .eq("company_id", resolvedCompanyId);
     if (outboundActions.has(action)) {
       instanceQuery = instanceQuery.eq("status", "connected");
@@ -558,6 +570,51 @@ Deno.serve(async (req) => {
       return { ok: true as const };
     };
 
+    // Admin-only, read-only diagnostics. It intentionally returns no URLs,
+    // provider bodies, phone numbers, instance identifiers or secret values.
+    if (action === "provider-diagnostics") {
+      const candidates = evolutionBaseCandidates(evoUrl);
+      const evolution = await Promise.all(
+        candidates.map(async (candidate, index) => ({
+          candidate: index === 0 ? "configured" : "origin",
+          fetchInstances: await probeProviderEndpoint(
+            fetch,
+            `${candidate}/instance/fetchInstances`,
+            evoHeaders,
+          ),
+          connectionState: await probeProviderEndpoint(
+            fetch,
+            `${candidate}/instance/connectionState/${
+              encodeURIComponent(instanceName)
+            }`,
+            evoHeaders,
+          ),
+        })),
+      );
+
+      const zapi = await probeZapiFallback({
+        instanceId: zapiInstanceId,
+        token: zapiToken,
+        clientToken: zapiClientToken,
+        expectedPhone: instanceRow?.phone_number || null,
+      });
+
+      return json({
+        evolution: {
+          configured: Boolean(evoUrl && evoKey),
+          configuredBaseHasPath: (() => {
+            try {
+              return new URL(evoUrl).pathname.replace(/\/+$/, "") !== "";
+            } catch {
+              return false;
+            }
+          })(),
+          candidates: evolution,
+        },
+        zapi,
+      });
+    }
+
     // ─── Helper: create fresh instance ───
     const createFreshInstance = async () => {
       console.log("[createFreshInstance] Creating instance:", instanceName);
@@ -585,7 +642,15 @@ Deno.serve(async (req) => {
 
       if (!createRes.ok) {
         const errText = await createRes.text();
-        return json({ error: "Evolution API error", details: errText }, 502);
+        const issue = providerIssueFromResponse(createRes.status, errText);
+        console.error(
+          "[createFreshInstance] provider error:",
+          sanitizeProviderErrorForLog(createRes.status, issue, errText),
+        );
+        return json({
+          ...providerIssueError(issue),
+          error: "Não foi possível iniciar a conexão do WhatsApp no provedor.",
+        }, providerIssueHttpStatus(issue));
       }
 
       const createData = await createRes.json();
