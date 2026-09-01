@@ -67,6 +67,21 @@ describe("WhatsApp recipient safety contracts", () => {
     expect(managerSource).not.toContain(
       'json({ error: "Evolution API error", details: errText }',
     );
+    expect(managerSource).not.toMatch(/details:\s*errText/);
+    expect(managerSource).not.toMatch(
+      /console\.(?:error|warn)\([^\n]*errText/,
+    );
+    expect(managerSource).not.toContain("details: webhookError,");
+    expect(managerSource).toContain(
+      '"configure-history-sync webhook provider error:",',
+    );
+    expect(managerSource).toContain(
+      "providerErrorDetails(\n          webhookUpdate.status,",
+    );
+    expect(managerSource).not.toContain("JSON.stringify(createData)");
+    expect(managerSource).toContain(
+      '"[createFreshInstance] provider response:",',
+    );
   });
 
   it("validates a new conversation against the student's registered phone", () => {

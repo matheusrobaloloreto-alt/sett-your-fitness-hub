@@ -657,8 +657,11 @@ Deno.serve(async (req) => {
 
       const createData = await createRes.json();
       console.log(
-        "[createFreshInstance] Response:",
-        JSON.stringify(createData),
+        "[createFreshInstance] provider response:",
+        {
+          state: providerConnectionState(createData),
+          hasQr: Boolean(createData?.qrcode?.base64),
+        },
       );
       await persistInstance({
         status: "waiting_qr",
@@ -729,10 +732,10 @@ Deno.serve(async (req) => {
 
       if (!connectRes.ok) {
         const errText = await connectRes.text();
+        const issue = providerIssueFromResponse(connectRes.status, errText);
         console.error(
           "[init-connection] connect failed:",
-          connectRes.status,
-          errText,
+          sanitizeProviderErrorForLog(connectRes.status, issue, errText),
         );
         // Connection endpoint failed — destroy and recreate
         await destroyInstance();
@@ -742,7 +745,10 @@ Deno.serve(async (req) => {
       const connectData = await connectRes.json();
       console.log(
         "[init-connection] connect response:",
-        JSON.stringify(connectData),
+        {
+          state: providerConnectionState(connectData),
+          hasQr: Boolean(connectData?.base64 || connectData?.qrcode?.base64),
+        },
       );
 
       const qr = connectData?.base64 || connectData?.qrcode?.base64 || null;
@@ -925,9 +931,18 @@ Deno.serve(async (req) => {
         },
       );
       if (!settingsUpdate.ok) {
+        const rawBody = await settingsUpdate.text().catch(() => "");
+        const issue = providerIssueFromResponse(
+          settingsUpdate.status,
+          rawBody,
+        );
+        console.error(
+          "configure-history-sync provider error:",
+          sanitizeProviderErrorForLog(settingsUpdate.status, issue, rawBody),
+        );
         return json({
           error: "Failed to enable WhatsApp history",
-          details: await settingsUpdate.text(),
+          details: providerErrorDetails(settingsUpdate.status, issue, rawBody),
         }, 502);
       }
 
@@ -963,7 +978,7 @@ Deno.serve(async (req) => {
         },
       ];
       let webhookConfigured = false;
-      let webhookError = "";
+      let webhookErrorDetails = "provider_status_0:whatsapp_provider_failure";
       for (const payload of webhookPayloads) {
         const webhookUpdate = await fetch(
           `${evoUrl}/webhook/set/${instanceName}`,
@@ -977,12 +992,29 @@ Deno.serve(async (req) => {
           webhookConfigured = true;
           break;
         }
-        webhookError = await webhookUpdate.text();
+        const webhookRawBody = await webhookUpdate.text().catch(() => "");
+        const webhookIssue = providerIssueFromResponse(
+          webhookUpdate.status,
+          webhookRawBody,
+        );
+        console.error(
+          "configure-history-sync webhook provider error:",
+          sanitizeProviderErrorForLog(
+            webhookUpdate.status,
+            webhookIssue,
+            webhookRawBody,
+          ),
+        );
+        webhookErrorDetails = providerErrorDetails(
+          webhookUpdate.status,
+          webhookIssue,
+          webhookRawBody,
+        );
       }
       if (!webhookConfigured) {
         return json({
           error: "Failed to configure WhatsApp history webhook",
-          details: webhookError,
+          details: webhookErrorDetails,
         }, 502);
       }
       return json({ success: true, syncFullHistory: true });
@@ -1659,8 +1691,15 @@ Deno.serve(async (req) => {
 
         if (!res.ok) {
           const errText = await res.text();
-          console.error(`fetch-media ${label} failed:`, res.status, errText);
-          return { ok: false as const, errText };
+          const issue = providerIssueFromResponse(res.status, errText);
+          console.error(
+            `fetch-media ${label} failed:`,
+            sanitizeProviderErrorForLog(res.status, issue, errText),
+          );
+          return {
+            ok: false as const,
+            errorDetails: providerErrorDetails(res.status, issue, errText),
+          };
         }
 
         const mediaData = await res.json();
@@ -1668,7 +1707,10 @@ Deno.serve(async (req) => {
           return { ok: true as const, mediaData };
         }
 
-        return { ok: false as const, errText: "No base64 returned" };
+        return {
+          ok: false as const,
+          errorDetails: "provider_status_200:media_unavailable",
+        };
       };
 
       const persistFetchedMedia = async (mediaData: any) => {
@@ -1739,8 +1781,11 @@ Deno.serve(async (req) => {
 
       let attempt: { ok: true; mediaData: any } | {
         ok: false;
-        errText: string;
-      } = { ok: false, errText: "Unknown media fetch error" };
+        errorDetails: string;
+      } = {
+        ok: false,
+        errorDetails: "provider_status_0:media_unavailable",
+      };
 
       for (const current of payloadAttempts) {
         attempt = await tryGetBase64(current.payload, current.label);
@@ -1826,7 +1871,7 @@ Deno.serve(async (req) => {
         base64: null,
         mimetype: null,
         error: "Media unavailable",
-        details: attempt.errText || "Unknown media fetch error",
+        details: attempt.errorDetails,
       });
     }
 
@@ -1937,9 +1982,16 @@ Deno.serve(async (req) => {
 
       if (!deleteRes.ok) {
         const errText = await deleteRes.text();
-        console.error("delete-message error:", errText);
+        const issue = providerIssueFromResponse(deleteRes.status, errText);
+        console.error(
+          "delete-message error:",
+          sanitizeProviderErrorForLog(deleteRes.status, issue, errText),
+        );
         return json(
-          { error: "Failed to delete message", details: errText },
+          {
+            error: "Failed to delete message",
+            details: providerErrorDetails(deleteRes.status, issue, errText),
+          },
           502,
         );
       }
