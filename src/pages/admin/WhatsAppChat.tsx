@@ -2378,7 +2378,12 @@ export default function WhatsAppChat() {
                   <div className="flex gap-1 items-center flex-wrap">
                     <Popover>
                       <PopoverTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-8 gap-1.5 rounded-full text-xs">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1.5 rounded-full text-xs"
+                          aria-label="Abrir pré-cadastro"
+                        >
                           <ClipboardList className="h-3.5 w-3.5" />
                           <span className="hidden lg:inline">Pré-cadastro</span>
                           <ChevronDown className="h-3.5 w-3.5" />
@@ -2387,13 +2392,14 @@ export default function WhatsAppChat() {
                       <PopoverContent
                         align="end"
                         sideOffset={8}
-                        className="w-[min(94vw,48rem)] overflow-hidden rounded-3xl border-border bg-card p-0 shadow-xl"
+                        collisionPadding={8}
+                        className="flex max-h-[min(var(--radix-popover-content-available-height,calc(100dvh-1rem)),calc(100dvh-1rem))] w-[min(94vw,48rem)] flex-col overflow-hidden rounded-3xl border-border bg-card p-0 shadow-xl"
                       >
-                        <div className="border-b border-border px-4 py-3">
+                        <div className="shrink-0 border-b border-border px-4 py-3">
                           <p className="font-display text-lg text-primary">Pré-cadastro completo</p>
                           <p className="text-xs text-muted-foreground">Informações usadas no atendimento, avaliação e prescrição.</p>
                         </div>
-                        <ScrollArea className="max-h-[72vh]">
+                        <ScrollArea className="min-h-0 flex-1">
                           <PreRegistrationDetails
                             data={selectedPreRegistration}
                             loading={preRegistrationLoading}
