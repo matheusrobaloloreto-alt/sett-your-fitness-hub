@@ -14,6 +14,11 @@ import {
   resolveOutboundWhatsAppMediaType,
   validateOutboundWhatsAppMedia,
 } from "../_shared/whatsappMedia.ts";
+import {
+  providerConnectionState,
+  providerIssueFromResponse,
+  type WhatsAppProviderIssue,
+} from "../_shared/whatsappProviderState.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,62 +33,112 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function providerSendError(status: number) {
-  if (status === 400 || status === 404) {
+function providerIssueError(issue: WhatsAppProviderIssue) {
+  if (
+    issue === "whatsapp_instance_not_connected" ||
+    issue === "whatsapp_instance_missing"
+  ) {
     return {
-      error: "O WhatsApp recusou o destinatário. Confirme o número vinculado à conversa e tente novamente.",
-      code: "whatsapp_recipient_rejected",
+      error:
+        "A conexão do WhatsApp caiu. Abra Configurações > WhatsApp e reconecte o número.",
+      code: issue,
     };
   }
-  if (status === 401 || status === 403) {
+  if (issue === "whatsapp_recipient_rejected") {
     return {
-      error: "A integração do WhatsApp perdeu a autorização. Reconecte a instância nas configurações.",
-      code: "whatsapp_provider_unauthorized",
+      error:
+        "O WhatsApp recusou o destinatário. Confirme o número vinculado à conversa e tente novamente.",
+      code: issue,
     };
   }
-  if (status === 408 || status === 429) {
+  if (issue === "whatsapp_provider_unauthorized") {
     return {
-      error: "O provedor do WhatsApp está ocupado. Aguarde alguns instantes e tente novamente.",
-      code: "whatsapp_provider_busy",
+      error:
+        "A integração do WhatsApp perdeu a autorização. Reconecte a instância nas configurações.",
+      code: issue,
+    };
+  }
+  if (issue === "whatsapp_provider_busy") {
+    return {
+      error:
+        "O provedor do WhatsApp está ocupado. Aguarde alguns instantes e tente novamente.",
+      code: issue,
+    };
+  }
+  if (issue === "whatsapp_provider_invalid_payload") {
+    return {
+      error:
+        "A integração do WhatsApp recusou o formato da mensagem. A equipe técnica precisa revisar o conector.",
+      code: issue,
     };
   }
   return {
-    error: "O provedor do WhatsApp não conseguiu enviar a mensagem. Verifique a conexão da instância.",
-    code: "whatsapp_provider_failure",
+    error:
+      "O provedor do WhatsApp não conseguiu enviar a mensagem. Verifique a conexão da instância.",
+    code: issue,
   };
+}
+
+function providerSendError(status: number, rawBody = "") {
+  return providerIssueError(providerIssueFromResponse(status, rawBody));
+}
+
+function providerIssueHttpStatus(issue: WhatsAppProviderIssue) {
+  if (
+    issue === "whatsapp_instance_not_connected" ||
+    issue === "whatsapp_instance_missing"
+  ) return 409;
+  if (issue === "whatsapp_provider_busy") return 503;
+  return 502;
 }
 
 function verifiedRecipientError(code: string) {
   const messages: Record<string, string> = {
-    whatsapp_student_mismatch: "A conversa selecionada não pertence ao aluno informado.",
-    whatsapp_student_not_found: "O aluno vinculado à conversa não foi encontrado nesta empresa.",
-    whatsapp_student_phone_missing: "O aluno vinculado não possui um telefone válido para WhatsApp.",
-    whatsapp_student_phone_ambiguous: "O cadastro do aluno possui telefones divergentes. Revise o contato antes de enviar.",
-    whatsapp_stored_recipient_mismatch: "O destinatário salvo nesta conversa diverge do telefone do aluno. Envio bloqueado para revisão.",
-    whatsapp_recipient_mismatch: "A conversa mudou de destinatário antes do envio. Reabra o contato e tente novamente.",
+    whatsapp_student_mismatch:
+      "A conversa selecionada não pertence ao aluno informado.",
+    whatsapp_student_not_found:
+      "O aluno vinculado à conversa não foi encontrado nesta empresa.",
+    whatsapp_student_phone_missing:
+      "O aluno vinculado não possui um telefone válido para WhatsApp.",
+    whatsapp_student_phone_ambiguous:
+      "O cadastro do aluno possui telefones divergentes. Revise o contato antes de enviar.",
+    whatsapp_stored_recipient_mismatch:
+      "O destinatário salvo nesta conversa diverge do telefone do aluno. Envio bloqueado para revisão.",
+    whatsapp_recipient_mismatch:
+      "A conversa mudou de destinatário antes do envio. Reabra o contato e tente novamente.",
   };
   return {
-    error: messages[code] || "Não foi possível confirmar com segurança o destinatário.",
+    error: messages[code] ||
+      "Não foi possível confirmar com segurança o destinatário.",
     code,
   };
 }
 
 function outboundMediaError(code: string) {
   const messages: Record<string, string> = {
-    whatsapp_media_invalid_reference: "O arquivo enviado não pertence a uma origem permitida.",
-    whatsapp_media_scope_mismatch: "O arquivo não pertence a esta empresa, conversa ou aluno.",
-    whatsapp_media_missing: "O arquivo não foi encontrado ou ainda não terminou de carregar.",
+    whatsapp_media_invalid_reference:
+      "O arquivo enviado não pertence a uma origem permitida.",
+    whatsapp_media_scope_mismatch:
+      "O arquivo não pertence a esta empresa, conversa ou aluno.",
+    whatsapp_media_missing:
+      "O arquivo não foi encontrado ou ainda não terminou de carregar.",
     whatsapp_media_too_large: "O arquivo ultrapassa o limite de 512 MB.",
-    whatsapp_media_mime_mismatch: "O tipo real do arquivo diverge do tipo informado.",
-    whatsapp_media_delivery_type_mismatch: "A forma de envio não corresponde ao tipo real e ao tamanho do arquivo.",
-    whatsapp_media_unsupported_type: "Este tipo de arquivo não é permitido para envio.",
+    whatsapp_media_mime_mismatch:
+      "O tipo real do arquivo diverge do tipo informado.",
+    whatsapp_media_delivery_type_mismatch:
+      "A forma de envio não corresponde ao tipo real e ao tamanho do arquivo.",
+    whatsapp_media_unsupported_type:
+      "Este tipo de arquivo não é permitido para envio.",
   };
-  return { error: messages[code] || "Não foi possível validar o arquivo antes do envio.", code };
+  return {
+    error: messages[code] ||
+      "Não foi possível validar o arquivo antes do envio.",
+    code,
+  };
 }
 
 function extractExternalMessageId(payload: any): string | null {
-  const candidate =
-    payload?.key?.id ||
+  const candidate = payload?.key?.id ||
     payload?.message?.key?.id ||
     payload?.data?.key?.id ||
     payload?.id ||
@@ -105,11 +160,16 @@ function truncatePreview(value: unknown): string | null {
   return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 }
 
-function buildQuotedMessage(preview: string | null, type?: string | null): Record<string, unknown> {
+function buildQuotedMessage(
+  preview: string | null,
+  type?: string | null,
+): Record<string, unknown> {
   if (type === "image") return { imageMessage: { caption: preview || "" } };
   if (type === "video") return { videoMessage: { caption: preview || "" } };
   if (type === "audio") return { audioMessage: {} };
-  if (type === "document") return { documentMessage: { fileName: preview || "arquivo" } };
+  if (type === "document") {
+    return { documentMessage: { fileName: preview || "arquivo" } };
+  }
   if (type === "sticker") return { stickerMessage: {} };
   return { conversation: preview || "Mensagem" };
 }
@@ -124,14 +184,17 @@ function extensionFromMime(mimetype: string | null) {
   if (mimetype.includes("opus")) return "ogg";
   if (mimetype.includes("mpeg")) return "mp3";
   if (mimetype.includes("pdf")) return "pdf";
-  return mimetype.split("/")[1]?.split(";")[0]?.replace(/[^a-z0-9]/gi, "") || "bin";
+  return mimetype.split("/")[1]?.split(";")[0]?.replace(/[^a-z0-9]/gi, "") ||
+    "bin";
 }
 
 function decodeBase64(base64: string) {
   const clean = base64.includes(",") ? base64.split(",").pop() || "" : base64;
   const binary = atob(clean);
   const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
   return bytes;
 }
 
@@ -156,44 +219,69 @@ async function persistRemoteFile(args: {
     .from(args.bucket)
     .upload(pathWithExtension, bytes, { contentType, upsert: true });
   if (uploadError) {
-    console.error("remote file persistence upload failed:", uploadError.message);
+    console.error(
+      "remote file persistence upload failed:",
+      uploadError.message,
+    );
     return null;
   }
 
   const { data: signed } = await args.adminClient.storage
     .from(args.bucket)
-    .createSignedUrl(pathWithExtension, args.signedSeconds || 60 * 60 * 24 * 30);
+    .createSignedUrl(
+      pathWithExtension,
+      args.signedSeconds || 60 * 60 * 24 * 30,
+    );
   return signed?.signedUrl || null;
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
+    if (!authHeader?.startsWith("Bearer ")) {
+      return json({ error: "Unauthorized" }, 401);
+    }
 
     const anonClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
+      { global: { headers: { Authorization: authHeader } } },
     );
 
     const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) return json({ error: "Unauthorized" }, 401);
+    const { data: claimsData, error: claimsError } = await anonClient.auth
+      .getClaims(token);
+    if (claimsError || !claimsData?.claims) {
+      return json({ error: "Unauthorized" }, 401);
+    }
 
     const userId = claimsData.claims.sub as string;
 
     const adminClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const { data: hasAdmin } = await adminClient.rpc("has_role", { _user_id: userId, _role: "admin" });
-    const { data: hasMaster } = await adminClient.rpc("has_role", { _user_id: userId, _role: "master" });
-    const { data: hasCoord } = await adminClient.rpc("has_role", { _user_id: userId, _role: "coordinator" });
-    const { data: hasTrainer } = await adminClient.rpc("has_role", { _user_id: userId, _role: "trainer" });
+    const { data: hasAdmin } = await adminClient.rpc("has_role", {
+      _user_id: userId,
+      _role: "admin",
+    });
+    const { data: hasMaster } = await adminClient.rpc("has_role", {
+      _user_id: userId,
+      _role: "master",
+    });
+    const { data: hasCoord } = await adminClient.rpc("has_role", {
+      _user_id: userId,
+      _role: "coordinator",
+    });
+    const { data: hasTrainer } = await adminClient.rpc("has_role", {
+      _user_id: userId,
+      _role: "trainer",
+    });
 
     const isPrivileged = !!(hasAdmin || hasMaster);
     const canChat = isPrivileged || !!hasCoord || !!hasTrainer;
@@ -204,8 +292,13 @@ Deno.serve(async (req) => {
 
     // Restrict instance/admin actions to admin/master only
     const adminOnlyActions = new Set([
-      "init-connection", "restart-connection", "disconnect", "check-status",
-      "refresh-qr", "disable-external-bot", "fetch-bot-settings",
+      "init-connection",
+      "restart-connection",
+      "disconnect",
+      "check-status",
+      "refresh-qr",
+      "disable-external-bot",
+      "fetch-bot-settings",
       "configure-history-sync",
     ]);
     if (adminOnlyActions.has(action) && !isPrivileged) {
@@ -222,7 +315,10 @@ Deno.serve(async (req) => {
     };
 
     // Resolve the user's own company once (used for defaulting + tenant validation).
-    const { data: userCompanyId } = await adminClient.rpc("get_user_company_id", { _user_id: userId });
+    const { data: userCompanyId } = await adminClient.rpc(
+      "get_user_company_id",
+      { _user_id: userId },
+    );
 
     // Resolve target company; default to the user's own company when not provided.
     const resolvedCompanyId = bodyCompanyId || userCompanyId || null;
@@ -251,13 +347,22 @@ Deno.serve(async (req) => {
         .eq("id", body.chatId)
         .eq("company_id", resolvedCompanyId)
         .maybeSingle();
-      if (!chatRow) return json({ error: "Forbidden: chat not in company" }, 403);
+      if (!chatRow) {
+        return json({ error: "Forbidden: chat not in company" }, 403);
+      }
       boundChat = chatRow;
     }
 
-    const verifyOutboundRecipient = async (clientRemoteJid: unknown, requestedStudentId?: unknown) => {
-      const expectedStudentId = String(requestedStudentId || boundChat?.student_id || "").trim();
-      let student: { id: string; phone: string | null; whatsapp: string | null } | null = null;
+    const verifyOutboundRecipient = async (
+      clientRemoteJid: unknown,
+      requestedStudentId?: unknown,
+    ) => {
+      const expectedStudentId = String(
+        requestedStudentId || boundChat?.student_id || "",
+      ).trim();
+      let student:
+        | { id: string; phone: string | null; whatsapp: string | null }
+        | null = null;
       if (expectedStudentId) {
         const { data, error } = await adminClient
           .from("students")
@@ -265,7 +370,11 @@ Deno.serve(async (req) => {
           .eq("id", expectedStudentId)
           .eq("company_id", resolvedCompanyId)
           .maybeSingle();
-        if (error) throw new Error(`Failed to verify WhatsApp student identity: ${error.message}`);
+        if (error) {
+          throw new Error(
+            `Failed to verify WhatsApp student identity: ${error.message}`,
+          );
+        }
         student = data;
       }
       return resolveVerifiedWhatsAppRecipient({
@@ -293,7 +402,10 @@ Deno.serve(async (req) => {
         .select("id, unread_count")
         .single();
       if (updateError) {
-        console.error("Failed to update WhatsApp read state:", updateError.message);
+        console.error(
+          "Failed to update WhatsApp read state:",
+          updateError.message,
+        );
         return json({ error: "Failed to update read state" }, 500);
       }
       return json(updatedChat);
@@ -314,7 +426,8 @@ Deno.serve(async (req) => {
       outboundActions.has(action) && boundChat && !boundChat.instance_id
     ) {
       return json({
-        error: "A conversa não possui uma instância WhatsApp vinculada. Reimporte ou reconecte o contato antes de enviar.",
+        error:
+          "A conversa não possui uma instância WhatsApp vinculada. Reimporte ou reconecte o contato antes de enviar.",
         code: "whatsapp_instance_not_connected",
       }, 409);
     }
@@ -334,21 +447,26 @@ Deno.serve(async (req) => {
     } else {
       instanceQuery = instanceQuery.limit(1);
     }
-    const { data: instanceRow, error: instanceLookupError } = await instanceQuery
-      .maybeSingle();
+    const { data: instanceRow, error: instanceLookupError } =
+      await instanceQuery
+        .maybeSingle();
     if (
       outboundActions.has(action) && (instanceLookupError || !instanceRow)
     ) {
       return json({
-        error: "A instância WhatsApp vinculada à conversa não está conectada ou é ambígua.",
+        error:
+          "A instância WhatsApp vinculada à conversa não está conectada ou é ambígua.",
         code: "whatsapp_instance_not_connected",
       }, 409);
     }
     if (instanceLookupError) {
-      throw new Error(`Failed to load WhatsApp instance: ${instanceLookupError.message}`);
+      throw new Error(
+        `Failed to load WhatsApp instance: ${instanceLookupError.message}`,
+      );
     }
 
-    const instanceName = instanceRow?.instance_name || `company-${resolvedCompanyId}`;
+    const instanceName = instanceRow?.instance_name ||
+      `company-${resolvedCompanyId}`;
     let persistedInstanceId = instanceRow?.id || null;
 
     const persistInstance = async (patch: Record<string, unknown>) => {
@@ -374,15 +492,78 @@ Deno.serve(async (req) => {
 
       const { data, error } = await query;
       if (error) {
-        throw new Error(`Failed to persist WhatsApp instance: ${error.message}`);
+        throw new Error(
+          `Failed to persist WhatsApp instance: ${error.message}`,
+        );
       }
       if (data?.id) persistedInstanceId = data.id;
+    };
+
+    const verifyLiveOutboundInstance = async () => {
+      let response: Response;
+      try {
+        response = await fetch(
+          `${evoUrl}/instance/connectionState/${instanceName}`,
+          {
+            headers: evoHeaders,
+          },
+        );
+      } catch {
+        return {
+          ok: false as const,
+          issue: "whatsapp_provider_failure" as WhatsAppProviderIssue,
+        };
+      }
+
+      const rawBody = await response.text().catch(() => "");
+      if (!response.ok) {
+        const issue = response.status === 404
+          ? "whatsapp_instance_missing" as const
+          : providerIssueFromResponse(response.status, rawBody);
+        if (
+          issue === "whatsapp_instance_not_connected" ||
+          issue === "whatsapp_instance_missing"
+        ) {
+          await persistInstance({
+            status: "disconnected",
+            phone_number: null,
+            qr_code: null,
+          });
+        }
+        return { ok: false as const, issue };
+      }
+
+      let payload: unknown = null;
+      try {
+        payload = rawBody ? JSON.parse(rawBody) : null;
+      } catch {
+        return {
+          ok: false as const,
+          issue: "whatsapp_provider_failure" as WhatsAppProviderIssue,
+        };
+      }
+
+      const state = providerConnectionState(payload);
+      if (state !== "connected") {
+        await persistInstance({
+          status: state,
+          phone_number: null,
+          ...(state === "disconnected" ? { qr_code: null } : {}),
+        });
+        return {
+          ok: false as const,
+          issue: "whatsapp_instance_not_connected" as WhatsAppProviderIssue,
+        };
+      }
+      return { ok: true as const };
     };
 
     // ─── Helper: create fresh instance ───
     const createFreshInstance = async () => {
       console.log("[createFreshInstance] Creating instance:", instanceName);
-      const webhookUrl = new URL(`${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-webhook`);
+      const webhookUrl = new URL(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-webhook`,
+      );
       webhookUrl.searchParams.set("token", webhookSecret);
       const createRes = await fetch(`${evoUrl}/instance/create`, {
         method: "POST",
@@ -408,7 +589,10 @@ Deno.serve(async (req) => {
       }
 
       const createData = await createRes.json();
-      console.log("[createFreshInstance] Response:", JSON.stringify(createData));
+      console.log(
+        "[createFreshInstance] Response:",
+        JSON.stringify(createData),
+      );
       await persistInstance({
         status: "waiting_qr",
         qr_code: createData?.qrcode?.base64 || null,
@@ -441,9 +625,12 @@ Deno.serve(async (req) => {
       let existsInEvo = false;
       let evoState = "close";
       try {
-        const checkRes = await fetch(`${evoUrl}/instance/connectionState/${instanceName}`, {
-          headers: evoHeaders,
-        });
+        const checkRes = await fetch(
+          `${evoUrl}/instance/connectionState/${instanceName}`,
+          {
+            headers: evoHeaders,
+          },
+        );
         if (checkRes.ok) {
           existsInEvo = true;
           const checkData = await checkRes.json();
@@ -462,28 +649,43 @@ Deno.serve(async (req) => {
       }
 
       // Try to connect existing instance
-      console.log("[init-connection] Connecting existing instance:", instanceName);
-      const connectRes = await fetch(`${evoUrl}/instance/connect/${instanceName}`, {
-        headers: evoHeaders,
-      });
+      console.log(
+        "[init-connection] Connecting existing instance:",
+        instanceName,
+      );
+      const connectRes = await fetch(
+        `${evoUrl}/instance/connect/${instanceName}`,
+        {
+          headers: evoHeaders,
+        },
+      );
 
       if (!connectRes.ok) {
         const errText = await connectRes.text();
-        console.error("[init-connection] connect failed:", connectRes.status, errText);
+        console.error(
+          "[init-connection] connect failed:",
+          connectRes.status,
+          errText,
+        );
         // Connection endpoint failed — destroy and recreate
         await destroyInstance();
         return await createFreshInstance();
       }
 
       const connectData = await connectRes.json();
-      console.log("[init-connection] connect response:", JSON.stringify(connectData));
+      console.log(
+        "[init-connection] connect response:",
+        JSON.stringify(connectData),
+      );
 
       const qr = connectData?.base64 || connectData?.qrcode?.base64 || null;
       const state = connectData?.instance?.state || "waiting_qr";
 
       // If stuck (no QR and not open), destroy and recreate
       if (state !== "open" && !qr) {
-        console.log("[init-connection] Instance stuck without QR, destroying and recreating...");
+        console.log(
+          "[init-connection] Instance stuck without QR, destroying and recreating...",
+        );
         await destroyInstance();
         return await createFreshInstance();
       }
@@ -511,7 +713,7 @@ Deno.serve(async (req) => {
       });
 
       // Small delay to let Evolution clean up
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 1000));
 
       return await createFreshInstance();
     }
@@ -519,7 +721,10 @@ Deno.serve(async (req) => {
     // ─── REFRESH QR (re-fetch a new QR for an existing waiting instance) ───
     if (action === "refresh-qr") {
       try {
-        const connectRes = await fetch(`${evoUrl}/instance/connect/${instanceName}`, { headers: evoHeaders });
+        const connectRes = await fetch(
+          `${evoUrl}/instance/connect/${instanceName}`,
+          { headers: evoHeaders },
+        );
         if (!connectRes.ok) {
           // instance probably gone — recreate
           return await createFreshInstance();
@@ -538,7 +743,10 @@ Deno.serve(async (req) => {
           qr_code: qr,
         });
 
-        return json({ status: state === "open" ? "connected" : "waiting_qr", qrcode: qr });
+        return json({
+          status: state === "open" ? "connected" : "waiting_qr",
+          qrcode: qr,
+        });
       } catch (err) {
         console.error("[refresh-qr] error:", err);
         return json({ error: "Failed to refresh QR" }, 502);
@@ -547,29 +755,45 @@ Deno.serve(async (req) => {
 
     // ─── CHECK STATUS ───
     if (action === "check-status") {
-      const stateRes = await fetch(`${evoUrl}/instance/connectionState/${instanceName}`, {
-        headers: evoHeaders,
-      });
+      const stateRes = await fetch(
+        `${evoUrl}/instance/connectionState/${instanceName}`,
+        {
+          headers: evoHeaders,
+        },
+      );
 
       if (!stateRes.ok) {
-        return json({ status: "disconnected" });
+        const rawBody = await stateRes.text().catch(() => "");
+        const issue = stateRes.status === 404
+          ? "whatsapp_instance_missing" as const
+          : providerIssueFromResponse(stateRes.status, rawBody);
+        await persistInstance({
+          status: "disconnected",
+          phone_number: null,
+          qr_code: null,
+        });
+        return json({ status: "disconnected", code: issue });
       }
 
       const stateData = await stateRes.json();
-      const state = stateData?.instance?.state || "close";
-      const mappedStatus = state === "open" ? "connected" : state === "connecting" ? "waiting_qr" : "disconnected";
+      const mappedStatus = providerConnectionState(stateData);
 
       let connectedPhone: string | null = null;
       if (mappedStatus === "connected") {
         try {
           const detailsRes = await fetch(
-            `${evoUrl}/instance/fetchInstances?instanceName=${encodeURIComponent(instanceName)}`,
+            `${evoUrl}/instance/fetchInstances?instanceName=${
+              encodeURIComponent(instanceName)
+            }`,
             { headers: evoHeaders },
           );
           if (detailsRes.ok) {
             const detailsData = await detailsRes.json();
-            const details = Array.isArray(detailsData) ? detailsData[0] : detailsData;
-            const owner = details?.ownerJid || details?.instance?.owner || details?.owner || null;
+            const details = Array.isArray(detailsData)
+              ? detailsData[0]
+              : detailsData;
+            const owner = details?.ownerJid || details?.instance?.owner ||
+              details?.owner || null;
             connectedPhone = owner ? String(owner).replace(/\D/g, "") : null;
           }
         } catch (error) {
@@ -606,31 +830,43 @@ Deno.serve(async (req) => {
     // Keeps future reconnects capable of restoring WhatsApp history without
     // resetting the currently connected instance.
     if (action === "configure-history-sync") {
-      const settingsResponse = await fetch(`${evoUrl}/settings/find/${instanceName}`, {
-        headers: evoHeaders,
-      });
+      const settingsResponse = await fetch(
+        `${evoUrl}/settings/find/${instanceName}`,
+        {
+          headers: evoHeaders,
+        },
+      );
       const settingsPayload = settingsResponse.ok
         ? await settingsResponse.json().catch(() => ({}))
         : {};
-      const currentSettings = settingsPayload?.settings || settingsPayload || {};
-      const settingsUpdate = await fetch(`${evoUrl}/settings/set/${instanceName}`, {
-        method: "POST",
-        headers: evoHeaders,
-        body: JSON.stringify({
-          rejectCall: currentSettings.rejectCall === true,
-          msgCall: currentSettings.msgCall || "",
-          groupsIgnore: currentSettings.groupsIgnore === true,
-          alwaysOnline: currentSettings.alwaysOnline === true,
-          readMessages: currentSettings.readMessages === true,
-          readStatus: currentSettings.readStatus === true,
-          syncFullHistory: true,
-        }),
-      });
+      const currentSettings = settingsPayload?.settings || settingsPayload ||
+        {};
+      const settingsUpdate = await fetch(
+        `${evoUrl}/settings/set/${instanceName}`,
+        {
+          method: "POST",
+          headers: evoHeaders,
+          body: JSON.stringify({
+            rejectCall: currentSettings.rejectCall === true,
+            msgCall: currentSettings.msgCall || "",
+            groupsIgnore: currentSettings.groupsIgnore === true,
+            alwaysOnline: currentSettings.alwaysOnline === true,
+            readMessages: currentSettings.readMessages === true,
+            readStatus: currentSettings.readStatus === true,
+            syncFullHistory: true,
+          }),
+        },
+      );
       if (!settingsUpdate.ok) {
-        return json({ error: "Failed to enable WhatsApp history", details: await settingsUpdate.text() }, 502);
+        return json({
+          error: "Failed to enable WhatsApp history",
+          details: await settingsUpdate.text(),
+        }, 502);
       }
 
-      const webhookUrl = new URL(`${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-webhook`);
+      const webhookUrl = new URL(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-webhook`,
+      );
       webhookUrl.searchParams.set("token", webhookSecret);
       const webhookPayloads = [
         {
@@ -648,18 +884,28 @@ Deno.serve(async (req) => {
           url: webhookUrl.toString(),
           webhook_by_events: false,
           webhook_base64: false,
-          events: ["MESSAGES_UPSERT", "MESSAGES_SET", "messages.upsert", "messages.set", "CONNECTION_UPDATE", "connection.update"],
+          events: [
+            "MESSAGES_UPSERT",
+            "MESSAGES_SET",
+            "messages.upsert",
+            "messages.set",
+            "CONNECTION_UPDATE",
+            "connection.update",
+          ],
           headers: { "x-webhook-secret": webhookSecret },
         },
       ];
       let webhookConfigured = false;
       let webhookError = "";
       for (const payload of webhookPayloads) {
-        const webhookUpdate = await fetch(`${evoUrl}/webhook/set/${instanceName}`, {
-          method: "POST",
-          headers: evoHeaders,
-          body: JSON.stringify(payload),
-        });
+        const webhookUpdate = await fetch(
+          `${evoUrl}/webhook/set/${instanceName}`,
+          {
+            method: "POST",
+            headers: evoHeaders,
+            body: JSON.stringify(payload),
+          },
+        );
         if (webhookUpdate.ok) {
           webhookConfigured = true;
           break;
@@ -667,7 +913,10 @@ Deno.serve(async (req) => {
         webhookError = await webhookUpdate.text();
       }
       if (!webhookConfigured) {
-        return json({ error: "Failed to configure WhatsApp history webhook", details: webhookError }, 502);
+        return json({
+          error: "Failed to configure WhatsApp history webhook",
+          details: webhookError,
+        }, 502);
       }
       return json({ success: true, syncFullHistory: true });
     }
@@ -686,10 +935,23 @@ Deno.serve(async (req) => {
         studentId,
         contactName,
       } = body;
-      if (!remoteJid || !String(content).trim()) return json({ error: "remoteJid and content required" }, 400);
+      if (!remoteJid || !String(content).trim()) {
+        return json({ error: "remoteJid and content required" }, 400);
+      }
 
-      const verifiedRecipient = await verifyOutboundRecipient(remoteJid, studentId);
-      if (!verifiedRecipient.ok) return json(verifiedRecipientError(verifiedRecipient.code), 409);
+      const liveInstance = await verifyLiveOutboundInstance();
+      if (!liveInstance.ok) {
+        const failure = providerIssueError(liveInstance.issue);
+        return json(failure, providerIssueHttpStatus(liveInstance.issue));
+      }
+
+      const verifiedRecipient = await verifyOutboundRecipient(
+        remoteJid,
+        studentId,
+      );
+      if (!verifiedRecipient.ok) {
+        return json(verifiedRecipientError(verifiedRecipient.code), 409);
+      }
       const effectiveRemoteJid = verifiedRecipient.remoteJid;
 
       const sendBody: Record<string, unknown> = {
@@ -703,32 +965,41 @@ Deno.serve(async (req) => {
       let quotedSource = typeof quotedFromMe === "boolean"
         ? (quotedFromMe ? "outgoing" : "incoming")
         : null;
-      let quotedType = typeof quotedMessageType === "string" ? quotedMessageType : null;
+      let quotedType = typeof quotedMessageType === "string"
+        ? quotedMessageType
+        : null;
 
       if (quotedMessageDbId && chatId) {
         const { data: quotedRow, error: quotedError } = await adminClient
           .from("whatsapp_messages")
-          .select("id, chat_id, content, source, type, media_type, message_id_external")
+          .select(
+            "id, chat_id, content, source, type, media_type, message_id_external",
+          )
           .eq("id", quotedMessageDbId)
           .eq("chat_id", chatId)
           .eq("company_id", resolvedCompanyId)
           .maybeSingle();
 
         if (quotedError) {
-          console.error("Failed to load quoted WhatsApp message:", quotedError.message);
+          console.error(
+            "Failed to load quoted WhatsApp message:",
+            quotedError.message,
+          );
         }
 
         if (quotedRow?.message_id_external) {
           quotedDbId = quotedRow.id;
           quotedExternalId = quotedRow.message_id_external;
-          quotedPreview = truncatePreview(quotedRow.content) || (quotedRow.media_type ? "Mídia" : "Mensagem");
+          quotedPreview = truncatePreview(quotedRow.content) ||
+            (quotedRow.media_type ? "Mídia" : "Mensagem");
           quotedSource = quotedRow.source || quotedSource;
           quotedType = quotedRow.type || quotedType;
         }
       }
 
       if (quotedExternalId) {
-        const quoteFromMe = quotedSource === "outgoing" || quotedFromMe === true;
+        const quoteFromMe = quotedSource === "outgoing" ||
+          quotedFromMe === true;
         const quotedMessage = buildQuotedMessage(quotedPreview, quotedType);
         const quoteKey = {
           remoteJid: effectiveRemoteJid,
@@ -749,22 +1020,31 @@ Deno.serve(async (req) => {
         };
       }
 
-      const sendRes = await fetch(`${evoUrl}/message/sendText/${instanceName}`, {
-        method: "POST",
-        headers: evoHeaders,
-        body: JSON.stringify(sendBody),
-      });
+      const sendRes = await fetch(
+        `${evoUrl}/message/sendText/${instanceName}`,
+        {
+          method: "POST",
+          headers: evoHeaders,
+          body: JSON.stringify(sendBody),
+        },
+      );
 
       if (!sendRes.ok) {
-        const failure = providerSendError(sendRes.status);
-        await sendRes.text().catch(() => "");
+        const rawBody = await sendRes.text().catch(() => "");
+        const failure = providerSendError(sendRes.status, rawBody);
         const details = providerErrorDetails(sendRes.status, failure.code);
-        console.error("WhatsApp sendText failed", JSON.stringify({
-          ...sanitizeProviderErrorForLog(sendRes.status, failure.code),
-          companyId: resolvedCompanyId,
-          chatId: boundChat?.id || null,
-        }));
-        return json({ ...failure, providerStatus: sendRes.status, details }, 502);
+        console.error(
+          "WhatsApp sendText failed",
+          JSON.stringify({
+            ...sanitizeProviderErrorForLog(sendRes.status, failure.code),
+            companyId: resolvedCompanyId,
+            chatId: boundChat?.id || null,
+          }),
+        );
+        return json(
+          { ...failure, providerStatus: sendRes.status, details },
+          providerIssueHttpStatus(failure.code as WhatsAppProviderIssue),
+        );
       }
 
       const sendData = await sendRes.json();
@@ -801,11 +1081,18 @@ Deno.serve(async (req) => {
           unread_count: 0,
         };
         const chatQuery = existingChat
-          ? adminClient.from("whatsapp_chats").update(chatPayload).eq("id", existingChat.id).select("id").single()
-          : adminClient.from("whatsapp_chats").insert(chatPayload).select("id").single();
+          ? adminClient.from("whatsapp_chats").update(chatPayload).eq(
+            "id",
+            existingChat.id,
+          ).select("id").single()
+          : adminClient.from("whatsapp_chats").insert(chatPayload).select("id")
+            .single();
         const { data: createdChat, error: chatError } = await chatQuery;
         if (chatError) {
-          console.error("Failed to persist new WhatsApp chat:", chatError.message);
+          console.error(
+            "Failed to persist new WhatsApp chat:",
+            chatError.message,
+          );
           persistenceWarning = true;
         } else {
           persistedChatId = createdChat.id;
@@ -814,25 +1101,28 @@ Deno.serve(async (req) => {
 
       let insertedMessage: Record<string, unknown> | null = null;
       if (persistedChatId) {
-        const { data: insertedRow, error: messageInsertError } = await adminClient.from("whatsapp_messages").insert({
-          chat_id: persistedChatId,
-          company_id: resolvedCompanyId,
-          content,
-          source: "outgoing",
-          type: "text",
-          is_from_me: true,
-          sender_id: userId,
-          message_id_external: externalMessageId,
-          quoted_message_id: quotedDbId,
-          quoted_message_external_id: quotedExternalId,
-          quoted_message_preview: quotedPreview,
-          quoted_message_source: quotedSource,
-          origin: "panel_manual",
-          timestamp: new Date().toISOString(),
-        }).select("*").maybeSingle();
+        const { data: insertedRow, error: messageInsertError } =
+          await adminClient.from("whatsapp_messages").insert({
+            chat_id: persistedChatId,
+            company_id: resolvedCompanyId,
+            content,
+            source: "outgoing",
+            type: "text",
+            is_from_me: true,
+            sender_id: userId,
+            message_id_external: externalMessageId,
+            quoted_message_id: quotedDbId,
+            quoted_message_external_id: quotedExternalId,
+            quoted_message_preview: quotedPreview,
+            quoted_message_source: quotedSource,
+            origin: "panel_manual",
+            timestamp: new Date().toISOString(),
+          }).select("*").maybeSingle();
         if (messageInsertError) {
           if (messageInsertError.code === "23505" && externalMessageId) {
-            const { data: racedRow } = await adminClient.from("whatsapp_messages")
+            const { data: racedRow } = await adminClient.from(
+              "whatsapp_messages",
+            )
               .select("*")
               .eq("chat_id", persistedChatId)
               .eq("message_id_external", externalMessageId)
@@ -840,13 +1130,18 @@ Deno.serve(async (req) => {
             if (racedRow) insertedMessage = racedRow;
           } else {
             persistenceWarning = true;
-            console.error("Failed to persist sent WhatsApp message:", messageInsertError.message);
+            console.error(
+              "Failed to persist sent WhatsApp message:",
+              messageInsertError.message,
+            );
           }
         }
         if (insertedRow) insertedMessage = insertedRow;
 
         // Update last_message_at and last_sender_id
-        const { error: chatUpdateError } = await adminClient.from("whatsapp_chats").update({
+        const { error: chatUpdateError } = await adminClient.from(
+          "whatsapp_chats",
+        ).update({
           last_message: content,
           last_message_at: new Date().toISOString(),
           unread_count: 0,
@@ -854,7 +1149,10 @@ Deno.serve(async (req) => {
         }).eq("id", persistedChatId);
         if (chatUpdateError) {
           persistenceWarning = true;
-          console.error("Failed to update WhatsApp chat preview:", chatUpdateError.message);
+          console.error(
+            "Failed to update WhatsApp chat preview:",
+            chatUpdateError.message,
+          );
         }
       }
 
@@ -880,28 +1178,46 @@ Deno.serve(async (req) => {
         mimeType: claimedMimeType,
       } = body;
       if (!remoteJid) return json({ error: "remoteJid required" }, 400);
-      const verifiedRecipient = await verifyOutboundRecipient(remoteJid, studentId);
-      if (!verifiedRecipient.ok) return json(verifiedRecipientError(verifiedRecipient.code), 409);
-      const effectiveMediaRecipient = evolutionTextRecipient(verifiedRecipient.remoteJid);
+
+      const liveInstance = await verifyLiveOutboundInstance();
+      if (!liveInstance.ok) {
+        const failure = providerIssueError(liveInstance.issue);
+        return json(failure, providerIssueHttpStatus(liveInstance.issue));
+      }
+      const verifiedRecipient = await verifyOutboundRecipient(
+        remoteJid,
+        studentId,
+      );
+      if (!verifiedRecipient.ok) {
+        return json(verifiedRecipientError(verifiedRecipient.code), 409);
+      }
+      const effectiveMediaRecipient = evolutionTextRecipient(
+        verifiedRecipient.remoteJid,
+      );
 
       // Never forward an arbitrary client URL to the WhatsApp provider. Resolve the
       // object inside our own Storage project, validate its tenant scope and real
       // metadata, then create a fresh short-lived URL on the server.
-      const requestedSource = String(body.mediaSource || "").trim() as OutboundWhatsAppMediaSource;
+      const requestedSource = String(body.mediaSource || "")
+        .trim() as OutboundWhatsAppMediaSource;
       let mediaStorageBucket = String(body.mediaStorageBucket || "").trim();
       let mediaStoragePath = String(body.mediaStoragePath || "").trim();
       let mediaSource: OutboundWhatsAppMediaSource | "" = requestedSource;
-      const mediaStudentId = String(studentId || boundChat?.student_id || "").trim() || null;
+      const mediaStudentId =
+        String(studentId || boundChat?.student_id || "").trim() || null;
 
       // Transitional compatibility for a cached frontend: infer only approved
       // Storage references from the signed URL, then re-sign the local object.
       if (!mediaStorageBucket || !mediaStoragePath || !mediaSource) {
-        for (const bucket of ["whatsapp-media", "student-files", "evaluations"]) {
+        for (
+          const bucket of ["whatsapp-media", "student-files", "evaluations"]
+        ) {
           const inferredPath = storageObjectPathFromUrl(clientMediaUrl, bucket);
           if (!inferredPath) continue;
           mediaStorageBucket = bucket;
           mediaStoragePath = inferredPath;
-          mediaSource = boundChat?.id && inferredPath.startsWith(`${resolvedCompanyId}/${boundChat.id}/`)
+          mediaSource = boundChat?.id &&
+              inferredPath.startsWith(`${resolvedCompanyId}/${boundChat.id}/`)
             ? "chat-upload"
             : "student-upload";
           break;
@@ -909,25 +1225,38 @@ Deno.serve(async (req) => {
       }
 
       if (!mediaStorageBucket || !mediaStoragePath || !mediaSource) {
-        return json(outboundMediaError("whatsapp_media_invalid_reference"), 400);
+        return json(
+          outboundMediaError("whatsapp_media_invalid_reference"),
+          400,
+        );
       }
 
       const separatorIndex = mediaStoragePath.lastIndexOf("/");
-      const directory = separatorIndex >= 0 ? mediaStoragePath.slice(0, separatorIndex) : "";
-      const objectName = separatorIndex >= 0 ? mediaStoragePath.slice(separatorIndex + 1) : mediaStoragePath;
-      const { data: storedObjects, error: storedObjectError } = await adminClient.storage
-        .from(mediaStorageBucket)
-        .list(directory, { limit: 100, search: objectName });
+      const directory = separatorIndex >= 0
+        ? mediaStoragePath.slice(0, separatorIndex)
+        : "";
+      const objectName = separatorIndex >= 0
+        ? mediaStoragePath.slice(separatorIndex + 1)
+        : mediaStoragePath;
+      const { data: storedObjects, error: storedObjectError } =
+        await adminClient.storage
+          .from(mediaStorageBucket)
+          .list(directory, { limit: 100, search: objectName });
       if (storedObjectError) {
-        console.error("Failed to inspect outbound WhatsApp media", JSON.stringify({
-          companyId: resolvedCompanyId,
-          chatId: boundChat?.id || null,
-          bucket: mediaStorageBucket,
-          code: storedObjectError.name || "storage_list_failed",
-        }));
+        console.error(
+          "Failed to inspect outbound WhatsApp media",
+          JSON.stringify({
+            companyId: resolvedCompanyId,
+            chatId: boundChat?.id || null,
+            bucket: mediaStorageBucket,
+            code: storedObjectError.name || "storage_list_failed",
+          }),
+        );
         return json(outboundMediaError("whatsapp_media_missing"), 400);
       }
-      const storedObject = (storedObjects || []).find((item) => item.name === objectName) || null;
+      const storedObject = (storedObjects || []).find((item) =>
+        item.name === objectName
+      ) || null;
       const validation = validateOutboundWhatsAppMedia({
         source: mediaSource,
         bucket: mediaStorageBucket,
@@ -941,7 +1270,8 @@ Deno.serve(async (req) => {
       });
       if (!validation.ok) return json(outboundMediaError(validation.code), 400);
 
-      const { data: signedMedia, error: signedMediaError } = await adminClient.storage
+      const { data: signedMedia, error: signedMediaError } = await adminClient
+        .storage
         .from(mediaStorageBucket)
         .createSignedUrl(mediaStoragePath, 60 * 60 * 24 * 7);
       if (signedMediaError || !signedMedia?.signedUrl) {
@@ -958,22 +1288,27 @@ Deno.serve(async (req) => {
         size: validation.size,
         requestedMediaType: clientMediaType,
       });
-      if (!deliveryType.ok) return json(outboundMediaError(deliveryType.code), 400);
+      if (!deliveryType.ok) {
+        return json(outboundMediaError(deliveryType.code), 400);
+      }
       const evoMediaType = deliveryType.mediaType;
 
       let sendRes: Response;
 
       if (evoMediaType === "audio") {
         // Use dedicated WhatsApp audio endpoint for PTT voice messages
-        sendRes = await fetch(`${evoUrl}/message/sendWhatsAppAudio/${instanceName}`, {
-          method: "POST",
-          headers: evoHeaders,
-          body: JSON.stringify({
-            number: effectiveMediaRecipient,
-            audio: mediaUrl,
-            encoding: true,
-          }),
-        });
+        sendRes = await fetch(
+          `${evoUrl}/message/sendWhatsAppAudio/${instanceName}`,
+          {
+            method: "POST",
+            headers: evoHeaders,
+            body: JSON.stringify({
+              number: effectiveMediaRecipient,
+              audio: mediaUrl,
+              encoding: true,
+            }),
+          },
+        );
 
         // Fallback to sendMedia if dedicated endpoint doesn't exist
         if (!sendRes.ok) {
@@ -998,21 +1333,29 @@ Deno.serve(async (req) => {
             media: mediaUrl,
             mediatype: evoMediaType,
             caption: caption || "",
-            ...(evoMediaType === "document" ? { fileName: fileName || "arquivo.pdf" } : {}),
+            ...(evoMediaType === "document"
+              ? { fileName: fileName || "arquivo.pdf" }
+              : {}),
           }),
         });
       }
 
       if (!sendRes.ok) {
-        const failure = providerSendError(sendRes.status);
-        await sendRes.text().catch(() => "");
+        const rawBody = await sendRes.text().catch(() => "");
+        const failure = providerSendError(sendRes.status, rawBody);
         const details = providerErrorDetails(sendRes.status, failure.code);
-        console.error("WhatsApp sendMedia failed", JSON.stringify({
-          ...sanitizeProviderErrorForLog(sendRes.status, failure.code),
-          companyId: resolvedCompanyId,
-          chatId: boundChat?.id || null,
-        }));
-        return json({ ...failure, providerStatus: sendRes.status, details }, 502);
+        console.error(
+          "WhatsApp sendMedia failed",
+          JSON.stringify({
+            ...sanitizeProviderErrorForLog(sendRes.status, failure.code),
+            companyId: resolvedCompanyId,
+            chatId: boundChat?.id || null,
+          }),
+        );
+        return json(
+          { ...failure, providerStatus: sendRes.status, details },
+          providerIssueHttpStatus(failure.code as WhatsAppProviderIssue),
+        );
       }
 
       const sendData = await sendRes.json();
@@ -1020,29 +1363,52 @@ Deno.serve(async (req) => {
       let persistenceWarning = false;
 
       // Determine DB type and media_type
-      const dbType = evoMediaType === "image" ? "image" : evoMediaType === "video" ? "video" : evoMediaType === "audio" ? "audio" : "document";
-      const dbMediaType = mimeType || (evoMediaType === "image" ? "image/jpeg" : evoMediaType === "video" ? "video/mp4" : evoMediaType === "audio" ? "audio/ogg" : "application/pdf");
-      const defaultContent = evoMediaType === "image" ? "📷 Imagem" : evoMediaType === "video" ? "🎬 Vídeo" : evoMediaType === "audio" ? "🎤 Áudio" : `📎 ${fileName || "arquivo.pdf"}`;
+      const dbType = evoMediaType === "image"
+        ? "image"
+        : evoMediaType === "video"
+        ? "video"
+        : evoMediaType === "audio"
+        ? "audio"
+        : "document";
+      const dbMediaType = mimeType || (evoMediaType === "image"
+        ? "image/jpeg"
+        : evoMediaType === "video"
+        ? "video/mp4"
+        : evoMediaType === "audio"
+        ? "audio/ogg"
+        : "application/pdf");
+      const defaultContent = evoMediaType === "image"
+        ? "📷 Imagem"
+        : evoMediaType === "video"
+        ? "🎬 Vídeo"
+        : evoMediaType === "audio"
+        ? "🎤 Áudio"
+        : `📎 ${fileName || "arquivo.pdf"}`;
       let insertedMediaMessage: Record<string, unknown> | null = null;
       if (chatId) {
-        const { data: insertedMediaRow, error: messageInsertError } = await adminClient.from("whatsapp_messages").insert({
-          chat_id: chatId,
-          company_id: resolvedCompanyId,
-          content: caption || defaultContent,
-          source: "outgoing",
-          type: dbType,
-          is_from_me: true,
-          sender_id: userId,
-          message_id_external: externalMessageId,
-          media_url: mediaUrl,
-          media_type: dbMediaType,
-          media_storage_path: mediaStorageBucket === "whatsapp-media" ? mediaStoragePath : null,
-          origin: "panel_manual",
-          timestamp: new Date().toISOString(),
-        }).select("*").maybeSingle();
+        const { data: insertedMediaRow, error: messageInsertError } =
+          await adminClient.from("whatsapp_messages").insert({
+            chat_id: chatId,
+            company_id: resolvedCompanyId,
+            content: caption || defaultContent,
+            source: "outgoing",
+            type: dbType,
+            is_from_me: true,
+            sender_id: userId,
+            message_id_external: externalMessageId,
+            media_url: mediaUrl,
+            media_type: dbMediaType,
+            media_storage_path: mediaStorageBucket === "whatsapp-media"
+              ? mediaStoragePath
+              : null,
+            origin: "panel_manual",
+            timestamp: new Date().toISOString(),
+          }).select("*").maybeSingle();
         if (messageInsertError) {
           if (messageInsertError.code === "23505" && externalMessageId) {
-            const { data: racedRow } = await adminClient.from("whatsapp_messages")
+            const { data: racedRow } = await adminClient.from(
+              "whatsapp_messages",
+            )
               .select("*")
               .eq("chat_id", chatId)
               .eq("message_id_external", externalMessageId)
@@ -1050,12 +1416,17 @@ Deno.serve(async (req) => {
             if (racedRow) insertedMediaMessage = racedRow;
           } else {
             persistenceWarning = true;
-            console.error("Failed to persist sent WhatsApp media:", messageInsertError.message);
+            console.error(
+              "Failed to persist sent WhatsApp media:",
+              messageInsertError.message,
+            );
           }
         }
         if (insertedMediaRow) insertedMediaMessage = insertedMediaRow;
 
-        const { error: chatUpdateError } = await adminClient.from("whatsapp_chats").update({
+        const { error: chatUpdateError } = await adminClient.from(
+          "whatsapp_chats",
+        ).update({
           last_message: caption || defaultContent,
           last_message_at: new Date().toISOString(),
           unread_count: 0,
@@ -1063,11 +1434,19 @@ Deno.serve(async (req) => {
         }).eq("id", chatId);
         if (chatUpdateError) {
           persistenceWarning = true;
-          console.error("Failed to update WhatsApp media preview:", chatUpdateError.message);
+          console.error(
+            "Failed to update WhatsApp media preview:",
+            chatUpdateError.message,
+          );
         }
       }
 
-      return json({ success: true, messageId: externalMessageId, message: insertedMediaMessage, persistenceWarning });
+      return json({
+        success: true,
+        messageId: externalMessageId,
+        message: insertedMediaMessage,
+        persistenceWarning,
+      });
     }
 
     // ─── FETCH PROFILE PICTURE ───
@@ -1082,7 +1461,9 @@ Deno.serve(async (req) => {
         .eq("id", body.chatId)
         .eq("company_id", resolvedCompanyId)
         .maybeSingle();
-      if (chatError) throw new Error(`Failed to load chat profile: ${chatError.message}`);
+      if (chatError) {
+        throw new Error(`Failed to load chat profile: ${chatError.message}`);
+      }
       if (!chat?.remote_jid) return json({ photo: null });
 
       const phoneBase = String(chat.remote_jid).replace(/@.*$/, "");
@@ -1094,20 +1475,23 @@ Deno.serve(async (req) => {
 
       let photo = "";
       for (const payload of photoPayloads) {
-        const profileRes = await fetch(`${evoUrl}/chat/fetchProfilePictureUrl/${instanceName}`, {
-          method: "POST",
-          headers: evoHeaders,
-          body: JSON.stringify(payload),
-        });
+        const profileRes = await fetch(
+          `${evoUrl}/chat/fetchProfilePictureUrl/${instanceName}`,
+          {
+            method: "POST",
+            headers: evoHeaders,
+            body: JSON.stringify(payload),
+          },
+        );
         if (!profileRes.ok) continue;
 
         const profileData = await profileRes.json().catch(() => ({}));
         photo = String(
           profileData?.profilePictureUrl ||
-          profileData?.profilePicUrl ||
-          profileData?.pictureUrl ||
-          profileData?.picture ||
-          "",
+            profileData?.profilePicUrl ||
+            profileData?.pictureUrl ||
+            profileData?.picture ||
+            "",
         ).trim();
         if (photo) break;
       }
@@ -1120,7 +1504,10 @@ Deno.serve(async (req) => {
           filePath: `${resolvedCompanyId}/${chat.id}/avatar`,
           fallbackMime: "image/jpeg",
         }).catch((error) => {
-          console.error("profile picture durable persistence failed", String(error));
+          console.error(
+            "profile picture durable persistence failed",
+            String(error),
+          );
           return null;
         });
         const storedPhoto = durablePhoto || photo;
@@ -1129,7 +1516,12 @@ Deno.serve(async (req) => {
           .update({ contact_photo: storedPhoto })
           .eq("id", chat.id)
           .eq("company_id", resolvedCompanyId);
-        if (photoError) console.error("profile picture persistence failed", photoError.message);
+        if (photoError) {
+          console.error(
+            "profile picture persistence failed",
+            photoError.message,
+          );
+        }
         return json({ photo: storedPhoto });
       }
 
@@ -1138,7 +1530,14 @@ Deno.serve(async (req) => {
 
     // ─── FETCH MEDIA (base64) ───
     if (action === "fetch-media") {
-      const { messageId, remoteJid: mediaJid, fromMe, chatId: mediaChatId, messageDbId, mimeType: requestedMimeType } = body;
+      const {
+        messageId,
+        remoteJid: mediaJid,
+        fromMe,
+        chatId: mediaChatId,
+        messageDbId,
+        mimeType: requestedMimeType,
+      } = body;
       if (!messageId) return json({ error: "messageId required" }, 400);
 
       if (mediaChatId && messageDbId) {
@@ -1149,8 +1548,8 @@ Deno.serve(async (req) => {
           .eq("chat_id", mediaChatId)
           .eq("company_id", resolvedCompanyId)
           .maybeSingle();
-        const storagePath = storedMessage?.media_storage_path
-          || storageObjectPathFromUrl(storedMessage?.media_url, "whatsapp-media");
+        const storagePath = storedMessage?.media_storage_path ||
+          storageObjectPathFromUrl(storedMessage?.media_url, "whatsapp-media");
         if (storagePath) {
           const { data: signed, error: signError } = await adminClient.storage
             .from("whatsapp-media")
@@ -1178,12 +1577,18 @@ Deno.serve(async (req) => {
       if (mediaJid) key.remoteJid = mediaJid;
       if (typeof fromMe === "boolean") key.fromMe = fromMe;
 
-      const tryGetBase64 = async (payload: Record<string, unknown>, label: string) => {
-        const res = await fetch(`${evoUrl}/chat/getBase64FromMediaMessage/${instanceName}`, {
-          method: "POST",
-          headers: evoHeaders,
-          body: JSON.stringify(payload),
-        });
+      const tryGetBase64 = async (
+        payload: Record<string, unknown>,
+        label: string,
+      ) => {
+        const res = await fetch(
+          `${evoUrl}/chat/getBase64FromMediaMessage/${instanceName}`,
+          {
+            method: "POST",
+            headers: evoHeaders,
+            body: JSON.stringify(payload),
+          },
+        );
 
         if (!res.ok) {
           const errText = await res.text();
@@ -1200,13 +1605,21 @@ Deno.serve(async (req) => {
       };
 
       const persistFetchedMedia = async (mediaData: any) => {
-        const mimetype = mediaData?.mimetype || requestedMimeType || "application/octet-stream";
+        const mimetype = mediaData?.mimetype || requestedMimeType ||
+          "application/octet-stream";
         if (!mediaChatId || !messageDbId || !mediaData?.base64) {
-          return { base64: mediaData?.base64 || null, mimetype, mediaUrl: null };
+          return {
+            base64: mediaData?.base64 || null,
+            mimetype,
+            mediaUrl: null,
+          };
         }
         try {
           const bytes = decodeBase64(String(mediaData.base64));
-          const filePath = `${resolvedCompanyId}/${mediaChatId}/inbound-${messageId}.${extensionFromMime(mimetype)}`;
+          const filePath =
+            `${resolvedCompanyId}/${mediaChatId}/inbound-${messageId}.${
+              extensionFromMime(mimetype)
+            }`;
           const { error: uploadError } = await adminClient.storage
             .from("whatsapp-media")
             .upload(filePath, bytes, { contentType: mimetype, upsert: true });
@@ -1219,11 +1632,20 @@ Deno.serve(async (req) => {
           if (mediaUrl) {
             const { error: updateError } = await adminClient
               .from("whatsapp_messages")
-              .update({ media_url: mediaUrl, media_type: mimetype, media_storage_path: filePath })
+              .update({
+                media_url: mediaUrl,
+                media_type: mimetype,
+                media_storage_path: filePath,
+              })
               .eq("id", messageDbId)
               .eq("chat_id", mediaChatId)
               .eq("company_id", resolvedCompanyId);
-            if (updateError) console.error("fetch-media persistence update failed:", updateError.message);
+            if (updateError) {
+              console.error(
+                "fetch-media persistence update failed:",
+                updateError.message,
+              );
+            }
           }
           return { base64: mediaData.base64, mimetype, mediaUrl };
         } catch (error) {
@@ -1233,14 +1655,25 @@ Deno.serve(async (req) => {
       };
 
       // Try common payload formats used across different Evolution builds
-      const payloadAttempts: Array<{ label: string; payload: Record<string, unknown> }> = [
-        { label: "primary", payload: { message: { key }, convertToMp4: false } },
-        { label: "minimal-key", payload: { message: { key: { id: messageId } }, convertToMp4: false } },
+      const payloadAttempts: Array<
+        { label: string; payload: Record<string, unknown> }
+      > = [
+        {
+          label: "primary",
+          payload: { message: { key }, convertToMp4: false },
+        },
+        {
+          label: "minimal-key",
+          payload: { message: { key: { id: messageId } }, convertToMp4: false },
+        },
         { label: "root-key", payload: { key, convertToMp4: false } },
         { label: "root-id", payload: { id: messageId, convertToMp4: false } },
       ];
 
-      let attempt: { ok: true; mediaData: any } | { ok: false; errText: string } = { ok: false, errText: "Unknown media fetch error" };
+      let attempt: { ok: true; mediaData: any } | {
+        ok: false;
+        errText: string;
+      } = { ok: false, errText: "Unknown media fetch error" };
 
       for (const current of payloadAttempts) {
         attempt = await tryGetBase64(current.payload, current.label);
@@ -1259,11 +1692,14 @@ Deno.serve(async (req) => {
       let hydratedMessage: any = null;
 
       for (const payload of findPayloads) {
-        const findRes = await fetch(`${evoUrl}/chat/findMessages/${instanceName}`, {
-          method: "POST",
-          headers: evoHeaders,
-          body: JSON.stringify(payload),
-        });
+        const findRes = await fetch(
+          `${evoUrl}/chat/findMessages/${instanceName}`,
+          {
+            method: "POST",
+            headers: evoHeaders,
+            body: JSON.stringify(payload),
+          },
+        );
 
         if (!findRes.ok) continue;
 
@@ -1271,21 +1707,21 @@ Deno.serve(async (req) => {
         const candidates = Array.isArray(findData)
           ? findData
           : Array.isArray(findData?.messages)
-            ? findData.messages
-            : Array.isArray(findData?.data)
-              ? findData.data
-              : Array.isArray(findData?.result)
-                ? findData.result
-                : [];
+          ? findData.messages
+          : Array.isArray(findData?.data)
+          ? findData.data
+          : Array.isArray(findData?.result)
+          ? findData.result
+          : [];
 
         hydratedMessage = candidates.find((m: any) => {
           const normalized = m?.message?.key ? m.message : m;
           const hasMedia = Boolean(
             normalized?.message?.imageMessage ||
-            normalized?.message?.videoMessage ||
-            normalized?.message?.audioMessage ||
-            normalized?.message?.documentMessage ||
-            normalized?.message?.stickerMessage
+              normalized?.message?.videoMessage ||
+              normalized?.message?.audioMessage ||
+              normalized?.message?.documentMessage ||
+              normalized?.message?.stickerMessage,
           );
           return normalized?.key?.id === messageId && hasMedia;
         });
@@ -1294,10 +1730,20 @@ Deno.serve(async (req) => {
       }
 
       if (hydratedMessage) {
-        const normalized = hydratedMessage?.message?.key ? hydratedMessage.message : hydratedMessage;
-        const hydratedAttempts: Array<{ label: string; payload: Record<string, unknown> }> = [
-          { label: "hydrated-message", payload: { message: normalized, convertToMp4: false } },
-          { label: "hydrated-key", payload: { message: { key: normalized?.key }, convertToMp4: false } },
+        const normalized = hydratedMessage?.message?.key
+          ? hydratedMessage.message
+          : hydratedMessage;
+        const hydratedAttempts: Array<
+          { label: string; payload: Record<string, unknown> }
+        > = [
+          {
+            label: "hydrated-message",
+            payload: { message: normalized, convertToMp4: false },
+          },
+          {
+            label: "hydrated-key",
+            payload: { message: { key: normalized?.key }, convertToMp4: false },
+          },
         ];
 
         for (const current of hydratedAttempts) {
@@ -1319,11 +1765,14 @@ Deno.serve(async (req) => {
 
     // ─── FETCH CONTACTS ───
     if (action === "fetch-contacts") {
-      const contactsRes = await fetch(`${evoUrl}/chat/findContacts/${instanceName}`, {
-        method: "POST",
-        headers: evoHeaders,
-        body: JSON.stringify({}),
-      });
+      const contactsRes = await fetch(
+        `${evoUrl}/chat/findContacts/${instanceName}`,
+        {
+          method: "POST",
+          headers: evoHeaders,
+          body: JSON.stringify({}),
+        },
+      );
 
       if (!contactsRes.ok) {
         // Compatibility fallback for older Evolution API releases.
@@ -1334,63 +1783,106 @@ Deno.serve(async (req) => {
         });
         if (!altRes.ok) return json({ contacts: [] });
         const altData = await altRes.json();
-        return json({ contacts: normalizeArrayPayload(altData, ["contacts", "data", "result"]) });
+        return json({
+          contacts: normalizeArrayPayload(altData, [
+            "contacts",
+            "data",
+            "result",
+          ]),
+        });
       }
 
       const contactsData = await contactsRes.json();
-      return json({ contacts: normalizeArrayPayload(contactsData, ["contacts", "data", "result"]) });
+      return json({
+        contacts: normalizeArrayPayload(contactsData, [
+          "contacts",
+          "data",
+          "result",
+        ]),
+      });
     }
 
     // ─── FETCH GROUPS ───
     if (action === "fetch-groups") {
-      const groupsRes = await fetch(`${evoUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`, {
-        headers: evoHeaders,
-      });
+      const groupsRes = await fetch(
+        `${evoUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`,
+        {
+          headers: evoHeaders,
+        },
+      );
 
       if (!groupsRes.ok) return json({ groups: [] });
 
       const groupsData = await groupsRes.json();
 
-      const rawGroups = normalizeArrayPayload(groupsData, ["groups", "data", "result"]);
+      const rawGroups = normalizeArrayPayload(groupsData, [
+        "groups",
+        "data",
+        "result",
+      ]);
 
       const groups = rawGroups
         .map((g: any) => {
-          const jid = g?.id?._serialized || g?.id || g?.jid || g?.remoteJid || "";
+          const jid = g?.id?._serialized || g?.id || g?.jid || g?.remoteJid ||
+            "";
           const subject = g?.subject || g?.name || g?.groupSubject || "";
           return { jid: String(jid), subject: String(subject).trim() };
         })
-        .filter((g: { jid: string; subject: string }) => g.jid.includes("@g.us") && g.subject.length > 0);
+        .filter((g: { jid: string; subject: string }) =>
+          g.jid.includes("@g.us") && g.subject.length > 0
+        );
 
       return json({ groups });
     }
 
     // ─── DELETE MESSAGE FOR EVERYONE ───
     if (action === "delete-message") {
-      const { remoteJid, messageId: msgExtId, chatId: deleteChatId, studentId } = body;
-      if (!remoteJid || !msgExtId) return json({ error: "remoteJid and messageId required" }, 400);
-      const verifiedRecipient = await verifyOutboundRecipient(remoteJid, studentId);
-      if (!verifiedRecipient.ok) return json(verifiedRecipientError(verifiedRecipient.code), 409);
+      const {
+        remoteJid,
+        messageId: msgExtId,
+        chatId: deleteChatId,
+        studentId,
+      } = body;
+      if (!remoteJid || !msgExtId) {
+        return json({ error: "remoteJid and messageId required" }, 400);
+      }
+      const verifiedRecipient = await verifyOutboundRecipient(
+        remoteJid,
+        studentId,
+      );
+      if (!verifiedRecipient.ok) {
+        return json(verifiedRecipientError(verifiedRecipient.code), 409);
+      }
       const effectiveDeleteJid = verifiedRecipient.remoteJid;
 
-      const deleteRes = await fetch(`${evoUrl}/chat/deleteMessageForEveryone/${instanceName}`, {
-        method: "DELETE",
-        headers: evoHeaders,
-        body: JSON.stringify({
-          id: msgExtId,
-          remoteJid: effectiveDeleteJid,
-          fromMe: true,
-        }),
-      });
+      const deleteRes = await fetch(
+        `${evoUrl}/chat/deleteMessageForEveryone/${instanceName}`,
+        {
+          method: "DELETE",
+          headers: evoHeaders,
+          body: JSON.stringify({
+            id: msgExtId,
+            remoteJid: effectiveDeleteJid,
+            fromMe: true,
+          }),
+        },
+      );
 
       if (!deleteRes.ok) {
         const errText = await deleteRes.text();
         console.error("delete-message error:", errText);
-        return json({ error: "Failed to delete message", details: errText }, 502);
+        return json(
+          { error: "Failed to delete message", details: errText },
+          502,
+        );
       }
 
       // Remove from database
       if (deleteChatId && msgExtId) {
-        await adminClient.from("whatsapp_messages").delete().eq("message_id_external", msgExtId).eq("chat_id", deleteChatId);
+        await adminClient.from("whatsapp_messages").delete().eq(
+          "message_id_external",
+          msgExtId,
+        ).eq("chat_id", deleteChatId);
       }
 
       return json({ success: true });
@@ -1400,23 +1892,39 @@ Deno.serve(async (req) => {
     if (action === "fetch-bot-settings") {
       try {
         // Try Typebot integration first
-        const tbRes = await fetch(`${evoUrl}/typebot/find/${instanceName}`, { headers: evoHeaders });
+        const tbRes = await fetch(`${evoUrl}/typebot/find/${instanceName}`, {
+          headers: evoHeaders,
+        });
         if (tbRes.ok) {
           const tbData = await tbRes.json();
-          const isEnabled = tbData?.enabled === true || tbData?.typebot?.enabled === true;
+          const isEnabled = tbData?.enabled === true ||
+            tbData?.typebot?.enabled === true;
           return json({ source: "typebot", enabled: isEnabled, data: tbData });
         }
       } catch { /* not available */ }
 
       try {
         // Try generic bot/settings endpoint
-        const settingsRes = await fetch(`${evoUrl}/settings/find/${instanceName}`, { headers: evoHeaders });
+        const settingsRes = await fetch(
+          `${evoUrl}/settings/find/${instanceName}`,
+          { headers: evoHeaders },
+        );
         if (settingsRes.ok) {
           const settingsData = await settingsRes.json();
-          const rejectCall = settingsData?.rejectCall === true || settingsData?.settings?.rejectCall === true;
-          const msgOnReject = settingsData?.msgCall || settingsData?.settings?.msgCall || "";
-          const readMessages = settingsData?.readMessages === true || settingsData?.settings?.readMessages === true;
-          return json({ source: "settings", enabled: rejectCall || readMessages, rejectCall, msgOnReject, readMessages, data: settingsData });
+          const rejectCall = settingsData?.rejectCall === true ||
+            settingsData?.settings?.rejectCall === true;
+          const msgOnReject = settingsData?.msgCall ||
+            settingsData?.settings?.msgCall || "";
+          const readMessages = settingsData?.readMessages === true ||
+            settingsData?.settings?.readMessages === true;
+          return json({
+            source: "settings",
+            enabled: rejectCall || readMessages,
+            rejectCall,
+            msgOnReject,
+            readMessages,
+            data: settingsData,
+          });
         }
       } catch { /* not available */ }
 
@@ -1429,18 +1937,28 @@ Deno.serve(async (req) => {
 
       // Disable Typebot integration
       try {
-        const tbRes = await fetch(`${evoUrl}/typebot/changeStatus/${instanceName}`, {
-          method: "PUT", headers: evoHeaders,
-          body: JSON.stringify({ status: "delete" }),
-        });
+        const tbRes = await fetch(
+          `${evoUrl}/typebot/changeStatus/${instanceName}`,
+          {
+            method: "PUT",
+            headers: evoHeaders,
+            body: JSON.stringify({ status: "delete" }),
+          },
+        );
         if (tbRes.ok) results.push("typebot disabled");
       } catch { /* not available */ }
 
       // Reset instance settings (disable auto-replies, reject calls etc)
       try {
         const setRes = await fetch(`${evoUrl}/settings/set/${instanceName}`, {
-          method: "POST", headers: evoHeaders,
-          body: JSON.stringify({ rejectCall: false, msgCall: "", readMessages: false, readStatus: false }),
+          method: "POST",
+          headers: evoHeaders,
+          body: JSON.stringify({
+            rejectCall: false,
+            msgCall: "",
+            readMessages: false,
+            readStatus: false,
+          }),
         });
         if (setRes.ok) results.push("settings reset");
       } catch { /* not available */ }

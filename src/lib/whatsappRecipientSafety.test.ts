@@ -23,6 +23,15 @@ describe("WhatsApp recipient safety contracts", () => {
     expect(managerSource).toContain("outboundActions.has(action) && (instanceLookupError || !instanceRow)");
   });
 
+  it("revalidates the provider session live and persists a stale connection as disconnected", () => {
+    expect(managerSource).toContain("const verifyLiveOutboundInstance = async () =>");
+    expect(managerSource).toContain("/instance/connectionState/${instanceName}");
+    expect(managerSource).toMatch(
+      /await persistInstance\(\{\s*status: "disconnected",\s*phone_number: null,\s*qr_code: null,?\s*\}\)/,
+    );
+    expect(managerSource.match(/await verifyLiveOutboundInstance\(\)/g)).toHaveLength(2);
+  });
+
   it("pins JWT verification for the manual WhatsApp manager deploy", () => {
     expect(supabaseConfig).toMatch(/\[functions\.whatsapp-manager\]\s+verify_jwt\s*=\s*true/);
   });
