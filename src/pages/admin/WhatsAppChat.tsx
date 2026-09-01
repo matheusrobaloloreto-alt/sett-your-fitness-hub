@@ -54,6 +54,7 @@ import {
 } from "@/lib/whatsappMediaUpload";
 import { shouldOfferWhatsAppRecipientReview } from "@/lib/whatsappRecipientReview";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
+import { persistWhatsAppAssessmentHandoff } from "@/lib/whatsappAssessmentHandoff";
 
 type Chat = {
   id: string;
@@ -2625,16 +2626,18 @@ export default function WhatsAppChat() {
                                     className="mt-1.5 w-full h-7 text-xs"
                                     onClick={() => {
                                       if (!selectedChat?.student_id) { toast.error("Vincule um aluno a esta conversa primeiro."); return; }
+                                      const handoff = {
+                                        version: 1 as const,
+                                        studentId: selectedChat.student_id,
+                                        chatId: selectedChat.id,
+                                        messageId: msg.id,
+                                        messageExternalId: msg.message_id_external,
+                                        mediaStoragePath: msg.media_storage_path || null,
+                                      };
+                                      persistWhatsAppAssessmentHandoff(handoff);
                                       navigate(`/${studioRoutePrefix}/studio`, {
                                         state: {
-                                          whatsappAssessmentHandoff: {
-                                            version: 1,
-                                            studentId: selectedChat.student_id,
-                                            chatId: selectedChat.id,
-                                            messageId: msg.id,
-                                            messageExternalId: msg.message_id_external,
-                                            mediaStoragePath: msg.media_storage_path || null,
-                                          },
+                                          whatsappAssessmentHandoff: handoff,
                                         },
                                       });
                                     }}

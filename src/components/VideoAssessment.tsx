@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { generateAssessmentPDF } from "@/lib/generatePDFs";
 import { saveStudentFile } from "@/lib/studentFiles";
 import { sendPdfToStudentWhatsApp } from "@/lib/sendStudentMedia";
+import type { WhatsAppAssessmentVideoHandoff } from "@/lib/whatsappAssessmentHandoff";
 
 type JsonObject = { [key: string]: Json | undefined };
 
@@ -180,15 +181,6 @@ interface AiFunctionalAssessmentResponse {
   assessment_json?: JsonObject | null;
   report_text?: string | null;
   frame_findings?: AiFrameFinding[];
-}
-
-export interface WhatsAppAssessmentVideoHandoff {
-  version: 1;
-  studentId: string;
-  chatId: string;
-  messageId: string;
-  messageExternalId?: string | null;
-  mediaStoragePath?: string | null;
 }
 
 interface WhatsAppFetchMediaResponse {

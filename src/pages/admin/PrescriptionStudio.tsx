@@ -18,7 +18,7 @@ import {
   Loader2, Copy, CheckCircle2, Circle, AlertCircle, Send, Download, Wand2,
   Dumbbell, Activity, Waves, Bike, Apple, FileText, GripVertical, CalendarRange, Layers3, Play,
 } from "lucide-react";
-import VideoAssessment, { type WhatsAppAssessmentVideoHandoff } from "@/components/VideoAssessment";
+import VideoAssessment from "@/components/VideoAssessment";
 import { generateAllPDFs, generateAssessmentPDF } from "@/lib/generatePDFs";
 import { sendPdfToStudentWhatsApp } from "@/lib/sendStudentMedia";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Tabs, TabsContent, TabsList, TabsTrigger } from "@/lib/studioUi";
@@ -58,19 +58,15 @@ import {
   type PrescriptionScheduleCycle,
   type PrescriptionScheduleMode,
 } from "@/lib/prescriptionSchedule";
+import {
+  clearWhatsAppAssessmentHandoff,
+  resolveWhatsAppAssessmentHandoff,
+  type WhatsAppAssessmentVideoHandoff,
+} from "@/lib/whatsappAssessmentHandoff";
 
 type Modality = "musculacao" | "corrida" | "natacao" | "ciclismo" | "nutricao";
 type GenStatus = "idle" | "generating" | "done" | "error";
 const db = supabase as any;
-
-function isWhatsAppAssessmentVideoHandoff(value: unknown): value is WhatsAppAssessmentVideoHandoff {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<WhatsAppAssessmentVideoHandoff>;
-  return candidate.version === 1
-    && typeof candidate.studentId === "string" && candidate.studentId.length > 0
-    && typeof candidate.chatId === "string" && candidate.chatId.length > 0
-    && typeof candidate.messageId === "string" && candidate.messageId.length > 0;
-}
 
 type StudioLibraryExercise = {
   id: string;
@@ -247,15 +243,16 @@ export default function PrescriptionStudio() {
   // O history.state permanece intacto até o vídeo ser validado, aberto e cortado.
   // Assim, falha de rede/permissão não destrói a possibilidade de retry.
   useEffect(() => {
-    const state = location.state as { whatsappAssessmentHandoff?: unknown } | null;
-    if (isWhatsAppAssessmentVideoHandoff(state?.whatsappAssessmentHandoff)) {
-      setStudentId(state.whatsappAssessmentHandoff.studentId);
+    const handoff = resolveWhatsAppAssessmentHandoff(location.state);
+    if (handoff) {
+      setStudentId(handoff.studentId);
       setTab("avaliacao");
-      setPendingWhatsAppVideo(state.whatsappAssessmentHandoff);
+      setPendingWhatsAppVideo(handoff);
     }
   }, [location.state]);
 
   const consumeWhatsAppAssessmentHandoff = () => {
+    clearWhatsAppAssessmentHandoff();
     setPendingWhatsAppVideo(null);
     nav(location.pathname, { replace: true, state: null });
   };
