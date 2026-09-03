@@ -15,8 +15,9 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, Trash2, Search, Save, Play, ChevronUp, ChevronDown, BarChart3, BrainCircuit, Sparkles, MessageCircle, Loader2, AlertCircle, Dumbbell, PersonStanding, Clock, ClipboardList } from "lucide-react";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+import { ArrowLeft, Plus, Trash2, Search, Save, Play, ChevronUp, ChevronDown, BarChart3, Sparkles, MessageCircle, Loader2, AlertCircle, Dumbbell, PersonStanding, Clock, ClipboardList } from "lucide-react";
+import { BnitoContextButton, useBnitoAssistant } from "@/components/BnitoFloatingAssistant";
+import { BenitoSprite } from "@/components/BenitoSprite";
 import { useAssistantName } from "@/hooks/useAssistantName";
 import { BodyMap } from "@/components/body/BodyMap";
 import { regionForLibraryGroup, normalizeGender, BODY_REGION_LABELS, type BodyRegionId } from "@/lib/bodyMap";
@@ -161,6 +162,7 @@ export default function WorkoutBuilder() {
   const { viewingCompany, isViewingCompany } = useMaster();
   const { toast } = useToast();
   const assistantName = useAssistantName();
+  const { setPageContext: setBnitoPageContext } = useBnitoAssistant();
   const muscleGroupsList = useMuscleGroups();
   const MUSCLE_GROUP_NAMES = muscleGroupsList.map(g => g.name);
   // Modo BIBLIOTECA DE TREINOS: ?tpl=<id> edita um template em vez de um ciclo de aluno.
@@ -233,8 +235,7 @@ export default function WorkoutBuilder() {
   const [preRegistration, setPreRegistration] = useState<PreRegistrationData | null>(null);
   const [preRegistrationLoading, setPreRegistrationLoading] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
-  const [bnitoQuestion, setBnitoQuestion] = useState("");
-  const [bnitoLoading, setBnitoLoading] = useState<"review" | "ask" | null>(null);
+  const [bnitoLoading, setBnitoLoading] = useState<"review" | null>(null);
   const [bnitoResponse, setBnitoResponse] = useState<BnitoResponse | null>(null);
   const [validationResult, setValidationResult] = useState<PrescriptionValidationResult | null>(null);
   const [notifyingStudent, setNotifyingStudent] = useState(false);
@@ -732,20 +733,37 @@ export default function WorkoutBuilder() {
   const currentWorkout = workouts[parseInt(activeTab)] || workouts[0];
   const currentIdx = parseInt(activeTab);
 
-  const callBnito = async (action: "review" | "ask") => {
-    if (action === "ask" && !bnitoQuestion.trim()) {
-      toast({ title: `Digite uma pergunta para o ${assistantName}`, variant: "destructive" });
-      return;
-    }
-    setBnitoLoading(action);
+  const floatingBnitoContext = useMemo(() => ({
+    label: "rascunho atual da prescrição",
+    source: "workout_builder_live_draft",
+    studentId: cycleInfo?.student_id,
+    context: "Considere o rascunho ainda não salvo, o volume semanal calculado e a aba de treino aberta.",
+    workouts,
+    volumeSummary: weeklyVolume,
+    pageContext: {
+      active_workout: currentWorkout?.title || null,
+      active_workout_index: Number.isFinite(currentIdx) ? currentIdx : 0,
+      cycle_number: cycleInfo?.cycle_number || null,
+      has_unsaved_draft: true,
+    },
+  }), [cycleInfo?.cycle_number, cycleInfo?.student_id, currentIdx, currentWorkout?.title, weeklyVolume, workouts]);
+
+  useEffect(() => {
+    setBnitoPageContext(floatingBnitoContext);
+    return () => setBnitoPageContext(null);
+  }, [floatingBnitoContext, setBnitoPageContext]);
+
+  const callBnito = async () => {
+    setBnitoLoading("review");
     try {
       const { data, error } = await supabase.functions.invoke<BnitoResponse>("ai-bnito-coach", {
         body: {
-          action,
-          cycle_id: cycleId,
+          action: "review",
+          cycle_id: isTemplate ? null : cycleId,
+          company_id: effectiveCompanyId,
           workouts,
           volume_summary: weeklyVolume,
-          question: action === "ask" ? bnitoQuestion : "Audite tecnicamente este treino manual antes de salvar.",
+          question: "Audite tecnicamente este treino manual antes de salvar.",
           page_context: {
             active_workout: currentWorkout?.title,
             active_workout_index: currentIdx,
@@ -759,7 +777,7 @@ export default function WorkoutBuilder() {
       if (data.error) throw new Error(data.details || data.error);
       setBnitoResponse(data);
       toast({
-        title: action === "review" ? `${assistantName} auditou o treino` : `${assistantName} respondeu`,
+        title: `${assistantName} auditou o treino`,
         description: data.context_loaded?.has_anamnese ? "Contexto da anamnese carregado" : "Resposta gerada com o contexto disponível",
       });
     } catch (error) {
@@ -830,20 +848,18 @@ export default function WorkoutBuilder() {
     <>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate(returnTo)}>
+        <div
+          data-testid="workout-builder-header"
+          className="grid w-full gap-4 xl:grid-cols-[minmax(18rem,1fr)_minmax(0,auto)] xl:items-start"
+        >
+          <div className="flex min-w-0 items-start gap-2 sm:gap-4">
+            <Button variant="ghost" size="icon" className="mt-0.5 shrink-0" onClick={() => navigate(returnTo)}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-3xl text-primary">{isTemplate ? "TREINO DA BIBLIOTECA" : "PRESCRIÇÃO DE TREINO"}</h1>
-                <BnitoContextButton
-                  label="builder manual de treino"
-                  context={`Montagem manual de treino. ${cycleInfo ? `Aluno: ${cycleInfo.student_name}; ciclo ${cycleInfo.cycle_number}.` : "Ciclo ainda carregando."}`}
-                  question="Me ajuda a revisar a estrutura deste treino manual antes de salvar?"
-                />
-              </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl leading-tight text-primary sm:text-3xl">
+                {isTemplate ? "TREINO DA BIBLIOTECA" : "PRESCRIÇÃO DE TREINO"}
+              </h1>
               {isTemplate ? (
                 <Input
                   value={templateName}
@@ -852,17 +868,20 @@ export default function WorkoutBuilder() {
                   className="mt-1 h-9 max-w-md bg-secondary border-border"
                 />
               ) : cycleInfo && (
-                <p className="text-muted-foreground font-sans">
+                <p className="mt-1 break-words font-sans text-sm leading-snug text-muted-foreground sm:text-base">
                   {cycleInfo.student_name} — Ciclo {cycleInfo.cycle_number}
                 </p>
               )}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div
+            data-testid="workout-builder-header-actions"
+            className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end xl:max-w-[42rem] xl:justify-self-end"
+          >
             {!isTemplate && cycleInfo && (
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" className="w-full sm:w-auto">
                     <ClipboardList className="mr-2 h-4 w-4" />Pré-cadastro
                   </Button>
                 </PopoverTrigger>
@@ -886,24 +905,18 @@ export default function WorkoutBuilder() {
                 </PopoverContent>
               </Popover>
             )}
-            <Button variant="outline" size="sm" onClick={() => callBnito("review")} disabled={!!bnitoLoading}>
-              {bnitoLoading === "review" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <BrainCircuit className="h-4 w-4 mr-2" />}
-              {assistantName}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowVolume(!showVolume)}>
+            <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => setShowVolume(!showVolume)}>
               <BarChart3 className="h-4 w-4 mr-2" />Volume
             </Button>
-            <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-              {!isTemplate && (
-                <Button variant="outline" size="sm" onClick={saveAsTemplate} disabled={workouts.length === 0}>
-                  <Save className="h-4 w-4 mr-2" />Salvar na biblioteca
-                </Button>
-              )}
-              <Button onClick={handleSaveAll} disabled={saving} size="sm">
-                <Save className="h-4 w-4 mr-2" />
-                {saving ? "Salvando..." : isTemplate ? "Salvar na Biblioteca" : "Salvar Tudo"}
+            {!isTemplate && (
+              <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={saveAsTemplate} disabled={workouts.length === 0}>
+                <Save className="h-4 w-4 mr-2" />Salvar na biblioteca
               </Button>
-            </div>
+            )}
+            <Button onClick={handleSaveAll} disabled={saving} size="sm" className="w-full sm:w-auto">
+              <Save className="h-4 w-4 mr-2" />
+              {saving ? "Salvando..." : isTemplate ? "Salvar na Biblioteca" : "Salvar Tudo"}
+            </Button>
           </div>
         </div>
 
@@ -1240,47 +1253,34 @@ export default function WorkoutBuilder() {
               </Card>
             )}
 
-            <Card className="bg-card border-border">
+            <Card className="overflow-hidden border-navy/15 bg-gradient-to-b from-navy/5 to-card">
               <CardHeader className="pb-3">
-                <CardTitle className="text-primary text-sm flex items-center gap-2">
-                  <BrainCircuit className="h-4 w-4" />
-                  {assistantName}
-                </CardTitle>
-                <p className="text-xs text-muted-foreground font-sans">
-                  Copiloto técnico para revisar o treino manual antes de salvar.
-                </p>
+                <div className="flex items-center gap-3">
+                  <BenitoSprite
+                    state={bnitoLoading === "review" ? "processing" : "review"}
+                    size={48}
+                    alt={`${assistantName} revisando o treino`}
+                    className="benito-sprite-prominent shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <CardTitle className="text-sm text-primary">{assistantName}</CardTitle>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground font-sans">
+                      Auditoria técnica do treino antes de salvar.
+                    </p>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <Button
                   variant="default"
                   size="sm"
                   className="w-full"
-                  onClick={() => callBnito("review")}
+                  onClick={callBnito}
                   disabled={!!bnitoLoading}
                 >
                   {bnitoLoading === "review" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
                   Auditar treino
                 </Button>
-
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground font-sans">Pergunta técnica</Label>
-                  <Textarea
-                    value={bnitoQuestion}
-                    onChange={(event) => setBnitoQuestion(event.target.value)}
-                    placeholder="Ex: apareceu dor no joelho na anamnese, como ajusto esse treino?"
-                    className="bg-secondary border-border text-sm min-h-[96px]"
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => callBnito("ask")}
-                    disabled={!!bnitoLoading || !bnitoQuestion.trim()}
-                  >
-                    {bnitoLoading === "ask" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <MessageCircle className="h-4 w-4 mr-2" />}
-                    Perguntar ao {assistantName}
-                  </Button>
-                </div>
 
                 {!bnitoResult ? (
                   <div className="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground font-sans">

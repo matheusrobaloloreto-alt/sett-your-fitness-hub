@@ -8,10 +8,16 @@ function source(relativePath: string) {
 describe("SETT integration contracts", () => {
   it("sends verified company and student context from the professor BNITO", () => {
     const provider = source("src/components/BnitoFloatingAssistant.tsx");
+    const builder = source("src/pages/admin/WorkoutBuilder.tsx");
     expect(provider).toMatch(/student_id:\s*activeStudentId/);
     expect(provider).toMatch(/company_id:\s*effectiveCompanyId/);
     expect(provider).toContain("function getStudentId(pathname: string)");
     expect(provider).toContain("routeStudentId");
+    expect(provider).toContain("setPageContext");
+    expect(provider).toMatch(/workouts:\s*activeContext\?\.workouts/);
+    expect(provider).toMatch(/volume_summary:\s*activeContext\?\.volumeSummary/);
+    expect(builder).toContain("useBnitoAssistant");
+    expect(builder).toContain("setBnitoPageContext");
   });
 
   it("loads the complete student record and tenant-checks professor BNITO", () => {

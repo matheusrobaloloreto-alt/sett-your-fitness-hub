@@ -51,11 +51,15 @@ type BnitoOpenOptions = {
   question?: string;
   source?: string;
   studentId?: string;
+  workouts?: unknown;
+  volumeSummary?: unknown;
+  pageContext?: Record<string, unknown>;
 };
 
 type BnitoAssistantContextValue = {
   isAvailable: boolean;
   openBnito: (options?: BnitoOpenOptions) => void;
+  setPageContext: (options: BnitoOpenOptions | null) => void;
   assistantName: string;
 };
 
@@ -110,7 +114,10 @@ function createMessage(role: BnitoMessage["role"], content: string): BnitoMessag
 
 function getCycleId(pathname: string) {
   const match = pathname.match(/\/workout\/([^/]+)/);
-  return match?.[1] || null;
+  const candidate = match?.[1] || "";
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate)
+    ? candidate
+    : null;
 }
 
 function getStudentId(pathname: string) {
@@ -164,7 +171,7 @@ function getUnavailableMessage(message: string, name: string) {
 
 export function useBnitoAssistant() {
   const context = useContext(BnitoAssistantContext);
-  return context || { isAvailable: false, openBnito: () => {}, assistantName: "Setty" };
+  return context || { isAvailable: false, openBnito: () => {}, setPageContext: () => {}, assistantName: "Setty" };
 }
 
 export function BnitoContextButton({ label, context, question, className, text, studentId }: BnitoContextButtonProps) {
@@ -216,6 +223,7 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   const [petReaction, setPetReaction] = useState<BenitoState | null>(null);
   const [messages, setMessages] = useState<BnitoMessage[]>(() => [makeWelcome("Setty")]);
   const [sessionContext, setSessionContext] = useState<BnitoOpenOptions | null>(null);
+  const [pageContext, setPageContext] = useState<BnitoOpenOptions | null>(null);
   const dragStateRef = useRef<{ dx: number; dy: number; moved: boolean; lastClientX: number; startClientX: number; startClientY: number } | null>(null);
   const dragAbortRef = useRef<AbortController | null>(null);
   const [dragDirection, setDragDirection] = useState<"running-left" | "running-right" | null>(null);
@@ -259,8 +267,9 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   const cycleId = useMemo(() => getCycleId(location.pathname), [location.pathname]);
   const routeStudentId = useMemo(() => getStudentId(location.pathname), [location.pathname]);
   const pageLabel = useMemo(() => getPageLabel(location.pathname), [location.pathname]);
-  const activeLabel = sessionContext?.label || pageLabel;
-  const activeStudentId = sessionContext?.studentId || routeStudentId;
+  const activeContext = sessionContext || pageContext;
+  const activeLabel = activeContext?.label || pageLabel;
+  const activeStudentId = activeContext?.studentId || routeStudentId;
 
   const clampButtonPosition = useCallback((x: number, y: number) => {
     if (typeof window === "undefined") return { x, y };
@@ -352,26 +361,29 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
           cycle_id: cycleId,
           student_id: activeStudentId,
           company_id: effectiveCompanyId,
+          workouts: activeContext?.workouts,
+          volume_summary: activeContext?.volumeSummary,
           question: trimmed,
           profile: {
             role,
-            source: sessionContext?.source || "bnito_contextual_assistant",
+            source: activeContext?.source || "bnito_contextual_assistant",
             current_page: pageLabel,
-            context_label: sessionContext?.label || null,
+            context_label: activeContext?.label || null,
           },
           context: [
             `Origem: ${pageLabel}.`,
-            sessionContext?.label ? `Secao acionada: ${sessionContext.label}.` : "",
-            sessionContext?.context ? `Contexto da secao: ${sessionContext.context}.` : "",
+            activeContext?.label ? `Secao acionada: ${activeContext.label}.` : "",
+            activeContext?.context ? `Contexto da secao: ${activeContext.context}.` : "",
             `Rota atual: ${location.pathname}.`,
             cycleId ? `Ciclo aberto: ${cycleId}.` : "",
             activeStudentId ? `Aluno em contexto: ${activeStudentId}.` : "",
           ].filter(Boolean).join(" "),
           page_context: {
+            ...(activeContext?.pageContext || {}),
             pathname: location.pathname,
             page_label: pageLabel,
-            context_label: sessionContext?.label || null,
-            context: sessionContext?.context || null,
+            context_label: activeContext?.label || null,
+            context: activeContext?.context || null,
             cycle_id: cycleId,
             student_id: activeStudentId,
             company_id: effectiveCompanyId,
@@ -408,7 +420,7 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   };
 
   const contextValue = useMemo(
-    () => ({ isAvailable: shouldShow, openBnito, assistantName: name }),
+    () => ({ isAvailable: shouldShow, openBnito, setPageContext, assistantName: name }),
     [openBnito, shouldShow, name],
   );
   const localPetFallback: BenitoState = loading

@@ -32,6 +32,7 @@ export function AppLayout() {
     location.pathname.includes("/whatsapp-automation");
   const isProfessional = role === "admin" || role === "coordinator" || role === "trainer";
   const isDashboard = ["/admin", "/coordinator", "/trainer"].includes(location.pathname);
+  const isWorkoutBuilder = /\/workout\/[^/]+/.test(location.pathname);
 
   return (
     <SidebarProvider>
@@ -44,13 +45,15 @@ export function AppLayout() {
               <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-muted-foreground">
                 Set / Painel
               </span>
-              <BnitoContextButton
-                label="painel atual"
-                context="Ajuda contextual geral da rota atual, considerando permissao, modulo e tarefa em andamento."
-                question="Me orienta sobre esta tela e os proximos passos tecnicos?"
-                text={assistantName}
-                className="ml-auto"
-              />
+              {!isWorkoutBuilder && (
+                <BnitoContextButton
+                  label="painel atual"
+                  context="Ajuda contextual geral da rota atual, considerando permissao, modulo e tarefa em andamento."
+                  question="Me orienta sobre esta tela e os proximos passos tecnicos?"
+                  text={assistantName}
+                  className="ml-auto"
+                />
+              )}
             </header>
             <div className={`flex-1 overflow-auto ${noPadding ? "" : "p-6 md:p-8"}`}>
               {isProfessional && isDashboard && !noPadding && (
