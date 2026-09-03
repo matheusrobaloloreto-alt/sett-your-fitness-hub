@@ -75,10 +75,14 @@ describe("SETT integration contracts", () => {
     expect(studio).toContain("Este aluno ainda não respondeu a anamnese");
   });
 
-  it("derives WhatsApp audiences and current cycle from canonical helpers", () => {
+  it("derives WhatsApp workout badges from the canonical prepared cycle and refreshes stale status", () => {
     const whatsapp = source("src/pages/admin/WhatsAppChat.tsx");
     expect(whatsapp).toContain("matchesWhatsAppStatusFilter");
-    expect(whatsapp).toContain("selectCurrentCycle");
+    expect(whatsapp).toContain("selectPrescriptionEnrollment");
+    expect(whatsapp).toContain("selectPreferredVisibleCycle");
+    expect(whatsapp).toContain("scheduleStudentDataRefresh");
+    expect(whatsapp).toContain('document.addEventListener("visibilitychange"');
+    expect(whatsapp).toMatch(/if \(requestId === studentDataRequestRef\.current\) \{\s*setStudentContexts\(\{\}\);\s*setChatLabels\(\{\}\);/);
     expect(whatsapp).toContain("enrollmentEndDate");
   });
 

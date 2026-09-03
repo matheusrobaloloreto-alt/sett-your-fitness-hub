@@ -102,6 +102,15 @@ describe("prescriptionSchedule", () => {
     expect(selectPreferredVisibleCycle(candidates, today)?.id).toBe("cycle-11");
   });
 
+  it("mantém o último ciclo materializado visível enquanto o ciclo atual ainda está vazio", () => {
+    const candidates = [
+      cycle(1, "2026-05-01", "2026-06-11", { status: "completed", has_workouts: true }),
+      cycle(2, "2026-06-12", "2026-07-23", { status: "active", has_workouts: false }),
+    ];
+
+    expect(selectPreferredVisibleCycle(candidates, today)?.id).toBe("cycle-1");
+  });
+
   it("mantém o Studio na matrícula vigente e não mistura ciclos de matrículas antigas", () => {
     expect(selectPrescriptionEnrollment([
       { id: "inactive", status: "inactive", created_at: "2026-07-30" },

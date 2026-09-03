@@ -38,9 +38,12 @@ import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
 import type { PreRegistrationData } from "@/lib/preRegistration";
 import {
   matchesWhatsAppStatusFilter,
-  selectCurrentCycle,
   type WhatsAppStatusFilter,
 } from "@/lib/whatsappAudience";
+import {
+  selectPrescriptionEnrollment,
+  selectPreferredVisibleCycle,
+} from "@/lib/prescriptionSchedule";
 import {
   isUsableMediaUrl,
   normalizeWhatsAppPhoneKey,
@@ -265,6 +268,10 @@ export default function WhatsAppChat() {
   const forceOwnMessageAutoScrollRef = useRef(false);
   const messageViewportNearBottomRef = useRef(true);
   const chatRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const studentDataRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const studentDataRequestRef = useRef(0);
+  const chatsRef = useRef<Chat[]>([]);
+  useEffect(() => { chatsRef.current = chats; }, [chats]);
   const historySyncAttemptsRef = useRef(new Set<string>());
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
@@ -438,10 +445,13 @@ export default function WhatsAppChat() {
   }, []);
 
   const loadStudentData = useCallback(async (chatList: Chat[]) => {
+    const requestId = ++studentDataRequestRef.current;
     const studentChats = chatList.filter((c) => c.student_id);
     if (studentChats.length === 0) {
-      setStudentContexts({});
-      setChatLabels({});
+      if (requestId === studentDataRequestRef.current) {
+        setStudentContexts({});
+        setChatLabels({});
+      }
       return;
     }
 
@@ -449,29 +459,43 @@ export default function WhatsAppChat() {
 
     let enrollQuery = supabase
       .from("enrollments")
-      .select("id, student_id, status, training_start_date, end_date, plan_id, plans(name, price)")
+      .select("id, student_id, status, created_at, training_start_date, end_date, plan_id, plans(name, price)")
       .in("student_id", studentIds)
       .in("status", ["active", "awaiting_training", "awaiting_renewal"])
       .order("end_date", { ascending: false, nullsFirst: false });
     if (effectiveCompanyId) enrollQuery = enrollQuery.eq("company_id", effectiveCompanyId);
 
-    const { data: enrollments } = await enrollQuery;
+    const { data: enrollments, error: enrollmentsError } = await enrollQuery;
 
     const enrollmentIds = (enrollments || []).map((e) => e.id);
-    const { data: cycles } = enrollmentIds.length > 0
+    const { data: cycles, error: cyclesError } = enrollmentIds.length > 0
       ? await supabase.from("training_cycles").select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at").in("enrollment_id", enrollmentIds).neq("status", "superseded")
-      : { data: [] };
+      : { data: [], error: null };
 
     const cycleIds = (cycles || []).map((c) => c.id);
-    const { data: workouts } = cycleIds.length > 0
+    const { data: workouts, error: workoutsError } = cycleIds.length > 0
       ? await supabase.from("workouts").select("id, cycle_id, exercises").in("cycle_id", cycleIds)
-      : { data: [] };
+      : { data: [], error: null };
 
-    const { data: payments } = await supabase
+    const { data: payments, error: paymentsError } = await supabase
       .from("payments")
       .select("id, student_id, status, due_date")
       .in("student_id", studentIds)
       .not("status", "in", '("RECEIVED","CONFIRMED","RECEIVED_IN_CASH")');
+
+    if (enrollmentsError || cyclesError || workoutsError || paymentsError) {
+      console.error("Failed to refresh WhatsApp student context", {
+        enrollments: Boolean(enrollmentsError),
+        cycles: Boolean(cyclesError),
+        workouts: Boolean(workoutsError),
+        payments: Boolean(paymentsError),
+      });
+      if (requestId === studentDataRequestRef.current) {
+        setStudentContexts({});
+        setChatLabels({});
+      }
+      return;
+    }
 
     const contexts: Record<string, StudentContext> = {};
     const labels: Record<string, string[]> = {};
@@ -488,9 +512,23 @@ export default function WhatsAppChat() {
 
     for (const chat of studentChats) {
       const studentId = chat.student_id!;
-      const enrollment = (enrollments || []).find((e) => e.student_id === studentId);
+      const enrollment = selectPrescriptionEnrollment(
+        (enrollments || [])
+          .filter((candidate) => candidate.student_id === studentId && Boolean(candidate.status))
+          .map((candidate) => ({ ...candidate, status: candidate.status! })),
+      );
       const cycle = enrollment
-        ? selectCurrentCycle((cycles || []).filter((c) => c.enrollment_id === enrollment.id), today)
+        ? selectPreferredVisibleCycle(
+          (cycles || [])
+            .filter((candidate) => candidate.enrollment_id === enrollment.id)
+            .map((candidate) => ({
+              ...candidate,
+              status: candidate.status || "pending",
+              has_workouts: workoutsByCycle.has(candidate.id)
+                || Boolean(candidate.prescribed_offline_at),
+            })),
+          new Date(`${today}T12:00:00`),
+        )
         : null;
       const chatLabelsArr: string[] = [];
       const planRaw = (enrollment as { plans?: { name?: string; price?: number } | { name?: string; price?: number }[] } | undefined)?.plans;
@@ -504,7 +542,7 @@ export default function WhatsAppChat() {
 
       if (cycle) {
         const daysRemaining = Math.max(0, differenceInDays(new Date(cycle.end_date), new Date()));
-        const hasWorkout = workoutsByCycle.has(cycle.id) || Boolean((cycle as { prescribed_offline_at?: string | null }).prescribed_offline_at);
+        const hasWorkout = Boolean(cycle.has_workouts);
         contexts[chat.id] = { cycleNumber: cycle.cycle_number, cycleStartDate: cycle.start_date, daysRemaining, paymentStatus: pendingPaymentsByStudent.has(studentId) ? "pendente" : "em dia", hasActiveWorkout: hasWorkout, studentName: chat.student?.full_name || "", ...planExtras };
         if (!hasWorkout) chatLabelsArr.push("Aguardando Treino");
       } else if (enrollment) {
@@ -516,9 +554,18 @@ export default function WhatsAppChat() {
       if (chatLabelsArr.length > 0) labels[chat.id] = chatLabelsArr;
     }
 
+    if (requestId !== studentDataRequestRef.current) return;
     setStudentContexts(contexts);
     setChatLabels(labels);
   }, [effectiveCompanyId]);
+
+  const scheduleStudentDataRefresh = useCallback(() => {
+    if (studentDataRefreshTimerRef.current) return;
+    studentDataRefreshTimerRef.current = setTimeout(() => {
+      studentDataRefreshTimerRef.current = null;
+      void loadStudentData(chatsRef.current);
+    }, 250);
+  }, [loadStudentData]);
 
   const loadMessages = useCallback(async (chatId: string) => {
     const requestId = ++messageRequestRef.current;
@@ -923,6 +970,7 @@ export default function WhatsAppChat() {
   };
 
   useEffect(() => {
+    studentDataRequestRef.current += 1;
     chatsLoadedRef.current = false;
     setChatsLoaded(false);
     setChats([]);
@@ -933,6 +981,7 @@ export default function WhatsAppChat() {
   useEffect(() => { loadChats(); loadSenderNames(); loadTemplates(); loadCategories(); loadAvailableLabels(); loadTeamMembers(); }, [loadChats, loadSenderNames, loadTemplates, loadCategories, loadAvailableLabels, loadTeamMembers]);
   useEffect(() => () => {
     if (chatRefreshTimerRef.current) clearTimeout(chatRefreshTimerRef.current);
+    if (studentDataRefreshTimerRef.current) clearTimeout(studentDataRefreshTimerRef.current);
   }, []);
   // Load contacts from Evolution API separately to avoid overwhelming edge function workers
   useEffect(() => { const t = setTimeout(() => loadContacts(), 2000); return () => clearTimeout(t); }, [loadContacts]);
@@ -940,6 +989,17 @@ export default function WhatsAppChat() {
     void loadStudentData(chats);
     void loadChatLabels(chats.map((chat) => chat.id));
   }, [chats, loadStudentData, loadChatLabels]);
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") scheduleStudentDataRefresh();
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [scheduleStudentDataRefresh]);
   // Pré-seleciona uma conversa existente ou prepara uma nova conversa interna.
   useEffect(() => {
     if (!chatsLoaded) return;
