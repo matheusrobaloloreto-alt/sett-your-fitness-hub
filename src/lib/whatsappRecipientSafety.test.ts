@@ -77,10 +77,10 @@ describe("WhatsApp recipient safety contracts", () => {
     );
     expect(managerSource).not.toContain("details: webhookError,");
     expect(managerSource).toContain(
-      '"configure-history-sync webhook provider error:",',
+      '"delivery webhook provider error:",',
     );
     expect(managerSource).toContain(
-      "providerErrorDetails(\n          webhookUpdate.status,",
+      "providerErrorDetails(response.status, issue, rawBody);",
     );
     expect(managerSource).not.toContain("JSON.stringify(createData)");
     expect(managerSource).toContain(

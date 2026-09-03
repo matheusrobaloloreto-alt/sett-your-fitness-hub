@@ -16,6 +16,17 @@ describe("WhatsApp delivery receipt contract", () => {
     expect(manager).toContain('"messages.update"');
   });
 
+  it("reconciles legacy connected instances during the normal status check", () => {
+    expect(manager).toContain("const ensureDeliveryWebhook = async () =>");
+    expect(manager).toMatch(
+      /if \(mappedStatus === "connected"\) \{\s*const webhookResult = await ensureDeliveryWebhook\(\);\s*deliveryWebhookConfigured = webhookResult\.ok;/,
+    );
+    expect(manager).toMatch(
+      /return json\(\{\s*status: mappedStatus,\s*phone: connectedPhone,\s*deliveryWebhookConfigured,/,
+    );
+    expect(manager).toContain('console.error("delivery webhook provider error: network_failure")');
+  });
+
   it("matches receipts only inside the resolved company and outgoing messages", () => {
     expect(webhook).toContain('.eq("company_id", instance.company_id)');
     expect(webhook).toContain('.eq("message_id_external", receipt.messageExternalId)');

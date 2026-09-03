@@ -697,6 +697,70 @@ Deno.serve(async (req) => {
       });
     };
 
+    // Existing provider instances predate newer webhook events. Reconcile the
+    // subscription idempotently whenever an administrator checks a connected
+    // instance so delivery/read receipts keep working after upgrades.
+    const ensureDeliveryWebhook = async () => {
+      const webhookUrl = new URL(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-webhook`,
+      );
+      webhookUrl.searchParams.set("token", webhookSecret);
+      const webhookPayloads = [
+        {
+          webhook: {
+            enabled: true,
+            url: webhookUrl.toString(),
+            headers: { "x-webhook-secret": webhookSecret },
+            byEvents: false,
+            base64: false,
+            events: ["MESSAGES_UPSERT", "MESSAGES_SET", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
+          },
+        },
+        {
+          enabled: true,
+          url: webhookUrl.toString(),
+          webhook_by_events: false,
+          webhook_base64: false,
+          events: [
+            "MESSAGES_UPSERT",
+            "MESSAGES_SET",
+            "MESSAGES_UPDATE",
+            "messages.upsert",
+            "messages.set",
+            "messages.update",
+            "CONNECTION_UPDATE",
+            "connection.update",
+          ],
+          headers: { "x-webhook-secret": webhookSecret },
+        },
+      ];
+      let errorDetails = "provider_status_0:whatsapp_provider_failure";
+      for (const payload of webhookPayloads) {
+        try {
+          const response = await fetch(
+            `${evoUrl}/webhook/set/${instanceName}`,
+            {
+              method: "POST",
+              headers: evoHeaders,
+              body: JSON.stringify(payload),
+            },
+          );
+          if (response.ok) return { ok: true as const };
+          const rawBody = await response.text().catch(() => "");
+          const issue = providerIssueFromResponse(response.status, rawBody);
+          console.error(
+            "delivery webhook provider error:",
+            sanitizeProviderErrorForLog(response.status, issue, rawBody),
+          );
+          errorDetails = providerErrorDetails(response.status, issue, rawBody);
+        } catch {
+          console.error("delivery webhook provider error: network_failure");
+          errorDetails = "provider_status_0:whatsapp_provider_failure";
+        }
+      }
+      return { ok: false as const, details: errorDetails };
+    };
+
     // ─── Helper: destroy instance (logout + delete) ───
     const destroyInstance = async () => {
       try {
@@ -903,7 +967,17 @@ Deno.serve(async (req) => {
         ...(mappedStatus === "connected" ? { qr_code: null } : {}),
       });
 
-      return json({ status: mappedStatus, phone: connectedPhone });
+      let deliveryWebhookConfigured: boolean | null = null;
+      if (mappedStatus === "connected") {
+        const webhookResult = await ensureDeliveryWebhook();
+        deliveryWebhookConfigured = webhookResult.ok;
+      }
+
+      return json({
+        status: mappedStatus,
+        phone: connectedPhone,
+        deliveryWebhookConfigured,
+      });
     }
 
     // ─── DISCONNECT ───
@@ -969,77 +1043,11 @@ Deno.serve(async (req) => {
         }, 502);
       }
 
-      const webhookUrl = new URL(
-        `${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-webhook`,
-      );
-      webhookUrl.searchParams.set("token", webhookSecret);
-      const webhookPayloads = [
-        {
-          webhook: {
-            enabled: true,
-            url: webhookUrl.toString(),
-            headers: { "x-webhook-secret": webhookSecret },
-            byEvents: false,
-            base64: false,
-            events: ["MESSAGES_UPSERT", "MESSAGES_SET", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
-          },
-        },
-        {
-          enabled: true,
-          url: webhookUrl.toString(),
-          webhook_by_events: false,
-          webhook_base64: false,
-          events: [
-            "MESSAGES_UPSERT",
-            "MESSAGES_SET",
-            "MESSAGES_UPDATE",
-            "messages.upsert",
-            "messages.set",
-            "messages.update",
-            "CONNECTION_UPDATE",
-            "connection.update",
-          ],
-          headers: { "x-webhook-secret": webhookSecret },
-        },
-      ];
-      let webhookConfigured = false;
-      let webhookErrorDetails = "provider_status_0:whatsapp_provider_failure";
-      for (const payload of webhookPayloads) {
-        const webhookUpdate = await fetch(
-          `${evoUrl}/webhook/set/${instanceName}`,
-          {
-            method: "POST",
-            headers: evoHeaders,
-            body: JSON.stringify(payload),
-          },
-        );
-        if (webhookUpdate.ok) {
-          webhookConfigured = true;
-          break;
-        }
-        const webhookRawBody = await webhookUpdate.text().catch(() => "");
-        const webhookIssue = providerIssueFromResponse(
-          webhookUpdate.status,
-          webhookRawBody,
-        );
-        console.error(
-          "configure-history-sync webhook provider error:",
-          sanitizeProviderErrorForLog(
-            webhookUpdate.status,
-            webhookIssue,
-            webhookRawBody,
-          ),
-        );
-        webhookErrorDetails = providerErrorDetails(
-          webhookUpdate.status,
-          webhookIssue,
-          webhookRawBody,
-        );
-      }
-      if (!webhookConfigured) {
+      const webhookResult = await ensureDeliveryWebhook();
+      if (!webhookResult.ok) {
         return json({
           error: "Failed to configure WhatsApp history webhook",
-          details: webhookErrorDetails,
+          details: webhookResult.details,
         }, 502);
       }
       return json({ success: true, syncFullHistory: true });
