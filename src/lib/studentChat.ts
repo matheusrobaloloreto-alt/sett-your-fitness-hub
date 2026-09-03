@@ -18,12 +18,16 @@ export async function buildStudentChatMap(companyId?: string | null): Promise<Re
   return map;
 }
 
-function waDigits(phone?: string | null): string | null {
+export function normalizeStudentChatPhone(phone?: string | null, countryCode?: string | null): string | null {
   if (!phone) return null;
-  let d = String(phone).replace(/\D/g, "");
+  const raw = String(phone).trim();
+  let d = raw.replace(/\D/g, "");
   if (!d) return null;
+  if (/^\+(?!55)/.test(raw)) return /^[1-9]\d{7,14}$/.test(d) ? d : null;
+  const country = String(countryCode || "").trim().toUpperCase();
+  if (country && country !== "BR") return /^[1-9]\d{7,14}$/.test(d) ? d : null;
   if (d.length <= 11) d = "55" + d; // assume Brasil se vier sem DDI
-  return d;
+  return /^[1-9]\d{9,14}$/.test(d) ? d : null;
 }
 
 // Abre o chat interno do aluno com a mensagem pronta. Sem conversa vinculada, a tela
@@ -34,6 +38,7 @@ export async function openStudentChat(opts: {
   chatId?: string | null;
   studentId?: string | null;
   phone?: string | null;
+  countryCode?: string | null;
   contactName?: string | null;
   message: string;
   onNoChat?: (message: string) => void;
@@ -41,6 +46,7 @@ export async function openStudentChat(opts: {
   const { navigate, routePrefix, studentId, message, onNoChat } = opts;
   let resolvedChatId = opts.chatId ?? null;
   let resolvedPhone = opts.phone ?? null;
+  let resolvedCountryCode = opts.countryCode ?? null;
   let contactName: string | null = opts.contactName ?? null;
 
   if (!resolvedChatId && studentId) {
@@ -54,17 +60,18 @@ export async function openStudentChat(opts: {
     resolvedChatId = linkedChat?.id ?? null;
   }
 
-  if ((!resolvedPhone || !contactName) && studentId) {
+  if ((!resolvedPhone || !contactName || !resolvedCountryCode) && studentId) {
     const { data } = await supabase
       .from("students")
-      .select("full_name, whatsapp, phone")
+      .select("full_name, whatsapp, phone, country_code")
       .eq("id", studentId)
       .maybeSingle();
     resolvedPhone = resolvedPhone || (data as any)?.whatsapp || (data as any)?.phone || null;
     contactName = (data as any)?.full_name || null;
+    resolvedCountryCode = resolvedCountryCode || (data as any)?.country_code || null;
   }
 
-  const digits = waDigits(resolvedPhone);
+  const digits = normalizeStudentChatPhone(resolvedPhone, resolvedCountryCode);
   if (!resolvedChatId && !digits) {
     if (onNoChat) {
       onNoChat(message);

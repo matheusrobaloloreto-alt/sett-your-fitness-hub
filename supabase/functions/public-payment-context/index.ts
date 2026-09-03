@@ -28,6 +28,17 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function digits(value: unknown) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function requiredText(value: unknown, label: string, maxLength = 160) {
+  const normalized = String(value || "").trim();
+  if (!normalized) throw new HttpError(422, `${label} é obrigatório.`);
+  if (normalized.length > maxLength) throw new HttpError(422, `${label} excede o limite permitido.`);
+  return normalized;
+}
+
 async function getBranding(companyId: string) {
   const { data, error } = await supabase
     .from("platform_settings")
@@ -180,6 +191,60 @@ async function recordRecoveryEvent(link: CheckoutLink, body: Record<string, unkn
   if (error) throw new HttpError(500, `Falha ao registrar evento do checkout: ${error.message}`);
 }
 
+async function setBrazilianBillingProfile(link: CheckoutLink, body: Record<string, unknown>) {
+  const billing = body.billing && typeof body.billing === "object" && !Array.isArray(body.billing)
+    ? body.billing as Record<string, unknown>
+    : {};
+  const cpf = digits(billing.cpfCnpj);
+  const cep = digits(billing.postalCode);
+  if (![11, 14].includes(cpf.length)) throw new HttpError(422, "Informe um CPF/CNPJ brasileiro válido.");
+  if (cep.length !== 8) throw new HttpError(422, "Informe um CEP brasileiro válido.");
+
+  const email = requiredText(billing.email, "E-mail", 254).toLowerCase();
+  if (!email.includes("@")) throw new HttpError(422, "Informe um e-mail válido.");
+  const name = requiredText(billing.name, "Nome do pagador");
+  const address = requiredText(billing.address, "Endereço");
+  const addressNumber = requiredText(billing.addressNumber, "Número do endereço", 40);
+  const province = requiredText(billing.province, "Bairro");
+  let phone = digits(billing.phone);
+  if (phone.startsWith("55") && (phone.length === 12 || phone.length === 13)) phone = phone.slice(2);
+  if (phone && !(phone.length === 10 || (phone.length === 11 && phone[2] === "9"))) {
+    throw new HttpError(422, "Informe um telefone brasileiro válido para o pagador.");
+  }
+
+  const { data: current, error: currentError } = await supabase
+    .from("students")
+    .select("country_code, cpf, billing_cpf_cnpj, asaas_customer_id")
+    .eq("id", link.student_id)
+    .eq("company_id", link.company_id)
+    .maybeSingle();
+  if (currentError) throw new HttpError(500, `Falha ao conferir o pagador atual: ${currentError.message}`);
+  if (!current) throw new HttpError(404, "Aluno não encontrado.");
+  const currentPayerDocument = digits(
+    current.billing_cpf_cnpj || (String(current.country_code || "").toUpperCase() === "BR" ? current.cpf : ""),
+  );
+  const payerChanged = Boolean(current.asaas_customer_id && currentPayerDocument !== cpf);
+
+  const { error } = await supabase
+    .from("students")
+    .update({
+      billing_country_code: "BR",
+      billing_name: name,
+      billing_email: email,
+      billing_cpf_cnpj: cpf,
+      billing_postal_code: cep,
+      billing_address: address,
+      billing_address_number: addressNumber,
+      billing_neighborhood: province,
+      billing_phone: phone || null,
+      ...(payerChanged ? { asaas_customer_id: null } : {}),
+    })
+    .eq("id", link.student_id)
+    .eq("company_id", link.company_id);
+  if (error) throw new HttpError(500, `Falha ao salvar dados de cobrança: ${error.message}`);
+  return { ok: true, billingCountryCode: "BR" };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Método não permitido" }, 405);
@@ -195,10 +260,14 @@ Deno.serve(async (req) => {
 
     const link = await resolveCheckoutToken(body?.token);
 
+    if (action === "set-brazilian-billing-profile") {
+      return json(await setBrazilianBillingProfile(link, body));
+    }
+
     if (action === "context") {
       const { data: student, error: studentError } = await supabase
         .from("students")
-        .select("id, full_name, email, cpf, cep, phone, whatsapp, selected_plan_id, address, address_number, neighborhood, fiscal_completed_at, sales_stage")
+        .select("id, full_name, email, cpf, cep, phone, whatsapp, country_code, billing_country_code, billing_name, billing_email, billing_cpf_cnpj, billing_postal_code, billing_address, billing_address_number, billing_neighborhood, billing_phone, selected_plan_id, address, address_number, neighborhood, fiscal_completed_at, sales_stage")
         .eq("id", link.student_id)
         .eq("company_id", link.company_id)
         .maybeSingle();

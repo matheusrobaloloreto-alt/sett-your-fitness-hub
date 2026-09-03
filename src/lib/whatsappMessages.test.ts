@@ -17,6 +17,10 @@ describe("WhatsApp message reconciliation", () => {
     expect(normalizeWhatsAppPhoneKey("554891432057@s.whatsapp.net")).toBe("48991432057");
   });
 
+  it("preserves an international provider JID with eleven digits", () => {
+    expect(normalizeWhatsAppPhoneKey("61416060587@s.whatsapp.net")).toBe("61416060587");
+  });
+
   it("replaces an optimistic row when realtime delivers the provider message", () => {
     const optimistic = { id: "temp-1", message_id_external: "provider-1", content: "Oi" };
     const persisted = { id: "db-1", message_id_external: "provider-1", content: "Oi" };

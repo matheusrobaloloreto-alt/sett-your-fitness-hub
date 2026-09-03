@@ -3486,6 +3486,15 @@ export type Database = {
           assessment_due_at: string | null
           assigned_trainer_id: string | null
           birth_date: string | null
+          billing_address: string | null
+          billing_address_number: string | null
+          billing_country_code: string | null
+          billing_cpf_cnpj: string | null
+          billing_email: string | null
+          billing_name: string | null
+          billing_neighborhood: string | null
+          billing_phone: string | null
+          billing_postal_code: string | null
           category_id: string | null
           cep: string | null
           city: string | null
@@ -3527,6 +3536,15 @@ export type Database = {
           assessment_due_at?: string | null
           assigned_trainer_id?: string | null
           birth_date?: string | null
+          billing_address?: string | null
+          billing_address_number?: string | null
+          billing_country_code?: string | null
+          billing_cpf_cnpj?: string | null
+          billing_email?: string | null
+          billing_name?: string | null
+          billing_neighborhood?: string | null
+          billing_phone?: string | null
+          billing_postal_code?: string | null
           category_id?: string | null
           cep?: string | null
           city?: string | null
@@ -3568,6 +3586,15 @@ export type Database = {
           assessment_due_at?: string | null
           assigned_trainer_id?: string | null
           birth_date?: string | null
+          billing_address?: string | null
+          billing_address_number?: string | null
+          billing_country_code?: string | null
+          billing_cpf_cnpj?: string | null
+          billing_email?: string | null
+          billing_name?: string | null
+          billing_neighborhood?: string | null
+          billing_phone?: string | null
+          billing_postal_code?: string | null
           category_id?: string | null
           cep?: string | null
           city?: string | null

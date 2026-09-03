@@ -256,6 +256,7 @@ export async function sendPreRegistrationConfirmation(args: {
   companyId: string;
   fullName: string;
   phone: string;
+  countryCode?: string | null;
   text: string;
 }): Promise<FunnelMessageResult> {
   const eventKey = "pre_registration_received:v1";
@@ -297,7 +298,7 @@ export async function sendPreRegistrationConfirmation(args: {
   };
 
   try {
-    const remoteJid = normalizeFunnelRemoteJid(args.phone);
+    const remoteJid = normalizeFunnelRemoteJid(args.phone, args.countryCode);
     if (!remoteJid) throw new Error("WhatsApp inválido para confirmação.");
     const instanceResult = await args.admin.from("whatsapp_instances")
       .select("id, instance_name, status")

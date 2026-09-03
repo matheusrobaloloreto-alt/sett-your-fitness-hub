@@ -14,6 +14,18 @@ const lifecycleMigrationSource = readFileSync(
   "supabase/migrations/20260901123000_atomic_payment_lifecycle.sql",
   "utf8",
 );
+const paymentContextSource = readFileSync(
+  "supabase/functions/public-payment-context/index.ts",
+  "utf8",
+);
+const registrationSource = readFileSync(
+  "supabase/functions/public-registration/index.ts",
+  "utf8",
+);
+const billingCountryMigrationSource = readFileSync(
+  "supabase/migrations/20260903193000_separate_contact_and_billing_country.sql",
+  "utf8",
+);
 
 describe("public credit-card checkout contract", () => {
   it("fails closed unless the Asaas base URL is an explicitly allowed environment", () => {
@@ -51,6 +63,32 @@ describe("public credit-card checkout contract", () => {
     const chooser = uiSource.slice(uiSource.indexOf('{step === "choose"'), uiSource.indexOf('{step === "pix"'));
     expect(chooser).toContain("Pagar com Cartão");
     expect(chooser).not.toContain("{isRenewal &&");
+  });
+
+  it("keeps the WhatsApp country separate from the Brazilian billing profile", () => {
+    expect(billingCountryMigrationSource).toContain("billing_country_code");
+    expect(billingCountryMigrationSource).toContain("billing_name");
+    expect(billingCountryMigrationSource).toContain("billing_cpf_cnpj");
+    expect(paymentContextSource).toContain('action === "set-brazilian-billing-profile"');
+    expect(paymentContextSource).toContain('billing_country_code: "BR"');
+    expect(paymentContextSource).not.toMatch(/\n\s+country_code:\s*"BR"/);
+    expect(edgeSource).toContain("effectiveBillingCountryCode(student)");
+    expect(edgeSource).toContain("resolveBrazilianBillingProfile(student)");
+    expect(edgeSource).toContain("domesticAsaasMobilePhone(student)");
+    expect(edgeSource).toContain('billingField(student, "billing_cpf_cnpj", "cpf")');
+    expect(uiSource).toContain("DADOS DE COBRANÇA NO BRASIL");
+    const profileAction = paymentContextSource.slice(
+      paymentContextSource.indexOf("async function setBrazilianBillingProfile"),
+      paymentContextSource.indexOf("Deno.serve"),
+    );
+    expect(profileAction).not.toMatch(/\n\s+(cpf|cep|address|phone|whatsapp|country_code):/);
+  });
+
+  it("lets an international contact reach checkout without pretending the payer is Brazilian", () => {
+    expect(registrationSource).toContain("billingPayloadForRegistration");
+    expect(registrationSource).toContain("const paymentLink = await createPaymentLink");
+    expect(registrationSource).not.toContain("manualPaymentRequired: true");
+    expect(uiSource).toContain('disabled={loading || billingCountryCode !== "BR"}');
   });
 
   it("enforces 1x, 6x and 12x limits on the server from the plan duration", () => {

@@ -1160,7 +1160,9 @@ export default function WhatsAppChat() {
         body: JSON.stringify({
           action: "send-message",
           companyId: effectiveCompanyId,
-          remoteJid: chat?.remote_jid || draftRecipient?.remoteJid,
+          remoteJid: chat?.remote_jid || (draftRecipient?.remoteJid
+            ? `${draftRecipient.remoteJid}@s.whatsapp.net`
+            : undefined),
           content,
           chatId: selectedChatId || undefined,
           studentId: chat?.student_id || draftRecipient?.studentId || undefined,

@@ -31,14 +31,16 @@ export function normalizeWhatsAppPhoneKey(value: unknown): string | null {
   if (!digits) return null;
 
   if (isUnambiguousNorthAmericanE164(digits)) return digits;
+  if (hasExplicitNonBrazilianCountryCode(value) && digits.length >= 8 && digits.length <= 15) {
+    return digits;
+  }
 
   if (
     digits.startsWith("55") && (digits.length === 12 || digits.length === 13)
   ) {
     digits = digits.slice(2);
   } else if (
-    digits.length >= 12 && digits.length <= 15 &&
-    (hasExplicitNonBrazilianCountryCode(value) || !digits.startsWith("0"))
+    digits.length >= 12 && digits.length <= 15 && !digits.startsWith("0")
   ) {
     // An explicit/fully-qualified international destination is already E.164.
     // Preserve it instead of truncating it into a plausible Brazilian local number.
@@ -107,13 +109,26 @@ export function sameWhatsAppRecipient(left: unknown, right: unknown): boolean {
 
   const leftPhone = normalizeWhatsAppPhoneKey(leftRaw);
   const rightPhone = normalizeWhatsAppPhoneKey(rightRaw);
-  return Boolean(leftPhone && rightPhone && leftPhone === rightPhone);
+  if (leftPhone && rightPhone) return leftPhone === rightPhone;
+
+  // A new-chat draft may still send the exact E.164 digits before its provider
+  // JID exists. Accept only an exact digit-for-digit match against the direct
+  // JID; country/ownership validation happens in resolveVerifiedWhatsAppRecipient.
+  const leftDirect = rawPhoneCandidate(leftRaw);
+  const rightDirect = rawPhoneCandidate(rightRaw);
+  const leftDigits = leftDirect?.replace(/\D/g, "") || "";
+  const rightDigits = rightDirect?.replace(/\D/g, "") || "";
+  const oneSideIsDirectJid = leftRaw.endsWith(DIRECT_JID_SUFFIX) ||
+    rightRaw.endsWith(DIRECT_JID_SUFFIX);
+  return oneSideIsDirectJid && /^\d{8,15}$/.test(leftDigits) &&
+    leftDigits === rightDigits;
 }
 
 export type WhatsAppStudentIdentity = {
   id: string;
   phone?: unknown;
   whatsapp?: unknown;
+  country_code?: unknown;
 };
 
 export type VerifiedWhatsAppRecipient =
@@ -131,14 +146,38 @@ export type VerifiedWhatsAppRecipient =
 
 function canonicalStudentDirectJid(
   student: WhatsAppStudentIdentity,
+  trustedChatRemoteJid?: unknown,
 ): VerifiedWhatsAppRecipient {
+  const countryCode = String(student.country_code || "BR").trim().toUpperCase();
+  const trustedChat = rawPhoneCandidate(trustedChatRemoteJid);
+  const trustedChatDigits = trustedChat?.replace(/\D/g, "") || "";
   const directJids = new Set(
     [student.whatsapp, student.phone]
       .map((value) => {
-        const phoneKey = normalizeWhatsAppPhoneKey(value);
+        let phoneKey = normalizeWhatsAppPhoneKey(value);
+        let providerConfirmedBareInternational = false;
+        let countryConfirmedBareInternational = false;
+        if (!phoneKey && /^[A-Z]{2}$/.test(countryCode) && countryCode !== "BR") {
+          const candidate = rawPhoneCandidate(value);
+          const digits = candidate?.replace(/\D/g, "") || "";
+          // Registration persists international destinations in E.164 digits,
+          // while country_code is stored separately. The explicit non-BR
+          // country therefore makes that otherwise ambiguous bare value safe
+          // to preserve for a new chat as well as an already linked chat.
+          countryConfirmedBareInternational = /^\d{8,15}$/.test(digits) &&
+            !digits.startsWith("0");
+          providerConfirmedBareInternational = Boolean(
+            countryConfirmedBareInternational &&
+              trustedChatDigits === digits &&
+              String(trustedChatRemoteJid || "").trim().endsWith(DIRECT_JID_SUFFIX),
+          );
+          if (countryConfirmedBareInternational) phoneKey = digits;
+        }
         if (!phoneKey) return null;
         const international = hasExplicitNonBrazilianCountryCode(value) ||
-          isUnambiguousNorthAmericanE164(phoneKey);
+          isUnambiguousNorthAmericanE164(phoneKey) ||
+          countryConfirmedBareInternational ||
+          providerConfirmedBareInternational;
         return `${
           international ? phoneKey : `55${phoneKey}`
         }${DIRECT_JID_SUFFIX}`;
@@ -188,7 +227,10 @@ export function resolveVerifiedWhatsAppRecipient(args: {
     if (!args.student || args.student.id !== expectedStudentId) {
       return { ok: false, code: "whatsapp_student_not_found" };
     }
-    const canonical = canonicalStudentDirectJid(args.student);
+    const canonical = canonicalStudentDirectJid(
+      args.student,
+      chatRemoteJid,
+    );
     if (!canonical.ok) return canonical;
     if (
       chatRemoteJid &&

@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { countryAwareFiscalFields, fiscalRegistrationValidation, normalizeCountryCode, normalizeFiscalDocument, supportsAsaasBilling } from "./fiscal-registration.ts";
+import { countryAwareFiscalFields, effectiveBillingCountryCode, fiscalRegistrationValidation, normalizeCountryCode, normalizeFiscalDocument, supportsAsaasBilling } from "./fiscal-registration.ts";
 
 Deno.test("cadastro brasileiro continua exigindo CPF, CEP e endereço completo", () => {
   const missing = fiscalRegistrationValidation({
@@ -80,6 +80,13 @@ Deno.test("checkout Asaas permanece explicitamente restrito ao Brasil", () => {
   assertEquals(supportsAsaasBilling("BR"), true);
   assertEquals(supportsAsaasBilling("PT"), false);
   assertEquals(supportsAsaasBilling("GB"), false);
+  assertEquals(supportsAsaasBilling(null), false);
+});
+
+Deno.test("separa país de contato do país fiscal usado no checkout", () => {
+  assertEquals(effectiveBillingCountryCode({ country_code: "AU", billing_country_code: "BR" }), "BR");
+  assertEquals(effectiveBillingCountryCode({ country_code: "AU", billing_country_code: null }), "AU");
+  assertEquals(supportsAsaasBilling(effectiveBillingCountryCode({ country_code: "AU", billing_country_code: "BR" })), true);
 });
 
 Deno.test("deduplicação preserva identidade alfanumérica estrangeira", () => {

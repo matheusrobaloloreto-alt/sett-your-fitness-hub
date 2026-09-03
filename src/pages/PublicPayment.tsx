@@ -82,6 +82,7 @@ export default function PublicPayment() {
   const [step, setStep] = useState<Step>("select_plan");
   const [loading, setLoading] = useState(false);
   const [isRenewal, setIsRenewal] = useState(false);
+  const [billingCountryCode, setBillingCountryCode] = useState("");
 
   // Plans
   const [availablePlans, setAvailablePlans] = useState<PlanOption[]>([]);
@@ -160,16 +161,18 @@ export default function PublicPayment() {
       if (error || !data?.student) { setNotFound(true); setLoadingPlans(false); return; }
       const s = data.student;
       setStudent(s);
+      setBillingCountryCode(String(s.billing_country_code || s.country_code || "").toUpperCase());
+      const isBrazilianBilling = String(s.billing_country_code || s.country_code || "").toUpperCase() === "BR";
       setCardForm(prev => ({
         ...prev,
-        holderName: s.full_name || "",
-        email: s.email || "",
-        cpfCnpj: formatCPF(s.cpf || ""),
-        postalCode: formatCEP(s.cep || ""),
-        phone: formatPhone(s.whatsapp || s.phone || ""),
-        address: s.address || "",
-        addressNumber: s.address_number || "",
-        province: s.neighborhood || "",
+        holderName: s.billing_name || s.full_name || "",
+        email: s.billing_email || (isBrazilianBilling ? s.email : "") || "",
+        cpfCnpj: formatCPF(s.billing_cpf_cnpj || (isBrazilianBilling ? s.cpf : "") || ""),
+        postalCode: formatCEP(s.billing_postal_code || (isBrazilianBilling ? s.cep : "") || ""),
+        phone: formatPhone(s.billing_phone || (String(s.country_code || "").toUpperCase() === "BR" ? (s.whatsapp || s.phone) : "") || ""),
+        address: s.billing_address || (isBrazilianBilling ? s.address : "") || "",
+        addressNumber: s.billing_address_number || (isBrazilianBilling ? s.address_number : "") || "",
+        province: s.billing_neighborhood || (isBrazilianBilling ? s.neighborhood : "") || "",
       }));
       if (s.selected_plan_id) setSelectedPlanOptionId(s.selected_plan_id);
       // White-label: aplica logo + tema da empresa (some o logo BN fixo para outras marcas).
@@ -231,6 +234,68 @@ export default function PublicPayment() {
   };
 
   const maxInstallments = getMaxInstallments(planDurationWeeks);
+
+  const saveBrazilianBillingProfile = async () => {
+    const cpfDigits = cardForm.cpfCnpj.replace(/\D/g, "");
+    const cepDigits = cardForm.postalCode.replace(/\D/g, "");
+    if (!cardForm.holderName.trim()) {
+      toast({ title: "Informe o nome do pagador", variant: "destructive" });
+      return;
+    }
+    if (!cardForm.email.trim() || !cardForm.email.includes("@")) {
+      toast({ title: "Informe um e-mail válido", variant: "destructive" });
+      return;
+    }
+    if (![11, 14].includes(cpfDigits.length)) {
+      toast({ title: "Informe um CPF/CNPJ brasileiro válido", variant: "destructive" });
+      return;
+    }
+    if (cepDigits.length !== 8) {
+      toast({ title: "Informe um CEP brasileiro válido", variant: "destructive" });
+      return;
+    }
+    if (!cardForm.address.trim() || !cardForm.addressNumber.trim() || !cardForm.province.trim()) {
+      toast({ title: "Complete rua, número e bairro da cobrança", variant: "destructive" });
+      return;
+    }
+    if (!token) {
+      toast({ title: "Link de pagamento inválido", variant: "destructive" });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("public-payment-context", {
+        body: {
+          action: "set-brazilian-billing-profile",
+          token,
+          billing: {
+            name: cardForm.holderName.trim(),
+            email: cardForm.email.trim(),
+            cpfCnpj: cpfDigits,
+            postalCode: cepDigits,
+            address: cardForm.address.trim(),
+            addressNumber: cardForm.addressNumber.trim(),
+            province: cardForm.province.trim(),
+            phone: cardForm.phone.replace(/\D/g, ""),
+          },
+        },
+      });
+      if (error || data?.error || data?.billingCountryCode !== "BR") {
+        throw new Error(data?.error || error?.message || "Não foi possível validar os dados de cobrança.");
+      }
+      setBillingCountryCode("BR");
+      toast({ title: "Dados brasileiros confirmados", description: "Pix e cartão foram liberados. Seu WhatsApp internacional não foi alterado." });
+    } catch (error) {
+      toast({
+        title: "Não foi possível liberar o pagamento",
+        description: error instanceof Error ? error.message : "Revise os dados e tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handlePix = async () => {
     setLoading(true);
@@ -531,6 +596,38 @@ export default function PublicPayment() {
 
         {/* Step 2: Choose payment method */}
         {step === "choose" && (
+          <div className="space-y-4">
+          {billingCountryCode !== "BR" && (
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-primary text-xl text-center">DADOS DE COBRANÇA NO BRASIL</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground font-sans">
+                  Seu WhatsApp pode continuar internacional. Se o titular possui CPF/CNPJ e endereço de cobrança no Brasil, confirme-os abaixo para liberar Pix e cartão nacionais.
+                </p>
+                <Input value={cardForm.holderName} onChange={e => setCardForm(f => ({ ...f, holderName: e.target.value }))} placeholder="Nome do pagador" />
+                <Input value={cardForm.email} onChange={e => setCardForm(f => ({ ...f, email: e.target.value }))} placeholder="E-mail do titular" />
+                <div className="grid grid-cols-2 gap-3">
+                  <Input value={cardForm.cpfCnpj} onChange={e => setCardForm(f => ({ ...f, cpfCnpj: formatCPF(e.target.value) }))} placeholder="CPF" inputMode="numeric" />
+                  <Input value={cardForm.postalCode} onChange={e => setCardForm(f => ({ ...f, postalCode: formatCEP(e.target.value) }))} placeholder="CEP" inputMode="numeric" />
+                </div>
+                <div className="grid grid-cols-[1fr_100px] gap-3">
+                  <Input value={cardForm.address} onChange={e => setCardForm(f => ({ ...f, address: e.target.value }))} placeholder="Rua / Avenida" />
+                  <Input value={cardForm.addressNumber} onChange={e => setCardForm(f => ({ ...f, addressNumber: e.target.value }))} placeholder="Número" />
+                </div>
+                <Input value={cardForm.province} onChange={e => setCardForm(f => ({ ...f, province: e.target.value }))} placeholder="Bairro" />
+                <Input value={cardForm.phone} onChange={e => setCardForm(f => ({ ...f, phone: formatPhone(e.target.value) }))} placeholder="Telefone brasileiro (obrigatório para cartão)" inputMode="tel" />
+                <Button className="w-full" onClick={saveBrazilianBillingProfile} disabled={loading}>
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Confirmar dados e liberar pagamento
+                </Button>
+                <p className="text-xs text-muted-foreground font-sans">
+                  Se o titular não possui dados fiscais brasileiros, a equipe precisa habilitar o fluxo internacional do Asaas antes da cobrança.
+                </p>
+              </CardContent>
+            </Card>
+          )}
           <Card className="bg-card border-border">
             <CardHeader>
               <CardTitle className="text-primary text-xl text-center">ESCOLHA A FORMA DE PAGAMENTO</CardTitle>
@@ -545,7 +642,7 @@ export default function PublicPayment() {
               <Button
                 className="w-full h-14 text-lg gap-3"
                 onClick={handlePix}
-                disabled={loading}
+                disabled={loading || billingCountryCode !== "BR"}
               >
                 {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <QrCode className="h-5 w-5" />}
                 Pagar com Pix via Asaas
@@ -554,7 +651,7 @@ export default function PublicPayment() {
                 variant="outline"
                 className="w-full h-14 text-lg gap-3"
                 onClick={() => setStep("card")}
-                disabled={loading}
+                disabled={loading || billingCountryCode !== "BR"}
               >
                 <CreditCard className="h-5 w-5" />
                 Pagar com Cartão
@@ -564,6 +661,7 @@ export default function PublicPayment() {
               </Button>
             </CardContent>
           </Card>
+          </div>
         )}
 
         {step === "pix" && (

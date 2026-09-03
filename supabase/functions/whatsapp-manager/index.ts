@@ -390,12 +390,12 @@ Deno.serve(async (req) => {
         requestedStudentId || boundChat?.student_id || "",
       ).trim();
       let student:
-        | { id: string; phone: string | null; whatsapp: string | null }
+        | { id: string; phone: string | null; whatsapp: string | null; country_code: string | null }
         | null = null;
       if (expectedStudentId) {
         const { data, error } = await adminClient
           .from("students")
-          .select("id, phone, whatsapp")
+          .select("id, phone, whatsapp, country_code")
           .eq("id", expectedStudentId)
           .eq("company_id", resolvedCompanyId)
           .maybeSingle();

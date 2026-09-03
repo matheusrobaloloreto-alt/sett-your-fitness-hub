@@ -23,7 +23,13 @@ export function countryAwareFiscalFields(student: Record<string, unknown>) {
 }
 
 export function supportsAsaasBilling(value: unknown): boolean {
-  return normalizeCountryCode(value) === "BR";
+  return String(value || "").trim().toUpperCase() === "BR";
+}
+
+export function effectiveBillingCountryCode(student: Record<string, unknown>): string {
+  const explicitBillingCountry = String(student.billing_country_code || "").trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(explicitBillingCountry)) return explicitBillingCountry;
+  return normalizeCountryCode(student.country_code);
 }
 
 export function normalizeFiscalDocument(value: unknown, countryCode: unknown): string {

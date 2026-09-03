@@ -49,6 +49,7 @@ Deno.test("normalizes North American E.164 numbers without forcing country code 
 
 Deno.test("preserves explicit E.164 destinations outside Brazil and NANP", () => {
   for (const [input, expected] of [
+    ["+61 416 060 587", "61416060587"],
     ["+351 912 345 678", "351912345678"],
     ["+44 7700 900123", "447700900123"],
   ]) {
@@ -61,6 +62,78 @@ Deno.test("preserves explicit E.164 destinations outside Brazil and NANP", () =>
     });
     if (!result.ok || result.remoteJid !== `${expected}@s.whatsapp.net`) {
       throw new Error(`international recipient was rewritten: ${input}`);
+    }
+  }
+});
+
+Deno.test("accepts a stored E.164 number without plus when its non-BR country confirms the format", () => {
+  const accepted = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: "61416060587@s.whatsapp.net",
+    chatRemoteJid: "61416060587@s.whatsapp.net",
+    chatStudentId: "student-au",
+    requestedStudentId: "student-au",
+    student: {
+      id: "student-au",
+      country_code: "AU",
+      whatsapp: "61416060587",
+    },
+  });
+  if (!accepted.ok || accepted.remoteJid !== "61416060587@s.whatsapp.net") {
+    throw new Error("linked Australian recipient was not preserved");
+  }
+
+  const newChat = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: "61416060587@s.whatsapp.net",
+    requestedStudentId: "student-au",
+    student: {
+      id: "student-au",
+      country_code: "AU",
+      whatsapp: "61416060587",
+    },
+  });
+  if (!newChat.ok || newChat.remoteJid !== "61416060587@s.whatsapp.net") {
+    throw new Error("new Australian chat was not preserved");
+  }
+
+  const rawUiDraft = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: "61416060587",
+    requestedStudentId: "student-au",
+    student: {
+      id: "student-au",
+      country_code: "AU",
+      whatsapp: "61416060587",
+    },
+  });
+  if (!rawUiDraft.ok || rawUiDraft.remoteJid !== "61416060587@s.whatsapp.net") {
+    throw new Error("raw Australian UI draft was not normalized");
+  }
+
+  const rejected = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: "61416060588@s.whatsapp.net",
+    requestedStudentId: "student-au",
+    student: {
+      id: "student-au",
+      country_code: "AU",
+      whatsapp: "61416060587",
+    },
+  });
+  if (rejected.ok || rejected.code !== "whatsapp_recipient_mismatch") {
+    throw new Error("a different international recipient was accepted");
+  }
+
+  for (const countryCode of [undefined, "BR"]) {
+    const ambiguous = resolveVerifiedWhatsAppRecipient({
+      clientRemoteJid: "61416060587@s.whatsapp.net",
+      chatRemoteJid: "61416060587@s.whatsapp.net",
+      requestedStudentId: "student-ambiguous",
+      student: {
+        id: "student-ambiguous",
+        country_code: countryCode,
+        whatsapp: "61416060587",
+      },
+    });
+    if (ambiguous.ok || ambiguous.code !== "whatsapp_student_phone_missing") {
+      throw new Error(`ambiguous international recipient accepted for ${countryCode || "missing country"}`);
     }
   }
 });

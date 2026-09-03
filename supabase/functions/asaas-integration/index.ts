@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
-import { supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
+import { effectiveBillingCountryCode, supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
 import { assertInstallmentCountAllowed, maxInstallmentsForPlanDuration } from "../_shared/payment-installments.ts";
 import {
   asaasApiUrl,
@@ -34,6 +34,43 @@ class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message);
   }
+}
+
+function domesticAsaasMobilePhone(student: Record<string, unknown>): string | undefined {
+  if (!supportsAsaasBilling(effectiveBillingCountryCode(student))) return undefined;
+  const contactIsBrazilian = String(student.country_code || "").toUpperCase() === "BR";
+  let phone = String(student.billing_phone || (contactIsBrazilian ? student.whatsapp || student.phone : "") || "").replace(/\D/g, "");
+  if (phone.startsWith("55") && (phone.length === 12 || phone.length === 13)) phone = phone.slice(2);
+  const valid = phone.length === 10 || (phone.length === 11 && phone[2] === "9");
+  return valid ? phone : undefined;
+}
+
+function billingField(student: Record<string, unknown>, billingKey: string, legacyKey: string): string {
+  const billing = String(student[billingKey] || "").trim();
+  if (billing) return billing;
+  const contactIsBrazilian = String(student.country_code || "").trim().toUpperCase() === "BR";
+  return contactIsBrazilian ? String(student[legacyKey] || "").trim() : "";
+}
+
+function resolveBrazilianBillingProfile(student: Record<string, unknown>) {
+  if (!supportsAsaasBilling(effectiveBillingCountryCode(student))) {
+    throw new HttpError(422, "Pagamento internacional não é processado automaticamente. Confirme um pagador brasileiro ou fale com a equipe.");
+  }
+  const profile = {
+    name: billingField(student, "billing_name", "full_name"),
+    email: billingField(student, "billing_email", "email"),
+    cpfCnpj: billingField(student, "billing_cpf_cnpj", "cpf").replace(/\D/g, ""),
+    postalCode: billingField(student, "billing_postal_code", "cep").replace(/\D/g, ""),
+    address: billingField(student, "billing_address", "address"),
+    addressNumber: billingField(student, "billing_address_number", "address_number"),
+    province: billingField(student, "billing_neighborhood", "neighborhood"),
+    mobilePhone: domesticAsaasMobilePhone(student),
+  };
+  if (!profile.name || ![11, 14].includes(profile.cpfCnpj.length) || profile.postalCode.length !== 8
+    || !profile.address || !profile.addressNumber || !profile.province) {
+    throw new HttpError(422, "Complete os dados brasileiros do pagador antes de gerar a cobrança.");
+  }
+  return profile;
 }
 
 function requireAsaasApiConfig(): AsaasApiConfig {
@@ -226,7 +263,7 @@ async function createCustomer(body: any) {
 }
 
 async function updateCustomer(body: any) {
-  const { studentId, name, email, mobilePhone, postalCode, address, addressNumber, province } = body;
+  const { studentId, name, email, cpfCnpj, mobilePhone, postalCode, address, addressNumber, province } = body;
   if (!studentId) throw new Error("studentId é obrigatório");
 
   const { data: student } = await supabaseAdmin
@@ -242,6 +279,7 @@ async function updateCustomer(body: any) {
   const payload: any = {};
   if (name) payload.name = name;
   if (email) payload.email = email;
+  if (cpfCnpj) payload.cpfCnpj = cpfCnpj.replace(/\D/g, "");
   if (mobilePhone) payload.mobilePhone = mobilePhone.replace(/\D/g, "");
   if (postalCode) payload.postalCode = postalCode.replace(/\D/g, "");
   if (address) payload.address = address;
@@ -356,16 +394,14 @@ async function createPayment(body: any) {
   // Get customer id
   const { data: student } = await supabaseAdmin
     .from("students")
-    .select("asaas_customer_id, company_id, selected_plan_id, full_name, email, cpf, phone, whatsapp, cep, address, address_number, neighborhood, city, state, country_code")
+    .select("asaas_customer_id, company_id, selected_plan_id, full_name, email, cpf, phone, whatsapp, cep, address, address_number, neighborhood, city, state, country_code, billing_country_code, billing_name, billing_email, billing_cpf_cnpj, billing_postal_code, billing_address, billing_address_number, billing_neighborhood, billing_phone")
     .eq("id", studentId)
     .single();
 
   if (!student) {
     throw new Error("Aluno não encontrado.");
   }
-  if (!supportsAsaasBilling(student.country_code)) {
-    throw new HttpError(422, "Pagamento internacional não é processado pelo Asaas. Entre em contato com a equipe para combinar o pagamento.");
-  }
+  const billingProfile = resolveBrazilianBillingProfile(student);
 
   // SECURITY: amount comes from the plan in the DB, never from the client body.
   const plan = await resolvePlanPrice(student, planId);
@@ -456,18 +492,16 @@ async function createPayment(body: any) {
     console.log(`[PAYMENT] Auto-creating Asaas customer for student ${studentId}`);
     const { customerId } = await createCustomer({
       studentId,
-      name: student.full_name,
-      email: student.email || undefined,
-      cpfCnpj: student.cpf || "",
-      mobilePhone: (student.whatsapp || student.phone || "").replace(/\D/g, ""),
-      postalCode: (student.cep || "").replace(/\D/g, ""),
-      address: student.address || undefined,
-      addressNumber: student.address_number || undefined,
-      province: student.neighborhood || undefined,
+      ...billingProfile,
       cityName: student.city || undefined,
       state: student.state || undefined,
     });
     student.asaas_customer_id = customerId;
+  } else {
+    await updateCustomer({
+      studentId,
+      ...billingProfile,
+    });
   }
 
   const { data: localOrder, error: orderError } = await supabaseAdmin.from("payments").insert({
@@ -576,16 +610,14 @@ async function createCardPayment(body: any) {
 
   const { data: student } = await supabaseAdmin
     .from("students")
-    .select("asaas_customer_id, company_id, selected_plan_id, full_name, email, cpf, phone, whatsapp, cep, address, address_number, neighborhood, city, state, country_code")
+    .select("asaas_customer_id, company_id, selected_plan_id, full_name, email, cpf, phone, whatsapp, cep, address, address_number, neighborhood, city, state, country_code, billing_country_code, billing_name, billing_email, billing_cpf_cnpj, billing_postal_code, billing_address, billing_address_number, billing_neighborhood, billing_phone")
     .eq("id", studentId)
     .single();
 
   if (!student) {
     throw new Error("Aluno não encontrado.");
   }
-  if (!supportsAsaasBilling(student.country_code)) {
-    throw new HttpError(422, "Pagamento internacional não é processado pelo Asaas. Entre em contato com a equipe para combinar o pagamento.");
-  }
+  const billingProfile = resolveBrazilianBillingProfile(student);
 
   // SECURITY: amount comes from the plan in the DB, never from the client body.
   const plan = await resolvePlanPrice(student, planId);
@@ -665,16 +697,14 @@ async function createCardPayment(body: any) {
     console.log(`[CARD] Auto-creating Asaas customer for student ${studentId}`);
     const { customerId } = await createCustomer({
       studentId,
-      name: student.full_name,
-      email: student.email || undefined,
-      cpfCnpj: student.cpf || "",
-      mobilePhone: (student.whatsapp || student.phone || "").replace(/\D/g, ""),
-      postalCode: (student.cep || "").replace(/\D/g, ""),
-      address: student.address || undefined,
-      addressNumber: student.address_number || undefined,
-      province: student.neighborhood || undefined,
+      ...billingProfile,
     });
     student.asaas_customer_id = customerId;
+  } else {
+    await updateCustomer({
+      studentId,
+      ...billingProfile,
+    });
   }
 
   const { data: localOrder, error: orderError } = await supabaseAdmin
@@ -786,19 +816,22 @@ async function createInvoice(body: any) {
   if (localPayment?.student_id) {
     const { data: student } = await supabaseAdmin
       .from("students")
-      .select("id, asaas_customer_id, full_name, email, phone, whatsapp, cpf, cep, address, address_number, neighborhood, country_code")
+      .select("id, asaas_customer_id, full_name, email, phone, whatsapp, cpf, cep, address, address_number, neighborhood, country_code, billing_country_code, billing_name, billing_email, billing_postal_code, billing_address, billing_address_number, billing_neighborhood, billing_phone")
       .eq("id", localPayment.student_id)
       .single();
 
-    if (student && !supportsAsaasBilling(student.country_code)) {
+    if (student && !supportsAsaasBilling(effectiveBillingCountryCode(student))) {
       throw new HttpError(422, "A emissão automática de NFS-e está disponível apenas para cadastros brasileiros.");
     }
 
     if (student?.asaas_customer_id) {
-      const normalizedCep = (student.cep || "").replace(/\D/g, "");
-      const normalizedPhone = (student.whatsapp || student.phone || "").replace(/\D/g, "");
+      const normalizedCep = billingField(student, "billing_postal_code", "cep").replace(/\D/g, "");
+      const normalizedPhone = domesticAsaasMobilePhone(student);
+      const billingAddress = billingField(student, "billing_address", "address");
+      const billingAddressNumber = billingField(student, "billing_address_number", "address_number");
+      const billingNeighborhood = billingField(student, "billing_neighborhood", "neighborhood");
 
-      if (!student.address || !student.address_number || !student.neighborhood || normalizedCep.length !== 8) {
+      if (!billingAddress || !billingAddressNumber || !billingNeighborhood || normalizedCep.length !== 8) {
         throw new Error(
           "Dados de endereço incompletos para emissão de nota. Preencha Rua, Número, Bairro e CEP válido (8 dígitos)."
         );
@@ -806,13 +839,13 @@ async function createInvoice(body: any) {
 
       await updateCustomer({
         studentId: student.id,
-        name: student.full_name,
-        email: student.email || undefined,
+        name: billingField(student, "billing_name", "full_name"),
+        email: billingField(student, "billing_email", "email") || undefined,
         mobilePhone: normalizedPhone || undefined,
         postalCode: normalizedCep,
-        address: student.address,
-        addressNumber: student.address_number,
-        province: student.neighborhood,
+        address: billingAddress,
+        addressNumber: billingAddressNumber,
+        province: billingNeighborhood,
       });
     }
   }

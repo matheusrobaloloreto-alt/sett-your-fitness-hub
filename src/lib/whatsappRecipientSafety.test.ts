@@ -14,6 +14,7 @@ const webhookSource = readFileSync(
   "utf8",
 );
 const crmSource = readFileSync("src/pages/admin/WhatsAppCRM.tsx", "utf8");
+const chatSource = readFileSync("src/pages/admin/WhatsAppChat.tsx", "utf8");
 const supabaseConfig = readFileSync("supabase/config.toml", "utf8");
 
 describe("WhatsApp recipient safety contracts", () => {
@@ -104,7 +105,8 @@ describe("WhatsApp recipient safety contracts", () => {
   });
 
   it("validates a new conversation against the student's registered phone", () => {
-    expect(managerSource).toContain('.select("id, phone, whatsapp")');
+    expect(managerSource).toContain('.select("id, phone, whatsapp, country_code")');
+    expect(chatSource).toContain('`${draftRecipient.remoteJid}@s.whatsapp.net`');
     expect(managerSource).toContain("whatsapp_stored_recipient_mismatch");
   });
 

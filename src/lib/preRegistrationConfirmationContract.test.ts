@@ -34,6 +34,7 @@ describe("pre-registration WhatsApp confirmation", () => {
     const handler = edgeSource.slice(start, end);
     expect(handler).toContain("whatsappConfirmed");
     expect(handler).toContain("sendPreRegistrationConfirmation");
+    expect(handler).toContain("countryCode:");
     expect(handler).toContain("confirmationMessageSent");
   });
 

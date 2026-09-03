@@ -321,7 +321,8 @@ async function preRegister(body: Record<string, unknown>) {
     leadId,
     companyId: company.id,
     fullName,
-    phone,
+    phone: cleanText(body.whatsapp) || phone,
+    countryCode: /^\+(?!55)/.test(cleanText(body.whatsapp)) ? "INTL" : "BR",
     text: buildPreRegistrationConfirmationMessage(fullName, deadline),
   });
   return {
@@ -749,6 +750,21 @@ function fiscalPayload(student: Record<string, unknown>) {
   return payload;
 }
 
+function billingPayloadForRegistration(student: Record<string, unknown>, fallbackName: unknown) {
+  if (!supportsAsaasBilling(student.country_code)) return { billing_country_code: null };
+  return {
+    billing_country_code: "BR",
+    billing_name: cleanText(student.full_name || fallbackName),
+    billing_email: normalizeEmail(student.email),
+    billing_cpf_cnpj: onlyDigits(student.cpf),
+    billing_postal_code: onlyDigits(student.cep),
+    billing_address: cleanText(student.address),
+    billing_address_number: cleanText(student.address_number),
+    billing_neighborhood: cleanText(student.neighborhood),
+    billing_phone: onlyDigits(student.whatsapp || student.phone),
+  };
+}
+
 async function completeFiscalRegistration(link: RegistrationLink, studentInput: Record<string, unknown>) {
   const missing = fiscalRegistrationValidation(studentInput);
   if (missing.length) throw new HttpError(422, `Complete os dados fiscais: ${missing.join(", ")}.`);
@@ -765,6 +781,7 @@ async function completeFiscalRegistration(link: RegistrationLink, studentInput: 
   const activeStudent = ["active", "awaiting_renewal"].includes(currentStudent.status || "");
   const payload: Record<string, unknown> = {
     ...fiscalPayload(studentInput),
+    ...billingPayloadForRegistration(studentInput, currentStudent.full_name),
     status: activeStudent ? currentStudent.status : "pending",
     sales_stage: activeStudent ? "active" : "payment_pending",
     fiscal_completed_at: completedAt,
@@ -778,14 +795,6 @@ async function completeFiscalRegistration(link: RegistrationLink, studentInput: 
   await supabase.from("public_registration_links")
     .update({ completed_at: link.completed_at || completedAt })
     .eq("id", link.id);
-
-  if (!supportsAsaasBilling(studentInput.country_code)) {
-    return {
-      studentId: currentStudent.id,
-      manualPaymentRequired: true,
-      paymentMessageSent: false,
-    };
-  }
 
   const paymentLink = await createPaymentLink(currentStudent.id, link.company_id);
   const paymentUrl = `${APP_URL}/pagamento/${paymentLink.token}`;
@@ -827,6 +836,7 @@ async function legacyRegistration(companyId: string, student: Record<string, unk
 
   const payload = {
     ...fiscalPayload(student),
+    ...billingPayloadForRegistration(student, student.full_name),
     full_name: cleanText(student.full_name),
     company_id: companyId,
     status: "pending",
@@ -851,14 +861,6 @@ async function legacyRegistration(companyId: string, student: Record<string, unk
     studentId = created.data.id;
   }
   if (!studentId) throw new HttpError(500, "Falha ao identificar o cadastro criado.");
-  if (!supportsAsaasBilling(student.country_code)) {
-    return {
-      studentId,
-      existing: !!existing,
-      manualPaymentRequired: true,
-      paymentMessageSent: false,
-    };
-  }
   const paymentLink = await createPaymentLink(studentId, companyId);
   return {
     studentId,

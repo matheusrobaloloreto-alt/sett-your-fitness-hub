@@ -4,9 +4,11 @@ export type WhatsAppMessageIdentity = {
 };
 
 export function normalizeWhatsAppPhoneKey(value: unknown): string | null {
-  let digits = String(value || "").replace(/\D/g, "");
+  const raw = String(value || "").trim();
+  let digits = raw.replace(/\D/g, "");
   if (!digits) return null;
   if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) digits = digits.slice(2);
+  else if (raw.endsWith("@s.whatsapp.net") && digits.length >= 8 && digits.length <= 15) return digits;
   else if (digits.length > 11) digits = digits.slice(-11);
   if (digits.length === 10 && /^[1-9]{2}[6-9]/.test(digits)) {
     digits = `${digits.slice(0, 2)}9${digits.slice(2)}`;

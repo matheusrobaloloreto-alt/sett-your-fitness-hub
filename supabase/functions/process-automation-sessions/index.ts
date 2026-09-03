@@ -137,10 +137,10 @@ export async function processSession(admin: any, session: FlowSession, provider:
   if (!chat.remote_jid) throw new Error("Conversa sem número remoto.");
   const expectedStudentId = String(session.context?.student_id || "").trim();
   const identityStudentId = expectedStudentId || chat.student_id || "";
-  let student: { id: string; phone: string | null; whatsapp: string | null } | null = null;
+  let student: { id: string; phone: string | null; whatsapp: string | null; country_code: string | null } | null = null;
   if (identityStudentId) {
     const studentResult = await admin.from("students")
-      .select("id, phone, whatsapp")
+      .select("id, phone, whatsapp, country_code")
       .eq("id", identityStudentId)
       .eq("company_id", chat.company_id)
       .maybeSingle();
