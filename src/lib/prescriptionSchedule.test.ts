@@ -10,6 +10,8 @@ import {
   selectPrescriptionEnrollment,
   selectPrescriptionTargets,
   selectSequentialScheduleCycles,
+  selectCurrentPlanCycleWindow,
+  selectCyclesForProgramHistory,
   isSupersededCycle,
   type PrescriptionScheduleCycle,
 } from "./prescriptionSchedule";
@@ -169,5 +171,26 @@ describe("prescriptionSchedule", () => {
     expect(selectSequentialScheduleCycles([canonical, superseded, future]).map((item) => item.id)).toEqual([canonical.id, future.id]);
     expect(selectPrescriptionTargets({ cycles: [canonical, superseded, future], mode: "remaining", today }).map((item) => item.id))
       .toEqual([future.id]);
+  });
+
+  it("limita a ficha principal à janela nominal do plano ancorada no ciclo ativo", () => {
+    const inflated = Array.from({ length: 31 }, (_, index) => cycle(
+      index + 1,
+      new Date(Date.UTC(2025, 4, 23 + index * 42)).toISOString().slice(0, 10),
+      new Date(Date.UTC(2025, 4, 23 + index * 42 + 41)).toISOString().slice(0, 10),
+      { status: index === 11 ? "active" : index < 11 ? "completed" : "pending" },
+    ));
+
+    expect(selectCurrentPlanCycleWindow(inflated, 168, 42).map((item) => item.cycle_number))
+      .toEqual([9, 10, 11, 12]);
+  });
+
+  it("preserva dois programas materializados mesmo quando suas datas se sobrepõem", () => {
+    const canonical = cycle(1, "2026-08-01", "2026-09-11", { has_workouts: true });
+    const imported = cycle(9, "2026-08-02", "2026-09-12", { has_workouts: true });
+    const emptyFuture = cycle(10, "2027-01-01", "2027-02-11");
+
+    expect(selectCyclesForProgramHistory([canonical, imported, emptyFuture], 42, 42).map((item) => item.id))
+      .toEqual([canonical.id, imported.id]);
   });
 });

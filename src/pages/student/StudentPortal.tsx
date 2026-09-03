@@ -57,7 +57,7 @@ import {
 } from "@/lib/workoutDraft";
 import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
-import { selectPreferredVisibleCycle } from "@/lib/prescriptionSchedule";
+import { selectCurrentPlanCycleWindow, selectPreferredVisibleCycle, selectPrescriptionEnrollment } from "@/lib/prescriptionSchedule";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
 
 const StatsCharts = lazy(() => import("@/components/student/StatsCharts").then((module) => ({ default: module.StatsCharts })));
@@ -361,15 +361,17 @@ export default function StudentPortal() {
     }
 
 
-    const { data: enrollment } = await supabase
+    const { data: enrollmentRows } = await supabase
       .from("enrollments")
-      .select("id, start_date, end_date, plan_id")
+      .select("id, start_date, end_date, plan_id, status, created_at")
       .eq("student_id", student.id)
-      .eq("status", "active")
+      .in("status", ["active", "awaiting_training", "awaiting_renewal"])
       .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(10);
+    const enrollment = selectPrescriptionEnrollment((enrollmentRows || []) as any[]);
 
+    let planDurationDays = 42;
+    let cycleDurationDays = 42;
     if (enrollment) {
       setActiveEnrollmentId(enrollment.id);
       // Nome do plano em query separada (sem o embed plans(name), que podia dar 400 por divergência de schema/FK
@@ -377,8 +379,19 @@ export default function StudentPortal() {
       let planName = "Plano";
       const planId = (enrollment as any).plan_id;
       if (planId) {
-        const { data: planRow } = await supabase.from("plans").select("name").eq("id", planId).maybeSingle();
+        const { data: planRow } = await supabase
+          .from("plans")
+          .select("name, duration_days, duration_weeks, cycle_duration_days")
+          .eq("id", planId)
+          .maybeSingle();
         if ((planRow as any)?.name) planName = (planRow as any).name;
+        planDurationDays = Math.max(
+          1,
+          Number((planRow as any)?.duration_days)
+            || Number((planRow as any)?.duration_weeks) * 7
+            || 42,
+        );
+        cycleDurationDays = Math.max(1, Number((planRow as any)?.cycle_duration_days) || 42);
       }
       setEnrollmentInfo({
         plan_name: planName,
@@ -403,27 +416,34 @@ export default function StudentPortal() {
       })));
     }
 
-    // CICLOS direto por student_id (RLS "students_read_own_cycles") — INDEPENDE da matrícula/plano,
-    // pra o treino aparecer mesmo se a query de matrícula falhar.
-    {
-      // (supabase as any): o types.ts local de training_cycles está defasado e não lista student_id,
-      // que EXISTE no banco vivo (zshrcg). O cast evita o erro de tipo.
+    // O portal nunca mistura ciclos de matrículas históricas. Se não existir
+    // matrícula ativa, não há uma agenda corrente para exibir.
+    if (enrollment) {
+      // O cast mantém compatibilidade com o tipo local legado da tabela.
       const { data: cyclesData } = await (supabase as any)
         .from("training_cycles")
-        .select("id, cycle_number, start_date, end_date, status, objective, duration_weeks, delivery_status")
-        .eq("student_id", student.id)
+        .select("id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, objective, duration_weeks, delivery_status")
+        .eq("enrollment_id", enrollment.id)
         .order("cycle_number");
 
       if (cyclesData && cyclesData.length > 0) {
-        const schedulableCycles = cyclesData.filter((cycle) => cycle.status !== "superseded");
-        const workoutsData = schedulableCycles.length > 0
+        const visibleCycles = cyclesData.filter((cycle) => cycle.status !== "superseded" && !cycle.superseded_by_cycle_id);
+        const workoutsData = visibleCycles.length > 0
           ? (await supabase
             .from("workouts")
             .select("id, name, title, description, exercises, cycle_id, day_of_week")
-            .in("cycle_id", schedulableCycles.map(c => c.id))).data
+            .in("cycle_id", visibleCycles.map(c => c.id))).data
           : [];
 
-        const materializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
+        const allMaterializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
+        const workoutCycleIds = new Set(allMaterializedWorkouts.map((workout) => workout.cycle_id));
+        const schedulableCycles = selectCurrentPlanCycleWindow(
+          visibleCycles.map((cycle) => ({ ...cycle, has_workouts: workoutCycleIds.has(cycle.id) })),
+          planDurationDays,
+          cycleDurationDays,
+        );
+        const schedulableCycleIds = new Set(schedulableCycles.map((cycle) => cycle.id));
+        const materializedWorkouts = allMaterializedWorkouts.filter((workout) => schedulableCycleIds.has(workout.cycle_id));
 
         const exerciseIds = new Set<string>();
         materializedWorkouts.forEach(w => {

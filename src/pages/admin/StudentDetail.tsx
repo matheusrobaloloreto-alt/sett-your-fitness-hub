@@ -53,7 +53,7 @@ import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { isBrazilianCountry } from "@/lib/fiscalRegistration";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
-import { collapseOverlappingCyclesForDisplay } from "@/lib/prescriptionSchedule";
+import { collapseOverlappingCyclesForDisplay, selectCurrentPlanCycleWindow, selectCyclesForProgramHistory } from "@/lib/prescriptionSchedule";
 import { isInfluencerPlan, planOperationalRequirements } from "@/lib/influencerPlan";
 // Heavy children loaded only when their tab is opened (chunk size win)
 const WorkoutAnalysis = lazy(() => import("@/components/trainer/WorkoutAnalysis").then(m => ({ default: m.WorkoutAnalysis })));
@@ -105,6 +105,8 @@ interface Enrollment {
   status: string;
   plan_name?: string;
   plan_duration?: number;
+  plan_duration_days?: number;
+  cycle_duration_days?: number;
   trainer_name?: string;
   payment_status?: string;
   payment_date?: string;
@@ -136,6 +138,7 @@ interface Plan {
   duration_weeks: number;
   duration_days: number | null;
   plan_kind: string;
+  cycle_duration_days?: number | null;
 }
 
 interface Trainer {
@@ -225,6 +228,8 @@ export default function StudentDetail() {
   const [preRegistrationLoading, setPreRegistrationLoading] = useState(true);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [cycles, setCycles] = useState<TrainingCycle[]>([]);
+  const [rawCycles, setRawCycles] = useState<TrainingCycle[]>([]);
+  const [expandedEnrollmentCycles, setExpandedEnrollmentCycles] = useState<Record<string, boolean>>({});
   const [reschedulingCycleId, setReschedulingCycleId] = useState<string | null>(null);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [allWorkouts, setAllWorkouts] = useState<any[]>([]);
@@ -443,6 +448,7 @@ export default function StudentDetail() {
     if (!enrollmentData || enrollmentData.length === 0) {
       setEnrollments([]);
       setCycles([]);
+      setRawCycles([]);
       setLoading(false);
       loadEvaluations(studentId);
       loadAsaasPayments(studentId);
@@ -453,7 +459,7 @@ export default function StudentDetail() {
     const trainerIds = [...new Set(enrollmentData.map((e) => e.trainer_id).filter((id): id is string => !!id))];
 
     const [{ data: plansData }, { data: profiles }] = await Promise.all([
-      supabase.from("plans").select("id, name, duration_weeks, duration_days, plan_kind").in("id", planIds),
+      supabase.from("plans").select("id, name, duration_weeks, duration_days, cycle_duration_days, plan_kind").in("id", planIds),
       trainerIds.length > 0
         ? supabase.from("profiles").select("user_id, full_name").in("user_id", trainerIds)
         : Promise.resolve({ data: [] as { user_id: string; full_name: string | null }[] }),
@@ -466,6 +472,8 @@ export default function StudentDetail() {
       ...e,
       plan_name: planMap.get(e.plan_id)?.name || "Plano desconhecido",
       plan_duration: planMap.get(e.plan_id)?.duration_weeks,
+      plan_duration_days: planMap.get(e.plan_id)?.duration_days || undefined,
+      cycle_duration_days: planMap.get(e.plan_id)?.cycle_duration_days || undefined,
       trainer_name: trainerMap.get(e.trainer_id) || "Treinador desconhecido",
     }));
     setEnrollments(enrichedEnrollments);
@@ -486,6 +494,7 @@ export default function StudentDetail() {
 
     if (!cycleData || cycleData.length === 0) {
       setCycles([]);
+      setRawCycles([]);
       setLoading(false);
       loadEvaluations(studentId);
       loadAsaasPayments(studentId);
@@ -501,11 +510,13 @@ export default function StudentDetail() {
     const workoutCycleIds = new Set(materializedWorkouts.map((w) => w.cycle_id));
     setAllWorkouts(materializedWorkouts);
 
-    const displayCycles = collapseOverlappingCyclesForDisplay(schedulableCycleData.map((c) => ({
+    const cyclesWithSignals = schedulableCycleData.map((c) => ({
       ...c,
       has_workout: workoutCycleIds.has(c.id),
       has_workouts: workoutCycleIds.has(c.id),
-    })));
+    }));
+    setRawCycles(cyclesWithSignals);
+    const displayCycles = collapseOverlappingCyclesForDisplay(cyclesWithSignals);
     setCycles(displayCycles);
 
     // Carregar um perfil é uma operação de leitura. Transições de matrícula
@@ -962,10 +973,29 @@ export default function StudentDetail() {
 
   const { prescribeDays, doneDays, expiredDays } = buildCalendarDays();
 
+  const allEnrollmentCycles = (enrollment: Enrollment) =>
+    rawCycles.filter((cycle) => cycle.enrollment_id === enrollment.id);
+
+  const currentEnrollmentCycles = (enrollment: Enrollment) =>
+    selectCurrentPlanCycleWindow(
+      allEnrollmentCycles(enrollment),
+      enrollment.plan_duration_days || Math.max(1, (enrollment.plan_duration || 6) * 7),
+      enrollment.cycle_duration_days || 42,
+    );
+
+  const displayedEnrollmentCycles = (enrollment: Enrollment) =>
+    expandedEnrollmentCycles[enrollment.id]
+      ? allEnrollmentCycles(enrollment)
+      : currentEnrollmentCycles(enrollment);
+
   const renderWorkoutCycles = () => {
     const activeEnroll = enrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal");
     if (!activeEnroll) return <p className="text-muted-foreground font-sans text-sm text-center py-8">Nenhuma matrícula ativa.</p>;
-    const enrollCycles = cycles.filter(c => c.enrollment_id === activeEnroll.id);
+    const enrollCycles = selectCyclesForProgramHistory(
+      rawCycles.filter(c => c.enrollment_id === activeEnroll.id),
+      activeEnroll.plan_duration_days || Math.max(1, (activeEnroll.plan_duration || 6) * 7),
+      activeEnroll.cycle_duration_days || 42,
+    );
     if (enrollCycles.length === 0) {
       return (
         <Card className="bg-card border-border border-dashed">
@@ -1243,6 +1273,11 @@ export default function StudentDetail() {
                 {/* Active enrollment summary */}
                 {enrollments.length > 0 && (() => {
                   const active = enrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal") || enrollments[0];
+                  const activeCycles = selectCurrentPlanCycleWindow(
+                    cycles.filter(c => c.enrollment_id === active.id),
+                    active.plan_duration_days || Math.max(1, (active.plan_duration || 6) * 7),
+                    active.cycle_duration_days || 42,
+                  );
                   return (
                       <Card className="bg-card border-border">
                       <CardHeader className="pb-3">
@@ -1267,11 +1302,11 @@ export default function StudentDetail() {
                           <TrainerInlineSelect enrollmentId={active.id} trainerId={active.trainer_id} trainerName={active.trainer_name} />
                           <span><CalendarDays className="h-3 w-3 inline mr-1" />{safeFormatDate(active.start_date, "dd/MM/yyyy")} → {safeFormatDate(active.end_date, "dd/MM/yyyy")}</span>
                         </div>
-                        {cycles.filter(c => c.enrollment_id === active.id).length > 0 && (
+                        {activeCycles.length > 0 && (
                           <div className="mt-2 space-y-1">
                             <p className="text-xs font-medium text-foreground">Ciclos:</p>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                              {cycles.filter(c => c.enrollment_id === active.id).map(c => (
+                              {activeCycles.map(c => (
                               <div key={c.id} className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-xl bg-secondary/40 border border-border">
                                 <span className="truncate">C{c.cycle_number} · {safeFormatDate(c.start_date, "dd/MM")} a {safeFormatDate(c.end_date, "dd/MM/yy")}</span>
                                 <div className="flex items-center gap-1">
@@ -1443,11 +1478,11 @@ export default function StudentDetail() {
                           )}
                         </div>
 
-                        {cycles.filter((c) => c.enrollment_id === e.id).length > 0 && (
+                        {displayedEnrollmentCycles(e).length > 0 && (
                           <div className="mt-3 space-y-1">
                             <p className="text-xs font-sans font-medium text-foreground">Ciclos de treino:</p>
                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-1.5">
-                              {cycles.filter((c) => c.enrollment_id === e.id).map((c) => (
+                              {displayedEnrollmentCycles(e).map((c) => (
                                 <div key={c.id} className="flex flex-wrap items-center justify-between px-2 py-1.5 rounded-xl bg-background border border-border text-xs font-sans gap-1.5">
                                   <span className="min-w-0 truncate text-[11px] sm:text-xs">C{c.cycle_number} · {safeFormatDate(c.start_date, "dd/MM")} a {safeFormatDate(c.end_date, "dd/MM/yy")}</span>
                                   <div className="flex items-center gap-1.5 flex-wrap justify-end">
@@ -1543,6 +1578,26 @@ export default function StudentDetail() {
                                 </div>
                               ))}
                             </div>
+                            {allEnrollmentCycles(e).length > currentEnrollmentCycles(e).length && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                onClick={() => setExpandedEnrollmentCycles((current) => ({
+                                  ...current,
+                                  [e.id]: !current[e.id],
+                                }))}
+                              >
+                                <ChevronDown className={cn(
+                                  "mr-1 h-3 w-3 transition-transform",
+                                  expandedEnrollmentCycles[e.id] && "rotate-180",
+                                )} />
+                                {expandedEnrollmentCycles[e.id]
+                                  ? "Mostrar somente o ciclo atual do plano"
+                                  : `Ver histórico completo (${allEnrollmentCycles(e).length} ciclos)`}
+                              </Button>
+                            )}
                           </div>
                         )}
                       </div>

@@ -170,6 +170,55 @@ export function collapseOverlappingCyclesForDisplay<T extends PrescriptionSchedu
 }
 
 /**
+ * Mantém a ficha principal dentro da duração nominal de um plano. Matrículas
+ * legadas podem conservar ciclos históricos e renovações no banco; a tela
+ * mostra apenas o bloco contratual que contém o ciclo ativo. Isso é uma regra
+ * de apresentação e nunca altera vigência, datas ou histórico.
+ */
+export function selectCurrentPlanCycleWindow<T extends PrescriptionScheduleCycle>(
+  cycles: T[],
+  planDurationDays: number,
+  cycleDurationDays = 42,
+): T[] {
+  const visible = collapseOverlappingCyclesForDisplay(cycles);
+  if (!visible.length) return [];
+
+  const windowSize = Math.max(1, Math.ceil(
+    Math.max(1, planDurationDays) / Math.max(1, cycleDurationDays),
+  ));
+  if (visible.length <= windowSize) return visible;
+
+  const activeIndex = visible.findIndex((item) => item.status === "active");
+  const anchorIndex = activeIndex >= 0
+    ? activeIndex
+    : Math.max(0, visible.findLastIndex((item) => Boolean(item.has_workouts || item.has_bundle)));
+  const windowStart = Math.floor(anchorIndex / windowSize) * windowSize;
+  return visible.slice(windowStart, windowStart + windowSize);
+}
+
+/**
+ * Mantém os slots da janela atual e acrescenta todo ciclo que contém conteúdo
+ * real. Diferente da visão compacta, dois ciclos materializados sobrepostos
+ * permanecem separados para que o professor nunca perca acesso ao histórico.
+ */
+export function selectCyclesForProgramHistory<T extends PrescriptionScheduleCycle>(
+  cycles: T[],
+  planDurationDays: number,
+  cycleDurationDays = 42,
+): T[] {
+  const visible = cycles.filter((cycle) => !isSupersededCycle(cycle));
+  const currentIds = new Set(
+    selectCurrentPlanCycleWindow(visible, planDurationDays, cycleDurationDays)
+      .map((cycle) => cycle.id),
+  );
+
+  return visible
+    .filter((cycle) => currentIds.has(cycle.id) || Boolean(cycle.has_workouts || cycle.has_bundle))
+    .sort((left, right) => utcDay(left.start_date) - utcDay(right.start_date)
+      || left.cycle_number - right.cycle_number);
+}
+
+/**
  * Um aluno pode manter matrículas antigas para histórico. O Studio sempre deve
  * prescrever sobre uma única matrícula vigente, sem misturar ciclos legados.
  */
