@@ -204,7 +204,7 @@ export default function WorkoutLibrary() {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Enviar "{sendFor?.name}" para um aluno</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">O treino vira o ciclo ativo do aluno e aparece no app dele. (Substitui o ciclo ativo atual.)</p>
+            <p className="text-sm text-muted-foreground">O treino entra no ciclo vigente e aparece no app do aluno. Se o ciclo já tiver musculação, o envio será bloqueado para proteger o histórico.</p>
             <div className="space-y-1.5">
               <Label>Aluno</Label>
               <Select value={sendStudent} onValueChange={setSendStudent}>

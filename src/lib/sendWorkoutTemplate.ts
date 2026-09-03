@@ -1,12 +1,9 @@
 // Envia um treino da BIBLIOTECA (workout_templates) para um ALUNO: materializa o template
-// numa matrícula ativa + novo ciclo ativo + linhas em `workouts` (que o app do aluno lê).
+// no ciclo vigente sem abrir uma segunda janela sobreposta.
 // Preserva os exercícios VERBATIM (group_id, method, vídeo, set_types) — diferente do
 // publishStrengthPlan que remapeia do formato da IA.
 import { supabase } from "@/integrations/supabase/client";
-import { businessDateYmd } from "@/lib/businessDate";
 import { sanitizeSetTypes } from "@/lib/setTypes";
-
-const ymd = businessDateYmd;
 
 export function sanitizeTemplateExercise(exercise: any) {
   const normalized = { ...exercise };
@@ -22,12 +19,33 @@ export function sanitizeTemplateExercise(exercise: any) {
 }
 
 export interface TemplateForSend {
+  id: string;
   name: string;
   description?: string | null;
   workouts: Array<{ title?: string; description?: string | null; exercises?: any[] }>;
 }
 
 export interface SendResult { enrollmentId: string; cycleId: string; workoutsCreated: number; createdEnrollment: boolean; }
+
+function templateDeliveryError(message?: string) {
+  const raw = String(message || "");
+  if (raw.includes("template_cycle_overlap_ambiguous")) {
+    return "Esta matrícula tem ciclos sobrepostos. O envio foi bloqueado sem alterar dados; corrija a duplicidade no perfil do aluno.";
+  }
+  if (raw.includes("template_cycle_already_has_workouts")) {
+    return "O ciclo vigente já tem musculação. Edite o treino existente para não duplicar a prescrição.";
+  }
+  if (raw.includes("template_cycle_duration_mismatch")) {
+    return "A duração do ciclo vigente é diferente da duração deste treino. Ajuste as datas do ciclo antes de enviar.";
+  }
+  if (raw.includes("template_cycle_no_current")) {
+    return "Não existe um ciclo vigente hoje. Ajuste a data do ciclo no perfil do aluno antes de enviar.";
+  }
+  if (raw.includes("template_cycle_enrollment_not_found")) {
+    return "O aluno não possui uma matrícula ativa pronta para receber este treino.";
+  }
+  return raw || "Falha ao enviar o treino da biblioteca.";
+}
 
 export async function sendTemplateToStudent(opts: {
   template: TemplateForSend;
@@ -41,61 +59,20 @@ export async function sendTemplateToStudent(opts: {
   const workouts = Array.isArray(template?.workouts) ? template.workouts : [];
   if (workouts.length === 0) throw new Error("Este treino da biblioteca não tem sessões para enviar.");
   const durationWeeks = Number(opts.durationWeeks) > 0 ? Number(opts.durationWeeks) : 6;
-
-  const today = new Date();
-  const end = new Date(today);
-  end.setDate(end.getDate() + durationWeeks * 7 - 1);
-
-  // 1) Matrícula ativa (ou cria).
-  const { data: enr } = await db
-    .from("enrollments").select("id").eq("student_id", studentId).eq("status", "active")
-    .order("created_at", { ascending: false }).limit(1).maybeSingle();
-  let enrollmentId: string | undefined = enr?.id;
-  let createdEnrollment = false;
-  if (!enrollmentId) {
-    const { data: createdEnr, error: enrErr } = await db
-      .from("enrollments")
-      .insert({
-        company_id: companyId, student_id: studentId, status: "active",
-        start_date: ymd(today), end_date: ymd(end), training_start_date: ymd(today),
-        notes: "Criada automaticamente ao enviar treino da biblioteca.",
-      })
-      .select("id").single();
-    if (enrErr) throw new Error(`Falha ao criar matrícula: ${enrErr.message}`);
-    enrollmentId = createdEnr.id; createdEnrollment = true;
-  }
-
-  // 2) Encerra ciclos ativos e cria o novo.
-  await db.from("training_cycles").update({ status: "completed" }).eq("enrollment_id", enrollmentId).eq("status", "active");
-  const { data: maxc } = await db
-    .from("training_cycles").select("cycle_number").eq("enrollment_id", enrollmentId)
-    .neq("status", "superseded")
-    .order("cycle_number", { ascending: false }).limit(1).maybeSingle();
-  const cycleNumber = (Number(maxc?.cycle_number) || 0) + 1;
-  const { data: cycle, error: cycErr } = await db
-    .from("training_cycles")
-    .insert({
-      enrollment_id: enrollmentId, cycle_number: cycleNumber, start_date: ymd(today), end_date: ymd(end),
-      status: "active", company_id: companyId, student_id: studentId,
-      name: template.name || "Treino", duration_weeks: durationWeeks,
-    })
-    .select("id").single();
-  if (cycErr) throw new Error(`Falha ao criar ciclo: ${cycErr.message}`);
-
-  // 3) Treinos — exercícios VERBATIM (mantém bi-set/drop-set/capas).
-  const rows = workouts.map((w, i) => ({
-    cycle_id: cycle.id,
-    name: w?.title || `Treino ${String.fromCharCode(65 + i)}`,
-    title: w?.title || `Treino ${String.fromCharCode(65 + i)}`,
-    description: w?.description || null,
-    day_of_week: null,
-    sort_order: i + 1,
-    company_id: companyId,
-    exercises: Array.isArray(w?.exercises) ? w.exercises.map(sanitizeTemplateExercise) : [],
-    created_by: createdBy || null,
-  }));
-  const { error: wErr } = await db.from("workouts").insert(rows);
-  if (wErr) throw new Error(`Falha ao criar treinos: ${wErr.message}`);
-
-  return { enrollmentId: enrollmentId!, cycleId: cycle.id, workoutsCreated: rows.length, createdEnrollment };
+  const { data, error } = await db.rpc("apply_workout_template_to_current_cycle", {
+    p_template_id: template.id,
+    p_student_id: studentId,
+    p_company_id: companyId,
+    p_duration_weeks: durationWeeks,
+    p_created_by: createdBy || null,
+  });
+  if (error) throw new Error(templateDeliveryError(error.message));
+  const result = Array.isArray(data) ? data[0] : data;
+  if (!result?.cycle_id || !result?.enrollment_id) throw new Error("O treino foi processado sem confirmar o ciclo de destino.");
+  return {
+    enrollmentId: result.enrollment_id,
+    cycleId: result.cycle_id,
+    workoutsCreated: Number(result.workouts_created) || workouts.length,
+    createdEnrollment: false,
+  };
 }
