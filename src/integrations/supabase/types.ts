@@ -4568,6 +4568,11 @@ export type Database = {
           message_id: string | null
           message_id_external: string | null
           origin: string
+          provider_status: string | null
+          provider_status_at: string | null
+          delivered_at: string | null
+          read_at: string | null
+          failed_at: string | null
           quoted_message_external_id: string | null
           quoted_message_id: string | null
           quoted_message_preview: string | null
@@ -4591,6 +4596,11 @@ export type Database = {
           message_id?: string | null
           message_id_external?: string | null
           origin?: string
+          provider_status?: string | null
+          provider_status_at?: string | null
+          delivered_at?: string | null
+          read_at?: string | null
+          failed_at?: string | null
           quoted_message_external_id?: string | null
           quoted_message_id?: string | null
           quoted_message_preview?: string | null
@@ -4614,6 +4624,11 @@ export type Database = {
           message_id?: string | null
           message_id_external?: string | null
           origin?: string
+          provider_status?: string | null
+          provider_status_at?: string | null
+          delivered_at?: string | null
+          read_at?: string | null
+          failed_at?: string | null
           quoted_message_external_id?: string | null
           quoted_message_id?: string | null
           quoted_message_preview?: string | null

@@ -102,6 +102,12 @@ type Message = {
   media_type: string | null;
   media_storage_path?: string | null;
   message_id_external: string | null;
+  status?: string | null;
+  provider_status?: string | null;
+  provider_status_at?: string | null;
+  delivered_at?: string | null;
+  read_at?: string | null;
+  failed_at?: string | null;
   is_from_me?: boolean | null;
   edited_at?: string | null;
   edited_by?: string | null;
@@ -2853,6 +2859,15 @@ export default function WhatsAppChat() {
                             <p className={cn("mt-1.5 flex items-center justify-end gap-1 text-[10px] font-mono-data", msg.source === "outgoing" ? "text-primary-foreground/70" : "text-muted-foreground")}>
                               <span>{formatMessageTimestamp(messageDateValue)}</span>
                               {msg.edited_at && <span aria-label="Mensagem editada">• editada</span>}
+                              {msg.source === "outgoing" && (
+                                <span
+                                  aria-label={`Status: ${msg.status || "enviada"}`}
+                                  title={msg.status === "read" ? "Lida" : msg.status === "delivered" ? "Entregue" : msg.status === "failed" ? "Falhou" : "Aceita pelo provedor"}
+                                  className={cn(msg.status === "failed" && "text-red-200")}
+                                >
+                                  {msg.status === "read" ? "✓✓" : msg.status === "delivered" ? "✓✓" : msg.status === "failed" ? "!" : "✓"}
+                                </span>
+                              )}
                             </p>
                             </div>
                           </div>

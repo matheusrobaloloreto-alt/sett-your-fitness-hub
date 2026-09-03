@@ -9,6 +9,10 @@ import {
   sanitizeProviderErrorForLog,
 } from "../_shared/provider-error-redaction.ts";
 import { providerIssueFromResponse } from "../_shared/whatsappProviderState.ts";
+import {
+  extractWhatsAppDeliveryUpdates,
+  shouldApplyWhatsAppDeliveryStatus,
+} from "../_shared/whatsappDeliveryStatus.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -511,6 +515,7 @@ async function sendText(
   evoUrl: string,
   instanceName: string,
   evoHeaders: Record<string, string>,
+  companyId: string,
   remoteJid: string,
   text: string,
   adminClient: any,
@@ -526,6 +531,7 @@ async function sendText(
       const d = await res.json();
       await adminClient.from("whatsapp_messages").insert({
         chat_id: chatId,
+        company_id: companyId,
         content: text,
         source: "outgoing",
         type: "text",
@@ -639,6 +645,7 @@ REGRAS DURAS: só temas de treino/execução/app. Dor forte, lesão, tontura ou 
         evoUrl,
         instanceName,
         evoHeaders,
+        companyId,
         remoteJid,
         answer,
         adminClient,
@@ -739,6 +746,7 @@ async function executeFlow(
           evoUrl,
           instanceName,
           evoHeaders,
+          companyId,
           remoteJid,
           message,
           adminClient,
@@ -793,6 +801,7 @@ async function executeFlow(
           evoUrl,
           instanceName,
           evoHeaders,
+          companyId,
           remoteJid,
           menuText,
           adminClient,
@@ -1126,7 +1135,7 @@ Deno.serve(async (req) => {
             headers: { "x-webhook-secret": expectedSecret },
             byEvents: false,
             base64: false,
-            events: ["MESSAGES_UPSERT", "MESSAGES_SET", "CONNECTION_UPDATE"],
+            events: ["MESSAGES_UPSERT", "MESSAGES_SET", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
           },
         },
         {
@@ -1137,8 +1146,10 @@ Deno.serve(async (req) => {
           events: [
             "MESSAGES_UPSERT",
             "MESSAGES_SET",
+            "MESSAGES_UPDATE",
             "messages.upsert",
             "messages.set",
+            "messages.update",
             "CONNECTION_UPDATE",
             "connection.update",
           ],
@@ -1474,6 +1485,64 @@ Deno.serve(async (req) => {
       }
 
       return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Delivery/read receipts are persisted separately from message content. This
+    // lets the panel distinguish provider acceptance from actual delivery.
+    if (event === "MESSAGES_UPDATE" || event === "messages.update") {
+      const instanceName = body.instance || body.data?.instance;
+      if (!instanceName) {
+        return new Response(JSON.stringify({ error: "Missing instance" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: instance } = await adminClient.from("whatsapp_instances")
+        .select("id, company_id").eq("instance_name", instanceName).single();
+      if (!instance) {
+        return new Response(JSON.stringify({ error: "Instance not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let updated = 0;
+      let ignored = 0;
+      for (const receipt of extractWhatsAppDeliveryUpdates(body)) {
+        const { data: message } = await adminClient.from("whatsapp_messages")
+          .select("id, status")
+          .eq("company_id", instance.company_id)
+          .eq("message_id_external", receipt.messageExternalId)
+          .eq("is_from_me", true)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!message || !shouldApplyWhatsAppDeliveryStatus(message.status, receipt.normalizedStatus)) {
+          ignored += 1;
+          continue;
+        }
+        const now = new Date().toISOString();
+        const patch: Record<string, string> = {
+          status: receipt.normalizedStatus,
+          provider_status: receipt.providerStatus,
+          provider_status_at: now,
+        };
+        if (receipt.normalizedStatus === "delivered") patch.delivered_at = now;
+        if (receipt.normalizedStatus === "read") {
+          patch.delivered_at = now;
+          patch.read_at = now;
+        }
+        if (receipt.normalizedStatus === "failed") patch.failed_at = now;
+        const { error } = await adminClient.from("whatsapp_messages")
+          .update(patch).eq("id", message.id).eq("company_id", instance.company_id);
+        if (error) {
+          console.error("[webhook] delivery receipt persistence failed:", error.message);
+          ignored += 1;
+        } else updated += 1;
+      }
+      return new Response(JSON.stringify({ ok: true, updated, ignored }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

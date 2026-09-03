@@ -353,7 +353,8 @@ export default function WorkoutBuilder() {
       .from("workouts")
       .select("*")
       .eq("cycle_id", cycleId!)
-      .order("title");
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
     
     if (data && data.length > 0) {
       setWorkouts(sanitizeWorkoutSetTypes(data.map(w => ({

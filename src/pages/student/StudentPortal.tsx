@@ -42,7 +42,7 @@ import { calculateStreak } from "@/lib/streakCalculator";
 import type { Gender } from "@/components/student/BodyMeasurements";
 import { Megaphone, Activity } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { filterMaterializedWorkouts, orderWorkoutsByPrescription } from "@/lib/workoutPresence";
 import { canonicalizeWorkoutLogBatchRows } from "@/lib/workoutLogBatch";
 import {
   inferExtraSetsFromPersistedLogs,
@@ -105,6 +105,7 @@ interface WorkoutData {
   description: string | null;
   exercises: WorkoutExercise[];
   day_of_week: number | null;
+  sort_order?: number | null;
   weekly_context?: ResolvedWeekContext;
 }
 
@@ -431,7 +432,7 @@ export default function StudentPortal() {
         const workoutsData = visibleCycles.length > 0
           ? (await supabase
             .from("workouts")
-            .select("id, name, title, description, exercises, cycle_id, day_of_week")
+            .select("id, name, title, description, exercises, cycle_id, day_of_week, sort_order")
             .in("cycle_id", visibleCycles.map(c => c.id))).data
           : [];
 
@@ -465,13 +466,14 @@ export default function StudentPortal() {
         }
 
         const enriched: Cycle[] = schedulableCycles.map(c => {
-          const cycleWorkouts = materializedWorkouts
+          const cycleWorkouts = orderWorkoutsByPrescription(materializedWorkouts
             .filter(w => w.cycle_id === c.id)
             .map(w => ({
               id: w.id,
               title: w.title || w.name || "Treino",
               description: w.description,
               day_of_week: (w as any).day_of_week as number | null,
+              sort_order: (w as any).sort_order as number | null,
               exercises: ((w.exercises as unknown as WorkoutExercise[]) || []).map(ex => ({
                 ...ex,
                 video_url: (ex.video_url && ex.video_url.trim()) || videoMap[ex.exercise_id]?.video_url || null,
@@ -479,8 +481,7 @@ export default function StudentPortal() {
                 youtube_video_id: (ex as any).youtube_video_id || videoMap[ex.exercise_id]?.youtube_video_id || null,
                 thumbnail_url: (ex as any).thumbnail_url || videoMap[ex.exercise_id]?.thumbnail_url || null,
               })),
-            }))
-            .sort((a, b) => (a.title || "").localeCompare(b.title || ""))
+            })))
             .map((workout) => resolveWorkoutForCycleWeek(
               workout,
               c.start_date,

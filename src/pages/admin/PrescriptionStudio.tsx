@@ -778,7 +778,10 @@ export default function PrescriptionStudio() {
           setStatus((current) => ({ ...current, nutricao: "done" }));
         }
 
-        const shouldMaterializeStrength = Boolean(strengthPlan && (scheduleMode === "remaining" || !isCycleCurrent(cycle)));
+        // Gerar e publicar são uma única operação operacional: deixar o ciclo
+        // atual apenas em ai_strength_plans fazia a prescrição parecer concluída
+        // no Studio, mas invisível para o aluno até um segundo clique manual.
+        const shouldMaterializeStrength = Boolean(strengthPlan);
         if (shouldMaterializeStrength) {
           const publication = await publishStrengthPlanToStudent({
             plan: strengthPlan, studentId, companyId, createdBy: user?.id ?? null,
@@ -2018,14 +2021,14 @@ export default function PrescriptionStudio() {
                     </p>
                   )}
 
-                  {/* Publica o treino de força no app do aluno (o PDF/IA sozinho NÃO aparece pro aluno). */}
+                  {/* A geração já publica. Este botão permite republicar após ajustes do professor. */}
                   {results.musculacao && scheduledSummaries.length <= 1 && (
                     <>
                       <Button onClick={publishToStudent} disabled={publishing} variant="outline"
                         className="w-full border-[#1B2B4A] text-[#1B2B4A] hover:bg-[#1B2B4A]/5">
                         {publishing
                           ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Publicando…</>
-                          : <><Dumbbell className="h-4 w-4 mr-2" /> Publicar treino no app do aluno</>}
+                          : <><Dumbbell className="h-4 w-4 mr-2" /> Republicar ajustes no app do aluno</>}
                       </Button>
                       {published && (
                         <p className="text-xs text-green-600 flex items-center gap-1.5">

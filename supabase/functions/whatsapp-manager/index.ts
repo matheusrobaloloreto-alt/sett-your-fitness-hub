@@ -660,7 +660,7 @@ Deno.serve(async (req) => {
             headers: { "x-webhook-secret": webhookSecret },
             byEvents: false,
             base64: false,
-            events: ["MESSAGES_UPSERT", "MESSAGES_SET", "CONNECTION_UPDATE"],
+            events: ["MESSAGES_UPSERT", "MESSAGES_SET", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
           },
         }),
       });
@@ -981,7 +981,7 @@ Deno.serve(async (req) => {
             headers: { "x-webhook-secret": webhookSecret },
             byEvents: false,
             base64: false,
-            events: ["MESSAGES_UPSERT", "MESSAGES_SET", "CONNECTION_UPDATE"],
+            events: ["MESSAGES_UPSERT", "MESSAGES_SET", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
           },
         },
         {
@@ -992,8 +992,10 @@ Deno.serve(async (req) => {
           events: [
             "MESSAGES_UPSERT",
             "MESSAGES_SET",
+            "MESSAGES_UPDATE",
             "messages.upsert",
             "messages.set",
+            "messages.update",
             "CONNECTION_UPDATE",
             "connection.update",
           ],

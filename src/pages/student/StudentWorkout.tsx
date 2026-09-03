@@ -9,7 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Dumbbell, Play, Clock, RotateCcw, ChevronDown, ChevronUp, Timer, CheckCircle2, Circle, ExternalLink, Loader2 } from "lucide-react";
 import { format, parseISO, differenceInDays, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { filterMaterializedWorkouts, orderWorkoutsByPrescription } from "@/lib/workoutPresence";
 import { businessDateYmd } from "@/lib/businessDate";
 import { MethodBadge } from "@/components/workout/MethodBadge";
 import { StudentMethodGroup } from "@/components/student/StudentMethodGroup";
@@ -43,6 +43,7 @@ interface WorkoutData {
   id: string;
   title: string;
   description: string | null;
+  sort_order?: number | null;
   exercises: WorkoutExercise[];
 }
 
@@ -185,7 +186,7 @@ export default function StudentWorkout() {
         const workoutResult = schedulableCycles.length > 0
           ? await supabase
             .from("workouts")
-            .select("id, title, description, exercises, cycle_id")
+            .select("id, title, description, exercises, cycle_id, sort_order")
             .in("cycle_id", schedulableCycles.map((c) => c.id))
           : { data: [], error: null };
         const { data: workoutsData, error: workoutsError } = workoutResult;
@@ -218,14 +219,15 @@ export default function StudentWorkout() {
         }));
 
         const enriched: Cycle[] = schedulableCycles.map((c) => {
-          const cycleWorkouts = materializedWorkouts
+          const cycleWorkouts = orderWorkoutsByPrescription(materializedWorkouts
             .filter((w) => w.cycle_id === c.id)
             .map((w) => ({
               id: w.id,
               title: w.title,
               description: w.description,
+              sort_order: w.sort_order,
               exercises: (w.exercises as unknown as WorkoutExercise[]) || [],
-            }));
+            })));
           return { ...c, workouts: cycleWorkouts };
         });
 
