@@ -1,6 +1,14 @@
-import { readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+
+function listTypeScriptFiles(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) return listTypeScriptFiles(path);
+    return /\.tsx?$/.test(entry.name) ? [path] : [];
+  });
+}
 
 describe("workout log optimistic concurrency", () => {
   it("narrows the guarded RPC set type schema to W/N/F without changing its security contract", () => {
@@ -170,9 +178,9 @@ describe("workout log optimistic concurrency", () => {
   });
 
   it("has no runtime direct writer outside the guarded RPC", () => {
-    const matches = execFileSync("rg", [
-      "-l", "workout_logs", "src", "supabase/functions", "--glob", "*.ts", "--glob", "*.tsx",
-    ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    const matches = ["src", "supabase/functions"]
+      .flatMap(listTypeScriptFiles)
+      .filter((file) => readFileSync(file, "utf8").includes("workout_logs"));
     expect(matches).toContain("src/pages/student/StudentPortal.tsx");
     for (const file of matches) {
       const source = readFileSync(file, "utf8");
