@@ -101,6 +101,7 @@ export default function WorkoutPrescriptions() {
       const { data } = await supabase
         .from("workouts")
         .select("id, title, exercises, cycle_id")
+        .is("superseded_at", null)
         .in("cycle_id", cycleIds);
       workoutsData = data || [];
     }

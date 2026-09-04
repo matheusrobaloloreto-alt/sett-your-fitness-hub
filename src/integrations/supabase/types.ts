@@ -4971,7 +4971,11 @@ export type Database = {
           id: string
           name: string
           notes: string | null
+          revision_id: string
           sort_order: number | null
+          superseded_at: string | null
+          superseded_by_revision_id: string | null
+          superseded_reason: string | null
           title: string | null
           updated_at: string
         }
@@ -4986,7 +4990,11 @@ export type Database = {
           id?: string
           name?: string
           notes?: string | null
+          revision_id?: string
           sort_order?: number | null
+          superseded_at?: string | null
+          superseded_by_revision_id?: string | null
+          superseded_reason?: string | null
           title?: string | null
           updated_at?: string
         }
@@ -5001,7 +5009,11 @@ export type Database = {
           id?: string
           name?: string
           notes?: string | null
+          revision_id?: string
           sort_order?: number | null
+          superseded_at?: string | null
+          superseded_by_revision_id?: string | null
+          superseded_reason?: string | null
           title?: string | null
           updated_at?: string
         }
@@ -5579,6 +5591,14 @@ export type Database = {
       replace_exercise_muscle_targets: {
         Args: { p_exercise_id: string; p_targets: Json }
         Returns: undefined
+      }
+      replace_cycle_workout_revision: {
+        Args: {
+          p_cycle_id: string
+          p_expected_rows: Json
+          p_workouts: Json
+        }
+        Returns: Json
       }
       reschedule_training_cycles_from: {
         Args: {

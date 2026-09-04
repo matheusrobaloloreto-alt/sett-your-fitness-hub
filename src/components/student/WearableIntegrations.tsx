@@ -61,6 +61,7 @@ interface WearableStatus {
   metrics: WearableMetric[];
   workouts: WearableWorkout[];
   configuration: Partial<Record<ProviderId, boolean>>;
+  availability: Partial<Record<ProviderId, boolean>>;
 }
 
 const PROVIDERS: Array<{
@@ -100,7 +101,7 @@ function formatDate(value: string | null) {
 
 export function WearableIntegrations() {
   const { toast } = useToast();
-  const [status, setStatus] = useState<WearableStatus>({ devices: [], metrics: [], workouts: [], configuration: {} });
+  const [status, setStatus] = useState<WearableStatus>({ devices: [], metrics: [], workouts: [], configuration: {}, availability: {} });
   const [loading, setLoading] = useState(true);
   const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
 
@@ -119,6 +120,7 @@ export function WearableIntegrations() {
       metrics: Array.isArray(data?.metrics) ? data.metrics : [],
       workouts: Array.isArray(data?.workouts) ? data.workouts : [],
       configuration: data?.configuration && typeof data.configuration === "object" ? data.configuration : {},
+      availability: data?.availability && typeof data.availability === "object" ? data.availability : {},
     });
   }, [toast]);
 
@@ -174,7 +176,7 @@ export function WearableIntegrations() {
       return;
     }
     toast({
-      title: data?.status === "requires_native_app" ? "Requer o app para iPhone" : data?.status === "approval_required" ? "Integração em credenciamento" : "Configuração pendente",
+      title: data?.status === "requires_native_app" ? "Requer o app para iPhone" : data?.status === "not_available" ? "Disponível em breve" : "Configuração pendente",
       description: data?.message || "Essa integração ainda não está disponível.",
     });
   };
@@ -245,6 +247,7 @@ export function WearableIntegrations() {
           const hasHistory = status.metrics.some((metric) => metric.source === provider.id) || status.workouts.some((workout) => workout.source === provider.id);
           const Icon = provider.icon;
           const busy = busyProvider === provider.id;
+          const available = status.availability[provider.id];
           const configured = status.configuration[provider.id] !== false;
           const state = device?.connection_status || (!configured ? "config_required" : null);
           const connected = Boolean(device?.is_active && state && !["revoked", "revocation_pending", "reauthorization_required", "config_required", "partial_scope"].includes(state));
@@ -273,6 +276,7 @@ export function WearableIntegrations() {
                   {state === "config_required" && <p className="mt-1 text-xs text-amber-700">Configuração segura do servidor pendente.</p>}
                   {state === "revocation_pending" && <p className="mt-1 text-xs text-destructive">Acesso local bloqueado; tente revogar novamente.</p>}
                   {state === "reauthorization_required" && <p className="mt-1 text-xs text-amber-700">A conexão antiga não será usada até você autorizar novamente.</p>}
+                  {available === false && provider.id === "garmin" && <p className="mt-1 text-xs text-muted-foreground">Conexão direta disponível em breve. Use o Strava se suas atividades Garmin já sincronizam com ele.</p>}
                   {device?.last_error && <p className="mt-1 text-xs text-destructive">{device.last_error}</p>}
                 </div>
               </div>
@@ -288,9 +292,9 @@ export function WearableIntegrations() {
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" onClick={() => void (state === "revocation_pending" ? disconnect(provider.id) : connect(provider.id))} disabled={busy || state === "config_required"}>
+                  <Button size="sm" onClick={() => void (state === "revocation_pending" ? disconnect(provider.id) : connect(provider.id))} disabled={busy || state === "config_required" || available === false}>
                     {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : state === "revocation_pending" ? <Unplug className="h-4 w-4" /> : <CloudCog className="h-4 w-4" />}
-                    <span className="ml-2">{state === "revocation_pending" ? "Tentar revogar" : "Conectar"}</span>
+                    <span className="ml-2">{state === "revocation_pending" ? "Tentar revogar" : available === false ? "Disponível em breve" : "Conectar"}</span>
                   </Button>
                 )}
                 {hasHistory && (

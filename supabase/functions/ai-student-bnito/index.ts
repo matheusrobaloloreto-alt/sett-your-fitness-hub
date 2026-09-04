@@ -619,6 +619,7 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
       const { data: workoutsData } = await supabase
         .from("workouts")
         .select("id, title, name, description, day_of_week, cycle_id, exercises")
+        .is("superseded_at", null)
         .in("cycle_id", cycleIds);
       workouts = workoutsData || [];
     }

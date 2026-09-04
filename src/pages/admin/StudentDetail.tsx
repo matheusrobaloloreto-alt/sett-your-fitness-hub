@@ -36,6 +36,7 @@ import { ProgressPhotosPanel } from "@/components/ProgressPhotosPanel";
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
 import type { PreRegistrationData } from "@/lib/preRegistration";
 import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
+import { businessDateYmd } from "@/lib/businessDate";
 
 // Safely format a date string. Returns "—" when value is missing or invalid.
 function safeFormatDate(value: string | null | undefined, fmt: string, opts?: Parameters<typeof format>[2]): string {
@@ -53,7 +54,7 @@ import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { isBrazilianCountry } from "@/lib/fiscalRegistration";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
-import { collapseOverlappingCyclesForDisplay, selectCurrentPlanCycleWindow, selectCyclesForProgramHistory } from "@/lib/prescriptionSchedule";
+import { collapseOverlappingCyclesForDisplay, selectCurrentPlanCycleWindow, selectCyclesForProgramHistory, selectPreferredVisibleCycle } from "@/lib/prescriptionSchedule";
 import { isInfluencerPlan, planOperationalRequirements } from "@/lib/influencerPlan";
 // Heavy children loaded only when their tab is opened (chunk size win)
 const WorkoutAnalysis = lazy(() => import("@/components/trainer/WorkoutAnalysis").then(m => ({ default: m.WorkoutAnalysis })));
@@ -504,7 +505,7 @@ export default function StudentDetail() {
     const schedulableCycleData = cycleData.filter((cycle) => cycle.status !== "superseded");
     const cycleIds = schedulableCycleData.map((c) => c.id);
     const workouts = cycleIds.length > 0
-      ? (await supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").in("cycle_id", cycleIds)).data
+      ? (await supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").is("superseded_at", null).in("cycle_id", cycleIds)).data
       : [];
     const materializedWorkouts = filterMaterializedWorkouts(workouts || []);
     const workoutCycleIds = new Set(materializedWorkouts.map((w) => w.cycle_id));
@@ -987,6 +988,9 @@ export default function StudentDetail() {
     expandedEnrollmentCycles[enrollment.id]
       ? allEnrollmentCycles(enrollment)
       : currentEnrollmentCycles(enrollment);
+
+  const studentVisibleCycleForEnrollment = (enrollment: Enrollment) =>
+    selectPreferredVisibleCycle(currentEnrollmentCycles(enrollment));
 
   const renderWorkoutCycles = () => {
     const activeEnroll = enrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal");
@@ -1496,6 +1500,11 @@ export default function StudentDetail() {
                                     <Badge variant="outline" className={`text-[10px] ${statusColors[c.status]}`}>
                                       {statusLabels[c.status] || c.status}
                                     </Badge>
+                                    {studentVisibleCycleForEnrollment(e)?.id === c.id && (
+                                      <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/25">
+                                        Exibido ao aluno
+                                      </Badge>
+                                    )}
                                     {(role === "trainer" || role === "admin" || role === "master" || role === "coordinator") && (
                                       <div className="flex items-center gap-1">
                                         <Button
@@ -1505,6 +1514,20 @@ export default function StudentDetail() {
                                           onClick={() => {
                                             const basePath = role === "coordinator" ? "/coordinator" : role === "trainer" ? "/trainer" : "/admin";
                                             const returnPath = `${basePath}/students/${id}`;
+                                            const visibleCycle = studentVisibleCycleForEnrollment(e);
+                                            if (
+                                              c.has_workout
+                                              && c.start_date <= businessDateYmd()
+                                              && visibleCycle
+                                              && visibleCycle.id !== c.id
+                                            ) {
+                                              toast({
+                                                title: "Abrindo o treino que o aluno vê",
+                                                description: `O ciclo ${c.cycle_number} é histórico ou não está selecionado no app do aluno.`,
+                                              });
+                                              navigate(`${basePath}/workout/${visibleCycle.id}?returnTo=${encodeURIComponent(returnPath)}`);
+                                              return;
+                                            }
                                             navigate(`${basePath}/workout/${c.id}?returnTo=${encodeURIComponent(returnPath)}`);
                                           }}
                                         >
@@ -1523,6 +1546,7 @@ export default function StudentDetail() {
                                                 .from("workouts")
                                                 .select("id, exercises")
                                                 .eq("cycle_id", c.id)
+                                                .is("superseded_at", null)
                                                 .limit(20);
                                               if (filterMaterializedWorkouts(existing || []).length > 0) {
                                                 toast({ title: "Esse ciclo já possui treino." });

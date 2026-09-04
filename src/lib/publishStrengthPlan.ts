@@ -4,11 +4,12 @@
 // client-side (RLS permite insert de admin/master escopado por empresa):
 //   1) acha a matrícula ATIVA do aluno (ou cria uma);
 //   2) usa o ciclo agendado ou cria um ciclo avulso;
-//   3) materializa os `workouts` preservando IDs e histórico quando o ciclo já começou.
+//   3) materializa uma nova revisão, preservando IDs históricos quando o ciclo já começou.
 import { supabase } from "@/integrations/supabase/client";
 import { businessDateYmd } from "@/lib/businessDate";
-import { filterMaterializedWorkouts, hasWorkoutExercises } from "@/lib/workoutPresence";
+import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { sanitizeSetTypes } from "@/lib/setTypes";
+import { saveCycleWorkoutRevision } from "@/lib/workoutRevision";
 
 // Formato que o app do aluno (StudentPortal/StudentWorkout) consome em workouts.exercises[].
 export interface StudentWorkoutExercise {
@@ -62,6 +63,7 @@ export interface PublishResult {
 
 type PreviousWorkoutRow = {
   id: string;
+  updated_at: string;
   sort_order?: number | null;
   title?: string | null;
   name?: string | null;
@@ -173,21 +175,6 @@ export function buildPublishDecisionLog(input: {
 }
 
 const ymd = businessDateYmd;
-
-// P15 — resumo das edições do professor vs. plano original da IA.
-function summarizePlanEdits(orig: any, edited: any): { edited: boolean; text: string } {
-  const flat = (p: any) => ((p?.workouts || []) as any[]).flatMap((w) => ((w?.exercises || []) as any[]).map((e) => e?.exercise_name || e?.library_exercise_name || ""));
-  const a = flat(orig), b = flat(edited);
-  const setA = new Set(a.filter(Boolean)), setB = new Set(b.filter(Boolean));
-  const added = [...setB].filter((x) => !setA.has(x));
-  const removed = [...setA].filter((x) => !setB.has(x));
-  const changed = JSON.stringify(orig?.workouts || []) !== JSON.stringify(edited?.workouts || []);
-  const parts: string[] = [];
-  if (added.length) parts.push(`${added.length} adicionado(s)`);
-  if (removed.length) parts.push(`${removed.length} removido(s)`);
-  if (changed && !parts.length) parts.push("ajustes de séries/reps/obs");
-  return { edited: changed, text: changed ? parts.join(", ") || "ajustes" : "sem edições" };
-}
 
 export async function publishStrengthPlanToStudent(opts: {
   plan: any;
@@ -321,55 +308,29 @@ export async function publishStrengthPlanToStudent(opts: {
     createdBy ? { ...r, created_by: createdBy } : r,
   );
   const { data: previousWorkoutRows, error: previousWorkoutsError } = await db.from("workouts")
-    .select("id, sort_order, title, name, exercises")
+    .select("id, updated_at, sort_order, title, name, exercises")
     .eq("cycle_id", cycle.id)
+    .is("superseded_at", null)
     .order("sort_order");
   if (previousWorkoutsError) throw new Error(`Falha ao consultar treinos do ciclo: ${previousWorkoutsError.message}`);
   const previousWorkoutList = (previousWorkoutRows || []) as PreviousWorkoutRow[];
-  const staleMarkerIds = previousWorkoutList
-    .filter((workout) => !hasWorkoutExercises(workout) && String(workout.title || workout.name || "").startsWith("Treino Ciclo "))
-    .map((workout) => workout.id);
-  if (staleMarkerIds.length > 0) {
-    const { error: deleteMarkersError } = await db.from("workouts").delete().in("id", staleMarkerIds);
-    if (deleteMarkersError) throw new Error(`Falha ao remover marcador antigo do ciclo: ${deleteMarkersError.message}`);
-  }
   const previousWorkouts = filterMaterializedWorkouts(previousWorkoutList);
   if (previousWorkouts?.length && opts.replaceTargetCycle === false) {
     throw new Error("Este ciclo já tem treinos. Confirme a substituição para publicar novamente.");
   }
-
-  if (!previousWorkouts?.length) {
-    const { error: createWorkoutsError } = await db.from("workouts").insert(rows);
-    if (createWorkoutsError) throw new Error(`Falha ao criar treinos: ${createWorkoutsError.message}`);
-  } else {
-    const previousIds = previousWorkouts.map((workout: any) => workout.id);
-    const { data: completedSessions, error: completedSessionsError } = await db.from("workout_sessions")
-      .select("workout_id")
-      .in("workout_id", previousIds);
-    if (completedSessionsError) throw new Error(`Falha ao proteger o histórico do ciclo: ${completedSessionsError.message}`);
-    const workoutsWithHistory = new Set((completedSessions || []).map((session: any) => session.workout_id));
-    const surplus = previousWorkouts.slice(rows.length);
-    if (surplus.some((workout: any) => workoutsWithHistory.has(workout.id))) {
-      throw new Error("O ciclo já foi iniciado. Não é possível remover um treino que possui sessões; edite-o mantendo a mesma quantidade de treinos.");
-    }
-
-    const commonCount = Math.min(previousWorkouts.length, rows.length);
-    for (let index = 0; index < commonCount; index += 1) {
-      const { cycle_id: _cycleId, ...updateRow } = rows[index];
-      const { error: updateWorkoutError } = await db.from("workouts").update(updateRow).eq("id", previousWorkouts[index].id);
-      if (updateWorkoutError) throw new Error(`Falha ao atualizar treino ${index + 1}: ${updateWorkoutError.message}`);
-    }
-
-    const additions = rows.slice(commonCount);
-    if (additions.length) {
-      const { error: addWorkoutsError } = await db.from("workouts").insert(additions);
-      if (addWorkoutsError) throw new Error(`Falha ao adicionar treinos ao ciclo: ${addWorkoutsError.message}`);
-    }
-    if (surplus.length) {
-      const { error: removeSurplusError } = await db.from("workouts").delete().in("id", surplus.map((workout: any) => workout.id));
-      if (removeSurplusError) throw new Error(`Falha ao remover treinos excedentes: ${removeSurplusError.message}`);
-    }
-  }
+  await saveCycleWorkoutRevision(db, {
+    cycleId: cycle.id,
+    expectedRows: previousWorkoutList.map((workout) => ({
+      id: workout.id,
+      updated_at: workout.updated_at,
+    })),
+    workouts: rows.map((workout) => ({
+      title: workout.title || workout.name,
+      description: workout.description || null,
+      day_of_week: workout.day_of_week,
+      exercises: workout.exercises,
+    })),
+  });
 
   const { error: bundleLinkError } = await db.from("prescription_bundles")
     .update({ training_cycle_id: cycle.id, generation_error: null })
@@ -407,20 +368,6 @@ export async function publishStrengthPlanToStudent(opts: {
     .update({ status: cycleIsCurrent ? "active" : "scheduled", generation_error: null })
     .eq("id", bundleId);
   if (bundleFinalizeError) throw new Error(`Treino publicado, mas falhou ao finalizar o pacote: ${bundleFinalizeError.message}`);
-
-  // P9/P15 — versiona o plano publicado (best-effort; nunca bloqueia a publicação).
-  try {
-    const sum = opts.aiOriginal ? summarizePlanEdits(opts.aiOriginal, plan) : { edited: false, text: "sem edições" };
-    await db.from("ai_plan_versions").insert({
-      company_id: companyId,
-      student_id: studentId,
-      cycle_id: cycle.id,
-      plan,
-      edited: sum.edited,
-      edit_summary: sum.text,
-      created_by: createdBy ?? null,
-    });
-  } catch { /* versionamento opcional */ }
 
   return { enrollmentId: enrollmentId!, cycleId: cycle.id, bundleId, workoutsCreated: rows.length, createdEnrollment };
   } catch (error) {

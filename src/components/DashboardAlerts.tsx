@@ -178,7 +178,7 @@ async function fetchAlerts(
 
     if (allCycles && allCycles.length > 0) {
       const allCycleIds = allCycles.map((c: any) => c.id);
-      const { data: workouts } = await supabase.from("workouts").select("cycle_id, exercises").in("cycle_id", allCycleIds);
+      const { data: workouts } = await supabase.from("workouts").select("cycle_id, exercises").is("superseded_at", null).in("cycle_id", allCycleIds);
       const cyclesWithWorkout = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
 
       // Ciclos ativos sem treino real nem marcação "fora do app" são pendência operacional.

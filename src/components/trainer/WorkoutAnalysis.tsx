@@ -95,6 +95,7 @@ export function WorkoutAnalysis({ studentId }: Props) {
     const { data: workouts } = await supabase
       .from("workouts")
       .select("id, exercises")
+      .is("superseded_at", null)
       .in("cycle_id", cycleIds);
 
     const materializedWorkouts = filterMaterializedWorkouts(workouts || []);

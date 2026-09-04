@@ -91,6 +91,7 @@ export default function TrainerDashboard() {
           .from("workouts")
           .select("cycle_id, exercises")
           .eq("company_id", companyId)
+          .is("superseded_at", null)
           .in("cycle_id", allCycleIds);
         const map: Record<string, boolean> = {};
         filterMaterializedWorkouts(workouts || []).forEach(w => { map[w.cycle_id] = true; });

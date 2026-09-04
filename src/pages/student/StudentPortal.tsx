@@ -433,6 +433,7 @@ export default function StudentPortal() {
           ? (await supabase
             .from("workouts")
             .select("id, name, title, description, exercises, cycle_id, day_of_week, sort_order")
+            .is("superseded_at", null)
             .in("cycle_id", visibleCycles.map(c => c.id))).data
           : [];
 

@@ -605,7 +605,7 @@ async function maybeBnitoReply(
   if (cycle?.id) {
     const { data: ws } = await adminClient.from("workouts").select(
       "name, day_of_week",
-    ).eq("cycle_id", cycle.id).order("sort_order");
+    ).eq("cycle_id", cycle.id).is("superseded_at", null).order("sort_order");
     workoutsTxt = (ws || []).map((w: any) => w.name).join("; ") ||
       "ciclo ativo sem treinos";
   }

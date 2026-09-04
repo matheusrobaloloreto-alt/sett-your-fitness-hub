@@ -56,6 +56,7 @@ export function TrainerWeeklyBar({ studentId }: Props) {
     const { data: workouts } = await supabase
       .from("workouts")
       .select("id, title, day_of_week, exercises")
+      .is("superseded_at", null)
       .in("cycle_id", cycles.map(c => c.id));
 
     const scheduled = new Map<number, string>();

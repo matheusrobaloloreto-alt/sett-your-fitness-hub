@@ -529,7 +529,7 @@ export default function PrescriptionStudio() {
     const [{ data: feedback }, { data: workouts }] = await Promise.all([
       db.from("cycle_feedback").select("effort_score, goals_aligned, wants_adjustment, adjustment_notes, answers")
         .eq("cycle_id", previousCycle.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-      db.from("workouts").select("id, exercises").eq("cycle_id", previousCycle.id),
+      db.from("workouts").select("id, exercises").eq("cycle_id", previousCycle.id).is("superseded_at", null),
     ]);
     const workoutIds = filterMaterializedWorkouts<{ id: string; exercises?: unknown }>(workouts || [])
       .map((workout) => workout.id);

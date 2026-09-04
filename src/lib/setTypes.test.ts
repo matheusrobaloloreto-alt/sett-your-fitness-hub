@@ -51,7 +51,7 @@ describe("set type W/N/F contract", () => {
     expect(source).toContain("setWorkouts(ws.length ? sanitizeWorkoutSetTypes(ws)");
     expect(source).toContain("workouts: sanitizeWorkoutSetTypes(workouts) as any");
     expect(source).toContain("setWorkouts(sanitizeWorkoutSetTypes(data.map");
-    expect(source).toContain("const persistedWorkout = sanitizeWorkoutSetTypes([workout])[0]");
+    expect(source).toContain("const persistedWorkouts = sanitizeWorkoutSetTypes(workouts).map");
     expect(source).not.toContain("exercises: workout.exercises as any");
   });
 });

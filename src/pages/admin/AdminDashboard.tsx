@@ -167,7 +167,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     const currentCycleIds = currentCycleCandidates.map((cycle: any) => cycle.id);
     const [{ data: currentWorkouts, error: currentWorkoutsError }, { data: currentBundles, error: currentBundlesError }] = currentCycleIds.length > 0
       ? await Promise.all([
-          supabase.from("workouts").select("cycle_id, exercises").in("cycle_id", currentCycleIds),
+          supabase.from("workouts").select("cycle_id, exercises").is("superseded_at", null).in("cycle_id", currentCycleIds),
           (supabase as any).from("prescription_bundles").select("training_cycle_id").in("training_cycle_id", currentCycleIds).neq("status", "failed"),
         ])
       : [{ data: [] as any[], error: null }, { data: [] as any[], error: null }];
@@ -192,7 +192,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     const nextCycleIds = nextCycles.map((cycle: any) => cycle.id);
     const [{ data: nextWorkouts, error: nextWorkoutsError }, { data: nextBundles, error: nextBundlesError }] = nextCycleIds.length > 0
       ? await Promise.all([
-          supabase.from("workouts").select("cycle_id, exercises").in("cycle_id", nextCycleIds),
+          supabase.from("workouts").select("cycle_id, exercises").is("superseded_at", null).in("cycle_id", nextCycleIds),
           (supabase as any).from("prescription_bundles").select("training_cycle_id").in("training_cycle_id", nextCycleIds).neq("status", "failed"),
         ])
       : [{ data: [] as any[], error: null }, { data: [] as any[], error: null }];

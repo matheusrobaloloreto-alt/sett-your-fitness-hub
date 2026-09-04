@@ -215,6 +215,14 @@ describe("wearables migration security contract", () => {
     expect(edge).toContain("actor_user_id");
   });
 
+  it("does not offer Garmin as a student-connectable provider before vendor enablement", () => {
+    expect(edge).toContain('garmin: false');
+    expect(edge).toContain('status: "not_available"');
+    expect(edge).not.toContain('status: "approval_required"');
+    expect(ui).toContain('available === false');
+    expect(ui).toContain('disponível em breve');
+  });
+
   it("serializes rotating refresh and persists with compare-and-swap", () => {
     expect(edge).toContain('acquirelease(device.id, "refresh"');
     expect(edge).toContain('.eq("version", version)');

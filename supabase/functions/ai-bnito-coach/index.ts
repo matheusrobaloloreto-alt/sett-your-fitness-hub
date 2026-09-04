@@ -455,6 +455,7 @@ async function loadProfessorContext(
       .from("workouts")
       .select("id, title, name, description, day_of_week, exercises")
       .eq("cycle_id", String(cycle.id))
+      .is("superseded_at", null)
       .order("day_of_week", { ascending: true });
     workouts = data || [];
   }

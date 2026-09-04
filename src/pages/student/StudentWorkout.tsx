@@ -187,6 +187,7 @@ export default function StudentWorkout() {
           ? await supabase
             .from("workouts")
             .select("id, title, description, exercises, cycle_id, sort_order")
+            .is("superseded_at", null)
             .in("cycle_id", schedulableCycles.map((c) => c.id))
           : { data: [], error: null };
         const { data: workoutsData, error: workoutsError } = workoutResult;

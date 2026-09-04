@@ -31,6 +31,7 @@ import { useMaster } from "@/contexts/MasterContext";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
 import type { PreRegistrationData } from "@/lib/preRegistration";
+import { saveCycleWorkoutRevision } from "@/lib/workoutRevision";
 
 interface Exercise {
   id: string;
@@ -63,6 +64,8 @@ interface WorkoutExercise {
 
 interface Workout {
   id?: string;
+  updated_at?: string;
+  day_of_week?: number | null;
   title: string;
   description: string;
   exercises: WorkoutExercise[];
@@ -354,12 +357,15 @@ export default function WorkoutBuilder() {
       .from("workouts")
       .select("*")
       .eq("cycle_id", cycleId!)
+      .is("superseded_at", null)
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
     
     if (data && data.length > 0) {
       setWorkouts(sanitizeWorkoutSetTypes(data.map(w => ({
         id: w.id,
+        updated_at: w.updated_at,
+        day_of_week: w.day_of_week,
         title: w.title,
         description: w.description || "",
         exercises: (w.exercises as unknown as WorkoutExercise[]) || [],
@@ -401,11 +407,7 @@ export default function WorkoutBuilder() {
     setActiveTab(String(workouts.length));
   };
 
-  const removeWorkout = async (idx: number) => {
-    const workout = workouts[idx];
-    if (workout.id) {
-      await supabase.from("workouts").delete().eq("id", workout.id);
-    }
+  const removeWorkout = (idx: number) => {
     const newWorkouts = workouts.filter((_, i) => i !== idx);
     if (newWorkouts.length === 0) {
       newWorkouts.push({ title: "Treino A", description: "", exercises: [] });
@@ -506,42 +508,38 @@ export default function WorkoutBuilder() {
       return;
     }
 
-    for (const [workoutIndex, workout] of workouts.entries()) {
-      const persistedWorkout = sanitizeWorkoutSetTypes([workout])[0];
-      const payload = {
-        name: workout.title || `Treino ${WORKOUT_LABELS[workoutIndex] || workoutIndex + 1}`,
-        title: workout.title,
+    try {
+      const persistedWorkouts = sanitizeWorkoutSetTypes(workouts).map((workout, workoutIndex) => ({
+        title: workout.title || `Treino ${WORKOUT_LABELS[workoutIndex] || workoutIndex + 1}`,
         description: workout.description || null,
-        cycle_id: cycleId!,
-        company_id: saveContext.company_id,
-        day_of_week: workoutIndex + 1,
-        sort_order: workoutIndex + 1,
-        exercises: persistedWorkout.exercises as any,
-        created_by: user!.id,
-        updated_at: new Date().toISOString(),
-      };
-
-      if (workout.id) {
-        const { error } = await supabase.from("workouts").update(payload).eq("id", workout.id);
-        if (error) {
-          toast({ title: "Erro", description: error.message, variant: "destructive" });
-          setSaving(false);
-          return;
-        }
-      } else {
-        const { data, error } = await supabase.from("workouts").insert(payload).select("id").single();
-        if (error) {
-          toast({ title: "Erro", description: error.message, variant: "destructive" });
-          setSaving(false);
-          return;
-        }
-        workout.id = data.id;
-      }
+        day_of_week: workout.day_of_week ?? workoutIndex + 1,
+        exercises: workout.exercises as unknown[],
+      }));
+      const saved = await saveCycleWorkoutRevision(supabase as any, {
+        cycleId: cycleId!,
+        expectedRows: workouts
+          .filter((workout): workout is Workout & { id: string; updated_at: string } => Boolean(workout.id && workout.updated_at))
+          .map((workout) => ({ id: workout.id, updated_at: workout.updated_at })),
+        workouts: persistedWorkouts,
+      });
+      setWorkouts((current) => current.map((workout, index) => ({
+        ...workout,
+        id: saved.workoutIds[index],
+      })));
+      toast({
+        title: "Todos os treinos salvos!",
+        description: "A nova versão foi confirmada e já é a versão exibida ao aluno.",
+      });
+      navigate(returnTo);
+    } catch (error) {
+      toast({
+        title: "Treino não salvo",
+        description: error instanceof Error ? error.message : "Não foi possível confirmar a nova versão do treino.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
-    toast({ title: "Todos os treinos salvos!" });
-    navigate(returnTo);
   };
 
   const validateBeforeSave = async (context: CycleInfo | null = cycleInfo): Promise<PrescriptionValidationResult | null> => {
@@ -582,7 +580,7 @@ export default function WorkoutBuilder() {
         workouts: workouts.map((workout, workoutIndex) => ({
           name: workout.title,
           description: workout.description,
-          day_of_week: workoutIndex + 1,
+          day_of_week: workout.day_of_week ?? workoutIndex + 1,
           exercises: workout.exercises.map((exercise, exerciseIndex) => ({
             phase: "forca_global",
             exercise_id: exercise.exercise_id,

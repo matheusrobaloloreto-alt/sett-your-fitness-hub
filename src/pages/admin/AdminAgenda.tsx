@@ -96,6 +96,7 @@ export default function AdminAgenda() {
       const { data: workouts } = await supabase
         .from("workouts")
         .select("cycle_id, exercises")
+        .is("superseded_at", null)
         .in("cycle_id", cycleIds);
 
       const cyclesWithWorkout = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));

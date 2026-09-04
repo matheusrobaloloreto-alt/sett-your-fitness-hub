@@ -93,6 +93,7 @@ function makeQuery(result: unknown, terminal: "limit" | "single" | "in" | "order
   const query: Record<string, unknown> = {};
   query.select = vi.fn(() => query);
   query.eq = vi.fn(() => query);
+  query.is = vi.fn(() => query);
   query.order = vi.fn(() => terminal === "order" ? Promise.resolve(result) : query);
   query.limit = vi.fn(() => terminal === "limit" ? Promise.resolve(result) : query);
   query.single = vi.fn(() => terminal === "single" ? Promise.resolve(result) : query);

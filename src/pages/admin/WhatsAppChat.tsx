@@ -474,7 +474,7 @@ export default function WhatsAppChat() {
 
     const cycleIds = (cycles || []).map((c) => c.id);
     const { data: workouts, error: workoutsError } = cycleIds.length > 0
-      ? await supabase.from("workouts").select("id, cycle_id, exercises").in("cycle_id", cycleIds)
+      ? await supabase.from("workouts").select("id, cycle_id, exercises").is("superseded_at", null).in("cycle_id", cycleIds)
       : { data: [], error: null };
 
     const { data: payments, error: paymentsError } = await supabase

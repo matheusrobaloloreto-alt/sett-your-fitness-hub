@@ -497,6 +497,14 @@ serve(async (req) => {
         ),
       ];
     }));
+    const availability = {
+      oura: true,
+      strava: true,
+      polar: true,
+      whoop: true,
+      garmin: false,
+      apple_health: false,
+    };
     const now = Date.now();
     const encryptedDeviceIds = new Set(
       (credentials.data ?? []).map((credential) => credential.device_id),
@@ -522,6 +530,7 @@ serve(async (req) => {
       metrics: metrics.data ?? [],
       workouts: workouts.data ?? [],
       configuration: configured,
+      availability,
       webhooks: "disabled",
     });
   }
@@ -536,8 +545,8 @@ serve(async (req) => {
     }
     if (provider === "garmin") {
       return json({
-        status: "approval_required",
-        message: "Garmin Health exige aprovação comercial do aplicativo.",
+        status: "not_available",
+        message: "A conexão direta com Garmin ainda não está disponível. Se suas atividades chegam ao Strava, conecte o Strava por enquanto.",
       });
     }
     if (!CONNECTABLE.includes(provider as ConnectableProvider)) {

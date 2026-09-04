@@ -128,7 +128,7 @@ export default function WhatsAppCRM() {
     const { data: cycles } = enrollmentIds.length > 0 ? await cyclesQuery : { data: [] };
 
     const cycleIds = (cycles || []).map((c) => c.id);
-    let workoutsQuery = supabase.from("workouts").select("id, cycle_id, exercises").in("cycle_id", cycleIds);
+    let workoutsQuery = supabase.from("workouts").select("id, cycle_id, exercises").is("superseded_at", null).in("cycle_id", cycleIds);
     if (effectiveCompanyId) workoutsQuery = workoutsQuery.eq("company_id", effectiveCompanyId);
     const { data: workouts } = cycleIds.length > 0 ? await workoutsQuery : { data: [] };
 
