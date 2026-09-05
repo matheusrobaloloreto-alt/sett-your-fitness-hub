@@ -450,7 +450,7 @@ export default function RegistrationManager() {
     return user?.email?.split("@")[0] || "[nome do treinador]";
   }, [user]);
 
-  const [generalLink, setGeneralLink] = useState(preRegistrationUrl(window.location.origin));
+  const [generalLink, setGeneralLink] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedLead, setSelectedLead] = useState<Student | null>(null);
   const [phone, setPhone] = useState("");
@@ -480,7 +480,10 @@ export default function RegistrationManager() {
         .select("slug")
         .eq("id", effectiveCompanyId)
         .maybeSingle();
-      const companyLink = preRegistrationUrl(window.location.origin, companyResult.data?.slug);
+      if (companyResult.error || !companyResult.data?.slug) {
+        throw companyResult.error || new Error("Empresa sem slug público configurado.");
+      }
+      const companyLink = preRegistrationUrl(window.location.origin, companyResult.data.slug);
       setGeneralLink(companyLink);
 
       const [studentResult, leadResult] = await Promise.all([

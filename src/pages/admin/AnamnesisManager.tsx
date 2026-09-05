@@ -80,7 +80,7 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
 
   const student = useMemo(() => students.find((s) => s.id === studentId) || null, [students, studentId]);
   const globalLink = useMemo(
-    () => preRegistrationUrl(window.location.origin, companySlug),
+    () => companySlug ? preRegistrationUrl(window.location.origin, companySlug) : "",
     [companySlug],
   );
 
@@ -131,6 +131,10 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
   }
 
   async function copyGlobalLink() {
+    if (!globalLink) {
+      toast.error("Não foi possível identificar a empresa para gerar o link.");
+      return;
+    }
     await navigator.clipboard?.writeText(globalLink).catch(() => {});
     setGlobalCopied(true);
     setTimeout(() => setGlobalCopied(false), 1500);
@@ -138,6 +142,10 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
   }
 
   async function sendGlobalPreRegistration() {
+    if (!globalLink) {
+      toast.error("Não foi possível identificar a empresa para gerar o link.");
+      return;
+    }
     const phone = waDigits(publicPhone);
     if (!phone) {
       toast.error("Informe um WhatsApp válido para enviar o pré-cadastro.");
@@ -220,7 +228,9 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
           </p>
           <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 p-2.5">
             <Link2 className="h-4 w-4 shrink-0 text-primary" />
-            <span className="truncate font-mono-data text-xs text-muted-foreground">{globalLink}</span>
+            <span className="truncate font-mono-data text-xs text-muted-foreground">
+              {globalLink || "Carregando link da empresa…"}
+            </span>
           </div>
           <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
             <div className="space-y-1.5">
@@ -232,10 +242,10 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
                 inputMode="tel"
               />
             </div>
-            <Button onClick={sendGlobalPreRegistration} className="self-end bg-[#25D366] text-white hover:bg-[#25D366]/90">
+            <Button disabled={!companySlug} onClick={sendGlobalPreRegistration} className="self-end bg-[#25D366] text-white hover:bg-[#25D366]/90">
               <MessageCircle className="mr-2 h-4 w-4" /> Abrir conversa
             </Button>
-            <Button variant="outline" onClick={copyGlobalLink} className="self-end">
+            <Button disabled={!companySlug} variant="outline" onClick={copyGlobalLink} className="self-end">
               {globalCopied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
               Copiar link
             </Button>

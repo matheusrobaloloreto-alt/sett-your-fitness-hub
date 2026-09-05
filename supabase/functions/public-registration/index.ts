@@ -50,23 +50,14 @@ function constantTimeEqual(left: string, right: string) {
 }
 
 async function resolveCompany(slug: string | null) {
-  if (slug) {
-    const { data, error } = await supabase
-      .from("companies")
-      .select("id, name, slug")
-      .eq("slug", slug)
-      .eq("is_active", true)
-      .maybeSingle();
-    if (error) throw new HttpError(500, `Falha ao localizar empresa: ${error.message}`);
-    return data;
-  }
-  const { data } = await supabase
+  if (!slug) return null;
+  const { data, error } = await supabase
     .from("companies")
     .select("id, name, slug")
+    .eq("slug", slug)
     .eq("is_active", true)
-    .order("created_at", { ascending: true })
-    .limit(1)
     .maybeSingle();
+  if (error) throw new HttpError(500, `Falha ao localizar empresa: ${error.message}`);
   return data;
 }
 
