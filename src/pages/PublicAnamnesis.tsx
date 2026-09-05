@@ -22,6 +22,7 @@ import {
   SUPPORTED_TRAINING_MODALITIES,
 } from "@/lib/anamnesisOptions";
 import { mealScheduleEntries, mealSchedulePayload } from "@/lib/mealSchedule";
+import { readEdgeError } from "@/lib/edgeError";
 import {
   WEEKLY_SCHEDULE_DAYS,
   missingWeeklyScheduleDays,
@@ -571,9 +572,10 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
 
     setSaving(false);
     if (error || data?.error || (isPreRegistration && !data?.leadId)) {
+      const errorMessage = await readEdgeError(error, data);
       toast({
         title: isPreRegistration ? "Não foi possível enviar o pré-cadastro" : "Erro ao salvar anamnese",
-        description: error?.message || data?.error || "Tente novamente.",
+        description: errorMessage || "Tente novamente.",
         variant: "destructive",
       });
       return;

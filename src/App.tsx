@@ -187,6 +187,7 @@ const App = () => (
           <Route path="/cadastro/:slug" element={<RouteTransition><PublicAnamnesis mode="pre-registration" /></RouteTransition>} />
           <Route path="/inscricao" element={<RouteTransition><PublicAnamnesis mode="pre-registration" /></RouteTransition>} />
           <Route path="/cadastro" element={<RouteTransition><PublicAnamnesis mode="pre-registration" /></RouteTransition>} />
+          <Route path="/anamnese" element={<RouteTransition><PublicAnamnesis mode="pre-registration" /></RouteTransition>} />
           <Route path="/cadastro-fiscal/:token" element={<RouteTransition><PublicRegistration /></RouteTransition>} />
           <Route path="/anamnese/:studentId" element={<RouteTransition><PublicAnamnesis /></RouteTransition>} />
           <Route path="/anamnese-convite/:token" element={<RouteTransition><PublicAnamnesis /></RouteTransition>} />

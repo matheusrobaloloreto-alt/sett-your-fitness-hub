@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +14,7 @@ import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import FormFieldEditor from "@/components/FormFieldEditor";
 import { useNavigate } from "react-router-dom";
 import { openStudentChat } from "@/lib/studentChat";
-import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
+import { anamnesisInviteUrl, preRegistrationUrl } from "@/lib/publicFlowLinks";
 
 // Anamnese ÚNICA (estúdio integrado). A aba Anamnese seleciona o aluno, gera o link da
 // anamnese estruturada e envia direto no WhatsApp dele (ou copia o link).
@@ -45,24 +46,43 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
   const chatRoutePrefix = role === "master" ? "admin" : role || "admin";
 
   const [students, setStudents] = useState<Student[]>([]);
+  const [companySlug, setCompanySlug] = useState<string | null>(null);
+  const [publicPhone, setPublicPhone] = useState("");
   const [studentId, setStudentId] = useState("");
   const [link, setLink] = useState("");
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [globalCopied, setGlobalCopied] = useState(false);
   const [editing, setEditing] = useState(false);
 
   useEffect(() => {
-    if (!effectiveCompanyId) { setStudents([]); return; }
-    (supabase as any)
-      .from("students")
-      .select("id, full_name, phone, whatsapp, status")
-      .eq("company_id", effectiveCompanyId)
-      .eq("status", "active")
-      .order("full_name")
-      .then(({ data }: any) => setStudents(data || []));
+    if (!effectiveCompanyId) { setStudents([]); setCompanySlug(null); return; }
+    let active = true;
+    void Promise.all([
+      (supabase as any)
+        .from("students")
+        .select("id, full_name, phone, whatsapp, status")
+        .eq("company_id", effectiveCompanyId)
+        .eq("status", "active")
+        .order("full_name"),
+      (supabase as any)
+        .from("companies")
+        .select("slug")
+        .eq("id", effectiveCompanyId)
+        .maybeSingle(),
+    ]).then(([studentResult, companyResult]: any[]) => {
+      if (!active) return;
+      setStudents(studentResult.data || []);
+      setCompanySlug(companyResult.data?.slug || null);
+    });
+    return () => { active = false; };
   }, [effectiveCompanyId]);
 
   const student = useMemo(() => students.find((s) => s.id === studentId) || null, [students, studentId]);
+  const globalLink = useMemo(
+    () => preRegistrationUrl(window.location.origin, companySlug),
+    [companySlug],
+  );
 
   // Sempre que troca de aluno, zera o link gerado.
   useEffect(() => { setLink(""); setCopied(false); }, [studentId]);
@@ -108,6 +128,32 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
     toast.success("Link copiado!");
+  }
+
+  async function copyGlobalLink() {
+    await navigator.clipboard?.writeText(globalLink).catch(() => {});
+    setGlobalCopied(true);
+    setTimeout(() => setGlobalCopied(false), 1500);
+    toast.success("Link global de pré-cadastro copiado!");
+  }
+
+  async function sendGlobalPreRegistration() {
+    const phone = waDigits(publicPhone);
+    if (!phone) {
+      toast.error("Informe um WhatsApp válido para enviar o pré-cadastro.");
+      return;
+    }
+    await openStudentChat({
+      navigate,
+      routePrefix: chatRoutePrefix,
+      studentId: null,
+      phone,
+      message: `Oi! Para começar seu atendimento com a BN, preencha este pré-cadastro: ${globalLink}\n\nAo enviar, seu cadastro entra em Interessados e nossa equipe continua o atendimento por este WhatsApp.`,
+      onNoChat: () => {
+        void navigator.clipboard?.writeText(globalLink);
+        toast.success("Link global copiado para envio.");
+      },
+    });
   }
 
   // Modo editor de perguntas — reusa o FormFieldEditor (perguntas de sistema travadas).
@@ -165,8 +211,44 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
       )}
 
       <Card className="bg-card">
-        <CardHeader className="pb-3"><CardTitle className="text-base">Enviar anamnese para um aluno</CardTitle></CardHeader>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Pré-cadastro global — primeiro contato</CardTitle>
+        </CardHeader>
         <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Use este link para qualquer pessoa nova. Ela não precisa ter perfil nem fazer login: ao concluir, entra em Interessados para a equipe continuar o atendimento pelo WhatsApp confirmado.
+          </p>
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 p-2.5">
+            <Link2 className="h-4 w-4 shrink-0 text-primary" />
+            <span className="truncate font-mono-data text-xs text-muted-foreground">{globalLink}</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+            <div className="space-y-1.5">
+              <Label>WhatsApp da pessoa</Label>
+              <Input
+                value={publicPhone}
+                onChange={event => setPublicPhone(event.target.value)}
+                placeholder="(DDD) 9 xxxx-xxxx"
+                inputMode="tel"
+              />
+            </div>
+            <Button onClick={sendGlobalPreRegistration} className="self-end bg-[#25D366] text-white hover:bg-[#25D366]/90">
+              <MessageCircle className="mr-2 h-4 w-4" /> Abrir conversa
+            </Button>
+            <Button variant="outline" onClick={copyGlobalLink} className="self-end">
+              {globalCopied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
+              Copiar link
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Atualizar anamnese de aluno existente</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Este convite privado é somente para quem já possui perfil. Não use como primeiro contato.
+          </p>
           <div className="space-y-1.5">
             <Label>Aluno</Label>
             <Select value={studentId} onValueChange={setStudentId}>
