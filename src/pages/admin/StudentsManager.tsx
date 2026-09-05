@@ -526,8 +526,16 @@ export default function StudentsManager() {
               variant="outline"
               onClick={async () => {
                 if (!effectiveCompanyId) return;
-                const { data } = await supabase.from("companies").select("slug").eq("id", effectiveCompanyId).maybeSingle();
-                const slug = data?.slug;
+                const { data, error } = await supabase.from("companies").select("slug").eq("id", effectiveCompanyId).maybeSingle();
+                const slug = data?.slug?.trim();
+                if (error || !slug) {
+                  toast({
+                    title: "Não foi possível copiar o pré-cadastro",
+                    description: error?.message || "Empresa sem slug público configurado.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
                 const link = preRegistrationUrl(window.location.origin, slug);
                 try { await navigator.clipboard.writeText(link); } catch {
                   const ta = document.createElement("textarea");

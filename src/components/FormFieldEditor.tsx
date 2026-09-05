@@ -270,7 +270,7 @@ export default function FormFieldEditor({ formType, title, subtitle, publicPath 
         )}
         {formType === "anamnesis" && (
           <p className="text-xs text-muted-foreground font-sans max-w-xs text-right">
-            O link da anamnese é individual por aluno, gerado após o cadastro.
+            O primeiro contato usa o pré-cadastro global. O convite individual é usado apenas para atualizar a anamnese de quem já é aluno.
           </p>
         )}
       </div>

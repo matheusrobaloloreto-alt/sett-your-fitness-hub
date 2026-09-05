@@ -6,8 +6,9 @@ function segment(value: string): string {
   return encodeURIComponent(value.trim());
 }
 
-export function preRegistrationPath(slug?: string | null): string {
-  return slug?.trim() ? `/cadastro/${segment(slug)}` : "/cadastro";
+export function preRegistrationPath(slug: string): string {
+  if (!slug.trim()) throw new Error("Slug da empresa é obrigatório para o pré-cadastro.");
+  return `/cadastro/${segment(slug)}`;
 }
 
 export function fiscalRegistrationPath(token: string): string {
@@ -26,7 +27,7 @@ export function publicUrl(origin: string, path: string): string {
   return `${cleanOrigin(origin)}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-export function preRegistrationUrl(origin: string, slug?: string | null): string {
+export function preRegistrationUrl(origin: string, slug: string): string {
   return publicUrl(origin, preRegistrationPath(slug));
 }
 
@@ -41,4 +42,3 @@ export function paymentUrl(origin: string, token: string): string {
 export function anamnesisInviteUrl(origin: string, token: string): string {
   return publicUrl(origin, anamnesisInvitePath(token));
 }
-

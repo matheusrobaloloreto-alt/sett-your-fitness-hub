@@ -16,10 +16,10 @@ describe("public flow links", () => {
   const origin = "https://www.settapp.com.br/";
 
   it("uses the universal pre-registration route as the first step", () => {
-    expect(preRegistrationPath()).toBe("/cadastro");
     expect(preRegistrationPath("bn-performance-training")).toBe("/cadastro/bn-performance-training");
     expect(preRegistrationUrl(origin, "bn-performance-training"))
       .toBe("https://www.settapp.com.br/cadastro/bn-performance-training");
+    expect(() => preRegistrationPath(" ")).toThrow("Slug da empresa é obrigatório");
   });
 
   it("keeps fiscal registration and payment as distinct tokenized steps", () => {
