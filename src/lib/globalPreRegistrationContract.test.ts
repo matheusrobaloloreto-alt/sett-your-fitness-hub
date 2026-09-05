@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const app = readFileSync("src/App.tsx", "utf8");
 const manager = readFileSync("src/pages/admin/AnamnesisManager.tsx", "utf8");
+const registrationManager = readFileSync("src/pages/admin/RegistrationManager.tsx", "utf8");
 const publicForm = readFileSync("src/pages/PublicAnamnesis.tsx", "utf8");
 const registrationEdge = readFileSync("supabase/functions/public-registration/index.ts", "utf8");
 
@@ -20,6 +21,8 @@ describe("global first-contact anamnesis", () => {
     expect(manager).toContain("Atualizar anamnese de aluno existente");
     expect(manager).toContain("entra em Interessados");
     expect(manager).toContain("disabled={!companySlug}");
+    expect(registrationManager).toContain("if (!generalLink)");
+    expect(registrationManager).toContain("disabled={!generalLink}");
   });
 
   it("creates an interested lead without requiring an existing student profile", () => {

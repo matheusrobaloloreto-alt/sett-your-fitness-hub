@@ -960,6 +960,10 @@ export default function RegistrationManager() {
   };
 
   const sendPreRegistrationLink = async () => {
+    if (!generalLink) {
+      toast.error("Não foi possível identificar a empresa para gerar o link.");
+      return;
+    }
     const digits = waDigits(phone);
     if (!digits) {
       toast.error("Digite um WhatsApp para enviar o link universal.");
@@ -977,6 +981,10 @@ export default function RegistrationManager() {
 
   const copyLink = async () => {
     try {
+      if (!generalLink) {
+        toast.error("Não foi possível identificar a empresa para gerar o link.");
+        return;
+      }
       await navigator.clipboard?.writeText(generalLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
@@ -1036,7 +1044,9 @@ export default function RegistrationManager() {
           <div className="rounded-2xl border border-border bg-secondary/35 p-3">
             <div className="flex items-center gap-2">
               <Link2 className="h-4 w-4 shrink-0 text-primary" />
-              <span className="truncate font-mono-data text-xs text-muted-foreground">{generalLink}</span>
+              <span className="truncate font-mono-data text-xs text-muted-foreground">
+                {generalLink || "Carregando link da empresa…"}
+              </span>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
               Este é o primeiro passo para qualquer pessoa. Ela responde o pré-cadastro, vira interessada na esteira e só depois recebe cadastro fiscal, plano e pagamento.
@@ -1048,11 +1058,11 @@ export default function RegistrationManager() {
               <Label>Enviar para um WhatsApp avulso</Label>
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(DDD) 9 xxxx-xxxx" inputMode="tel" />
             </div>
-            <Button onClick={sendPreRegistrationLink} className="self-end bg-[#25D366] text-white hover:bg-[#25D366]/90">
+            <Button disabled={!generalLink} onClick={sendPreRegistrationLink} className="self-end bg-[#25D366] text-white hover:bg-[#25D366]/90">
               <MessageCircle className="mr-2 h-4 w-4" />
               Abrir conversa
             </Button>
-            <Button variant="outline" onClick={copyLink} className="self-end">
+            <Button disabled={!generalLink} variant="outline" onClick={copyLink} className="self-end">
               {copied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
               Copiar link
             </Button>
