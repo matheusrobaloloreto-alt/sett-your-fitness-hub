@@ -17,10 +17,7 @@ import {
   Dumbbell,
   ArrowLeft,
   BookOpen,
-  ClipboardCheck,
   Megaphone,
-  Sparkles,
-  Activity,
   BrainCircuit,
   KeyRound,
 
@@ -319,22 +316,6 @@ export function AppSidebar() {
                             <NavLink to={`${exercisePrefix}/biblioteca`} end>
                               <BookOpen className="h-4 w-4" />
                               <span>Biblioteca</span>
-                            </NavLink>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                        <SidebarMenuSubItem>
-                          <SidebarMenuSubButton asChild isActive={location.pathname === `${exercisePrefix}/prescriptions`}>
-                            <NavLink to={`${exercisePrefix}/prescriptions`} end>
-                              <ClipboardCheck className="h-4 w-4" />
-                              <span>Prescrição</span>
-                            </NavLink>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                        <SidebarMenuSubItem>
-                          <SidebarMenuSubButton asChild isActive={location.pathname === `${exercisePrefix}/studio`}>
-                            <NavLink to={`${exercisePrefix}/studio`} end>
-                              <Sparkles className="h-4 w-4" />
-                              <span>Studio Integrado</span>
                             </NavLink>
                           </SidebarMenuSubButton>
                         </SidebarMenuSubItem>

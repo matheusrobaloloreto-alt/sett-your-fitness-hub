@@ -8,7 +8,7 @@
 //
 // Instalar:  npm i jspdf
 // ============================================================================
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -39,6 +39,12 @@ import { anamnesisInviteUrl } from "@/lib/publicFlowLinks";
 import { resolveStudioAnamnesis, studioAnamnesisGenerationBlockReason } from "@/lib/preRegistrationData";
 import { exerciseThumb, youtubeIdFromUrl } from "@/lib/exerciseCover";
 import { summarizeExerciseWeeklyProgression } from "@/lib/weeklyStrengthPeriodization";
+import {
+  buildWorkoutOrderUnits,
+  moveWorkoutOrderUnit,
+  moveWorkoutOrderUnitByExerciseIndex,
+  renumberWorkoutExercises,
+} from "@/lib/workoutOrder";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CardioPlanEditor, type CardioPlanDraft } from "@/components/admin/CardioPlanEditor";
 import {
@@ -114,7 +120,11 @@ const MODALITIES: { id: Modality; icon: any; label: string; sub: string }[] = [
   { id: "nutricao",   icon: Apple,    label: "Nutrição",   sub: "Dicas práticas" },
 ];
 
-export default function PrescriptionStudio() {
+interface PrescriptionStudioProps {
+  embeddedStudentId?: string;
+}
+
+export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionStudioProps = {}) {
   const nav = useNavigate();
   // Empresa efetiva: master usa a empresa visualizada (MasterContext); staff usa a sua.
   // (Antes filtrava por company_members → master sem linha ficava travado.)
@@ -171,7 +181,9 @@ export default function PrescriptionStudio() {
   const [pickerTarget, setPickerTarget] = useState<{ wi: number; ei: number | null } | null>(null);
   const [pickerGroup, setPickerGroup] = useState("");
   const [pickerSearch, setPickerSearch] = useState("");
-  const [dragExercise, setDragExercise] = useState<{ wi: number; ei: number } | null>(null);
+  const [dragExercise, setDragExercise] = useState<{ wi: number; unitIndex: number } | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ wi: number; unitIndex: number } | null>(null);
+  const dragPointerRef = useRef<{ wi: number; unitIndex: number; targetIndex: number | null } | null>(null);
   const [exerciseVideoPlayer, setExerciseVideoPlayer] = useState<{ url: string; title: string } | null>(null);
   const [tab, setTab]             = useState("anamnese");
 
@@ -218,6 +230,7 @@ export default function PrescriptionStudio() {
   // Vídeo vindo do WhatsApp, vinculado a aluno + conversa + mensagem.
   const [pendingWhatsAppVideo, setPendingWhatsAppVideo] = useState<WhatsAppAssessmentVideoHandoff | null>(null);
   const location = useLocation();
+  const isEmbedded = Boolean(embeddedStudentId);
 
   const scheduleTargets = useMemo(() => selectPrescriptionTargets({
     cycles: scheduleCycles,
@@ -243,13 +256,29 @@ export default function PrescriptionStudio() {
   // O history.state permanece intacto até o vídeo ser validado, aberto e cortado.
   // Assim, falha de rede/permissão não destrói a possibilidade de retry.
   useEffect(() => {
+    if (embeddedStudentId) setStudentId(embeddedStudentId);
+    if (embeddedStudentId) setStudentPickerOpen(false);
+  }, [embeddedStudentId]);
+
+  useEffect(() => {
+    if (isEmbedded) return;
     const handoff = resolveWhatsAppAssessmentHandoff(location.state);
     if (handoff) {
       setStudentId(handoff.studentId);
       setTab("avaliacao");
       setPendingWhatsAppVideo(handoff);
+      return;
     }
-  }, [location.state]);
+    const dashboardHandoff = location.state as { studentId?: unknown; tab?: unknown } | null;
+    if (typeof dashboardHandoff?.studentId === "string") setStudentId(dashboardHandoff.studentId);
+    if (
+      dashboardHandoff?.tab === "anamnese"
+      || dashboardHandoff?.tab === "avaliacao"
+      || dashboardHandoff?.tab === "prescricao"
+    ) {
+      setTab(dashboardHandoff.tab);
+    }
+  }, [isEmbedded, location.state]);
 
   const consumeWhatsAppAssessmentHandoff = () => {
     clearWhatsAppAssessmentHandoff();
@@ -418,9 +447,12 @@ export default function PrescriptionStudio() {
     setStudentPickerOpen(false);
   };
 
-  const assessmentContext = assessment?.assessment_json
-    ? { ...assessment.assessment_json, report_text: assessment.report_text, id: assessment.id, created_at: assessment.created_at }
-    : null;
+  const assessmentContext = useMemo(
+    () => assessment?.assessment_json
+      ? { ...assessment.assessment_json, report_text: assessment.report_text, id: assessment.id, created_at: assessment.created_at }
+      : null,
+    [assessment],
+  );
   // Check-in diário do aluno (últimas 48h) — pode escalar o readiness pra "cautela" (nunca o contrário).
   const [lastCheckin, setLastCheckin] = useState<any>(null);
   useEffect(() => {
@@ -1117,7 +1149,7 @@ export default function PrescriptionStudio() {
   const updateWName = (wi: number, value: string) =>
     updateEditableStrengthPlan((p: any) => { if (!p) return p; const n = JSON.parse(JSON.stringify(p)); if (n.workouts?.[wi]) n.workouts[wi].name = value; return n; });
   const renumberExercises = (exercises: any[] = []) =>
-    exercises.map((exercise, index) => ({ ...exercise, exercise_order: index + 1 }));
+    renumberWorkoutExercises(exercises);
   const removeExercise = (wi: number, ei: number) =>
     updateEditableStrengthPlan((p: any) => {
       if (!p) return p;
@@ -1128,18 +1160,58 @@ export default function PrescriptionStudio() {
       }
       return n;
     });
-  const moveExerciseTo = (wi: number, fromIndex: number, toIndex: number) =>
+  const moveExerciseTo = (wi: number, fromUnitIndex: number, toUnitIndex: number) =>
     updateEditableStrengthPlan((p: any) => {
       if (!p) return p;
       const n = JSON.parse(JSON.stringify(p));
       const exercises = n.workouts?.[wi]?.exercises;
       if (!Array.isArray(exercises)) return n;
-      if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= exercises.length || toIndex >= exercises.length) return n;
-      const [moved] = exercises.splice(fromIndex, 1);
-      exercises.splice(toIndex, 0, moved);
-      n.workouts[wi].exercises = renumberExercises(exercises);
+      n.workouts[wi].exercises = moveWorkoutOrderUnit(exercises, fromUnitIndex, toUnitIndex);
       return n;
     });
+  const moveExerciseByIndex = (wi: number, exerciseIndex: number, direction: "up" | "down") =>
+    updateEditableStrengthPlan((p: any) => {
+      if (!p) return p;
+      const n = JSON.parse(JSON.stringify(p));
+      const exercises = n.workouts?.[wi]?.exercises;
+      if (!Array.isArray(exercises)) return n;
+      n.workouts[wi].exercises = moveWorkoutOrderUnitByExerciseIndex(exercises, exerciseIndex, direction);
+      return n;
+    });
+  const resetExerciseDrag = () => {
+    dragPointerRef.current = null;
+    setDragExercise(null);
+    setDropTarget(null);
+  };
+  const scrollExerciseDragViewport = (clientY: number) => {
+    const margin = 72;
+    const maxStep = 24;
+    if (clientY < margin) window.scrollBy(0, -maxStep);
+    if (window.innerHeight - clientY < margin) window.scrollBy(0, maxStep);
+  };
+  const targetUnitFromPoint = (clientX: number, clientY: number) => {
+    const element = document.elementFromPoint(clientX, clientY)?.closest("[data-workout-drop-index]") as HTMLElement | null;
+    if (!element) return null;
+    return {
+      wi: Number(element.dataset.workoutIndex),
+      unitIndex: Number(element.dataset.workoutDropIndex),
+    };
+  };
+  const handleExercisePointerMove = (event: any, wi: number) => {
+    const drag = dragPointerRef.current;
+    if (!drag || drag.wi !== wi) return;
+    scrollExerciseDragViewport(event.clientY);
+    const target = targetUnitFromPoint(event.clientX, event.clientY);
+    if (!target || target.wi !== wi || Number.isNaN(target.unitIndex)) return;
+    drag.targetIndex = target.unitIndex;
+    setDropTarget({ wi, unitIndex: target.unitIndex });
+  };
+  const handleExercisePointerUp = () => {
+    const drag = dragPointerRef.current;
+    if (!drag) return resetExerciseDrag();
+    if (drag.targetIndex !== null) moveExerciseTo(drag.wi, drag.unitIndex, drag.targetIndex);
+    resetExerciseDrag();
+  };
   const addExercise = (wi: number) =>
     updateEditableStrengthPlan((p: any) => {
       if (!p) return p; const n = JSON.parse(JSON.stringify(p));
@@ -1314,7 +1386,7 @@ export default function PrescriptionStudio() {
         <div className="h-11 w-11 rounded-xl bg-[#1B2B4A] flex items-center justify-center text-white font-black tracking-tight shadow-sm">BN</div>
         <div className="leading-tight">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-slate-800">Studio de Prescrição</h1>
+            <h1 className="text-xl font-bold text-slate-800">Prescrição Integrada</h1>
             <BnitoContextButton
               studentId={studentId || undefined}
               label="studio de prescricao"
@@ -1327,92 +1399,94 @@ export default function PrescriptionStudio() {
       </div>
 
       {/* Seleção de aluno */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            Aluno
-            <BnitoContextButton
-              studentId={studentId || undefined}
-              label="aluno no studio"
-              context="Seleciona o aluno e permite gerar link de anamnese ou iniciar prescricao."
-              question="O que devo conferir antes de abrir a prescricao deste aluno no Studio?"
-              className="ml-auto"
-            />
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {students.length > 0 ? (
-            <div className="relative">
-              <Input
-                value={studentSearch}
-                onChange={e => handleStudentSearchChange(e.target.value)}
-                onFocus={() => setStudentPickerOpen(true)}
-                onBlur={() => window.setTimeout(() => setStudentPickerOpen(false), 120)}
-                placeholder="Digite ou selecione um aluno..."
-                autoComplete="off"
-                role="combobox"
-                aria-expanded={studentPickerOpen}
-                aria-controls="studio-student-options"
+      {!isEmbedded && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              Aluno
+              <BnitoContextButton
+                studentId={studentId || undefined}
+                label="aluno no studio"
+                context="Seleciona o aluno e permite gerar link de anamnese ou iniciar prescricao."
+                question="O que devo conferir antes de abrir a prescricao deste aluno no Studio?"
+                className="ml-auto"
               />
-              {studentPickerOpen && (
-                <div
-                  id="studio-student-options"
-                  role="listbox"
-                  className="absolute z-30 mt-2 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg"
-                >
-                  {filteredStudents.length ? filteredStudents.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      role="option"
-                      aria-selected={s.id === studentId}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => selectStudent(s.id)}
-                      className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm transition-colors hover:bg-slate-50 ${
-                        s.id === studentId ? "bg-[#1B2B4A]/5 font-semibold text-[#1B2B4A]" : "text-slate-700"
-                      }`}
-                    >
-                      <span>{s.name}</span>
-                      {s.email && <span className="ml-3 truncate text-xs text-slate-400">{s.email}</span>}
-                    </button>
-                  )) : (
-                    <div className="px-4 py-3 text-sm text-slate-500">Nenhum aluno encontrado.</div>
-                  )}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
-              Nenhum aluno encontrado para esta empresa.
-            </div>
-          )}
-          {studentId && (
-            <div className="space-y-2">
-              <Button onClick={sendAnamneseWhatsApp} disabled={creatingInvite} className="w-full bg-[#1B2B4A] hover:bg-[#1B2B4A]/90 text-white">
-                {creatingInvite ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
-                Abrir conversa interna com a anamnese
-              </Button>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Button onClick={createInviteAndCopy} disabled={creatingInvite} variant="outline">
-                  {creatingInvite ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : inviteLink ? <Copy className="h-4 w-4 mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                  {inviteLink ? (copying ? "Link copiado" : "Copiar anamnese") : "Gerar link de anamnese"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {students.length > 0 ? (
+              <div className="relative">
+                <Input
+                  value={studentSearch}
+                  onChange={e => handleStudentSearchChange(e.target.value)}
+                  onFocus={() => setStudentPickerOpen(true)}
+                  onBlur={() => window.setTimeout(() => setStudentPickerOpen(false), 120)}
+                  placeholder="Digite ou selecione um aluno..."
+                  autoComplete="off"
+                  role="combobox"
+                  aria-expanded={studentPickerOpen}
+                  aria-controls="studio-student-options"
+                />
+                {studentPickerOpen && (
+                  <div
+                    id="studio-student-options"
+                    role="listbox"
+                    className="absolute z-30 mt-2 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg"
+                  >
+                    {filteredStudents.length ? filteredStudents.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        role="option"
+                        aria-selected={s.id === studentId}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectStudent(s.id)}
+                        className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm transition-colors hover:bg-slate-50 ${
+                          s.id === studentId ? "bg-[#1B2B4A]/5 font-semibold text-[#1B2B4A]" : "text-slate-700"
+                        }`}
+                      >
+                        <span>{s.name}</span>
+                        {s.email && <span className="ml-3 truncate text-xs text-slate-400">{s.email}</span>}
+                      </button>
+                    )) : (
+                      <div className="px-4 py-3 text-sm text-slate-500">Nenhum aluno encontrado.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                Nenhum aluno encontrado para esta empresa.
+              </div>
+            )}
+            {studentId && (
+              <div className="space-y-2">
+                <Button onClick={sendAnamneseWhatsApp} disabled={creatingInvite} className="w-full bg-[#1B2B4A] hover:bg-[#1B2B4A]/90 text-white">
+                  {creatingInvite ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                  Abrir conversa interna com a anamnese
                 </Button>
-                <Button onClick={() => setTab("prescricao")} variant="outline">
-                  <Wand2 className="h-4 w-4 mr-2" /> Fazer prescrição
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button onClick={createInviteAndCopy} disabled={creatingInvite} variant="outline">
+                    {creatingInvite ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : inviteLink ? <Copy className="h-4 w-4 mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                    {inviteLink ? (copying ? "Link copiado" : "Copiar anamnese") : "Gerar link de anamnese"}
+                  </Button>
+                  <Button onClick={() => setTab("prescricao")} variant="outline">
+                    <Wand2 className="h-4 w-4 mr-2" /> Fazer prescrição
+                  </Button>
+                </div>
+              </div>
+            )}
+            {inviteLink && (
+              <div className="flex gap-2">
+                <Input value={inviteLink} readOnly className="text-sm" />
+                <Button onClick={copyLink} variant="outline">
+                  {copying ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
                 </Button>
               </div>
-            </div>
-          )}
-          {inviteLink && (
-            <div className="flex gap-2">
-              <Input value={inviteLink} readOnly className="text-sm" />
-              <Button onClick={copyLink} variant="outline">
-                {copying ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {studentId && (
         <Tabs value={tab} onValueChange={setTab}>
@@ -1871,96 +1945,199 @@ export default function PrescriptionStudio() {
                               <div className="grid grid-cols-12 gap-1 text-[10px] text-slate-400 uppercase px-0.5">
                                 <span className="col-span-1">Arrastar</span><span className="col-span-1">Vídeo</span><span className="col-span-2">Exercício</span><span className="col-span-1">Sér</span><span className="col-span-2">Reps</span><span className="col-span-2">Desc(s)</span><span className="col-span-2">Obs</span><span className="col-span-1"></span>
                               </div>
-                              {(w.exercises || []).map((ex: any, ei: number) => {
-                                const libraryExercise = findLibraryExercise(ex);
-                                const weeklyBlocks = summarizeExerciseWeeklyProgression(ex.weekly_prescription);
-                                return (
-                                <div
-                                  key={`${ex.exercise_id || ex.exercise_name || "exercise"}-${ei}`}
-                                  draggable
-                                  onDragStart={(event) => {
-                                    setDragExercise({ wi, ei });
-                                    event.dataTransfer.effectAllowed = "move";
-                                    event.dataTransfer.setData("text/plain", `${wi}:${ei}`);
-                                  }}
-                                  onDragOver={(event) => {
-                                    if (dragExercise?.wi === wi) {
+                              {(() => {
+                                const units = buildWorkoutOrderUnits(w.exercises || []);
+                                const dropZone = (unitIndex: number) => (
+                                  <div
+                                    key={`drop-${wi}-${unitIndex}`}
+                                    data-workout-index={wi}
+                                    data-workout-drop-index={unitIndex}
+                                    onDragOver={(event) => {
+                                      if (dragExercise?.wi === wi) {
+                                        event.preventDefault();
+                                        event.dataTransfer.dropEffect = "move";
+                                        setDropTarget({ wi, unitIndex });
+                                      }
+                                    }}
+                                    onDrop={(event) => {
                                       event.preventDefault();
-                                      event.dataTransfer.dropEffect = "move";
-                                    }
-                                  }}
-                                  onDrop={(event) => {
-                                    event.preventDefault();
-                                    const source = dragExercise;
-                                    setDragExercise(null);
-                                    if (!source || source.wi !== wi) return;
-                                    moveExerciseTo(wi, source.ei, ei);
-                                  }}
-                                  onDragEnd={() => setDragExercise(null)}
-                                  className={`rounded-xl border transition-colors ${
-                                    dragExercise?.wi === wi && dragExercise?.ei === ei
-                                      ? "border-[#8B7355]/40 bg-[#F5EDD8]/70 opacity-70"
-                                      : "border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50/60"
-                                  }`}
-                                >
-                                  <div className="grid grid-cols-12 gap-1 items-center p-1">
-                                  <div className="col-span-2 sm:col-span-1 flex items-center">
-                                    <button
-                                      type="button"
-                                      className="h-7 w-8 inline-flex items-center justify-center rounded border border-slate-200 text-slate-500 cursor-grab active:cursor-grabbing hover:bg-white"
-                                      title="Arraste para mudar a ordem"
-                                      aria-label="Arraste para mudar a ordem do exercício"
-                                    >
-                                      <GripVertical className="h-4 w-4" />
-                                    </button>
-                                  </div>
-                                  <div className="col-span-3 sm:col-span-1">
-                                    <ExerciseVideoPreview exercise={ex} libraryExercise={libraryExercise} />
-                                  </div>
-                                  <button type="button" onClick={() => { setPickerTarget({ wi, ei }); setPickerSearch(""); setPickerGroup(""); }} className="col-span-7 sm:col-span-2 min-w-0 text-xs font-medium text-left hover:text-[#1B2B4A] hover:underline" title="Trocar exercício (biblioteca)">
-                                    <span className="block truncate">{ex.exercise_name || "—"} ✎</span>
-                                    {libraryExercise?.muscle_group && (
-                                      <span className="block truncate text-[10px] font-normal text-slate-400">{libraryExercise.muscle_group}</span>
-                                    )}
-                                  </button>
-                                  <Input className="col-span-3 sm:col-span-1 h-7 text-xs px-1" value={String(ex.sets ?? "")} onChange={e => updateExField(wi, ei, "sets", e.target.value)} placeholder="séries" />
-                                  <Input className="col-span-3 sm:col-span-2 h-7 text-xs px-1" value={String(ex.reps ?? "")} onChange={e => updateExField(wi, ei, "reps", e.target.value)} placeholder="reps" />
-                                  <Input className="col-span-3 sm:col-span-2 h-7 text-xs px-1" value={String(ex.rest_seconds ?? "")} onChange={e => updateExField(wi, ei, "rest_seconds", e.target.value)} placeholder="desc(s)" />
-                                  <Input className="col-span-9 sm:col-span-2 h-7 text-xs px-1" value={ex.cues || ex.notes || ""} onChange={e => updateExField(wi, ei, "cues", e.target.value)} placeholder="obs" />
-                                  <button type="button" onClick={() => removeExercise(wi, ei)} className="col-span-3 sm:col-span-1 text-red-500 text-sm" title="Remover exercício">✕</button>
-                                  </div>
-                                  {weeklyBlocks.length > 0 && (
-                                    <div className="grid gap-1.5 border-t border-slate-100 bg-[#FAF8F2]/70 p-2 sm:grid-cols-3">
-                                      {weeklyBlocks.map((block) => (
-                                        <div key={block.weeks} className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
-                                          <div className="flex flex-wrap items-center gap-1">
-                                            <span className="font-mono-data text-[9px] font-semibold uppercase text-[#8B7355]">
-                                              Semanas {block.weeks}
-                                            </span>
-                                            {block.method ? (
-                                              <span
-                                                className="rounded-full bg-[#1B2B4A] px-1.5 py-0.5 text-[9px] font-semibold text-white"
-                                                title={block.methodReason ? `Política: ${block.methodReason}` : undefined}
-                                              >
-                                                {block.method}
-                                              </span>
-                                            ) : (
-                                              <span className="text-[9px] text-slate-400">Séries retas</span>
-                                            )}
-                                          </div>
-                                          <p className="mt-1 text-[10px] font-medium text-[#1B2B4A]">
-                                            {block.setsReps} · Cadência {formatStudioTempo(block.tempo)} · RIR {block.rir}
-                                          </p>
-                                          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-slate-500" title={block.instruction}>
-                                            {block.instruction}
-                                          </p>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
+                                      const source = dragExercise;
+                                      resetExerciseDrag();
+                                      if (!source || source.wi !== wi) return;
+                                      moveExerciseTo(wi, source.unitIndex, unitIndex);
+                                    }}
+                                    className={`h-2 rounded-full transition-colors ${
+                                      dropTarget?.wi === wi && dropTarget.unitIndex === unitIndex
+                                        ? "bg-[#8B7355]"
+                                        : "bg-transparent"
+                                    }`}
+                                    aria-hidden="true"
+                                  />
                                 );
-                              })}
+
+                                return (
+                                  <>
+                                    {dropZone(0)}
+                                    {units.map((unit, unitIndex) => {
+                                      const isDragging = dragExercise?.wi === wi && dragExercise.unitIndex === unitIndex;
+                                      return (
+                                        <div
+                                          key={unit.id}
+                                          draggable
+                                          onDragStart={(event) => {
+                                            if (!(event.target as HTMLElement).closest("[data-workout-drag-handle]")) {
+                                              event.preventDefault();
+                                              return;
+                                            }
+                                            setDragExercise({ wi, unitIndex });
+                                            event.dataTransfer.effectAllowed = "move";
+                                            event.dataTransfer.setData("text/plain", `${wi}:${unitIndex}`);
+                                          }}
+                                          onDragEnd={resetExerciseDrag}
+                                          onPointerMove={(event) => handleExercisePointerMove(event, wi)}
+                                          onPointerUp={handleExercisePointerUp}
+                                          onPointerCancel={resetExerciseDrag}
+                                          className={`rounded-xl border transition-colors ${
+                                            unit.type === "group"
+                                              ? "border-[#8B7355]/50 bg-[#FAF8F2]"
+                                              : "border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50/60"
+                                          } ${isDragging ? "opacity-70 ring-2 ring-[#8B7355]/40" : ""}`}
+                                        >
+                                          <div className="flex items-center gap-2 border-b border-slate-100 px-2 py-1">
+                                            <button
+                                              type="button"
+                                              className="h-7 w-8 inline-flex touch-none items-center justify-center rounded border border-slate-200 bg-white text-slate-500 cursor-grab active:cursor-grabbing hover:bg-slate-50"
+                                              title={unit.type === "group" ? "Arraste para mover o bloco inteiro" : "Arraste para mudar a ordem"}
+                                              aria-label={unit.type === "group" ? "Arrastar bloco de método sem separar exercícios" : "Arrastar exercício"}
+                                              aria-roledescription="alça de arrastar"
+                                              aria-grabbed={isDragging}
+                                              data-workout-drag-handle="true"
+                                              onPointerDown={(event) => {
+                                                dragPointerRef.current = { wi, unitIndex, targetIndex: unitIndex };
+                                                setDragExercise({ wi, unitIndex });
+                                                setDropTarget({ wi, unitIndex });
+                                                event.currentTarget.setPointerCapture?.(event.pointerId);
+                                              }}
+                                              onKeyDown={(event) => {
+                                                if (event.key === "ArrowUp") {
+                                                  event.preventDefault();
+                                                  moveExerciseTo(wi, unitIndex, unitIndex - 1);
+                                                }
+                                                if (event.key === "ArrowDown") {
+                                                  event.preventDefault();
+                                                  moveExerciseTo(wi, unitIndex, unitIndex + 2);
+                                                }
+                                                if (event.key === "End") {
+                                                  event.preventDefault();
+                                                  moveExerciseTo(wi, unitIndex, units.length);
+                                                }
+                                                if (event.key === "Home") {
+                                                  event.preventDefault();
+                                                  moveExerciseTo(wi, unitIndex, 0);
+                                                }
+                                              }}
+                                            >
+                                              <GripVertical className="h-4 w-4" />
+                                            </button>
+                                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                                              <span className="font-mono-data text-[10px] font-semibold text-slate-500">
+                                                {unit.startIndex + 1}{unit.type === "group" ? `–${unit.endIndex + 1}` : ""}
+                                              </span>
+                                              {unit.type === "group" && (
+                                                <>
+                                                  <span className="rounded-full bg-[#1B2B4A] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white">
+                                                    {unit.method}
+                                                  </span>
+                                                  <span className="text-[10px] text-slate-500">
+                                                    bloco inteiro · {unit.items.length} exercícios
+                                                  </span>
+                                                </>
+                                              )}
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => moveExerciseByIndex(wi, unit.startIndex, "up")}
+                                              disabled={unitIndex === 0}
+                                              className="h-7 w-7 rounded border border-slate-200 text-slate-500 disabled:opacity-30"
+                                              title="Mover para cima"
+                                            >
+                                              ↑
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => moveExerciseByIndex(wi, unit.startIndex, "down")}
+                                              disabled={unitIndex === units.length - 1}
+                                              className="h-7 w-7 rounded border border-slate-200 text-slate-500 disabled:opacity-30"
+                                              title="Mover para baixo"
+                                            >
+                                              ↓
+                                            </button>
+                                          </div>
+                                          <div className="space-y-1.5 p-1">
+                                            {unit.items.map((ex: any, offset: number) => {
+                                              const ei = unit.startIndex + offset;
+                                              const libraryExercise = findLibraryExercise(ex);
+                                              const weeklyBlocks = summarizeExerciseWeeklyProgression(ex.weekly_prescription);
+                                              return (
+                                                <div key={`${ex.exercise_id || ex.exercise_name || "exercise"}-${ei}`} className="rounded-lg border border-slate-100 bg-white">
+                                                  <div className="grid grid-cols-12 gap-1 items-center p-1">
+                                                    <div className="col-span-2 sm:col-span-1 flex items-center">
+                                                      <span className="font-mono-data text-[10px] text-slate-400">{ei + 1}</span>
+                                                    </div>
+                                                    <div className="col-span-3 sm:col-span-1">
+                                                      <ExerciseVideoPreview exercise={ex} libraryExercise={libraryExercise} />
+                                                    </div>
+                                                    <button type="button" onClick={() => { setPickerTarget({ wi, ei }); setPickerSearch(""); setPickerGroup(""); }} className="col-span-7 sm:col-span-2 min-w-0 text-xs font-medium text-left hover:text-[#1B2B4A] hover:underline" title="Trocar exercício (biblioteca)">
+                                                      <span className="block truncate">{ex.exercise_name || "—"} ✎</span>
+                                                      {libraryExercise?.muscle_group && (
+                                                        <span className="block truncate text-[10px] font-normal text-slate-400">{libraryExercise.muscle_group}</span>
+                                                      )}
+                                                    </button>
+                                                    <Input className="col-span-3 sm:col-span-1 h-7 text-xs px-1" value={String(ex.sets ?? "")} onChange={e => updateExField(wi, ei, "sets", e.target.value)} placeholder="séries" />
+                                                    <Input className="col-span-3 sm:col-span-2 h-7 text-xs px-1" value={String(ex.reps ?? "")} onChange={e => updateExField(wi, ei, "reps", e.target.value)} placeholder="reps" />
+                                                    <Input className="col-span-3 sm:col-span-2 h-7 text-xs px-1" value={String(ex.rest_seconds ?? "")} onChange={e => updateExField(wi, ei, "rest_seconds", e.target.value)} placeholder="desc(s)" />
+                                                    <Input className="col-span-9 sm:col-span-2 h-7 text-xs px-1" value={ex.cues || ex.notes || ""} onChange={e => updateExField(wi, ei, "cues", e.target.value)} placeholder="obs" />
+                                                    <button type="button" onClick={() => removeExercise(wi, ei)} className="col-span-3 sm:col-span-1 text-red-500 text-sm" title="Remover exercício">✕</button>
+                                                  </div>
+                                                  {weeklyBlocks.length > 0 && (
+                                                    <div className="grid gap-1.5 border-t border-slate-100 bg-[#FAF8F2]/70 p-2 sm:grid-cols-3">
+                                                      {weeklyBlocks.map((block) => (
+                                                        <div key={block.weeks} className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+                                                          <div className="flex flex-wrap items-center gap-1">
+                                                            <span className="font-mono-data text-[9px] font-semibold uppercase text-[#8B7355]">
+                                                              Semanas {block.weeks}
+                                                            </span>
+                                                            {block.method ? (
+                                                              <span
+                                                                className="rounded-full bg-[#1B2B4A] px-1.5 py-0.5 text-[9px] font-semibold text-white"
+                                                                title={block.methodReason ? `Política: ${block.methodReason}` : undefined}
+                                                              >
+                                                                {block.method}
+                                                              </span>
+                                                            ) : (
+                                                              <span className="text-[9px] text-slate-400">Séries retas</span>
+                                                            )}
+                                                          </div>
+                                                          <p className="mt-1 text-[10px] font-medium text-[#1B2B4A]">
+                                                            {block.setsReps} · Cadência {formatStudioTempo(block.tempo)} · RIR {block.rir}
+                                                          </p>
+                                                          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-slate-500" title={block.instruction}>
+                                                            {block.instruction}
+                                                          </p>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      );
+                                    }).flatMap((unitNode, unitIndex) => [unitNode, dropZone(unitIndex + 1)])}
+                                  </>
+                                );
+                              })()}
                               <button type="button" onClick={() => { setPickerTarget(pickerTarget?.wi === wi && pickerTarget?.ei == null ? null : { wi, ei: null }); setPickerSearch(""); setPickerGroup(""); }} className="text-xs text-[#1B2B4A] underline mt-1">+ Adicionar exercício</button>
                               {pickerTarget?.wi === wi && (
                                 <div className="mt-2 border rounded-lg p-2 bg-slate-50">

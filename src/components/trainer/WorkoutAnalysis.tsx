@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarChart3, AlertTriangle, CheckCircle, TrendingUp, Activity } from "lucide-react";
@@ -36,6 +37,7 @@ export function WorkoutAnalysis({ studentId }: Props) {
   const [sessionSummary, setSessionSummary] = useState<SessionSummary>({ total: 0, completed: 0, abandoned: 0, avgDuration: 0, totalVolume: 0 });
   const [coveredWeeks, setCoveredWeeks] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [showAllVolumeAlerts, setShowAllVolumeAlerts] = useState(false);
 
   const loadAnalysis = useCallback(async () => {
     setLoading(true);
@@ -238,6 +240,8 @@ export function WorkoutAnalysis({ studentId }: Props) {
     if (weeklyExecuted > 20) return "over";
     return "ok";
   };
+  const volumeAlerts = muscleData.filter((mg) => getVolumeAlert(mg) !== "ok");
+  const visibleVolumeAlerts = showAllVolumeAlerts ? volumeAlerts : volumeAlerts.slice(0, 2);
 
   if (loading) {
     return (
@@ -338,20 +342,30 @@ export function WorkoutAnalysis({ studentId }: Props) {
             </div>
 
             {/* Alerts */}
-            {muscleData.some(mg => getVolumeAlert(mg) !== "ok") && (
+            {volumeAlerts.length > 0 && (
               <div className="space-y-2 mt-3">
-                {muscleData.filter(mg => getVolumeAlert(mg) === "sub").map(mg => (
+                {visibleVolumeAlerts.map((mg) => getVolumeAlert(mg) === "sub" ? (
                   <div key={mg.name} className="flex items-center gap-2 p-2 rounded-lg bg-warning/10 border border-warning/20 text-xs font-sans">
                     <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
                     <span className="text-warning"><strong>{mg.name}</strong>: sub-treinado ({(mg.executedSets / coveredWeeks).toFixed(1)} séries/semana — recomendado ≥10)</span>
                   </div>
-                ))}
-                {muscleData.filter(mg => getVolumeAlert(mg) === "over").map(mg => (
+                ) : (
                   <div key={mg.name} className="flex items-center gap-2 p-2 rounded-lg bg-destructive/10 border border-destructive/20 text-xs font-sans">
                     <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
                     <span className="text-destructive"><strong>{mg.name}</strong>: volume excessivo ({(mg.executedSets / coveredWeeks).toFixed(1)} séries/semana — recomendado ≤20)</span>
                   </div>
                 ))}
+                {volumeAlerts.length > 2 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setShowAllVolumeAlerts((value) => !value)}
+                  >
+                    {showAllVolumeAlerts ? "Ocultar alertas" : `Ver mais alertas (${volumeAlerts.length - visibleVolumeAlerts.length})`}
+                  </Button>
+                )}
               </div>
             )}
           </div>

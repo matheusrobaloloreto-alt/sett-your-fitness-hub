@@ -478,7 +478,7 @@ export default function AdminDashboard() {
                           <Button
                             size="sm"
                             className="h-8 text-xs"
-                            onClick={() => navigate(`/${routePrefix}/studio`, { state: { studentId: m.student_id, tab: "prescricao" } })}
+                            onClick={() => navigate(`/${routePrefix}/students/${m.student_id}`, { state: { studentId: m.student_id, tab: "prescricao" } })}
                           >
                             <CalendarRange className="mr-1.5 h-3.5 w-3.5" /> Prescrever
                           </Button>

@@ -8,14 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, Trash2, Search, Save, Play, ChevronUp, ChevronDown, BarChart3, Sparkles, MessageCircle, Loader2, AlertCircle, Dumbbell, PersonStanding, Clock, ClipboardList } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Search, Save, Play, ChevronUp, ChevronDown, BarChart3, Sparkles, MessageCircle, Loader2, AlertCircle, Dumbbell, PersonStanding, Clock, ClipboardList, GripVertical, Library } from "lucide-react";
 import { BnitoContextButton, useBnitoAssistant } from "@/components/BnitoFloatingAssistant";
 import { BenitoSprite } from "@/components/BenitoSprite";
 import { useAssistantName } from "@/hooks/useAssistantName";
@@ -25,6 +25,7 @@ import { exerciseThumb, youtubeIdFromUrl, EXERCISE_CATEGORIES, normalizedExercis
 import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
 import { Checkbox } from "@/components/ui/checkbox";
 import { groupWorkoutExercises, WORKOUT_METHODS, GROUPING_METHODS, SINGLE_METHODS, isGroupingMethod, methodNeedsSeconds, type MethodId } from "@/lib/workoutMethods";
+import { moveWorkoutOrderUnit, moveWorkoutOrderUnitByExerciseIndex } from "@/lib/workoutOrder";
 import { normalizeSetType, sanitizeSetTypes, sanitizeWorkoutSetTypes } from "@/lib/setTypes";
 import { MethodBadge } from "@/components/workout/MethodBadge";
 import { useMaster } from "@/contexts/MasterContext";
@@ -32,14 +33,23 @@ import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetail
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
 import type { PreRegistrationData } from "@/lib/preRegistration";
 import { saveCycleWorkoutRevision } from "@/lib/workoutRevision";
+import {
+  buildWorkoutTemplateDraft,
+  hasEditableWorkoutContent,
+  validateWorkoutTemplateForDraft,
+  type WorkoutTemplateDraftMode,
+} from "@/lib/workoutTemplateDraft";
 
 interface Exercise {
   id: string;
   name: string;
   muscle_group: string;
+  company_id?: string | null;
+  is_global?: boolean | null;
   category: string | null;
   categories: string[] | null;
   body_regions: string[] | null;
+  thumbnail_url?: string | null;
   youtube_video_id?: string | null;
   video_url: string | null;
   video_path: string | null;
@@ -69,6 +79,17 @@ interface Workout {
   title: string;
   description: string;
   exercises: WorkoutExercise[];
+}
+
+interface WorkoutTemplatePickerItem {
+  id: string;
+  company_id: string | null;
+  name: string;
+  description: string | null;
+  level: string | null;
+  focus: string | null;
+  workouts: unknown;
+  updated_at: string;
 }
 
 interface BnitoSuggestion {
@@ -178,6 +199,14 @@ export default function WorkoutBuilder() {
   const [activeTab, setActiveTab] = useState("0");
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryExercises, setLibraryExercises] = useState<Exercise[]>([]);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [templatePickerLoading, setTemplatePickerLoading] = useState(false);
+  const [workoutTemplates, setWorkoutTemplates] = useState<WorkoutTemplatePickerItem[]>([]);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [pendingTemplate, setPendingTemplate] = useState<WorkoutTemplatePickerItem | null>(null);
+  const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(null);
+  const templateApplyInFlightRef = useRef<string | null>(null);
   const [libSearch, setLibSearch] = useState("");
   const [libGroup, setLibGroup] = useState("all");
   const [libCats, setLibCats] = useState<string[]>([]);
@@ -190,6 +219,9 @@ export default function WorkoutBuilder() {
 
   // Métodos avançados (bi-set/tri-set/circuito/drop-set…): seleção por "wIdx-exIdx".
   const [methodSel, setMethodSel] = useState<Record<string, boolean>>({});
+  const [dragWorkoutUnit, setDragWorkoutUnit] = useState<{ wIdx: number; unitIndex: number } | null>(null);
+  const [dropWorkoutUnit, setDropWorkoutUnit] = useState<{ wIdx: number; unitIndex: number } | null>(null);
+  const dragWorkoutPointerRef = useRef<{ wIdx: number; unitIndex: number; targetIndex: number | null } | null>(null);
   const selKey = (wIdx: number, exIdx: number) => `${wIdx}-${exIdx}`;
   const toggleMethodSel = (wIdx: number, exIdx: number) =>
     setMethodSel((s) => ({ ...s, [selKey(wIdx, exIdx)]: !s[selKey(wIdx, exIdx)] }));
@@ -245,6 +277,35 @@ export default function WorkoutBuilder() {
 
   // Muscle targets for all exercises in library (cached)
   const [muscleTargets, setMuscleTargets] = useState<MuscleTarget[]>([]);
+  const selectedTemplate = useMemo(
+    () => workoutTemplates.find((template) => template.id === selectedTemplateId) || null,
+    [selectedTemplateId, workoutTemplates],
+  );
+  const templateCompanyId = cycleInfo?.company_id || effectiveCompanyId || null;
+  const visibleExerciseIds = useMemo(
+    () => new Set(libraryExercises.map((exercise) => exercise.id)),
+    [libraryExercises],
+  );
+  const selectedTemplateIssues = useMemo(
+    () => selectedTemplate
+      ? validateWorkoutTemplateForDraft({
+        template: selectedTemplate,
+        currentCompanyId: templateCompanyId,
+        visibleExerciseIds,
+      })
+      : [],
+    [selectedTemplate, templateCompanyId, visibleExerciseIds],
+  );
+  const filteredWorkoutTemplates = useMemo(() => {
+    const q = templateSearch.trim().toLowerCase();
+    if (!q) return workoutTemplates;
+    return workoutTemplates.filter((template) => [
+      template.name,
+      template.description || "",
+      template.focus || "",
+      template.level || "",
+    ].join(" ").toLowerCase().includes(q));
+  }, [templateSearch, workoutTemplates]);
 
   useEffect(() => {
     if (isTemplate) {
@@ -258,6 +319,11 @@ export default function WorkoutBuilder() {
     loadMuscleTargets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycleId, tplId]);
+
+  useEffect(() => {
+    if (templatePickerOpen) void loadWorkoutTemplates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templatePickerOpen, templateCompanyId]);
 
   const loadTemplate = async (id: string) => {
     const { data } = await (supabase as any).from("workout_templates").select("name, workouts").eq("id", id).maybeSingle();
@@ -379,7 +445,7 @@ export default function WorkoutBuilder() {
   const loadLibrary = async () => {
     const { data } = await supabase
       .from("exercise_library")
-      .select("id, name, muscle_group, category, categories, video_url, video_path, description, thumbnail_url, youtube_video_id")
+      .select("id, company_id, is_global, name, muscle_group, category, categories, body_regions, video_url, video_path, description, thumbnail_url, youtube_video_id")
       .order("muscle_group")
       .order("name");
     setLibraryExercises(((data || []) as unknown as Exercise[]).map((exercise) => ({
@@ -394,6 +460,108 @@ export default function WorkoutBuilder() {
       .from("exercise_muscle_targets")
       .select("exercise_id, muscle_group_id, role, volume_percentage");
     setMuscleTargets((data as MuscleTarget[]) || []);
+  };
+
+  const loadWorkoutTemplates = async () => {
+    setTemplatePickerLoading(true);
+    try {
+      let query = (supabase as any)
+        .from("workout_templates")
+        .select("id, company_id, name, description, level, focus, workouts, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(200);
+      if (templateCompanyId) {
+        query = query.or(`company_id.eq.${templateCompanyId},company_id.is.null`);
+      } else {
+        query = query.is("company_id", null);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      const templates = (data || []) as WorkoutTemplatePickerItem[];
+      setWorkoutTemplates(templates);
+      setSelectedTemplateId((current) => current && templates.some((template) => template.id === current)
+        ? current
+        : templates[0]?.id || null);
+    } catch (error) {
+      toast({
+        title: "Não foi possível carregar a biblioteca de treinos",
+        description: error instanceof Error ? error.message : "Tente novamente.",
+        variant: "destructive",
+      });
+      setWorkoutTemplates([]);
+      setSelectedTemplateId(null);
+    } finally {
+      setTemplatePickerLoading(false);
+    }
+  };
+
+  const templateWorkoutCount = (template: WorkoutTemplatePickerItem) =>
+    Array.isArray(template.workouts) ? template.workouts.length : 0;
+
+  const templateExerciseCount = (template: WorkoutTemplatePickerItem) =>
+    Array.isArray(template.workouts)
+      ? template.workouts.reduce((total, workout) => (
+        total + (Array.isArray((workout as { exercises?: unknown }).exercises)
+          ? ((workout as { exercises?: unknown[] }).exercises || []).length
+          : 0)
+      ), 0)
+      : 0;
+
+  const applyWorkoutTemplateDraft = (template: WorkoutTemplatePickerItem, mode: WorkoutTemplateDraftMode) => {
+    if (templateApplyInFlightRef.current === template.id) return;
+    templateApplyInFlightRef.current = template.id;
+    setApplyingTemplateId(template.id);
+    try {
+      const result = buildWorkoutTemplateDraft({
+        template,
+        existingWorkouts: workouts,
+        mode,
+        currentCompanyId: templateCompanyId,
+        visibleExerciseIds,
+      });
+      if (!result.ok) {
+        const issue = result.issues[0];
+        toast({
+          title: "Treino da biblioteca bloqueado",
+          description: issue?.message || "Revise o template antes de usar.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const insertedStart = mode === "replace" ? 0 : workouts.length;
+      setWorkouts(result.workouts as Workout[]);
+      setActiveTab(String(insertedStart));
+      setPendingTemplate(null);
+      setTemplatePickerOpen(false);
+      toast({
+        title: "Treino carregado como rascunho",
+        description: "Revise e personalize. Nada foi persistido; só salva ao clicar em Salvar Tudo.",
+      });
+    } finally {
+      setApplyingTemplateId(null);
+      window.setTimeout(() => {
+        if (templateApplyInFlightRef.current === template.id) templateApplyInFlightRef.current = null;
+      }, 0);
+    }
+  };
+
+  const requestWorkoutTemplateDraft = () => {
+    if (!selectedTemplate) return;
+    if (selectedTemplateIssues.length > 0) {
+      const issue = selectedTemplateIssues[0];
+      toast({
+        title: "Treino da biblioteca bloqueado",
+        description: issue?.message || "Revise o template antes de usar.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (hasEditableWorkoutContent(workouts)) {
+      setPendingTemplate(selectedTemplate);
+      return;
+    }
+    applyWorkoutTemplateDraft(selectedTemplate, "replace");
   };
 
   const getStoragePublicUrl = (path: string) => {
@@ -462,14 +630,56 @@ export default function WorkoutBuilder() {
   };
 
   const moveExercise = (workoutIdx: number, exIdx: number, direction: "up" | "down") => {
-    const newIdx = direction === "up" ? exIdx - 1 : exIdx + 1;
     setWorkouts(prev => prev.map((w, i) => {
       if (i !== workoutIdx) return w;
-      if (newIdx < 0 || newIdx >= w.exercises.length) return w;
-      const arr = [...w.exercises];
-      [arr[exIdx], arr[newIdx]] = [arr[newIdx], arr[exIdx]];
-      return { ...w, exercises: arr };
+      return { ...w, exercises: moveWorkoutOrderUnitByExerciseIndex(w.exercises, exIdx, direction) };
     }));
+  };
+
+  const moveExerciseUnitTo = (workoutIdx: number, fromUnitIndex: number, toUnitIndex: number) => {
+    setWorkouts(prev => prev.map((w, i) => {
+      if (i !== workoutIdx) return w;
+      return { ...w, exercises: moveWorkoutOrderUnit(w.exercises, fromUnitIndex, toUnitIndex) };
+    }));
+  };
+
+  const resetWorkoutDrag = () => {
+    dragWorkoutPointerRef.current = null;
+    setDragWorkoutUnit(null);
+    setDropWorkoutUnit(null);
+  };
+
+  const scrollWorkoutDragViewport = (clientY: number) => {
+    const margin = 72;
+    const maxStep = 24;
+    if (clientY < margin) window.scrollBy(0, -maxStep);
+    if (window.innerHeight - clientY < margin) window.scrollBy(0, maxStep);
+  };
+
+  const workoutDropTargetFromPoint = (clientX: number, clientY: number) => {
+    const element = document.elementFromPoint(clientX, clientY)?.closest("[data-workout-builder-drop-index]") as HTMLElement | null;
+    if (!element) return null;
+    return {
+      wIdx: Number(element.dataset.workoutIndex),
+      unitIndex: Number(element.dataset.workoutBuilderDropIndex),
+    };
+  };
+
+  const handleWorkoutPointerMove = (event: any, wIdx: number) => {
+    const drag = dragWorkoutPointerRef.current;
+    if (!drag || drag.wIdx !== wIdx) return;
+    scrollWorkoutDragViewport(event.clientY);
+    const target = workoutDropTargetFromPoint(event.clientX, event.clientY);
+    if (!target || target.wIdx !== wIdx || Number.isNaN(target.unitIndex)) return;
+    drag.targetIndex = target.unitIndex;
+    setDropWorkoutUnit({ wIdx, unitIndex: target.unitIndex });
+  };
+
+  const handleWorkoutPointerUp = () => {
+    const drag = dragWorkoutPointerRef.current;
+    if (!drag) return resetWorkoutDrag();
+    if (drag.targetIndex !== null) moveExerciseUnitTo(drag.wIdx, drag.unitIndex, drag.targetIndex);
+    resetWorkoutDrag();
   };
 
   const handleSaveAll = async () => {
@@ -907,6 +1117,19 @@ export default function WorkoutBuilder() {
               <BarChart3 className="h-4 w-4 mr-2" />Volume
             </Button>
             {!isTemplate && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  setPendingTemplate(null);
+                  setTemplatePickerOpen(true);
+                }}
+              >
+                <Library className="h-4 w-4 mr-2" />Usar treino da biblioteca
+              </Button>
+            )}
+            {!isTemplate && (
               <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={saveAsTemplate} disabled={workouts.length === 0}>
                 <Save className="h-4 w-4 mr-2" />Salvar na biblioteca
               </Button>
@@ -1021,12 +1244,82 @@ export default function WorkoutBuilder() {
                   })()}
 
                   <div className="space-y-3">
-                    {groupWorkoutExercises(workout.exercises).map((grp) => {
+                    {(() => {
+                      const groupedExercises = groupWorkoutExercises(workout.exercises);
+                      const dropZone = (unitIndex: number) => (
+                        <div
+                          key={`drop-${wIdx}-${unitIndex}`}
+                          data-workout-index={wIdx}
+                          data-workout-builder-drop-index={unitIndex}
+                          onDragOver={(event) => {
+                            if (dragWorkoutUnit?.wIdx === wIdx) {
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = "move";
+                              setDropWorkoutUnit({ wIdx, unitIndex });
+                            }
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            const source = dragWorkoutUnit;
+                            resetWorkoutDrag();
+                            if (!source || source.wIdx !== wIdx) return;
+                            moveExerciseUnitTo(wIdx, source.unitIndex, unitIndex);
+                          }}
+                          className={`h-2 rounded-full transition-colors ${
+                            dropWorkoutUnit?.wIdx === wIdx && dropWorkoutUnit.unitIndex === unitIndex
+                              ? "bg-primary"
+                              : "bg-transparent"
+                          }`}
+                          aria-hidden="true"
+                        />
+                      );
+                      return (
+                        <>
+                          {dropZone(0)}
+                          {groupedExercises.map((grp, unitIndex) => {
                       const cards = grp.items.map(({ ex, idx: exIdx }) => (
                       <Card key={exIdx} className="bg-card border-border">
                         <CardContent className="p-4">
                           <div className="flex items-start gap-3">
                             <div className="flex flex-col items-center gap-0.5 pt-1">
+                              {!grp.grouping && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 cursor-grab touch-none"
+                                  title="Arraste para mudar a ordem"
+                                  aria-label="Arrastar exercício"
+                                  aria-roledescription="alça de arrastar"
+                                  data-workout-drag-handle="true"
+                                  onPointerDown={(event) => {
+                                    dragWorkoutPointerRef.current = { wIdx, unitIndex, targetIndex: unitIndex };
+                                    setDragWorkoutUnit({ wIdx, unitIndex });
+                                    setDropWorkoutUnit({ wIdx, unitIndex });
+                                    event.currentTarget.setPointerCapture?.(event.pointerId);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "ArrowUp") {
+                                      event.preventDefault();
+                                      moveExerciseUnitTo(wIdx, unitIndex, unitIndex - 1);
+                                    }
+                                    if (event.key === "ArrowDown") {
+                                      event.preventDefault();
+                                      moveExerciseUnitTo(wIdx, unitIndex, unitIndex + 2);
+                                    }
+                                    if (event.key === "End") {
+                                      event.preventDefault();
+                                      moveExerciseUnitTo(wIdx, unitIndex, groupedExercises.length);
+                                    }
+                                    if (event.key === "Home") {
+                                      event.preventDefault();
+                                      moveExerciseUnitTo(wIdx, unitIndex, 0);
+                                    }
+                                  }}
+                                >
+                                  <GripVertical className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
                               <Checkbox className="mb-1" checked={!!methodSel[selKey(wIdx, exIdx)]} onCheckedChange={() => toggleMethodSel(wIdx, exIdx)} />
                               <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveExercise(wIdx, exIdx, "up")} disabled={exIdx === 0}>
                                 <ChevronUp className="h-3.5 w-3.5" />
@@ -1166,9 +1459,63 @@ export default function WorkoutBuilder() {
                         const rounds = parseInt(String(grp.items[0]?.ex.sets ?? "")) || null;
                         const blockRest = grp.items[grp.items.length - 1]?.ex.rest;
                         const isCircuit = grp.method === "circuito";
+                        const isDragging = dragWorkoutUnit?.wIdx === wIdx && dragWorkoutUnit.unitIndex === unitIndex;
                         return (
-                          <div key={grp.key} className="space-y-2 rounded-2xl border-2 border-primary/50 bg-primary/5 p-2 shadow-sm">
+                          <div
+                            key={grp.key}
+                            draggable
+                            onDragStart={(event) => {
+                              if (!(event.target as HTMLElement).closest("[data-workout-drag-handle]")) {
+                                event.preventDefault();
+                                return;
+                              }
+                              setDragWorkoutUnit({ wIdx, unitIndex });
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("text/plain", `${wIdx}:${unitIndex}`);
+                            }}
+                            onDragEnd={resetWorkoutDrag}
+                            onPointerMove={(event) => handleWorkoutPointerMove(event, wIdx)}
+                            onPointerUp={handleWorkoutPointerUp}
+                            onPointerCancel={resetWorkoutDrag}
+                            className={`space-y-2 rounded-2xl border-2 border-primary/50 bg-primary/5 p-2 shadow-sm ${isDragging ? "opacity-70 ring-2 ring-primary/40" : ""}`}
+                          >
                             <div className="flex flex-wrap items-center gap-2 px-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 cursor-grab touch-none"
+                                title="Arraste para mover o bloco inteiro"
+                                aria-label="Arrastar bloco de método sem separar exercícios"
+                                aria-roledescription="alça de arrastar"
+                                data-workout-drag-handle="true"
+                                onPointerDown={(event) => {
+                                  dragWorkoutPointerRef.current = { wIdx, unitIndex, targetIndex: unitIndex };
+                                  setDragWorkoutUnit({ wIdx, unitIndex });
+                                  setDropWorkoutUnit({ wIdx, unitIndex });
+                                  event.currentTarget.setPointerCapture?.(event.pointerId);
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "ArrowUp") {
+                                    event.preventDefault();
+                                    moveExerciseUnitTo(wIdx, unitIndex, unitIndex - 1);
+                                  }
+                                  if (event.key === "ArrowDown") {
+                                    event.preventDefault();
+                                    moveExerciseUnitTo(wIdx, unitIndex, unitIndex + 2);
+                                  }
+                                  if (event.key === "End") {
+                                    event.preventDefault();
+                                    moveExerciseUnitTo(wIdx, unitIndex, groupedExercises.length);
+                                  }
+                                  if (event.key === "Home") {
+                                    event.preventDefault();
+                                    moveExerciseUnitTo(wIdx, unitIndex, 0);
+                                  }
+                                }}
+                              >
+                                <GripVertical className="h-4 w-4" />
+                              </Button>
                               <MethodBadge method={grp.method} tone="primary" />
                               <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                                 {isCircuit && rounds ? `×${rounds} voltas` : `${grp.items.length} exercícios em sequência`}
@@ -1186,8 +1533,33 @@ export default function WorkoutBuilder() {
                           </div>
                         );
                       }
-                      return <Fragment key={grp.key}>{cards}</Fragment>;
-                    })}
+                            const isDragging = dragWorkoutUnit?.wIdx === wIdx && dragWorkoutUnit.unitIndex === unitIndex;
+                            return (
+                              <div
+                                key={grp.key}
+                                draggable
+                                onDragStart={(event) => {
+                                  if (!(event.target as HTMLElement).closest("[data-workout-drag-handle]")) {
+                                    event.preventDefault();
+                                    return;
+                                  }
+                                  setDragWorkoutUnit({ wIdx, unitIndex });
+                                  event.dataTransfer.effectAllowed = "move";
+                                  event.dataTransfer.setData("text/plain", `${wIdx}:${unitIndex}`);
+                                }}
+                                onDragEnd={resetWorkoutDrag}
+                                onPointerMove={(event) => handleWorkoutPointerMove(event, wIdx)}
+                                onPointerUp={handleWorkoutPointerUp}
+                                onPointerCancel={resetWorkoutDrag}
+                                className={isDragging ? "opacity-70 ring-2 ring-primary/40 rounded-xl" : ""}
+                              >
+                                {cards}
+                              </div>
+                            );
+                          }).flatMap((unitNode, unitIndex) => [unitNode, dropZone(unitIndex + 1)])}
+                        </>
+                      );
+                    })()}
                   </div>
                 </TabsContent>
               ))}
@@ -1402,6 +1774,193 @@ export default function WorkoutBuilder() {
           </div>
         </div>
       </div>
+
+      {/* Workout-template picker: copies a library workout into this local draft only. */}
+      <Dialog open={templatePickerOpen} onOpenChange={(open) => {
+        setTemplatePickerOpen(open);
+        if (!open) setPendingTemplate(null);
+      }}>
+        <DialogContent className="bg-card border-border max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-primary">
+              <Library className="h-5 w-5" />Usar treino da biblioteca
+            </DialogTitle>
+            <DialogDescription>
+              Escolha um template da empresa ou global. Ele vira rascunho editável aqui; o original fica imutável e nada é salvo até Salvar Tudo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 overflow-hidden lg:grid-cols-[minmax(15rem,22rem)_1fr]">
+            <div className="space-y-3 overflow-hidden">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={templateSearch}
+                  onChange={(event) => setTemplateSearch(event.target.value)}
+                  placeholder="Buscar por nome, foco ou nível..."
+                  className="pl-9"
+                />
+              </div>
+              <ScrollArea className="h-[48vh] rounded-xl border border-border">
+                {templatePickerLoading ? (
+                  <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />Carregando treinos...
+                  </div>
+                ) : filteredWorkoutTemplates.length === 0 ? (
+                  <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+                    Nenhum treino encontrado na biblioteca.
+                  </p>
+                ) : (
+                  <div className="space-y-1 p-2">
+                    {filteredWorkoutTemplates.map((template) => {
+                      const selected = selectedTemplateId === template.id;
+                      return (
+                        <button
+                          key={template.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedTemplateId(template.id);
+                            setPendingTemplate(null);
+                          }}
+                          className={`w-full rounded-lg border p-3 text-left transition ${
+                            selected ? "border-primary bg-primary/10" : "border-transparent hover:bg-secondary"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="line-clamp-2 text-sm font-medium text-foreground">{template.name}</p>
+                            <Badge variant={template.company_id ? "outline" : "secondary"} className="shrink-0 text-[10px]">
+                              {template.company_id ? "Empresa" : "Global"}
+                            </Badge>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            <Badge variant="secondary" className="text-[10px]">{templateWorkoutCount(template)} treino(s)</Badge>
+                            <Badge variant="outline" className="text-[10px]">{templateExerciseCount(template)} exercícios</Badge>
+                            {template.focus && <Badge variant="outline" className="text-[10px]">{template.focus}</Badge>}
+                            {template.level && <Badge variant="outline" className="text-[10px] capitalize">{template.level}</Badge>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+
+            <div className="min-h-0 space-y-3 overflow-hidden">
+              {!selectedTemplate ? (
+                <div className="flex h-full min-h-[18rem] items-center justify-center rounded-xl border border-dashed border-border text-sm text-muted-foreground">
+                  Selecione um treino para ver o preview.
+                </div>
+              ) : (
+                <>
+                  <div className="rounded-xl border border-border bg-secondary/30 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-semibold text-foreground">{selectedTemplate.name}</h3>
+                        {selectedTemplate.description && (
+                          <p className="mt-1 text-sm text-muted-foreground">{selectedTemplate.description}</p>
+                        )}
+                      </div>
+                      <Badge variant={selectedTemplate.company_id ? "outline" : "secondary"}>
+                        {selectedTemplate.company_id ? "Template da empresa" : "Template global"}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  {selectedTemplateIssues.length > 0 && (
+                    <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                      <p className="font-medium">Este template não pode ser usado agora.</p>
+                      <ul className="mt-1 list-disc pl-4">
+                        {selectedTemplateIssues.slice(0, 4).map((issue, index) => (
+                          <li key={`${issue.code}-${issue.exerciseId || "item"}-${index}`}>{issue.message}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <ScrollArea className="h-[34vh] rounded-xl border border-border">
+                    <div className="space-y-3 p-3">
+                      {(Array.isArray(selectedTemplate.workouts) ? selectedTemplate.workouts : []).map((workout, workoutIndex) => {
+                        const typedWorkout = workout as { title?: string | null; name?: string | null; description?: string | null; exercises?: unknown[] };
+                        const exercises = Array.isArray(typedWorkout.exercises) ? typedWorkout.exercises : [];
+                        return (
+                          <div key={`${selectedTemplate.id}-${workoutIndex}`} className="rounded-lg border border-border bg-background p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-medium text-foreground">
+                                {typedWorkout.title || typedWorkout.name || `Treino ${workoutIndex + 1}`}
+                              </p>
+                              <Badge variant="outline" className="text-[10px]">{exercises.length} exercícios</Badge>
+                            </div>
+                            {typedWorkout.description && (
+                              <p className="mt-1 text-xs text-muted-foreground">{typedWorkout.description}</p>
+                            )}
+                            <ol className="mt-2 space-y-1 text-xs text-muted-foreground">
+                              {exercises.slice(0, 8).map((exercise, exerciseIndex) => {
+                                const typedExercise = exercise as { exercise_name?: string | null; muscle_group?: string | null; method?: string | null; group_id?: string | null };
+                                return (
+                                  <li key={`${workoutIndex}-${exerciseIndex}`} className="flex items-center justify-between gap-2">
+                                    <span className="truncate">{exerciseIndex + 1}. {typedExercise.exercise_name || "Exercício sem nome"}</span>
+                                    <span className="shrink-0">
+                                      {[typedExercise.muscle_group, typedExercise.method, typedExercise.group_id ? "grupo" : null].filter(Boolean).join(" · ")}
+                                    </span>
+                                  </li>
+                                );
+                              })}
+                            </ol>
+                            {exercises.length > 8 && (
+                              <p className="mt-1 text-[11px] text-muted-foreground">+{exercises.length - 8} exercícios</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+
+                  {pendingTemplate ? (
+                    <div className="rounded-xl border border-warning/40 bg-warning/10 p-3">
+                      <p className="text-sm font-medium text-foreground">Este rascunho já tem conteúdo. Escolha explicitamente:</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          onClick={() => applyWorkoutTemplateDraft(pendingTemplate, "replace")}
+                          disabled={applyingTemplateId === pendingTemplate.id}
+                        >
+                          Substituir treino atual
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => applyWorkoutTemplateDraft(pendingTemplate, "append")}
+                          disabled={applyingTemplateId === pendingTemplate.id}
+                        >
+                          Adicionar como novo treino
+                        </Button>
+                        <Button type="button" variant="outline" onClick={() => setPendingTemplate(null)}>
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button type="button" variant="outline" onClick={() => setTemplatePickerOpen(false)}>
+                        Cancelar
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={requestWorkoutTemplateDraft}
+                        disabled={selectedTemplateIssues.length > 0 || applyingTemplateId === selectedTemplate.id}
+                      >
+                        {applyingTemplateId === selectedTemplate.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Usar este treino
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Library picker dialog */}
       <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}>

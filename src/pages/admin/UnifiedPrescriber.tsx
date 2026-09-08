@@ -94,7 +94,11 @@ async function describeInvokeFailure(
   return { message: body?.error || data?.error || e?.message || "Falha na geração." };
 }
 
-export default function UnifiedPrescriber() {
+interface UnifiedPrescriberProps {
+  embeddedStudentId?: string;
+}
+
+export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescriberProps = {}) {
   const assistantName = useAssistantName();
   const [companyId, setCompanyId]   = useState<string | null>(null);
   const [students, setStudents]     = useState<Student[]>([]);
@@ -117,6 +121,11 @@ export default function UnifiedPrescriber() {
   const { companyId: authCompanyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : authCompanyId ?? null;
+  const isEmbedded = Boolean(embeddedStudentId);
+
+  useEffect(() => {
+    if (embeddedStudentId) setStudentId(embeddedStudentId);
+  }, [embeddedStudentId]);
 
   useEffect(() => {
     if (!effectiveCompanyId) { setCompanyId(null); setStudents([]); return; }
@@ -186,9 +195,12 @@ export default function UnifiedPrescriber() {
     return next;
   });
   const student = students.find(s => s.id === studentId);
-  const assessmentContext = assessment?.assessment_json
-    ? { ...assessment.assessment_json, report_text: assessment.report_text, id: assessment.id, created_at: assessment.created_at }
-    : null;
+  const assessmentContext = useMemo(
+    () => assessment?.assessment_json
+      ? { ...assessment.assessment_json, report_text: assessment.report_text, id: assessment.id, created_at: assessment.created_at }
+      : null,
+    [assessment],
+  );
   const prescriptionIntegration = useMemo(
     () => buildPrescriptionIntegration({
       anamnese: anamneseId ? { ...anamnese, id: anamneseId } : anamnese,
@@ -518,7 +530,7 @@ export default function UnifiedPrescriber() {
         <div>
           <p className="text-eyebrow">Prescrição</p>
           <div className="flex items-center gap-2">
-            <h1 className="font-display text-3xl">Prescrição Integrada com IA</h1>
+            <h1 className="font-display text-3xl">Prescrição</h1>
             <BnitoContextButton
               label="prescricao integrada com IA"
               context="Fluxo que junta anamnese, avaliacao funcional, musculacao e corrida em uma prescricao sincronizada."
@@ -528,31 +540,33 @@ export default function UnifiedPrescriber() {
           <p className="text-sm text-muted-foreground">Anamnese única · IAs em sequência · periodização sincronizada</p>
         </div>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              Aluno
-              <BnitoContextButton
-                label="aluno da prescricao integrada"
-                context="Selecao de aluno para carregar anamnese e avaliacao funcional antes da geracao integrada."
-                question="O que devo conferir neste aluno antes de gerar uma prescricao integrada?"
-                className="ml-auto"
-              />
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SS value={studentId} onChange={setStudentId} opts={[["", "Selecione..."], ...students.map(s => [s.id, s.full_name])]} />
-            {anamneseId && <p className="text-xs text-navy mt-1">Anamnese salva carregada — edite se necessário.</p>}
-            {studentId && (
-              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                <ClipboardCheck className="h-3 w-3" />
-                {assessmentExists
-                  ? "Avaliação funcional disponível — será usada como contexto."
-                  : "Sem avaliação funcional. Gere uma na aba Avaliação Funcional para refinar a prescrição."}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        {!isEmbedded && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                Aluno
+                <BnitoContextButton
+                  label="aluno da prescricao integrada"
+                  context="Selecao de aluno para carregar anamnese e avaliacao funcional antes da geracao integrada."
+                  question="O que devo conferir neste aluno antes de gerar uma prescricao integrada?"
+                  className="ml-auto"
+                />
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SS value={studentId} onChange={setStudentId} opts={[["", "Selecione..."], ...students.map(s => [s.id, s.full_name])]} />
+              {anamneseId && <p className="text-xs text-navy mt-1">Anamnese salva carregada — edite se necessário.</p>}
+              {studentId && (
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <ClipboardCheck className="h-3 w-3" />
+                  {assessmentExists
+                    ? "Avaliação funcional disponível — será usada como contexto."
+                    : "Sem avaliação funcional. Gere uma na aba Avaliação Funcional para refinar a prescrição."}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {studentId && (
           <>

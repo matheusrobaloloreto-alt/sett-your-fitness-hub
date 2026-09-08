@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, lazy, Suspense } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/useAuth";
@@ -56,12 +56,16 @@ import { createPlansLink, openStudentChat } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { collapseOverlappingCyclesForDisplay, selectCurrentPlanCycleWindow, selectCyclesForProgramHistory, selectPreferredVisibleCycle } from "@/lib/prescriptionSchedule";
 import { isInfluencerPlan, planOperationalRequirements } from "@/lib/influencerPlan";
+import { archiveWorkoutForStudent, buildWorkoutArchiveSuccessMessage, buildWorkoutRestoreSuccessMessage, restoreWorkoutForStudent } from "@/lib/workoutArchive";
+import { STUDENT_PROGRAM_PRIMARY_TABS, resolveStudentProgramHandoff, type StudentProgramPrimaryTabValue } from "@/lib/studentProgramSections";
 // Heavy children loaded only when their tab is opened (chunk size win)
 const WorkoutAnalysis = lazy(() => import("@/components/trainer/WorkoutAnalysis").then(m => ({ default: m.WorkoutAnalysis })));
 const TrainerWeeklyBar = lazy(() => import("@/components/trainer/TrainerWeeklyBar").then(m => ({ default: m.TrainerWeeklyBar })));
 const StudentVolumePanel = lazy(() => import("@/components/trainer/StudentVolumePanel").then(m => ({ default: m.StudentVolumePanel })));
 const StudentBodyMap = lazy(() => import("@/components/body/StudentBodyMap").then(m => ({ default: m.StudentBodyMap })));
 const MuscleRadar = lazy(() => import("@/components/student/MuscleRadar").then(m => ({ default: m.MuscleRadar })));
+const EmbeddedUnifiedPrescriber = lazy(() => import("@/pages/admin/UnifiedPrescriber"));
+const EmbeddedPrescriptionStudio = lazy(() => import("@/pages/admin/PrescriptionStudio"));
 
 
 const TabFallback = () => (
@@ -126,6 +130,23 @@ interface TrainingCycle {
   has_workout?: boolean;
   prescribed_offline_at?: string | null;
   prescribed_offline_by?: string | null;
+}
+
+interface StudentWorkoutRow {
+  id: string;
+  cycle_id: string;
+  title: string | null;
+  name: string | null;
+  exercises: unknown;
+  sort_order: number | null;
+  superseded_at?: string | null;
+  superseded_reason?: string | null;
+}
+
+interface WorkoutArchiveAction {
+  mode: "archive" | "restore";
+  workout: StudentWorkoutRow;
+  cycle: TrainingCycle;
 }
 
 type TrainingCycleUpdate = Database["public"]["Tables"]["training_cycles"]["Update"] & {
@@ -195,15 +216,6 @@ const cycleCalendarColors: Record<string, { bg: string; text: string }> = {
   expired_no_workout: { bg: "hsl(var(--destructive) / 0.25)", text: "hsl(var(--destructive))" },
 };
 
-const STUDENT_TABS = [
-  ["overview", "Visão Geral"],
-  ["program", "Programa"],
-  ["anamnesis", "Anamnese"],
-  ["evaluations", "Avaliações"],
-  ["financial", "Financeiro"],
-  ["analytics", "Análises"],
-] as const;
-
 const isCyclePrescribed = (cycle: TrainingCycle) =>
   Boolean(cycle.has_workout || cycle.prescribed_offline_at);
 
@@ -222,6 +234,7 @@ const paymentStatusColors: Record<string, string> = {
 export default function StudentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { session, role } = useAuth();
   const { toast } = useToast();
   const [student, setStudent] = useState<Student | null>(null);
@@ -233,7 +246,9 @@ export default function StudentDetail() {
   const [expandedEnrollmentCycles, setExpandedEnrollmentCycles] = useState<Record<string, boolean>>({});
   const [reschedulingCycleId, setReschedulingCycleId] = useState<string | null>(null);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
-  const [allWorkouts, setAllWorkouts] = useState<any[]>([]);
+  const [allWorkouts, setAllWorkouts] = useState<StudentWorkoutRow[]>([]);
+  const [archivedWorkouts, setArchivedWorkouts] = useState<StudentWorkoutRow[]>([]);
+  const [workoutUsageCounts, setWorkoutUsageCounts] = useState<Record<string, { logs: number; sessions: number }>>({});
   const [asaasPayments, setAsaasPayments] = useState<AsaasPayment[]>([]);
   const [refreshingPayment, setRefreshingPayment] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -277,7 +292,23 @@ export default function StudentDetail() {
   const [loginCreds, setLoginCreds] = useState<{ email: string; password: string } | null>(null);
   const [loadingLogin, setLoadingLogin] = useState(false);
   const [copiedLogin, setCopiedLogin] = useState(false);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState<StudentProgramPrimaryTabValue>("overview");
+  const [activePrescriptionPanel, setActivePrescriptionPanel] = useState<"prescricao" | "integrada">("prescricao");
+  const [workoutArchiveAction, setWorkoutArchiveAction] = useState<WorkoutArchiveAction | null>(null);
+  const [workoutArchiveReason, setWorkoutArchiveReason] = useState("");
+  const [archivingWorkout, setArchivingWorkout] = useState(false);
+
+  useEffect(() => {
+    const handoff = location.state as { studentId?: unknown; tab?: unknown } | null;
+    if (!handoff || (typeof handoff.studentId === "string" && handoff.studentId !== id)) return;
+    const resolved = resolveStudentProgramHandoff(typeof handoff.tab === "string" ? handoff.tab : null);
+    if (resolved.activeTab) {
+      setActiveTab(resolved.activeTab);
+    }
+    if (resolved.prescriptionPanel) {
+      setActivePrescriptionPanel(resolved.prescriptionPanel);
+    }
+  }, [id, location.state]);
 
   const handleActivateStudentAccess = async () => {
     if (!student?.email) {
@@ -413,6 +444,9 @@ export default function StudentDetail() {
 
   useEffect(() => {
     if (id) loadData(id);
+    // loadData is the page-level loader; adding it as a dependency would re-run
+    // the loader on every render because it closes over local UI handlers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const loadData = async (studentId: string) => {
@@ -450,6 +484,9 @@ export default function StudentDetail() {
       setEnrollments([]);
       setCycles([]);
       setRawCycles([]);
+      setAllWorkouts([]);
+      setArchivedWorkouts([]);
+      setWorkoutUsageCounts({});
       setLoading(false);
       loadEvaluations(studentId);
       loadAsaasPayments(studentId);
@@ -496,6 +533,9 @@ export default function StudentDetail() {
     if (!cycleData || cycleData.length === 0) {
       setCycles([]);
       setRawCycles([]);
+      setAllWorkouts([]);
+      setArchivedWorkouts([]);
+      setWorkoutUsageCounts({});
       setLoading(false);
       loadEvaluations(studentId);
       loadAsaasPayments(studentId);
@@ -504,12 +544,38 @@ export default function StudentDetail() {
 
     const schedulableCycleData = cycleData.filter((cycle) => cycle.status !== "superseded");
     const cycleIds = schedulableCycleData.map((c) => c.id);
-    const workouts = cycleIds.length > 0
-      ? (await supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").is("superseded_at", null).in("cycle_id", cycleIds)).data
-      : [];
+    const [activeWorkoutResult, archivedWorkoutResult] = cycleIds.length > 0
+      ? await Promise.all([
+        supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").is("superseded_at", null).in("cycle_id", cycleIds),
+        supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order, superseded_at, superseded_reason").not("superseded_at", "is", null).in("cycle_id", cycleIds),
+      ])
+      : [{ data: [] as StudentWorkoutRow[] }, { data: [] as StudentWorkoutRow[] }];
+    const workouts = (activeWorkoutResult.data || []) as StudentWorkoutRow[];
+    const archivedRows = (archivedWorkoutResult.data || []) as StudentWorkoutRow[];
     const materializedWorkouts = filterMaterializedWorkouts(workouts || []);
+    const materializedArchivedWorkouts = filterMaterializedWorkouts(archivedRows || []);
     const workoutCycleIds = new Set(materializedWorkouts.map((w) => w.cycle_id));
     setAllWorkouts(materializedWorkouts);
+    setArchivedWorkouts(materializedArchivedWorkouts);
+
+    const trackedWorkoutIds = [...new Set([...materializedWorkouts, ...materializedArchivedWorkouts].map((w) => w.id))];
+    if (trackedWorkoutIds.length > 0) {
+      const [{ data: logRows }, { data: sessionRows }] = await Promise.all([
+        supabase.from("workout_logs").select("workout_id").eq("student_id", studentId).in("workout_id", trackedWorkoutIds),
+        supabase.from("workout_sessions").select("workout_id").eq("student_id", studentId).in("workout_id", trackedWorkoutIds),
+      ]);
+      const counts: Record<string, { logs: number; sessions: number }> = {};
+      trackedWorkoutIds.forEach((workoutId) => { counts[workoutId] = { logs: 0, sessions: 0 }; });
+      (logRows || []).forEach((row: any) => {
+        if (row.workout_id && counts[row.workout_id]) counts[row.workout_id].logs += 1;
+      });
+      (sessionRows || []).forEach((row: any) => {
+        if (row.workout_id && counts[row.workout_id]) counts[row.workout_id].sessions += 1;
+      });
+      setWorkoutUsageCounts(counts);
+    } else {
+      setWorkoutUsageCounts({});
+    }
 
     const cyclesWithSignals = schedulableCycleData.map((c) => ({
       ...c,
@@ -992,6 +1058,93 @@ export default function StudentDetail() {
   const studentVisibleCycleForEnrollment = (enrollment: Enrollment) =>
     selectPreferredVisibleCycle(currentEnrollmentCycles(enrollment));
 
+  const workoutDisplayTitle = (workout: Pick<StudentWorkoutRow, "title" | "name">) =>
+    workout.title || (workout.name ? `Treino ${workout.name}` : "Treino");
+
+  const openWorkoutArchiveDialog = (mode: WorkoutArchiveAction["mode"], workout: StudentWorkoutRow, cycle: TrainingCycle) => {
+    setWorkoutArchiveReason("");
+    setWorkoutArchiveAction({ mode, workout, cycle });
+  };
+
+  const closeWorkoutArchiveDialog = () => {
+    if (archivingWorkout) return;
+    setWorkoutArchiveAction(null);
+    setWorkoutArchiveReason("");
+  };
+
+  const confirmWorkoutArchiveAction = async () => {
+    if (!workoutArchiveAction || !id) return;
+    const { mode, workout, cycle } = workoutArchiveAction;
+    setArchivingWorkout(true);
+    try {
+      if (mode === "archive") {
+        await archiveWorkoutForStudent(supabase as any, {
+          studentId: id,
+          cycleId: cycle.id,
+          workoutId: workout.id,
+          reason: workoutArchiveReason,
+        });
+        const message = buildWorkoutArchiveSuccessMessage(workoutDisplayTitle(workout));
+        toast(message);
+      } else {
+        await restoreWorkoutForStudent(supabase as any, {
+          studentId: id,
+          cycleId: cycle.id,
+          workoutId: workout.id,
+          reason: workoutArchiveReason,
+        });
+        const message = buildWorkoutRestoreSuccessMessage(workoutDisplayTitle(workout));
+        toast(message);
+      }
+      setWorkoutArchiveAction(null);
+      setWorkoutArchiveReason("");
+      loadData(id);
+    } catch (error) {
+      toast({
+        title: mode === "archive" ? "Não foi possível arquivar o treino" : "Não foi possível restaurar o treino",
+        description: error instanceof Error ? error.message : "O servidor recusou a operação.",
+        variant: "destructive",
+      });
+    } finally {
+      setArchivingWorkout(false);
+    }
+  };
+
+  const renderCycleCalendar = () => (
+    <Card className="bg-card border-border">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-primary text-lg">
+          CALENDÁRIO DE CICLOS
+          <BnitoContextButton
+            label="calendario de ciclos"
+            context={`Calendario de ciclos do aluno ${student.full_name}; dias de prescrever, entregue e vencido sem treino.`}
+            question="Como devo interpretar este calendario de ciclos e atrasos?"
+            className="ml-auto"
+          />
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {cycles.length > 0 && (
+          <div className="flex flex-wrap gap-4 mb-4 text-xs font-sans">
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: cycleCalendarColors.prescribe.bg, border: `1px solid ${cycleCalendarColors.prescribe.text}` }} />Prescrever</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: cycleCalendarColors.done.bg, border: `1px solid ${cycleCalendarColors.done.text}` }} />Entregue</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: cycleCalendarColors.expired_no_workout.bg, border: `1px solid ${cycleCalendarColors.expired_no_workout.text}` }} />Vencido sem treino</span>
+          </div>
+        )}
+        {cycles.length === 0 && <p className="text-muted-foreground font-sans text-sm mb-4">Nenhum ciclo de treino ainda.</p>}
+        <Calendar
+          mode="single" month={calendarMonth} onMonthChange={setCalendarMonth} locale={ptBR} className="pointer-events-auto"
+          modifiers={{ prescribeCycle: prescribeDays, doneCycle: doneDays, expiredCycle: expiredDays }}
+          modifiersStyles={{
+            prescribeCycle: { backgroundColor: cycleCalendarColors.prescribe.bg, color: cycleCalendarColors.prescribe.text, borderRadius: "4px" },
+            doneCycle: { backgroundColor: cycleCalendarColors.done.bg, color: cycleCalendarColors.done.text, borderRadius: "4px" },
+            expiredCycle: { backgroundColor: cycleCalendarColors.expired_no_workout.bg, color: cycleCalendarColors.expired_no_workout.text, borderRadius: "4px" },
+          }}
+        />
+      </CardContent>
+    </Card>
+  );
+
   const renderWorkoutCycles = () => {
     const activeEnroll = enrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal");
     if (!activeEnroll) return <p className="text-muted-foreground font-sans text-sm text-center py-8">Nenhuma matrícula ativa.</p>;
@@ -1025,6 +1178,7 @@ export default function StudentDetail() {
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
           {enrollCycles.map(cycle => {
             const cycleWorkouts = (allWorkouts || []).filter((w: any) => w.cycle_id === cycle.id);
+            const archivedCycleWorkouts = (archivedWorkouts || []).filter((w) => w.cycle_id === cycle.id);
             return (
               <Card key={cycle.id} className="bg-card border-border">
                 <CardContent className="p-3 space-y-2.5">
@@ -1050,12 +1204,24 @@ export default function StudentDetail() {
                       {cycleWorkouts.map((w: any) => {
                         const exercises = (w.exercises as any[]) || [];
                         return (
-                          <div key={w.id} className="flex items-center justify-between gap-2 bg-secondary/30 rounded-xl px-2.5 py-1.5">
+                          <div key={w.id} className="flex flex-wrap items-center justify-between gap-2 bg-secondary/30 rounded-xl px-2.5 py-1.5">
                             <div className="flex items-center gap-2 min-w-0">
                               <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
                               <span className="text-xs font-sans text-foreground truncate">{w.title || `Treino ${w.name}`}</span>
                             </div>
-                            <Badge variant="outline" className="text-[10px] shrink-0">{exercises.length} ex.</Badge>
+                            <div className="flex items-center gap-1.5">
+                              <Badge variant="outline" className="text-[10px] shrink-0">{exercises.length} ex.</Badge>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-[10px] text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                onClick={() => openWorkoutArchiveDialog("archive", w, cycle)}
+                              >
+                                <Trash2 className="h-3 w-3 mr-1" />
+                                Excluir treino
+                              </Button>
+                            </div>
                           </div>
                         );
                       })}
@@ -1091,8 +1257,8 @@ export default function StudentDetail() {
                     </Button>
                   </div>
 
-                  {cycleWorkouts.length > 0 && (
-                    <Suspense fallback={<InlineFallback />}>
+	                  {cycleWorkouts.length > 0 && (
+	                    <Suspense fallback={<InlineFallback />}>
                       <div className="grid grid-cols-1 gap-3 pt-2 border-t border-border/50">
                         {cycleWorkouts.map((w: any) => {
                           const exercises = (w.exercises as any[]) || [];
@@ -1113,7 +1279,33 @@ export default function StudentDetail() {
                           );
                         })}
                       </div>
-                    </Suspense>
+	                    </Suspense>
+	                  )}
+                  {archivedCycleWorkouts.length > 0 && (
+                    <details className="rounded-xl border border-dashed border-border bg-secondary/20 p-2 text-xs font-sans">
+                      <summary className="cursor-pointer text-muted-foreground">Treinos arquivados ({archivedCycleWorkouts.length})</summary>
+                      <div className="mt-2 space-y-1.5">
+                        {archivedCycleWorkouts.map((w) => (
+                          <div key={w.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-2 py-1.5">
+                            <div className="min-w-0">
+                              <p className="truncate text-foreground">{workoutDisplayTitle(w)}</p>
+                              <p className="text-[10px] text-muted-foreground">
+                                Arquivado em {safeFormatDate(w.superseded_at, "dd/MM/yyyy HH:mm")} · logs preservados
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2 text-[10px]"
+                              onClick={() => openWorkoutArchiveDialog("restore", w, cycle)}
+                            >
+                              Restaurar
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
                   )}
                 </CardContent>
               </Card>
@@ -1123,6 +1315,105 @@ export default function StudentDetail() {
       </div>
     );
   };
+
+  const renderAnamnesisSection = () => {
+    if (!student) return null;
+    return (
+      <Card className="rounded-3xl border-border bg-card">
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center gap-2 text-lg text-primary">
+            ANAMNESE
+            <Badge variant="outline" className="rounded-full text-[10px] font-mono-data">
+              Pré-cadastro
+            </Badge>
+            <BnitoContextButton
+              label="anamnese do aluno"
+              context={`Pré-cadastro de ${student.full_name}: fonte oficial de objetivos, dores, lesões, rotina, sono, equipamentos, modalidades solicitadas e restrições para a prescrição.`}
+              question="Quais respostas deste pré-cadastro devem mudar a prescrição?"
+            />
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            As respostas abaixo são as mesmas usadas pela Prescrição Integrada e pelos motores de prescrição.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <PreRegistrationDetails data={preRegistration} loading={preRegistrationLoading} />
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderFinancialSection = () => (
+    <div>
+      {enrollments.length === 0 ? (
+        <p className="text-muted-foreground font-sans text-sm">Nenhuma matrícula para rastrear pagamento.</p>
+      ) : (
+        <div className="space-y-3">
+          {enrollments.map((e) => (
+            <div key={e.id} className="p-3 rounded-lg bg-secondary/50 border border-border flex items-center justify-between">
+              <div>
+                <p className="text-sm font-sans font-medium text-foreground">{e.plan_name}</p>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground font-sans mt-1">
+                  <Badge variant="outline" className={`text-[10px] ${paymentStatusColors[e.payment_status || "pending"]}`}>
+                    {paymentStatusLabels[e.payment_status || "pending"]}
+                  </Badge>
+                  {e.payment_date && <span>Pago em: {safeFormatDate(e.payment_date, "dd/MM/yyyy")}</span>}
+                  {e.payment_method && <span>{e.payment_method}</span>}
+                </div>
+                {e.financial_notes && <p className="text-xs text-muted-foreground mt-1">{e.financial_notes}</p>}
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => openFinancialEdit(e)}>
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {asaasPayments.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-border space-y-3">
+          <p className="text-xs font-sans font-medium text-foreground">Cobranças Asaas</p>
+          {asaasPayments.map((p) => (
+            <div key={p.id} className="p-3 rounded-lg bg-secondary/50 border border-border flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px]">
+                    {p.billing_type === "PIX" ? "Pix" : "Cartão"}
+                  </Badge>
+                  <Badge variant="outline" className={`text-[10px] ${
+                    p.status === "RECEIVED" || p.status === "CONFIRMED" ? "bg-success/15 text-success border-success/30" :
+                    p.status === "PENDING" ? "bg-warning/15 text-warning border-warning/30" :
+                    "bg-destructive/15 text-destructive border-destructive/30"
+                  }`}>
+                    {p.status}
+                  </Badge>
+                </div>
+                <p className="text-sm font-sans font-medium text-foreground mt-1">
+                  R$ {Number(p.value).toFixed(2).replace(".", ",")}
+                </p>
+                {p.due_date && <p className="text-xs text-muted-foreground font-sans">Vencimento: {safeFormatDate(p.due_date, "dd/MM/yyyy")}</p>}
+              </div>
+              <div className="flex items-center gap-1">
+                {p.invoice_url && (
+                  <Button variant="ghost" size="icon" asChild>
+                    <a href={p.invoice_url} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" /></a>
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => p.asaas_payment_id && refreshAsaasPaymentStatus(p.asaas_payment_id)}
+                  disabled={refreshingPayment === p.asaas_payment_id}
+                >
+                  <RefreshCw className={`h-4 w-4 ${refreshingPayment === p.asaas_payment_id ? "animate-spin" : ""}`} />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   if (loading) {
     return (
@@ -1212,9 +1503,9 @@ export default function StudentDetail() {
         />
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as StudentProgramPrimaryTabValue)} className="w-full">
           <EditorialTabStrip
-            tabs={STUDENT_TABS.map(([value, label]) => ({ value, label }))}
+            tabs={STUDENT_PROGRAM_PRIMARY_TABS}
             ariaLabel="Seções do aluno"
           />
 
@@ -1250,6 +1541,20 @@ export default function StudentDetail() {
                     {loadingLogin ? "Gerando..." : "Copiar login"}
                   </Button>
                 </div>
+            </CollapsibleCard>
+            <CollapsibleCard
+              title="FINANCEIRO"
+              icon={<DollarSign className="h-4 w-4" />}
+              className="mb-4"
+              action={
+                <BnitoContextButton
+                  label="financeiro do aluno"
+                  context={`Financeiro do aluno ${student.full_name}: matriculas, pagamentos, Asaas, links e status de cobranca.`}
+                  question="O que preciso regularizar no financeiro antes de seguir com este aluno?"
+                />
+              }
+            >
+              {renderFinancialSection()}
             </CollapsibleCard>
             {id && student?.company_id && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1374,20 +1679,66 @@ export default function StudentDetail() {
                 )}
               </div>
             </div>
+            {renderCycleCalendar()}
           </TabsContent>
 
           {/* ===== PROGRAMA DE TREINO ===== */}
           <TabsContent value="program" className="space-y-4">
             {/* Provas e metas alvo (aparecem no calendário do aluno e na agenda) */}
             {id && (
-              <StudentGoalsManager
-                studentId={id}
-                companyId={student?.company_id}
-                createdBy={session?.user?.id}
-              />
+              <CollapsibleCard title="PROVAS E METAS" icon={<CalendarDays className="h-4 w-4" />}>
+                <StudentGoalsManager
+                  studentId={id}
+                  companyId={student?.company_id}
+                  createdBy={session?.user?.id}
+                />
+              </CollapsibleCard>
             )}
+            <CollapsibleCard title="ANAMNESE" icon={<FileText className="h-4 w-4" />}>
+              {renderAnamnesisSection()}
+            </CollapsibleCard>
             {id && <AssessmentCompareCard studentId={id} />}
             {id && <PlanVersionsCard studentId={id} />}
+
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="flex flex-wrap items-center gap-2 text-primary text-lg">
+                  PRESCRIÇÃO DO ALUNO
+                  <BnitoContextButton
+                    label="prescricao do aluno no perfil"
+                    context={`Painéis de prescrição já vinculados ao aluno ${student.full_name}; use uma prescrição por vez para evitar contexto cruzado.`}
+                    question="Qual painel devo usar para este aluno agora: prescrição simples ou integrada?"
+                    className="ml-auto"
+                  />
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <Button
+                    type="button"
+                    variant={activePrescriptionPanel === "prescricao" ? "default" : "outline"}
+                    onClick={() => setActivePrescriptionPanel("prescricao")}
+                  >
+                    Prescrição
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={activePrescriptionPanel === "integrada" ? "default" : "outline"}
+                    onClick={() => setActivePrescriptionPanel("integrada")}
+                  >
+                    Prescrição Integrada
+                  </Button>
+                </div>
+                <Suspense fallback={<TabFallback />}>
+                  {activePrescriptionPanel === "prescricao" && (
+                    <EmbeddedUnifiedPrescriber embeddedStudentId={id} />
+                  )}
+                  {activePrescriptionPanel === "integrada" && (
+                    <EmbeddedPrescriptionStudio embeddedStudentId={id} />
+                  )}
+                </Suspense>
+              </CardContent>
+            </Card>
 
             {/* Enrollments */}
             <Card className="bg-card border-border">
@@ -1630,163 +1981,16 @@ export default function StudentDetail() {
                 )}
               </CardContent>
             </Card>
-
-            {renderWorkoutCycles()}
-
-            {/* Calendar */}
-            <Card className="bg-card border-border">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-primary text-lg">
-                  CALENDÁRIO DE CICLOS
-                  <BnitoContextButton
-                    label="calendario de ciclos"
-                    context={`Calendario de ciclos do aluno ${student.full_name}; dias de prescrever, entregue e vencido sem treino.`}
-                    question="Como devo interpretar este calendario de ciclos e atrasos?"
-                    className="ml-auto"
-                  />
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {cycles.length > 0 && (
-                  <div className="flex flex-wrap gap-4 mb-4 text-xs font-sans">
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: cycleCalendarColors.prescribe.bg, border: `1px solid ${cycleCalendarColors.prescribe.text}` }} />Prescrever</span>
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: cycleCalendarColors.done.bg, border: `1px solid ${cycleCalendarColors.done.text}` }} />Entregue</span>
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: cycleCalendarColors.expired_no_workout.bg, border: `1px solid ${cycleCalendarColors.expired_no_workout.text}` }} />Vencido sem treino</span>
-                  </div>
-                )}
-                {cycles.length === 0 && <p className="text-muted-foreground font-sans text-sm mb-4">Nenhum ciclo de treino ainda.</p>}
-                <Calendar
-                  mode="single" month={calendarMonth} onMonthChange={setCalendarMonth} locale={ptBR} className="pointer-events-auto"
-                  modifiers={{ prescribeCycle: prescribeDays, doneCycle: doneDays, expiredCycle: expiredDays }}
-                  modifiersStyles={{
-                    prescribeCycle: { backgroundColor: cycleCalendarColors.prescribe.bg, color: cycleCalendarColors.prescribe.text, borderRadius: "4px" },
-                    doneCycle: { backgroundColor: cycleCalendarColors.done.bg, color: cycleCalendarColors.done.text, borderRadius: "4px" },
-                    expiredCycle: { backgroundColor: cycleCalendarColors.expired_no_workout.bg, color: cycleCalendarColors.expired_no_workout.text, borderRadius: "4px" },
-                  }}
-                />
-              </CardContent>
-            </Card>
           </TabsContent>
 
           {/* ===== ANÁLISES ===== */}
           <TabsContent value="analytics" className="space-y-4">
+            {renderWorkoutCycles()}
             <Suspense fallback={<TabFallback />}>
               <TrainerWeeklyBar studentId={id!} />
               <WorkoutAnalysis studentId={id!} />
               <StudentVolumePanel studentId={id!} />
             </Suspense>
-            <ProgressPhotosPanel studentId={id!} />
-          </TabsContent>
-
-          {/* ===== ANAMNESE ===== */}
-          <TabsContent value="anamnesis">
-            <Card className="rounded-3xl border-border bg-card">
-              <CardHeader>
-                <CardTitle className="flex flex-wrap items-center gap-2 text-lg text-primary">
-                  ANAMNESE
-                  <Badge variant="outline" className="rounded-full text-[10px] font-mono-data">
-                    Pré-cadastro
-                  </Badge>
-                  <BnitoContextButton
-                    label="anamnese do aluno"
-                    context={`Pré-cadastro de ${student.full_name}: fonte oficial de objetivos, dores, lesões, rotina, sono, equipamentos, modalidades solicitadas e restrições para a prescrição.`}
-                    question="Quais respostas deste pré-cadastro devem mudar a prescrição?"
-                  />
-                </CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  As respostas abaixo são as mesmas usadas pelo Studio Integrado e pelos motores de prescrição.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <PreRegistrationDetails data={preRegistration} loading={preRegistrationLoading} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ===== FINANCEIRO ===== */}
-          <TabsContent value="financial">
-            <Card className="bg-card border-border">
-              <CardHeader>
-                <CardTitle className="text-primary text-lg flex items-center gap-2">
-                  <DollarSign className="h-5 w-5" />FINANCEIRO
-                  <BnitoContextButton
-                    label="financeiro do aluno"
-                    context={`Financeiro do aluno ${student.full_name}: matriculas, pagamentos, Asaas, links e status de cobranca.`}
-                    question="O que preciso regularizar no financeiro antes de seguir com este aluno?"
-                    className="ml-auto"
-                  />
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {enrollments.length === 0 ? (
-                  <p className="text-muted-foreground font-sans text-sm">Nenhuma matrícula para rastrear pagamento.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {enrollments.map((e) => (
-                      <div key={e.id} className="p-3 rounded-lg bg-secondary/50 border border-border flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-sans font-medium text-foreground">{e.plan_name}</p>
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground font-sans mt-1">
-                            <Badge variant="outline" className={`text-[10px] ${paymentStatusColors[e.payment_status || "pending"]}`}>
-                              {paymentStatusLabels[e.payment_status || "pending"]}
-                            </Badge>
-                            {e.payment_date && <span>Pago em: {safeFormatDate(e.payment_date, "dd/MM/yyyy")}</span>}
-                            {e.payment_method && <span>{e.payment_method}</span>}
-                          </div>
-                          {e.financial_notes && <p className="text-xs text-muted-foreground mt-1">{e.financial_notes}</p>}
-                        </div>
-                        <Button variant="ghost" size="icon" onClick={() => openFinancialEdit(e)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {asaasPayments.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-border space-y-3">
-                    <p className="text-xs font-sans font-medium text-foreground">Cobranças Asaas</p>
-                    {asaasPayments.map((p) => (
-                      <div key={p.id} className="p-3 rounded-lg bg-secondary/50 border border-border flex items-center justify-between">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-[10px]">
-                              {p.billing_type === "PIX" ? "Pix" : "Cartão"}
-                            </Badge>
-                            <Badge variant="outline" className={`text-[10px] ${
-                              p.status === "RECEIVED" || p.status === "CONFIRMED" ? "bg-success/15 text-success border-success/30" :
-                              p.status === "PENDING" ? "bg-warning/15 text-warning border-warning/30" :
-                              "bg-destructive/15 text-destructive border-destructive/30"
-                            }`}>
-                              {p.status}
-                            </Badge>
-                          </div>
-                          <p className="text-sm font-sans font-medium text-foreground mt-1">
-                            R$ {Number(p.value).toFixed(2).replace(".", ",")}
-                          </p>
-                          {p.due_date && <p className="text-xs text-muted-foreground font-sans">Vencimento: {safeFormatDate(p.due_date, "dd/MM/yyyy")}</p>}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {p.invoice_url && (
-                            <Button variant="ghost" size="icon" asChild>
-                              <a href={p.invoice_url} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" /></a>
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => p.asaas_payment_id && refreshAsaasPaymentStatus(p.asaas_payment_id)}
-                            disabled={refreshingPayment === p.asaas_payment_id}
-                          >
-                            <RefreshCw className={`h-4 w-4 ${refreshingPayment === p.asaas_payment_id ? "animate-spin" : ""}`} />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </TabsContent>
 
           {/* ===== AVALIAÇÕES ===== */}
@@ -1794,6 +1998,7 @@ export default function StudentDetail() {
             <Suspense fallback={<TabFallback />}>
               <StudentBodyMap studentId={id!} />
             </Suspense>
+            <ProgressPhotosPanel studentId={id!} />
             <Card className="bg-card border-border">
               <CardHeader>
                 <CardTitle className="text-primary text-lg flex items-center gap-2">
@@ -1889,6 +2094,62 @@ export default function StudentDetail() {
           </TabsContent>
 
         </Tabs>
+
+        {/* Workout archive/restore dialog */}
+        <Dialog open={Boolean(workoutArchiveAction)} onOpenChange={(open) => !open && closeWorkoutArchiveDialog()}>
+          <DialogContent className="bg-card border-border">
+            <DialogHeader>
+              <DialogTitle className="text-primary">
+                {workoutArchiveAction?.mode === "restore" ? "RESTAURAR TREINO" : "EXCLUIR TREINO"}
+              </DialogTitle>
+            </DialogHeader>
+            {workoutArchiveAction && (
+              <div className="space-y-4 text-sm font-sans">
+                <div className="rounded-xl border border-border bg-secondary/40 p-3 space-y-1">
+                  <p><span className="text-muted-foreground">Aluno:</span> <strong>{student.full_name}</strong></p>
+                  <p><span className="text-muted-foreground">Ciclo:</span> ciclo {workoutArchiveAction.cycle.cycle_number} · {safeFormatDate(workoutArchiveAction.cycle.start_date, "dd/MM/yyyy")} a {safeFormatDate(workoutArchiveAction.cycle.end_date, "dd/MM/yyyy")}</p>
+                  <p><span className="text-muted-foreground">Treino:</span> <strong>{workoutDisplayTitle(workoutArchiveAction.workout)}</strong></p>
+                  <p className="text-xs text-muted-foreground">
+                    {Array.isArray(workoutArchiveAction.workout.exercises) ? workoutArchiveAction.workout.exercises.length : 0} exercícios · {workoutUsageCounts[workoutArchiveAction.workout.id]?.logs || 0} logs · {workoutUsageCounts[workoutArchiveAction.workout.id]?.sessions || 0} sessões
+                  </p>
+                </div>
+                {workoutArchiveAction.mode === "archive" ? (
+                  <p className="text-muted-foreground">
+                    Esta ação arquiva somente este treino. Ele sai das telas ativas do aluno e do professor, mas matrícula, ciclo, plano, prescrição, logs, sessões e histórico continuam preservados para auditoria e restauração.
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground">
+                    Esta ação restaura somente este treino arquivado. Ele volta às telas ativas; logs e sessões preservados permanecem vinculados ao mesmo treino.
+                  </p>
+                )}
+                <div className="space-y-2">
+                  <Label className="font-sans">Motivo opcional</Label>
+                  <Textarea
+                    value={workoutArchiveReason}
+                    onChange={(event) => setWorkoutArchiveReason(event.target.value)}
+                    placeholder={workoutArchiveAction.mode === "archive" ? "Ex.: treino duplicado ou publicado no ciclo errado" : "Ex.: rollback solicitado"}
+                    rows={3}
+                    className="bg-secondary border-border"
+                  />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={closeWorkoutArchiveDialog} disabled={archivingWorkout}>Cancelar</Button>
+              <Button
+                variant={workoutArchiveAction?.mode === "archive" ? "destructive" : "default"}
+                onClick={confirmWorkoutArchiveAction}
+                disabled={archivingWorkout}
+              >
+                {archivingWorkout
+                  ? "Confirmando..."
+                  : workoutArchiveAction?.mode === "archive"
+                    ? "Arquivar treino"
+                    : "Restaurar treino"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Enrollment Dialog */}
         <Dialog open={enrollOpen} onOpenChange={setEnrollOpen}>
