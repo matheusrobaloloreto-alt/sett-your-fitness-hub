@@ -13,7 +13,7 @@ import {
 
 const migration = () =>
   readFileSync(
-    resolve(process.cwd(), "supabase/migrations/20260908131327_archive_student_cycle_prescription.sql"),
+    resolve(process.cwd(), "supabase/migrations/20260908152802_archive_student_cycle_prescription.sql"),
     "utf8",
   );
 

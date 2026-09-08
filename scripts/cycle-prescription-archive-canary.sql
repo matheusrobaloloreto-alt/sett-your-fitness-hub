@@ -8,7 +8,7 @@
 --     printf 'alter table public.nutrition_plans add column if not exists name text;\n'; \
 --     cat \
 --       supabase/migrations/20260908120000_archive_student_workouts.sql \
---       supabase/migrations/20260908131327_archive_student_cycle_prescription.sql \
+--       supabase/migrations/20260908152802_archive_student_cycle_prescription.sql \
 --       scripts/cycle-prescription-archive-canary.sql; } \
 --     | docker exec -i supabase_db_zshrcgbyhzxpnlccssyz \
 --         psql -U postgres -d postgres -v ON_ERROR_STOP=1
