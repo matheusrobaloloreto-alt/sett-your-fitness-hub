@@ -228,6 +228,8 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   const [scheduleMode, setScheduleMode] = useState<PrescriptionScheduleMode>("single");
   const [selectedCycleId, setSelectedCycleId] = useState<string>("");
   const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleLoadError, setScheduleLoadError] = useState("");
+  const [hasCurrentEnrollment, setHasCurrentEnrollment] = useState(false);
   const [scheduleProgress, setScheduleProgress] = useState<{ current: number; total: number; label: string } | null>(null);
   const [scheduledSummaries, setScheduledSummaries] = useState<Array<{ cycle: PrescriptionScheduleCycle; modalities: string[] }>>([]);
   const [intercycleWaiverReason, setIntercycleWaiverReason] = useState("");
@@ -377,49 +379,108 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
     if (!studentId) {
       setScheduleCycles([]);
       setSelectedCycleId("");
+      setScheduleLoadError("");
+      setHasCurrentEnrollment(false);
       return;
     }
     let active = true;
     (async () => {
       setScheduleLoading(true);
+      setScheduleLoadError("");
+      setHasCurrentEnrollment(false);
+      setScheduleCycles([]);
+      setSelectedCycleId("");
       setScheduledSummaries([]);
-      const { data: enrollmentRows } = await db.from("enrollments")
-        .select("id, status, created_at")
-        .eq("student_id", studentId)
-        .in("status", ["active", "awaiting_training", "awaiting_renewal"])
-        .order("created_at", { ascending: false });
-      const currentEnrollment = selectPrescriptionEnrollment(enrollmentRows || []);
-      if (!active) return;
-      if (!currentEnrollment) {
+      try {
+        let enrollmentQuery = db.from("enrollments")
+          .select("id, status, created_at")
+          .eq("student_id", studentId)
+          .in("status", ["active", "awaiting_training", "awaiting_renewal"])
+          .order("created_at", { ascending: false });
+        if (companyId) enrollmentQuery = enrollmentQuery.eq("company_id", companyId);
+        const { data: enrollmentRows, error: enrollmentError } = await enrollmentQuery;
+        if (enrollmentError) throw enrollmentError;
+        const currentEnrollment = selectPrescriptionEnrollment(enrollmentRows || []);
+        if (!active) return;
+        setHasCurrentEnrollment(Boolean(currentEnrollment));
+        if (!currentEnrollment) {
+          setScheduleCycles([]);
+          setSelectedCycleId("");
+          return;
+        }
+
+        let cycleQuery = db.from("training_cycles")
+          .select("id, enrollment_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id")
+          .eq("enrollment_id", currentEnrollment.id)
+          .neq("status", "superseded")
+          .is("superseded_by_cycle_id", null)
+          .order("start_date", { ascending: true })
+          .order("cycle_number", { ascending: true });
+        if (companyId) cycleQuery = cycleQuery.eq("company_id", companyId);
+        const { data: cycleRows, error: cycleError } = await cycleQuery;
+        if (cycleError) throw cycleError;
+        if (!active) return;
+
+        const cycleIds = ((cycleRows || []) as PrescriptionScheduleCycle[]).map((cycle) => cycle.id);
+        let workoutCycleIds = new Set<string>();
+        let bundleCycleIds = new Set<string>();
+        if (cycleIds.length > 0) {
+          let workoutQuery = db.from("workouts")
+            .select("id, cycle_id, exercises")
+            .in("cycle_id", cycleIds)
+            .is("superseded_at", null);
+          let bundleQuery = db.from("prescription_bundles")
+            .select("id, training_cycle_id, status")
+            .in("training_cycle_id", cycleIds)
+            .in("status", ["active", "scheduled"]);
+          if (companyId) {
+            workoutQuery = workoutQuery.eq("company_id", companyId);
+            bundleQuery = bundleQuery.eq("company_id", companyId);
+          }
+          const [{ data: workoutRows, error: workoutError }, { data: bundleRows, error: bundleError }] = await Promise.all([
+            workoutQuery,
+            bundleQuery,
+          ]);
+          if (workoutError) throw workoutError;
+          if (bundleError) throw bundleError;
+          if (!active) return;
+          workoutCycleIds = new Set(
+            filterMaterializedWorkouts(workoutRows || [])
+              .map((workout: any) => workout.cycle_id)
+              .filter(Boolean),
+          );
+          bundleCycleIds = new Set((bundleRows || [])
+            .map((bundle: any) => bundle.training_cycle_id)
+            .filter(Boolean));
+        }
+
+        let rows = ((cycleRows || []) as PrescriptionScheduleCycle[]).map((cycle) => ({
+          ...cycle,
+          has_workouts: workoutCycleIds.has(cycle.id),
+          has_bundle: bundleCycleIds.has(cycle.id),
+        }));
+        rows = selectSequentialScheduleCycles(rows);
+        setScheduleCycles(rows);
+        const preferred = selectDefaultPrescriptionScheduleCycle(rows);
+        setSelectedCycleId(preferred?.id || "");
+      } catch (loadError) {
+        const safeError = loadError && typeof loadError === "object"
+          ? {
+            code: "code" in loadError ? String((loadError as { code?: unknown }).code || "") : "",
+            message: "message" in loadError ? String((loadError as { message?: unknown }).message || "") : "",
+          }
+          : { code: "", message: String(loadError || "") };
+        console.error("PrescriptionStudio schedule load failed", safeError);
+        if (!active) return;
         setScheduleCycles([]);
         setSelectedCycleId("");
-        setScheduleLoading(false);
-        return;
+        setScheduleLoadError("Não foi possível carregar a vigência persistida. Tente novamente antes de prescrever.");
+      } finally {
+        if (active) setScheduleLoading(false);
       }
-      const { data, error: scheduleError } = await db.rpc("sync_prescription_cycles", {
-        _student_id: studentId,
-        _start_date: null,
-      });
-      if (!active) return;
-      let rows: PrescriptionScheduleCycle[] = [];
-      if (scheduleError) {
-        const { data: fallback } = await db.from("training_cycles")
-          .select("id, enrollment_id, cycle_number, start_date, end_date, status")
-          .eq("enrollment_id", currentEnrollment.id)
-          .order("cycle_number");
-        rows = (fallback || []).map((cycle: any) => ({ ...cycle, has_workouts: false, has_bundle: false }));
-      } else {
-        rows = ((data || []) as PrescriptionScheduleCycle[])
-          .filter((cycle) => cycle.enrollment_id === currentEnrollment.id && cycle.status !== "superseded");
-      }
-      rows = selectSequentialScheduleCycles(rows);
-      setScheduleCycles(rows);
-      const preferred = selectDefaultPrescriptionScheduleCycle(rows);
-      setSelectedCycleId(preferred?.id || "");
-      setScheduleLoading(false);
     })();
     return () => { active = false; };
-  }, [studentId]);
+  }, [studentId, companyId]);
 
   const filteredStudents = useMemo(() => {
     const q = studentSearch.trim().toLowerCase();
@@ -1698,9 +1759,15 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                   <div className="flex min-h-16 items-center justify-center gap-2 text-sm text-slate-500">
                     <Loader2 className="h-4 w-4 animate-spin" /> Carregando vigência
                   </div>
+                ) : scheduleLoadError ? (
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                    {scheduleLoadError}
+                  </div>
                 ) : scheduleCycles.length === 0 ? (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                    O aluno precisa de uma matrícula vigente para agendar prescrições.
+                    {hasCurrentEnrollment
+                      ? "A matrícula vigente ainda não possui ciclos persistidos. Ajuste a vigência no perfil do aluno antes de prescrever."
+                      : "O aluno precisa de uma matrícula vigente para agendar prescrições."}
                   </div>
                 ) : (
                   <>
@@ -1854,7 +1921,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                 )}
 
                 <Button className="w-full mt-4 bg-[#1B2B4A] hover:bg-[#1B2B4A]/90"
-                  onClick={generate} disabled={generating || scheduleLoading || Boolean(anamneseGenerationBlockReason) || modalities.size === 0 || scheduleTargets.length === 0}>
+                  onClick={generate} disabled={generating || scheduleLoading || Boolean(scheduleLoadError) || Boolean(anamneseGenerationBlockReason) || modalities.size === 0 || scheduleTargets.length === 0}>
                   {generating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {scheduleProgress ? `Gerando ${scheduleProgress.label.toLowerCase()} (${scheduleProgress.current}/${scheduleProgress.total})` : "Gerando"}</>
                     : generationButtonLabel}
                 </Button>

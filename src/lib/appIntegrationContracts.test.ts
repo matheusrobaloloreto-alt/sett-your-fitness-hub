@@ -74,6 +74,26 @@ describe("SETT integration contracts", () => {
     expect(studio).not.toMatch(/from\("training_cycles"\)[\s\S]{0,160}\.update\(/);
   });
 
+  it("loads integrated prescription schedule read-only from persisted cycles", () => {
+    const studio = source("src/pages/admin/PrescriptionStudio.tsx");
+    expect(studio).not.toContain('rpc("sync_prescription_cycles"');
+    expect(studio).toContain('.from("enrollments")');
+    expect(studio).toContain('.from("training_cycles")');
+    expect(studio).toContain('.from("workouts")');
+    expect(studio).toContain('.from("prescription_bundles")');
+    expect(studio).toContain('.is("superseded_at", null)');
+    expect(studio).toContain('.in("status", ["active", "scheduled"])');
+    expect(studio).toContain('workoutQuery = workoutQuery.eq("company_id", companyId)');
+    expect(studio).toContain('bundleQuery = bundleQuery.eq("company_id", companyId)');
+    expect(studio).toContain("filterMaterializedWorkouts(workoutRows || [])");
+    expect(studio).toContain("has_workouts: workoutCycleIds.has(cycle.id)");
+    expect(studio).toContain("has_bundle: bundleCycleIds.has(cycle.id)");
+    expect(studio).toContain("setScheduleCycles([])");
+    expect(studio).toContain("Boolean(scheduleLoadError)");
+    expect(studio).toContain("A matrícula vigente ainda não possui ciclos persistidos");
+    expect(studio).toContain("PrescriptionStudio schedule load failed");
+  });
+
   it("clears Studio anamnesis on student changes and separates loading, error, and unanswered states", () => {
     const studio = source("src/pages/admin/PrescriptionStudio.tsx");
     expect(studio).toContain("const [anamneseLoading, setAnamneseLoading]");
