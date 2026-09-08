@@ -74,7 +74,7 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetContent
               side="right"
-              className="flex h-dvh w-full max-w-none flex-col gap-0 border-l p-0 sm:w-[min(96vw,1100px)]"
+              className="flex h-dvh !w-full !max-w-none flex-col gap-0 border-l p-0 sm:!w-[min(96vw,1100px)] sm:!max-w-none"
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>Conversas do WhatsApp</SheetTitle>

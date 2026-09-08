@@ -34,4 +34,10 @@ describe("persistent WhatsApp panel requests", () => {
     expect(chatSource).toContain("setPendingNavigationRequest(navigationState)");
     expect(chatSource).toContain("resolveWhatsAppChatRequest(chats, pendingNavigationRequest)");
   });
+
+  it("overrides the compact sheet width so the list and active conversation remain visible", () => {
+    const panelSource = readFileSync("src/components/WhatsAppChatPanel.tsx", "utf8");
+    expect(panelSource).toContain("!w-full !max-w-none");
+    expect(panelSource).toContain("sm:!w-[min(96vw,1100px)] sm:!max-w-none");
+  });
 });
