@@ -44,6 +44,7 @@ export type WorkoutTemplateDraftMode = "replace" | "append";
 
 export type WorkoutTemplateDraftValidationCode =
   | "cross_tenant_template"
+  | "missing_template_company"
   | "empty_template"
   | "malformed_workout"
   | "empty_workout"
@@ -84,7 +85,12 @@ export function validateWorkoutTemplateForDraft(args: {
   const { template, currentCompanyId, visibleExerciseIds } = args;
   const issues: WorkoutTemplateDraftValidationIssue[] = [];
 
-  if (template.company_id && currentCompanyId && template.company_id !== currentCompanyId) {
+  if (!template.company_id) {
+    issues.push({
+      code: "missing_template_company",
+      message: "Este treino da biblioteca não possui empresa vinculada.",
+    });
+  } else if (!currentCompanyId || template.company_id !== currentCompanyId) {
     issues.push({
       code: "cross_tenant_template",
       message: "Este treino pertence a outra empresa.",

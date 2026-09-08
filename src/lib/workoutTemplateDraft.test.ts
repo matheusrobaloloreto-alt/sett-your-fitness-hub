@@ -110,16 +110,22 @@ describe("workout template draft import", () => {
     expect(result.workouts[1].id).toBeUndefined();
   });
 
-  it("accepts global templates and blocks cross-tenant templates", () => {
+  it("requires a tenant-scoped template and blocks cross-tenant templates", () => {
     expect(validateWorkoutTemplateForDraft({
       template: { ...template, company_id: null },
       currentCompanyId: "company-1",
       visibleExerciseIds: visible,
-    })).toHaveLength(0);
+    }).map((issue) => issue.code)).toContain("missing_template_company");
 
     expect(validateWorkoutTemplateForDraft({
       template: { ...template, company_id: "other-company" },
       currentCompanyId: "company-1",
+      visibleExerciseIds: visible,
+    }).map((issue) => issue.code)).toContain("cross_tenant_template");
+
+    expect(validateWorkoutTemplateForDraft({
+      template,
+      currentCompanyId: null,
       visibleExerciseIds: visible,
     }).map((issue) => issue.code)).toContain("cross_tenant_template");
   });

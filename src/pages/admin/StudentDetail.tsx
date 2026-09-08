@@ -141,6 +141,7 @@ interface StudentWorkoutRow {
   sort_order: number | null;
   superseded_at?: string | null;
   superseded_reason?: string | null;
+  student_profile_archive_event_id?: string | null;
 }
 
 interface WorkoutArchiveAction {
@@ -547,7 +548,12 @@ export default function StudentDetail() {
     const [activeWorkoutResult, archivedWorkoutResult] = cycleIds.length > 0
       ? await Promise.all([
         supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").is("superseded_at", null).in("cycle_id", cycleIds),
-        supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order, superseded_at, superseded_reason").not("superseded_at", "is", null).in("cycle_id", cycleIds),
+        supabase
+          .from("workouts")
+          .select("id, cycle_id, title, name, exercises, sort_order, superseded_at, superseded_reason, student_profile_archive_event_id")
+          .not("superseded_at", "is", null)
+          .not("student_profile_archive_event_id", "is", null)
+          .in("cycle_id", cycleIds),
       ])
       : [{ data: [] as StudentWorkoutRow[] }, { data: [] as StudentWorkoutRow[] }];
     const workouts = (activeWorkoutResult.data || []) as StudentWorkoutRow[];

@@ -83,7 +83,7 @@ interface Workout {
 
 interface WorkoutTemplatePickerItem {
   id: string;
-  company_id: string | null;
+  company_id: string;
   name: string;
   description: string | null;
   level: string | null;
@@ -465,16 +465,18 @@ export default function WorkoutBuilder() {
   const loadWorkoutTemplates = async () => {
     setTemplatePickerLoading(true);
     try {
-      let query = (supabase as any)
+      if (!templateCompanyId) {
+        setWorkoutTemplates([]);
+        setSelectedTemplateId(null);
+        return;
+      }
+
+      const query = (supabase as any)
         .from("workout_templates")
         .select("id, company_id, name, description, level, focus, workouts, updated_at")
+        .eq("company_id", templateCompanyId)
         .order("updated_at", { ascending: false })
         .limit(200);
-      if (templateCompanyId) {
-        query = query.or(`company_id.eq.${templateCompanyId},company_id.is.null`);
-      } else {
-        query = query.is("company_id", null);
-      }
       const { data, error } = await query;
       if (error) throw error;
       const templates = (data || []) as WorkoutTemplatePickerItem[];
@@ -1786,7 +1788,7 @@ export default function WorkoutBuilder() {
               <Library className="h-5 w-5" />Usar treino da biblioteca
             </DialogTitle>
             <DialogDescription>
-              Escolha um template da empresa ou global. Ele vira rascunho editável aqui; o original fica imutável e nada é salvo até Salvar Tudo.
+              Escolha um template da empresa. Ele vira rascunho editável aqui; o original fica imutável e nada é salvo até Salvar Tudo.
             </DialogDescription>
           </DialogHeader>
 
@@ -1828,8 +1830,8 @@ export default function WorkoutBuilder() {
                         >
                           <div className="flex items-start justify-between gap-2">
                             <p className="line-clamp-2 text-sm font-medium text-foreground">{template.name}</p>
-                            <Badge variant={template.company_id ? "outline" : "secondary"} className="shrink-0 text-[10px]">
-                              {template.company_id ? "Empresa" : "Global"}
+                            <Badge variant="outline" className="shrink-0 text-[10px]">
+                              Empresa
                             </Badge>
                           </div>
                           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1861,8 +1863,8 @@ export default function WorkoutBuilder() {
                           <p className="mt-1 text-sm text-muted-foreground">{selectedTemplate.description}</p>
                         )}
                       </div>
-                      <Badge variant={selectedTemplate.company_id ? "outline" : "secondary"}>
-                        {selectedTemplate.company_id ? "Template da empresa" : "Template global"}
+                      <Badge variant="outline">
+                        Template da empresa
                       </Badge>
                     </div>
                   </div>

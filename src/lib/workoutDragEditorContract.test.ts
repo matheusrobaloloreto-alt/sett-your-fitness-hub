@@ -50,8 +50,13 @@ describe("workout drag/drop editor contracts", () => {
   it("imports workout-library templates as local drafts without materializing them immediately", () => {
     const builder = source("src/pages/admin/WorkoutBuilder.tsx");
     const draftHelper = source("src/lib/workoutTemplateDraft.ts");
+    const schema = source("supabase/migrations/20260815062126_remove_legacy_same_company_student_leaks.sql");
 
     expect(builder).toContain("Usar treino da biblioteca");
+    expect(builder).toContain(".eq(\"company_id\", templateCompanyId)");
+    expect(builder).not.toContain("company_id.is.null");
+    expect(builder).not.toContain("Template global");
+    expect(builder).not.toContain("ou global");
     expect(builder).toContain("buildWorkoutTemplateDraft");
     expect(builder).toContain("Substituir treino atual");
     expect(builder).toContain("Adicionar como novo treino");
@@ -59,6 +64,8 @@ describe("workout drag/drop editor contracts", () => {
     expect(builder).not.toContain("sendTemplateToStudent");
     expect(builder).not.toContain("apply_workout_template_to_current_cycle");
     expect(draftHelper).toContain("cross_tenant_template");
+    expect(draftHelper).toContain("missing_template_company");
     expect(draftHelper).toContain("exercise_not_visible");
+    expect(schema).toContain("company_id uuid not null references public.companies(id)");
   });
 });
