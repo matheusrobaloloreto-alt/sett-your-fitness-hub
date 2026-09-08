@@ -4,6 +4,7 @@ import {
   decideCancel,
   decideScheduleNow,
   INTERCYCLE_CONSENT_TEXT_VERSION,
+  mapIntercycleSubmitRpcFailure,
 } from "../_shared/intercycle-anamnesis.ts";
 
 const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
@@ -46,7 +47,7 @@ async function hash(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest)).map((part) => part.toString(16).padStart(2, "0")).join("");
 }
-async function claims(req: Request) {
+async function actorSession(req: Request) {
   const authorization = req.headers.get("Authorization") || "";
   if (!authorization.startsWith("Bearer ")) return null;
   const client = createClient(url, anon, { global: { headers: { Authorization: authorization } } });
@@ -54,7 +55,7 @@ async function claims(req: Request) {
   const verified = result.data?.claims || null;
   if (!verified?.sub) return null;
   if (typeof verified.exp === "number" && verified.exp * 1000 <= Date.now()) return null;
-  return verified;
+  return { claims: verified, client };
 }
 
 async function businessDate() {
@@ -74,7 +75,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const action = String(body.action || "");
-    if (action === "context" || action === "submit") {
+    if (action === "context") {
       const rawToken = String(body.token || "").trim();
       if (!/^[a-f0-9]{64}$/i.test(rawToken)) throw new HttpError(404, "Link inválido.");
       const inviteResult = await admin.from("intercycle_anamnesis_invites")
@@ -88,45 +89,51 @@ Deno.serve(async (req) => {
       if (deliveryStatus === "cancelled" || deliveryStatus === "responded") throw new HttpError(410, "Este link não está mais disponível.");
       const student = Array.isArray(invite.students) ? invite.students[0] : invite.students;
       if (action === "context") return new Response(JSON.stringify({ student: { full_name: student?.full_name || "" }, cycle_id: invite.training_cycle_id }), { headers });
+    }
+    if (action === "submit") {
+      const rawToken = String(body.token || "").trim();
+      if (!/^[a-f0-9]{64}$/i.test(rawToken)) throw new HttpError(404, "Link inválido.");
       if (body.sensitive_consent !== true) throw new HttpError(400, "Confirme o consentimento para usar dados sensíveis de treino e dor nesta atualização.");
       const eva = body.pain_eva == null || body.pain_eva === "" ? null : Number(body.pain_eva);
       const painPresent = body.pain_present === true;
       if (!['better','same','worse','not_completed'].includes(String(body.prescription_evaluation))) throw new HttpError(400, "Avalie a última prescrição.");
       if (typeof body.goals_continue !== "boolean" || typeof body.availability_changed !== "boolean") throw new HttpError(400, "Complete as atualizações solicitadas.");
       if (painPresent && (!Number.isInteger(eva) || eva! < 0 || eva! > 10 || !text(body.pain_location, 200))) throw new HttpError(400, "Informe local e intensidade do desconforto.");
-      const now = new Date().toISOString();
-      const answer = await admin.from("intercycle_anamneses").insert({
-        company_id: invite.company_id, student_id: invite.student_id, enrollment_id: invite.enrollment_id,
-        training_cycle_id: invite.training_cycle_id, delivery_id: invite.delivery_id,
-        prescription_evaluation: body.prescription_evaluation, goals_continue: body.goals_continue,
-        new_goals: body.goals_continue ? null : text(body.new_goals), availability_changed: body.availability_changed,
-        available_days: body.availability_changed && Array.isArray(body.available_days) ? body.available_days.map((v: unknown) => text(v, 40)).filter(Boolean) : null,
-        session_duration_minutes: body.availability_changed && body.session_duration_minutes ? Number(body.session_duration_minutes) : null,
-        training_location: body.availability_changed ? text(body.training_location, 200) : null,
-        available_equipment: body.availability_changed ? text(body.available_equipment, 500) : null,
-        pain_present: painPresent, pain_location: painPresent ? text(body.pain_location, 200) : null,
-        pain_eva: painPresent ? eva : null, pain_started_at: painPresent ? text(body.pain_started_at, 160) : null,
-        pain_movement: painPresent ? text(body.pain_movement, 300) : null,
-        additional_information: text(body.additional_information, 2000),
-        sensitive_consent: true,
-        consent_text_version: INTERCYCLE_CONSENT_TEXT_VERSION,
-        consented_at: now,
-      }).select("id").maybeSingle();
-      if (answer.error) throw new HttpError(answer.error.code === "23505" ? 409 : 400, "Esta atualização já foi registrada ou não pôde ser salva.");
-      if (!answer.data) throw new HttpError(409, "Esta atualização não foi confirmada pelo banco.");
-      const consumed = await admin.from("intercycle_anamnesis_invites").update({ consumed_at: now }).eq("id", invite.id).is("consumed_at", null).select("id").maybeSingle();
-      if (consumed.error || !consumed.data) throw new HttpError(409, "Esta atualização já foi consumida.");
-      const responded = await admin.from("intercycle_anamnesis_deliveries").update({ status: "responded", responded_at: now, next_attempt_at: null, updated_at: now }).eq("id", invite.delivery_id).in("status", ["sent", "sending"]).select("id").maybeSingle();
-      if (responded.error || !responded.data) throw new HttpError(409, "Não foi possível concluir esta atualização.");
+      const submitted = await admin.rpc("submit_intercycle_anamnesis", {
+        _token_sha256: await hash(rawToken),
+        _prescription_evaluation: String(body.prescription_evaluation),
+        _goals_continue: body.goals_continue,
+        _new_goals: body.goals_continue ? null : text(body.new_goals),
+        _availability_changed: body.availability_changed,
+        _available_days: body.availability_changed && Array.isArray(body.available_days) ? body.available_days.map((v: unknown) => text(v, 40)).filter(Boolean) : null,
+        _session_duration_minutes: body.availability_changed && body.session_duration_minutes ? Number(body.session_duration_minutes) : null,
+        _training_location: body.availability_changed ? text(body.training_location, 200) : null,
+        _available_equipment: body.availability_changed ? text(body.available_equipment, 500) : null,
+        _pain_present: painPresent,
+        _pain_location: painPresent ? text(body.pain_location, 200) : null,
+        _pain_eva: painPresent ? eva : null,
+        _pain_started_at: painPresent ? text(body.pain_started_at, 160) : null,
+        _pain_movement: painPresent ? text(body.pain_movement, 300) : null,
+        _additional_information: text(body.additional_information, 2000),
+        _sensitive_consent: true,
+        _consent_text_version: INTERCYCLE_CONSENT_TEXT_VERSION,
+      });
+      if (submitted.error || !submitted.data) {
+        const failure = mapIntercycleSubmitRpcFailure(submitted.error?.message);
+        throw new HttpError(failure.status, failure.message);
+      }
       return new Response(JSON.stringify({ ok: true }), { headers });
     }
 
-    const actor = await claims(req);
+    const actor = await actorSession(req);
     if (!actor) throw new HttpError(401, "Autenticação necessária.");
     const studentId = String(body.student_id || "");
     const companyId = String(body.company_id || "");
     if (!isUuid(studentId) || !isUuid(companyId)) throw new HttpError(400, "Aluno ou empresa inválidos.");
-    const tenant = await assertTenantAccess(admin, actor, { companyId, studentId, requireStaff: true });
+    const tenant = await assertTenantAccess(admin, actor.claims, { companyId, studentId, requireStaff: true });
+    const canManage = await actor.client.rpc("can_manage_staff_student", { _company_id: tenant.companyId, _student_id: studentId });
+    if (canManage.error) throw new HttpError(503, "Não foi possível validar permissão sobre este aluno.");
+    if (canManage.data !== true) throw new HttpError(403, "Sem permissão para gerenciar este aluno.");
     if (action === "opt-in") {
       const enabled = body.enabled === true;
       const result = await admin.from("students").update({ intercycle_anamnesis_enabled: enabled }).eq("id", studentId).eq("company_id", tenant.companyId);

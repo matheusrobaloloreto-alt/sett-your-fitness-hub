@@ -11,6 +11,8 @@ describe("SETT-CYCLE-UPDATE-01 contracts", () => {
     expect(migration).toContain("grant select on public.intercycle_anamnesis_deliveries");
     expect(migration).not.toContain("grant select, insert, update on public.intercycle_anamnesis_deliveries");
     expect(migration).not.toContain(" for all to authenticated");
+    expect(migration).toContain("public.can_manage_staff_student(company_id, student_id)");
+    expect(migration).not.toContain("using (public.is_company_staff(auth.uid(), company_id))");
     expect(migration).toContain("intercycle answers company staff read");
     expect(migration).toContain("intercycle answers student read own");
     expect(migration).toContain("assert_intercycle_delivery_scope");
@@ -44,12 +46,31 @@ describe("SETT-CYCLE-UPDATE-01 contracts", () => {
     expect(dispatcher).toContain("reason: \"provider_not_configured\", intercycle");
   });
   it("handles cancellation, reschedule, token replay, expiry, and explicit sensitive-data consent", () => {
+    const edge = readFileSync(resolve(process.cwd(), "supabase/functions/intercycle-anamnesis/index.ts"), "utf8");
     expect(migration).toContain("reconcile_intercycle_delivery_for_cycle_change");
     expect(migration).toContain("cycle_rescheduled");
     expect(migration).toContain("cycle_cancelled_or_rescoped");
     expect(migration).toContain("for update skip locked");
+    expect(migration).toContain("create or replace function public.submit_intercycle_anamnesis");
+    expect(migration).toContain("grant execute on function public.submit_intercycle_anamnesis");
+    expect(migration).toContain("to service_role");
+    expect(migration).toContain("from public, anon, authenticated");
+    expect(edge).toContain("rpc(\"submit_intercycle_anamnesis\"");
+    expect(edge).not.toContain(".from(\"intercycle_anamneses\").insert");
     expect(dispatcher).toContain("onConflict: \"delivery_id\"");
     expect(motor).toContain("typeof data.claims.exp === \"number\"");
-    expect(readFileSync(resolve(process.cwd(), "supabase/functions/intercycle-anamnesis/index.ts"), "utf8")).toContain("sensitive_consent");
+    expect(edge).toContain("sensitive_consent");
+  });
+  it("makes public submit atomic under replay/concurrency/rollback races", () => {
+    const submitFn = migration.slice(migration.indexOf("create or replace function public.submit_intercycle_anamnesis"));
+    expect(submitFn).toMatch(/from public\.intercycle_anamnesis_invites[\s\S]*where token_sha256 = _token_sha256[\s\S]*for update;/);
+    expect(submitFn).toMatch(/from public\.training_cycles[\s\S]*for update;/);
+    expect(submitFn).toMatch(/from public\.intercycle_anamnesis_deliveries[\s\S]*for update;/);
+    expect(submitFn).toContain("intercycle_submit_link_replayed");
+    expect(submitFn).toContain("intercycle_submit_response_duplicate");
+    expect(submitFn).toContain("intercycle_submit_delivery_unavailable");
+    expect(submitFn.indexOf("for update;")).toBeLessThan(submitFn.indexOf("insert into public.intercycle_anamneses"));
+    expect(submitFn.indexOf("insert into public.intercycle_anamneses")).toBeLessThan(submitFn.indexOf("set consumed_at = now()"));
+    expect(submitFn.indexOf("set consumed_at = now()")).toBeLessThan(submitFn.indexOf("set status = 'responded'"));
   });
 });

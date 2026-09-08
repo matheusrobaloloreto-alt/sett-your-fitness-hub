@@ -5,6 +5,7 @@ import {
   isIntercyclePainHandoffRequired,
   isPersistedWaiverValidForGate,
   isStuckSending,
+  mapIntercycleSubmitRpcFailure,
 } from "./intercycle-anamnesis.ts";
 
 Deno.test("schedule-now reopens a cancelled delivery with an explicit audit code", () => {
@@ -70,4 +71,15 @@ Deno.test("persisted waiver is valid only for the exact tenant, student, enrollm
 
 Deno.test("consent text version is stable and not empty", () => {
   if (!/^intercycle-sensitive-v\d+$/.test(INTERCYCLE_CONSENT_TEXT_VERSION)) throw new Error("unexpected consent version");
+});
+
+Deno.test("atomic submit RPC failures are mapped to sanitized public errors", () => {
+  const expired = mapIntercycleSubmitRpcFailure("intercycle_submit_link_expired");
+  if (expired.status !== 410 || expired.message !== "Este link não está mais disponível.") throw new Error("expiry should be sanitized");
+
+  const replay = mapIntercycleSubmitRpcFailure("duplicate key value violates unique constraint; intercycle_submit_response_duplicate");
+  if (replay.status !== 409 || replay.message !== "Esta atualização já foi registrada.") throw new Error("replay should be sanitized");
+
+  const internal = mapIntercycleSubmitRpcFailure("relation students leaked implementation detail");
+  if (internal.status !== 400 || internal.message.includes("relation")) throw new Error("raw provider/db detail leaked");
 });

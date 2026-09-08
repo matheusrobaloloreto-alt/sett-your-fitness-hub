@@ -38,6 +38,11 @@ export type PersistedWaiverSummary = {
   waived_at?: unknown;
 };
 
+export type IntercycleSubmitFailure = {
+  status: 400 | 409 | 410;
+  message: string;
+};
+
 export function parseIntercycleDeliveryStatus(value: unknown): IntercycleDeliveryStatus | null {
   return INTERCYCLE_DELIVERY_STATUSES.includes(value as IntercycleDeliveryStatus)
     ? value as IntercycleDeliveryStatus
@@ -95,4 +100,30 @@ export function isPersistedWaiverValidForGate(
       typeof waiver.reason === "string" &&
       waiver.reason.trim().length >= 3,
   );
+}
+
+export function mapIntercycleSubmitRpcFailure(message: unknown): IntercycleSubmitFailure {
+  const code = String(message ?? "");
+  if (
+    code.includes("intercycle_submit_link_invalid") ||
+    code.includes("intercycle_submit_link_expired") ||
+    code.includes("intercycle_submit_delivery_unavailable") ||
+    code.includes("intercycle_submit_scope_invalid")
+  ) {
+    return { status: 410, message: "Este link não está mais disponível." };
+  }
+  if (
+    code.includes("intercycle_submit_link_replayed") ||
+    code.includes("intercycle_submit_response_duplicate")
+  ) {
+    return { status: 409, message: "Esta atualização já foi registrada." };
+  }
+  if (
+    code.includes("intercycle_submit_consent_required") ||
+    code.includes("intercycle_submit_payload_invalid") ||
+    code.includes("intercycle_submit_pain_required")
+  ) {
+    return { status: 400, message: "Revise os campos obrigatórios desta atualização." };
+  }
+  return { status: 400, message: "Não foi possível registrar esta atualização." };
 }
