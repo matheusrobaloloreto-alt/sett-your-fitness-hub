@@ -3,12 +3,15 @@ import {
   daysUntilCycleEnd,
   collapseOverlappingCyclesForDisplay,
   isCycleCurrent,
+  isPrescriptionHistoryBeforeTarget,
   longitudinalPhase,
   scheduleSpanWeeks,
   selectCurrentCyclePerEnrollment,
+  selectDefaultPrescriptionScheduleCycle,
   selectPreferredVisibleCycle,
   selectPrescriptionEnrollment,
   selectPrescriptionTargets,
+  selectPreviousPrescriptionCycle,
   selectSequentialScheduleCycles,
   selectCurrentPlanCycleWindow,
   selectCyclesForProgramHistory,
@@ -25,6 +28,18 @@ const cycle = (number: number, start: string, end: string, extra: Partial<Prescr
   status: number === 1 ? "active" : "pending",
   ...extra,
 });
+
+const liveStudioCycles = () => [
+  cycle(1, "2026-02-06", "2026-03-19", { status: "completed", has_workouts: false }),
+  cycle(2, "2026-03-20", "2026-04-30", { status: "completed", has_workouts: false }),
+  cycle(3, "2026-05-01", "2026-06-11", { status: "completed", has_workouts: false }),
+  cycle(4, "2026-06-12", "2026-07-23", { status: "completed", has_workouts: false }),
+  cycle(9, "2026-07-23", "2026-09-03", { status: "completed", has_workouts: true }),
+  cycle(5, "2026-07-24", "2026-09-03", { status: "completed", has_workouts: true }),
+  cycle(11, "2026-09-03", "2026-10-29", { status: "active", has_workouts: true }),
+  cycle(10, "2026-10-29", "2026-12-10", { status: "pending", has_workouts: true, has_bundle: true }),
+  cycle(12, "2026-12-10", "2027-01-21", { status: "pending", has_workouts: true }),
+];
 
 describe("prescriptionSchedule", () => {
   const today = new Date(2026, 6, 18);
@@ -133,6 +148,35 @@ describe("prescriptionSchedule", () => {
     const selected = selectSequentialScheduleCycles(corrupted);
     expect(selected.map((item) => item.cycle_number)).toEqual([1, 2, 3, 6]);
     expect(scheduleSpanWeeks(selected)).toBe(20);
+  });
+
+  it("mantém o ciclo vigente importado/manual mesmo quando o número é maior que ciclos futuros", () => {
+    const selected = selectSequentialScheduleCycles(liveStudioCycles());
+
+    expect(selected.map((item) => item.cycle_number)).toEqual([1, 2, 3, 4, 9, 11, 10, 12]);
+    expect(selectDefaultPrescriptionScheduleCycle(selected, new Date(2026, 8, 3))?.cycle_number).toBe(11);
+    expect(selectDefaultPrescriptionScheduleCycle(selected, new Date(2026, 8, 8))?.cycle_number).toBe(11);
+    expect(selectDefaultPrescriptionScheduleCycle(selected, new Date(2026, 9, 29))?.cycle_number).toBe(11);
+    expect(selectDefaultPrescriptionScheduleCycle(selected, new Date(2026, 9, 30))?.cycle_number).toBe(10);
+  });
+
+  it("usa cronologia, não numeração, para histórico e ciclos restantes do Studio integrado", () => {
+    const selected = selectSequentialScheduleCycles(liveStudioCycles());
+    const currentCycle = selected.find((item) => item.cycle_number === 11);
+    expect(currentCycle).toBeDefined();
+    expect(selectPreviousPrescriptionCycle(selected, currentCycle!)?.cycle_number).toBe(9);
+
+    expect(isPrescriptionHistoryBeforeTarget({ training_cycle_id: "cycle-9" }, currentCycle!, selected)).toBe(true);
+    expect(isPrescriptionHistoryBeforeTarget({ training_cycle_id: "cycle-10" }, currentCycle!, selected)).toBe(false);
+    expect(isPrescriptionHistoryBeforeTarget({ training_cycle_id: "cycle-missing" }, currentCycle!, selected)).toBe(false);
+    expect(isPrescriptionHistoryBeforeTarget({}, currentCycle!, selected)).toBe(false);
+
+    expect(selectPrescriptionTargets({
+      cycles: selected,
+      mode: "remaining",
+      today: new Date(2026, 8, 8),
+      includeAlreadyPrepared: true,
+    }).map((item) => item.cycle_number)).toEqual([11, 10, 12]);
   });
 
   it("colapsa duplicatas MFIT quase idênticas apenas na visualização do perfil", () => {

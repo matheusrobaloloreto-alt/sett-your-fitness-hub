@@ -18,6 +18,10 @@ export interface PrescriptionEnrollment {
   created_at?: string | null;
 }
 
+export interface PrescriptionHistoryRow {
+  training_cycle_id?: string | null;
+}
+
 export type LongitudinalPhase = "base" | "acumulacao" | "intensificacao" | "consolidacao";
 
 const DAY_MS = 86_400_000;
@@ -34,6 +38,14 @@ function utcDay(value: string | Date): number {
   }
   const [year, month, day] = value.slice(0, 10).split("-").map(Number);
   return Date.UTC(year, Math.max(0, month - 1), day);
+}
+
+function sortChronologically<T extends Pick<PrescriptionScheduleCycle, "start_date" | "cycle_number">>(
+  left: T,
+  right: T,
+): number {
+  return utcDay(left.start_date) - utcDay(right.start_date)
+    || left.cycle_number - right.cycle_number;
 }
 
 export function isCycleCurrent(
@@ -242,26 +254,77 @@ export function selectPrescriptionEnrollment<T extends PrescriptionEnrollment>(
 
 /**
  * Ciclos legados podem ter sido recriados com números maiores e datas
- * sobrepostas. Mantém a sequência numerada mais antiga e ignora qualquer bloco
- * que recomece antes do término do bloco anterior.
+ * sobrepostas. Mantém a ordem cronológica materializada e ignora qualquer
+ * bloco que recomece antes do término do bloco anterior.
  */
 export function selectSequentialScheduleCycles(
   cycles: PrescriptionScheduleCycle[],
 ): PrescriptionScheduleCycle[] {
-  const ordered = [...cycles].filter((cycle) => !isSupersededCycle(cycle)).sort((a, b) => {
-    if (a.cycle_number !== b.cycle_number) return a.cycle_number - b.cycle_number;
-    return utcDay(a.start_date) - utcDay(b.start_date);
-  });
+  const ordered = [...cycles].filter((cycle) => !isSupersededCycle(cycle)).sort(sortChronologically);
   const selected: PrescriptionScheduleCycle[] = [];
 
   for (const cycle of ordered) {
     const previous = selected[selected.length - 1];
-    if (!previous || utcDay(cycle.start_date) > utcDay(previous.end_date)) {
+    if (!previous || utcDay(cycle.start_date) >= utcDay(previous.end_date)) {
       selected.push(cycle);
     }
   }
 
   return selected;
+}
+
+export function selectPreviousPrescriptionCycle(
+  cycles: PrescriptionScheduleCycle[],
+  target: PrescriptionScheduleCycle,
+): PrescriptionScheduleCycle | null {
+  const targetStart = utcDay(target.start_date);
+  const targetEnrollmentId = target.enrollment_id || "";
+
+  return [...cycles]
+    .filter((cycle) =>
+      !isSupersededCycle(cycle)
+      && cycle.id !== target.id
+      && (cycle.enrollment_id || "") === targetEnrollmentId
+      && utcDay(cycle.start_date) < targetStart
+    )
+    .sort((left, right) => utcDay(right.start_date) - utcDay(left.start_date)
+      || right.cycle_number - left.cycle_number)[0]
+    ?? null;
+}
+
+export function isPrescriptionHistoryBeforeTarget(
+  row: PrescriptionHistoryRow,
+  target: PrescriptionScheduleCycle,
+  cycles: PrescriptionScheduleCycle[],
+): boolean {
+  const linkedCycleId = row.training_cycle_id;
+  if (!linkedCycleId) return false;
+
+  const linkedCycle = cycles.find((cycle) => cycle.id === linkedCycleId && !isSupersededCycle(cycle));
+  if (!linkedCycle) return false;
+  if ((linkedCycle.enrollment_id || "") !== (target.enrollment_id || "")) return false;
+
+  return utcDay(linkedCycle.start_date) < utcDay(target.start_date);
+}
+
+export function selectDefaultPrescriptionScheduleCycle(
+  cycles: PrescriptionScheduleCycle[],
+  today = new Date(),
+): PrescriptionScheduleCycle | null {
+  const ordered = [...cycles]
+    .filter((cycle) => !isSupersededCycle(cycle))
+    .sort(sortChronologically);
+  const unprepared = (cycle: PrescriptionScheduleCycle) => !cycle.has_workouts && !cycle.has_bundle;
+  const currentVisible = selectPreferredVisibleCycle(
+    ordered.filter((cycle) => isCycleCurrent(cycle, today)),
+    today,
+  );
+
+  return currentVisible
+    || ordered.find((cycle) => isCycleFuture(cycle, today) && unprepared(cycle))
+    || selectPreferredVisibleCycle(ordered, today)
+    || ordered[0]
+    || null;
 }
 
 export function scheduleSpanWeeks(cycles: PrescriptionScheduleCycle[]): number {
@@ -290,7 +353,7 @@ export function selectPrescriptionTargets(args: {
   const today = args.today ?? new Date();
   const ordered = [...args.cycles]
     .filter((cycle) => !isSupersededCycle(cycle))
-    .sort((a, b) => a.cycle_number - b.cycle_number);
+    .sort(sortChronologically);
 
   if (args.mode === "single") {
     const selected = ordered.find((cycle) => cycle.id === args.selectedCycleId);

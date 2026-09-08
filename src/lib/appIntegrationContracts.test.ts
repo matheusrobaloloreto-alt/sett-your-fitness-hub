@@ -61,6 +61,19 @@ describe("SETT integration contracts", () => {
     expect(studio).toMatch(/anamnese[,:]/);
   });
 
+  it("keeps integrated generation bound to the selected persisted cycle without rewriting cycle dates", () => {
+    const studio = source("src/pages/admin/PrescriptionStudio.tsx");
+    expect(studio).toContain("selectDefaultPrescriptionScheduleCycle(rows)");
+    expect(studio).toContain("setSelectedCycleId(preferred?.id || \"\")");
+    expect(studio).toContain("selectPreviousPrescriptionCycle(scheduleCycles, cycle)");
+    expect(studio).toContain("isPrescriptionHistoryBeforeTarget(row, firstTarget, scheduleCycles)");
+    expect(studio).toContain("training_cycle_id: cycle.id");
+    expect(studio).toContain("targetCycleId: cycle.id");
+    expect(studio).toContain("start_date: cycle.start_date");
+    expect(studio).toContain("end_date: cycle.end_date");
+    expect(studio).not.toMatch(/from\("training_cycles"\)[\s\S]{0,160}\.update\(/);
+  });
+
   it("clears Studio anamnesis on student changes and separates loading, error, and unanswered states", () => {
     const studio = source("src/pages/admin/PrescriptionStudio.tsx");
     expect(studio).toContain("const [anamneseLoading, setAnamneseLoading]");

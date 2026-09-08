@@ -58,6 +58,9 @@ import {
   isCycleCurrent,
   longitudinalPhase,
   scheduleSpanWeeks,
+  isPrescriptionHistoryBeforeTarget,
+  selectDefaultPrescriptionScheduleCycle,
+  selectPreviousPrescriptionCycle,
   selectPrescriptionEnrollment,
   selectPrescriptionTargets,
   selectSequentialScheduleCycles,
@@ -411,10 +414,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
       }
       rows = selectSequentialScheduleCycles(rows);
       setScheduleCycles(rows);
-      const preferred = rows.find((cycle) => isCycleCurrent(cycle) && !cycle.has_workouts && !cycle.has_bundle)
-        || rows.find((cycle) => !cycle.has_workouts && !cycle.has_bundle && cycle.start_date >= businessDateYmd())
-        || rows.find((cycle) => isCycleCurrent(cycle))
-        || rows[0];
+      const preferred = selectDefaultPrescriptionScheduleCycle(rows);
       setSelectedCycleId(preferred?.id || "");
       setScheduleLoading(false);
     })();
@@ -554,7 +554,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   }
 
   async function loadPreviousPerformance(cycle: PrescriptionScheduleCycle) {
-    const previousCycle = scheduleCycles.find((item) => item.cycle_number === cycle.cycle_number - 1);
+    const previousCycle = selectPreviousPrescriptionCycle(scheduleCycles, cycle);
     if (!previousCycle) return null;
     const today = new Date();
     const previousStart = new Date(`${previousCycle.start_date}T12:00:00`);
@@ -617,7 +617,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
       db.from("nutrition_plans").select("id, plan_name, goal, target_calories, target_protein_g, target_carbs_g, target_fat_g, meals, sequence_number, training_cycle_id, created_at")
         .eq("student_id", studentId).order("created_at", { ascending: false }),
     ]);
-    const priorToFirst = (row: any) => row.sequence_number == null || Number(row.sequence_number) < firstTarget.cycle_number;
+    const priorToFirst = (row: any) => isPrescriptionHistoryBeforeTarget(row, firstTarget, scheduleCycles);
     let previousStrength: any = (strengthHistoryRes.data || []).find(priorToFirst) || null;
     const previousCardio: Record<string, any> = {};
     for (const row of runningHistoryRes.data || []) {
@@ -659,7 +659,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
         const assessmentCtx = assessmentContext;
         const integrationCtx = prescriptionIntegration;
         const orchestrationCtx = buildBnitoOrchestrationPlan(integrationCtx);
-        const previousCycle = scheduleCycles.find((item) => item.cycle_number === cycle.cycle_number - 1);
+        const previousCycle = selectPreviousPrescriptionCycle(scheduleCycles, cycle);
         const performanceCtx = previousCycle && preparedCycleIds.has(previousCycle.id)
           ? null
           : await loadPreviousPerformance(cycle);
