@@ -1,4 +1,4 @@
-# SETT/BN — relatório acumulado de execução em 2026-08-27 (atualizado em 2026-09-05)
+# SETT/BN — relatório acumulado de execução em 2026-08-27 (atualizado em 2026-09-08)
 
 ## Veredito
 
@@ -11,6 +11,14 @@ Em 05/09, o contrato de prontidão e a consulta agregada fecharam os três segme
 Ainda em 05/09, o erro de anamnese reportado foi separado do fluxo correto de primeiro contato. A captura mostrava `Finalizar Anamnese`, portanto o link aberto era o convite privado vinculado a um perfil existente; no pré-cadastro global o botão é `Enviar pré-cadastro` e a gravação cria um lead em `Interessados`, sem depender de `students`. O banco de produção confirmou a RPC privada, migration, permissões e vínculos íntegros; um canário sintético transacional da anamnese privada passou e foi integralmente revertido. Como o evento da captura já estava fora da janela de logs disponível, não foi inventada uma causa de validação específica. A interface passou a redirecionar `/anamnese`, `/cadastro` e `/inscricao` ao pré-cadastro canônico da BN, destacar o link global como primeira ação e isolar o convite privado sob aviso explícito; erros da Edge agora exibem a mensagem sanitizada real, em vez do genérico `non-2xx`. O QA independente também encontrou e fechou um risco multiempresa: a Edge não escolhe mais a primeira empresa ativa quando o slug é omitido, e os botões administrativos das duas superfícies permanecem bloqueados até o tenant/link ser resolvido.
 
 A auditoria complementar de 05/09 varreu todos os geradores e consumidores de links do fluxo. Ela encontrou duas sobras: o atalho da tela `Alunos` ainda podia cair em `/cadastro` quando a empresa não tinha slug, e o editor mantinha uma orientação antiga que descrevia a anamnese como sempre individual. O atalho agora falha fechado, mostra erro e não copia endereço sem tenant explícito; o texto diferencia o pré-cadastro global de primeiro contato do convite privado usado somente para atualizar alunos existentes. Os outros geradores já estavam corretos: `Interessados` e a gestão de anamnese aguardam o slug antes de habilitar ações; `PrescriptionStudio` e o convite por token continuam privados por finalidade. O deploy `6a9c49c9a3271027da04170a` publicou o commit `70a1f4c`; o smoke público pós-deploy confirmou `/anamnese` → `/cadastro/bn-performance-training` e a tela `PRÉ-CADASTRO`.
+
+## Fechamento operacional de 08/09/2026
+
+- **WhatsApp global:** o painel de conversas passou a abrir sobre qualquer página administrativa. O limite de largura herdado que ocultava a conversa foi removido; lista e mensagens permanecem visíveis lado a lado em desktop. Testes focados, TypeScript, build e QA visual autenticado foram aprovados.
+- **Perfil do aluno:** a área foi reorganizada em quatro abas principais. Prescrição, Prescrição Integrada, biblioteca de treinos, reordenação por arrastar blocos inteiros e arquivamento/reativação auditável de treino completo foram integrados ao fluxo do aluno. A restauração aceita somente arquivamentos manuais, sem ressuscitar revisões ou histórico MFIT.
+- **Anamnese interciclos:** criada com link público opaco, consentimento, expiração, consumo atômico, histórico no perfil, opt-in por aluno e agendamento no início da quinta semana. A resposta alimenta o contexto da próxima prescrição; dor acima do limite interrompe a automação. Migrações e funções de backend foram aplicadas no projeto canônico.
+- **Auditoria MFIT/alunos:** nenhuma exclusão em massa foi executada. Foram encontrados 17 vínculos acima da quantidade esperada de ciclos, 39 ciclos excedentes com dependências, 1 ciclo atual misto MFIT/nativo, 4 linhas em grupos de payload duplicado e 10 referências de exercício sem correspondência determinística. Como nenhum ciclo excedente estava vazio e seguro para remoção, os reparos permanecem bloqueados até reconciliação individual e rollback auditável.
+- **Motor de regras:** a revisão profunda foi deliberadamente adiada a pedido do Matheus. Ela é a próxima frente após o fechamento das entregas atuais; os bundles incompletos e as referências não determinísticas serão entradas obrigatórias dessa revisão.
 
 ## Lista acumulada
 
