@@ -48,14 +48,19 @@ describe("student profile program reorganization contract", () => {
     expect(sidebar).not.toContain('to={`${exercisePrefix}/studio`}');
   });
 
-  it("links embedded prescription panels to the current profile student while standalone routes keep the selector", () => {
+  it("keeps manual prescription on WorkoutBuilder and integrated prescription on PrescriptionStudio", () => {
     const dashboard = source("src/pages/admin/AdminDashboard.tsx");
 
     expect(dashboard).toContain('state: { studentId: m.student_id, tab: "prescricao" }');
     expect(dashboard).toContain("`/${routePrefix}/students/${m.student_id}`");
-    expect(studentDetail).toContain("EmbeddedUnifiedPrescriber");
     expect(studentDetail).toContain("EmbeddedPrescriptionStudio");
-    expect(studentDetail).toContain("embeddedStudentId={id}");
+    expect(studentDetail).not.toContain("EmbeddedUnifiedPrescriber");
+    expect(studentDetail).not.toContain("@/pages/admin/UnifiedPrescriber");
+    expect(studentDetail).toContain("ManualPrescriptionPanel");
+    expect(studentDetail).toContain("openManualPrescriptionBuilder");
+    expect(studentDetail).toContain("workoutBuilderUrl({ role, studentId: id, cycleId: targetCycle.id })");
+    expect(studentDetail).toContain("resolveManualPrescriptionTargetCycle");
+    expect(studentDetail).toContain("EmbeddedPrescriptionStudio embeddedStudentId={id}");
     expect(studentDetail).toContain("resolveStudentProgramHandoff");
     expect(studentDetail).toContain("activePrescriptionPanel === \"prescricao\"");
     expect(studentDetail).toContain("activePrescriptionPanel === \"integrada\"");

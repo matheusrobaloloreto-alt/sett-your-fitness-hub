@@ -19,6 +19,7 @@ import { StudentWorkoutFeedbackCard } from "@/components/admin/StudentWorkoutFee
 import { PlanVersionsCard } from "@/components/admin/PlanVersionsCard";
 import { AssessmentCompareCard } from "@/components/admin/AssessmentCompareCard";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
+import { ManualPrescriptionPanel } from "@/components/admin/ManualPrescriptionPanel";
 import { CollapsibleCard } from "@/components/admin/CollapsibleCard";
 import { StudentGoalsManager } from "@/components/admin/StudentGoalsManager";
 import { StudentTimeline } from "@/components/admin/StudentTimeline";
@@ -59,13 +60,13 @@ import { collapseOverlappingCyclesForDisplay, selectCurrentPlanCycleWindow, sele
 import { isInfluencerPlan, planOperationalRequirements } from "@/lib/influencerPlan";
 import { archiveWorkoutForStudent, buildWorkoutArchiveSuccessMessage, buildWorkoutRestoreSuccessMessage, restoreWorkoutForStudent } from "@/lib/workoutArchive";
 import { STUDENT_PROGRAM_PRIMARY_TABS, resolveStudentProgramHandoff, type StudentProgramPrimaryTabValue } from "@/lib/studentProgramSections";
+import { resolveManualPrescriptionTargetCycle, workoutBuilderUrl } from "@/lib/manualPrescriptionNavigation";
 // Heavy children loaded only when their tab is opened (chunk size win)
 const WorkoutAnalysis = lazy(() => import("@/components/trainer/WorkoutAnalysis").then(m => ({ default: m.WorkoutAnalysis })));
 const TrainerWeeklyBar = lazy(() => import("@/components/trainer/TrainerWeeklyBar").then(m => ({ default: m.TrainerWeeklyBar })));
 const StudentVolumePanel = lazy(() => import("@/components/trainer/StudentVolumePanel").then(m => ({ default: m.StudentVolumePanel })));
 const StudentBodyMap = lazy(() => import("@/components/body/StudentBodyMap").then(m => ({ default: m.StudentBodyMap })));
 const MuscleRadar = lazy(() => import("@/components/student/MuscleRadar").then(m => ({ default: m.MuscleRadar })));
-const EmbeddedUnifiedPrescriber = lazy(() => import("@/pages/admin/UnifiedPrescriber"));
 const EmbeddedPrescriptionStudio = lazy(() => import("@/pages/admin/PrescriptionStudio"));
 
 
@@ -296,6 +297,7 @@ export default function StudentDetail() {
   const [copiedLogin, setCopiedLogin] = useState(false);
   const [activeTab, setActiveTab] = useState<StudentProgramPrimaryTabValue>("overview");
   const [activePrescriptionPanel, setActivePrescriptionPanel] = useState<"prescricao" | "integrada">("prescricao");
+  const [manualPrescriptionCycleId, setManualPrescriptionCycleId] = useState("");
   const [workoutArchiveAction, setWorkoutArchiveAction] = useState<WorkoutArchiveAction | null>(null);
   const [workoutArchiveReason, setWorkoutArchiveReason] = useState("");
   const [archivingWorkout, setArchivingWorkout] = useState(false);
@@ -1065,6 +1067,44 @@ export default function StudentDetail() {
   const studentVisibleCycleForEnrollment = (enrollment: Enrollment) =>
     selectPreferredVisibleCycle(currentEnrollmentCycles(enrollment));
 
+  const manualPrescriptionEnrollment =
+    enrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal")
+    || enrollments[0]
+    || null;
+
+  const manualPrescriptionCycles = manualPrescriptionEnrollment
+    ? currentEnrollmentCycles(manualPrescriptionEnrollment)
+    : [];
+
+  const manualSelectedCycle =
+    manualPrescriptionCycles.find((cycle) => cycle.id === manualPrescriptionCycleId)
+    || (manualPrescriptionEnrollment ? studentVisibleCycleForEnrollment(manualPrescriptionEnrollment) : null)
+    || manualPrescriptionCycles[0]
+    || null;
+
+  const openManualPrescriptionBuilder = (cycle: TrainingCycle | null = manualSelectedCycle, enrollment: Enrollment | null = manualPrescriptionEnrollment) => {
+    if (!cycle || !enrollment || !id) {
+      toast({
+        title: "Nenhum ciclo disponível para prescrição manual",
+        description: "Crie ou revise a matrícula do aluno antes de abrir o builder.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const visibleCycle = studentVisibleCycleForEnrollment(enrollment);
+    const targetCycle = resolveManualPrescriptionTargetCycle(cycle, visibleCycle, businessDateYmd());
+
+    if (targetCycle.id !== cycle.id) {
+      toast({
+        title: "Abrindo o treino que o aluno vê",
+        description: `O ciclo ${cycle.cycle_number} é histórico ou não está selecionado no app do aluno.`,
+      });
+    }
+
+    navigate(workoutBuilderUrl({ role, studentId: id, cycleId: targetCycle.id }));
+  };
+
   const workoutDisplayTitle = (workout: Pick<StudentWorkoutRow, "title" | "name">) =>
     workout.title || (workout.name ? `Treino ${workout.name}` : "Treino");
 
@@ -1171,7 +1211,6 @@ export default function StudentDetail() {
         </Card>
       );
     }
-    const prefix = role === "master" ? "/admin" : role ? `/${role}` : "/admin";
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
@@ -1254,7 +1293,7 @@ export default function StudentDetail() {
                       size="sm"
                       variant={cycleWorkouts.length > 0 ? "outline" : "default"}
                       className="h-7 text-xs"
-                      onClick={() => navigate(`${prefix}/workout/${cycle.id}`)}
+                      onClick={() => openManualPrescriptionBuilder(cycle, activeEnroll)}
                     >
                       {cycleWorkouts.length > 0 ? (
                         <><Edit className="h-3.5 w-3.5 mr-1" />Editar</>
@@ -1750,14 +1789,19 @@ export default function StudentDetail() {
                     Prescrição Integrada
                   </Button>
                 </div>
-                <Suspense fallback={<TabFallback />}>
-                  {activePrescriptionPanel === "prescricao" && (
-                    <EmbeddedUnifiedPrescriber embeddedStudentId={id} />
-                  )}
-                  {activePrescriptionPanel === "integrada" && (
+                {activePrescriptionPanel === "prescricao" && (
+                  <ManualPrescriptionPanel
+                    cycles={manualPrescriptionCycles}
+                    selectedCycle={manualSelectedCycle}
+                    onCycleChange={setManualPrescriptionCycleId}
+                    onOpenCycle={openManualPrescriptionBuilder}
+                  />
+                )}
+                {activePrescriptionPanel === "integrada" && (
+                  <Suspense fallback={<TabFallback />}>
                     <EmbeddedPrescriptionStudio embeddedStudentId={id} />
-                  )}
-                </Suspense>
+                  </Suspense>
+                )}
               </CardContent>
             </Card>
 
@@ -1883,25 +1927,7 @@ export default function StudentDetail() {
                                           variant="outline"
                                           size="sm"
                                           className="h-5 text-[10px] px-2"
-                                          onClick={() => {
-                                            const basePath = role === "coordinator" ? "/coordinator" : role === "trainer" ? "/trainer" : "/admin";
-                                            const returnPath = `${basePath}/students/${id}`;
-                                            const visibleCycle = studentVisibleCycleForEnrollment(e);
-                                            if (
-                                              c.has_workout
-                                              && c.start_date <= businessDateYmd()
-                                              && visibleCycle
-                                              && visibleCycle.id !== c.id
-                                            ) {
-                                              toast({
-                                                title: "Abrindo o treino que o aluno vê",
-                                                description: `O ciclo ${c.cycle_number} é histórico ou não está selecionado no app do aluno.`,
-                                              });
-                                              navigate(`${basePath}/workout/${visibleCycle.id}?returnTo=${encodeURIComponent(returnPath)}`);
-                                              return;
-                                            }
-                                            navigate(`${basePath}/workout/${c.id}?returnTo=${encodeURIComponent(returnPath)}`);
-                                          }}
+                                          onClick={() => openManualPrescriptionBuilder(c, e)}
                                         >
                                           <Dumbbell className="h-3 w-3 mr-1" />
                                           {c.has_workout ? "Editar Treino" : "Prescrever"}
