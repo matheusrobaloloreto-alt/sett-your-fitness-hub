@@ -53,6 +53,7 @@ const MasterDashboard = lazy(() => import("./pages/master/MasterDashboard"));
 const CompaniesManager = lazy(() => import("./pages/master/CompaniesManager"));
 const MasterAds = lazy(() => import("./pages/master/MasterAds"));
 const MasterAccount = lazy(() => import("./pages/master/MasterAccount"));
+const MasterBnContent = lazy(() => import("./pages/master/MasterBnContent"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const PublicRegistration = lazy(() => import("./pages/PublicRegistration"));
 const PublicAnamnesis = lazy(() => import("./pages/PublicAnamnesis"));
@@ -205,6 +206,7 @@ const App = () => (
           <Route path="/master/companies" element={<ProtectedRoute allowedRoles={["master"]}><CompaniesManager /></ProtectedRoute>} />
           <Route path="/master/ads" element={<ProtectedRoute allowedRoles={["master"]}><MasterAds /></ProtectedRoute>} />
           <Route path="/master/account" element={<ProtectedRoute allowedRoles={["master"]}><MasterAccount /></ProtectedRoute>} />
+          <Route path="/master/bn-content" element={<ProtectedRoute allowedRoles={["master"]}><MasterBnContent /></ProtectedRoute>} />
           <Route path="/master/exercises" element={<ProtectedRoute allowedRoles={["master"]}><ExerciseLibrary /></ProtectedRoute>} />
           <Route path="/master/biblioteca" element={<ProtectedRoute allowedRoles={["master"]}><Biblioteca /></ProtectedRoute>} />
 

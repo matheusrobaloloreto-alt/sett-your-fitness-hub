@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Building2, Users, DollarSign, Activity, HardDrive, Info, LogOut } from "lucide-react";
+import { Building2, Users, DollarSign, Activity, HardDrive, Info, LogOut, Images, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
 import { useMaster } from "@/contexts/MasterContext";
@@ -139,6 +139,25 @@ export default function MasterDashboard() {
             </CardContent>
           </Card>
         )}
+
+        <Card className="overflow-hidden border-primary/20 bg-gradient-to-r from-primary/[0.06] to-transparent">
+          <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                <Images className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-semibold text-foreground">BN Content</p>
+                <p className="text-sm text-muted-foreground font-sans">
+                  Consulte o acervo privado da BN e abra o Studio de criação pelo painel Master.
+                </p>
+              </div>
+            </div>
+            <Button variant="outline" onClick={() => navigate("/master/bn-content")} className="shrink-0">
+              Abrir BN Content <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </CardContent>
+        </Card>
 
         {/* Metrics */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
