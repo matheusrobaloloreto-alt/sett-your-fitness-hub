@@ -582,7 +582,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
     }
 
     if (isPreRegistration) {
-      setDeadlineMessage(data.deadline || "Vamos analisar o seu perfil e, se pudermos realmente te ajudar, você receberá um retorno nosso em até 48 horas.");
+      setDeadlineMessage(data.followUpNotice || "A equipe vai analisar suas informações e falar com você por este WhatsApp conforme a prioridade de atendimento.");
       setConfirmationMessageSent(data.confirmationMessageSent === true);
     }
     setDone(true);

@@ -49,11 +49,11 @@ export function buildFiscalRegistrationMessage(fullName: string, registrationUrl
   ].join("\n\n");
 }
 
-export function buildPreRegistrationConfirmationMessage(fullName: string, deadline: string): string {
+export function buildPreRegistrationConfirmationMessage(fullName: string, followUpNotice: string): string {
   return [
     `Oi, ${firstName(fullName)}! Recebemos seu pré-cadastro na BN Performance Training.`,
-    `${deadline} Nossa equipe entrará em contato por este WhatsApp para conversar sobre sua Avaliação de Movimento e ajudar a escolher o plano ideal para o seu objetivo.`,
-    "Até daqui a pouco!",
+    "Estamos com uma procura alta neste momento.",
+    followUpNotice,
   ].join("\n\n");
 }
 

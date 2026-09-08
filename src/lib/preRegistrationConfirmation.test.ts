@@ -1,25 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { preRegistrationResponseDeadline } from "../../supabase/functions/_shared/pre-registration-confirmation";
+import { preRegistrationFollowUpNotice } from "../../supabase/functions/_shared/pre-registration-confirmation";
+import { buildPreRegistrationConfirmationMessage } from "../../supabase/functions/_shared/sales-funnel";
 
-describe("pre-registration confirmation deadline", () => {
-  it.each([
-    ["segunda", "2026-08-03T15:00:00.000Z"],
-    ["terça", "2026-08-04T15:00:00.000Z"],
-    ["quarta", "2026-08-05T15:00:00.000Z"],
-    ["quinta", "2026-08-06T15:00:00.000Z"],
-  ])("promises a same-day response on %s", (_label, timestamp) => {
-    expect(preRegistrationResponseDeadline(new Date(timestamp))).toBe(
-      "Você vai ouvir da gente ainda hoje.",
-    );
-  });
+describe("pre-registration confirmation copy", () => {
+  it("sets an honest follow-up expectation without a promised deadline", () => {
+    const notice = preRegistrationFollowUpNotice();
+    const message = buildPreRegistrationConfirmationMessage("Pessoa Teste", notice);
 
-  it.each([
-    ["sexta", "2026-08-07T15:00:00.000Z"],
-    ["sábado", "2026-08-08T15:00:00.000Z"],
-    ["domingo", "2026-08-09T15:00:00.000Z"],
-  ])("promises a response by Monday on %s", (_label, timestamp) => {
-    expect(preRegistrationResponseDeadline(new Date(timestamp))).toBe(
-      "Você vai ouvir da gente já na segunda-feira.",
-    );
+    expect(message).toContain("Recebemos seu pré-cadastro");
+    expect(message).toContain("procura alta");
+    expect(message).toContain("prioridade de atendimento");
+    expect(message).not.toMatch(/hoje|segunda-feira|48 horas|até \d+ dia/i);
   });
 });

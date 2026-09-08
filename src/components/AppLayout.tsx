@@ -9,6 +9,7 @@ import { useMaster } from "@/contexts/MasterContext";
 import { useCompanyAiConfig } from "@/lib/companyAiConfig";
 import { useStaffPresence } from "@/hooks/useStaffPresence";
 import { PlatformAdSlot } from "@/components/PlatformAdSlot";
+import { WhatsAppChatPanelProvider } from "@/components/WhatsAppChatPanel";
 
 const ContentLoader = () => (
   <div className="flex items-center justify-center py-24">
@@ -36,7 +37,8 @@ export function AppLayout() {
 
   return (
     <SidebarProvider>
-      <BnitoAssistantProvider>
+      <WhatsAppChatPanelProvider>
+        <BnitoAssistantProvider>
         <div className="min-h-screen flex w-full bg-paper">
           <AppSidebar />
           <main className="flex-1 flex flex-col min-w-0">
@@ -70,7 +72,8 @@ export function AppLayout() {
             </div>
           </main>
         </div>
-      </BnitoAssistantProvider>
+        </BnitoAssistantProvider>
+      </WhatsAppChatPanelProvider>
     </SidebarProvider>
   );
 }

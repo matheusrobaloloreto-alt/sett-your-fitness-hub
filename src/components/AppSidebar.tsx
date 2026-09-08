@@ -55,6 +55,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
+import { useWhatsAppChatPanel } from "@/components/WhatsAppChatPanelContext";
 import { useEffect, useState } from "react";
 
 // Map sidebar items to permission modules
@@ -151,6 +152,7 @@ export function AppSidebar() {
   const { viewingCompany, isViewingCompany, exitCompanyView } = useMaster();
   const location = useLocation();
   const navigate = useNavigate();
+  const { openChatPanel } = useWhatsAppChatPanel();
   const prefersReducedMotion = useReducedMotion();
   const title = settings?.platform_title || "Set Training App";
   const [customLogoFailed, setCustomLogoFailed] = useState(false);
@@ -366,12 +368,24 @@ export function AppSidebar() {
                       <SidebarMenuSub>
                         {activeWhatsappItems.map((item) => (
                           <SidebarMenuSubItem key={item.title}>
-                            <SidebarMenuSubButton asChild isActive={location.pathname === item.url}>
-                              <NavLink to={item.url} end>
-                                <item.icon className="h-4 w-4" />
-                                <span>{item.title}</span>
-                              </NavLink>
-                            </SidebarMenuSubButton>
+                            {item.title === "Conversas" ? (
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={location.pathname.includes("/whatsapp-chat")}
+                              >
+                                <button type="button" onClick={() => openChatPanel()}>
+                                  <item.icon className="h-4 w-4" />
+                                  <span>{item.title}</span>
+                                </button>
+                              </SidebarMenuSubButton>
+                            ) : (
+                              <SidebarMenuSubButton asChild isActive={location.pathname === item.url}>
+                                <NavLink to={item.url} end>
+                                  <item.icon className="h-4 w-4" />
+                                  <span>{item.title}</span>
+                                </NavLink>
+                              </SidebarMenuSubButton>
+                            )}
                           </SidebarMenuSubItem>
                         ))}
                       </SidebarMenuSub>

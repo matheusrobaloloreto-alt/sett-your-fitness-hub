@@ -1,10 +1,12 @@
 // Primitivo compartilhado: "abrir o chat do aluno com uma mensagem pronta (rascunho)".
 // Usado pelos botões de Aniversário, Renovação e Envio de anamnese. NÃO envia sozinho — só pré-preenche
-// a caixa de texto do WhatsAppChat (que lê location.state.prefillMessage). Nenhum fluxo abre
-// WhatsApp externo: sem conversa vinculada, a tela interna abre um novo rascunho pelo telefone.
+// o painel persistente do WhatsApp, que consome cada pedido com um nonce. A rota só é fallback
+// de compatibilidade. Nenhum fluxo abre WhatsApp externo: sem conversa vinculada, a tela interna
+// abre um novo rascunho pelo telefone.
 import type { NavigateFunction } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { paymentUrl } from "@/lib/publicFlowLinks";
+import { requestWhatsAppChatPanel } from "@/lib/whatsappChatPanel";
 
 // Mapa student_id -> chat_id (whatsapp_chats), escopo por empresa quando informado.
 export async function buildStudentChatMap(companyId?: string | null): Promise<Record<string, string>> {
@@ -81,15 +83,19 @@ export async function openStudentChat(opts: {
     return;
   }
 
-  navigate(`/${routePrefix}/whatsapp-chat`, {
-    state: {
-      chatId: resolvedChatId,
-      studentId: studentId ?? null,
-      phone: digits,
-      contactName,
-      prefillMessage: message,
-    },
-  });
+  const request = {
+    chatId: resolvedChatId,
+    studentId: studentId ?? null,
+    phone: digits,
+    contactName,
+    prefillMessage: message,
+  };
+
+  // The app shell consumes this request and keeps the current page behind the
+  // chat. The old route is intentionally retained as a compatibility fallback.
+  if (!requestWhatsAppChatPanel(request)) {
+    navigate(`/${routePrefix}/whatsapp-chat`, { state: request });
+  }
 }
 
 const firstName = (full?: string | null) => (full ?? "").trim().split(/\s+/)[0] || "";

@@ -14,6 +14,7 @@ import { FeatureRoute } from "@/components/FeatureRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { RouteTransition } from "@/components/RouteTransition";
 import { AppLayout } from "@/components/AppLayout";
+import { WhatsAppChatRoute } from "@/components/WhatsAppChatRoute";
 import { StudentBnitoAssistantProvider } from "@/components/StudentBnitoAssistant";
 
 
@@ -30,7 +31,6 @@ const AnamnesisManager = lazy(() => import("./pages/admin/AnamnesisManager"));
 const AdminAgenda = lazy(() => import("./pages/admin/AdminAgenda"));
 const FinancialDashboard = lazy(() => import("./pages/admin/FinancialDashboard"));
 const WhatsAppSettings = lazy(() => import("./pages/admin/WhatsAppSettings"));
-const WhatsAppChat = lazy(() => import("./pages/admin/WhatsAppChat"));
 const WhatsAppAutomation = lazy(() => import("./pages/admin/WhatsAppAutomation"));
 const WhatsAppTemplates = lazy(() => import("./pages/admin/WhatsAppTemplates"));
 const AppearanceSettings = lazy(() => import("./pages/admin/AppearanceSettings"));
@@ -219,7 +219,7 @@ const App = () => (
           <Route path="/admin/agenda" element={<FeatureRoute allowedRoles={["admin"]} requiredFeature="hasAgenda"><AdminAgenda /></FeatureRoute>} />
           <Route path="/admin/financial" element={<FeatureRoute allowedRoles={["admin"]} requiredFeature="hasFinancial"><FinancialDashboard /></FeatureRoute>} />
           <Route path="/admin/whatsapp" element={<FeatureRoute allowedRoles={["admin"]} requiredFeature="hasWhatsApp"><WhatsAppSettings /></FeatureRoute>} />
-          <Route path="/admin/whatsapp-chat" element={<FeatureRoute allowedRoles={["admin"]} requiredFeature="hasWhatsApp"><WhatsAppChat /></FeatureRoute>} />
+          <Route path="/admin/whatsapp-chat" element={<FeatureRoute allowedRoles={["admin"]} requiredFeature="hasWhatsApp"><WhatsAppChatRoute fallbackPath="/admin" /></FeatureRoute>} />
           <Route path="/admin/whatsapp-crm" element={<Navigate to="/admin/whatsapp-chat" replace />} />
           <Route path="/admin/whatsapp-automation" element={<FeatureRoute allowedRoles={["admin"]} requiredFeature="hasAutomation"><WhatsAppAutomation /></FeatureRoute>} />
           <Route path="/admin/whatsapp-templates" element={<FeatureRoute allowedRoles={["admin"]} requiredFeature="hasWhatsApp"><WhatsAppTemplates /></FeatureRoute>} />
@@ -262,11 +262,11 @@ const App = () => (
           <Route path="/coordinator/studio" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasPrescription" requiredModule="exercises"><PrescriptionStudio /></FeatureRoute>} />
           <Route path="/coordinator/ia" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasPrescription" requiredModule="exercises"><CompanyOnboarding /></FeatureRoute>} />
           <Route path="/coordinator/avaliacao" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasPrescription" requiredModule="exercises"><FunctionalAssessment /></FeatureRoute>} />
-          <Route path="/coordinator/whatsapp" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasWhatsApp"><WhatsAppSettings /></FeatureRoute>} />
-          <Route path="/coordinator/whatsapp-chat" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasWhatsApp"><WhatsAppChat /></FeatureRoute>} />
+          <Route path="/coordinator/whatsapp" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasWhatsApp" requiredModule="whatsapp"><WhatsAppSettings /></FeatureRoute>} />
+          <Route path="/coordinator/whatsapp-chat" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasWhatsApp" requiredModule="whatsapp"><WhatsAppChatRoute fallbackPath="/coordinator" /></FeatureRoute>} />
           <Route path="/coordinator/whatsapp-crm" element={<Navigate to="/coordinator/whatsapp-chat" replace />} />
-          <Route path="/coordinator/whatsapp-templates" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasWhatsApp"><WhatsAppTemplates /></FeatureRoute>} />
-          <Route path="/coordinator/whatsapp-automation" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasAutomation"><WhatsAppAutomation /></FeatureRoute>} />
+          <Route path="/coordinator/whatsapp-templates" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasWhatsApp" requiredModule="whatsapp"><WhatsAppTemplates /></FeatureRoute>} />
+          <Route path="/coordinator/whatsapp-automation" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasAutomation" requiredModule="whatsapp"><WhatsAppAutomation /></FeatureRoute>} />
 
           {/* Trainer Routes */}
           <Route path="/trainer" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasDashboard"><TrainerDashboard /></FeatureRoute>} />
@@ -290,11 +290,11 @@ const App = () => (
           <Route path="/trainer/studio" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasPrescription" requiredModule="exercises"><PrescriptionStudio /></FeatureRoute>} />
           <Route path="/trainer/ia" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasPrescription" requiredModule="exercises"><CompanyOnboarding /></FeatureRoute>} />
           <Route path="/trainer/avaliacao" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasPrescription" requiredModule="exercises"><FunctionalAssessment /></FeatureRoute>} />
-          <Route path="/trainer/whatsapp" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasWhatsApp"><WhatsAppSettings /></FeatureRoute>} />
-          <Route path="/trainer/whatsapp-chat" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasWhatsApp"><WhatsAppChat /></FeatureRoute>} />
+          <Route path="/trainer/whatsapp" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasWhatsApp" requiredModule="whatsapp"><WhatsAppSettings /></FeatureRoute>} />
+          <Route path="/trainer/whatsapp-chat" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasWhatsApp" requiredModule="whatsapp"><WhatsAppChatRoute fallbackPath="/trainer" /></FeatureRoute>} />
           <Route path="/trainer/whatsapp-crm" element={<Navigate to="/trainer/whatsapp-chat" replace />} />
-          <Route path="/trainer/whatsapp-templates" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasWhatsApp"><WhatsAppTemplates /></FeatureRoute>} />
-          <Route path="/trainer/whatsapp-automation" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasAutomation"><WhatsAppAutomation /></FeatureRoute>} />
+          <Route path="/trainer/whatsapp-templates" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasWhatsApp" requiredModule="whatsapp"><WhatsAppTemplates /></FeatureRoute>} />
+          <Route path="/trainer/whatsapp-automation" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasAutomation" requiredModule="whatsapp"><WhatsAppAutomation /></FeatureRoute>} />
           </Route>
 
           <Route path="*" element={<RouteTransition><NotFound /></RouteTransition>} />

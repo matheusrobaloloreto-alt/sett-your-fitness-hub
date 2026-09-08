@@ -39,11 +39,13 @@ describe("global first-contact anamnesis", () => {
     expect(handler).not.toContain('.from("students")');
   });
 
-  it("fails closed when a public request omits both company id and slug", () => {
-    const resolverStart = registrationEdge.indexOf("async function resolveCompany");
-    const resolverEnd = registrationEdge.indexOf("async function resolveCompanyById", resolverStart);
+  it("fails closed when a public request omits the explicit slug", () => {
+    const resolverStart = registrationEdge.indexOf("async function resolvePreRegistrationCompany");
+    const resolverEnd = registrationEdge.indexOf("async function getBranding", resolverStart);
     const resolver = registrationEdge.slice(resolverStart, resolverEnd);
-    expect(resolver).toContain("if (!slug) return null");
+    expect(resolver).toContain("if (!slug) throw new HttpError(422");
+    expect(resolver).toContain("resolveCompany(slug)");
+    expect(resolver).not.toContain("resolveCompanyById");
     expect(resolver).not.toContain('.order("created_at"');
   });
 

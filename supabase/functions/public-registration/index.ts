@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { resolveAnamnesisDurations } from "../_shared/anamnesis-duration.ts";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
-import { preRegistrationResponseDeadline } from "../_shared/pre-registration-confirmation.ts";
+import { preRegistrationFollowUpNotice } from "../_shared/pre-registration-confirmation.ts";
 import { validatePreRegistrationSubmission } from "../_shared/pre-registration-validation.ts";
 import { countryAwareFiscalFields, fiscalRegistrationValidation, normalizeCountryCode, normalizeFiscalDocument, supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
 import {
@@ -61,15 +61,20 @@ async function resolveCompany(slug: string | null) {
   return data;
 }
 
-async function resolveCompanyById(companyId: unknown) {
-  if (!isUuid(companyId)) return null;
-  const { data } = await supabase
-    .from("companies")
-    .select("id, name, slug")
-    .eq("id", companyId)
-    .eq("is_active", true)
-    .maybeSingle();
-  return data;
+async function resolvePreRegistrationCompany(body: Record<string, unknown>) {
+  const slug = cleanText(body.slug);
+  if (!slug) throw new HttpError(422, "Informe o link público da empresa.");
+
+  const company = await resolveCompany(slug);
+  if (!company) throw new HttpError(400, "Empresa inválida.");
+
+  // O slug público é a fonte de tenant. companyId, quando presente, só protege
+  // contra um cliente com contexto inconsistente; nunca decide o tenant.
+  if (body.companyId != null && cleanText(body.companyId) !== company.id) {
+    throw new HttpError(400, "Empresa inconsistente com o link público.");
+  }
+
+  return company;
 }
 
 async function getBranding(companyId: string) {
@@ -268,8 +273,7 @@ async function preRegister(body: Record<string, unknown>) {
   const whatsappConfirmed = body.whatsappConfirmed === true;
   if (!whatsappConfirmed) throw new HttpError(422, "Confirme o número de WhatsApp antes de enviar o pré-cadastro.");
   const validated = validatePreRegistrationSubmission(body);
-  const company = await resolveCompanyById(body.companyId) || await resolveCompany(cleanText(body.slug) || null);
-  if (!company) throw new HttpError(400, "Empresa inválida.");
+  const company = await resolvePreRegistrationCompany(body);
   const { fullName, phone, budgetRange, preferredContactPeriod, answers } = validated;
 
   const submittedAt = new Date().toISOString();
@@ -306,7 +310,7 @@ async function preRegister(body: Record<string, unknown>) {
     leadId = created.data.id;
   }
 
-  const deadline = preRegistrationResponseDeadline();
+  const followUpNotice = preRegistrationFollowUpNotice();
   const confirmation = await sendPreRegistrationConfirmation({
     admin: supabase,
     leadId,
@@ -314,12 +318,12 @@ async function preRegister(body: Record<string, unknown>) {
     fullName,
     phone: cleanText(body.whatsapp) || phone,
     countryCode: /^\+(?!55)/.test(cleanText(body.whatsapp)) ? "INTL" : "BR",
-    text: buildPreRegistrationConfirmationMessage(fullName, deadline),
+    text: buildPreRegistrationConfirmationMessage(fullName, followUpNotice),
   });
   return {
     leadId,
     firstName: fullName.split(/\s+/)[0],
-    deadline,
+    followUpNotice,
     confirmationMessageSent: confirmation.sent,
   };
 }
@@ -338,10 +342,9 @@ async function preRegisterCanary(req: Request, body: Record<string, unknown>) {
     throw new HttpError(422, "Confirme o número de WhatsApp antes de validar o pré-cadastro.");
   }
   const validated = validatePreRegistrationSubmission(body);
-  const company = await resolveCompanyById(body.companyId) || await resolveCompany(cleanText(body.slug) || null);
-  if (!company) throw new HttpError(400, "Empresa inválida.");
-  const deadline = preRegistrationResponseDeadline();
-  const message = buildPreRegistrationConfirmationMessage(validated.fullName, deadline);
+  const company = await resolvePreRegistrationCompany(body);
+  const followUpNotice = preRegistrationFollowUpNotice();
+  const message = buildPreRegistrationConfirmationMessage(validated.fullName, followUpNotice);
   return {
     valid: true,
     environment: "staging",
@@ -815,53 +818,6 @@ async function completeFiscalRegistration(link: RegistrationLink, studentInput: 
   };
 }
 
-async function legacyRegistration(companyId: string, student: Record<string, unknown>) {
-  if (!isUuid(companyId) || !cleanText(student.full_name)) {
-    throw new HttpError(400, "Dados obrigatórios ausentes.");
-  }
-  const { data: company } = await supabase.from("companies")
-    .select("id").eq("id", companyId).eq("is_active", true).maybeSingle();
-  if (!company) throw new HttpError(400, "Empresa inválida.");
-  const missing = fiscalRegistrationValidation(student);
-  if (missing.length) throw new HttpError(422, `Complete os dados fiscais: ${missing.join(", ")}.`);
-
-  const payload = {
-    ...fiscalPayload(student),
-    ...billingPayloadForRegistration(student, student.full_name),
-    full_name: cleanText(student.full_name),
-    company_id: companyId,
-    status: "pending",
-    sales_stage: "payment_pending",
-    fiscal_completed_at: new Date().toISOString(),
-  };
-  const existing = await findExistingStudent(companyId, payload);
-  let studentId = existing?.id as string | undefined;
-  if (studentId) {
-    const keepActive = ["active", "awaiting_renewal"].includes(existing?.status || "");
-    const { error } = await supabase.from("students").update({
-      ...payload,
-      status: keepActive ? existing?.status : "pending",
-    }).eq("id", studentId).eq("company_id", companyId);
-    if (error) throw new HttpError(500, `Falha ao atualizar cadastro: ${error.message}`);
-  } else {
-    const created = await supabase.from("students").insert(payload).select("id").single();
-    if (created.error || !created.data) {
-      const status = created.error?.code === "23505" ? 409 : 400;
-      throw new HttpError(status, created.error?.message || "Falha ao cadastrar.");
-    }
-    studentId = created.data.id;
-  }
-  if (!studentId) throw new HttpError(500, "Falha ao identificar o cadastro criado.");
-  const paymentLink = await createPaymentLink(studentId, companyId);
-  return {
-    studentId,
-    existing: !!existing,
-    paymentToken: paymentLink.token,
-    paymentUrl: `${APP_URL}/pagamento/${paymentLink.token}`,
-    paymentMessageSent: false,
-  };
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Método não permitido" }, 405);
@@ -919,10 +875,6 @@ Deno.serve(async (req) => {
     if (action === "complete") {
       const link = await resolveRegistrationToken(body.token);
       return json(await completeFiscalRegistration(link, body.student || {}));
-    }
-
-    if (action === "register") {
-      return json(await legacyRegistration(body.companyId, body.student || {}));
     }
 
     return json({ error: "Ação inválida" }, 400);

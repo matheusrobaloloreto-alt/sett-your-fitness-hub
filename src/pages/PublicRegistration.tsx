@@ -390,7 +390,7 @@ export default function PublicRegistration() {
         toast({ title: "Não foi possível enviar", description: data?.error || error?.message || "Tente novamente.", variant: "destructive" });
         return;
       }
-      setDeadlineMessage(data.deadline || "Você vai ouvir da gente ainda hoje.");
+      setDeadlineMessage(data.followUpNotice || "A equipe vai analisar suas informações e falar com você por este WhatsApp conforme a prioridade de atendimento.");
       setDone(true);
       return;
     }
@@ -418,11 +418,11 @@ export default function PublicRegistration() {
       return;
     }
     setSaving(true);
-    const action = fiscalMode ? "complete" : "register";
+    const action = "complete";
     const { data, error } = await supabase.functions.invoke("public-registration", {
       body: {
         action,
-        token: fiscalMode ? token : null,
+        token,
         companyId,
         student: {
           ...(fiscalMode ? {} : { full_name: fullName }),

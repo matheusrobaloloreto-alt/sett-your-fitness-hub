@@ -63,6 +63,8 @@ import {
   normalizeEditedMessageText,
   shouldApplyWhatsAppMessageEditResult,
 } from "@/lib/whatsappMessageEdit";
+import type { WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
+import { resolveWhatsAppChatRequest } from "@/lib/whatsappChatRequest";
 
 type Chat = {
   id: string;
@@ -163,13 +165,7 @@ type LabelItem = {
   color: string;
 };
 
-type ChatNavigationState = {
-  chatId?: string | null;
-  studentId?: string | null;
-  phone?: string | null;
-  contactName?: string | null;
-  prefillMessage?: string | null;
-};
+type ChatNavigationState = WhatsAppChatPanelRequest;
 
 type DraftRecipient = {
   remoteJid: string;
@@ -225,7 +221,13 @@ const isAdministrativeRole = (role: string | null) => (
   role === "admin" || role === "master" || role === "coordinator"
 );
 
-export default function WhatsAppChat() {
+export default function WhatsAppChat({
+  embedded = false,
+  navigationState: panelNavigationState,
+}: {
+  embedded?: boolean;
+  navigationState?: ChatNavigationState | null;
+}) {
   const { user, role: userRole, companyId } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = userRole === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
@@ -234,14 +236,10 @@ export default function WhatsAppChat() {
   const navigate = useNavigate();
   // Prefixo de rota para mandar o vídeo da avaliação pro Studio (master visualizando = admin).
   const studioRoutePrefix = userRole === "master" && isViewingCompany ? "admin" : (userRole || "admin");
-  // Chat alvo vindo do CRM/dashboard (navigate("/admin/whatsapp-chat", { state: { chatId, prefillMessage } }))
-  const navigationState = (location.state as ChatNavigationState | null) ?? null;
-  const pendingChatIdRef = useRef<string | null>(navigationState?.chatId ?? null);
-  const pendingStudentIdRef = useRef<string | null>(navigationState?.studentId ?? null);
-  const pendingPhoneRef = useRef<string | null>(navigationState?.phone ?? null);
-  const pendingContactNameRef = useRef<string | null>(navigationState?.contactName ?? null);
-  // Mensagem pronta (rascunho) vinda de aniversário/renovação/anamnese — pré-preenche a caixa de texto, NÃO envia sozinha.
-  const pendingPrefillRef = useRef<string | null>(navigationState?.prefillMessage ?? null);
+  // Chat alvo vem do painel persistente ou da rota legada de compatibilidade.
+  const navigationState = panelNavigationState ?? (location.state as ChatNavigationState | null) ?? null;
+  const [pendingNavigationRequest, setPendingNavigationRequest] = useState<ChatNavigationState | null>(null);
+  const consumedNavigationRequestRef = useRef<string | null>(null);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [draftRecipient, setDraftRecipient] = useState<DraftRecipient | null>(null);
   const [chatsLoaded, setChatsLoaded] = useState(false);
@@ -1000,42 +998,34 @@ export default function WhatsAppChat() {
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [scheduleStudentDataRefresh]);
+  // Each request is consumed exactly once. The panel stays mounted between
+  // openings, so a new requestId must replace both the selected chat and draft.
+  useEffect(() => {
+    if (!navigationState) return;
+    const requestKey = String(navigationState.requestId ?? [
+      navigationState.chatId ?? "",
+      navigationState.studentId ?? "",
+      navigationState.phone ?? "",
+      navigationState.prefillMessage ?? "",
+    ].join("|"));
+    if (consumedNavigationRequestRef.current === requestKey) return;
+    consumedNavigationRequestRef.current = requestKey;
+    setPendingNavigationRequest(navigationState);
+    setEditingMessage(null);
+    setEditingSaving(false);
+    setReplyingTo(null);
+    setShowTemplates(false);
+    setNewMessage(navigationState.prefillMessage ?? "");
+  }, [navigationState]);
   // Pré-seleciona uma conversa existente ou prepara uma nova conversa interna.
   useEffect(() => {
-    if (!chatsLoaded) return;
-
-    const requestedChat = pendingChatIdRef.current
-      ? chats.find((chat) => chat.id === pendingChatIdRef.current)
-      : null;
-    const studentChat = !requestedChat && pendingStudentIdRef.current
-      ? chats.find((chat) => chat.student_id === pendingStudentIdRef.current)
-      : null;
-    const digits = (pendingPhoneRef.current || "").replace(/\D/g, "");
-    const phoneKey = normalizeWhatsAppPhoneKey(digits);
-    const phoneChat = !requestedChat && !studentChat && digits
-      ? chats.find((chat) => normalizeWhatsAppPhoneKey(chat.remote_jid) === phoneKey)
-      : null;
-    const matchedChat = requestedChat || studentChat || phoneChat || null;
-
-    if (matchedChat) {
-      setSelectedChatId(matchedChat.id);
-      setDraftRecipient(null);
-    } else if (digits) {
-      setSelectedChatId(null);
-      setDraftRecipient({
-        remoteJid: digits,
-        studentId: pendingStudentIdRef.current,
-        contactName: pendingContactNameRef.current || "Nova conversa",
-      });
-    }
-
-    if (pendingPrefillRef.current) setNewMessage(pendingPrefillRef.current);
-    pendingChatIdRef.current = null;
-    pendingStudentIdRef.current = null;
-    pendingPhoneRef.current = null;
-    pendingContactNameRef.current = null;
-    pendingPrefillRef.current = null;
-  }, [chats, chatsLoaded]);
+    if (!chatsLoaded || !pendingNavigationRequest) return;
+    const resolved = resolveWhatsAppChatRequest(chats, pendingNavigationRequest);
+    setSelectedChatId(resolved.chatId);
+    setDraftRecipient(resolved.draftRecipient);
+    setNewMessage(resolved.prefillMessage);
+    setPendingNavigationRequest(null);
+  }, [chats, chatsLoaded, pendingNavigationRequest]);
   useEffect(() => {
     setMediaFallbacks({});
     setFailedMediaFetches({});
@@ -1747,9 +1737,12 @@ export default function WhatsAppChat() {
 
   const selectedChat = chats.find((c) => c.id === selectedChatId);
   const recipientReviewChat = chats.find((c) => c.id === recipientReviewChatId) || null;
+  const selectedPreRegistrationChatId = selectedChat?.id ?? null;
+  const selectedPreRegistrationStudentId = selectedChat?.student_id ?? null;
+  const selectedPreRegistrationPhone = selectedChat?.student?.whatsapp || selectedChat?.remote_jid || null;
   useEffect(() => {
     let cancelled = false;
-    if (!selectedChat) {
+    if (!selectedPreRegistrationChatId) {
       setSelectedPreRegistration(null);
       setPreRegistrationLoading(false);
       return () => { cancelled = true; };
@@ -1757,9 +1750,9 @@ export default function WhatsAppChat() {
 
     setPreRegistrationLoading(true);
     void loadStudentPreRegistration({
-      studentId: selectedChat.student_id,
+      studentId: selectedPreRegistrationStudentId,
       companyId: effectiveCompanyId,
-      phone: selectedChat.student?.whatsapp || selectedChat.remote_jid,
+      phone: selectedPreRegistrationPhone,
     }).then((data) => {
       if (!cancelled) setSelectedPreRegistration(data);
     }).catch((error) => {
@@ -1770,7 +1763,7 @@ export default function WhatsAppChat() {
     });
 
     return () => { cancelled = true; };
-  }, [effectiveCompanyId, selectedChat?.id, selectedChat?.remote_jid, selectedChat?.student?.whatsapp, selectedChat?.student_id]);
+  }, [effectiveCompanyId, selectedPreRegistrationChatId, selectedPreRegistrationPhone, selectedPreRegistrationStudentId]);
 
   useEffect(() => {
     if (!selectedChat?.id || selectedChat.contact_photo) return;
@@ -2116,7 +2109,7 @@ export default function WhatsAppChat() {
           </div>
         </DialogContent>
       </Dialog>
-      <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      <div className={cn("flex flex-col", embedded ? "h-full min-h-0" : "h-[calc(100vh-3.5rem)]")}>
         <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <div>
             <p className="text-eyebrow">WhatsApp</p>

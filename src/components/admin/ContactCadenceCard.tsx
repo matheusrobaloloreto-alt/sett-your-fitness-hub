@@ -17,6 +17,7 @@ import {
   type CadenceWindowDays,
 } from "@/lib/contactCadence";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { requestWhatsAppChatPanel } from "@/lib/whatsappChatPanel";
 
 const TONE_CLASS: Record<string, string> = {
   ok: "bg-emerald-500/15 text-emerald-600",
@@ -88,7 +89,11 @@ export function ContactCadenceCard({ companyId, routePrefix }: { companyId: stri
               </div>
               <button
                 type="button"
-                onClick={() => navigate(`/${routePrefix || "admin"}/whatsapp-chat`, { state: { chatId: r.chat_id } })}
+                onClick={() => {
+                  if (!requestWhatsAppChatPanel({ chatId: r.chat_id })) {
+                    navigate(`/${routePrefix || "admin"}/whatsapp-chat`, { state: { chatId: r.chat_id } });
+                  }
+                }}
                 className="rounded p-1.5 text-primary hover:bg-muted/60"
                 title="Abrir conversa"
               >

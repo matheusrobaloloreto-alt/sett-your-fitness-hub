@@ -27,7 +27,7 @@ describe("pre-registration server contract", () => {
     const handler = edge.slice(start, end);
     const validationOffset = handler.indexOf("validatePreRegistrationSubmission(body)");
     expect(validationOffset).toBeGreaterThan(0);
-    expect(validationOffset).toBeLessThan(handler.indexOf("resolveCompanyById"));
+    expect(validationOffset).toBeLessThan(handler.indexOf("resolvePreRegistrationCompany(body)"));
     expect(validationOffset).toBeLessThan(handler.indexOf('.from("leads")'));
   });
 

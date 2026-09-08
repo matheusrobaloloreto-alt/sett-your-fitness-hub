@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Textarea } from "@/components/ui/textarea";
 import { interpolateTemplate } from "@/lib/templateVars";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { requestWhatsAppChatPanel } from "@/lib/whatsappChatPanel";
 
 type CRMStudent = {
   id: string;
@@ -382,7 +383,12 @@ export default function WhatsAppCRM() {
                       <div
                         key={student.id}
                         className={cn("px-3 py-2 hover:bg-muted/50 transition-colors flex items-center gap-2.5", student.chatId && "cursor-pointer")}
-                        onClick={() => { if (student.chatId) navigate("/admin/whatsapp-chat", { state: { chatId: student.chatId } }); }}
+                        onClick={() => {
+                          if (!student.chatId) return;
+                          if (!requestWhatsAppChatPanel({ chatId: student.chatId })) {
+                            navigate("/admin/whatsapp-chat", { state: { chatId: student.chatId } });
+                          }
+                        }}
                       >
                         <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
                           <User className="h-4 w-4 text-muted-foreground" />
