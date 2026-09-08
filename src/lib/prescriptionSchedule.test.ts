@@ -15,6 +15,8 @@ import {
   selectSequentialScheduleCycles,
   selectCurrentPlanCycleWindow,
   selectCyclesForProgramHistory,
+  hasActivePrescriptionContent,
+  isPrescriptionClearedCycle,
   isSupersededCycle,
   type PrescriptionScheduleCycle,
 } from "./prescriptionSchedule";
@@ -117,13 +119,33 @@ describe("prescriptionSchedule", () => {
     expect(selectPreferredVisibleCycle(candidates, today)?.id).toBe("cycle-11");
   });
 
-  it("mantém o último ciclo materializado visível enquanto o ciclo atual ainda está vazio", () => {
+  it("mantém o ciclo atual vazio visível em vez de cair para histórico materializado", () => {
     const candidates = [
       cycle(1, "2026-05-01", "2026-06-11", { status: "completed", has_workouts: true }),
       cycle(2, "2026-06-12", "2026-07-23", { status: "active", has_workouts: false }),
     ];
 
-    expect(selectPreferredVisibleCycle(candidates, today)?.id).toBe("cycle-1");
+    expect(selectPreferredVisibleCycle(candidates, today)?.id).toBe("cycle-2");
+  });
+
+  it("trata ciclo com prescrição removida como vazio e bloqueia fallback histórico", () => {
+    const historical = cycle(1, "2026-05-01", "2026-06-11", { status: "completed", has_workouts: true });
+    const clearedCurrent = cycle(2, "2026-06-12", "2026-07-23", {
+      status: "active",
+      has_workouts: true,
+      has_bundle: true,
+      prescription_cleared_at: "2026-07-18T10:00:00Z",
+      prescription_cleared_event_id: "clear-event-1",
+      prescription_cleared_signature: "signature-v1",
+    });
+
+    expect(isPrescriptionClearedCycle(clearedCurrent)).toBe(true);
+    expect(hasActivePrescriptionContent(clearedCurrent)).toBe(false);
+    expect(selectPreferredVisibleCycle([historical, clearedCurrent], today)?.id).toBe(clearedCurrent.id);
+    expect(selectCurrentCyclePerEnrollment([historical, clearedCurrent], today).map((item) => item.id))
+      .toEqual([clearedCurrent.id]);
+    expect(selectPrescriptionTargets({ cycles: [historical, clearedCurrent], mode: "remaining", today }).map((item) => item.id))
+      .toEqual([clearedCurrent.id]);
   });
 
   it("mantém o Studio na matrícula vigente e não mistura ciclos de matrículas antigas", () => {

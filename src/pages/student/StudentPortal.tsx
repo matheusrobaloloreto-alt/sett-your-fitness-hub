@@ -117,6 +117,7 @@ interface Cycle {
   status: string;
   objective?: string | null;
   duration_weeks?: number | null;
+  prescription_cleared_at?: string | null;
   workouts: WorkoutData[];
 }
 
@@ -177,6 +178,7 @@ export default function StudentPortal() {
   // Prescrições por modalidade (abas condicionais): nutrição + esportes de cardio existentes.
   const [hasNutrition, setHasNutrition] = useState(false);
   const [runningSports, setRunningSports] = useState<Set<string>>(new Set());
+  const [preferredCyclePrescriptionCleared, setPreferredCyclePrescriptionCleared] = useState(false);
   
 
   const todayStr = businessDateYmd();
@@ -324,6 +326,7 @@ export default function StudentPortal() {
     recordedPerformanceMetrics.current.clear();
     setLoading(true);
     setContentLoading(true);
+    setPreferredCyclePrescriptionCleared(false);
     try {
     const { data: student } = await supabase
       .from("students")
@@ -423,7 +426,7 @@ export default function StudentPortal() {
       // O cast mantém compatibilidade com o tipo local legado da tabela.
       const { data: cyclesData } = await (supabase as any)
         .from("training_cycles")
-        .select("id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, objective, duration_weeks, delivery_status")
+        .select("id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, objective, duration_weeks, delivery_status, prescription_cleared_at")
         .eq("enrollment_id", enrollment.id)
         .order("cycle_number");
 
@@ -440,7 +443,7 @@ export default function StudentPortal() {
         const allMaterializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
         const workoutCycleIds = new Set(allMaterializedWorkouts.map((workout) => workout.cycle_id));
         const schedulableCycles = selectCurrentPlanCycleWindow(
-          visibleCycles.map((cycle) => ({ ...cycle, has_workouts: workoutCycleIds.has(cycle.id) })),
+          visibleCycles.map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && workoutCycleIds.has(cycle.id) })),
           planDurationDays,
           cycleDurationDays,
         );
@@ -467,36 +470,39 @@ export default function StudentPortal() {
         }
 
         const enriched: Cycle[] = schedulableCycles.map(c => {
-          const cycleWorkouts = orderWorkoutsByPrescription(materializedWorkouts
-            .filter(w => w.cycle_id === c.id)
-            .map(w => ({
-              id: w.id,
-              title: w.title || w.name || "Treino",
-              description: w.description,
-              day_of_week: (w as any).day_of_week as number | null,
-              sort_order: (w as any).sort_order as number | null,
-              exercises: ((w.exercises as unknown as WorkoutExercise[]) || []).map(ex => ({
-                ...ex,
-                video_url: (ex.video_url && ex.video_url.trim()) || videoMap[ex.exercise_id]?.video_url || null,
-                video_path: (ex.video_path && ex.video_path.trim()) || videoMap[ex.exercise_id]?.video_path || null,
-                youtube_video_id: (ex as any).youtube_video_id || videoMap[ex.exercise_id]?.youtube_video_id || null,
-                thumbnail_url: (ex as any).thumbnail_url || videoMap[ex.exercise_id]?.thumbnail_url || null,
-              })),
-            })))
-            .map((workout) => resolveWorkoutForCycleWeek(
-              workout,
-              c.start_date,
-              (c as any).duration_weeks,
-            ) || workout);
+          const cycleWorkouts = c.prescription_cleared_at
+            ? []
+            : orderWorkoutsByPrescription(materializedWorkouts
+              .filter(w => w.cycle_id === c.id)
+              .map(w => ({
+                id: w.id,
+                title: w.title || w.name || "Treino",
+                description: w.description,
+                day_of_week: (w as any).day_of_week as number | null,
+                sort_order: (w as any).sort_order as number | null,
+                exercises: ((w.exercises as unknown as WorkoutExercise[]) || []).map(ex => ({
+                  ...ex,
+                  video_url: (ex.video_url && ex.video_url.trim()) || videoMap[ex.exercise_id]?.video_url || null,
+                  video_path: (ex.video_path && ex.video_path.trim()) || videoMap[ex.exercise_id]?.video_path || null,
+                  youtube_video_id: (ex as any).youtube_video_id || videoMap[ex.exercise_id]?.youtube_video_id || null,
+                  thumbnail_url: (ex as any).thumbnail_url || videoMap[ex.exercise_id]?.thumbnail_url || null,
+                })),
+              })))
+              .map((workout) => resolveWorkoutForCycleWeek(
+                workout,
+                c.start_date,
+                (c as any).duration_weeks,
+              ) || workout);
           return { ...c, workouts: cycleWorkouts };
         });
         setCycles(enriched);
 
         const today = new Date();
         const chosen = selectPreferredVisibleCycle(
-          enriched.map((cycle) => ({ ...cycle, has_workouts: cycle.workouts.length > 0 })),
+          enriched.map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && cycle.workouts.length > 0 })),
           today,
         );
+        setPreferredCyclePrescriptionCleared(Boolean(chosen?.prescription_cleared_at));
         setSelectedCycle(chosen);
         // P6 — marca a prescrição como vista assim que o aluno abre o ciclo escolhido.
         if (chosen?.id && (chosen as any).delivery_status !== "viewed") {
@@ -1074,9 +1080,9 @@ export default function StudentPortal() {
   const isSessionForCurrentWorkout = session.isActive && session.activeSession?.workoutId === selectedWorkout?.id;
 
   // Modalidades de cardio disponíveis (running_plans.sport). Corrida engloba triathlon.
-  const hasCorrida = runningSports.has("corrida") || runningSports.has("triathlon");
-  const hasNatacao = runningSports.has("natacao") || runningSports.has("natação");
-  const hasCiclismo = runningSports.has("ciclismo");
+  const hasCorrida = !preferredCyclePrescriptionCleared && (runningSports.has("corrida") || runningSports.has("triathlon"));
+  const hasNatacao = !preferredCyclePrescriptionCleared && (runningSports.has("natacao") || runningSports.has("natação"));
+  const hasCiclismo = !preferredCyclePrescriptionCleared && runningSports.has("ciclismo");
 
   const viewTitles: Record<ActiveView, string> = {
     home: "MEU TREINO",
@@ -1204,9 +1210,9 @@ export default function StudentPortal() {
 
         {/* PRESCRIÇÕES — abas condicionais (só aparecem quando o treinador publicou a modalidade) */}
         {activeView === "nutricao" && studentId && <NutritionPlanView studentId={studentId} />}
-        {activeView === "corrida" && studentId && <CardioPlanView studentId={studentId} sport="corrida" />}
-        {activeView === "natacao" && studentId && <CardioPlanView studentId={studentId} sport="natacao" />}
-        {activeView === "ciclismo" && studentId && <CardioPlanView studentId={studentId} sport="ciclismo" />}
+        {activeView === "corrida" && studentId && <CardioPlanView studentId={studentId} sport="corrida" suppressBecauseCurrentCycleCleared={preferredCyclePrescriptionCleared} />}
+        {activeView === "natacao" && studentId && <CardioPlanView studentId={studentId} sport="natacao" suppressBecauseCurrentCycleCleared={preferredCyclePrescriptionCleared} />}
+        {activeView === "ciclismo" && studentId && <CardioPlanView studentId={studentId} sport="ciclismo" suppressBecauseCurrentCycleCleared={preferredCyclePrescriptionCleared} />}
         {activeView === "integracoes" && <WearableIntegrations />}
 
 

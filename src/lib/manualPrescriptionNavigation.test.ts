@@ -35,6 +35,20 @@ describe("manual prescription navigation", () => {
     expect(resolveManualPrescriptionTargetCycle(selected, visible, "2026-09-08")).toBe(selected);
   });
 
+  it("treats an explicitly cleared cycle as empty even if old rows still exist", () => {
+    expect(resolveManualPrescriptionTargetCycle(
+      cycle({
+        id: "cycle-cleared",
+        cycle_number: 2,
+        start_date: "2026-09-01",
+        has_workout: true,
+        prescription_cleared_at: "2026-09-08T10:00:00Z",
+      }),
+      cycle({ id: "cycle-old-visible", cycle_number: 1, start_date: "2026-08-01", has_workout: true }),
+      "2026-09-08",
+    ).id).toBe("cycle-cleared");
+  });
+
   it("redirects historical edits with materialized workouts to the cycle currently visible to the student", () => {
     const selected = cycle({ id: "cycle-old-with-workout", cycle_number: 1, start_date: "2026-08-01", has_workout: true });
     const visible = cycle({ id: "cycle-visible-with-workout", cycle_number: 2, start_date: "2026-09-01", has_workouts: true });

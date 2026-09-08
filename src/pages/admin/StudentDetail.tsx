@@ -59,6 +59,20 @@ import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { collapseOverlappingCyclesForDisplay, selectCurrentPlanCycleWindow, selectCyclesForProgramHistory, selectPreferredVisibleCycle } from "@/lib/prescriptionSchedule";
 import { isInfluencerPlan, planOperationalRequirements } from "@/lib/influencerPlan";
 import { archiveWorkoutForStudent, buildWorkoutArchiveSuccessMessage, buildWorkoutRestoreSuccessMessage, restoreWorkoutForStudent } from "@/lib/workoutArchive";
+import {
+  archiveCyclePrescriptionForStudent,
+  buildCyclePrescriptionArchiveSuccessMessage,
+  buildCyclePrescriptionRestoreSuccessMessage,
+  previewCyclePrescriptionArchiveForStudent,
+  restoreCyclePrescriptionForStudent,
+} from "@/lib/cyclePrescriptionArchive";
+import {
+  assertCyclePrescriptionMutationSucceeded,
+  assertCyclePrescriptionPreviewMatches,
+  cyclePrescriptionContentCount,
+  isCyclePrescriptionArchiveActionStale,
+  type CyclePrescriptionArchivePreviewState,
+} from "@/lib/cyclePrescriptionArchiveUi";
 import { STUDENT_PROGRAM_PRIMARY_TABS, resolveStudentProgramHandoff, type StudentProgramPrimaryTabValue } from "@/lib/studentProgramSections";
 import { resolveManualPrescriptionTargetCycle, workoutBuilderUrl } from "@/lib/manualPrescriptionNavigation";
 // Heavy children loaded only when their tab is opened (chunk size win)
@@ -130,8 +144,14 @@ interface TrainingCycle {
   end_date: string;
   status: string;
   has_workout?: boolean;
+  has_bundle?: boolean;
+  has_cardio_plan?: boolean;
+  has_strength_plan?: boolean;
   prescribed_offline_at?: string | null;
   prescribed_offline_by?: string | null;
+  prescription_cleared_at?: string | null;
+  prescription_cleared_event_id?: string | null;
+  prescription_cleared_signature?: string | null;
 }
 
 interface StudentWorkoutRow {
@@ -150,6 +170,46 @@ interface WorkoutArchiveAction {
   mode: "archive" | "restore";
   workout: StudentWorkoutRow;
   cycle: TrainingCycle;
+}
+
+interface CyclePrescriptionArchiveAction {
+  mode: "archive" | "restore";
+  studentId: string;
+  cycle: TrainingCycle;
+  preview?: CyclePrescriptionArchivePreviewState | null;
+}
+
+const hasCyclePrescriptionContent = (cycle: TrainingCycle | null | undefined) =>
+  Boolean(cycle && !cycle.prescription_cleared_at && (
+    cycle.has_workout
+    || cycle.has_bundle
+    || cycle.has_strength_plan
+    || cycle.has_cardio_plan
+  ));
+
+const canClearCyclePrescription = (cycle: TrainingCycle | null | undefined, todayYmd = businessDateYmd()) =>
+  hasCyclePrescriptionContent(cycle) && Boolean(cycle?.end_date && cycle.end_date >= todayYmd);
+
+function cyclePrescriptionArchiveErrorMessage(error: unknown, mode: CyclePrescriptionArchiveAction["mode"]): string {
+  const raw = error instanceof Error ? error.message : String(error || "");
+  if (/changed_reload_before_clearing|content_changed/i.test(raw)) {
+    return "A prescrição mudou depois que a confirmação foi aberta. Recarregue o perfil e confira as contagens antes de tentar de novo.";
+  }
+  if (/only_current_or_future_cycles_can_be_cleared/i.test(raw)) {
+    return "Só é possível limpar a prescrição do ciclo atual ou de ciclos futuros. Ciclos encerrados ficam preservados como histórico.";
+  }
+  if (/clear_event_not_current|event_missing|not_current_for_cycle/i.test(raw)) {
+    return "A restauração não encontrou o evento de remoção atual deste ciclo. Recarregue o perfil antes de tentar novamente.";
+  }
+  if (/forbidden|permission|not authorized|jwt/i.test(raw)) {
+    return "Seu usuário não tem permissão para alterar este ciclo/aluno nesta empresa.";
+  }
+  if (/signature_required/i.test(raw)) {
+    return "A confirmação de segurança expirou. Abra a confirmação novamente para congelar a assinatura atual.";
+  }
+  return raw || (mode === "archive"
+    ? "O servidor recusou a remoção da prescrição."
+    : "O servidor recusou a restauração da prescrição.");
 }
 
 type TrainingCycleUpdate = Database["public"]["Tables"]["training_cycles"]["Update"] & {
@@ -220,7 +280,8 @@ const cycleCalendarColors: Record<string, { bg: string; text: string }> = {
 };
 
 const isCyclePrescribed = (cycle: TrainingCycle) =>
-  Boolean(cycle.has_workout || cycle.prescribed_offline_at);
+  !cycle.prescription_cleared_at
+  && Boolean(cycle.has_workout || cycle.has_bundle || cycle.has_cardio_plan || cycle.has_strength_plan || cycle.prescribed_offline_at);
 
 const paymentStatusLabels: Record<string, string> = {
   pending: "Pendente",
@@ -301,6 +362,17 @@ export default function StudentDetail() {
   const [workoutArchiveAction, setWorkoutArchiveAction] = useState<WorkoutArchiveAction | null>(null);
   const [workoutArchiveReason, setWorkoutArchiveReason] = useState("");
   const [archivingWorkout, setArchivingWorkout] = useState(false);
+	  const [cyclePrescriptionArchiveAction, setCyclePrescriptionArchiveAction] = useState<CyclePrescriptionArchiveAction | null>(null);
+	  const [cyclePrescriptionArchiveReason, setCyclePrescriptionArchiveReason] = useState("");
+	  const [cyclePrescriptionArchiveLoading, setCyclePrescriptionArchiveLoading] = useState(false);
+	  const studentProfileIdRef = useRef<string | undefined>(id);
+
+	  useEffect(() => {
+	    studentProfileIdRef.current = id;
+	    setCyclePrescriptionArchiveAction(null);
+	    setCyclePrescriptionArchiveReason("");
+	    setCyclePrescriptionArchiveLoading(false);
+	  }, [id]);
 
   useEffect(() => {
     const handoff = location.state as { studentId?: unknown; tab?: unknown } | null;
@@ -548,7 +620,7 @@ export default function StudentDetail() {
 
     const schedulableCycleData = cycleData.filter((cycle) => cycle.status !== "superseded");
     const cycleIds = schedulableCycleData.map((c) => c.id);
-    const [activeWorkoutResult, archivedWorkoutResult] = cycleIds.length > 0
+    const [activeWorkoutResult, archivedWorkoutResult, bundleResult, strengthPlanResult, runningPlanResult] = cycleIds.length > 0
       ? await Promise.all([
         supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").is("superseded_at", null).in("cycle_id", cycleIds),
         supabase
@@ -557,13 +629,48 @@ export default function StudentDetail() {
           .not("superseded_at", "is", null)
           .not("student_profile_archive_event_id", "is", null)
           .in("cycle_id", cycleIds),
+        (supabase as any)
+          .from("prescription_bundles")
+          .select("id, training_cycle_id, status")
+          .eq("company_id", studentData.company_id)
+          .eq("student_id", studentId)
+          .in("training_cycle_id", cycleIds)
+          .in("status", ["active", "scheduled"]),
+        (supabase as any)
+          .from("ai_strength_plans")
+          .select("id, training_cycle_id")
+          .eq("company_id", studentData.company_id)
+          .eq("student_id", studentId)
+          .in("training_cycle_id", cycleIds),
+        (supabase as any)
+          .from("running_plans")
+          .select("id, training_cycle_id, status")
+          .eq("company_id", studentData.company_id)
+          .eq("student_id", studentId)
+          .in("training_cycle_id", cycleIds)
+          .in("status", ["active", "scheduled"]),
       ])
-      : [{ data: [] as StudentWorkoutRow[] }, { data: [] as StudentWorkoutRow[] }];
+      : [
+        { data: [] as StudentWorkoutRow[] },
+        { data: [] as StudentWorkoutRow[] },
+        { data: [] as { training_cycle_id: string }[] },
+        { data: [] as { training_cycle_id: string }[] },
+        { data: [] as { training_cycle_id: string }[] },
+      ];
     const workouts = (activeWorkoutResult.data || []) as StudentWorkoutRow[];
     const archivedRows = (archivedWorkoutResult.data || []) as StudentWorkoutRow[];
     const materializedWorkouts = filterMaterializedWorkouts(workouts || []);
     const materializedArchivedWorkouts = filterMaterializedWorkouts(archivedRows || []);
     const workoutCycleIds = new Set(materializedWorkouts.map((w) => w.cycle_id));
+    const bundleCycleIds = new Set(((bundleResult.data || []) as any[])
+      .map((row) => row.training_cycle_id)
+      .filter(Boolean));
+    const strengthCycleIds = new Set(((strengthPlanResult.data || []) as any[])
+      .map((row) => row.training_cycle_id)
+      .filter(Boolean));
+    const runningCycleIds = new Set(((runningPlanResult.data || []) as any[])
+      .map((row) => row.training_cycle_id)
+      .filter(Boolean));
     setAllWorkouts(materializedWorkouts);
     setArchivedWorkouts(materializedArchivedWorkouts);
 
@@ -588,8 +695,11 @@ export default function StudentDetail() {
 
     const cyclesWithSignals = schedulableCycleData.map((c) => ({
       ...c,
-      has_workout: workoutCycleIds.has(c.id),
-      has_workouts: workoutCycleIds.has(c.id),
+      has_workout: !c.prescription_cleared_at && workoutCycleIds.has(c.id),
+      has_workouts: !c.prescription_cleared_at && workoutCycleIds.has(c.id),
+      has_bundle: !c.prescription_cleared_at && bundleCycleIds.has(c.id),
+      has_strength_plan: !c.prescription_cleared_at && strengthCycleIds.has(c.id),
+      has_cardio_plan: !c.prescription_cleared_at && runningCycleIds.has(c.id),
     }));
     setRawCycles(cyclesWithSignals);
     const displayCycles = collapseOverlappingCyclesForDisplay(cyclesWithSignals);
@@ -1117,6 +1227,119 @@ export default function StudentDetail() {
     if (archivingWorkout) return;
     setWorkoutArchiveAction(null);
     setWorkoutArchiveReason("");
+  };
+
+  const openCyclePrescriptionArchiveDialog = async (mode: CyclePrescriptionArchiveAction["mode"], cycle: TrainingCycle) => {
+	    if (!id) return;
+	    const studentIdAtOpen = id;
+	    if (mode === "restore") {
+      if (!cycle.prescription_cleared_event_id) {
+        toast({
+          title: "Restauração indisponível",
+          description: "Este ciclo não tem um evento de remoção vinculado. Recarregue o perfil antes de tentar novamente.",
+          variant: "destructive",
+        });
+        return;
+	      }
+	      setCyclePrescriptionArchiveReason("");
+	      setCyclePrescriptionArchiveAction({ mode, studentId: studentIdAtOpen, cycle });
+	      return;
+	    }
+
+    if (!canClearCyclePrescription(cycle)) {
+      toast({
+        title: "Este ciclo não pode ser limpo daqui",
+        description: "A ação fica disponível apenas para ciclos atuais ou futuros que ainda têm prescrição ativa.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCyclePrescriptionArchiveLoading(true);
+    try {
+	      const preview = await previewCyclePrescriptionArchiveForStudent(supabase as any, {
+	        studentId: studentIdAtOpen,
+	        cycleId: cycle.id,
+	      }) as CyclePrescriptionArchivePreviewState | null;
+	      if (studentProfileIdRef.current !== studentIdAtOpen) {
+	        return;
+	      }
+	      const confirmedPreview = assertCyclePrescriptionPreviewMatches(preview, {
+	        studentId: studentIdAtOpen,
+	        cycleId: cycle.id,
+	      });
+	      setCyclePrescriptionArchiveReason("");
+	      // A assinatura vem do preview no momento de abertura. A confirmação usa
+	      // este snapshot congelado para detectar edição concorrente no servidor.
+	      setCyclePrescriptionArchiveAction({ mode, studentId: studentIdAtOpen, cycle, preview: confirmedPreview });
+    } catch (error) {
+      toast({
+        title: "Não foi possível preparar a remoção",
+        description: cyclePrescriptionArchiveErrorMessage(error, mode),
+        variant: "destructive",
+      });
+    } finally {
+      setCyclePrescriptionArchiveLoading(false);
+    }
+  };
+
+  const closeCyclePrescriptionArchiveDialog = () => {
+    if (cyclePrescriptionArchiveLoading) return;
+    setCyclePrescriptionArchiveAction(null);
+    setCyclePrescriptionArchiveReason("");
+  };
+
+  const confirmCyclePrescriptionArchiveAction = async () => {
+	    if (!cyclePrescriptionArchiveAction || !id) return;
+	    if (isCyclePrescriptionArchiveActionStale(cyclePrescriptionArchiveAction, id)) {
+	      setCyclePrescriptionArchiveAction(null);
+	      setCyclePrescriptionArchiveReason("");
+	      toast({
+	        title: "Perfil mudou durante a confirmação",
+	        description: "Abra a confirmação novamente no aluno correto antes de alterar a prescrição.",
+	        variant: "destructive",
+	      });
+	      return;
+	    }
+	    const { mode, studentId, cycle, preview } = cyclePrescriptionArchiveAction;
+	    setCyclePrescriptionArchiveLoading(true);
+	    try {
+      if (mode === "archive") {
+        const expectedContentSignature = preview?.content_signature?.trim();
+        if (!expectedContentSignature) {
+          throw new Error("A confirmação de segurança expirou. Abra a confirmação novamente.");
+        }
+	        const result = await archiveCyclePrescriptionForStudent(supabase as any, {
+	          studentId,
+	          cycleId: cycle.id,
+	          expectedWorkoutIds: preview?.active_workout_ids || [],
+	          expectedContentSignature,
+	          reason: cyclePrescriptionArchiveReason,
+	        });
+	        assertCyclePrescriptionMutationSucceeded(result, { studentId, cycleId: cycle.id });
+	        toast(buildCyclePrescriptionArchiveSuccessMessage(cycle.cycle_number));
+	      } else {
+	        const result = await restoreCyclePrescriptionForStudent(supabase as any, {
+	          studentId,
+	          cycleId: cycle.id,
+	          clearEventId: cycle.prescription_cleared_event_id,
+	          reason: cyclePrescriptionArchiveReason,
+	        });
+	        assertCyclePrescriptionMutationSucceeded(result, { studentId, cycleId: cycle.id });
+	        toast(buildCyclePrescriptionRestoreSuccessMessage(cycle.cycle_number));
+	      }
+	      setCyclePrescriptionArchiveAction(null);
+	      setCyclePrescriptionArchiveReason("");
+	      loadData(studentId);
+    } catch (error) {
+      toast({
+        title: mode === "archive" ? "Não foi possível remover a prescrição" : "Não foi possível restaurar a prescrição",
+        description: cyclePrescriptionArchiveErrorMessage(error, mode),
+        variant: "destructive",
+      });
+    } finally {
+      setCyclePrescriptionArchiveLoading(false);
+    }
   };
 
   const confirmWorkoutArchiveAction = async () => {
@@ -1792,10 +2015,14 @@ export default function StudentDetail() {
                 {activePrescriptionPanel === "prescricao" && (
                   <ManualPrescriptionPanel
                     cycles={manualPrescriptionCycles}
-                    selectedCycle={manualSelectedCycle}
-                    onCycleChange={setManualPrescriptionCycleId}
-                    onOpenCycle={openManualPrescriptionBuilder}
-                  />
+	                    selectedCycle={manualSelectedCycle}
+	                    onCycleChange={setManualPrescriptionCycleId}
+	                    onOpenCycle={openManualPrescriptionBuilder}
+	                    onClearCycle={(cycle) => void openCyclePrescriptionArchiveDialog("archive", cycle)}
+	                    onRestoreCycle={(cycle) => void openCyclePrescriptionArchiveDialog("restore", cycle)}
+	                    canClearSelectedCycle={canClearCyclePrescription(manualSelectedCycle)}
+	                    cycleActionLoading={cyclePrescriptionArchiveLoading}
+	                  />
                 )}
                 {activePrescriptionPanel === "integrada" && (
                   <Suspense fallback={<TabFallback />}>
@@ -2196,9 +2423,74 @@ export default function StudentDetail() {
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+	        </Dialog>
 
-        {/* Enrollment Dialog */}
+	        {/* Cycle prescription archive/restore dialog */}
+	        <Dialog open={Boolean(cyclePrescriptionArchiveAction)} onOpenChange={(open) => !open && closeCyclePrescriptionArchiveDialog()}>
+	          <DialogContent className="bg-card border-border">
+	            <DialogHeader>
+	              <DialogTitle className="text-primary">
+	                {cyclePrescriptionArchiveAction?.mode === "restore" ? "RESTAURAR PRESCRIÇÃO DO CICLO" : "EXCLUIR PRESCRIÇÃO DO CICLO"}
+	              </DialogTitle>
+	            </DialogHeader>
+	            {cyclePrescriptionArchiveAction && (
+	              <div className="space-y-4 text-sm font-sans">
+	                <div className="rounded-xl border border-border bg-secondary/40 p-3 space-y-1">
+	                  <p><span className="text-muted-foreground">Aluno:</span> <strong>{student.full_name}</strong></p>
+	                  <p><span className="text-muted-foreground">Ciclo:</span> ciclo {cyclePrescriptionArchiveAction.cycle.cycle_number} · {safeFormatDate(cyclePrescriptionArchiveAction.cycle.start_date, "dd/MM/yyyy")} a {safeFormatDate(cyclePrescriptionArchiveAction.cycle.end_date, "dd/MM/yyyy")}</p>
+	                  {cyclePrescriptionArchiveAction.mode === "archive" && (
+	                    <div className="grid grid-cols-2 gap-2 pt-2 text-xs sm:grid-cols-4">
+	                      <span className="rounded-lg bg-background/70 p-2"><strong>{cyclePrescriptionArchiveAction.preview?.active_workouts || 0}</strong><br />treinos</span>
+	                      <span className="rounded-lg bg-background/70 p-2"><strong>{cyclePrescriptionArchiveAction.preview?.active_bundles || 0}</strong><br />pacotes</span>
+	                      <span className="rounded-lg bg-background/70 p-2"><strong>{cyclePrescriptionArchiveAction.preview?.active_strength_plans || 0}</strong><br />força IA</span>
+	                      <span className="rounded-lg bg-background/70 p-2"><strong>{cyclePrescriptionArchiveAction.preview?.active_running_plans || 0}</strong><br />cardio</span>
+	                    </div>
+	                  )}
+	                </div>
+	                {cyclePrescriptionArchiveAction.mode === "archive" ? (
+	                  <div className="space-y-2 text-muted-foreground">
+	                    <p>
+	                      Esta ação remove a prescrição inteira deste ciclo das telas ativas do aluno. O ciclo fica intencionalmente vazio para você deixar sem treino ou refazer do zero.
+	                    </p>
+	                    <p>
+	                      É uma remoção recuperável: treinos, pacotes, força, cardio, logs e histórico ficam arquivados com evento de auditoria. Se alguém alterar a prescrição após esta confirmação abrir, o servidor bloqueia a operação.
+	                    </p>
+	                  </div>
+	                ) : (
+	                  <p className="text-muted-foreground">
+	                    Esta ação restaura a última prescrição removida deste ciclo usando o evento de auditoria vinculado. Ela volta às telas ativas se o servidor não detectar conflito com alterações posteriores.
+	                  </p>
+	                )}
+	                <div className="space-y-2">
+	                  <Label className="font-sans">Motivo opcional</Label>
+	                  <Textarea
+	                    value={cyclePrescriptionArchiveReason}
+	                    onChange={(event) => setCyclePrescriptionArchiveReason(event.target.value)}
+	                    placeholder={cyclePrescriptionArchiveAction.mode === "archive" ? "Ex.: apagar prescrição atual para refazer do zero" : "Ex.: rollback solicitado pelo professor"}
+	                    rows={3}
+	                    className="bg-secondary border-border"
+	                  />
+	                </div>
+	              </div>
+	            )}
+	            <DialogFooter>
+	              <Button variant="outline" onClick={closeCyclePrescriptionArchiveDialog} disabled={cyclePrescriptionArchiveLoading}>Cancelar</Button>
+	              <Button
+	                variant={cyclePrescriptionArchiveAction?.mode === "archive" ? "destructive" : "default"}
+	                onClick={confirmCyclePrescriptionArchiveAction}
+	                disabled={cyclePrescriptionArchiveLoading}
+	              >
+	                {cyclePrescriptionArchiveLoading
+	                  ? "Confirmando..."
+	                  : cyclePrescriptionArchiveAction?.mode === "archive"
+	                    ? "Excluir prescrição"
+	                    : "Restaurar prescrição"}
+	              </Button>
+	            </DialogFooter>
+	          </DialogContent>
+	        </Dialog>
+
+	        {/* Enrollment Dialog */}
         <Dialog open={enrollOpen} onOpenChange={setEnrollOpen}>
           <DialogContent className="bg-card border-border">
             <DialogHeader>

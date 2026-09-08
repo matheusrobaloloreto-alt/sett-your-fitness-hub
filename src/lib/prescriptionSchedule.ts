@@ -8,6 +8,9 @@ export interface PrescriptionScheduleCycle {
   end_date: string;
   status: string;
   superseded_by_cycle_id?: string | null;
+  prescription_cleared_at?: string | null;
+  prescription_cleared_event_id?: string | null;
+  prescription_cleared_signature?: string | null;
   has_workouts?: boolean;
   has_bundle?: boolean;
 }
@@ -30,6 +33,18 @@ export function isSupersededCycle(
   cycle: Pick<PrescriptionScheduleCycle, "status" | "superseded_by_cycle_id">,
 ): boolean {
   return cycle.status === "superseded" || Boolean(cycle.superseded_by_cycle_id);
+}
+
+export function isPrescriptionClearedCycle(
+  cycle: Pick<PrescriptionScheduleCycle, "prescription_cleared_at">,
+): boolean {
+  return Boolean(cycle.prescription_cleared_at);
+}
+
+export function hasActivePrescriptionContent(
+  cycle: Pick<PrescriptionScheduleCycle, "prescription_cleared_at" | "has_workouts" | "has_bundle">,
+): boolean {
+  return !isPrescriptionClearedCycle(cycle) && Boolean(cycle.has_workouts || cycle.has_bundle);
 }
 
 function utcDay(value: string | Date): number {
@@ -83,8 +98,8 @@ export function selectCurrentCyclePerEnrollment(
   });
 
   return Array.from(grouped.values()).map((group) => [...group].sort((a, b) => {
-    const aPrepared = Boolean(a.has_workouts || a.has_bundle);
-    const bPrepared = Boolean(b.has_workouts || b.has_bundle);
+    const aPrepared = hasActivePrescriptionContent(a);
+    const bPrepared = hasActivePrescriptionContent(b);
     if (aPrepared !== bPrepared) return Number(bPrepared) - Number(aPrepared);
     const aActive = a.status === "active";
     const bActive = b.status === "active";
@@ -107,8 +122,9 @@ export function selectPreferredVisibleCycle<T extends {
   status: string;
   has_workouts?: boolean;
   has_bundle?: boolean;
+  prescription_cleared_at?: string | null;
 }>(cycles: T[], today = new Date()): T | null {
-  const prepared = (cycle: T) => Boolean(cycle.has_workouts || cycle.has_bundle);
+  const prepared = (cycle: T) => hasActivePrescriptionContent(cycle);
   const started = (cycle: T) => utcDay(cycle.start_date) <= utcDay(today);
   const rank = (left: T, right: T) => {
     const statusDifference = Number(right.status === "active") - Number(left.status === "active");
@@ -119,10 +135,10 @@ export function selectPreferredVisibleCycle<T extends {
 
   const visible = cycles.filter((cycle) => !isSupersededCycle(cycle));
   return visible.filter((cycle) => isCycleCurrent(cycle, today) && prepared(cycle)).sort(rank)[0]
+    ?? visible.filter((cycle) => isCycleCurrent(cycle, today)).sort(rank)[0]
     ?? visible.filter((cycle) => started(cycle) && prepared(cycle)).sort((left, right) =>
       utcDay(right.start_date) - utcDay(left.start_date) || rank(left, right)
     )[0]
-    ?? visible.filter((cycle) => isCycleCurrent(cycle, today)).sort(rank)[0]
     ?? null;
 }
 
@@ -143,8 +159,8 @@ export function collapseOverlappingCyclesForDisplay<T extends PrescriptionSchedu
     return shorter > 0 ? intersection / shorter : 0;
   };
   const preferred = (left: T, right: T) => {
-    const leftPrepared = Boolean(left.has_workouts || left.has_bundle);
-    const rightPrepared = Boolean(right.has_workouts || right.has_bundle);
+    const leftPrepared = hasActivePrescriptionContent(left);
+    const rightPrepared = hasActivePrescriptionContent(right);
     if (leftPrepared !== rightPrepared) return rightPrepared ? right : left;
     if ((left.status === "active") !== (right.status === "active")) return right.status === "active" ? right : left;
     return right.cycle_number > left.cycle_number ? right : left;
@@ -203,7 +219,7 @@ export function selectCurrentPlanCycleWindow<T extends PrescriptionScheduleCycle
   const activeIndex = visible.findIndex((item) => item.status === "active");
   const anchorIndex = activeIndex >= 0
     ? activeIndex
-    : Math.max(0, visible.findLastIndex((item) => Boolean(item.has_workouts || item.has_bundle)));
+    : Math.max(0, visible.findLastIndex((item) => hasActivePrescriptionContent(item)));
   const windowStart = Math.floor(anchorIndex / windowSize) * windowSize;
   return visible.slice(windowStart, windowStart + windowSize);
 }
@@ -225,7 +241,7 @@ export function selectCyclesForProgramHistory<T extends PrescriptionScheduleCycl
   );
 
   return visible
-    .filter((cycle) => currentIds.has(cycle.id) || Boolean(cycle.has_workouts || cycle.has_bundle))
+    .filter((cycle) => currentIds.has(cycle.id) || hasActivePrescriptionContent(cycle))
     .sort((left, right) => utcDay(left.start_date) - utcDay(right.start_date)
       || left.cycle_number - right.cycle_number);
 }
@@ -314,7 +330,7 @@ export function selectDefaultPrescriptionScheduleCycle(
   const ordered = [...cycles]
     .filter((cycle) => !isSupersededCycle(cycle))
     .sort(sortChronologically);
-  const unprepared = (cycle: PrescriptionScheduleCycle) => !cycle.has_workouts && !cycle.has_bundle;
+  const unprepared = (cycle: PrescriptionScheduleCycle) => !hasActivePrescriptionContent(cycle);
   const currentVisible = selectPreferredVisibleCycle(
     ordered.filter((cycle) => isCycleCurrent(cycle, today)),
     today,
@@ -363,7 +379,7 @@ export function selectPrescriptionTargets(args: {
   return ordered.filter((cycle) => {
     if (!isCycleCurrent(cycle, today) && !isCycleFuture(cycle, today)) return false;
     if (args.includeAlreadyPrepared) return true;
-    return !cycle.has_workouts && !cycle.has_bundle;
+    return !hasActivePrescriptionContent(cycle);
   });
 }
 

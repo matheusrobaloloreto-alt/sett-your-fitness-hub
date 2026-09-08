@@ -118,9 +118,11 @@ const asArray = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 export function CardioPlanView({
   studentId,
   sport,
+  suppressBecauseCurrentCycleCleared = false,
 }: {
   studentId: string;
   sport: "corrida" | "natacao" | "ciclismo";
+  suppressBecauseCurrentCycleCleared?: boolean;
 }) {
   const [plan, setPlan] = useState<CardioPlan | null>(null);
   const [loading, setLoading] = useState(true);
@@ -129,6 +131,12 @@ export function CardioPlanView({
     let active = true;
     const load = async () => {
       setLoading(true);
+      if (suppressBecauseCurrentCycleCleared) {
+        if (!active) return;
+        setPlan(null);
+        setLoading(false);
+        return;
+      }
       const today = businessDateYmd();
       const { data } = await supabase
         .from("running_plans")
@@ -137,6 +145,7 @@ export function CardioPlanView({
         .eq("sport", sport)
         .lte("start_date", today)
         .or(`end_date.is.null,end_date.gte.${today}`)
+        .or("status.is.null,status.in.(active,scheduled)")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -145,6 +154,8 @@ export function CardioPlanView({
       if (!visible) {
         const { data: legacy } = await supabase.from("running_plans").select("*")
           .eq("student_id", studentId).eq("sport", sport).is("start_date", null)
+          .or(`end_date.is.null,end_date.gte.${today}`)
+          .or("status.is.null,status.in.(active,scheduled)")
           .order("created_at", { ascending: false }).limit(1).maybeSingle();
         visible = legacy;
       }
@@ -156,7 +167,7 @@ export function CardioPlanView({
     return () => {
       active = false;
     };
-  }, [studentId, sport]);
+  }, [studentId, sport, suppressBecauseCurrentCycleCleared]);
 
   const meta = SPORT_META[sport] ?? SPORT_META.corrida;
   const { label: sportLabel, Icon: SportIcon } = meta;

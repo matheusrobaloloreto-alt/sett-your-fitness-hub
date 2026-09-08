@@ -3,6 +3,7 @@ export interface ManualPrescriptionCycle {
   cycle_number: number;
   start_date: string;
   end_date: string;
+  prescription_cleared_at?: string | null;
   has_workout?: boolean;
   has_workouts?: boolean;
 }
@@ -28,7 +29,7 @@ export function workoutBuilderUrl(args: {
 }
 
 export function cycleHasManualWorkout(cycle: ManualPrescriptionCycle): boolean {
-  return Boolean(cycle.has_workout || cycle.has_workouts);
+  return !cycle.prescription_cleared_at && Boolean(cycle.has_workout || cycle.has_workouts);
 }
 
 export function resolveManualPrescriptionTargetCycle<T extends ManualPrescriptionCycle>(

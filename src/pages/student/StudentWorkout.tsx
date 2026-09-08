@@ -54,6 +54,7 @@ interface Cycle {
   end_date: string;
   status: string;
   duration_weeks?: number | null;
+  prescription_cleared_at?: string | null;
   workouts: WorkoutData[];
 }
 
@@ -175,7 +176,7 @@ export default function StudentWorkout() {
     if (enrollmentData) {
       const { data: cyclesData, error: cyclesError } = await supabase
         .from("training_cycles")
-        .select("id, cycle_number, start_date, end_date, status, duration_weeks")
+        .select("id, cycle_number, start_date, end_date, status, duration_weeks, prescription_cleared_at")
         .eq("enrollment_id", enrollmentData.id)
         .order("cycle_number");
       if (!isCurrentLoad()) return;
@@ -220,15 +221,17 @@ export default function StudentWorkout() {
         }));
 
         const enriched: Cycle[] = schedulableCycles.map((c) => {
-          const cycleWorkouts = orderWorkoutsByPrescription(materializedWorkouts
-            .filter((w) => w.cycle_id === c.id)
-            .map((w) => ({
-              id: w.id,
-              title: w.title,
-              description: w.description,
-              sort_order: w.sort_order,
-              exercises: (w.exercises as unknown as WorkoutExercise[]) || [],
-            })));
+          const cycleWorkouts = c.prescription_cleared_at
+            ? []
+            : orderWorkoutsByPrescription(materializedWorkouts
+              .filter((w) => w.cycle_id === c.id)
+              .map((w) => ({
+                id: w.id,
+                title: w.title,
+                description: w.description,
+                sort_order: w.sort_order,
+                exercises: (w.exercises as unknown as WorkoutExercise[]) || [],
+              })));
           return { ...c, workouts: cycleWorkouts };
         });
 
@@ -237,7 +240,7 @@ export default function StudentWorkout() {
         const isFuture = (cycle: Cycle) => Boolean(cycle.start_date && cycle.start_date > todayYmd);
 
         const chosen = selectPreferredVisibleCycle(
-          enriched.map((cycle) => ({ ...cycle, has_workouts: cycle.workouts.length > 0 })),
+          enriched.map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && cycle.workouts.length > 0 })),
           today,
         );
 
