@@ -108,6 +108,126 @@ async function sendText(args: {
   }).eq("id", args.chatId);
 }
 
+async function sha256Hex(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((part) => part.toString(16).padStart(2, "0")).join("");
+}
+
+function opaqueToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes).map((part) => part.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Cycle updates share the hardened WhatsApp sender and recipient resolver, but
+ * deliberately do not enter the editable marketing flow graph.  Their unique
+ * delivery row is the idempotency and retry ledger; a click in the UI only
+ * schedules it, while this cron-owned dispatcher is the sole sender.
+ */
+export async function processIntercycleAnamnesisDeliveries(args: {
+  admin: any;
+  provider?: { url: string; key: string };
+}) {
+  const scheduled = await args.admin.rpc("process_intercycle_anamnesis_schedule");
+  if (scheduled.error) throw new Error("intercycle_schedule_unavailable");
+  const claimed = await args.admin.rpc("claim_intercycle_anamnesis_deliveries", { _limit: 25 });
+  if (claimed.error) throw new Error("intercycle_claim_unavailable");
+  const rows = claimed.data || [];
+  let sent = 0;
+  let failed = 0;
+  for (const delivery of rows) {
+    try {
+      if (!args.provider?.url || !args.provider?.key) {
+        throw new Error("intercycle_provider_not_configured");
+      }
+      const studentResult = await args.admin.from("students")
+        .select("id, full_name, phone, whatsapp, country_code, intercycle_anamnesis_enabled")
+        .eq("id", delivery.student_id).eq("company_id", delivery.company_id).maybeSingle();
+      const student = studentResult.data;
+      if (studentResult.error || !student || !student.intercycle_anamnesis_enabled) throw new Error("intercycle_opt_in_missing");
+      const cycleResult = await args.admin.from("training_cycles")
+        .select("id, student_id, company_id, enrollment_id, status, superseded_at")
+        .eq("id", delivery.training_cycle_id)
+        .eq("student_id", delivery.student_id)
+        .eq("company_id", delivery.company_id)
+        .eq("enrollment_id", delivery.enrollment_id)
+        .maybeSingle();
+      const cycle = cycleResult.data;
+      if (
+        cycleResult.error ||
+        !cycle ||
+        cycle.superseded_at ||
+        ["cancelled", "superseded"].includes(String(cycle.status || ""))
+      ) {
+        throw new Error("intercycle_cycle_cancelled_or_rescoped");
+      }
+      const chatResult = await args.admin.from("whatsapp_chats")
+        .select("id, remote_jid, student_id, instance_id")
+        .eq("company_id", delivery.company_id).eq("student_id", delivery.student_id)
+        .order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      const chat = chatResult.data;
+      if (chatResult.error || !chat?.remote_jid) throw new Error("intercycle_trusted_phone_missing");
+      const recipient = resolveVerifiedWhatsAppRecipient({
+        clientRemoteJid: chat.remote_jid, chatRemoteJid: chat.remote_jid,
+        chatStudentId: chat.student_id, requestedStudentId: delivery.student_id, student,
+      });
+      if (!recipient.ok) throw new Error(`intercycle_${recipient.code}`);
+      let instanceQuery = args.admin.from("whatsapp_instances").select("instance_name, status").eq("company_id", delivery.company_id);
+      if (chat.instance_id) instanceQuery = instanceQuery.eq("id", chat.instance_id);
+      const instanceResult = await instanceQuery.order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      if (instanceResult.error || !instanceResult.data?.instance_name || instanceResult.data.status !== "connected") {
+        throw new Error("intercycle_whatsapp_unavailable");
+      }
+      const token = opaqueToken();
+      const tokenHash = await sha256Hex(token);
+      const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      const invite = await args.admin.from("intercycle_anamnesis_invites").upsert({
+        delivery_id: delivery.id, company_id: delivery.company_id, student_id: delivery.student_id,
+        enrollment_id: delivery.enrollment_id, training_cycle_id: delivery.training_cycle_id,
+        token_sha256: tokenHash, expires_at: expiresAt, consumed_at: null,
+      }, { onConflict: "delivery_id" });
+      if (invite.error) throw new Error("intercycle_invite_unavailable");
+      const origin = (Deno.env.get("PUBLIC_APP_ORIGIN") || "https://www.settapp.com.br").replace(/\/+$/, "");
+      const firstName = String(student.full_name || "").trim().split(/\s+/)[0] || "tudo bem";
+      const link = `${origin}/anamnese-interciclos/${token}`;
+      await sendText({
+        admin: args.admin, evoUrl: args.provider.url, evoKey: args.provider.key,
+        instanceName: instanceResult.data.instance_name, remoteJid: recipient.remoteJid,
+        chatId: chat.id, companyId: delivery.company_id,
+        text: `Oi, ${firstName}! Estamos chegando ao fim deste ciclo. Você pode responder uma atualização rápida para orientar a próxima prescrição? ${link}`,
+      });
+      const saved = await args.admin.from("intercycle_anamnesis_deliveries").update({
+        status: "sent", sent_at: new Date().toISOString(), last_error_code: null, next_attempt_at: null, updated_at: new Date().toISOString(),
+      }).eq("id", delivery.id).eq("status", "sending");
+      if (saved.error) throw new Error("intercycle_delivery_ledger_unavailable");
+      sent += 1;
+    } catch (error) {
+      failed += 1;
+      const retryCount = Number(delivery.retry_count || 0) + 1;
+      const code = String(error instanceof Error ? error.message : "intercycle_dispatch_failed").replace(/[^a-z0-9_]/gi, "_").slice(0, 120);
+      if (code === "intercycle_cycle_cancelled_or_rescoped") {
+        await args.admin.from("intercycle_anamnesis_deliveries").update({
+          status: "cancelled",
+          cancelled_at: new Date().toISOString(),
+          last_error_code: code,
+          updated_at: new Date().toISOString(),
+        }).eq("id", delivery.id).eq("status", "sending");
+        continue;
+      }
+      const retryMinutes = code === "intercycle_provider_not_configured"
+        ? 360
+        : Math.min(360, Math.max(5, 2 ** Math.min(retryCount, 8)));
+      await args.admin.from("intercycle_anamnesis_deliveries").update({
+        status: "failed", retry_count: retryCount, last_error_code: code,
+        next_attempt_at: new Date(Date.now() + retryMinutes * 60_000).toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", delivery.id).eq("status", "sending");
+    }
+  }
+  return { scheduled: Number(scheduled.data || 0), claimed: rows.length, sent, failed };
+}
+
 async function applyLabel(admin: any, companyId: string, chatId: string, labelName: string) {
   const { data: existingLabel, error } = await admin.from("whatsapp_labels").select("id")
     .eq("company_id", companyId).eq("name", labelName).maybeSingle();
@@ -311,13 +431,24 @@ export async function handleAutomationRequest(request: Request) {
   if (claimResult.error) return json({ error: "Unable to claim automation sessions" }, 500);
   const sessions = (claimResult.data || []) as FlowSession[];
 
+  let intercycle: Record<string, number> = { scheduled: 0, claimed: 0, sent: 0, failed: 0 };
+  try {
+    intercycle = await processIntercycleAnamnesisDeliveries({
+      admin,
+      provider: evolutionUrl && evolutionKey ? { url: evolutionUrl, key: evolutionKey } : undefined,
+    });
+  } catch (error) {
+    // No student identity, phone, token, or provider response is logged here.
+    console.error("intercycle dispatcher unavailable", String(error instanceof Error ? error.message : "unknown").slice(0, 120));
+  }
+
   if (!evolutionUrl || !evolutionKey) {
     const retryAt = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
     for (const session of sessions) {
       const context = { ...(session.context || {}), dispatch_error: "WhatsApp provider not configured", next_dispatch_at: retryAt };
       await admin.from("flow_sessions").update({ status: "active", context, updated_at: new Date().toISOString() }).eq("id", session.id);
     }
-    return json({ processed: 0, deferred: sessions.length, reason: "provider_not_configured", triggers: triggerResult.data || null });
+    return json({ processed: 0, deferred: sessions.length, reason: "provider_not_configured", intercycle, triggers: triggerResult.data || null });
   }
 
   let completed = 0;
@@ -342,7 +473,7 @@ export async function handleAutomationRequest(request: Request) {
     }
   }
 
-  return json({ claimed: sessions.length, completed, waiting, failed, triggers: triggerResult.data || null });
+  return json({ claimed: sessions.length, completed, waiting, failed, intercycle, triggers: triggerResult.data || null });
 }
 
 if (import.meta.main) Deno.serve(handleAutomationRequest);

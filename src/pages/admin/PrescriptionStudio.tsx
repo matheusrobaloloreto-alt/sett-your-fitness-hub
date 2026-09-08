@@ -227,6 +227,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleProgress, setScheduleProgress] = useState<{ current: number; total: number; label: string } | null>(null);
   const [scheduledSummaries, setScheduledSummaries] = useState<Array<{ cycle: PrescriptionScheduleCycle; modalities: string[] }>>([]);
+  const [intercycleWaiverReason, setIntercycleWaiverReason] = useState("");
   // Vídeo vindo do WhatsApp, vinculado a aluno + conversa + mensagem.
   const [pendingWhatsAppVideo, setPendingWhatsAppVideo] = useState<WhatsAppAssessmentVideoHandoff | null>(null);
   const location = useLocation();
@@ -717,6 +718,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
             previous_plan_context: previousStrength?.plan || null,
             previous_performance_context: performanceCtx,
             program_sequence: programSequence,
+            intercycle_waiver_reason: intercycleWaiverReason.trim() || null,
           } });
           if (edgeError || data?.error) throw new Error((await readEdgeError(edgeError, data)) || `Falha na musculação do ciclo ${cycle.cycle_number}.`);
           if (!data?.id) throw new Error("A musculação foi gerada sem ID persistido.");
@@ -1841,6 +1843,14 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                   <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
                     {anamneseGenerationBlockReason}
                   </p>
+                )}
+
+                {scheduleTargets.some((cycle) => cycle.cycle_number > 1) && (
+                  <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3">
+                    <label className="text-xs font-medium text-amber-900">Dispensa da Anamnese interciclos (somente se ainda não houver resposta)</label>
+                    <Input className="mt-2" value={intercycleWaiverReason} onChange={(event) => setIntercycleWaiverReason(event.target.value)} placeholder="Motivo obrigatório; será registrado com seu usuário e horário." />
+                    <p className="mt-1 text-[11px] text-amber-800">Sem resposta nem dispensa explícita, a geração do próximo ciclo é bloqueada. EVA acima de 5 também exige handoff.</p>
+                  </div>
                 )}
 
                 <Button className="w-full mt-4 bg-[#1B2B4A] hover:bg-[#1B2B4A]/90"

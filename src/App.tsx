@@ -56,6 +56,7 @@ const MasterAccount = lazy(() => import("./pages/master/MasterAccount"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const PublicRegistration = lazy(() => import("./pages/PublicRegistration"));
 const PublicAnamnesis = lazy(() => import("./pages/PublicAnamnesis"));
+const PublicIntercycleAnamnesis = lazy(() => import("./pages/PublicIntercycleAnamnesis"));
 const PublicPayment = lazy(() => import("./pages/PublicPayment"));
 const StudentWorkout = lazy(() => import("./pages/student/StudentWorkout"));
 const StudentPortal = lazy(() => import("./pages/student/StudentPortal"));
@@ -191,6 +192,7 @@ const App = () => (
           <Route path="/cadastro-fiscal/:token" element={<RouteTransition><PublicRegistration /></RouteTransition>} />
           <Route path="/anamnese/:studentId" element={<RouteTransition><PublicAnamnesis /></RouteTransition>} />
           <Route path="/anamnese-convite/:token" element={<RouteTransition><PublicAnamnesis /></RouteTransition>} />
+          <Route path="/anamnese-interciclos/:token" element={<RouteTransition><PublicIntercycleAnamnesis /></RouteTransition>} />
           <Route path="/pagamento/:token" element={<RouteTransition><PublicPayment /></RouteTransition>} />
           <Route path="/aluno/treino/:studentId" element={<ProtectedRoute allowedRoles={["student", "admin", "coordinator", "trainer", "master"]}><StudentWorkoutAccessGuard><RouteTransition><StudentWorkout /></RouteTransition></StudentWorkoutAccessGuard></ProtectedRoute>} />
           <Route path="/aluno" element={<ProtectedRoute allowedRoles={["student"]}><RouteTransition><StudentPortal /></RouteTransition></ProtectedRoute>} />

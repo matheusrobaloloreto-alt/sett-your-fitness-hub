@@ -1,4 +1,4 @@
-import { processSession } from "./index.ts";
+import { processIntercycleAnamnesisDeliveries, processSession } from "./index.ts";
 
 function resultQuery(result: { data: unknown; error: unknown }) {
   const query = {
@@ -187,6 +187,142 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
     }
     for (const leaked of ["99143", "@s.whatsapp.net", "raw-token", "secret"]) {
       if (message.toLowerCase().includes(leaked)) throw new Error(`leaked ${leaked}`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("intercycle dispatcher audits provider-off deliveries without exposing recipients", async () => {
+  const updates: Array<Record<string, unknown>> = [];
+  const admin = {
+    rpc: (name: string) => {
+      if (name === "process_intercycle_anamnesis_schedule") return Promise.resolve({ data: 0, error: null });
+      if (name === "claim_intercycle_anamnesis_deliveries") {
+        return Promise.resolve({
+          data: [{
+            id: "delivery-a",
+            company_id: "company-a",
+            student_id: "student-a",
+            enrollment_id: "enrollment-a",
+            training_cycle_id: "cycle-a",
+            retry_count: 0,
+          }],
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: new Error(`unexpected rpc ${name}`) });
+    },
+    from(table: string) {
+      if (table !== "intercycle_anamnesis_deliveries") throw new Error(`provider-off should only update delivery, reached ${table}`);
+      const query = {
+        update: (payload: Record<string, unknown>) => {
+          updates.push(payload);
+          return { eq: () => ({ eq: () => Promise.resolve({ error: null }) }) };
+        },
+      };
+      return query;
+    },
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    throw new Error("provider must not be called when config is missing");
+  }) as typeof fetch;
+
+  try {
+    const result = await processIntercycleAnamnesisDeliveries({ admin });
+    if (result.failed !== 1 || result.sent !== 0) throw new Error(`unexpected result ${JSON.stringify(result)}`);
+    if (updates[0]?.last_error_code !== "intercycle_provider_not_configured") throw new Error("missing provider-off audit code");
+    const serialized = JSON.stringify(updates);
+    for (const leaked of ["student-a", "5511", "@s.whatsapp.net"]) {
+      if (serialized.includes(leaked)) throw new Error(`leaked ${leaked}`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("intercycle dispatcher cancels a rescoped cycle before token creation or provider send", async () => {
+  const visitedTables: string[] = [];
+  const updates: Array<Record<string, unknown>> = [];
+  const admin = {
+    rpc: (name: string) => {
+      if (name === "process_intercycle_anamnesis_schedule") return Promise.resolve({ data: 0, error: null });
+      if (name === "claim_intercycle_anamnesis_deliveries") {
+        return Promise.resolve({
+          data: [{
+            id: "delivery-a",
+            company_id: "company-a",
+            student_id: "student-a",
+            enrollment_id: "enrollment-a",
+            training_cycle_id: "cycle-a",
+            retry_count: 0,
+          }],
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: new Error(`unexpected rpc ${name}`) });
+    },
+    from(table: string) {
+      visitedTables.push(table);
+      const query = {
+        select: () => query,
+        eq: () => query,
+        order: () => query,
+        limit: () => query,
+        update: (payload: Record<string, unknown>) => {
+          updates.push(payload);
+          return { eq: () => ({ eq: () => Promise.resolve({ error: null }) }) };
+        },
+        maybeSingle: async () => {
+          if (table === "students") {
+            return {
+              data: {
+                id: "student-a",
+                full_name: "Aluno Seguro",
+                phone: "+55 48 99999-9999",
+                whatsapp: null,
+                country_code: "55",
+                intercycle_anamnesis_enabled: true,
+              },
+              error: null,
+            };
+          }
+          if (table === "training_cycles") {
+            return {
+              data: {
+                id: "cycle-a",
+                student_id: "student-a",
+                company_id: "company-a",
+                enrollment_id: "enrollment-a",
+                status: "cancelled",
+                superseded_at: null,
+              },
+              error: null,
+            };
+          }
+          throw new Error(`unexpected read ${table}`);
+        },
+      };
+      return query;
+    },
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    throw new Error("provider must not be called for cancelled cycle");
+  }) as typeof fetch;
+
+  try {
+    const result = await processIntercycleAnamnesisDeliveries({
+      admin,
+      provider: { url: "https://provider.invalid", key: "redacted" },
+    });
+    if (result.failed !== 1 || result.sent !== 0) throw new Error(`unexpected result ${JSON.stringify(result)}`);
+    if (updates[0]?.status !== "cancelled" || updates[0]?.last_error_code !== "intercycle_cycle_cancelled_or_rescoped") {
+      throw new Error(`missing terminal cancellation audit ${JSON.stringify(updates)}`);
+    }
+    if (visitedTables.includes("intercycle_anamnesis_invites") || visitedTables.includes("whatsapp_chats")) {
+      throw new Error(`token/chat path was reached: ${visitedTables.join(",")}`);
     }
   } finally {
     globalThis.fetch = originalFetch;

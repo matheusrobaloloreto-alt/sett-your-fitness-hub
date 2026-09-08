@@ -6,6 +6,10 @@ import { adaptTrainingProgramForAiStrengthPlan } from "../_shared/prescription/a
 import { generateTrainingProgram } from "../_shared/prescription/engine.ts";
 import { clinicalRiskText, prescriptionRiskText } from "../_shared/prescription/clinicalContext.ts";
 import { targetVolumeFactor } from "../_shared/prescription/volumeRules.ts";
+import {
+  isIntercyclePainHandoffRequired,
+  isPersistedWaiverValidForGate,
+} from "../_shared/intercycle-anamnesis.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -22,7 +26,16 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const clean = (s: unknown) => String(s || "").replace(/[^\x20-\x7E\u00C0-\u017F]/g, "");
+function clean(s: unknown) {
+  let out = "";
+  for (const char of String(s || "")) {
+    const code = char.charCodeAt(0);
+    const isAsciiPrintable = code >= 32 && code <= 126;
+    const isLatin = code >= 0x00C0 && code <= 0x017F;
+    if (isAsciiPrintable || isLatin) out += char;
+  }
+  return out;
+}
 
 async function requireUser(req: Request) {
   const authHeader = req.headers.get("Authorization");
@@ -33,7 +46,79 @@ async function requireUser(req: Request) {
   const token = authHeader.replace("Bearer ", "");
   const { data, error } = await supa.auth.getClaims(token);
   if (error || !data?.claims) return null;
+  if (typeof data.claims.exp === "number" && data.claims.exp * 1000 <= Date.now()) return null;
   return data.claims;
+}
+
+async function currentBusinessDate(adminClient: any) {
+  const { data, error } = await adminClient.rpc("current_business_date");
+  if (error || !data) throw new HttpError(503, "Data operacional indisponível.");
+  return String(data);
+}
+
+async function loadAuthorizedCycle(adminClient: any, args: {
+  cycleId: string;
+  companyId: string;
+  studentId: string;
+}) {
+  if (!isUuid(args.cycleId)) throw new HttpError(400, "training_cycle_id inválido.");
+  const { data: cycle, error } = await adminClient
+    .from("training_cycles")
+    .select("id, student_id, company_id, enrollment_id, cycle_number, start_date, end_date, status, superseded_at")
+    .eq("id", args.cycleId)
+    .maybeSingle();
+  if (error) throw new HttpError(500, `Falha ao validar ciclo: ${error.message}`);
+  if (!cycle || cycle.student_id !== args.studentId || cycle.company_id !== args.companyId) {
+    throw new HttpError(403, "Forbidden: training cycle mismatch.");
+  }
+  if (cycle.superseded_at || ["cancelled", "superseded"].includes(String(cycle.status || ""))) {
+    throw new HttpError(409, "Ciclo inválido ou substituído para prescrição.");
+  }
+  return cycle;
+}
+
+async function resolveCycleContext(adminClient: any, args: {
+  explicitCycleId: unknown;
+  bundleId: string | null;
+  companyId: string;
+  studentId: string;
+}) {
+  const explicit = args.explicitCycleId == null || args.explicitCycleId === "" ? null : String(args.explicitCycleId);
+  if (explicit) {
+    return await loadAuthorizedCycle(adminClient, { cycleId: explicit, companyId: args.companyId, studentId: args.studentId });
+  }
+
+  if (args.bundleId) {
+    const { data: bundle, error } = await adminClient
+      .from("prescription_bundles")
+      .select("training_cycle_id")
+      .eq("id", args.bundleId)
+      .eq("company_id", args.companyId)
+      .eq("student_id", args.studentId)
+      .maybeSingle();
+    if (error) throw new HttpError(500, `Falha ao validar ciclo do pacote: ${error.message}`);
+    if (bundle?.training_cycle_id) {
+      return await loadAuthorizedCycle(adminClient, { cycleId: bundle.training_cycle_id, companyId: args.companyId, studentId: args.studentId });
+    }
+  }
+
+  const today = await currentBusinessDate(adminClient);
+  const { data: cycles, error } = await adminClient
+    .from("training_cycles")
+    .select("id, student_id, company_id, enrollment_id, cycle_number, start_date, end_date, status, superseded_at")
+    .eq("company_id", args.companyId)
+    .eq("student_id", args.studentId)
+    .lte("start_date", today)
+    .gte("end_date", today)
+    .is("superseded_at", null)
+    .or("status.is.null,status.not.in.(cancelled,superseded)")
+    .order("start_date", { ascending: false })
+    .range(0, 1);
+  if (error) throw new HttpError(500, `Falha ao resolver ciclo vigente: ${error.message}`);
+  if ((cycles || []).length !== 1) {
+    throw new HttpError(409, "Prescrição exige training_cycle_id ou um único ciclo vigente validado no tenant.");
+  }
+  return cycles[0];
 }
 
 function aiErrorResponse(status: number) {
@@ -1324,6 +1409,9 @@ serve(async (req) => {
 
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    const userSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+    });
     const {
       student_id, student_name, company_id,
       objective,          // "hipertrofia" | "forca" | "emagrecimento" | "performance"
@@ -1347,6 +1435,7 @@ serve(async (req) => {
       previous_plan_context,
       previous_performance_context,
       program_sequence,
+      intercycle_waiver_reason,
       notes,
     } = await req.json();
 
@@ -1357,20 +1446,77 @@ serve(async (req) => {
     });
     const authorizedCompanyId = authz.companyId;
     const authorizedBundleId = await assertBundleAccess(supabase, bundle_id, authorizedCompanyId, student_id);
-    let cycleContext: any = null;
-    if (training_cycle_id != null && training_cycle_id !== "") {
-      if (!isUuid(training_cycle_id)) throw new HttpError(400, "training_cycle_id inválido.");
-      const { data: cycle, error: cycleError } = await supabase
-        .from("training_cycles")
-        .select("id, student_id, company_id, cycle_number, start_date, end_date")
-        .eq("id", training_cycle_id)
-        .maybeSingle();
-      if (cycleError) throw new HttpError(500, `Falha ao validar ciclo: ${cycleError.message}`);
-      if (!cycle || cycle.student_id !== student_id || cycle.company_id !== authorizedCompanyId) {
-        throw new HttpError(403, "Forbidden: training cycle mismatch.");
+    const cycleContext: any = await resolveCycleContext(supabase, {
+      explicitCycleId: training_cycle_id,
+      bundleId: authorizedBundleId,
+      companyId: authorizedCompanyId,
+      studentId: student_id,
+    });
+    let intercycleContext: Record<string, unknown> | null = null;
+    if (cycleContext && Number(cycleContext.cycle_number) > 1) {
+      const priorResult = await supabase.from("training_cycles")
+        .select("id, start_date").eq("enrollment_id", cycleContext.enrollment_id)
+        .eq("student_id", student_id).eq("company_id", authorizedCompanyId)
+        .lt("start_date", cycleContext.start_date)
+        .is("superseded_at", null)
+        .or("status.is.null,status.not.in.(cancelled,superseded)")
+        .order("start_date", { ascending: false });
+      const prior: any = priorResult.data?.[0];
+      if (priorResult.error || !prior) throw new HttpError(409, "Não foi possível localizar o ciclo anterior para a Anamnese interciclos.");
+      const responseResult = await supabase.from("intercycle_anamneses")
+        .select("prescription_evaluation, goals_continue, new_goals, availability_changed, available_days, session_duration_minutes, training_location, available_equipment, pain_present, pain_location, pain_eva, pain_started_at, pain_movement, additional_information, sensitive_consent, consent_text_version, consented_at, submitted_at")
+        .eq("company_id", authorizedCompanyId).eq("student_id", student_id).eq("training_cycle_id", prior.id).maybeSingle();
+      if (responseResult.error) throw new HttpError(503, "Falha ao carregar a Anamnese interciclos.");
+      const response: any = responseResult.data;
+      if (!response) {
+        const persistedWaiver = await supabase.from("intercycle_anamnesis_waivers")
+          .select("company_id, student_id, enrollment_id, training_cycle_id, prior_cycle_id, reason, waived_at")
+          .eq("company_id", authorizedCompanyId)
+          .eq("student_id", student_id)
+          .eq("enrollment_id", cycleContext.enrollment_id)
+          .eq("training_cycle_id", cycleContext.id)
+          .eq("prior_cycle_id", prior.id)
+          .maybeSingle();
+        if (persistedWaiver.error) throw new HttpError(503, "Falha ao carregar a dispensa da Anamnese interciclos.");
+        if (isPersistedWaiverValidForGate(persistedWaiver.data, {
+          companyId: authorizedCompanyId,
+          studentId: student_id,
+          enrollmentId: cycleContext.enrollment_id,
+          trainingCycleId: cycleContext.id,
+          priorCycleId: prior.id,
+        })) {
+          intercycleContext = {
+            status: "waived",
+            prior_cycle_id: prior.id,
+            waiver_reason: persistedWaiver.data.reason.trim().slice(0, 1000),
+            waiver_source: "persisted",
+            waived_at: persistedWaiver.data.waived_at,
+          };
+        } else {
+          const reason = clean(intercycle_waiver_reason).trim().slice(0, 1000);
+          if (reason.length < 3) throw new HttpError(409, "A próxima prescrição exige Anamnese interciclos respondida ou dispensa explícita com motivo.");
+          const waiver = await userSupabase.rpc("record_intercycle_anamnesis_waiver", {
+            _company_id: authorizedCompanyId,
+            _student_id: student_id,
+            _enrollment_id: cycleContext.enrollment_id,
+            _training_cycle_id: cycleContext.id,
+            _prior_cycle_id: prior.id,
+            _reason: reason,
+          });
+          if (waiver.error) throw new HttpError(503, "Não foi possível registrar a dispensa da Anamnese interciclos.");
+          intercycleContext = { status: "waived", prior_cycle_id: prior.id, waiver_reason: reason, waiver_source: "created" };
+        }
+      } else {
+        if (isIntercyclePainHandoffRequired(response)) throw new HttpError(409, "Dor acima de EVA 5 exige handoff do treinador antes da próxima prescrição.");
+        intercycleContext = { status: "completed", prior_cycle_id: prior.id, ...response };
       }
-      cycleContext = cycle;
     }
+    const effectiveAnamnesisContext = intercycleContext
+      ? { ...(anamnese_context && typeof anamnese_context === "object" ? anamnese_context as Record<string, unknown> : {}), intercycle_update: intercycleContext }
+      : anamnese_context;
+    const effectiveRestrictions = intercycleContext && (intercycleContext.pain_present || intercycleContext.prescription_evaluation === "worse")
+      ? `${clean(restrictions)} | Atualização interciclos: regra mais conservadora; ${clean(intercycleContext.pain_location)} EVA ${clean(intercycleContext.pain_eva)} ${clean(intercycleContext.pain_movement)}`
+      : restrictions;
     let effectivePreviousPlan = previous_plan_context ?? null;
     let authorizedPreviousPlanId: string | null = null;
     if (previous_plan_id != null && previous_plan_id !== "") {
@@ -1404,12 +1550,12 @@ serve(async (req) => {
         days_per_week,
         duration_weeks,
         equipment,
-        restrictions,
-        injuries: (anamnese_context as any)?.injuries ?? restrictions,
+        restrictions: effectiveRestrictions,
+        injuries: (effectiveAnamnesisContext as any)?.injuries ?? effectiveRestrictions,
         block_number,
         is_endurance_athlete,
         assessment_context,
-        anamnese_context,
+        anamnese_context: effectiveAnamnesisContext,
         prescription_integration,
         running_days_context,
         previous_plan_context: effectivePreviousPlan,
@@ -1424,8 +1570,8 @@ serve(async (req) => {
     const presetKey = selectMethodologyPreset(
       objective,
       effectiveFitnessLevel,
-      restrictions,
-      anamnese_context,
+      effectiveRestrictions,
+      effectiveAnamnesisContext,
       is_endurance_athlete,
     );
     const selectedPreset = METHODOLOGY_PRESETS[presetKey as keyof typeof METHODOLOGY_PRESETS];
@@ -1539,7 +1685,7 @@ INSTRUÇÕES:
         objective,
         fitnessLevel: effectiveFitnessLevel,
         daysPerWeek: days_per_week,
-        restrictions,
+        restrictions: effectiveRestrictions,
         assessmentContext: assessment_context,
         prescriptionIntegration: prescription_integration,
         bnitoOrchestration: bnito_orchestration,
@@ -1557,8 +1703,8 @@ INSTRUÇÕES:
       catalog: exerciseCatalog,
       objective,
       fitnessLevel: effectiveFitnessLevel,
-      restrictions,
-      anamneseContext: anamnese_context,
+      restrictions: effectiveRestrictions,
+      anamneseContext: effectiveAnamnesisContext,
       assessmentContext: assessment_context,
       durationWeeks: duration_weeks,
       blockNumber: block_number,

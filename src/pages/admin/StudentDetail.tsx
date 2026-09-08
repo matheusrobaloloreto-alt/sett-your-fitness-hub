@@ -24,6 +24,7 @@ import { StudentGoalsManager } from "@/components/admin/StudentGoalsManager";
 import { StudentTimeline } from "@/components/admin/StudentTimeline";
 import { StudentFilesPanel } from "@/components/admin/StudentFilesPanel";
 import { WeeklyContactToggle } from "@/components/admin/WeeklyContactToggle";
+import { IntercycleAnamnesisControls, IntercycleAnamnesisTimeline } from "@/components/admin/IntercycleAnamnesisControls";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Mail, Phone, Cake, CalendarDays, Dumbbell, Plus, CalendarIcon, MapPin, CreditCard, MessageCircle, Pencil, DollarSign, Upload, Image, Mic, FileText, Download, Square, MicOff, RefreshCw, ExternalLink, Copy, Link, Check, Trash2, UserPlus, BarChart3, Clock, CheckCircle2, Edit, KeyRound, ChevronDown } from "lucide-react";
 import { format, parseISO, eachDayOfInterval, addWeeks, addDays, isValid } from "date-fns";
@@ -1344,6 +1345,17 @@ export default function StudentDetail() {
         </CardHeader>
         <CardContent>
           <PreRegistrationDetails data={preRegistration} loading={preRegistrationLoading} />
+          {id && student?.company_id && (
+            <div className="mt-6 border-t pt-5">
+              <div className="mb-3 flex items-center gap-2">
+                <Badge variant="outline">Anamnese interciclos</Badge>
+                <span className="text-sm text-muted-foreground">
+                  Histórico por ciclo, sem alterar o pré-cadastro.
+                </span>
+              </div>
+              <IntercycleAnamnesisTimeline studentId={id} companyId={student.company_id} />
+            </div>
+          )}
         </CardContent>
       </Card>
     );
@@ -1518,7 +1530,10 @@ export default function StudentDetail() {
           {/* ===== VISÃO GERAL ===== */}
           <TabsContent value="overview" className="space-y-4">
             {id && student?.company_id && (
-              <WeeklyContactToggle studentId={id} initial={(student as { weekly_contact_enabled?: boolean })?.weekly_contact_enabled} />
+              <div className="grid gap-3 lg:grid-cols-2">
+                <WeeklyContactToggle studentId={id} initial={(student as { weekly_contact_enabled?: boolean })?.weekly_contact_enabled} />
+                <IntercycleAnamnesisControls studentId={id} companyId={student.company_id} initial={(student as { intercycle_anamnesis_enabled?: boolean })?.intercycle_anamnesis_enabled} />
+              </div>
             )}
             {/* Acesso do app: copiar login (email+senha+link) ou enviar no WhatsApp */}
             <CollapsibleCard title="ACESSO DO APP" icon={<KeyRound className="h-4 w-4" />} className="mb-4" contentClassName="space-y-3">

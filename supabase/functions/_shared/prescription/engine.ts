@@ -128,8 +128,12 @@ function clampDays(days: unknown) {
   return Math.min(6, Math.max(2, Number(days) || 3));
 }
 
+const normalizedCatalogCache = new WeakMap<ExerciseCatalogEntry[], ExerciseCatalogEntry[]>();
+
 function normalizeCatalog(catalog: ExerciseCatalogEntry[] = []) {
-  return catalog.filter((exercise) => exercise?.id && exercise?.name).map((exercise) => ({
+  const cached = normalizedCatalogCache.get(catalog);
+  if (cached) return cached;
+  const normalized = catalog.filter((exercise) => exercise?.id && exercise?.name).map((exercise) => ({
     ...exercise,
     contraindications: exercise.contraindications || [],
     regressions: exercise.regressions || [],
@@ -138,6 +142,8 @@ function normalizeCatalog(catalog: ExerciseCatalogEntry[] = []) {
     pain_limitation_tags: exercise.pain_limitation_tags || [],
     targets: exercise.targets || [],
   }));
+  normalizedCatalogCache.set(catalog, normalized);
+  return normalized;
 }
 
 function riskText(input: PrescriptionInput) {

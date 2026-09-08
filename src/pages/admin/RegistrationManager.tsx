@@ -76,6 +76,23 @@ const WAIT_FILTERS: Record<string, { label: string; minHours: number }> = {
   "7d": { label: "7 dias+", minHours: 168 },
 };
 
+type IntercycleResponseSummary = {
+  id: string;
+  submitted_at: string;
+  student_id: string;
+  prescription_evaluation: string;
+  pain_present: boolean;
+  pain_eva: number | null;
+  students?: { full_name?: string } | null;
+};
+type IntercycleQuery<Row> = PromiseLike<{ data: Row[] | null }> & {
+  select: (columns: string) => IntercycleQuery<Row>;
+  eq: (column: string, value: string) => IntercycleQuery<Row>;
+  order: (column: string, options: { ascending: boolean }) => IntercycleQuery<Row>;
+  limit: (count: number) => IntercycleQuery<Row>;
+};
+const intercycleReadDb = supabase as unknown as { from: <Row>(table: "intercycle_anamneses") => IntercycleQuery<Row> };
+
 interface Student {
   entityType: "student" | "lead";
   leadId?: string;
@@ -469,6 +486,7 @@ export default function RegistrationManager() {
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<FunnelStageKey | null>(null);
   const [movingCardId, setMovingCardId] = useState<string | null>(null);
+  const [intercycleResponses, setIntercycleResponses] = useState<IntercycleResponseSummary[]>([]);
 
   const loadPipeline = async () => {
     if (!effectiveCompanyId) return;
@@ -605,6 +623,14 @@ export default function RegistrationManager() {
   useEffect(() => {
     void loadPipeline();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveCompanyId]);
+
+  useEffect(() => {
+    if (!effectiveCompanyId) { setIntercycleResponses([]); return; }
+    void intercycleReadDb.from<IntercycleResponseSummary>("intercycle_anamneses")
+      .select("id,submitted_at,student_id,prescription_evaluation,pain_present,pain_eva,students(full_name)")
+      .eq("company_id", effectiveCompanyId).order("submitted_at", { ascending: false }).limit(12)
+      .then(({ data }) => setIntercycleResponses(data || []));
   }, [effectiveCompanyId]);
 
   const stagedStudents = useMemo<StudentWithStage[]>(() => {
@@ -1067,6 +1093,14 @@ export default function RegistrationManager() {
               Copiar link
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-border bg-card">
+        <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><ClipboardCheck className="h-4 w-4 text-primary" /> Anamnese interciclos <Badge variant="outline">alunos ativos</Badge></CardTitle></CardHeader>
+        <CardContent>
+          <p className="mb-3 text-xs text-muted-foreground">Respostas entre ciclos aparecem aqui junto das outras anamneses para a equipe, mas não entram no funil nem criam/duplicam Interessados.</p>
+          {intercycleResponses.length ? <div className="space-y-2">{intercycleResponses.map((response) => <button type="button" key={response.id} onClick={() => navigate(`/${chatRoutePrefix}/students/${response.student_id}`, { state: { tab: "anamnesis" } })} className="flex w-full items-center justify-between rounded-lg border border-border px-3 py-2 text-left text-sm hover:bg-secondary/50"><span>{response.students?.full_name || "Aluno"}</span><span className="text-xs text-muted-foreground">{response.pain_present ? `Dor EVA ${response.pain_eva ?? "—"}` : response.prescription_evaluation}</span></button>)}</div> : <p className="text-sm text-muted-foreground">Sem respostas interciclos nesta empresa.</p>}
         </CardContent>
       </Card>
 
