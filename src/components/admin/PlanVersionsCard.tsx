@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { History } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown, History } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -26,13 +27,21 @@ export function PlanVersionsCard({ studentId }: { studentId: string }) {
   if (loading || !rows.length) return null;
 
   return (
+    <Collapsible key={studentId} defaultOpen={false}>
     <Card className="bg-card border-border">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-primary text-base">
-          <History className="h-4 w-4" /> Versões do plano
-          <Badge variant="outline" className="ml-auto">{rows.length}</Badge>
+      <CardHeader>
+        <CardTitle className="text-primary text-base">
+          <CollapsibleTrigger asChild>
+            <button type="button" className="group flex w-full items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+              <History className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>Versões do plano</span>
+              <Badge variant="outline" className="ml-auto">{rows.length}</Badge>
+              <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-data-[state=open]:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
+            </button>
+          </CollapsibleTrigger>
         </CardTitle>
       </CardHeader>
+      <CollapsibleContent>
       <CardContent className="space-y-2">
         {rows.map((r) => {
           const nWorkouts = Array.isArray(r.plan?.workouts) ? r.plan.workouts.length : 0;
@@ -54,6 +63,8 @@ export function PlanVersionsCard({ studentId }: { studentId: string }) {
           );
         })}
       </CardContent>
+      </CollapsibleContent>
     </Card>
+    </Collapsible>
   );
 }
