@@ -20,6 +20,14 @@ A auditoria complementar de 05/09 varreu todos os geradores e consumidores de li
 - **Auditoria MFIT/alunos:** nenhuma exclusão em massa foi executada. Foram encontrados 17 vínculos acima da quantidade esperada de ciclos, 39 ciclos excedentes com dependências, 1 ciclo atual misto MFIT/nativo, 4 linhas em grupos de payload duplicado e 10 referências de exercício sem correspondência determinística. Como nenhum ciclo excedente estava vazio e seguro para remoção, os reparos permanecem bloqueados até reconciliação individual e rollback auditável.
 - **Motor de regras:** a revisão profunda foi deliberadamente adiada a pedido do Matheus. Ela é a próxima frente após o fechamento das entregas atuais; os bundles incompletos e as referências não determinísticas serão entradas obrigatórias dessa revisão.
 
+## Auditoria de recorrencia em 09/09/2026
+
+- ✅ **Reagendamento cronologico em producao:** migration `20260909160943` impede que sobreposicoes inteiramente anteriores bloqueiem mudancas posteriores validas. A selecao segue datas, preserva o ativo anterior e continua rejeitando colisao afetada, uso real e acesso entre empresas. Canary sintetico passou no banco vivo com rollback e zero residuos.
+- ✅ **Auditoria BN concluida:** 64 matriculas operacionais de 60 alunos, 312 ciclos visiveis, 22 alunos com 72 pares sobrepostos; 14 matriculas com conflitos somente historicos e 8 com conflito atual/futuro. Zero alunos com duas matriculas ativas/aguardando treino. Escopo inclui awaiting_renewal e nao e a mesma contagem de alunos ativos da auditoria anterior.
+- ❌ **Oito conflitos atuais/futuros (bloqueado):** datas e conteudo se sobrepoem, incluindo historico utilizado; reconciliar por matricula com evidencia e rollback. O reparo da aluna relatada no commit `785fe54` permanece aplicado e sem overlaps.
+- ❌ **Vigencias acumuladas (aguardando):** a renovacao ainda preserva dias pagos, acrescentando o periodo ao fim financeiro existente. Ha 22 matriculas com fim mais de 7 dias alem do ultimo ciclo; esse sinal nao prova cobranca duplicada. Definir preservacao de saldo versus substituicao da vigencia e reconciliar contratos antes de encurtar datas.
+- Evidencia detalhada e consulta reproduzivel: `AUDITORIA-2026-09-09-CICLOS-RENOVACOES.md` e `scripts/audit-bn-cycle-renewals.sql`. Pendencias historicas abaixo permanecem acumuladas; Sandbox continua adiado por decisao do Matheus.
+
 ## Lista acumulada
 
 ### Retomada — ciclo integrado e pendências em 08/09
