@@ -22,7 +22,7 @@ Semantica conferida na documentacao oficial: PAYMENT_CONFIRMED indica pagamento 
 
 | Referencia | Evidencia Asaas | Confirmacao da compra mais recente | Fim atual SETT | Conclusao |
 | --- | --- | --- | --- | --- |
-| `b7004e616eca` | CPF coincidente | 2026-03-16 | 2027-02-15 | Repasse de parcela em 24/08 confundido com data comercial; compra confirmada em 16/03. Vigencia ampliada sem nova compra localizada. |
+| `b7004e616eca` | CPF coincidente | 2026-03-16 | 2027-02-15 | Data SETT coincide com repasse de parcela em 24/08; compra confirmada em 16/03. Vigencia ampliada sem nova compra localizada; coincidencia nao prova a causa da ampliacao. |
 | `df14c3d504f6` | CPF coincidente | 2026-03-06 | 2028-01-08 | Repasse em agosto de compra confirmada em marco; termo atual tem 673 dias para plano de 336. |
 | `f79808183ac6` | CPF coincidente | 2026-08-04 | 2027-02-08 | Nova compra confirmada em 04/08; vigencia atual ainda usa inicio antigo. Propor substituicao com preservacao do treino. |
 | `2d93f08d4f16` | CPF coincidente | 2026-03-08 | 2028-01-10 | Repasse em agosto de compra confirmada em marco; termo atual tem 673 dias para plano de 336. |
