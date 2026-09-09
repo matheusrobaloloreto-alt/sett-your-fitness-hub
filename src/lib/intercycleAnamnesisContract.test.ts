@@ -74,8 +74,16 @@ describe("SETT-CYCLE-UPDATE-01 contracts", () => {
     expect(motor).toContain("typeof data.claims.exp === \"number\"");
     expect(edge).toContain("sensitive_consent");
   });
+  it("invalidates stale manual links when a cycle moves and rechecks the live cycle window", () => {
+    expect(intercycleMigrations).toContain("cycle_rescheduled_manual_link_invalidated");
+    expect(intercycleMigrations).toMatch(/status in \('ready','scheduled','failed'\)/);
+    expect(intercycleMigrations).toMatch(/update public\.intercycle_anamnesis_invites[\s\S]*expires_at = least\(expires_at, now\(\)\)/);
+    expect(intercycleMigrations).toContain("intercycle_submit_window_closed");
+    expect(intercycleMigrations).toMatch(/v_today < v_cycle\.start_date \+ 28/);
+    expect(intercycleMigrations).toMatch(/v_today > coalesce\(v_cycle\.end_date, v_cycle\.start_date \+ 41\)/);
+  });
   it("makes public submit atomic under replay/concurrency/rollback races", () => {
-    const submitFn = migration.slice(migration.indexOf("create or replace function public.submit_intercycle_anamnesis"));
+    const submitFn = intercycleMigrations.slice(intercycleMigrations.lastIndexOf("create or replace function public.submit_intercycle_anamnesis"));
     expect(submitFn).toMatch(/from public\.intercycle_anamnesis_invites[\s\S]*where token_sha256 = _token_sha256[\s\S]*for update;/);
     expect(submitFn).toMatch(/from public\.training_cycles[\s\S]*for update;/);
     expect(submitFn).toMatch(/from public\.intercycle_anamnesis_deliveries[\s\S]*for update;/);

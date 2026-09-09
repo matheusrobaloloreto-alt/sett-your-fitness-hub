@@ -108,6 +108,7 @@ export function mapIntercycleSubmitRpcFailure(message: unknown): IntercycleSubmi
   if (
     code.includes("intercycle_submit_link_invalid") ||
     code.includes("intercycle_submit_link_expired") ||
+    code.includes("intercycle_submit_window_closed") ||
     code.includes("intercycle_submit_delivery_unavailable") ||
     code.includes("intercycle_submit_scope_invalid")
   ) {

@@ -14,6 +14,10 @@ const lifecycleMigrationSource = readFileSync(
   "supabase/migrations/20260901123000_atomic_payment_lifecycle.sql",
   "utf8",
 );
+const renewalScheduleFixSource = readFileSync(
+  "supabase/migrations/20260909154800_fix_paid_renewal_cycle_window.sql",
+  "utf8",
+);
 const paymentContextSource = readFileSync(
   "supabase/functions/public-payment-context/index.ts",
   "utf8",
@@ -198,5 +202,14 @@ describe("public credit-card checkout contract", () => {
     expect(lifecycleMigrationSource).not.toContain("_business_date + 5");
     expect(lifecycleMigrationSource).toContain("lifecycle_enrollment_id = v_enrollment_id");
     expect(lifecycleMigrationSource).toContain("return query select v_enrollment_id, v_first_activation, false");
+  });
+
+  it("starts a paid renewal after the financial term instead of a stale cycle tail", () => {
+    expect(renewalScheduleFixSource).toContain("create or replace function public.apply_paid_payment_lifecycle");
+    expect(renewalScheduleFixSource).toContain("v_cycle_start := v_extension_start + 1");
+    expect(renewalScheduleFixSource).not.toContain("v_cycle_start := coalesce(v_last_cycle_end + 1");
+    expect(renewalScheduleFixSource).not.toContain("v_last_cycle_end");
+    expect(renewalScheduleFixSource).toContain("v_new_end := v_extension_start + v_plan_days");
+    expect(renewalScheduleFixSource).toContain("lifecycle_applied_at");
   });
 });

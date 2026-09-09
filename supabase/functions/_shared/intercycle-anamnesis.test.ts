@@ -84,6 +84,9 @@ Deno.test("atomic submit RPC failures are mapped to sanitized public errors", ()
   const expired = mapIntercycleSubmitRpcFailure("intercycle_submit_link_expired");
   if (expired.status !== 410 || expired.message !== "Este link não está mais disponível.") throw new Error("expiry should be sanitized");
 
+  const moved = mapIntercycleSubmitRpcFailure("intercycle_submit_window_closed");
+  if (moved.status !== 410 || moved.message !== "Este link não está mais disponível.") throw new Error("moved cycle should invalidate the link");
+
   const replay = mapIntercycleSubmitRpcFailure("duplicate key value violates unique constraint; intercycle_submit_response_duplicate");
   if (replay.status !== 409 || replay.message !== "Esta atualização já foi registrada.") throw new Error("replay should be sanitized");
 
