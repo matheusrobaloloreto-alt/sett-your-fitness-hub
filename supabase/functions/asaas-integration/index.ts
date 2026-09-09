@@ -15,6 +15,15 @@ import {
   isoDate,
   sendFunnelWhatsAppMessage,
 } from "../_shared/sales-funnel.ts";
+import {
+  ASAAS_FINANCIAL_PROJECTION_GROUP_LIMIT,
+  ASAAS_FINANCIAL_PROJECTION_GROUP_PAGE_CAP,
+  ASAAS_FINANCIAL_PROJECTION_LOCAL_LIMIT,
+  buildFinancialProjection,
+  normalizeAsaasFinancialPayment,
+  type AsaasFinancialPayment,
+  type LocalFinancialPayment,
+} from "../_shared/asaas-financial-projection.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,6 +35,8 @@ const ASAAS_API_KEY = Deno.env.get("ASAAS_API_KEY") || "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+const FINANCIAL_PROJECTION_REQUEST_TIMEOUT_MS = 7000;
+const FINANCIAL_PROJECTION_DEADLINE_MS = 25000;
 
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1101,6 +1112,312 @@ async function getPaymentStatus(body: any) {
   };
 }
 
+function safeProviderFailure(error: unknown) {
+  return {
+    status: error instanceof HttpError ? error.status : 500,
+    code: error instanceof HttpError ? "provider_request_failed" : "internal_request_failed",
+  };
+}
+
+async function fetchAsaasPaymentsByCustomer(customerId: string, deadlineAt: number): Promise<AsaasFinancialPayment[]> {
+  const payments: AsaasFinancialPayment[] = [];
+  let offset = 0;
+  let hasMore = true;
+
+  for (let page = 0; hasMore && page < ASAAS_FINANCIAL_PROJECTION_GROUP_PAGE_CAP; page++) {
+    const data = await financialProjectionAsaasGet(
+      `/payments?customer=${encodeURIComponent(customerId)}&limit=${ASAAS_FINANCIAL_PROJECTION_GROUP_LIMIT}&offset=${offset}`,
+      deadlineAt,
+    );
+    if (!Array.isArray(data?.data) || typeof data?.hasMore !== "boolean") {
+      throw new HttpError(409, "Snapshot financeiro indisponível: contrato de paginação Asaas inválido.");
+    }
+    const rows = data.data;
+    payments.push(...rows.map((row: Record<string, unknown>) => normalizeAsaasFinancialPayment(row)));
+    if (data?.hasMore === true && rows.length < ASAAS_FINANCIAL_PROJECTION_GROUP_LIMIT) {
+      throw new HttpError(409, "Snapshot financeiro indisponível: paginação Asaas inconsistente.");
+    }
+    hasMore = data?.hasMore === true;
+    offset += ASAAS_FINANCIAL_PROJECTION_GROUP_LIMIT;
+  }
+
+  if (hasMore) {
+    throw new HttpError(409, "Snapshot financeiro indisponível: paginação Asaas excedeu o limite seguro.");
+  }
+
+  return payments;
+}
+
+async function fetchAsaasInstallmentPayments(installmentId: string, deadlineAt: number): Promise<AsaasFinancialPayment[]> {
+  const payments: AsaasFinancialPayment[] = [];
+  let offset = 0;
+  let hasMore = true;
+
+  for (let page = 0; hasMore && page < ASAAS_FINANCIAL_PROJECTION_GROUP_PAGE_CAP; page++) {
+    const data = await financialProjectionAsaasGet(
+      `/installments/${encodeURIComponent(installmentId)}/payments?limit=${ASAAS_FINANCIAL_PROJECTION_GROUP_LIMIT}&offset=${offset}`,
+      deadlineAt,
+    );
+    if (!Array.isArray(data?.data) || typeof data?.hasMore !== "boolean") {
+      throw new HttpError(409, "Snapshot financeiro indisponível: contrato de paginação de grupo Asaas inválido.");
+    }
+    const rows = data.data;
+    payments.push(...rows.map((row: Record<string, unknown>) => normalizeAsaasFinancialPayment(row)));
+    if (data?.hasMore === true && rows.length < ASAAS_FINANCIAL_PROJECTION_GROUP_LIMIT) {
+      throw new HttpError(409, "Snapshot financeiro indisponível: paginação de grupo Asaas inconsistente.");
+    }
+    hasMore = data?.hasMore === true;
+    offset += ASAAS_FINANCIAL_PROJECTION_GROUP_LIMIT;
+  }
+
+  if (hasMore) {
+    throw new HttpError(409, "Snapshot financeiro indisponível: grupo parcelado excedeu o limite seguro.");
+  }
+
+  return payments;
+}
+
+async function financialProjectionAsaasGet(path: string, deadlineAt: number) {
+  if (Date.now() >= deadlineAt) {
+    throw new HttpError(503, "Snapshot financeiro indisponível: tempo limite atingido.");
+  }
+  if (!ASAAS_API_KEY) throw new HttpError(503, "Integração Asaas não configurada no servidor.");
+
+  const config = requireAsaasApiConfig();
+  const remainingMs = Math.max(1, deadlineAt - Date.now());
+  const timeoutMs = Math.min(FINANCIAL_PROJECTION_REQUEST_TIMEOUT_MS, remainingMs);
+  const signal = AbortSignal.timeout(timeoutMs);
+
+  let res: Response;
+  try {
+    res = await fetch(asaasApiUrl(config, path), {
+      method: "GET",
+      signal,
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": `SETT-BNApp/1.0 (Supabase Edge; ${config.environment})`,
+        access_token: ASAAS_API_KEY,
+      },
+    });
+  } catch (error) {
+    if ((error as Error)?.name === "TimeoutError" || (error as Error)?.name === "AbortError") {
+      throw new HttpError(503, "Snapshot financeiro indisponível: timeout no provedor.");
+    }
+    throw error;
+  }
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const firstErr = data?.errors?.[0];
+    console.error("financial projection Asaas API error", {
+      status: res.status,
+      code: firstErr?.code || null,
+      endpoint: path.split("?")[0],
+    });
+    throw new HttpError(res.status >= 500 ? 502 : 409, "Snapshot financeiro indisponível: erro no provedor.");
+  }
+  return data;
+}
+
+function validateProviderPaymentScope(
+  providerPayment: AsaasFinancialPayment,
+  localPayment: LocalFinancialPayment | undefined,
+) {
+  if (!localPayment || providerPayment.id !== localPayment.asaas_payment_id) {
+    throw new HttpError(409, "Snapshot financeiro indisponível: pagamento Asaas divergente.");
+  }
+  if (!localPayment.asaas_customer_id) {
+    throw new HttpError(409, "Snapshot financeiro indisponível: cliente local ausente.");
+  }
+  if (providerPayment.customer !== localPayment.asaas_customer_id) {
+    throw new HttpError(409, "Snapshot financeiro indisponível: cliente Asaas divergente.");
+  }
+}
+
+function validateProviderGroupScope(
+  groupId: string,
+  groupPayments: AsaasFinancialPayment[],
+  expectedCustomerId: string,
+) {
+  if (groupPayments.length === 0) throw new HttpError(409, "Snapshot financeiro indisponível: grupo Asaas vazio.");
+  const seen = new Set<string>();
+  for (const payment of groupPayments) {
+    if (!payment.id || seen.has(payment.id)) {
+      throw new HttpError(409, "Snapshot financeiro indisponível: grupo Asaas duplicado.");
+    }
+    seen.add(payment.id);
+    if (payment.installment !== groupId) {
+      throw new HttpError(409, "Snapshot financeiro indisponível: grupo Asaas divergente.");
+    }
+    if (payment.customer !== expectedCustomerId) {
+      throw new HttpError(409, "Snapshot financeiro indisponível: cliente do grupo Asaas divergente.");
+    }
+  }
+}
+
+async function getFinancialProjection(body: any) {
+  const companyId = body.companyId;
+  if (!companyId || !UUID_RE.test(companyId)) throw new HttpError(400, "companyId inválido.");
+  const deadlineAt = Date.now() + FINANCIAL_PROJECTION_DEADLINE_MS;
+
+  const { data: localRows, error: localError } = await supabaseAdmin
+    .from("payments")
+    .select("id, student_id, company_id, asaas_payment_id, asaas_customer_id, billing_type, installment_count, invoice_status, status, value, due_date, created_at")
+    .eq("company_id", companyId)
+    .eq("billing_type", "CREDIT_CARD")
+    .order("created_at", { ascending: false })
+    .limit(ASAAS_FINANCIAL_PROJECTION_LOCAL_LIMIT);
+
+  if (localError) throw new HttpError(500, `Falha ao ler pagamentos locais: ${localError.message}`);
+
+  const localPayments = (localRows || []) as LocalFinancialPayment[];
+  const paymentsMissingCustomer = localPayments.filter((payment) => !payment.asaas_customer_id && payment.student_id);
+  if (paymentsMissingCustomer.length > 0) {
+    const studentIds = [...new Set(paymentsMissingCustomer.map((payment) => payment.student_id).filter(Boolean) as string[])];
+    const { data: students, error: studentsError } = await supabaseAdmin
+      .from("students")
+      .select("id, company_id, asaas_customer_id")
+      .eq("company_id", companyId)
+      .in("id", studentIds);
+    if (studentsError) throw new HttpError(500, "Snapshot financeiro indisponível: falha ao resolver clientes locais.");
+    const customerByStudentId = new Map((students || [])
+      .filter((student: any) => student.company_id === companyId && student.asaas_customer_id)
+      .map((student: any) => [student.id, student.asaas_customer_id]));
+    for (const payment of paymentsMissingCustomer) {
+      payment.asaas_customer_id = customerByStudentId.get(payment.student_id as string) || null;
+    }
+  }
+  const providerIds = new Set(localPayments.map((payment) => payment.asaas_payment_id).filter(Boolean) as string[]);
+  const customerIds = [...new Set(localPayments.map((payment) => payment.asaas_customer_id).filter(Boolean) as string[])];
+  const providerPaymentsById = new Map<string, AsaasFinancialPayment>();
+  const providerGroupsById = new Map<string, AsaasFinancialPayment[]>();
+  const unavailableProviderPaymentIds = new Set<string>();
+  const unavailableProviderGroupIds = new Set<string>();
+  const localByProviderId = new Map(localPayments
+    .filter((payment) => payment.asaas_payment_id)
+    .map((payment) => [payment.asaas_payment_id as string, payment]));
+  let localCountExact: number | null = null;
+  try {
+    const { count, error } = await supabaseAdmin
+      .from("payments")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("billing_type", "CREDIT_CARD");
+    if (error) throw error;
+    localCountExact = count ?? null;
+  } catch {
+    throw new HttpError(503, "Snapshot financeiro indisponível: não foi possível validar completude local.");
+  }
+  if (localCountExact == null) {
+    throw new HttpError(503, "Snapshot financeiro indisponível: contagem local indisponível.");
+  }
+  if (localCountExact != null && localCountExact > localPayments.length) {
+    throw new HttpError(409, "Snapshot financeiro indisponível: volume local excede limite seguro.");
+  }
+  for (const local of localPayments) {
+    if (local.asaas_payment_id && !local.asaas_customer_id) unavailableProviderPaymentIds.add(local.asaas_payment_id);
+  }
+
+  for (const customerId of customerIds) {
+    try {
+      const providerPayments = await fetchAsaasPaymentsByCustomer(customerId, deadlineAt);
+      for (const payment of providerPayments) {
+        if (!providerIds.has(payment.id)) continue;
+        validateProviderPaymentScope(payment, localByProviderId.get(payment.id));
+        providerPaymentsById.set(payment.id, payment);
+      }
+    } catch (error) {
+      console.error("financial projection customer fetch failed", {
+        customerRef: customerId.slice(0, 8),
+        ...safeProviderFailure(error),
+      });
+      for (const local of localPayments) {
+        if (local.asaas_customer_id === customerId && local.asaas_payment_id) {
+          unavailableProviderPaymentIds.add(local.asaas_payment_id);
+        }
+      }
+    }
+  }
+
+  const missingProviderIds = [...providerIds].filter((id) =>
+    !providerPaymentsById.has(id) && !unavailableProviderPaymentIds.has(id)
+  );
+  for (const providerId of missingProviderIds) {
+    if (providerPaymentsById.has(providerId)) continue;
+    try {
+      const payment = normalizeAsaasFinancialPayment(await financialProjectionAsaasGet(`/payments/${encodeURIComponent(providerId)}`, deadlineAt));
+      validateProviderPaymentScope(payment, localByProviderId.get(providerId));
+      providerPaymentsById.set(providerId, payment);
+      if (payment.installment && !providerGroupsById.has(payment.installment) && !unavailableProviderGroupIds.has(payment.installment)) {
+        const groupPayments = await fetchAsaasInstallmentPayments(payment.installment, deadlineAt);
+        validateProviderGroupScope(payment.installment, groupPayments, payment.customer || "");
+        if (!groupPayments.some((groupPayment) => groupPayment.id === providerId)) {
+          throw new HttpError(409, "Snapshot financeiro indisponível: grupo Asaas não contém pagamento consultado.");
+        }
+        providerGroupsById.set(payment.installment, groupPayments);
+        for (const groupPayment of groupPayments) {
+          if (!providerIds.has(groupPayment.id)) continue;
+          validateProviderPaymentScope(groupPayment, localByProviderId.get(groupPayment.id));
+          providerPaymentsById.set(groupPayment.id, groupPayment);
+        }
+      }
+    } catch (error) {
+      console.error("financial projection payment fetch failed", {
+        paymentRef: providerId.slice(0, 8),
+        ...safeProviderFailure(error),
+      });
+      unavailableProviderPaymentIds.add(providerId);
+    }
+  }
+
+  const groupIds = [...new Set(
+    [...providerPaymentsById.values()]
+      .map((payment) => payment.installment)
+      .filter(Boolean) as string[],
+  )];
+
+  for (const groupId of groupIds) {
+    if (providerGroupsById.has(groupId)) continue;
+    try {
+      const groupPayments = await fetchAsaasInstallmentPayments(groupId, deadlineAt);
+      const seedPayment = [...providerPaymentsById.values()].find((payment) => payment.installment === groupId);
+      if (!seedPayment?.customer) throw new HttpError(409, "Snapshot financeiro indisponível: cliente do grupo ausente.");
+      validateProviderGroupScope(groupId, groupPayments, seedPayment.customer);
+      providerGroupsById.set(groupId, groupPayments);
+      for (const payment of groupPayments) {
+        if (!providerIds.has(payment.id)) continue;
+        validateProviderPaymentScope(payment, localByProviderId.get(payment.id));
+        providerPaymentsById.set(payment.id, payment);
+      }
+    } catch (error) {
+      console.error("financial projection group fetch failed", {
+        groupRef: groupId.slice(0, 8),
+        ...safeProviderFailure(error),
+      });
+      unavailableProviderGroupIds.add(groupId);
+    }
+  }
+
+  const projection = buildFinancialProjection({
+    localPayments,
+    providerPaymentsById,
+    providerGroupsById,
+    unavailableProviderPaymentIds,
+    unavailableProviderGroupIds,
+  });
+
+  return {
+    source: "asaas-readonly",
+    companyId,
+    generatedAt: new Date().toISOString(),
+    localPaymentCount: localPayments.length,
+    providerPaymentCount: providerPaymentsById.size,
+    providerGroupCount: projection.groupIds.length,
+    entries: projection.entries,
+    unresolved: projection.unresolved,
+  };
+}
+
 async function syncPayments(body: any) {
   const { companyId, syncAll } = body;
 
@@ -1218,6 +1535,7 @@ Deno.serve(async (req) => {
       "update-customer",
       "create-invoice",
       "sync-payments",
+      "financial-installment-snapshot",
     ]);
     const checkoutActions = new Set(["create-payment", "get-pix-qrcode", "create-card-payment", "get-payment-status"]);
     if (adminActions.has(action)) {
@@ -1263,6 +1581,9 @@ Deno.serve(async (req) => {
         break;
       case "sync-payments":
         result = await syncPayments(body);
+        break;
+      case "financial-installment-snapshot":
+        result = await getFinancialProjection(body);
         break;
       default:
         throw new Error(`Ação desconhecida: ${action}`);

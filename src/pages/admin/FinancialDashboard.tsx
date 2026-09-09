@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,6 +17,19 @@ import { useMaster } from "@/contexts/MasterContext";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useNavigate } from "react-router-dom";
 import { isBrazilianCountry } from "@/lib/fiscalRegistration";
+import {
+  billingMonthKey,
+  cashMonthKey,
+  financialMonthKey,
+  isCashAvailableEntry,
+  isPaidFinancialEntry,
+  isProjectedCashEntry,
+  parseFinancialDate,
+  projectedCashMonthKey,
+  unresolvedCreditCardCount,
+  type FinancialProjectionEntry,
+  type FinancialProjectionSnapshot,
+} from "@/lib/financialProjection";
 
 interface FinancialStats {
   monthRevenueBilling: number;
@@ -29,26 +42,32 @@ interface FinancialStats {
   prevMonthBilling: number;
   prevMonthCash: number;
   prevTicketMedio: number;
+  unreconciledCreditCardCount: number;
 }
 
 interface RecentPayment {
   id: string;
   student_id: string | null;
   value: number;
-  billing_type: string;
-  status: string;
+  billing_type: string | null;
+  status: string | null;
   created_at: string;
   due_date: string | null;
   asaas_payment_id: string | null;
   invoice_status: string | null;
   installment_count: number;
+  notes: string | null;
   students: { full_name: string } | null;
+  invoice_action_available?: boolean;
+  payment_row_note?: string;
+  installment_label?: string;
 }
 
 interface CashDetail {
   name: string;
   value: number;
   detail: string;
+  projected?: boolean;
 }
 
 const PAGE_SIZE = 20;
@@ -61,7 +80,7 @@ export default function FinancialDashboard() {
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
   const rolePrefix = role === "coordinator" ? "/coordinator" : role === "trainer" ? "/trainer" : "/admin";
   const [financialStats, setFinancialStats] = useState<FinancialStats>({
-    monthRevenueBilling: 0, monthRevenueCash: 0, pendingCount: 0, pendingValue: 0, overdueCount: 0, overdueValue: 0, conversionRate: 0, prevMonthBilling: 0, prevMonthCash: 0, prevTicketMedio: 0,
+    monthRevenueBilling: 0, monthRevenueCash: 0, pendingCount: 0, pendingValue: 0, overdueCount: 0, overdueValue: 0, conversionRate: 0, prevMonthBilling: 0, prevMonthCash: 0, prevTicketMedio: 0, unreconciledCreditCardCount: 0,
   });
   const [monthlyBilling, setMonthlyBilling] = useState<{ month: string; value: number }[]>([]);
   const [monthlyCash, setMonthlyCash] = useState<{ month: string; value: number }[]>([]);
@@ -71,10 +90,13 @@ export default function FinancialDashboard() {
   const [ticketMedio, setTicketMedio] = useState(0);
   const [cashByStudentByMonth, setCashByStudentByMonth] = useState<Record<string, CashDetail[]>>({});
   const [cashMonthTabs, setCashMonthTabs] = useState<string[]>([]);
+  const [financialProjectionUnavailable, setFinancialProjectionUnavailable] = useState(false);
+  const [hasUnavailableCreditCards, setHasUnavailableCreditCards] = useState(false);
   const [issuingInvoice, setIssuingInvoice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
+  const loadRequestId = useRef(0);
 
   // Filters
   const [filterStatus, setFilterStatus] = useState("all");
@@ -87,12 +109,14 @@ export default function FinancialDashboard() {
   useEffect(() => { loadData(); }, [effectiveCompanyId]);
 
   const loadData = async () => {
+    const requestId = ++loadRequestId.current;
+    const isStale = () => requestId !== loadRequestId.current;
     setLoading(true);
     const now = new Date();
     const currentMonthKey = format(now, "yyyy-MM");
     const prevMonthKey = format(subMonths(now, 1), "yyyy-MM");
 
-    let paymentsQuery = supabase.from("payments").select("id, value, installment_count, billing_type, created_at, due_date, status, asaas_payment_id, invoice_status, student_id, students(full_name)");
+    let paymentsQuery = supabase.from("payments").select("id, value, installment_count, billing_type, created_at, due_date, status, asaas_payment_id, invoice_status, notes, student_id, students(full_name)");
     let totalQuery = supabase.from("payments").select("*", { count: "exact", head: true });
     let confirmedQuery = supabase.from("payments").select("*", { count: "exact", head: true }).in("status", ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"]);
     if (effectiveCompanyId) {
@@ -104,103 +128,166 @@ export default function FinancialDashboard() {
       { data: paymentsAll },
       { count: totalPayments },
       { count: confirmedCount },
-    ] = await Promise.all([paymentsQuery, totalQuery, confirmedQuery]);
+      projectionResult,
+    ] = await Promise.all([
+      paymentsQuery,
+      totalQuery,
+      confirmedQuery,
+      effectiveCompanyId
+        ? supabase.functions.invoke("asaas-integration", {
+          body: { action: "financial-installment-snapshot", companyId: effectiveCompanyId },
+        }).catch((error) => ({ data: null, error }))
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+    if (isStale()) return;
 
     const all = (paymentsAll || []) as any[];
     const billingStatuses = ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"];
     const cashStatuses = ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"];
 
-    const billingPayments = all.filter((p) => billingStatuses.includes(p.status));
+    const projection = projectionResult.error ? null : projectionResult.data as FinancialProjectionSnapshot | null;
+    if (isStale()) return;
+    setFinancialProjectionUnavailable(Boolean(projectionResult.error));
+    const reconciledEntries = projection?.entries || [];
+    const localCreditCardPayments = all.filter((p) => p.billing_type === "CREDIT_CARD");
+    const unavailableCreditCards = Boolean(projectionResult.error && localCreditCardPayments.length > 0);
+    const unreconciledCards = projectionResult.error
+      ? localCreditCardPayments.length
+      : unresolvedCreditCardCount(projection?.unresolved || []);
+    setHasUnavailableCreditCards(unavailableCreditCards);
+    const localById = new Map(all.map((payment) => [payment.id, payment]));
+    const anchorLocalForEntry = (entry: FinancialProjectionEntry) =>
+      entry.localPaymentIds.map((id) => localById.get(id)).find(Boolean)
+      || reconciledEntries
+        .filter((candidate) => candidate.installmentGroupId && candidate.installmentGroupId === entry.installmentGroupId)
+        .flatMap((candidate) => candidate.localPaymentIds.map((id) => localById.get(id)).filter(Boolean))[0]
+      || null;
+    const billingEntries = reconciledEntries.filter(isPaidFinancialEntry);
+    const cashEntries = reconciledEntries.filter(isCashAvailableEntry);
+    const projectedCashEntries = reconciledEntries.filter(isProjectedCashEntry);
+    const nonCardBillingPayments = all.filter((p) => billingStatuses.includes(p.status) && p.billing_type !== "CREDIT_CARD");
     const cashPayments = all.filter((p) => cashStatuses.includes(p.status));
-    const pendingList = all.filter((p) => p.status === "PENDING");
-    const overdueList = all.filter((p) => p.status === "OVERDUE");
+    const nonCardPayments = all.filter((p) => p.billing_type !== "CREDIT_CARD");
+    const pendingEntries = reconciledEntries.filter((entry) => entry.status === "PENDING");
+    const overdueEntries = reconciledEntries.filter((entry) => entry.status === "OVERDUE");
+    const pendingList = nonCardPayments.filter((p) => p.status === "PENDING");
+    const overdueList = nonCardPayments.filter((p) => p.status === "OVERDUE");
 
     // Faturamento do mês atual e anterior
-    const monthBilling = billingPayments
-      .filter((p) => format(new Date(p.created_at), "yyyy-MM") === currentMonthKey)
-      .reduce((sum, p) => sum + Number(p.value), 0);
-    const prevMonthBilling = billingPayments
-      .filter((p) => format(new Date(p.created_at), "yyyy-MM") === prevMonthKey)
-      .reduce((sum, p) => sum + Number(p.value), 0);
-
-    // Helper: distribute cash across months
-    const distributeCash = (p: any, callback: (monthKey: string, value: number, studentName: string, detail: string) => void) => {
-      const studentName = p.students?.full_name || "Sem aluno";
-      const installments = Math.max(1, Number(p.installment_count) || 1);
-      const baseDate = new Date(p.due_date || p.created_at);
-      const shouldDistribute = p.billing_type === "CREDIT_CARD" && installments > 1;
-
-      if (!shouldDistribute) {
-        const key = format(baseDate, "yyyy-MM");
-        const detail = p.billing_type === "PIX" ? "PIX à vista" : "À vista";
-        callback(key, Number(p.value), studentName, detail);
-        return;
-      }
-
-      const monthlyValue = Number(p.value) / installments;
-      for (let i = 0; i < installments; i++) {
-        const key = format(addMonths(baseDate, i), "yyyy-MM");
-        callback(key, monthlyValue, studentName, `Parcela ${i + 1}/${installments}`);
-      }
-    };
+    const monthBilling = billingEntries
+      .filter((entry) => billingMonthKey(entry) === currentMonthKey)
+      .reduce((sum, entry) => sum + Number(entry.value), 0)
+      + nonCardBillingPayments
+        .filter((p) => financialMonthKey(p.created_at) === currentMonthKey)
+        .reduce((sum, p) => sum + Number(p.value), 0);
+    const prevMonthBilling = billingEntries
+      .filter((entry) => billingMonthKey(entry) === prevMonthKey)
+      .reduce((sum, entry) => sum + Number(entry.value), 0)
+      + nonCardBillingPayments
+        .filter((p) => financialMonthKey(p.created_at) === prevMonthKey)
+        .reduce((sum, p) => sum + Number(p.value), 0);
 
     // Build cash per month
     let monthCash = 0;
     let prevMonthCash = 0;
-    const cashMonthStudentMap: Record<string, Record<string, { value: number; detail: string }>> = {};
+    const cashMonthStudentMap: Record<string, Record<string, { value: number; detail: string; projected?: boolean }>> = {};
 
-    const allMonthKeys: string[] = [];
-    for (let i = 5; i >= -12; i--) {
-      const key = format(i > 0 ? subMonths(now, i) : addMonths(now, -i), "yyyy-MM");
-      allMonthKeys.push(key);
-    }
+    const addCashDetail = (monthKey: string | null, value: number, studentName: string, detail: string, projected = false) => {
+      if (!monthKey) return;
+      if (!projected && monthKey === currentMonthKey) monthCash += value;
+      if (!projected && monthKey === prevMonthKey) prevMonthCash += value;
 
-    cashPayments.forEach((p) => {
-      distributeCash(p, (monthKey, value, studentName, detail) => {
-        if (monthKey === currentMonthKey) monthCash += value;
-        if (monthKey === prevMonthKey) prevMonthCash += value;
+      if (!cashMonthStudentMap[monthKey]) cashMonthStudentMap[monthKey] = {};
+      if (!cashMonthStudentMap[monthKey][studentName]) cashMonthStudentMap[monthKey][studentName] = { value: 0, detail: "", projected };
+      cashMonthStudentMap[monthKey][studentName].value += value;
+      cashMonthStudentMap[monthKey][studentName].detail = detail;
+      cashMonthStudentMap[monthKey][studentName].projected = cashMonthStudentMap[monthKey][studentName].projected || projected;
+    };
 
-        if (!cashMonthStudentMap[monthKey]) cashMonthStudentMap[monthKey] = {};
-        if (!cashMonthStudentMap[monthKey][studentName]) cashMonthStudentMap[monthKey][studentName] = { value: 0, detail: "" };
-        cashMonthStudentMap[monthKey][studentName].value += value;
-        cashMonthStudentMap[monthKey][studentName].detail = detail;
-      });
+    cashEntries.forEach((entry) => {
+      const local = anchorLocalForEntry(entry);
+      addCashDetail(
+        cashMonthKey(entry),
+        Number(entry.value),
+        local?.students?.full_name || "Sem aluno",
+        entry.installmentGroupId && entry.installmentNumber
+          ? `Cartão parcela ${entry.installmentNumber}`
+          : "Cartão recebido",
+      );
+    });
+    projectedCashEntries.forEach((entry) => {
+      const local = anchorLocalForEntry(entry);
+      addCashDetail(
+        projectedCashMonthKey(entry),
+        Number(entry.value),
+        local?.students?.full_name || "Sem aluno",
+        entry.installmentGroupId && entry.installmentNumber
+          ? `Previsão cartão parcela ${entry.installmentNumber}`
+          : "Previsão cartão",
+        true,
+      );
+    });
+    cashPayments.filter((p) => p.billing_type !== "CREDIT_CARD").forEach((p) => {
+      addCashDetail(
+        financialMonthKey(p.due_date || p.created_at),
+        Number(p.value),
+        p.students?.full_name || "Sem aluno",
+        p.billing_type === "PIX" ? "PIX à vista" : "À vista",
+      );
     });
 
     const futureTabs: string[] = [];
     for (let i = 0; i <= 12; i++) {
       futureTabs.push(format(addMonths(now, i), "yyyy-MM"));
     }
+    if (isStale()) return;
     setCashMonthTabs(futureTabs);
 
     const detailByMonth: Record<string, CashDetail[]> = {};
     futureTabs.forEach((mk) => {
       const map = cashMonthStudentMap[mk] || {};
       detailByMonth[mk] = Object.entries(map)
-        .map(([name, { value, detail }]) => ({ name, value: Math.round(value * 100) / 100, detail }))
+        .map(([name, { value, detail, projected }]) => ({ name, value: Math.round(value * 100) / 100, detail, projected }))
         .sort((a, b) => b.value - a.value);
     });
+    if (isStale()) return;
     setCashByStudentByMonth(detailByMonth);
 
     // Stats
-    const pendingCount = pendingList.length;
-    const pendingValue = pendingList.reduce((s, p) => s + Number(p.value), 0);
-    const overdueCount = overdueList.length;
-    const overdueValue = overdueList.reduce((s, p) => s + Number(p.value), 0);
+    const pendingCount = pendingEntries.length + pendingList.length;
+    const pendingValue = pendingEntries.reduce((s, entry) => s + Number(entry.value), 0)
+      + pendingList.reduce((s, p) => s + Number(p.value), 0);
+    const overdueCount = overdueEntries.length + overdueList.length;
+    const overdueValue = overdueEntries.reduce((s, entry) => s + Number(entry.value), 0)
+      + overdueList.reduce((s, p) => s + Number(p.value), 0);
     const conversionRate = totalPayments && totalPayments > 0
       ? Math.round(((confirmedCount || 0) / totalPayments) * 100) : 0;
 
     // Ticket médio atual e anterior
-    const monthBillingPayments = billingPayments.filter(p => format(new Date(p.created_at), "yyyy-MM") === currentMonthKey);
-    const prevMonthBillingPayments = billingPayments.filter(p => format(new Date(p.created_at), "yyyy-MM") === prevMonthKey);
-    const currentTicket = monthBillingPayments.length > 0 ? monthBilling / monthBillingPayments.length : 0;
-    const prevTicket = prevMonthBillingPayments.length > 0 ? prevMonthBilling / prevMonthBillingPayments.length : 0;
+    const billingSaleKey = (entry: FinancialProjectionEntry) => entry.installmentGroupId || entry.asaasPaymentId;
+    const monthBillingCount = new Set(
+      billingEntries
+        .filter((entry) => billingMonthKey(entry) === currentMonthKey)
+        .map(billingSaleKey),
+    ).size
+      + nonCardBillingPayments.filter((p) => financialMonthKey(p.created_at) === currentMonthKey).length;
+    const prevMonthBillingCount = new Set(
+      billingEntries
+        .filter((entry) => billingMonthKey(entry) === prevMonthKey)
+        .map(billingSaleKey),
+    ).size
+      + nonCardBillingPayments.filter((p) => financialMonthKey(p.created_at) === prevMonthKey).length;
+    const currentTicket = monthBillingCount > 0 ? monthBilling / monthBillingCount : 0;
+    const prevTicket = prevMonthBillingCount > 0 ? prevMonthBilling / prevMonthBillingCount : 0;
+    if (isStale()) return;
     setTicketMedio(currentTicket);
 
+    if (isStale()) return;
     setFinancialStats({
       monthRevenueBilling: monthBilling, monthRevenueCash: monthCash,
       pendingCount, pendingValue, overdueCount, overdueValue, conversionRate,
       prevMonthBilling, prevMonthCash, prevTicketMedio: prevTicket,
+      unreconciledCreditCardCount: unreconciledCards,
     });
 
     // Charts
@@ -208,9 +295,13 @@ export default function FinancialDashboard() {
     for (let i = 5; i >= 0; i--) {
       billingMap[format(subMonths(now, i), "yyyy-MM")] = 0;
     }
-    billingPayments.forEach((p) => {
-      const k = format(new Date(p.created_at), "yyyy-MM");
-      if (billingMap[k] !== undefined) billingMap[k] += Number(p.value);
+    billingEntries.forEach((entry) => {
+      const k = billingMonthKey(entry);
+      if (k && billingMap[k] !== undefined) billingMap[k] += Number(entry.value);
+    });
+    nonCardBillingPayments.forEach((p) => {
+      const k = financialMonthKey(p.created_at);
+      if (k && billingMap[k] !== undefined) billingMap[k] += Number(p.value);
     });
 
     const cashChartMap: Record<string, number> = {};
@@ -218,10 +309,17 @@ export default function FinancialDashboard() {
       const k = format(i > 0 ? subMonths(now, i) : addMonths(now, -i), "yyyy-MM");
       cashChartMap[k] = 0;
     }
-    cashPayments.forEach((p) => {
-      distributeCash(p, (monthKey, value) => {
-        if (cashChartMap[monthKey] !== undefined) cashChartMap[monthKey] += value;
-      });
+    cashEntries.forEach((entry) => {
+      const k = cashMonthKey(entry);
+      if (k && cashChartMap[k] !== undefined) cashChartMap[k] += Number(entry.value);
+    });
+    projectedCashEntries.forEach((entry) => {
+      const k = projectedCashMonthKey(entry);
+      if (k && cashChartMap[k] !== undefined) cashChartMap[k] += Number(entry.value);
+    });
+    cashPayments.filter((p) => p.billing_type !== "CREDIT_CARD").forEach((p) => {
+      const k = financialMonthKey(p.due_date || p.created_at);
+      if (k && cashChartMap[k] !== undefined) cashChartMap[k] += Number(p.value);
     });
 
     const fmtChart = (map: Record<string, number>) =>
@@ -233,15 +331,21 @@ export default function FinancialDashboard() {
         };
       });
 
+    if (isStale()) return;
     setMonthlyBilling(fmtChart(billingMap));
     setMonthlyCash(fmtChart(cashChartMap));
 
     // Payment methods
     const methodMap: Record<string, number> = {};
-    billingPayments.forEach((p) => {
+    billingEntries.forEach((entry) => {
+      const label = entry.billingType === "CREDIT_CARD" ? "Cartão" : entry.billingType === "PIX" ? "PIX" : entry.billingType || "Outro";
+      methodMap[label] = (methodMap[label] || 0) + Number(entry.value);
+    });
+    nonCardBillingPayments.forEach((p) => {
       const label = p.billing_type === "CREDIT_CARD" ? "Cartão" : p.billing_type === "PIX" ? "PIX" : p.billing_type;
       methodMap[label] = (methodMap[label] || 0) + Number(p.value);
     });
+    if (isStale()) return;
     setPaymentMethodChart(Object.entries(methodMap).map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 })));
 
     // Revenue by Plan
@@ -249,20 +353,90 @@ export default function FinancialDashboard() {
     const { data: studentsWithPlans } = await supabase
       .from("students")
       .select("id, selected_plan_id, plans(name)");
+    if (isStale()) return;
     const studentPlanMap: Record<string, string> = {};
     (studentsWithPlans || []).forEach((s: any) => {
       if (s.selected_plan_id && s.plans?.name) {
         studentPlanMap[s.id] = s.plans.name;
       }
     });
-    billingPayments.forEach((p) => {
+    billingEntries.forEach((entry) => {
+      const local = all.find((p) => entry.localPaymentIds.includes(p.id));
+      const planName = local?.student_id ? studentPlanMap[local.student_id] || "Sem plano" : "Sem plano";
+      planMap[planName] = (planMap[planName] || 0) + Number(entry.value);
+    });
+    nonCardBillingPayments.forEach((p) => {
       const planName = studentPlanMap[p.student_id] || "Sem plano";
       planMap[planName] = (planMap[planName] || 0) + Number(p.value);
     });
+    if (isStale()) return;
     setRevenueByPlan(Object.entries(planMap).map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 })).sort((a, b) => b.value - a.value));
 
     // All payments sorted
-    const sorted = [...all].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const providerDisplayRows: RecentPayment[] = reconciledEntries.map((entry) => {
+      const local = anchorLocalForEntry(entry);
+      const exactLocal = entry.localPaymentIds.map((id) => localById.get(id)).find(Boolean);
+      return {
+        id: `provider:${entry.asaasPaymentId}`,
+        student_id: local?.student_id || null,
+        value: Number(entry.value),
+        billing_type: entry.billingType,
+        status: entry.status,
+        created_at: entry.dueDate || entry.creditDate || new Date().toISOString(),
+        due_date: entry.dueDate,
+        asaas_payment_id: entry.asaasPaymentId,
+        invoice_status: entry.invoiceStatus,
+        installment_count: entry.installmentNumber || 1,
+        notes: null,
+        students: local?.students || null,
+        invoice_action_available: Boolean(exactLocal),
+        payment_row_note: exactLocal ? undefined : "Parcela existe no Asaas, mas ainda não existe como linha local.",
+        installment_label: entry.installmentGroupId && entry.installmentNumber
+          ? `Parcela ${entry.installmentNumber}`
+          : "À vista",
+      };
+    });
+    const unresolvedRows: RecentPayment[] = (projection?.unresolved || []).map((item) => {
+      const local = localById.get(item.localPaymentId);
+      return {
+        id: `unresolved:${item.localPaymentId}`,
+        student_id: local?.student_id || null,
+        value: 0,
+        billing_type: item.billingType,
+        status: item.localStatus,
+        created_at: item.dueDate || local?.created_at || new Date().toISOString(),
+        due_date: item.dueDate,
+        asaas_payment_id: item.asaasPaymentId,
+        invoice_status: null,
+        installment_count: local?.installment_count || 1,
+        notes: null,
+        students: local?.students || null,
+        invoice_action_available: false,
+        payment_row_note: "Cartão pendente de conciliação; valor fora dos indicadores.",
+        installment_label: "Pendente",
+      };
+    });
+    const unavailableCardRows: RecentPayment[] = projectionResult.error ? localCreditCardPayments.map((local) => ({
+      id: `unavailable:${local.id}`,
+      student_id: local.student_id || null,
+      value: 0,
+      billing_type: local.billing_type,
+      status: local.status,
+      created_at: local.due_date || local.created_at || new Date().toISOString(),
+      due_date: local.due_date,
+      asaas_payment_id: local.asaas_payment_id,
+      invoice_status: null,
+      installment_count: local.installment_count || 1,
+      notes: null,
+      students: local.students || null,
+      invoice_action_available: false,
+      payment_row_note: "Cartão pendente de conciliação; valor fora dos indicadores.",
+      installment_label: "Pendente",
+    })) : [];
+    const nonCardRows = all.filter((payment) => payment.billing_type !== "CREDIT_CARD") as RecentPayment[];
+    const sorted = [...providerDisplayRows, ...unresolvedRows, ...unavailableCardRows, ...nonCardRows]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    if (isStale()) return;
     setAllPayments(sorted as RecentPayment[]);
     setCurrentPage(1);
     setLoading(false);
@@ -271,6 +445,14 @@ export default function FinancialDashboard() {
   const handleIssueInvoice = async (asaasPaymentId: string) => {
     // P3 — valida o cadastro antes de emitir sem exigir documentos brasileiros de residentes estrangeiros.
     const pay: any = allPayments.find((p) => p.asaas_payment_id === asaasPaymentId);
+    if (pay && pay.invoice_action_available === false) {
+      toast({
+        title: "Nota indisponível nesta linha",
+        description: pay.payment_row_note || "Esta parcela ainda não possui linha local exata para emissão.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (pay?.student_id) {
       let s: any = null;
       try {
@@ -358,6 +540,31 @@ export default function FinancialDashboard() {
   const formatCurrency = (v: number) =>
     v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+  const hasPositiveChartValue = (data: { value: number }[]) =>
+    data.some((item) => Number(item.value) > 0);
+
+  const MetricUnavailable = ({ partialValue }: { partialValue?: number }) => (
+    <div className="space-y-0.5">
+      <p className="text-xl font-bold text-foreground font-sans">—</p>
+      {partialValue && partialValue > 0 ? (
+        <p className="text-xs text-muted-foreground/60 font-sans">Parcial conciliado: {formatCurrency(partialValue)}</p>
+      ) : (
+        <p className="text-xs text-muted-foreground/60 font-sans">Indisponível</p>
+      )}
+    </div>
+  );
+
+  const CountMetricUnavailable = ({ partialCount, partialValue }: { partialCount: number; partialValue: number }) => (
+    <div className="space-y-0.5">
+      <p className="text-xl font-bold text-foreground font-sans">—</p>
+      {partialCount > 0 || partialValue > 0 ? (
+        <p className="text-xs text-muted-foreground/60 font-sans">Parcial conciliado: {partialCount} ({formatCurrency(partialValue)})</p>
+      ) : (
+        <p className="text-xs text-muted-foreground/60 font-sans">Indisponível</p>
+      )}
+    </div>
+  );
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "CONFIRMED":
@@ -393,8 +600,10 @@ export default function FinancialDashboard() {
     );
   };
 
-  const renderRevenueChart = (data: { month: string; value: number }[], color: string, label: string) => (
-    data.length > 0 ? (
+  const renderRevenueChart = (data: { month: string; value: number }[], color: string, label: string, unavailable = false) => (
+    unavailable && !hasPositiveChartValue(data) ? (
+      <p className="text-muted-foreground font-sans text-center py-8">Conciliação de cartão pendente</p>
+    ) : data.length > 0 && hasPositiveChartValue(data) ? (
       <ResponsiveContainer width="100%" height={250}>
         <BarChart data={data}>
           <XAxis dataKey="month" tick={{ fill: "hsl(0,0%,45%)", fontSize: 12 }} />
@@ -403,6 +612,8 @@ export default function FinancialDashboard() {
           <Bar dataKey="value" fill={color} radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
+    ) : unavailable ? (
+      <p className="text-muted-foreground font-sans text-center py-8">Valores parcialmente conciliados</p>
     ) : (
       <p className="text-muted-foreground font-sans text-center py-8">Nenhum dado de receita</p>
     )
@@ -412,6 +623,17 @@ export default function FinancialDashboard() {
     const [year, month] = key.split("-").map(Number);
     const date = new Date(year, month - 1, 15);
     return format(date, "MMM/yy", { locale: ptBR }).replace(/^./, (c) => c.toUpperCase());
+  };
+
+  const formatPaymentDate = (payment: RecentPayment) => {
+    const date = parseFinancialDate(payment.due_date || payment.created_at);
+    return date ? format(date, "dd/MM/yyyy", { locale: ptBR }) : "—";
+  };
+
+  const paymentInstallmentLabel = (payment: RecentPayment) => {
+    if (payment.installment_label) return payment.installment_label;
+    if (payment.billing_type === "CREDIT_CARD" && payment.asaas_payment_id) return "Parcela";
+    return (payment.installment_count || 1) > 1 ? `${payment.installment_count}x` : "À vista";
   };
 
   const handleSync = async (syncAll: boolean) => {
@@ -478,6 +700,22 @@ export default function FinancialDashboard() {
           </div>
         </div>
 
+        {(financialProjectionUnavailable || financialStats.unreconciledCreditCardCount > 0) && (
+          <Card className="border-amber-500/40 bg-amber-500/10">
+            <CardContent className="flex items-start gap-3 pt-4">
+              <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-amber-700 font-sans">Financeiro parcialmente conciliado</p>
+                <p className="text-xs text-muted-foreground font-sans">
+                  {financialProjectionUnavailable
+                    ? "Cartões não puderam ser conciliados agora. Indicadores com cartão ficam indisponíveis; valores não cartão continuam separados."
+                    : `${financialStats.unreconciledCreditCardCount} pagamento(s) de cartão ficaram pendentes de conciliação e não entram nos indicadores.`}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <Card className="bg-card border-border">
             <CardContent className="flex items-center gap-4 pt-6">
@@ -485,12 +723,16 @@ export default function FinancialDashboard() {
                 <TrendingUp className="h-6 w-6 text-emerald-500" />
               </div>
               <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-xl font-bold text-foreground font-sans">{formatCurrency(financialStats.monthRevenueBilling)}</p>
-                  <VariationBadge current={financialStats.monthRevenueBilling} previous={financialStats.prevMonthBilling} />
-                </div>
+                {hasUnavailableCreditCards ? (
+                  <MetricUnavailable partialValue={financialStats.monthRevenueBilling} />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <p className="text-xl font-bold text-foreground font-sans">{formatCurrency(financialStats.monthRevenueBilling)}</p>
+                    <VariationBadge current={financialStats.monthRevenueBilling} previous={financialStats.prevMonthBilling} />
+                  </div>
+                )}
                 <p className="text-sm text-muted-foreground font-sans">Faturamento — {format(new Date(), "MMM/yy", { locale: ptBR }).replace(/^./, c => c.toUpperCase())}</p>
-                {financialStats.prevMonthBilling > 0 && (
+                {!hasUnavailableCreditCards && financialStats.prevMonthBilling > 0 && (
                   <p className="text-xs text-muted-foreground/60 font-sans">Mês anterior: {formatCurrency(financialStats.prevMonthBilling)}</p>
                 )}
               </div>
@@ -502,12 +744,16 @@ export default function FinancialDashboard() {
                 <TrendingUp className="h-6 w-6 text-purple-500" />
               </div>
               <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-xl font-bold text-foreground font-sans">{formatCurrency(ticketMedio)}</p>
-                  <VariationBadge current={ticketMedio} previous={financialStats.prevTicketMedio} />
-                </div>
+                {hasUnavailableCreditCards ? (
+                  <MetricUnavailable />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <p className="text-xl font-bold text-foreground font-sans">{formatCurrency(ticketMedio)}</p>
+                    <VariationBadge current={ticketMedio} previous={financialStats.prevTicketMedio} />
+                  </div>
+                )}
                 <p className="text-sm text-muted-foreground font-sans">Ticket Médio</p>
-                {financialStats.prevTicketMedio > 0 && (
+                {!hasUnavailableCreditCards && financialStats.prevTicketMedio > 0 && (
                   <p className="text-xs text-muted-foreground/60 font-sans">Mês anterior: {formatCurrency(financialStats.prevTicketMedio)}</p>
                 )}
               </div>
@@ -519,12 +765,16 @@ export default function FinancialDashboard() {
                 <Wallet className="h-6 w-6 text-blue-500" />
               </div>
               <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-xl font-bold text-foreground font-sans">{formatCurrency(financialStats.monthRevenueCash)}</p>
-                  <VariationBadge current={financialStats.monthRevenueCash} previous={financialStats.prevMonthCash} />
-                </div>
+                {hasUnavailableCreditCards ? (
+                  <MetricUnavailable partialValue={financialStats.monthRevenueCash} />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <p className="text-xl font-bold text-foreground font-sans">{formatCurrency(financialStats.monthRevenueCash)}</p>
+                    <VariationBadge current={financialStats.monthRevenueCash} previous={financialStats.prevMonthCash} />
+                  </div>
+                )}
                 <p className="text-sm text-muted-foreground font-sans">Caixa — {format(new Date(), "MMM/yy", { locale: ptBR }).replace(/^./, c => c.toUpperCase())}</p>
-                {financialStats.prevMonthCash > 0 && (
+                {!hasUnavailableCreditCards && financialStats.prevMonthCash > 0 && (
                   <p className="text-xs text-muted-foreground/60 font-sans">Mês anterior: {formatCurrency(financialStats.prevMonthCash)}</p>
                 )}
               </div>
@@ -536,8 +786,17 @@ export default function FinancialDashboard() {
                 <Clock className="h-6 w-6 text-amber-500" />
               </div>
               <div>
-                <p className="text-xl font-bold text-foreground font-sans">{financialStats.pendingCount}</p>
-                <p className="text-sm text-muted-foreground font-sans">Pendentes ({formatCurrency(financialStats.pendingValue)})</p>
+                {hasUnavailableCreditCards ? (
+                  <CountMetricUnavailable partialCount={financialStats.pendingCount} partialValue={financialStats.pendingValue} />
+                ) : (
+                  <>
+                    <p className="text-xl font-bold text-foreground font-sans">{financialStats.pendingCount}</p>
+                    <p className="text-sm text-muted-foreground font-sans">Pendentes ({formatCurrency(financialStats.pendingValue)})</p>
+                  </>
+                )}
+                {hasUnavailableCreditCards && (
+                  <p className="text-sm text-muted-foreground font-sans">Pendentes</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -547,8 +806,17 @@ export default function FinancialDashboard() {
                 <AlertCircle className="h-6 w-6 text-red-500" />
               </div>
               <div>
-                <p className="text-xl font-bold text-foreground font-sans">{financialStats.overdueCount}</p>
-                <p className="text-sm text-muted-foreground font-sans">Atrasados ({formatCurrency(financialStats.overdueValue)})</p>
+                {hasUnavailableCreditCards ? (
+                  <CountMetricUnavailable partialCount={financialStats.overdueCount} partialValue={financialStats.overdueValue} />
+                ) : (
+                  <>
+                    <p className="text-xl font-bold text-foreground font-sans">{financialStats.overdueCount}</p>
+                    <p className="text-sm text-muted-foreground font-sans">Atrasados ({formatCurrency(financialStats.overdueValue)})</p>
+                  </>
+                )}
+                {hasUnavailableCreditCards && (
+                  <p className="text-sm text-muted-foreground font-sans">Atrasados</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -580,7 +848,7 @@ export default function FinancialDashboard() {
               <p className="text-xs text-muted-foreground font-sans">Valor total das vendas no mês de criação</p>
             </CardHeader>
             <CardContent>
-              {renderRevenueChart(monthlyBilling, revenueColor, "Faturamento")}
+              {renderRevenueChart(monthlyBilling, revenueColor, "Faturamento", hasUnavailableCreditCards)}
             </CardContent>
           </Card>
 
@@ -598,7 +866,7 @@ export default function FinancialDashboard() {
               <p className="text-xs text-muted-foreground font-sans">Recebido por mês + previsão dos próximos meses (parcelas futuras)</p>
             </CardHeader>
             <CardContent>
-              {renderRevenueChart(monthlyCash, cashColor, "Caixa")}
+              {renderRevenueChart(monthlyCash, cashColor, "Caixa", hasUnavailableCreditCards)}
             </CardContent>
           </Card>
 
@@ -629,7 +897,9 @@ export default function FinancialDashboard() {
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-muted-foreground font-sans text-center py-8">Nenhum pagamento confirmado</p>
+                <p className="text-muted-foreground font-sans text-center py-8">
+                  {hasUnavailableCreditCards ? "Conciliação de cartão pendente" : "Nenhum pagamento confirmado"}
+                </p>
               )}
             </CardContent>
           </Card>
@@ -657,7 +927,9 @@ export default function FinancialDashboard() {
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-muted-foreground font-sans text-center py-8">Nenhum dado de plano</p>
+                <p className="text-muted-foreground font-sans text-center py-8">
+                  {hasUnavailableCreditCards ? "Conciliação de cartão pendente" : "Nenhum dado de plano"}
+                </p>
               )}
             </CardContent>
           </Card>
@@ -714,7 +986,9 @@ export default function FinancialDashboard() {
                         </TableBody>
                       </Table>
                     ) : (
-                      <p className="text-muted-foreground font-sans text-center py-8">Nenhum recebimento previsto</p>
+                      <p className="text-muted-foreground font-sans text-center py-8">
+                        {hasUnavailableCreditCards ? "Conciliação de cartão pendente" : "Nenhum recebimento previsto"}
+                      </p>
                     )}
                   </TabsContent>
                 );
@@ -736,7 +1010,11 @@ export default function FinancialDashboard() {
                     className="ml-auto"
                   />
                 </CardTitle>
-                <p className="text-xs text-muted-foreground font-sans mt-1">{filteredPayments.length} pagamentos encontrados</p>
+                <p className="text-xs text-muted-foreground font-sans mt-1">
+                  {hasUnavailableCreditCards
+                    ? `${filteredPayments.length} linha(s) listada(s); cartões pendentes sem valor`
+                    : `${filteredPayments.length} pagamentos encontrados`}
+                </p>
               </div>
             </div>
           </CardHeader>
@@ -810,16 +1088,27 @@ export default function FinancialDashboard() {
                           p.students?.full_name || "—"
                         )}
                       </TableCell>
-                      <TableCell className="font-sans">{formatCurrency(Number(p.value))}</TableCell>
+                      <TableCell className="font-sans">
+                        {p.payment_row_note && p.value === 0 ? (
+                          <span className="text-amber-600 text-sm">Pendente de conciliação</span>
+                        ) : (
+                          formatCurrency(Number(p.value))
+                        )}
+                      </TableCell>
                       <TableCell className="font-sans">
                         {p.billing_type === "CREDIT_CARD" ? "Cartão" : p.billing_type === "PIX" ? "PIX" : p.billing_type}
                       </TableCell>
                       <TableCell className="font-sans text-center">
-                        {(p.installment_count || 1) > 1 ? `${p.installment_count}x` : "À vista"}
+                        {paymentInstallmentLabel(p)}
                       </TableCell>
                       <TableCell>{getStatusBadge(p.status)}</TableCell>
                       <TableCell>
-                        {p.invoice_status ? (
+                        {p.payment_row_note && p.invoice_action_available === false ? (
+                          <Button size="sm" variant="outline" disabled title={p.payment_row_note}>
+                            <FileText className="h-4 w-4" />
+                            Indisponível
+                          </Button>
+                        ) : p.invoice_status ? (
                           <Badge className="bg-emerald-500/20 text-emerald-600 border-emerald-500/30">
                             <CheckCircle className="h-3 w-3 mr-1" />
                             {p.invoice_status === "SCHEDULED" ? "Agendada" : p.invoice_status === "AUTHORIZED" ? "Autorizada" : p.invoice_status === "CANCELED" ? "Cancelada" : p.invoice_status}
@@ -843,14 +1132,21 @@ export default function FinancialDashboard() {
                         )}
                       </TableCell>
                       <TableCell className="font-sans text-muted-foreground">
-                        {format(new Date(p.created_at), "dd/MM/yyyy", { locale: ptBR })}
+                        <div className="space-y-1">
+                          <p>{formatPaymentDate(p)}</p>
+                          {p.payment_row_note && (
+                            <p className="text-xs text-amber-600">{p.payment_row_note}</p>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             ) : (
-              <p className="text-muted-foreground font-sans text-center py-8">Nenhum pagamento encontrado</p>
+              <p className="text-muted-foreground font-sans text-center py-8">
+                {hasUnavailableCreditCards ? "Conciliação de cartão pendente para estes filtros" : "Nenhum pagamento encontrado"}
+              </p>
             )}
 
             {/* Pagination */}
