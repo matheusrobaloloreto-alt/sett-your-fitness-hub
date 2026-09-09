@@ -3,11 +3,14 @@ export type PrescriptionScheduleMode = "single" | "remaining";
 export interface PrescriptionScheduleCycle {
   id: string;
   enrollment_id: string | null;
+  student_id?: string | null;
+  company_id?: string | null;
   cycle_number: number;
   start_date: string;
   end_date: string;
   status: string;
   superseded_by_cycle_id?: string | null;
+  delivery_status?: string | null;
   prescription_cleared_at?: string | null;
   prescription_cleared_event_id?: string | null;
   prescription_cleared_signature?: string | null;
@@ -19,6 +22,7 @@ export interface PrescriptionEnrollment {
   id: string;
   status: string;
   created_at?: string | null;
+  carried_over_cycle_id?: string | null;
 }
 
 export interface PrescriptionHistoryRow {
@@ -244,6 +248,79 @@ export function selectCyclesForProgramHistory<T extends PrescriptionScheduleCycl
     .filter((cycle) => currentIds.has(cycle.id) || hasActivePrescriptionContent(cycle))
     .sort((left, right) => utcDay(left.start_date) - utcDay(right.start_date)
       || left.cycle_number - right.cycle_number);
+}
+
+export function selectStudentWorkoutCycleWindow<T extends PrescriptionScheduleCycle>(
+  currentEnrollmentCycles: T[],
+  args: {
+    carriedOverCycle?: T | null;
+    expectedStudentId?: string | null;
+    expectedCompanyId?: string | null;
+    planDurationDays: number;
+    cycleDurationDays?: number;
+    today?: Date;
+  },
+): { cycles: T[]; preferredCycle: T | null } {
+  const today = args.today ?? new Date();
+  const cycleDurationDays = args.cycleDurationDays ?? 42;
+  const currentCycles = currentEnrollmentCycles.filter((cycle) => !isSupersededCycle(cycle));
+  const currentWindow = selectCurrentPlanCycleWindow(
+    currentCycles,
+    args.planDurationDays,
+    cycleDurationDays,
+  );
+  const currentById = new Set(currentWindow.map((cycle) => cycle.id));
+  const started = (cycle: T) => utcDay(cycle.start_date) <= utcDay(today);
+  const currentStarted = currentWindow.filter(started);
+  const newestStartedFirst = (left: T, right: T) =>
+    utcDay(right.start_date) - utcDay(left.start_date)
+    || right.cycle_number - left.cycle_number;
+  const currentCleared = currentStarted
+    .filter(isPrescriptionClearedCycle)
+    .sort(newestStartedFirst)[0]
+    ?? null;
+  const currentPublished = selectPreferredVisibleCycle(
+    currentStarted.filter(hasActivePrescriptionContent),
+    today,
+  );
+  const publishedIsNewerThanClear = Boolean(
+    currentPublished
+    && currentCleared
+    && newestStartedFirst(currentPublished, currentCleared) < 0,
+  );
+  const carriedOverCycle = args.carriedOverCycle && !currentById.has(args.carriedOverCycle.id)
+    ? args.carriedOverCycle
+    : null;
+  const matchesExpectedOwner = !carriedOverCycle || (
+    (!args.expectedStudentId || carriedOverCycle.student_id === args.expectedStudentId)
+    && (!args.expectedCompanyId || carriedOverCycle.company_id === args.expectedCompanyId)
+  );
+  const carriedOverEligible = Boolean(
+    !currentCleared
+    && !currentPublished
+    && (
+      carriedOverCycle
+      && matchesExpectedOwner
+      && !isSupersededCycle(carriedOverCycle)
+      && !isCycleFuture(carriedOverCycle, today)
+      && hasActivePrescriptionContent(carriedOverCycle)
+    ),
+  );
+
+  const cycles = carriedOverEligible
+    ? [...currentWindow, carriedOverCycle as T]
+    : currentWindow;
+  const preferredCycle = (publishedIsNewerThanClear ? currentPublished : null)
+    ?? currentCleared
+    ?? currentPublished
+    ?? (carriedOverEligible ? carriedOverCycle as T : null)
+    ?? selectPreferredVisibleCycle(currentWindow, today);
+
+  return {
+    cycles: [...cycles].sort((left, right) => utcDay(left.start_date) - utcDay(right.start_date)
+      || left.cycle_number - right.cycle_number),
+    preferredCycle,
+  };
 }
 
 /**

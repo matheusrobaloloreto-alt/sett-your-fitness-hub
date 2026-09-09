@@ -57,7 +57,7 @@ import {
 } from "@/lib/workoutDraft";
 import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
-import { selectCurrentPlanCycleWindow, selectPreferredVisibleCycle, selectPrescriptionEnrollment } from "@/lib/prescriptionSchedule";
+import { selectPreferredVisibleCycle, selectPrescriptionEnrollment, selectStudentWorkoutCycleWindow } from "@/lib/prescriptionSchedule";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
 
 const StatsCharts = lazy(() => import("@/components/student/StatsCharts").then((module) => ({ default: module.StatsCharts })));
@@ -111,12 +111,17 @@ interface WorkoutData {
 
 interface Cycle {
   id: string;
+  enrollment_id?: string | null;
+  student_id?: string | null;
+  company_id?: string | null;
   cycle_number: number;
   start_date: string;
   end_date: string;
   status: string;
+  superseded_by_cycle_id?: string | null;
   objective?: string | null;
   duration_weeks?: number | null;
+  delivery_status?: string | null;
   prescription_cleared_at?: string | null;
   workouts: WorkoutData[];
 }
@@ -367,7 +372,7 @@ export default function StudentPortal() {
 
     const { data: enrollmentRows } = await supabase
       .from("enrollments")
-      .select("id, start_date, end_date, plan_id, status, created_at")
+      .select("id, start_date, end_date, plan_id, status, created_at, carried_over_cycle_id")
       .eq("student_id", student.id)
       .in("status", ["active", "awaiting_training", "awaiting_renewal"])
       .order("created_at", { ascending: false })
@@ -424,14 +429,36 @@ export default function StudentPortal() {
     // matrícula ativa, não há uma agenda corrente para exibir.
     if (enrollment) {
       // O cast mantém compatibilidade com o tipo local legado da tabela.
+      const cycleSelect = "id, enrollment_id, student_id, company_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, objective, duration_weeks, delivery_status, prescription_cleared_at";
       const { data: cyclesData } = await (supabase as any)
         .from("training_cycles")
-        .select("id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, objective, duration_weeks, delivery_status, prescription_cleared_at")
+        .select(cycleSelect)
         .eq("enrollment_id", enrollment.id)
         .order("cycle_number");
+      const carriedOverCycleId = (enrollment as any).carried_over_cycle_id;
+      const { data: carriedOverCycle } = carriedOverCycleId
+        ? await (supabase as any)
+          .from("training_cycles")
+          .select(cycleSelect)
+          .eq("id", carriedOverCycleId)
+          .eq("student_id", student.id)
+          .eq("company_id", student.company_id)
+          .maybeSingle()
+        : { data: null };
 
-      if (cyclesData && cyclesData.length > 0) {
-        const visibleCycles = cyclesData.filter((cycle) => cycle.status !== "superseded" && !cycle.superseded_by_cycle_id);
+      if ((cyclesData && cyclesData.length > 0) || carriedOverCycle) {
+        const visibleCycles = (cyclesData || []).filter((cycle) => cycle.status !== "superseded" && !cycle.superseded_by_cycle_id);
+        const visibleCycleIds = new Set(visibleCycles.map((cycle) => cycle.id));
+        if (
+          carriedOverCycle
+          && carriedOverCycle.student_id === student.id
+          && carriedOverCycle.company_id === student.company_id
+          && !visibleCycleIds.has(carriedOverCycle.id)
+          && carriedOverCycle.status !== "superseded"
+          && !carriedOverCycle.superseded_by_cycle_id
+        ) {
+          visibleCycles.push(carriedOverCycle);
+        }
         const workoutsData = visibleCycles.length > 0
           ? (await supabase
             .from("workouts")
@@ -442,10 +469,17 @@ export default function StudentPortal() {
 
         const allMaterializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
         const workoutCycleIds = new Set(allMaterializedWorkouts.map((workout) => workout.cycle_id));
-        const schedulableCycles = selectCurrentPlanCycleWindow(
-          visibleCycles.map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && workoutCycleIds.has(cycle.id) })),
-          planDurationDays,
-          cycleDurationDays,
+        const { cycles: schedulableCycles, preferredCycle } = selectStudentWorkoutCycleWindow(
+          (cyclesData || []).map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && workoutCycleIds.has(cycle.id) })),
+          {
+            carriedOverCycle: carriedOverCycle
+              ? { ...carriedOverCycle, has_workouts: !carriedOverCycle.prescription_cleared_at && workoutCycleIds.has(carriedOverCycle.id) }
+              : null,
+            expectedStudentId: student.id,
+            expectedCompanyId: student.company_id,
+            planDurationDays,
+            cycleDurationDays,
+          },
         );
         const schedulableCycleIds = new Set(schedulableCycles.map((cycle) => cycle.id));
         const materializedWorkouts = allMaterializedWorkouts.filter((workout) => schedulableCycleIds.has(workout.cycle_id));
@@ -470,7 +504,8 @@ export default function StudentPortal() {
         }
 
         const enriched: Cycle[] = schedulableCycles.map(c => {
-          const cycleWorkouts = c.prescription_cleared_at
+          const isFutureCycle = Boolean(c.start_date && c.start_date > businessDateYmd());
+          const cycleWorkouts = c.prescription_cleared_at || isFutureCycle
             ? []
             : orderWorkoutsByPrescription(materializedWorkouts
               .filter(w => w.cycle_id === c.id)
@@ -498,7 +533,7 @@ export default function StudentPortal() {
         setCycles(enriched);
 
         const today = new Date();
-        const chosen = selectPreferredVisibleCycle(
+        const chosen = enriched.find((cycle) => cycle.id === preferredCycle?.id) ?? selectPreferredVisibleCycle(
           enriched.map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && cycle.workouts.length > 0 })),
           today,
         );

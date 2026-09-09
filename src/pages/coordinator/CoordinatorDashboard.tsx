@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Plus, UserCheck, Clock, Users } from "lucide-react";
-import { addWeeks, format } from "date-fns";
+import { addDays, format, parseISO } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { DashboardAlerts } from "@/components/DashboardAlerts";
 import { RenewalsAndCyclesPanel } from "@/components/dashboard/RenewalsAndCyclesPanel";
@@ -22,12 +22,14 @@ interface Student {
   phone: string | null;
   whatsapp: string | null;
   status: string;
+  assigned_trainer_id?: string | null;
 }
 
 interface Plan {
   id: string;
   name: string;
   duration_weeks: number;
+  duration_days?: number | null;
 }
 
 interface Trainer {
@@ -55,7 +57,7 @@ export default function CoordinatorDashboard() {
     const { data: studentsData } = await supabase.from("students").select("*").order("created_at", { ascending: false });
     setStudents((studentsData as Student[]) || []);
 
-    const { data: plansData } = await supabase.from("plans").select("*").eq("is_active", true);
+    const { data: plansData } = await supabase.from("plans").select("id, name, duration_weeks, duration_days").eq("is_active", true);
     setPlans((plansData as Plan[]) || []);
 
     // Load trainers (profiles with trainer role)
@@ -107,29 +109,29 @@ export default function CoordinatorDashboard() {
     const plan = plans.find((p) => p.id === enrollForm.plan_id);
     if (!plan) return;
 
-    const startDate = new Date(enrollForm.start_date);
-    const endDate = addWeeks(startDate, plan.duration_weeks);
+    if (!companyId) {
+      toast({ title: "Empresa não identificada", description: "Recarregue a página antes de liberar a matrícula.", variant: "destructive" });
+      return;
+    }
 
-    const { error } = await supabase.from("enrollments").insert({
-      student_id: selectedStudent.id,
-      plan_id: enrollForm.plan_id,
-      trainer_id: null,
-      start_date: format(startDate, "yyyy-MM-dd"),
-      end_date: format(endDate, "yyyy-MM-dd"),
-      company_id: companyId,
+    const { data: replacementRows, error } = await supabase.rpc("replace_student_enrollment", {
+      _student_id: selectedStudent.id,
+      _company_id: companyId,
+      _plan_id: enrollForm.plan_id,
+      _trainer_id: selectedStudent.assigned_trainer_id ?? null,
+      _start_date: enrollForm.start_date,
+      _clear_carried_over_cycle: false,
     });
 
     if (error) {
       toast({ title: "Erro", description: error.message, variant: "destructive" });
       return;
     }
-
-    // Update student status
-    await supabase.from("students").update({
-      status: "active",
-      sales_stage: "active",
-      activated_at: new Date().toISOString(),
-    }).eq("id", selectedStudent.id).eq("company_id", companyId);
+    const enrollmentId = Array.isArray(replacementRows) ? replacementRows[0]?.enrollment_id : (replacementRows as any)?.enrollment_id;
+    if (!enrollmentId) {
+      toast({ title: "Matrícula criada sem confirmação local", description: "O servidor não retornou a matrícula criada. Recarregue o aluno antes de prescrever.", variant: "destructive" });
+      return;
+    }
 
     toast({ title: "Aluno matriculado e liberado!" });
     setEnrollOpen(false);
@@ -140,10 +142,10 @@ export default function CoordinatorDashboard() {
 
   const selectedPlan = plans.find((p) => p.id === enrollForm.plan_id);
   const calculatedEndDate = selectedPlan
-    ? format(addWeeks(new Date(enrollForm.start_date), selectedPlan.duration_weeks), "dd/MM/yyyy")
+    ? format(addDays(parseISO(enrollForm.start_date), Math.max(1, Number(selectedPlan.duration_days) || selectedPlan.duration_weeks * 7) - 1), "dd/MM/yyyy")
     : null;
   const calculatedCycles = selectedPlan
-    ? Math.ceil((selectedPlan.duration_weeks * 7) / 42)
+    ? Math.ceil(Math.max(1, Number(selectedPlan.duration_days) || selectedPlan.duration_weeks * 7) / 42)
     : null;
 
   const pendingStudents = students.filter((s) => s.status === "pending");

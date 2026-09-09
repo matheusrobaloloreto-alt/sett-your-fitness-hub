@@ -903,33 +903,25 @@ export default function StudentDetail() {
     }
     setSaving(true);
     const startDateValue = format(startDate, "yyyy-MM-dd");
-    const { data: enrollment, error } = await supabase.from("enrollments").insert({
-      student_id: id,
-      company_id: student.company_id,
-      plan_id: selectedPlanId,
-      trainer_id: selectedTrainerId,
-      start_date: startDateValue,
-      end_date: format(computedEndDate, "yyyy-MM-dd"),
-      training_start_date: startDateValue,
-      payment_status: "paid",
-      status: "active",
-    }).select("id").single();
+    const { data: replacementRows, error } = await supabase.rpc("replace_student_enrollment", {
+      _student_id: id,
+      _company_id: student.company_id,
+      _plan_id: selectedPlanId,
+      _trainer_id: selectedTrainerId,
+      _start_date: startDateValue,
+      _clear_carried_over_cycle: false,
+    });
     if (error) {
       setSaving(false);
       toast({ title: "Erro ao criar matrícula", description: error.message, variant: "destructive" });
       return;
     }
-    const { error: cycleError } = await supabase.rpc("recalculate_training_cycles", {
-      p_enrollment_id: enrollment.id,
-      p_new_start_date: startDateValue,
-    });
-    if (cycleError) {
+    const enrollmentId = Array.isArray(replacementRows) ? replacementRows[0]?.enrollment_id : (replacementRows as any)?.enrollment_id;
+    if (!enrollmentId) {
       setSaving(false);
-      toast({ title: "Matrícula criada, mas os ciclos não foram gerados", description: cycleError.message, variant: "destructive" });
+      toast({ title: "Matrícula criada sem confirmação local", description: "O servidor não retornou a matrícula criada. Recarregue o aluno antes de prescrever.", variant: "destructive" });
       return;
     }
-    // Sync assigned_trainer_id on student
-    await supabase.from("students").update({ assigned_trainer_id: selectedTrainerId }).eq("id", id);
     setSaving(false);
     toast({ title: "Matrícula criada com sucesso!" });
     setEnrollOpen(false);

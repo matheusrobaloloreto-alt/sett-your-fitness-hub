@@ -162,6 +162,19 @@ export async function processIntercycleAnamnesisDeliveries(args: {
       ) {
         throw new Error("intercycle_cycle_cancelled_or_rescoped");
       }
+      const enrollmentResult = await args.admin.from("enrollments")
+        .select("id, status")
+        .eq("id", delivery.enrollment_id)
+        .eq("student_id", delivery.student_id)
+        .eq("company_id", delivery.company_id)
+        .maybeSingle();
+      if (enrollmentResult.error) {
+        throw new Error("intercycle_enrollment_lookup_failed");
+      }
+      const enrollment = enrollmentResult.data;
+      if (!enrollment || String(enrollment.status || "") === "completed") {
+        throw new Error("intercycle_enrollment_completed_or_missing");
+      }
       const chatResult = await args.admin.from("whatsapp_chats")
         .select("id, remote_jid, student_id, instance_id")
         .eq("company_id", delivery.company_id).eq("student_id", delivery.student_id)
@@ -206,7 +219,7 @@ export async function processIntercycleAnamnesisDeliveries(args: {
       failed += 1;
       const retryCount = Number(delivery.retry_count || 0) + 1;
       const code = String(error instanceof Error ? error.message : "intercycle_dispatch_failed").replace(/[^a-z0-9_]/gi, "_").slice(0, 120);
-      if (code === "intercycle_cycle_cancelled_or_rescoped") {
+      if (code === "intercycle_cycle_cancelled_or_rescoped" || code === "intercycle_enrollment_completed_or_missing") {
         await args.admin.from("intercycle_anamnesis_deliveries").update({
           status: "cancelled",
           cancelled_at: new Date().toISOString(),

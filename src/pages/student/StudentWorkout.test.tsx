@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import StudentWorkout from "./StudentWorkout";
 
@@ -89,7 +89,7 @@ const workoutRows = [
   },
 ];
 
-function makeQuery(result: unknown, terminal: "limit" | "single" | "in" | "order" = "limit") {
+function makeQuery(result: unknown, terminal: "limit" | "single" | "maybeSingle" | "in" | "order" = "limit") {
   const query: Record<string, unknown> = {};
   query.select = vi.fn(() => query);
   query.eq = vi.fn(() => query);
@@ -97,6 +97,7 @@ function makeQuery(result: unknown, terminal: "limit" | "single" | "in" | "order
   query.order = vi.fn(() => terminal === "order" ? Promise.resolve(result) : query);
   query.limit = vi.fn(() => terminal === "limit" ? Promise.resolve(result) : query);
   query.single = vi.fn(() => terminal === "single" ? Promise.resolve(result) : query);
+  query.maybeSingle = vi.fn(() => terminal === "maybeSingle" ? Promise.resolve(result) : query);
   query.in = vi.fn(() => terminal === "in" ? Promise.resolve(result) : query);
   return query;
 }
@@ -104,19 +105,21 @@ function makeQuery(result: unknown, terminal: "limit" | "single" | "in" | "order
 function mockStudentWorkoutData() {
   fromMock.mockImplementation((table: string) => {
     if (table === "students") {
-      return makeQuery({ data: { full_name: "Aluno Teste" }, error: null }, "single");
+      return makeQuery({ data: { full_name: "Aluno Teste", company_id: "company-1" }, error: null }, "single");
     }
     if (table === "enrollments") {
       return makeQuery({
         data: [
           {
             id: "enrollment-1",
+            company_id: "company-1",
             start_date: "2026-08-01",
             end_date: "2026-09-30",
             training_start_date: "2026-08-01",
             plan_id: "plan-1",
             status: "active",
-            plans: { name: "Plano BN" },
+            carried_over_cycle_id: null,
+            plans: { name: "Plano BN", duration_days: 60, cycle_duration_days: 60 },
           },
         ],
         error: null,
@@ -127,6 +130,9 @@ function mockStudentWorkoutData() {
         data: [
           {
             id: "cycle-1",
+            enrollment_id: "enrollment-1",
+            student_id: "student-1",
+            company_id: "company-1",
             cycle_number: 1,
             start_date: "2026-08-01",
             end_date: "2026-09-30",
@@ -219,17 +225,19 @@ describe("StudentWorkout", () => {
 
     fromMock.mockImplementation((table: string) => {
       if (table === "students") {
-        return makeQuery({ data: { full_name: "Aluno Teste" }, error: null }, "single");
+        return makeQuery({ data: { full_name: "Aluno Teste", company_id: "company-1" }, error: null }, "single");
       }
       if (table === "enrollments") {
         return makeQuery({
           data: [{
             id: "enrollment-1",
+            company_id: "company-1",
             start_date: "2026-08-01",
             end_date: "2026-09-30",
             training_start_date: "2026-08-01",
             status: "active",
-            plans: { name: "Plano BN" },
+            carried_over_cycle_id: null,
+            plans: { name: "Plano BN", duration_days: 60, cycle_duration_days: 60 },
           }],
           error: null,
         });
@@ -238,6 +246,9 @@ describe("StudentWorkout", () => {
         return makeQuery({
           data: [{
             id: "cycle-1",
+            enrollment_id: "enrollment-1",
+            student_id: "student-1",
+            company_id: "company-1",
             cycle_number: 1,
             start_date: "2026-08-01",
             end_date: "2026-09-30",
@@ -264,17 +275,19 @@ describe("StudentWorkout", () => {
 
     fromMock.mockImplementation((table: string) => {
       if (table === "students") {
-        return makeQuery({ data: { full_name: "Aluno Teste" }, error: null }, "single");
+        return makeQuery({ data: { full_name: "Aluno Teste", company_id: "company-1" }, error: null }, "single");
       }
       if (table === "enrollments") {
         return makeQuery({
           data: [{
             id: "enrollment-1",
+            company_id: "company-1",
             start_date: "2026-08-01",
             end_date: "2026-09-30",
             training_start_date: "2026-08-01",
             status: "active",
-            plans: { name: "Plano BN" },
+            carried_over_cycle_id: null,
+            plans: { name: "Plano BN", duration_days: 60, cycle_duration_days: 60 },
           }],
           error: null,
         });
@@ -301,17 +314,19 @@ describe("StudentWorkout", () => {
     const newCyclesResult = new Promise((resolve) => { resolveNewCycles = resolve; });
     fromMock.mockImplementation((table: string) => {
       if (table === "students") {
-        return makeQuery({ data: { full_name: "Novo Aluno" }, error: null }, "single");
+        return makeQuery({ data: { full_name: "Novo Aluno", company_id: "company-1" }, error: null }, "single");
       }
       if (table === "enrollments") {
         return makeQuery({
           data: [{
             id: "enrollment-2",
+            company_id: "company-1",
             start_date: "2026-08-01",
             end_date: "2026-09-30",
             training_start_date: "2026-08-01",
             status: "active",
-            plans: { name: "Plano Novo" },
+            carried_over_cycle_id: null,
+            plans: { name: "Plano Novo", duration_days: 60, cycle_duration_days: 60 },
           }],
           error: null,
         });
@@ -329,6 +344,138 @@ describe("StudentWorkout", () => {
     await act(async () => {
       resolveNewCycles({ data: [], error: null });
       await newCyclesResult;
+    });
+  });
+
+  it("keeps the carried-over workout only until the renewed enrollment has its own publication", async () => {
+    let state: "waiting" | "published" | "next-empty" | "cleared" = "waiting";
+    const oldCycle = {
+      id: "cycle-old",
+      enrollment_id: "enrollment-old",
+      student_id: "student-1",
+      company_id: "company-1",
+      cycle_number: 7,
+      start_date: "2026-07-13",
+      end_date: "2026-08-23",
+      status: "completed",
+      duration_weeks: 6,
+      delivery_status: "viewed",
+      prescription_cleared_at: null,
+    };
+    const newCycle = () => ({
+      id: state === "next-empty" ? "cycle-new-empty" : "cycle-new",
+      enrollment_id: "enrollment-new",
+      student_id: "student-1",
+      company_id: "company-1",
+      cycle_number: state === "next-empty" ? 2 : 1,
+      start_date: state === "next-empty" ? "2026-09-09" : "2026-08-01",
+      end_date: state === "next-empty" ? "2026-10-20" : "2026-09-08",
+      status: state === "next-empty" ? "active" : state === "published" ? "active" : "completed",
+      duration_weeks: 6,
+      delivery_status: state === "published" ? "sent" : "pending",
+      prescription_cleared_at: state === "cleared" ? "2026-09-09T12:00:00Z" : null,
+    });
+    const workout = (cycleId: string, title: string) => ({
+      id: `workout-${cycleId}`,
+      title,
+      cycle_id: cycleId,
+      description: null,
+      sort_order: 0,
+      exercises: [{
+        exercise_id: "ex-qa",
+        exercise_name: "Agachamento de teste",
+        muscle_group: "pernas",
+        sets: "3",
+        reps: "10",
+        rest: "60s",
+        notes: "",
+      }],
+    });
+    let trainingCycleCalls = 0;
+    const installMock = () => {
+      trainingCycleCalls = 0;
+      fromMock.mockImplementation((table: string) => {
+        if (table === "students") {
+          return makeQuery({ data: { full_name: "Aluno Teste", company_id: "company-1" }, error: null }, "single");
+        }
+        if (table === "enrollments") {
+          return makeQuery({
+            data: [{
+              id: "enrollment-new",
+              company_id: "company-1",
+              start_date: "2026-08-01",
+              end_date: "2026-11-03",
+              training_start_date: "2026-08-01",
+              plan_id: "plan-1",
+              status: "active",
+              created_at: "2026-08-01T00:00:00Z",
+              carried_over_cycle_id: "cycle-old",
+              plans: { name: "Plano BN", duration_days: 95, cycle_duration_days: 42 },
+            }],
+            error: null,
+          });
+        }
+        if (table === "training_cycles") {
+          trainingCycleCalls += 1;
+          if (trainingCycleCalls === 1) {
+            const currentCycles = state === "next-empty"
+              ? [{
+                  id: "cycle-new-published-expired",
+                  enrollment_id: "enrollment-new",
+                  student_id: "student-1",
+                  company_id: "company-1",
+                  cycle_number: 1,
+                  start_date: "2026-08-01",
+                  end_date: "2026-09-08",
+                  status: "completed",
+                  duration_weeks: 6,
+                  delivery_status: "viewed",
+                  prescription_cleared_at: null,
+                }, newCycle()]
+              : [newCycle()];
+            return makeQuery({ data: currentCycles, error: null }, "order");
+          }
+          return makeQuery({ data: oldCycle, error: null }, "maybeSingle");
+        }
+        if (table === "workouts") {
+          const rows = [
+            workout("cycle-old", "Treino anterior publicado"),
+            ...(state === "published" ? [workout("cycle-new", "Treino novo publicado")] : []),
+            ...(state === "next-empty" ? [workout("cycle-new-published-expired", "Treino novo publicado")] : []),
+          ];
+          return makeQuery({ data: rows, error: null }, "in");
+        }
+        if (table === "exercise_library") return makeQuery({ data: [], error: null }, "in");
+        throw new Error(`Unexpected table ${table}`);
+      });
+    };
+
+    installMock();
+    render(<StudentWorkout />);
+
+    expect(await screen.findByRole("heading", { name: "Treino anterior publicado" })).toBeInTheDocument();
+
+    state = "published";
+    installMock();
+    cleanup();
+    render(<StudentWorkout />);
+    expect(await screen.findByRole("heading", { name: "Treino novo publicado" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Treino anterior publicado" })).not.toBeInTheDocument();
+
+    state = "next-empty";
+    installMock();
+    cleanup();
+    render(<StudentWorkout />);
+    expect(await screen.findByRole("heading", { name: "Treino novo publicado" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Treino anterior publicado" })).not.toBeInTheDocument();
+
+    state = "cleared";
+    installMock();
+    cleanup();
+    render(<StudentWorkout />);
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Treino anterior publicado" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Treino novo publicado" })).not.toBeInTheDocument();
     });
   });
 });

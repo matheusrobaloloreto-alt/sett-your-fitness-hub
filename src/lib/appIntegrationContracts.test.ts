@@ -112,7 +112,8 @@ describe("SETT integration contracts", () => {
     const whatsapp = source("src/pages/admin/WhatsAppChat.tsx");
     expect(whatsapp).toContain("matchesWhatsAppStatusFilter");
     expect(whatsapp).toContain("selectPrescriptionEnrollment");
-    expect(whatsapp).toContain("selectPreferredVisibleCycle");
+    expect(whatsapp).toContain("selectStudentWorkoutCycleWindow");
+    expect(whatsapp).toContain("carried_over_cycle_id");
     expect(whatsapp).toContain("scheduleStudentDataRefresh");
     expect(whatsapp).toContain('document.addEventListener("visibilitychange"');
     expect(whatsapp).toMatch(/if \(requestId === studentDataRequestRef\.current\) \{\s*setStudentContexts\(\{\}\);\s*setChatLabels\(\{\}\);/);

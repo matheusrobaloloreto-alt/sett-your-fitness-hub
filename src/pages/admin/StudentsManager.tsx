@@ -15,7 +15,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMaster } from "@/contexts/MasterContext";
 import { formatCPF, formatCEP, formatPhoneForCountry } from "@/lib/masks";
 import { lookupCep, lookupCepByAddress } from "@/lib/cep";
-import { format, addWeeks } from "date-fns";
+import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { StudentChatButton } from "@/components/admin/StudentChatButton";
@@ -51,6 +51,7 @@ interface Plan {
   id: string;
   name: string;
   duration_weeks: number;
+  duration_days?: number | null;
   plan_kind: string;
 }
 
@@ -154,7 +155,7 @@ export default function StudentsManager() {
     if (!effectiveCompanyId) return;
 
     const studentsQuery = supabase.from("students").select("*").eq("company_id", effectiveCompanyId).order("full_name");
-    const plansQuery = supabase.from("plans").select("id, name, duration_weeks, plan_kind").eq("is_active", true).eq("company_id", effectiveCompanyId).order("name");
+    const plansQuery = supabase.from("plans").select("id, name, duration_weeks, duration_days, plan_kind").eq("is_active", true).eq("company_id", effectiveCompanyId).order("name");
     // Restrict trainer/coordinator/admin lookup to the current company via company_members
     const membersQuery = supabase.from("company_members").select("user_id").eq("company_id", effectiveCompanyId);
 
@@ -373,19 +374,22 @@ export default function StudentsManager() {
     if (!plan) return;
     setSaving(true);
     const startDate = new Date();
-    const endDate = addWeeks(startDate, plan.duration_weeks);
-    const { error } = await supabase.from("enrollments").insert({
-      student_id: s.id, plan_id: s.selected_plan_id, trainer_id: s.assigned_trainer_id,
-      start_date: format(startDate, "yyyy-MM-dd"), end_date: format(endDate, "yyyy-MM-dd"),
-      created_by: session.user.id, status: "awaiting_training", company_id: effectiveCompanyId,
+    const startDateValue = format(startDate, "yyyy-MM-dd");
+    const { data: replacementRows, error } = await supabase.rpc("replace_student_enrollment", {
+      _student_id: s.id,
+      _company_id: effectiveCompanyId,
+      _plan_id: s.selected_plan_id,
+      _trainer_id: s.assigned_trainer_id,
+      _start_date: startDateValue,
+      _clear_carried_over_cycle: false,
     });
-    if (!error) await supabase.from("students").update({
-      status: "active",
-      sales_stage: "active",
-      activated_at: new Date().toISOString(),
-    }).eq("id", s.id).eq("company_id", effectiveCompanyId);
+    const enrollmentId = Array.isArray(replacementRows) ? replacementRows[0]?.enrollment_id : (replacementRows as any)?.enrollment_id;
     setSaving(false);
     if (error) { toast({ title: "Erro ao criar matrícula", description: error.message, variant: "destructive" }); return; }
+    if (!enrollmentId) {
+      toast({ title: "Matrícula criada sem confirmação local", description: "O servidor não retornou a matrícula criada. Recarregue o aluno antes de prescrever.", variant: "destructive" });
+      return;
+    }
     toast({ title: "Matrícula criada! Aguardando prescrição do treinador." });
     loadData();
   };

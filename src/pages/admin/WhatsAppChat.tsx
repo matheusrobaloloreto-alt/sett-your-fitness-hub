@@ -42,7 +42,7 @@ import {
 } from "@/lib/whatsappAudience";
 import {
   selectPrescriptionEnrollment,
-  selectPreferredVisibleCycle,
+  selectStudentWorkoutCycleWindow,
 } from "@/lib/prescriptionSchedule";
 import {
   isUsableMediaUrl,
@@ -457,7 +457,7 @@ export default function WhatsAppChat({
 
     let enrollQuery = supabase
       .from("enrollments")
-      .select("id, student_id, status, created_at, training_start_date, end_date, plan_id, plans(name, price)")
+      .select("id, student_id, company_id, status, created_at, training_start_date, end_date, plan_id, carried_over_cycle_id, plans(name, price, duration_days, duration_weeks, cycle_duration_days)")
       .in("student_id", studentIds)
       .in("status", ["active", "awaiting_training", "awaiting_renewal"])
       .order("end_date", { ascending: false, nullsFirst: false });
@@ -466,9 +466,15 @@ export default function WhatsAppChat({
     const { data: enrollments, error: enrollmentsError } = await enrollQuery;
 
     const enrollmentIds = (enrollments || []).map((e) => e.id);
-    const { data: cycles, error: cyclesError } = enrollmentIds.length > 0
-      ? await supabase.from("training_cycles").select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at").in("enrollment_id", enrollmentIds).neq("status", "superseded")
+    const cycleSelect = "id, enrollment_id, student_id, company_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, prescribed_offline_at, prescription_cleared_at";
+    const { data: currentCycles, error: cyclesError } = enrollmentIds.length > 0
+      ? await supabase.from("training_cycles").select(cycleSelect).in("enrollment_id", enrollmentIds).neq("status", "superseded")
       : { data: [], error: null };
+    const carriedOverIds = [...new Set((enrollments || []).map((enrollment) => enrollment.carried_over_cycle_id).filter(Boolean))] as string[];
+    const { data: carriedOverCycles, error: carriedOverError } = carriedOverIds.length > 0
+      ? await supabase.from("training_cycles").select(cycleSelect).in("id", carriedOverIds).neq("status", "superseded")
+      : { data: [], error: null };
+    const cycles = [...(currentCycles || []), ...(carriedOverCycles || [])];
 
     const cycleIds = (cycles || []).map((c) => c.id);
     const { data: workouts, error: workoutsError } = cycleIds.length > 0
@@ -481,10 +487,10 @@ export default function WhatsAppChat({
       .in("student_id", studentIds)
       .not("status", "in", '("RECEIVED","CONFIRMED","RECEIVED_IN_CASH")');
 
-    if (enrollmentsError || cyclesError || workoutsError || paymentsError) {
+    if (enrollmentsError || cyclesError || carriedOverError || workoutsError || paymentsError) {
       console.error("Failed to refresh WhatsApp student context", {
         enrollments: Boolean(enrollmentsError),
-        cycles: Boolean(cyclesError),
+        cycles: Boolean(cyclesError || carriedOverError),
         workouts: Boolean(workoutsError),
         payments: Boolean(paymentsError),
       });
@@ -515,8 +521,11 @@ export default function WhatsAppChat({
           .filter((candidate) => candidate.student_id === studentId && Boolean(candidate.status))
           .map((candidate) => ({ ...candidate, status: candidate.status! })),
       );
+      const selectedPlan = Array.isArray(enrollment?.plans) ? enrollment.plans[0] : enrollment?.plans;
+      const carryover = cycles.find((candidate) => candidate.id === enrollment?.carried_over_cycle_id
+        && candidate.student_id === studentId && candidate.company_id === enrollment?.company_id);
       const cycle = enrollment
-        ? selectPreferredVisibleCycle(
+        ? selectStudentWorkoutCycleWindow(
           (cycles || [])
             .filter((candidate) => candidate.enrollment_id === enrollment.id)
             .map((candidate) => ({
@@ -525,8 +534,15 @@ export default function WhatsAppChat({
               has_workouts: workoutsByCycle.has(candidate.id)
                 || Boolean(candidate.prescribed_offline_at),
             })),
-          new Date(`${today}T12:00:00`),
-        )
+          {
+            carriedOverCycle: carryover ? { ...carryover, status: carryover.status || "pending", has_workouts: workoutsByCycle.has(carryover.id) } : null,
+            expectedStudentId: studentId,
+            expectedCompanyId: enrollment.company_id,
+            planDurationDays: selectedPlan?.duration_days || (selectedPlan?.duration_weeks || 6) * 7,
+            cycleDurationDays: selectedPlan?.cycle_duration_days || 42,
+            today: new Date(`${today}T12:00:00`),
+          },
+        ).preferredCycle
         : null;
       const chatLabelsArr: string[] = [];
       const planRaw = (enrollment as { plans?: { name?: string; price?: number } | { name?: string; price?: number }[] } | undefined)?.plans;

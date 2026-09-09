@@ -15,6 +15,7 @@ import {
   selectSequentialScheduleCycles,
   selectCurrentPlanCycleWindow,
   selectCyclesForProgramHistory,
+  selectStudentWorkoutCycleWindow,
   hasActivePrescriptionContent,
   isPrescriptionClearedCycle,
   isSupersededCycle,
@@ -258,6 +259,234 @@ describe("prescriptionSchedule", () => {
 
     expect(selectCurrentPlanCycleWindow(inflated, 168, 42).map((item) => item.cycle_number))
       .toEqual([9, 10, 11, 12]);
+  });
+
+  it("mantém o treino antigo publicado até a nova matrícula ter ciclo atual materializado", () => {
+    const oldPublished = cycle(4, "2026-07-01", "2026-08-11", {
+      id: "old-cycle",
+      enrollment_id: "old-enrollment",
+      status: "active",
+      has_workouts: true,
+      delivery_status: "viewed",
+    });
+    const newEmpty = cycle(1, "2026-08-12", "2026-09-22", {
+      id: "new-empty",
+      enrollment_id: "new-enrollment",
+      status: "active",
+      has_workouts: false,
+      delivery_status: null,
+    });
+
+    const selected = selectStudentWorkoutCycleWindow([newEmpty], {
+      carriedOverCycle: oldPublished,
+      planDurationDays: 42,
+      today: new Date(2026, 7, 20),
+    });
+
+    expect(selected.cycles.map((item) => item.id)).toEqual(["old-cycle", "new-empty"]);
+    expect(selected.preferredCycle?.id).toBe("old-cycle");
+  });
+
+  it("troca para o ciclo atual real assim que a nova publicação materializada existe", () => {
+    const oldPublished = cycle(4, "2026-07-01", "2026-08-11", {
+      id: "old-cycle",
+      enrollment_id: "old-enrollment",
+      status: "active",
+      has_workouts: true,
+      delivery_status: "viewed",
+    });
+    const newPublished = cycle(1, "2026-08-12", "2026-09-22", {
+      id: "new-published",
+      enrollment_id: "new-enrollment",
+      status: "active",
+      has_workouts: true,
+      delivery_status: "sent",
+    });
+
+    const selected = selectStudentWorkoutCycleWindow([newPublished], {
+      carriedOverCycle: oldPublished,
+      planDurationDays: 42,
+      today: new Date(2026, 7, 20),
+    });
+
+    expect(selected.preferredCycle?.id).toBe("new-published");
+    expect(selected.cycles.map((item) => item.id)).toEqual(["new-published"]);
+  });
+
+  it("não ressuscita carryover quando a nova matrícula já teve publicação e o próximo slot está vazio", () => {
+    const oldPublished = cycle(4, "2026-07-01", "2026-08-11", {
+      id: "old-cycle",
+      enrollment_id: "old-enrollment",
+      has_workouts: true,
+    });
+    const newPublishedExpired = cycle(1, "2026-08-12", "2026-09-22", {
+      id: "new-published-expired",
+      enrollment_id: "new-enrollment",
+      status: "completed",
+      has_workouts: true,
+    });
+    const newCurrentEmpty = cycle(2, "2026-09-23", "2026-11-03", {
+      id: "new-current-empty",
+      enrollment_id: "new-enrollment",
+      status: "active",
+      has_workouts: false,
+    });
+
+    const selected = selectStudentWorkoutCycleWindow([newPublishedExpired, newCurrentEmpty], {
+      carriedOverCycle: oldPublished,
+      planDurationDays: 84,
+      today: new Date(2026, 9, 1),
+    });
+
+    expect(selected.cycles.map((item) => item.id)).toEqual(["new-published-expired", "new-current-empty"]);
+    expect(selected.preferredCycle?.id).toBe("new-published-expired");
+  });
+
+  it("usa somente o carryover explícito da matrícula vigente em renovações repetidas", () => {
+    const firstHistorical = cycle(2, "2026-06-01", "2026-07-12", {
+      id: "not-current-carryover",
+      enrollment_id: "first-enrollment",
+      has_workouts: true,
+    });
+    const explicitCarryover = cycle(3, "2026-07-13", "2026-08-23", {
+      id: "explicit-carryover",
+      enrollment_id: "second-enrollment",
+      has_workouts: true,
+    });
+    const newEmpty = cycle(1, "2026-08-24", "2026-10-04", {
+      id: "third-renewal-empty",
+      enrollment_id: "third-enrollment",
+      status: "active",
+    });
+
+    const selected = selectStudentWorkoutCycleWindow([newEmpty], {
+      carriedOverCycle: explicitCarryover,
+      planDurationDays: 42,
+      today: new Date(2026, 8, 1),
+    });
+
+    expect(selected.cycles.map((item) => item.id)).toEqual(["explicit-carryover", "third-renewal-empty"]);
+    expect(selected.cycles.map((item) => item.id)).not.toContain(firstHistorical.id);
+    expect(selected.preferredCycle?.id).toBe("explicit-carryover");
+  });
+
+  it("mantém comportamento legado sem carryover: ciclo atual vazio não cai para histórico", () => {
+    const currentEmpty = cycle(2, "2026-08-01", "2026-09-11", {
+      id: "current-empty",
+      status: "active",
+      has_workouts: false,
+    });
+
+    const selected = selectStudentWorkoutCycleWindow([currentEmpty], {
+      planDurationDays: 42,
+      today: new Date(2026, 7, 20),
+    });
+
+    expect(selected.cycles.map((item) => item.id)).toEqual(["current-empty"]);
+    expect(selected.preferredCycle?.id).toBe("current-empty");
+  });
+
+  it("limpeza explícita na matrícula nova bloqueia fallback para carryover", () => {
+    const oldPublished = cycle(4, "2026-07-01", "2026-08-11", {
+      id: "old-cycle",
+      enrollment_id: "old-enrollment",
+      has_workouts: true,
+    });
+    const clearedCurrent = cycle(1, "2026-08-12", "2026-09-22", {
+      id: "cleared-current",
+      enrollment_id: "new-enrollment",
+      status: "active",
+      has_workouts: true,
+      prescription_cleared_at: "2026-08-20T12:00:00Z",
+    });
+
+    const selected = selectStudentWorkoutCycleWindow([clearedCurrent], {
+      carriedOverCycle: oldPublished,
+      planDurationDays: 42,
+      today: new Date(2026, 7, 20),
+    });
+
+    expect(selected.preferredCycle?.id).toBe("cleared-current");
+    expect(selected.cycles.map((item) => item.id)).toEqual(["cleared-current"]);
+  });
+
+  it("publicação nova posterior vence limpeza de ciclo antigo sem reabrir carryover", () => {
+    const oldPublished = cycle(4, "2026-07-01", "2026-08-11", {
+      id: "old-cycle",
+      enrollment_id: "old-enrollment",
+      has_workouts: true,
+    });
+    const clearedNewFirst = cycle(1, "2026-08-12", "2026-09-22", {
+      id: "cleared-new-first",
+      enrollment_id: "new-enrollment",
+      status: "completed",
+      has_workouts: true,
+      prescription_cleared_at: "2026-08-20T12:00:00Z",
+    });
+    const publishedNewCurrent = cycle(2, "2026-09-23", "2026-11-03", {
+      id: "published-new-current",
+      enrollment_id: "new-enrollment",
+      status: "active",
+      has_workouts: true,
+      delivery_status: "sent",
+    });
+
+    const selected = selectStudentWorkoutCycleWindow([clearedNewFirst, publishedNewCurrent], {
+      carriedOverCycle: oldPublished,
+      planDurationDays: 84,
+      today: new Date(2026, 9, 1),
+    });
+
+    expect(selected.cycles.map((item) => item.id)).toEqual(["cleared-new-first", "published-new-current"]);
+    expect(selected.preferredCycle?.id).toBe("published-new-current");
+  });
+
+  it("não usa carryover revogado, substituído, futuro, limpo ou de outro aluno/empresa", () => {
+    const currentEmpty = cycle(1, "2026-08-12", "2026-09-22", {
+      id: "new-empty",
+      enrollment_id: "new-enrollment",
+      status: "active",
+    });
+    const baseCarryover = cycle(4, "2026-07-01", "2026-08-11", {
+      id: "carryover",
+      enrollment_id: "old-enrollment",
+      student_id: "student-1",
+      company_id: "company-1",
+      has_workouts: true,
+    });
+    const cases = [
+      { ...baseCarryover, status: "superseded" },
+      { ...baseCarryover, superseded_by_cycle_id: "replacement" },
+      { ...baseCarryover, start_date: "2026-08-25", end_date: "2026-10-05" },
+      { ...baseCarryover, prescription_cleared_at: "2026-08-20T12:00:00Z" },
+    ];
+
+    for (const carriedOverCycle of cases) {
+      const selected = selectStudentWorkoutCycleWindow([currentEmpty], {
+        carriedOverCycle,
+        expectedStudentId: "student-1",
+        expectedCompanyId: "company-1",
+        planDurationDays: 42,
+        today: new Date(2026, 7, 20),
+      });
+      expect(selected.cycles.map((item) => item.id)).toEqual(["new-empty"]);
+      expect(selected.preferredCycle?.id).toBe("new-empty");
+    }
+
+    for (const carriedOverCycle of [
+      { ...baseCarryover, student_id: "student-2" },
+      { ...baseCarryover, company_id: "company-2" },
+    ]) {
+      const selected = selectStudentWorkoutCycleWindow([currentEmpty], {
+        carriedOverCycle,
+        expectedStudentId: "student-1",
+        expectedCompanyId: "company-1",
+        planDurationDays: 42,
+        today: new Date(2026, 7, 20),
+      });
+      expect(selected.cycles.map((item) => item.id)).toEqual(["new-empty"]);
+      expect(selected.preferredCycle?.id).toBe("new-empty");
+    }
   });
 
   it("preserva dois programas materializados mesmo quando suas datas se sobrepõem", () => {

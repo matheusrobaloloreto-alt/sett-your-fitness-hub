@@ -22,7 +22,7 @@ As referencias abaixo sao pseudonimos tecnicos, nao dados anonimos.
 
 | Matricula | Estado | Pares | Pares atuais/futuros | Pares de 1 dia |
 | --- | --- | ---: | ---: | ---: |
-+| `3530d245ed22` | active | 6 | 3 | 3 |
+| `3530d245ed22` | active | 6 | 3 | 3 |
 | `2d93f08d4f16` | active | 3 | 3 | 3 |
 | `93c4213741e0` | active | 6 | 2 | 5 |
 | `d735907ca436` | active | 2 | 2 | 0 |
@@ -49,9 +49,9 @@ As referencias abaixo sao pseudonimos tecnicos, nao dados anonimos.
 
 O commit `785fe54` corrigiu a geracao da renovacao para iniciar depois da
 fronteira financeira, em vez de depois da cauda antiga de ciclos. A idempotencia
-por pagamento permanece. A renovacao ainda acrescenta o periodo comprado ao
-fim financeiro existente quando ele esta no futuro; isso mantem dias pagos,
-mas tambem preserva uma data final legada possivelmente inflada.
+por pagamento permanece. Naquele momento, a renovacao ainda acrescentava o periodo
+comprado ao fim financeiro existente quando ele estava no futuro; isso mantinha
+dias pagos, mas tambem preservava uma data final legada possivelmente inflada.
 
 O caso `6d6035153239` foi reparado: quatro ciclos renovados de 42 dias,
 10/09/2026 a 24/02/2027, com historico e treinos preservados. A soma dos oito
@@ -63,9 +63,14 @@ A matricula `2370076329b4` tem quatro ciclos visiveis de 03/09/2026 a 17/02/2027
 mas fim financeiro em 17/08/2027. Ha treino utilizado. A vigencia precisa ser
 reconciliada com o contrato; nao foi alterada por esta auditoria.
 
-Decisao de produto pendente: quando a renovacao e paga antecipadamente, preservar
-os dias restantes e separar visualmente a nova vigencia, ou substituir a vigencia
-a partir do inicio do novo treino. A pergunta foi enviada ao Matheus.
+Decisao de produto confirmada por Matheus em 09/09: a renovacao substitui o plano
+atual, sem somar sua vigencia restante. O treino anteriormente publicado deve
+continuar disponivel no app ate o professor publicar o novo. Implementacao publicada
+em producao: nova matricula separada do historico e referencia explicita ao treino
+anterior. Migrations `20260909165533`/`20260909165547` e Netlify
+`6aa18fd8f0efb92020bd0577`, com QA independente aprovado. Detalhes em
+`RENOVACAO-2026-09-09-SUBSTITUICAO.md`. As vigencias legadas acima nao foram
+corrigidas retroativamente.
 
 ## Reagendamento
 

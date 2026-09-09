@@ -37,8 +37,20 @@ Deno.serve(async (req) => {
     if (action === "daily_reminder") {
       const cronOk = !!Deno.env.get("PUSH_CRON_SECRET") && req.headers.get("x-cron-secret") === Deno.env.get("PUSH_CRON_SECRET");
       if (!isServiceRole && !cronOk) return json({ error: "forbidden" }, 403);
-      const { data: cycles } = await admin.from("training_cycles").select("student_id").eq("status", "active");
-      const studentIds = [...new Set((cycles || []).map((c: any) => c.student_id).filter(Boolean))];
+      const { data: activeCycleRows } = await admin.from("training_cycles").select("student_id, enrollment_id").eq("status", "active");
+      const enrollmentIds = [...new Set((activeCycleRows || []).map((cycle: any) => cycle.enrollment_id).filter(Boolean))];
+      let openEnrollmentIds = new Set<string>();
+      if (enrollmentIds.length > 0) {
+        const { data: openEnrollments } = await admin.from("enrollments")
+          .select("id, status")
+          .in("id", enrollmentIds)
+          .neq("status", "completed");
+        openEnrollmentIds = new Set((openEnrollments || []).map((enrollment: any) => enrollment.id).filter(Boolean));
+      }
+      const cycles = (activeCycleRows || []).filter((cycle: any) =>
+        !cycle.enrollment_id || openEnrollmentIds.has(cycle.enrollment_id)
+      );
+      const studentIds = [...new Set(cycles.map((c: any) => c.student_id).filter(Boolean))];
       if (!studentIds.length) return json({ sent: 0 });
       const { data: studs } = await admin.from("students").select("user_id").in("id", studentIds).not("user_id", "is", null);
       targets = (studs || []) as any[];

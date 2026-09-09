@@ -17,7 +17,7 @@ import { formatBiweeklyProgressionForDisplay, STUDENT_EFFORT_HELP_TEXT, studentE
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
 import { sanitizeStudentWorkoutDescription } from "@/lib/studentWorkoutDescription";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
-import { selectPreferredVisibleCycle } from "@/lib/prescriptionSchedule";
+import { selectPrescriptionEnrollment, selectStudentWorkoutCycleWindow } from "@/lib/prescriptionSchedule";
 
 interface WorkoutExercise {
   exercise_id: string;
@@ -49,17 +49,23 @@ interface WorkoutData {
 
 interface Cycle {
   id: string;
+  enrollment_id?: string | null;
+  student_id?: string | null;
+  company_id?: string | null;
   cycle_number: number;
   start_date: string;
   end_date: string;
   status: string;
+  superseded_by_cycle_id?: string | null;
   duration_weeks?: number | null;
+  delivery_status?: string | null;
   prescription_cleared_at?: string | null;
   workouts: WorkoutData[];
 }
 
 interface StudentInfo {
   full_name: string;
+  company_id?: string | null;
   enrollment: {
     plan_name: string;
     start_date: string;
@@ -137,7 +143,7 @@ export default function StudentWorkout() {
       .single();
     const enrollmentRequest = supabase
       .from("enrollments")
-      .select("id, start_date, end_date, training_start_date, plan_id, status, plans(name)")
+      .select("id, start_date, end_date, training_start_date, plan_id, status, created_at, carried_over_cycle_id, plans(name, duration_days, duration_weeks, cycle_duration_days)")
       .eq("student_id", studentId!)
       .order("created_at", { ascending: false })
       .limit(20);
@@ -149,18 +155,24 @@ export default function StudentWorkout() {
     if (!isCurrentLoad()) return;
     if (studentError) throw studentError;
     if (enrollmentError) throw enrollmentError;
-    const enrollmentData =
-      enrollmentRows?.find((enrollment) => enrollment.status === "active") ||
-      enrollmentRows?.[0] ||
-      null;
+    const enrollmentData = selectPrescriptionEnrollment((enrollmentRows || []) as any[]);
+    const planRow = (enrollmentData?.plans as any) || null;
+    const planDurationDays = Math.max(
+      1,
+      Number(planRow?.duration_days)
+        || Number(planRow?.duration_weeks) * 7
+        || 42,
+    );
+    const cycleDurationDays = Math.max(1, Number(planRow?.cycle_duration_days) || 42);
 
     if (studentData) {
       performanceCompanyId.current = studentData.company_id;
       setStudent({
         full_name: studentData.full_name,
+        company_id: studentData.company_id,
         enrollment: enrollmentData
           ? {
-              plan_name: (enrollmentData.plans as any)?.name || "Plano",
+              plan_name: planRow?.name || "Plano",
               start_date: enrollmentData.start_date,
               end_date: enrollmentData.end_date,
               training_start_date: enrollmentData.training_start_date,
@@ -174,28 +186,62 @@ export default function StudentWorkout() {
     }
 
     if (enrollmentData) {
+      const cycleSelect = "id, enrollment_id, student_id, company_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, duration_weeks, delivery_status, prescription_cleared_at";
       const { data: cyclesData, error: cyclesError } = await supabase
         .from("training_cycles")
-        .select("id, cycle_number, start_date, end_date, status, duration_weeks, prescription_cleared_at")
+        .select(cycleSelect)
         .eq("enrollment_id", enrollmentData.id)
         .order("cycle_number");
       if (!isCurrentLoad()) return;
       if (cyclesError) throw cyclesError;
+      const carriedOverCycleId = (enrollmentData as any).carried_over_cycle_id;
+      const { data: carriedOverCycle, error: carriedOverCycleError } = carriedOverCycleId
+        ? await (supabase as any)
+          .from("training_cycles")
+          .select(cycleSelect)
+          .eq("id", carriedOverCycleId)
+          .eq("student_id", studentId!)
+          .eq("company_id", studentData.company_id)
+          .maybeSingle()
+        : { data: null, error: null };
+      if (!isCurrentLoad()) return;
+      if (carriedOverCycleError) throw carriedOverCycleError;
 
-      if (cyclesData && cyclesData.length > 0) {
-        const schedulableCycles = cyclesData.filter((cycle) => cycle.status !== "superseded");
-        const workoutResult = schedulableCycles.length > 0
+      if ((cyclesData && cyclesData.length > 0) || carriedOverCycle) {
+        const queryCycles = [
+          ...(cyclesData || []),
+          ...(carriedOverCycle ? [carriedOverCycle] : []),
+        ].filter((cycle, index, all) =>
+          cycle.status !== "superseded"
+          && !cycle.superseded_by_cycle_id
+          && all.findIndex((item) => item.id === cycle.id) === index
+        );
+        const workoutResult = queryCycles.length > 0
           ? await supabase
             .from("workouts")
             .select("id, title, description, exercises, cycle_id, sort_order")
             .is("superseded_at", null)
-            .in("cycle_id", schedulableCycles.map((c) => c.id))
+            .in("cycle_id", queryCycles.map((c) => c.id))
           : { data: [], error: null };
         const { data: workoutsData, error: workoutsError } = workoutResult;
         if (!isCurrentLoad()) return;
         if (workoutsError) throw workoutsError;
 
         const materializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
+        const workoutCycleIds = new Set(materializedWorkouts.map((workout) => workout.cycle_id));
+        const { cycles: schedulableCycles, preferredCycle } = selectStudentWorkoutCycleWindow(
+          (cyclesData || []).map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && workoutCycleIds.has(cycle.id) })),
+          {
+            carriedOverCycle: carriedOverCycle
+              ? { ...carriedOverCycle, has_workouts: !carriedOverCycle.prescription_cleared_at && workoutCycleIds.has(carriedOverCycle.id) }
+              : null,
+            expectedStudentId: studentId!,
+            expectedCompanyId: studentData.company_id,
+            planDurationDays,
+            cycleDurationDays,
+            today: new Date(),
+          },
+        );
 
         // Collect exercise_ids for video enrichment
         const exerciseIds = new Set<string>();
@@ -239,10 +285,7 @@ export default function StudentWorkout() {
         const todayYmd = businessDateYmd(today);
         const isFuture = (cycle: Cycle) => Boolean(cycle.start_date && cycle.start_date > todayYmd);
 
-        const chosen = selectPreferredVisibleCycle(
-          enriched.map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && cycle.workouts.length > 0 })),
-          today,
-        );
+        const chosen = enriched.find((cycle) => cycle.id === preferredCycle?.id) ?? null;
 
         const visibleCycles = enriched
           .filter((cycle) => {

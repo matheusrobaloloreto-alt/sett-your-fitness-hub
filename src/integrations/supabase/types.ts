@@ -2213,6 +2213,7 @@ export type Database = {
       }
       enrollments: {
         Row: {
+          carried_over_cycle_id: string | null
           company_id: string | null
           created_at: string
           cycle_duration_days: number | null
@@ -2232,6 +2233,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          carried_over_cycle_id?: string | null
           company_id?: string | null
           created_at?: string
           cycle_duration_days?: number | null
@@ -2251,6 +2253,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          carried_over_cycle_id?: string | null
           company_id?: string | null
           created_at?: string
           cycle_duration_days?: number | null
@@ -10481,6 +10484,22 @@ export type Database = {
       redeem_voucher: {
         Args: { p_student_id: string; p_voucher_id: string }
         Returns: boolean
+      }
+      replace_student_enrollment: {
+        Args: {
+          _company_id: string
+          _clear_carried_over_cycle?: boolean
+          _plan_id: string
+          _start_date: string
+          _student_id: string
+          _trainer_id: string | null
+        }
+        Returns: {
+          carried_over_cycle_id: string | null
+          enrollment_id: string
+          first_activation: boolean
+          previous_enrollment_id: string | null
+        }[]
       }
       release_wearable_lease: {
         Args: { p_device_id: string; p_holder: string; p_purpose: string }

@@ -328,3 +328,186 @@ Deno.test("intercycle dispatcher cancels a rescoped cycle before token creation 
     globalThis.fetch = originalFetch;
   }
 });
+
+Deno.test("intercycle dispatcher cancels completed renewal-history enrollment before token creation or provider send", async () => {
+  const visitedTables: string[] = [];
+  const updates: Array<Record<string, unknown>> = [];
+  const admin = {
+    rpc: (name: string) => {
+      if (name === "process_intercycle_anamnesis_schedule") return Promise.resolve({ data: 0, error: null });
+      if (name === "claim_intercycle_anamnesis_deliveries") {
+        return Promise.resolve({
+          data: [{
+            id: "delivery-a",
+            company_id: "company-a",
+            student_id: "student-a",
+            enrollment_id: "enrollment-old",
+            training_cycle_id: "cycle-old",
+            retry_count: 0,
+          }],
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: new Error(`unexpected rpc ${name}`) });
+    },
+    from(table: string) {
+      visitedTables.push(table);
+      const query = {
+        select: () => query,
+        eq: () => query,
+        order: () => query,
+        limit: () => query,
+        update: (payload: Record<string, unknown>) => {
+          updates.push(payload);
+          return { eq: () => ({ eq: () => Promise.resolve({ error: null }) }) };
+        },
+        maybeSingle: async () => {
+          if (table === "students") {
+            return {
+              data: {
+                id: "student-a",
+                full_name: "Aluno Seguro",
+                phone: "+55 48 99999-9999",
+                whatsapp: null,
+                country_code: "55",
+                intercycle_anamnesis_enabled: true,
+              },
+              error: null,
+            };
+          }
+          if (table === "training_cycles") {
+            return {
+              data: {
+                id: "cycle-old",
+                student_id: "student-a",
+                company_id: "company-a",
+                enrollment_id: "enrollment-old",
+                status: "active",
+                superseded_at: null,
+              },
+              error: null,
+            };
+          }
+          if (table === "enrollments") {
+            return { data: { id: "enrollment-old", status: "completed" }, error: null };
+          }
+          throw new Error(`unexpected read ${table}`);
+        },
+      };
+      return query;
+    },
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    throw new Error("provider must not be called for completed enrollment");
+  }) as typeof fetch;
+
+  try {
+    const result = await processIntercycleAnamnesisDeliveries({
+      admin,
+      provider: { url: "https://provider.invalid", key: "redacted" },
+    });
+    if (result.failed !== 1 || result.sent !== 0) throw new Error(`unexpected result ${JSON.stringify(result)}`);
+    if (updates[0]?.status !== "cancelled" || updates[0]?.last_error_code !== "intercycle_enrollment_completed_or_missing") {
+      throw new Error(`missing completed-enrollment cancellation audit ${JSON.stringify(updates)}`);
+    }
+    if (visitedTables.includes("intercycle_anamnesis_invites") || visitedTables.includes("whatsapp_chats")) {
+      throw new Error(`token/chat path was reached: ${visitedTables.join(",")}`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("intercycle dispatcher retries enrollment lookup errors instead of cancelling delivery", async () => {
+  const visitedTables: string[] = [];
+  const updates: Array<Record<string, unknown>> = [];
+  const admin = {
+    rpc: (name: string) => {
+      if (name === "process_intercycle_anamnesis_schedule") return Promise.resolve({ data: 0, error: null });
+      if (name === "claim_intercycle_anamnesis_deliveries") {
+        return Promise.resolve({
+          data: [{
+            id: "delivery-a",
+            company_id: "company-a",
+            student_id: "student-a",
+            enrollment_id: "enrollment-a",
+            training_cycle_id: "cycle-a",
+            retry_count: 0,
+          }],
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: new Error(`unexpected rpc ${name}`) });
+    },
+    from(table: string) {
+      visitedTables.push(table);
+      const query = {
+        select: () => query,
+        eq: () => query,
+        order: () => query,
+        limit: () => query,
+        update: (payload: Record<string, unknown>) => {
+          updates.push(payload);
+          return { eq: () => ({ eq: () => Promise.resolve({ error: null }) }) };
+        },
+        maybeSingle: async () => {
+          if (table === "students") {
+            return {
+              data: {
+                id: "student-a",
+                full_name: "Aluno Seguro",
+                phone: "+55 48 99999-9999",
+                whatsapp: null,
+                country_code: "55",
+                intercycle_anamnesis_enabled: true,
+              },
+              error: null,
+            };
+          }
+          if (table === "training_cycles") {
+            return {
+              data: {
+                id: "cycle-a",
+                student_id: "student-a",
+                company_id: "company-a",
+                enrollment_id: "enrollment-a",
+                status: "active",
+                superseded_at: null,
+              },
+              error: null,
+            };
+          }
+          if (table === "enrollments") {
+            return { data: null, error: new Error("temporary db outage") };
+          }
+          throw new Error(`unexpected read ${table}`);
+        },
+      };
+      return query;
+    },
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    throw new Error("provider must not be called when enrollment lookup fails");
+  }) as typeof fetch;
+
+  try {
+    const result = await processIntercycleAnamnesisDeliveries({
+      admin,
+      provider: { url: "https://provider.invalid", key: "redacted" },
+    });
+    if (result.failed !== 1 || result.sent !== 0) throw new Error(`unexpected result ${JSON.stringify(result)}`);
+    if (updates[0]?.status !== "failed" || updates[0]?.last_error_code !== "intercycle_enrollment_lookup_failed") {
+      throw new Error(`missing retryable enrollment lookup audit ${JSON.stringify(updates)}`);
+    }
+    if (updates[0]?.retry_count !== 1 || !updates[0]?.next_attempt_at) {
+      throw new Error(`missing retry scheduling ${JSON.stringify(updates)}`);
+    }
+    if (visitedTables.includes("intercycle_anamnesis_invites") || visitedTables.includes("whatsapp_chats")) {
+      throw new Error(`token/chat path was reached: ${visitedTables.join(",")}`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
