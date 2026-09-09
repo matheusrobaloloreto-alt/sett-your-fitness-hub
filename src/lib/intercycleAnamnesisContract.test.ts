@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 describe("SETT-CYCLE-UPDATE-01 contracts", () => {
   const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260908090000_intercycle_anamnesis.sql"), "utf8");
   const dispatcher = readFileSync(resolve(process.cwd(), "supabase/functions/process-automation-sessions/index.ts"), "utf8");
   const motor = readFileSync(resolve(process.cwd(), "supabase/functions/ai-prescribe-workout/index.ts"), "utf8");
+  const intercycleEdge = readFileSync(resolve(process.cwd(), "supabase/functions/intercycle-anamnesis/index.ts"), "utf8");
+  const registrationManager = readFileSync(resolve(process.cwd(), "src/pages/admin/RegistrationManager.tsx"), "utf8");
+  const intercycleMigrations = readdirSync(resolve(process.cwd(), "supabase/migrations"))
+    .filter((file) => file.includes("intercycle"))
+    .map((file) => readFileSync(resolve(process.cwd(), "supabase/migrations", file), "utf8"))
+    .join("\n");
   it("keeps a unique delivery ledger and RLS-scoped versioned answers", () => {
     expect(migration).toContain("unique (company_id, training_cycle_id)");
     expect(migration).toContain("grant select on public.intercycle_anamnesis_deliveries");
@@ -17,6 +23,13 @@ describe("SETT-CYCLE-UPDATE-01 contracts", () => {
     expect(migration).toContain("intercycle answers student read own");
     expect(migration).toContain("assert_intercycle_delivery_scope");
     expect(migration).toContain("assert_intercycle_answer_scope");
+    expect(intercycleMigrations).toContain("revoke all on function public.assert_intercycle_delivery_scope()");
+    expect(intercycleMigrations).toContain("public.assert_intercycle_delivery_transition()");
+    expect(intercycleMigrations).toContain("public.assert_intercycle_invite_scope()");
+    expect(intercycleMigrations).toContain("public.assert_intercycle_answer_scope()");
+    expect(intercycleMigrations).toContain("public.assert_intercycle_waiver_scope()");
+    expect(intercycleMigrations).toContain("public.reconcile_intercycle_delivery_for_cycle_change()");
+    expect(intercycleMigrations).toContain("from public, anon, authenticated");
   });
   it("only dispatches from the cron-owned sender with verified recipient resolution", () => {
     expect(dispatcher).toContain("processIntercycleAnamnesisDeliveries");
@@ -72,5 +85,17 @@ describe("SETT-CYCLE-UPDATE-01 contracts", () => {
     expect(submitFn.indexOf("for update;")).toBeLessThan(submitFn.indexOf("insert into public.intercycle_anamneses"));
     expect(submitFn.indexOf("insert into public.intercycle_anamneses")).toBeLessThan(submitFn.indexOf("set consumed_at = now()"));
     expect(submitFn.indexOf("set consumed_at = now()")).toBeLessThan(submitFn.indexOf("set status = 'responded'"));
+  });
+
+  it("lets staff generate and copy an auditable cycle-scoped invite", () => {
+    expect(registrationManager).toContain("intercycleStudentId");
+    expect(registrationManager).toContain('action: "create-link"');
+    expect(registrationManager).toContain("Gerar e copiar link");
+    expect(registrationManager).toContain("navigator.clipboard.writeText(link)");
+    expect(intercycleEdge).toContain('action === "create-link"');
+    expect(intercycleEdge).toContain('status: "ready"');
+    expect(intercycleEdge).toContain('from("intercycle_anamnesis_invites").upsert');
+    expect(intercycleMigrations).toContain("'ready'");
+    expect(intercycleMigrations).toContain("old.status = 'ready'");
   });
 });

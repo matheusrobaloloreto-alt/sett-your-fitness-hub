@@ -18,11 +18,13 @@ describe("intercycle anamnesis contract", () => {
   });
   it("keeps observable delivery states in Portuguese", () => {
     expect(intercycleStatusLabel("opted_in")).toBe("Opt-in ativo");
+    expect(intercycleStatusLabel("ready")).toBe("Link gerado");
     expect(intercycleStatusLabel("scheduled")).toBe("Envio agendado");
     expect(intercycleStatusLabel("responded")).toBe("Respondido");
   });
   it("lets schedule-now reopen cancelled deliveries but not sending ones", () => {
     expect(canManuallyScheduleIntercycle(null)).toBe(true);
+    expect(canManuallyScheduleIntercycle("ready")).toBe(true);
     expect(canManuallyScheduleIntercycle("cancelled")).toBe(true);
     expect(canManuallyScheduleIntercycle("failed")).toBe(true);
     expect(canManuallyScheduleIntercycle("sending")).toBe(false);
@@ -30,6 +32,7 @@ describe("intercycle anamnesis contract", () => {
     expect(canManuallyScheduleIntercycle("responded")).toBe(false);
   });
   it("does not offer manual cancellation after the dispatcher has claimed sending", () => {
+    expect(canManuallyCancelIntercycle("ready")).toBe(true);
     expect(canManuallyCancelIntercycle("scheduled")).toBe(true);
     expect(canManuallyCancelIntercycle("failed")).toBe(true);
     expect(canManuallyCancelIntercycle("sending")).toBe(false);

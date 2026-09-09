@@ -12,11 +12,12 @@ import {
   canManuallyScheduleIntercycle,
   intercycleStatusLabel,
   isIntercycleWindow,
+  type DeliveryIntercycleStatus,
   type IntercycleStatus,
 } from "@/lib/intercycleAnamnesis";
 
 type Cycle = { id: string; start_date: string | null; cycle_number: number | null };
-type Delivery = { id: string; status: IntercycleStatus; scheduled_for: string; training_cycle_id: string; retry_count: number; last_error_code: string | null };
+type Delivery = { id: string; status: DeliveryIntercycleStatus; scheduled_for: string; training_cycle_id: string; retry_count: number; last_error_code: string | null };
 type IntercycleAnswerRow = {
   id: string;
   submitted_at: string;

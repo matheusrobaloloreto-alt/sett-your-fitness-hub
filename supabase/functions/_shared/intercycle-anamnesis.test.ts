@@ -33,6 +33,13 @@ Deno.test("manual cancel remains idempotent for an already-cancelled delivery", 
   if (decision.action !== "noop" || decision.reason !== "already_cancelled") throw new Error("cancelled delivery should be noop");
 });
 
+Deno.test("a manually generated link can be scheduled or cancelled", () => {
+  const schedule = decideScheduleNow("ready");
+  if (schedule.action !== "reschedule") throw new Error("ready link should remain schedulable");
+  const cancel = decideCancel("ready");
+  if (cancel.action !== "cancel") throw new Error("ready link should remain cancellable");
+});
+
 Deno.test("stuck sending lease expires only after the configured safety window", () => {
   const now = new Date("2026-09-08T12:30:00.000Z");
   if (isStuckSending("2026-09-08T12:16:00.000Z", now)) throw new Error("14 minutes should still be leased");

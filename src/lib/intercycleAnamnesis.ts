@@ -1,4 +1,4 @@
-export type IntercycleStatus = "disabled" | "opted_in" | "scheduled" | "sending" | "sent" | "responded" | "failed" | "cancelled";
+export type IntercycleStatus = "disabled" | "opted_in" | "ready" | "scheduled" | "sending" | "sent" | "responded" | "failed" | "cancelled";
 export type DeliveryIntercycleStatus = Exclude<IntercycleStatus, "disabled" | "opted_in">;
 
 export function intercycleAnamnesisPath(token: string) {
@@ -6,7 +6,7 @@ export function intercycleAnamnesisPath(token: string) {
 }
 
 export function intercycleStatusLabel(status: IntercycleStatus) {
-  return ({ disabled: "Desativado", opted_in: "Opt-in ativo", scheduled: "Envio agendado", sending: "Enviando", sent: "Enviado", responded: "Respondido", failed: "Falhou", cancelled: "Cancelado" } as const)[status];
+  return ({ disabled: "Desativado", opted_in: "Opt-in ativo", ready: "Link gerado", scheduled: "Envio agendado", sending: "Enviando", sent: "Enviado", responded: "Respondido", failed: "Falhou", cancelled: "Cancelado" } as const)[status];
 }
 
 export function isIntercycleWindow(startDate?: string | null, now = new Date()) {
@@ -17,9 +17,9 @@ export function isIntercycleWindow(startDate?: string | null, now = new Date()) 
 }
 
 export function canManuallyScheduleIntercycle(status?: DeliveryIntercycleStatus | null) {
-  return !status || status === "scheduled" || status === "failed" || status === "cancelled";
+  return !status || status === "ready" || status === "scheduled" || status === "failed" || status === "cancelled";
 }
 
 export function canManuallyCancelIntercycle(status?: DeliveryIntercycleStatus | null) {
-  return status === "scheduled" || status === "failed";
+  return status === "ready" || status === "scheduled" || status === "failed";
 }

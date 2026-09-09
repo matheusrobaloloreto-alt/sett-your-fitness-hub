@@ -43,6 +43,11 @@ function text(value: unknown, max = 1200) {
   }
   return cleaned.trim().slice(0, max) || null;
 }
+function opaqueToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map((part) => part.toString(16).padStart(2, "0")).join("");
+}
 async function hash(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest)).map((part) => part.toString(16).padStart(2, "0")).join("");
@@ -134,6 +139,89 @@ Deno.serve(async (req) => {
     const canManage = await actor.client.rpc("can_manage_staff_student", { _company_id: tenant.companyId, _student_id: studentId });
     if (canManage.error) throw new HttpError(503, "Não foi possível validar permissão sobre este aluno.");
     if (canManage.data !== true) throw new HttpError(403, "Sem permissão para gerenciar este aluno.");
+    if (action === "create-link") {
+      const today = await businessDate();
+      const cyclesResult = await admin.from("training_cycles")
+        .select("id,enrollment_id,start_date,end_date,status,superseded_at")
+        .eq("company_id", tenant.companyId)
+        .eq("student_id", studentId)
+        .is("superseded_at", null)
+        .order("start_date", { ascending: false })
+        .limit(10);
+      if (cyclesResult.error) throw new HttpError(503, "Não foi possível consultar o ciclo do aluno.");
+      const cycle = ((cyclesResult.data || []) as TrainingCycleRow[]).find((candidate) => (
+        candidate.start_date &&
+        candidate.start_date <= today &&
+        !["cancelled", "superseded"].includes(String(candidate.status || ""))
+      ));
+      if (!cycle?.start_date) throw new HttpError(409, "Este aluno não possui um ciclo vigente para a anamnese interciclos.");
+      if (today < datePlusDays(cycle.start_date, 28)) {
+        throw new HttpError(409, "O link interciclos fica disponível a partir do dia 29 do ciclo.");
+      }
+      if (today > (cycle.end_date || datePlusDays(cycle.start_date, 41))) {
+        throw new HttpError(409, "A janela desta anamnese interciclos já encerrou.");
+      }
+
+      const enrollment = await admin.from("enrollments").select("id,status")
+        .eq("id", cycle.enrollment_id).eq("company_id", tenant.companyId).eq("student_id", studentId).maybeSingle();
+      if (enrollment.error || !enrollment.data || !["active", "awaiting_training", "awaiting_renewal"].includes(String(enrollment.data.status || ""))) {
+        throw new HttpError(409, "A matrícula deste aluno não está ativa para a anamnese interciclos.");
+      }
+
+      const existing = await admin.from("intercycle_anamnesis_deliveries").select("id,status")
+        .eq("company_id", tenant.companyId).eq("training_cycle_id", cycle.id).maybeSingle();
+      if (existing.error) throw new HttpError(503, "Não foi possível consultar os convites interciclos.");
+      if (existing.data?.status === "sending") throw new HttpError(409, "O envio automático já está em andamento. Aguarde a confirmação.");
+      if (existing.data?.status === "responded") throw new HttpError(409, "Este aluno já respondeu à anamnese deste ciclo.");
+
+      const now = new Date().toISOString();
+      const delivery = existing.data
+        ? existing.data.status === "sent"
+          ? existing
+          : await admin.from("intercycle_anamnesis_deliveries").update({
+            status: "ready",
+            scheduled_for: now,
+            next_attempt_at: null,
+            last_error_code: "intercycle_manual_link_ready",
+            reopened_at: existing.data.status === "cancelled" ? now : null,
+            reopened_by: existing.data.status === "cancelled" ? tenant.userId : null,
+            updated_at: now,
+          }).eq("id", existing.data.id).eq("status", existing.data.status).select("id,status").maybeSingle()
+        : await admin.from("intercycle_anamnesis_deliveries").insert({
+          company_id: tenant.companyId,
+          student_id: studentId,
+          enrollment_id: cycle.enrollment_id,
+          training_cycle_id: cycle.id,
+          idempotency_key: `intercycle:${cycle.id}`,
+          status: "ready",
+          scheduled_for: now,
+          last_error_code: "intercycle_manual_link_ready",
+        }).select("id,status").maybeSingle();
+      if (delivery.error) throw new HttpError(400, "Não foi possível preparar o link interciclos.");
+      if (!delivery.data) throw new HttpError(409, "O estado do ciclo mudou. Recarregue e tente novamente.");
+
+      const previousInvite = await admin.from("intercycle_anamnesis_invites").select("id")
+        .eq("delivery_id", delivery.data.id).maybeSingle();
+      if (previousInvite.error) throw new HttpError(503, "Não foi possível consultar o convite interciclos.");
+      const token = opaqueToken();
+      const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      const invite = await admin.from("intercycle_anamnesis_invites").upsert({
+        delivery_id: delivery.data.id,
+        company_id: tenant.companyId,
+        student_id: studentId,
+        enrollment_id: cycle.enrollment_id,
+        training_cycle_id: cycle.id,
+        token_sha256: await hash(token),
+        expires_at: expiresAt,
+        consumed_at: null,
+      }, { onConflict: "delivery_id" });
+      if (invite.error) throw new HttpError(400, "Não foi possível gerar o convite interciclos.");
+      return new Response(JSON.stringify({
+        token,
+        expires_at: expiresAt,
+        replaced_previous: Boolean(previousInvite.data),
+      }), { headers });
+    }
     if (action === "opt-in") {
       const enabled = body.enabled === true;
       const result = await admin.from("students").update({ intercycle_anamnesis_enabled: enabled }).eq("id", studentId).eq("company_id", tenant.companyId);

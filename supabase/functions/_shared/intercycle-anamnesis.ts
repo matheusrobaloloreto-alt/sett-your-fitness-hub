@@ -1,6 +1,7 @@
 export const INTERCYCLE_CONSENT_TEXT_VERSION = "intercycle-sensitive-v1";
 
 export const INTERCYCLE_DELIVERY_STATUSES = [
+  "ready",
   "scheduled",
   "sending",
   "sent",
@@ -61,7 +62,7 @@ export function decideScheduleNow(status: unknown): ScheduleNowDecision {
 export function decideCancel(status: unknown): CancelDecision {
   const parsed = parseIntercycleDeliveryStatus(status);
   if (!parsed) return { action: "reject", reason: "unknown_status" };
-  if (parsed === "scheduled" || parsed === "failed") return { action: "cancel", auditCode: "manual_cancel" };
+  if (parsed === "ready" || parsed === "scheduled" || parsed === "failed") return { action: "cancel", auditCode: "manual_cancel" };
   if (parsed === "cancelled") return { action: "noop", reason: "already_cancelled" };
   if (parsed === "sending") return { action: "reject", reason: "delivery_claimed_or_sending" };
   return { action: "reject", reason: "already_sent_or_responded" };

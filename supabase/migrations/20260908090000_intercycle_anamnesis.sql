@@ -163,16 +163,19 @@ begin
     return new;
   end if;
 
-  if old.status = 'scheduled' and new.status in ('sending','cancelled') then
+  if old.status = 'scheduled' and new.status in ('ready','sending','cancelled') then
     return new;
   end if;
-  if old.status = 'failed' and new.status in ('sending','scheduled','cancelled') then
+  if old.status = 'failed' and new.status in ('ready','sending','scheduled','cancelled') then
     return new;
   end if;
   if old.status = 'sending' and new.status in ('sent','responded','failed','cancelled') then
     return new;
   end if;
-  if old.status = 'cancelled' and new.status = 'scheduled' and new.reopened_at is not null then
+  if old.status = 'cancelled' and new.status in ('ready','scheduled') and new.reopened_at is not null then
+    return new;
+  end if;
+  if old.status = 'ready' and new.status in ('scheduled','responded','cancelled') then
     return new;
   end if;
   if old.status = 'sent' and new.status = 'responded' then
@@ -382,6 +385,15 @@ drop trigger if exists trg_reconcile_intercycle_delivery_for_cycle_change on pub
 create trigger trg_reconcile_intercycle_delivery_for_cycle_change after update on public.training_cycles
   for each row execute function public.reconcile_intercycle_delivery_for_cycle_change();
 
+-- Trigger functions are internal implementation details, not public RPCs.
+revoke all on function public.assert_intercycle_delivery_scope(),
+  public.assert_intercycle_delivery_transition(),
+  public.assert_intercycle_invite_scope(),
+  public.assert_intercycle_answer_scope(),
+  public.assert_intercycle_waiver_scope(),
+  public.reconcile_intercycle_delivery_for_cycle_change()
+from public, anon, authenticated;
+
 create or replace function public.record_intercycle_anamnesis_waiver(
   _company_id uuid,
   _student_id uuid,
@@ -516,7 +528,7 @@ begin
     or v_delivery.training_cycle_id is distinct from v_invite.training_cycle_id then
     raise exception 'intercycle_submit_scope_invalid';
   end if;
-  if v_delivery.status not in ('sent','sending') then
+  if v_delivery.status not in ('ready','sent','sending') then
     raise exception 'intercycle_submit_delivery_unavailable';
   end if;
   if exists (
@@ -596,7 +608,7 @@ begin
     next_attempt_at = null,
     updated_at = now()
   where id = v_invite.delivery_id
-    and status in ('sent','sending');
+    and status in ('ready','sent','sending');
   get diagnostics v_row_count = row_count;
   if v_row_count <> 1 then
     raise exception 'intercycle_submit_delivery_unavailable';

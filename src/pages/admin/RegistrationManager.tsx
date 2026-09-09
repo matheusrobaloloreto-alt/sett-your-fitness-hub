@@ -37,6 +37,7 @@ import {
   preRegistrationUrl,
 } from "@/lib/publicFlowLinks";
 import { cn } from "@/lib/utils";
+import { intercycleAnamnesisPath } from "@/lib/intercycleAnamnesis";
 import {
   FUNNEL_STAGE_META,
   FUNNEL_STAGE_ORDER,
@@ -487,6 +488,9 @@ export default function RegistrationManager() {
   const [dragOverStage, setDragOverStage] = useState<FunnelStageKey | null>(null);
   const [movingCardId, setMovingCardId] = useState<string | null>(null);
   const [intercycleResponses, setIntercycleResponses] = useState<IntercycleResponseSummary[]>([]);
+  const [intercycleStudentId, setIntercycleStudentId] = useState("");
+  const [intercycleLink, setIntercycleLink] = useState("");
+  const [creatingIntercycleLink, setCreatingIntercycleLink] = useState(false);
 
   const loadPipeline = async () => {
     if (!effectiveCompanyId) return;
@@ -624,6 +628,33 @@ export default function RegistrationManager() {
     void loadPipeline();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveCompanyId]);
+
+  const createAndCopyIntercycleLink = async () => {
+    if (!effectiveCompanyId || !intercycleStudentId) return;
+    setCreatingIntercycleLink(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("intercycle-anamnesis", {
+        body: { action: "create-link", company_id: effectiveCompanyId, student_id: intercycleStudentId },
+      });
+      if (error || !/^[a-f0-9]{64}$/i.test(String(data?.token || ""))) {
+        throw error || new Error("Convite interciclos inválido.");
+      }
+      const link = new URL(intercycleAnamnesisPath(data.token), window.location.origin).toString();
+      setIntercycleLink(link);
+      await navigator.clipboard.writeText(link);
+      toast.success(data.replaced_previous
+        ? "Novo link copiado. O convite anterior deste ciclo foi substituído."
+        : "Link da anamnese interciclos copiado.");
+    } catch (error) {
+      const context = error && typeof error === "object" && "context" in error
+        ? (error as { context?: { json?: () => Promise<{ error?: string }> } }).context
+        : null;
+      const response = context?.json ? await context.json().catch(() => null) : null;
+      toast.error(response?.error || (error instanceof Error ? error.message : "Não foi possível gerar o link interciclos."));
+    } finally {
+      setCreatingIntercycleLink(false);
+    }
+  };
 
   useEffect(() => {
     if (!effectiveCompanyId) { setIntercycleResponses([]); return; }
@@ -1098,8 +1129,25 @@ export default function RegistrationManager() {
 
       <Card className="rounded-2xl border-border bg-card">
         <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><ClipboardCheck className="h-4 w-4 text-primary" /> Anamnese interciclos <Badge variant="outline">alunos ativos</Badge></CardTitle></CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <p className="mb-3 text-xs text-muted-foreground">Respostas entre ciclos aparecem aqui junto das outras anamneses para a equipe, mas não entram no funil nem criam/duplicam Interessados.</p>
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <div className="space-y-1.5">
+              <Label>Aluno ativo</Label>
+              <Select value={intercycleStudentId} onValueChange={(value) => { setIntercycleStudentId(value); setIntercycleLink(""); }}>
+                <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione para gerar o link individual..." /></SelectTrigger>
+                <SelectContent>
+                  {students.filter((student) => student.entityType === "student" && ["active", "awaiting_training", "awaiting_renewal"].includes(student.status || ""))
+                    .map((student) => <SelectItem key={student.id} value={student.id}>{student.full_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button disabled={!intercycleStudentId || creatingIntercycleLink} variant="outline" className="self-end" onClick={() => void createAndCopyIntercycleLink()}>
+              {creatingIntercycleLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Copy className="mr-2 h-4 w-4" />}
+              Gerar e copiar link
+            </Button>
+          </div>
+          {intercycleLink && <p className="break-all rounded-xl border border-border bg-secondary/35 p-3 font-mono-data text-xs text-muted-foreground">{intercycleLink}</p>}
           {intercycleResponses.length ? <div className="space-y-2">{intercycleResponses.map((response) => <button type="button" key={response.id} onClick={() => navigate(`/${chatRoutePrefix}/students/${response.student_id}`, { state: { tab: "anamnesis" } })} className="flex w-full items-center justify-between rounded-lg border border-border px-3 py-2 text-left text-sm hover:bg-secondary/50"><span>{response.students?.full_name || "Aluno"}</span><span className="text-xs text-muted-foreground">{response.pain_present ? `Dor EVA ${response.pain_eva ?? "—"}` : response.prescription_evaluation}</span></button>)}</div> : <p className="text-sm text-muted-foreground">Sem respostas interciclos nesta empresa.</p>}
         </CardContent>
       </Card>
