@@ -1,132 +1,124 @@
 # Incidente de staging — consentimento semanal — 2026-09-10
 
-## Veredito
+## Veredito final
 
-**NO-GO. Staging esta congelado e producao nao foi alterada.** A fase de banco do rollout falhou porque a migration `20260910103000_weekly_contact_consent_ledger.sql` referencia `students.country_code`, coluna ausente no schema vivo de staging. A execucao ocorreu em transacao e foi revertida integralmente. A Edge Function alterada na fase anterior foi restaurada com fonte byte a byte igual ao snapshot pre-rollout.
+**GO para staging; NO-GO para producao.** O rollout isolado foi concluido em Edge -> migration exata -> frontend, recebeu GO independente sem P0/P1/P2 e terminou sem envio WhatsApp, sem identidades sinteticas e sem referencias ao backend de producao no frontend servido.
 
-Nenhum envio WhatsApp ocorreu. O frontend de staging nao foi publicado.
+O primeiro deploy frontend da repeticao controlada foi contaminado porque o CLI executou um novo build com ambiente de producao. Ele foi imediatamente substituido pelo deploy limpo e nao esta ativo. O artefato imutavel contaminado continua acessivel e permanece como **P3 de higiene operacional**, pendente de autorizacao explicita para exclusao.
+
+Producao e `main` nao foram alteradas.
 
 ## Escopo e proveniencia
 
 - Worktree: `/Users/macbookpro/.codex/worktrees/bn-app-20260826/release-rc`
 - Branch: `codex/sett-release-rc-20260826`
-- HEAD tecnico testado e enviado: `b1f93a6faa1860ce7cd8088f5d5f1e555c6782c3`
-- CI oficial do HEAD tecnico: run `34502603446`, verde
-- Projeto Supabase de staging: `ifymocggowdlqqcxugko`
-- Projeto Supabase de producao: `zshrcgbyhzxpnlccssyz` (nao alterado)
-- Site Netlify isolado de staging: `wondrous-sunflower-10fc8f` (`2ced1972-fed1-4af3-9ad6-e5b9856ab409`)
+- HEAD tecnico aprovado: `18d1b184`
+- CI oficial do HEAD tecnico: run `34503464604`, verde
+- Commit documental posterior: `332be4bc`
+- CI oficial do commit documental: run `34506079234`, verde
+- Supabase staging: `ifymocggowdlqqcxugko`
+- Netlify staging: `wondrous-sunflower-10fc8f` (`2ced1972-fed1-4af3-9ad6-e5b9856ab409`)
+- Supabase producao: `zshrcgbyhzxpnlccssyz` (somente leituras nesta rodada)
+- Netlify producao: `9a061d2e-ee2c-444b-aa69-fe262caf0246` (nao alterado)
 
-## Preflight concluido
+## Historico preservado
 
-- Staging e producao foram confirmados como projetos distintos e `ACTIVE_HEALTHY`.
-- A migration-alvo estava ausente em staging e producao antes da tentativa, com contagem zero confirmada duas vezes.
-- O ledger de migrations apresentava drift relevante: 216 migrations locais, 174 remotas em staging, 168 correspondencias exatas, 48 apenas locais e 6 apenas remotas. Por isso, `supabase db push` foi descartado; a tentativa usou apenas o arquivo-alvo explicitamente revisado.
-- Antes do rollout, `whatsapp_messages=0` e a fila semanal despachavel tinha zero sessoes.
-- Staging nao tinha `AUTOMATION_CRON_SECRET` nem credenciais de provedor WhatsApp. O caminho de envio permaneceu indisponivel.
-- O build local isolado para staging passou a sanitizacao: 31 referencias ao backend de staging, zero referencias ao backend de producao e zero referencias ao projeto legado. Esse build nao foi publicado.
-- O deploy estavel que continua publicado em staging e `6a9a8b98b4456efe9a7530ac`, de 2026-09-04. O bundle atualmente publicado e inadequado para novos smokes porque ainda contem tres referencias ao backend de producao e nenhuma ao backend de staging.
+### Primeira tentativa: F2 falhou e houve rollback
 
-## Backup privado
+A primeira F1 promoveu `process-automation-sessions` de v10 para v11. A Edge respondeu HTTP `503` com o contrato fail-closed esperado, pois staging nao tinha `AUTOMATION_CRON_SECRET` nem credenciais do provedor.
 
-Snapshot pre-rollout preservado em:
+A F2 falhou com SQLSTATE `42703` porque o schema vivo nao tinha `students.country_code`. A migration estava em transacao e foi revertida integralmente. A Edge foi restaurada em v12 com fonte byte a byte igual ao snapshot v10, hash:
 
-`/Users/macbookpro/.codex/private-backups/sett-staging-consent-preflight-20260910T1054`
+```text
+0b7367df2e5ff2d2e1cb0f7db2db124f65f684d85c9daf2ed87003ebd285bbd2
+```
 
-- Diretorio: permissao `700`
-- Arquivos: permissao `600`
-- Schema publico: `09d498fe3c6ed777904b6e5224e584f12bcdc994bc00428f76b5b0c56356d82a`
-- Dados publicos: `b158e4caab45e5ec79cdce52b36015b35a9e78f5e979fb1b2571ac31e2a40871`
-- Fonte anterior de `process-automation-sessions`: `0b7367df2e5ff2d2e1cb0f7db2db124f65f684d85c9daf2ed87003ebd285bbd2`
+O candidato foi corrigido para tolerar os dois schemas e provado em bancos efemeros com e sem a coluna, sempre com 16/16 invariantes.
 
-O `pg_dump` registrou avisos de FKs circulares em tabelas historicas, mas preservou dumps separados de schema e dados. O backup nao contem secrets adicionados por esta rodada e permanece fora do repositorio.
+### Desvio de sequenciamento: v13 -> v14
 
-## Linha do tempo do rollout
+Uma nova F1 iniciou depois do GO tecnico de `b1f93a6`, mas uma ordem de freeze chegou durante a chamada de deploy. A v13 continha exatamente a fonte candidata, hash `ccd932b0915c865ea347b166f9b3e2e8adb4095ebc1ead67ba6ab864e32ac720`, e foi imediatamente substituida pela v14, novamente igual ao snapshot anterior. F2/F3 nao foram iniciadas nessa janela. O desvio foi de governanca, nao de identidade do codigo, e nao gerou envio.
 
-### F1 — Edge Function
+## Rollout final controlado
 
-`process-automation-sessions` foi promovida em staging de v10 para v11. O smoke controlado retornou HTTP `503` com o contrato fail-closed `Automation dispatcher is not configured`, coerente com a ausencia de `AUTOMATION_CRON_SECRET`.
+### Preflight
 
-Antes e depois do smoke:
+- migration `20260910103000`: ausente antes da aplicacao;
+- consentimento e quarentena: tabelas ausentes;
+- `weekly_contact_enabled=true`: 1 registro legado;
+- sessoes semanais despachaveis: 0;
+- mensagens WhatsApp: 0;
+- credenciais do dispatcher/provedor: ausentes;
+- backup privado pre-rollout preservado em `/Users/macbookpro/.codex/private-backups/sett-staging-consent-preflight-20260910T1054`.
 
-- mensagens WhatsApp: zero;
-- sessoes semanais despachaveis: zero;
-- chamadas ao provedor: impossiveis por falta de credenciais.
+O drift historico do ledger impediu o uso de `supabase db push`; somente a migration-alvo revisada foi aplicada.
 
-### F2 — migration exata
+### F1 — Edge v15
 
-Foi executado apenas o arquivo-alvo:
+`process-automation-sessions` v15 foi implantada com hash remoto/local identico:
+
+```text
+ccd932b0915c865ea347b166f9b3e2e8adb4095ebc1ead67ba6ab864e32ac720
+```
+
+O smoke retornou HTTP `503`, fail-closed pela ausencia de configuracao do dispatcher. Antes e depois: zero mensagens e zero sessoes semanais despachaveis.
+
+### F2 — migration e smokes
+
+A migration `20260910103000_weekly_contact_consent_ledger.sql` foi aplicada uma unica vez. O estado estrutural confirmou 7 RPCs, 3 triggers e 2 tabelas protegidas por RLS. O rehearsal passou 16/16 invariantes.
+
+O smoke autenticado em transacao validou grant, revoke, status, troca de destinatario, retorno A -> B -> A, corrida de atualizacao de perfil e isolamento entre tenants. A transacao foi revertida, sem deixar usuario ou empresa sinteticos.
+
+### F3 — incidente de bundle e repeticao limpa
+
+O primeiro comando F3 permitiu que o Netlify reconstruisse o app e gerou o deploy contaminado `6aa2df49a35aa6165fa34c4e`. A varredura completa dos 9 recursos servidos encontrou:
+
+- HTTP 200: 9/9;
+- referencias a producao: 15;
+- referencias a staging: 0;
+- referencias legadas: 0.
+
+O deploy estavel anterior foi restaurado. A F3 foi repetida com artefato ja construido e `--no-build`, gerando o deploy limpo ativo `6aa2e0fc48c66ff3ce35755d`. A varredura completa do deploy imutavel e da URL estavel encontrou:
+
+- HTTP 200: 9/9;
+- referencias a staging: 15;
+- referencias a producao: 0;
+- referencias legadas: 0.
+
+## Estado final de staging
+
+| Controle | Resultado |
+|---|---:|
+| Edge ativa | v15 |
+| Migration-alvo no ledger | 1 |
+| Eventos de consentimento | 0 |
+| Linhas em quarentena | 1 |
+| Autorizacoes privadas pendentes | 0 |
+| Cache semanal habilitado | 0 |
+| Sessoes semanais | 0 |
+| Mensagens WhatsApp | 0 |
+| Usuarios sinteticos | 0 |
+| Deploy frontend ativo | `6aa2e0fc48c66ff3ce35755d` |
+
+QA independente: **GO para staging**, sem P0/P1/P2.
+
+## P3 preservado — deploy imutavel contaminado
+
+O deploy `6aa2df49a35aa6165fa34c4e` nao e o publicado atual; o site aponta para `6aa2e0fc48c66ff3ce35755d`. A URL imutavel contaminada, porem, ainda responde HTTP 200. A acao exata preparada, mas **nao executada**, e:
 
 ```sh
-supabase db query --linked --file supabase/migrations/20260910103000_weekly_contact_consent_ledger.sql
+netlify api deleteSiteDeploy --data '{"site_id":"2ced1972-fed1-4af3-9ad6-e5b9856ab409","deploy_id":"6aa2df49a35aa6165fa34c4e"}'
 ```
 
-A execucao falhou com SQLSTATE `42703`:
+A exclusao exige autorizacao explicita. Antes dela, reconfirmar o published deploy atual; depois, exigir HTTP 404 na URL imutavel contaminada e confirmar que o deploy limpo continua publicado.
 
-```text
-column student.country_code does not exist
-```
-
-O erro ocorreu na referencia a `student.whatsapp, student.phone, student.country_code`. Como a migration estava em transacao, o banco realizou rollback automatico.
-
-Pos-condicoes verificadas:
-
-- tabela de consentimento: ausente;
-- tabela de quarentena: ausente;
-- ledger da migration-alvo: contagem zero;
-- cache habilitado: permaneceu em 1, igual ao preflight;
-- fila semanal despachavel: zero;
-- `students.country_code`: ausente.
-
-### F3 — frontend
-
-Nao iniciada. Nenhum deploy Netlify foi feito.
-
-## Restauracao da F1
-
-A fonte pre-rollout da Edge Function foi republicada em staging. A versao operacional passou a v12 por ser um novo deploy, mas o conteudo de `process-automation-sessions` e byte a byte igual ao snapshot da v10:
-
-```text
-snapshot v10: 0b7367df2e5ff2d2e1cb0f7db2db124f65f684d85c9daf2ed87003ebd285bbd2
-staging v12: 0b7367df2e5ff2d2e1cb0f7db2db124f65f684d85c9daf2ed87003ebd285bbd2
-```
-
-A fonte remota restaurada foi baixada para verificacao, hasheada e removida do diretorio temporario apos a comparacao.
-
-## Desvio de governanca e segunda restauracao
-
-Depois de `b1f93a6` receber GO tecnico e a CI `34502603446` ficar verde, a Release Guardian iniciou uma nova F1. A ordem posterior de manter staging congelado chegou enquanto a chamada de deploy ja estava em execucao.
-
-- v13, 2026-09-10 13:34:47 -03: fonte exata do candidato `b1f93a6`, implantada pela Release Guardian; hash `ccd932b0915c865ea347b166f9b3e2e8adb4095ebc1ead67ba6ab864e32ac720`;
-- smoke v13: HTTP `503`, fail-closed por ausencia de `AUTOMATION_CRON_SECRET`; nenhum secret de provedor estava configurado;
-- F2 e F3: nao iniciadas;
-- v14, 2026-09-10 13:35:21 -03: restauracao imediata do snapshot anterior;
-- hash remoto v14, confirmado por download via API: `0b7367df2e5ff2d2e1cb0f7db2db124f65f684d85c9daf2ed87003ebd285bbd2`, identico ao backup/v10/v12;
-- smoke v14: HTTP `503`, mesmo contrato fail-closed;
-- pos-audit: migration-alvo zero, tabelas de consentimento/quarentena ausentes, cache habilitado em 1, fila semanal despachavel zero e mensagens WhatsApp zero.
-
-O desvio foi de sequenciamento de governanca, nao de identidade da fonte: v13 era exatamente o candidato aprovado, mas foi revertida para respeitar o novo freeze. Staging permanece congelado.
-
-## Estado atual por camada
+## Estado por camada
 
 | Camada | Estado real |
 |---|---|
-| Local | ✅ Implementacao compativel com os dois schemas e verificadores aprovados no HEAD tecnico `b1f93a6`. |
-| Commit/remoto | ✅ Cadeia tecnica enviada para `origin/codex/sett-release-rc-20260826`. |
-| CI | ✅ Run `34502603446` verde no SHA `b1f93a6`. Suite integral: 156/156 arquivos e 991/991 testes; Deno 10/10; mutations 5/5; build aprovado. |
-| Staging Edge | ✅ Restaurada para a fonte pre-rollout; versao v14, hash remoto identico a v10/v12 e ao backup. |
-| Staging banco | ✅ Rollback transacional confirmado; ❌ contrato novo nao aplicado (bloqueado). |
-| Staging frontend | ❌ Nao publicado (bloqueado). O deploy estavel atual continua contaminado por referencias de producao e nao pode servir de evidencia do rollout. |
-| Producao | ✅ Intocada nesta rodada; ❌ promocao nao autorizada (bloqueado). |
-
-## Gate obrigatorio para nova tentativa
-
-Nao reaplicar F1, F2 ou F3 ate o novo commit de governanca que oficializa os gates de mutation/Deno receber CI verde e GO raiz. O candidato tecnico `b1f93a6` ja e compativel com os dois schemas, mas isso nao revoga o freeze.
-
-1. migration compativel com a ausencia de `students.country_code`, explicitamente revisada e provada nos dois schemas;
-2. QA raiz independente sem P0/P1/P2;
-3. CI oficial verde no novo HEAD;
-4. novo preflight confirmando schema, fila zero, backup e rollback;
-5. rollout estrito Edge -> migration exata -> frontend isolado, parando fail-closed em qualquer divergencia;
-6. smokes autenticados de tenant/papeis, grant/revoke, troca A->B, retorno A->B->A, revogacao concorrente e zero envio sem consentimento ou destinatario confiavel;
-7. nenhuma utilizacao de `supabase db push` enquanto o drift do ledger nao estiver formalmente reconciliado;
-8. producao somente depois de staging aprovado, rollback operacional e autorizacao explicita.
+| Local | ✅ Implementacao e gates aprovados no SHA tecnico `18d1b184`. |
+| Commit/remoto | ✅ Branch release enviada; documentacao posterior em `332be4bc`. |
+| CI | ✅ `34503464604` no SHA tecnico e `34506079234` no commit documental. |
+| Staging | ✅ Edge v15, migration, rehearsal, smoke autenticado e frontend limpo concluidos. |
+| P3 staging | ❌ Deploy imutavel contaminado ainda acessivel (bloqueado). Motivo: exclusao destrutiva requer autorizacao explicita. Proximo passo: executar o comando preparado e verificar 404 sem alterar o deploy ativo. |
+| Producao | ❌ Promocao nao executada (bloqueado). Motivo: staging aprovado nao autoriza escrita/deploy em PROD. Proximo passo: autorizacao explicita sobre o pacote congelado, janela e rollback. |

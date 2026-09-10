@@ -1,118 +1,173 @@
-# SETT Release Gate - 2026-09-10
-
-## Escopo
-
-Este registro iniciou como governanca de CI para a branch release e agora tambem registra a decisao do gate apos a tentativa controlada de staging. O relato detalhado do incidente e da restauracao esta em `STAGING-WEEKLY-CONSENT-INCIDENT-2026-09-10.md`.
-
-## Estado corrente apos CI e tentativa de staging
-
-- HEAD tecnico: `b1f93a6faa1860ce7cd8088f5d5f1e555c6782c3`, enviado para a branch remota.
-- CI oficial do HEAD tecnico: run `34502603446`, verde.
-- Validacao: 156/156 arquivos e 991/991 testes Vitest; Deno 10/10 com permissoes explicitas; mutations 5/5; build aprovado.
-- Compatibilidade de schema: o candidato usa `to_jsonb(record)->>'country_code'` e foi provado em bancos efemeros production-like com a coluna e staging-like sem ela, 16/16 invariantes em ambos.
-- Staging: **congelado**. O primeiro F2 falhou com SQLSTATE `42703` e teve rollback transacional confirmado. Uma nova F1 chegou a v13 antes de uma ordem de freeze recebida durante a chamada; F2/F3 nao iniciaram e a Edge foi imediatamente restaurada.
-- Edge de staging: v14, com fonte remota baixada e hash identico ao snapshot v10/v12, `0b7367df2e5ff2d2e1cb0f7db2db124f65f684d85c9daf2ed87003ebd285bbd2`.
-- Frontend de staging: nao publicado.
-- Producao: nao alterada e sem autorizacao de promocao.
-
-### Registro inicial de governanca
-
-- Worktree: `/Users/macbookpro/.codex/worktrees/bn-app-20260910/release-governance`
-- Branch local: `codex/sett-release-governance-20260910`
-- Base solicitada: `a6cff4bcb72fecfd09d8f8e2a9ecd33a4c2e57fc`
-- `origin/main`: `f959532f5a0a537d0a7c7b14cdb98f03297dd6ab`
-- Relacao: `origin/main` e ancestral de `a6cff4b`; a release esta 35 commits a frente.
-
-## Matriz inicial de estagio e proveniencia
-
-| Estagio | `origin/main` | Release `a6cff4b` | Gate requerido | Status em 2026-09-10 |
-|---|---|---|---|---|
-| Codigo local | `f959532f` (`docs: record pre-registration link audit`) | `a6cff4b` (`fix(finance): remove reconciled BN payment placeholders`) | Worktree isolada, status limpo antes de editar, sem WIP alheio | OK para edicao de governanca |
-| Commit | Main remoto atual | Branch release-rc local/remota em `a6cff4b` | Commit separado com prefixo `codex:`; sem push automatico | Em andamento ate commit desta mudanca |
-| Integracao | Nao recebeu os 35 commits da release | Release contem 35 commits sobre `origin/main` | CI em `main`, `codex/claude-compat` e `codex/sett-release-rc-*` | Gate criado; push nao executado |
-| Staging | Fora deste escopo | Fora deste escopo | So promover apos CI verde e aprovacao | NO-GO provisorio |
-| Producao | Fora deste escopo | Fora deste escopo | Deploy publico exige aprovacao explicita e rollback definido | NO-GO provisorio |
-
-## Gates definidos
-
-- Backend canonico: `npm run verify:backend`.
-- TypeScript: `npx tsc -b --pretty false`, com teto temporario de 36 erros de baseline. Este repo usa `tsconfig.json` em formato solution-style (`files: []` com referencias para `tsconfig.app.json` e `tsconfig.node.json`), portanto `tsc -b` e o gate real; `tsc --noEmit` isolado no arquivo raiz nao valida os projetos referenciados. O gate falha se a divida aumentar ou se houver falha sem erro TS contavel.
-- Lint: `npx eslint . --format json`, com baseline verificavel de 0 erros e 44 avisos. O gate falha em qualquer erro ou aumento dos avisos.
-- Testes: `npm run test`.
-- Mutations do verificador de consentimento: `npm run test:weekly-consent-rollout-mutations`; qualquer mutation sobrevivente falha o job.
-- Dispatcher Deno: `npx -y deno@2.9.4 test --allow-env --allow-net=provider.invalid supabase/functions/process-automation-sessions/index.test.ts`; qualquer falha interrompe o job antes da suite integral.
-- Build: `npm run build`.
-- Bundle canonico: `dist` nao pode conter o projeto Supabase aposentado `cxesecxyrndveookvlzz` e precisa conter o backend canonico `zshrcgbyhzxpnlccssyz`.
-- Whitespace: `git diff --check` roda sobre o intervalo do push atual; em `workflow_dispatch`, roda sobre o ultimo commit. Isso evita falso bloqueio por dividas historicas nao tocadas.
-
-## Baseline observada
-
-- `npm run verify:backend`: passou; backend production confirmado como `zshrcgbyhzxpnlccssyz`.
-- `npx tsc -b --pretty false`: falhou na baseline com 36 erros existentes.
-- `npx eslint . --format json`: 0 erros, 44 avisos existentes.
-- `git diff --check` no worktree antes das edicoes: passou.
-- `git diff --check origin/main..a6cff4b`: falha apenas em `supabase/migrations/20260909154800_fix_paid_renewal_cycle_window.sql:235` por linha em branco no EOF. Excecao historica: nao corrigir migracao ja aplicada apenas por whitespace dentro deste escopo.
-- `npm run build`: passou; build e verificacao de bundle/performance concluidos.
-- `npm run test`: falhou na suite completa local com 2/930 testes falhando sob carga:
-  - `src/pages/admin/FinancialDashboard.test.tsx`: timeout em "retains all 18 missing-provider-ID cards as unresolved alongside authoritative installments".
-  - `src/lib/prescription/engine.performance.test.ts`: mediana acima do budget de 500 ms em run completo.
-- Evidencia complementar recebida do coordenador: os testes isolados passaram (`FinancialDashboard` 10/10; engine performance mediana 96.84 ms), indicando flakiness/carga na suite completa, nao aprovacao de release.
-
-## Bloqueios NO-GO fora deste ownership
-
-Estes itens foram reportados pelo QA do orquestrador pai e nao devem ser corrigidos nesta branch de governanca, porque exigem donos de dados, banco, produto ou documentacao canonica:
-
-| Bloqueio | Dono requerido | Criterio objetivo de desbloqueio |
-|---|---|---|
-| PII nominal em manifestos/relatorio rastreados | Dono de privacidade/dados + release integrator | Manifestos e relatorios rastreados sem nomes de alunos/clientes ou dados pessoais diretos; evidencia anonima/hash quando necessario; diff revisado sem PII. |
-| Rollback de vigencias falha com triggers vivos de `updated_at` | Dono de banco/rollback | Script de rollback validado em ambiente controlado com triggers ativos; prova de ida/volta sem drift indevido de `updated_at`; plano de recuperacao documentado. |
-| Ledger de migrations tem sete pares de versoes nominais diferentes entre PROD e repo (inventario abaixo) | Dono de banco/migrations | Proveniencia reconciliada entre producao e repo; arquivos locais ou registro operacional refletem exatamente o aplicado; checksum/SQL revisado antes de qualquer promocao. |
-| Suite completa vermelha em `engine.performance.test.ts` | Dono de performance/testes | Suite completa verde em run limpo, ou budget ajustado por decisao tecnica documentada com mediana/ambiente/limite novo. |
-| Secao "Estagios" do relatorio canonico desatualizada | Dono de documentacao/release | Relatorio canonico atualizado separando local, commit, integracao, staging e producao, com blockers e proxima acao por item. |
-| Timeout sob carga em `FinancialDashboard.test.tsx` | Dono frontend/testes financeiros | Suite completa verde sem timeout, ou teste estabilizado com causa documentada e cobertura equivalente mantida. |
-
-### Inventario do drift nominal de migrations
-
-O `supabase migration list --linked` e o `migration fetch` contra o projeto PROD explicitaram sete pares com versoes/nomes diferentes. Isto continua sendo bloqueio de proveniencia mesmo onde a comparacao do SQL reconstruido indicou equivalencia semantica:
-
-| Repo local | Ledger/arquivo reconstruido de PROD | Observacao atual |
-|---|---|---|
-| `20260909152020_intercycle_manual_link_ready.sql` | `20260909152632_intercycle_manual_link_ready.sql` | Formatacao diferente; o `REVOKE` redundante do local aparece efetivado pela migration de hardening seguinte em PROD. Exige reconciliacao do dono. |
-| `20260909152756_harden_intercycle_trigger_execute.sql` | `20260909152822_harden_intercycle_trigger_execute.sql` | Diferenca nominal; comparacao reconstruida sem mudanca material identificada alem da serializacao. |
-| `20260909153727_fix_intercycle_invite_cycle_drift.sql` | `20260909155347_fix_intercycle_invite_cycle_drift.sql` | Diferenca nominal; comparacao reconstruida sem mudanca material identificada alem da serializacao. |
-| `20260909154800_fix_paid_renewal_cycle_window.sql` | `20260909155351_fix_paid_renewal_cycle_window.sql` | Diferenca nominal; comparacao reconstruida sem mudanca material identificada alem da serializacao. |
-| `20260909153732_repair_single_enrollment_cycle_overlap.sql` | `20260909155354_repair_single_enrollment_cycle_overlap.sql` | Diferenca nominal; comparacao reconstruida sem mudanca material identificada alem da serializacao. |
-| `20260909225312_reconcile_bn_legacy_enrollment_terms.sql` | `20260909230806_reconcile_bn_legacy_enrollment_terms.sql` | SQL reconstruido equivalente, salvo timestamp/nome e ponto-e-virgula final; ainda requer reconciliacao formal do ledger. |
-| `20260909230931_reconcile_bn_remaining_legacy_terms.sql` | `20260909231218_reconcile_bn_remaining_legacy_terms.sql` | SQL reconstruido equivalente, salvo timestamp/nome e ponto-e-virgula final; ainda requer reconciliacao formal do ledger. |
-
-Nenhum arquivo de migration foi alterado ou reaplicado nesta branch de governanca.
-
-## Integracao de Produto aprovada
-
-O QA raiz aprovou a cadeia de Produto sem P0/P1/P2, e a Release Guardian integrou os commits na ordem revisada:
-
-- `77e77e7` (`0bb8080` no branch de origem): endurecimento de conclusao de treino e acesso financeiro.
-- `23b2a66` (`78f752c` no branch de origem): conclusao condicionada a logs duraveis.
-- `9e58e87` (`8e576d9` no branch de origem): CAS de conclusao exige sessao `in_progress` do mesmo aluno e exatamente uma linha retornada.
-
-P3 fechado na integracao: foi adicionado o teste explicito em que `completedRow.id` diverge da sessao solicitada. O fluxo falha fechado, preserva a sessao ativa local e nao concede XP. A cobertura foi adicionada sem alterar o contrato de producao; a suite integral continua sendo o gate final do HEAD.
-
-Esta integracao e apenas local/branch release. Produto, Dados e o ledger/RPC/dispatcher de consentimento semanal estao integrados no codigo, mas staging e producao permanecem NO-GO ate a CI do HEAD passar, o rollout isolado seguir Edge -> migration -> frontend e os smokes autenticados de papeis/tenant e grant/revoke passarem.
-
-## Rollback
-
-Rollback desta mudanca de governanca:
-
-1. Reverter o commit `codex:` desta branch.
-2. Restaurar `.github/workflows/quality.yml` ao conteudo de `a6cff4b`.
-3. Remover este documento se a decisao de gate for descartada.
-
-Rollback de release/producao nao esta autorizado neste escopo. Para promocao futura, exigir commit aprovado, CI verde, plano de rollback de deploy, e validacao separada de staging/producao.
+# SETT Release Gate — 2026-09-10
 
 ## Decisao atual
 
-**NO-GO para nova tentativa em staging e para promocao da release em 2026-09-10.**
+**GO para staging; NO-GO para producao e `main`.** A release tecnica `18d1b184` passou CI e QA, e o rollout isolado de staging foi concluido. O pacote de producao, os backups e um rehearsal local de restore/migration/rollback foram preparados sem escrita remota. O rehearsal local ficou tecnicamente verde, mas o gate permanece aberto ate o parecer independente do dono de Dados.
 
-Motivo atual: `b1f93a6` tornou a migration compativel com o schema vivo de staging e recebeu CI verde, mas a CI anterior nao executava mutations e o teste Deno como passos oficiais. Alem disso, uma nova F1 ocorreu antes do fechamento formal de governanca; ela foi revertida imediatamente para v14 com fonte remota byte a byte igual ao snapshot. F2/F3 nao iniciaram, o frontend nao foi publicado e producao permaneceu intocada.
+O P3 do deploy imutavel contaminado de staging continua pendente de exclusao autorizada. Ele nao esta ativo e nao reduz o GO de staging, mas precisa ser removido antes do fechamento operacional.
 
-Proxima acao: aprovar este novo commit de governanca, rodar a CI oficial com mutations e Deno fail-closed e obter GO raiz sobre o hash exato. So depois repetir o preflight e o rollout estrito Edge -> migration exata -> frontend. O drift do ledger continua proibindo `supabase db push`.
+## Proveniencia
+
+- Worktree: `/Users/macbookpro/.codex/worktrees/bn-app-20260826/release-rc`
+- Branch: `codex/sett-release-rc-20260826`
+- `origin/main`: `f959532f5a0a537d0a7c7b14cdb98f03297dd6ab`
+- HEAD tecnico aprovado: `18d1b184`
+- CI tecnico: run `34503464604`, verde
+- Commit documental posterior: `332be4bc`
+- CI documental: run `34506079234`, verde
+- Delta antes deste registro: 61 commits, 205 arquivos, 36.306 insercoes e 3.259 remocoes sobre `origin/main`.
+
+O SHA tecnico, e nao o commit documental posterior, identifica o codigo/build aprovado.
+
+## Gates tecnicos aprovados
+
+- `npm run verify:backend`: backend canonico de producao confirmado.
+- TypeScript: baseline controlada de 36 erros, sem aumento.
+- ESLint: 0 erros e baseline controlada de 44 avisos, sem aumento.
+- Vitest: 156/156 arquivos e 991/991 testes.
+- Mutations do consentimento: 5/5 detectadas.
+- Dispatcher Deno: 10/10 testes com permissoes explicitas.
+- Build e performance de bundle: aprovados.
+- Schemas efemeros com e sem `students.country_code`: 16/16 invariantes em ambos.
+- QA independente do HEAD e de staging: sem P0/P1/P2.
+
+O drift nominal do ledger de migrations continua proibindo `supabase db push`. Rollouts usam somente o arquivo-alvo revisado.
+
+## Resultado de staging
+
+- Edge `process-automation-sessions` v15, hash remoto/local `ccd932b0915c865ea347b166f9b3e2e8adb4095ebc1ead67ba6ab864e32ac720`.
+- Migration `20260910103000` registrada exatamente uma vez.
+- Rehearsal 16/16 e smoke autenticado de consentimento/tenant aprovados com rollback.
+- Estado final: `consent=0`, `quarantine=1`, autorizacao privada/cache/sessoes semanais/mensagens/identidades sinteticas em zero.
+- Frontend ativo: deploy `6aa2e0fc48c66ff3ce35755d`.
+- Scan servido: 9/9 HTTP 200, 15 referencias de staging, zero de producao e zero legadas.
+
+Detalhes e historico do F2 inicial, v13/v14 e F3 contaminado: `STAGING-WEEKLY-CONSENT-INCIDENT-2026-09-10.md`.
+
+## P3 de staging
+
+O deploy contaminado `6aa2df49a35aa6165fa34c4e` nao esta publicado; o published deploy e `6aa2e0fc48c66ff3ce35755d`. Sua URL imutavel ainda responde HTTP 200 e contem 15 referencias a producao.
+
+Acao exata preparada, nao executada:
+
+```sh
+netlify api deleteSiteDeploy --data '{"site_id":"2ced1972-fed1-4af3-9ad6-e5b9856ab409","deploy_id":"6aa2df49a35aa6165fa34c4e"}'
+```
+
+Exige autorizacao explicita e verificacao antes/depois.
+
+## Preflight de producao — somente leitura
+
+### Estado vivo
+
+- Netlify publicado: `6aa1d3a7b9c96039394ee73d`, `ready`, em `https://www.settapp.com.br`.
+- Edge `process-automation-sessions`: v45, ativa.
+- Migration `20260910103000`: ausente.
+- `students.country_code`: presente.
+- `weekly_contact_enabled=true`: 1 registro legado.
+- Fluxos semanais ativos: 2.
+- Sessoes semanais despachaveis: 0; sessoes semanais totais: 1 historica.
+- Mensagens WhatsApp: 14.355.
+- Instancias WhatsApp conectadas: 1.
+- Ledger/quarentena/autorizacao privada do novo contrato: ausentes.
+- Nomes de configuracao requeridos presentes: 3/3; valores nao foram exibidos nem persistidos no repositorio.
+
+Nenhuma escrita foi feita em PROD.
+
+### Bundle congelado
+
+Foi executado exatamente um build com `SETT_DEPLOY_TARGET=production npm run build`. O artefato esta fora do repositorio em:
+
+`/Users/macbookpro/.codex/private-backups/sett-prod-consent-preflight-20260910T141910/dist-production`
+
+- arquivos: 226;
+- tamanho: 10.903.552 bytes;
+- scan completo: 31 referencias de producao, zero de staging e zero legadas;
+- SHA-256 da arvore: `d2647253efae75c5538b8b1bcd2730efbdd5779714e6461f2de4449663205446`;
+- SHA-256 do tar: `055bfbe93e076fe964527c429534780bf410c2d807503904db0f0b5b90181144`.
+
+Comando futuro congelado, **nao executado**:
+
+```sh
+netlify deploy --prod --dir=/Users/macbookpro/.codex/private-backups/sett-prod-consent-preflight-20260910T141910/dist-production --no-build --site 9a061d2e-ee2c-444b-aa69-fe262caf0246 --message 'production: weekly consent rollout 18d1b18' --json
+```
+
+Antes de qualquer uso: recalcular o hash da arvore, reconfirmar o deploy publicado e repetir o preflight. Depois: varrer o deploy imutavel e a URL estavel antes dos smokes.
+
+## Backups privados de producao
+
+Diretorio: `/Users/macbookpro/.codex/private-backups/sett-prod-consent-preflight-20260910T141910`, permissao `700`; arquivos `600`.
+
+| Artefato | SHA-256 | Bytes |
+|---|---|---:|
+| `prod-public-private-schema.sql` | `513bdc80bccc8527a1f6290a927863bff14d0957f14edaabe89f2b853d5b451b` | 870.482 |
+| `prod-public-private-data.sql` | `20f227b9be529a9798fa97c4f8c48ca5e2feed037a45562a5c1775a519838398` | 18.914.379 |
+| `prod-auth-schema.sql` | `245cbd97b48c28f41811ad8ebade27306e6124d00ef10f048992d9c9cf98a272` | 46.734 |
+| `prod-auth-data.sql` | `01c271e55d6ec50ca756dce34fd04b0c3b0217be6e6bb0238f6db1f9e7ae9fdf` | 209.970 |
+| Edge v45 `index.ts` | `8b45bbab2f49ae906848273299cf2642786eb81b9fbfcfa445f174c5ebb280b9` | — |
+
+O aviso de FKs circulares do `pg_dump` exige `session_replication_role=replica` apenas durante a carga de dados do clone descartavel. O estado normal foi restabelecido e validado antes da migration.
+
+## Rehearsal local de migration e rollback
+
+O primeiro clone sem o schema `auth` produziu aparente orfandade em `students.assigned_trainer_id`. A verificacao read-only de PROD provou que nao era inconsistencia real:
+
+- usuarios em `auth.users`: 44;
+- referencias orfas de `students.assigned_trainer_id`: 0;
+- referencias orfas de `company_members.user_id`: 0;
+- referencias orfas de `user_roles.user_id`: 0.
+
+A FK correta e `public.students.assigned_trainer_id -> auth.users.id`.
+
+O clone fiel restaurou `auth`, `public` e `private`; ao encerrar a carga:
+
+- `session_replication_role=origin`;
+- FKs: 344/344 validadas;
+- `ALTER TABLE ... VALIDATE CONSTRAINT` executado para todas as 344;
+- os tres anti-joins com `auth.users` retornaram zero orfaos.
+
+Baseline do clone: `legacy=1`, `active_flows=2`, `dispatchable=0`, `weekly_sessions=1`, `messages=14355`, `consent=0`, `quarantine=0`.
+
+A migration foi aplicada numa copia do baseline; o rehearsal passou 16/16. Pos-migration: `legacy=0`, `active_flows=2`, `dispatchable=0`, `weekly_sessions=1`, `messages=14355`, `consent=0`, `quarantine=1`.
+
+O rollback catastrofico foi ensaiado recriando a copia a partir do snapshot. As sete metricas voltaram exatamente ao baseline, o ledger/quarentena ficaram ausentes e as 344/344 FKs permaneceram validas. Os dois bancos descartaveis foram removidos.
+
+**Status do gate:** evidencia local verde; ❌ aceite independente de Dados ainda aguardado. Ate esse parecer, o rehearsal nao autoriza PROD.
+
+Rollback operacional recomendado continua sendo aditivo e sem perda de dados: restaurar frontend anterior, republicar Edge v45 pelo snapshot e usar o fail-closed de `scripts/rollback-weekly-contact-consent-ledger.sql`, preservando ledger/evidencia. Restauracao integral do banco e ultimo recurso, pois perderia escritas posteriores ao snapshot.
+
+## Janela curta F1 -> F2 e monitores zero-delta
+
+A janela entre F1 e F2 deve ser curta e observada. Antes de F1, imediatamente antes de F2 e imediatamente depois de F2, registrar:
+
+| Monitor | Baseline PROD | Delta permitido antes da conclusao |
+|---|---:|---:|
+| Fluxos semanais ativos | 2 | 0 |
+| `weekly_contact_enabled=true` | 1 | 0 antes de F2; esperado 1 -> 0 na propria migration |
+| Configuracoes requeridas presentes | 3/3 | 0 |
+| Sessoes semanais despachaveis | 0 | 0 |
+
+Se qualquer um dos dois fluxos, o booleano legado ou a presenca das configuracoes variar fora da transicao esperada da migration, interromper antes da proxima fase. Nao mostrar valores de segredo.
+
+## Integracao em `main`
+
+`origin/main` em `f959532f` e ancestral da branch release. Nenhuma atualizacao foi executada. Plano futuro, somente com autorizacao:
+
+1. `git fetch origin` e exigir que `origin/main` continue exatamente em `f959532f`;
+2. confirmar ancestralidade e CI verde no SHA release exato;
+3. fazer fast-forward da branch release para `main`, sem merge commit e sem force;
+4. aguardar a CI de `main` e interromper em qualquer divergencia.
+
+O push normal deve rejeitar non-fast-forward; nunca usar `--force`.
+
+## Estado por camada e proximas acoes
+
+| Camada | Estado real |
+|---|---|
+| Local | ✅ Codigo `18d1b184`, bundle PROD congelado, backups e rehearsal local concluidos. |
+| Commit/branch | ❌ Este registro ainda precisa de commit/push e CI (em andamento). Proximo passo: revisar o diff, enviar somente os tres documentos e aguardar CI. |
+| Staging | ✅ GO independente; deploy limpo ativo. |
+| P3 staging | ❌ Deploy contaminado ainda acessivel (bloqueado). Motivo: exclusao requer autorizacao explicita. Proximo passo: excluir pelo comando preparado e provar 404, mantendo o deploy limpo ativo. |
+| Rehearsal PROD | ❌ Parecer independente de Dados pendente (aguardando). Motivo: a prova local nao substitui o gate independente. Proximo passo: Dados revisar hashes, ordem de restore, FKs e metricas de ida/volta. |
+| `main` | ❌ Fast-forward nao executado (bloqueado). Motivo: exige autorizacao e revalidacao do SHA de `origin/main`. Proximo passo: executar o plano acima e aguardar CI de `main`. |
+| Producao | ❌ Rollout nao executado (bloqueado). Motivo: exige parecer de Dados, autorizacao explicita, janela controlada e aceite do rollback operacional. Proximo passo: rehash/preflight, F1 -> F2 -> F3 com monitores zero-delta e parada fail-closed. |
