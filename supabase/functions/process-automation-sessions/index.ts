@@ -66,6 +66,22 @@ function providerSendCode(status: number) {
   return "whatsapp_provider_failure";
 }
 
+async function assertCurrentWeeklyContactConsent(
+  admin: any,
+  context: Record<string, unknown> | null,
+  studentId: string,
+  companyId: string,
+) {
+  if (context?.trigger_type !== "weekly_contact") return;
+  const consent = await admin.rpc("weekly_contact_consent_is_current", {
+    _student_id: studentId,
+    _company_id: companyId,
+  });
+  if (consent.error || consent.data !== true) {
+    throw new Error("weekly_contact_consent_missing");
+  }
+}
+
 async function sendText(args: {
   admin: any;
   evoUrl: string;
@@ -270,6 +286,7 @@ export async function processSession(admin: any, session: FlowSession, provider:
   if (!chat.remote_jid) throw new Error("Conversa sem número remoto.");
   const expectedStudentId = String(session.context?.student_id || "").trim();
   const identityStudentId = expectedStudentId || chat.student_id || "";
+  await assertCurrentWeeklyContactConsent(admin,session.context,identityStudentId,chat.company_id);
   let student: { id: string; phone: string | null; whatsapp: string | null; country_code: string | null } | null = null;
   if (identityStudentId) {
     const studentResult = await admin.from("students")
@@ -340,6 +357,7 @@ export async function processSession(admin: any, session: FlowSession, provider:
       let message = replaceVariables(nodeData.message || node.label || "", context);
       if (context.trigger_type === "weekly_contact") message = weeklyContactMessage(context);
       if (message.trim()) {
+        await assertCurrentWeeklyContactConsent(admin,context,identityStudentId,chat.company_id);
         await sendText({
           admin,
           evoUrl: provider.url,
@@ -373,6 +391,7 @@ export async function processSession(admin: any, session: FlowSession, provider:
       if (options.length) {
         message += `\n\n${options.map((option: any) => `${option.number}. ${replaceVariables(option.text || "", context)}`).join("\n")}`;
       }
+      await assertCurrentWeeklyContactConsent(admin,context,identityStudentId,chat.company_id);
       await sendText({
         admin,
         evoUrl: provider.url,
@@ -474,12 +493,26 @@ export async function handleAutomationRequest(request: Request) {
       else waiting += 1;
     } catch (error) {
       failed += 1;
+      const errorCode = error instanceof Error ? error.message : "Unknown dispatcher error";
+      if (errorCode === "weekly_contact_consent_missing") {
+        const context = {
+          ...(session.context || {}),
+          dispatch_error: errorCode,
+          next_dispatch_at: null,
+        };
+        await admin.from("flow_sessions").update({
+          status: "failed",
+          context,
+          updated_at: new Date().toISOString(),
+        }).eq("id", session.id);
+        continue;
+      }
       const previousRetries = Number(session.context?.dispatch_retries || 0);
       const retryMinutes = Math.min(360, Math.max(5, 2 ** Math.min(previousRetries, 8)));
       const context = {
         ...(session.context || {}),
         dispatch_retries: previousRetries + 1,
-        dispatch_error: error instanceof Error ? error.message.slice(0, 300) : "Unknown dispatcher error",
+        dispatch_error: errorCode.slice(0, 300),
         next_dispatch_at: new Date(Date.now() + retryMinutes * 60 * 1000).toISOString(),
       };
       await admin.from("flow_sessions").update({ status: "active", context, updated_at: new Date().toISOString() }).eq("id", session.id);

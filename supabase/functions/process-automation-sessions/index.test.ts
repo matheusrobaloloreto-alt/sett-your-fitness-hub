@@ -13,6 +13,10 @@ function resultQuery(result: { data: unknown; error: unknown }) {
 Deno.test("weekly automation blocks a phone-mismatched chat before provider fetch", async () => {
   const accessedTables: string[] = [];
   const admin = {
+    rpc: (name: string) => {
+      if (name === "weekly_contact_consent_is_current") return Promise.resolve({ data: true, error: null });
+      return Promise.resolve({ data: null, error: new Error(`unexpected rpc ${name}`) });
+    },
     from(table: string) {
       accessedTables.push(table);
       if (table === "whatsapp_chats") {
@@ -88,6 +92,10 @@ Deno.test("weekly automation blocks a phone-mismatched chat before provider fetc
 Deno.test("weekly automation provider errors do not expose raw provider bodies", async () => {
   const queries: Array<{ table: string; filters: Record<string, unknown> }> = [];
   const admin = {
+    rpc: (name: string) => {
+      if (name === "weekly_contact_consent_is_current") return Promise.resolve({ data: true, error: null });
+      return Promise.resolve({ data: null, error: new Error(`unexpected rpc ${name}`) });
+    },
     from(table: string) {
       const filters: Record<string, unknown> = {};
       const query = {
@@ -187,6 +195,116 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
     }
     for (const leaked of ["99143", "@s.whatsapp.net", "raw-token", "secret"]) {
       if (message.toLowerCase().includes(leaked)) throw new Error(`leaked ${leaked}`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("weekly automation blocks a revocation that lands after claim but before provider send", async () => {
+  const accessedTables: string[] = [];
+  let consentChecks = 0;
+  let providerFetches = 0;
+  const admin = {
+    rpc: (name: string, args: Record<string, unknown>) => {
+      if (name !== "weekly_contact_consent_is_current") throw new Error(`unexpected rpc ${name}`);
+      if (args._student_id !== "student-a" || args._company_id !== "company-a") {
+        throw new Error("consent lookup lost student/company binding");
+      }
+      consentChecks += 1;
+      return Promise.resolve({ data: consentChecks === 1, error: null });
+    },
+    from(table: string) {
+      accessedTables.push(table);
+      if (table === "whatsapp_chats") {
+        return resultQuery({
+          data: {
+            id: "chat-a",
+            company_id: "company-a",
+            instance_id: "instance-a",
+            remote_jid: "5548991432057@s.whatsapp.net",
+            student_id: "student-a",
+          },
+          error: null,
+        });
+      }
+      if (table === "students") {
+        return resultQuery({
+          data: {
+            id: "student-a",
+            phone: "+55 (48) 99143-2057",
+            whatsapp: null,
+            country_code: "BR",
+          },
+          error: null,
+        });
+      }
+      if (table === "whatsapp_instances") {
+        const query = {
+          select: () => query,
+          eq: () => query,
+          order: () => query,
+          limit: () => query,
+          maybeSingle: async () => ({
+            data: { instance_name: "instance-a", status: "connected" },
+            error: null,
+          }),
+        };
+        return query;
+      }
+      if (table === "automation_flow_nodes") {
+        const query = {
+          select: () => query,
+          eq: () => Promise.resolve({
+            data: [{
+              id: "content-a",
+              flow_id: "flow-a",
+              node_type: "content",
+              data: { message: "Olá {{primeiro_nome}}", wait_for_reply: false },
+            }],
+            error: null,
+          }),
+        };
+        return query;
+      }
+      if (table === "automation_flow_edges") {
+        const query = {
+          select: () => query,
+          eq: () => Promise.resolve({ data: [], error: null }),
+        };
+        return query;
+      }
+      throw new Error(`late revocation reached unsafe table ${table}`);
+    },
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    providerFetches += 1;
+    throw new Error("provider must not run without current consent");
+  }) as typeof fetch;
+
+  try {
+    let code = "";
+    try {
+      await processSession(
+        admin,
+        {
+          id: "session-a",
+          flow_id: "flow-a",
+          chat_id: "chat-a",
+          current_node_id: "content-a",
+          context: { student_id: "student-a", trigger_type: "weekly_contact" },
+        },
+        { url: "https://provider.invalid", key: "redacted" },
+      );
+    } catch (error) {
+      code = error instanceof Error ? error.message : String(error);
+    }
+    if (code !== "weekly_contact_consent_missing") throw new Error(`unexpected block code ${code}`);
+    if (consentChecks !== 2) throw new Error(`expected two consent checks, got ${consentChecks}`);
+    if (providerFetches !== 0) throw new Error("provider was called after late revocation");
+    for (const unsafeTable of ["whatsapp_messages", "flow_sessions"]) {
+      if (accessedTables.includes(unsafeTable)) throw new Error(`late revocation wrote ${unsafeTable}`);
     }
   } finally {
     globalThis.fetch = originalFetch;

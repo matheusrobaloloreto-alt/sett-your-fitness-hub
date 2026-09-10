@@ -7817,6 +7817,99 @@ export type Database = {
           },
         ]
       }
+      weekly_contact_consent_events: {
+        Row: {
+          actor_user_id: string
+          channel: string
+          company_id: string
+          created_at: string
+          event_type: string
+          id: string
+          occurred_at: string
+          policy_version: string
+          purpose: string
+          source: string
+          student_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          channel?: string
+          company_id: string
+          created_at?: string
+          event_type: string
+          id?: string
+          occurred_at?: string
+          policy_version: string
+          purpose?: string
+          source: string
+          student_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          channel?: string
+          company_id?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          occurred_at?: string
+          policy_version?: string
+          purpose?: string
+          source?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "weekly_contact_consent_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "weekly_contact_consent_events_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      weekly_contact_legacy_opt_in_quarantine: {
+        Row: {
+          company_id: string
+          previous_enabled: boolean
+          quarantined_at: string
+          student_id: string
+        }
+        Insert: {
+          company_id: string
+          previous_enabled: boolean
+          quarantined_at?: string
+          student_id: string
+        }
+        Update: {
+          company_id?: string
+          previous_enabled?: boolean
+          quarantined_at?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "weekly_contact_legacy_opt_in_quarantine_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "weekly_contact_legacy_opt_in_quarantine_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: true
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       wearable_consents: {
         Row: {
           company_id: string
@@ -10465,6 +10558,21 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      record_weekly_contact_consent: {
+        Args: {
+          _event_type: string
+          _policy_version: string
+          _source: string
+          _student_id: string
+        }
+        Returns: Database["public"]["Tables"]["weekly_contact_consent_events"]["Row"]
+        SetofOptions: {
+          from: "*"
+          to: "weekly_contact_consent_events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       record_payment_recovery_event: {
         Args: {
           _enrollment_id?: string
@@ -10634,6 +10742,15 @@ export type Database = {
         Args: { p_template_id: string; p_user_id: string }
         Returns: boolean
       }
+      weekly_contact_consent_is_current: {
+        Args: { _company_id: string; _student_id: string }
+        Returns: boolean
+      }
+      weekly_contact_consent_status: {
+        Args: { _student_id: string }
+        Returns: Json
+      }
+      weekly_contact_policy_version: { Args: never; Returns: string }
       weekly_consistency_source_id: {
         Args: { _student_id: string; _week_start: string }
         Returns: string

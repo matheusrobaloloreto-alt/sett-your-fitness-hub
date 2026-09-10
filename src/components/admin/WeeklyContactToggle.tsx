@@ -1,43 +1,49 @@
-// Toggle "Contato semanal": quando ligado, o BNITO pergunta proativamente ao aluno 2x/semana
-// (dificuldade? quer mandar vídeo p/ correção?). A automação que dispara é do Codex; aqui só o controle.
+// Consent ledger for proactive weekly contact. The legacy student boolean is a
+// cache only; the RPC appends evidence and updates it atomically.
 import { useEffect, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { MessageCircleHeart } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { normalizeStudentChatPhone } from "@/lib/studentChat";
 
-type WeeklyContactToggleProps = {
-  studentId: string;
-  initial?: boolean;
-  phone?: string | null;
-  countryCode?: string | null;
-};
-
-// A base atual só guarda um booleano mutável em students. Sem ledger com ator,
-// origem, versão da política e horário, uma ativação nova não é consentimento.
-const HAS_AUDITABLE_WEEKLY_CONTACT_CONSENT = false;
-
-export function WeeklyContactToggle({ studentId, initial, phone, countryCode }: WeeklyContactToggleProps) {
-  const [enabled, setEnabled] = useState(!!initial);
+export function WeeklyContactToggle({ studentId }: { studentId: string; initial?: boolean }) {
+  const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
-  const hasReliableRecipient = Boolean(normalizeStudentChatPhone(phone, countryCode));
+  const [loading, setLoading] = useState(true);
+  const [policyVersion, setPolicyVersion] = useState<string | null>(null);
 
-  useEffect(() => { setEnabled(!!initial); }, [initial]);
+  useEffect(() => {
+    let active = true;
+    setEnabled(false);
+    setLoading(true);
+    (async () => {
+      const status = await supabase.rpc("weekly_contact_consent_status", { _student_id: studentId });
+      if (!active) return;
+      const payload = !status.error && status.data && typeof status.data === "object" && !Array.isArray(status.data)
+        ? status.data as { eligible?: boolean; policy_version?: string }
+        : null;
+      const currentPolicy = typeof payload?.policy_version === "string" ? payload.policy_version : null;
+      setPolicyVersion(currentPolicy);
+      setEnabled(!!currentPolicy && payload?.eligible === true);
+      setLoading(false);
+    })();
+    return () => { active = false; };
+  }, [studentId]);
 
   const toggle = async (next: boolean) => {
-    if (next && !hasReliableRecipient) {
-      toast.error("Corrija o WhatsApp do aluno antes de ativar o contato semanal.");
-      return;
-    }
-    if (next && !HAS_AUDITABLE_WEEKLY_CONTACT_CONSENT) {
-      toast.error("Ativação indisponível até o consentimento poder ser registrado com auditoria.");
+    if (!policyVersion) {
+      toast.error("Política de consentimento indisponível");
       return;
     }
     setEnabled(next);
     setSaving(true);
-    const { error } = await (supabase as any).from("students").update({ weekly_contact_enabled: next }).eq("id", studentId);
+    const { error } = await supabase.rpc("record_weekly_contact_consent", {
+      _student_id: studentId,
+      _event_type: next ? "granted" : "revoked",
+      _policy_version: policyVersion,
+      _source: "staff_confirmed_student",
+    });
     setSaving(false);
     if (error) {
       setEnabled(!next);
@@ -53,26 +59,11 @@ export function WeeklyContactToggle({ studentId, initial, phone, countryCode }: 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-3">
           <Label htmlFor={`wc-${studentId}`} className="text-sm font-medium cursor-pointer">Contato semanal</Label>
-          <Switch
-            id={`wc-${studentId}`}
-            checked={enabled}
-            disabled={saving || (!enabled && (!hasReliableRecipient || !HAS_AUDITABLE_WEEKLY_CONTACT_CONSENT))}
-            onCheckedChange={toggle}
-          />
+          <Switch id={`wc-${studentId}`} checked={enabled} disabled={loading || saving} onCheckedChange={toggle} />
         </div>
-        {enabled && !HAS_AUDITABLE_WEEKLY_CONTACT_CONSENT ? (
-          <p className="text-xs text-destructive mt-0.5">
-            Ativo sem prova auditável de consentimento. Desative até o registro seguro estar disponível.
-          </p>
-        ) : hasReliableRecipient ? (
-          <p className="text-xs text-muted-foreground mt-0.5">
-            A ativação está bloqueada porque o consentimento auditável ainda não está disponível.
-          </p>
-        ) : (
-          <p className="text-xs text-destructive mt-0.5">
-            Sem WhatsApp confiável. Corrija o número no perfil antes de ativar.
-          </p>
-        )}
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Ative somente após o aluno autorizar mensagens proativas no WhatsApp. A autorização pode ser revogada a qualquer momento.
+        </p>
       </div>
     </div>
   );
