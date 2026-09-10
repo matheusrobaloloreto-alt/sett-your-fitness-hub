@@ -1787,7 +1787,6 @@ export default function StudentDetail() {
               <div className="grid gap-3 lg:grid-cols-2">
                 <WeeklyContactToggle
                   studentId={id}
-                  initial={(student as { weekly_contact_enabled?: boolean })?.weekly_contact_enabled}
                   phone={student.whatsapp || student.phone}
                   countryCode={student.country_code}
                 />

@@ -13,7 +13,6 @@ interface StudentRow {
   id: string;
   full_name: string;
   company_id: string;
-  weekly_contact_enabled: boolean;
   phone: string | null;
   whatsapp: string | null;
   country_code: string | null;
@@ -31,7 +30,7 @@ export default function StudentHub() {
       if (!id) { setLoading(false); return; }
       const { data } = await (supabase as any)
         .from("students")
-        .select("id, full_name, company_id, weekly_contact_enabled, phone, whatsapp, country_code")
+        .select("id, full_name, company_id, phone, whatsapp, country_code")
         .eq("id", id)
         .maybeSingle();
       if (on) { setStudent(data ?? null); setLoading(false); }
@@ -53,7 +52,6 @@ export default function StudentHub() {
       </div>
       <WeeklyContactToggle
         studentId={student.id}
-        initial={student.weekly_contact_enabled}
         phone={student.whatsapp || student.phone}
         countryCode={student.country_code}
       />

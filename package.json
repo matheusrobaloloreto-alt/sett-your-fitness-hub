@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "npm run verify:backend",
+    "prebuild": "npm run verify:backend && npm run verify:weekly-consent-rollout",
     "build": "vite build",
     "postbuild": "node scripts/prepare-staging-deploy.mjs && node scripts/verify-bundle-performance.mjs",
     "build:dev": "vite build --mode development",
@@ -15,7 +15,8 @@
     "replica:import": "node scripts/replica-import.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify:backend": "node scripts/verify-canonical-backend.mjs"
+    "verify:backend": "node scripts/verify-canonical-backend.mjs",
+    "verify:weekly-consent-rollout": "node scripts/verify-weekly-contact-consent-rollout.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -13,13 +13,15 @@ lock table public.students in share row exclusive mode;
 lock table public.weekly_contact_consent_events in share row exclusive mode;
 lock table public.flow_sessions in share row exclusive mode;
 
+alter table public.students disable trigger guard_weekly_contact_boolean_write;
 update public.students
 set weekly_contact_enabled=false
 where weekly_contact_enabled=true;
+alter table public.students enable trigger guard_weekly_contact_boolean_write;
 
 update public.flow_sessions
 set status='failed',
-    context=context||jsonb_build_object(
+    context=coalesce(context,'{}'::jsonb)||jsonb_build_object(
       'dispatch_error','weekly_contact_consent_emergency_rollback',
       'next_dispatch_at',null
     ),

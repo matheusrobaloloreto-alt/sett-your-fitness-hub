@@ -22,6 +22,12 @@ const rehearsal = readFileSync(
   resolve(process.cwd(), "scripts/rehearse-weekly-contact-consent-ledger.sql"),
   "utf8",
 );
+const rolloutGate = readFileSync(
+  resolve(process.cwd(), "scripts/verify-weekly-contact-consent-rollout.mjs"),
+  "utf8",
+);
+const studentDetail = readFileSync(resolve(process.cwd(), "src/pages/admin/StudentDetail.tsx"), "utf8");
+const studentHub = readFileSync(resolve(process.cwd(), "src/pages/admin/StudentHub.tsx"), "utf8");
 
 describe("weekly contact consent ledger", () => {
   it("defines the fixed-purpose append-only evidence contract", () => {
@@ -36,6 +42,7 @@ describe("weekly contact consent ledger", () => {
       "actor_user_id",
       "occurred_at",
       "created_at",
+      "sequence",
     ]) expect(migration).toContain(field);
     expect(migration).toContain("channel='whatsapp'");
     expect(migration).toContain("purpose='weekly_training_support'");
@@ -51,8 +58,25 @@ describe("weekly contact consent ledger", () => {
     expect(migration).toContain("weekly_contact_enabled_requires_consent_rpc");
     expect(migration).toContain("v_actor uuid := auth.uid()");
     expect(migration).toContain("for update");
-    expect(migration).toContain("current_user is distinct from pg_get_userbyid(");
+    expect(migration).toContain("private.weekly_contact_boolean_write_authorizations");
+    expect(migration).toContain("permit.transaction_id=txid_current()");
+    expect(migration).toContain("permit.backend_pid=pg_backend_pid()");
+    expect(migration).toContain("delete from private.weekly_contact_boolean_write_authorizations");
     expect(migration).not.toContain("app.weekly_contact_consent_rpc");
+    expect(migration).not.toContain("current_user is distinct from pg_get_userbyid(");
+  });
+
+  it("fails closed every legacy weekly queue before installing the new contract", () => {
+    const cleanup = migration.indexOf("weekly_contact_consent_reconfirmation_required");
+    const install = migration.indexOf("create table if not exists public.weekly_contact_consent_events");
+    expect(cleanup).toBeGreaterThan(-1);
+    expect(cleanup).toBeLessThan(install);
+    expect(migration).toContain("status in ('active','waiting_response','processing')");
+    expect(migration).toContain("context=coalesce(context,'{}'::jsonb)||jsonb_build_object(");
+    expect(migration).toContain("lock table public.students in share row exclusive mode");
+    expect(migration).toContain("lock table public.flow_sessions in share row exclusive mode");
+    expect(migration).toMatch(/^begin;/im);
+    expect(migration).toMatch(/commit;\s*$/i);
   });
 
   it("does not backfill consent and quarantines legacy booleans before disabling them", () => {
@@ -66,7 +90,8 @@ describe("weekly contact consent ledger", () => {
   });
 
   it("requires the latest current-policy grant in both cron and dispatcher", () => {
-    expect(migration).toContain("order by event.occurred_at desc,event.created_at desc,event.id desc");
+    expect(migration).toContain("sequence bigint generated always as identity unique not null");
+    expect(migration).toContain("order by event.sequence desc");
     expect(migration).toContain("event.event_type='granted'");
     expect(migration).toContain("event.policy_version=public.weekly_contact_policy_version()");
     expect(migration).toContain("public.weekly_contact_consent_is_current(s.id,s.company_id)");
@@ -84,8 +109,18 @@ describe("weekly contact consent ledger", () => {
     expect(toggle).toContain('supabase.rpc("weekly_contact_consent_status"');
     expect(toggle).toContain('_source: "staff_confirmed_student"');
     expect(toggle).toContain("payload?.eligible === true");
+    expect(toggle).toContain("Confirmo que o aluno autorizou");
+    expect(toggle).toContain("disabled={!attested || saving}");
     expect(toggle).not.toContain("weekly-training-support-v1-2026-09-10");
     expect(toggle).not.toMatch(/\.from\("students"\)\.update\(\{ weekly_contact_enabled:/);
+    expect(studentDetail).not.toContain("weekly_contact_enabled");
+    expect(studentHub).not.toContain("weekly_contact_enabled");
+  });
+
+  it("automates and locks the fail-closed rollout order", () => {
+    expect(rolloutGate).toContain("Required order: 1) Edge dispatcher 2) database migration 3) frontend");
+    expect(rolloutGate).toContain("queueCleanup >= 0 && queueCleanup < ledgerInstall");
+    expect(rolloutGate).toContain("disabled={!attested || saving}");
   });
 
   it("rolls back by preserving evidence and disabling eligibility", () => {
@@ -100,7 +135,9 @@ describe("weekly contact consent ledger", () => {
     expect(rehearsal).toContain("Synthetic Consent Probe");
     expect(rehearsal).toContain("grant_eligible");
     expect(rehearsal).toContain("revoke_ineligible");
+    expect(rehearsal).toContain("sequence_monotonic");
     expect(rehearsal).toContain("direct_boolean_rejected");
+    expect(rehearsal).toContain("generic_definer_rejected");
     expect(rehearsal).toContain("ledger_mutation_rejected");
     expect(rehearsal).toContain("stale_policy_rejected");
     expect(rehearsal).toContain("set local role authenticated");

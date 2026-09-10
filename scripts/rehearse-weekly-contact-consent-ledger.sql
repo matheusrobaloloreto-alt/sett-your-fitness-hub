@@ -6,10 +6,20 @@ begin;
 create temporary table pg_temp.weekly_contact_consent_rehearsal (
   grant_eligible boolean not null,
   revoke_ineligible boolean not null,
+  sequence_monotonic boolean not null,
   direct_boolean_rejected boolean not null,
+  generic_definer_rejected boolean not null,
   ledger_mutation_rejected boolean not null,
   stale_policy_rejected boolean not null
 ) on commit drop;
+
+create function pg_temp.weekly_contact_cache_write_probe(_student_id uuid)
+returns void
+language sql
+security definer
+set search_path=public,pg_temp
+as $$ update public.students set weekly_contact_enabled=false where id=_student_id $$;
+grant execute on function pg_temp.weekly_contact_cache_write_probe(uuid) to authenticated;
 
 do $rehearsal$
 declare
@@ -17,7 +27,10 @@ declare
   v_company uuid := '00000000-0000-4000-8000-000000001032'::uuid;
   v_student uuid := '00000000-0000-4000-8000-000000001030'::uuid;
   v_event_id uuid;
+  v_grant_sequence bigint;
+  v_revoke_sequence bigint;
   v_direct_rejected boolean := false;
+  v_generic_definer_rejected boolean := false;
   v_mutation_rejected boolean := false;
   v_stale_rejected boolean := false;
   v_grant_eligible boolean;
@@ -42,7 +55,7 @@ begin
   perform set_config('request.jwt.claim.role','authenticated',true);
   set local role authenticated;
 
-  select event.id into v_event_id
+  select event.id,event.sequence into v_event_id,v_grant_sequence
   from public.record_weekly_contact_consent(
     v_student,'granted',public.weekly_contact_policy_version(),'staff_confirmed_student'
   ) event;
@@ -53,6 +66,12 @@ begin
     update public.students set weekly_contact_enabled=false where id=v_student;
   exception when object_not_in_prerequisite_state then
     v_direct_rejected := true;
+  end;
+
+  begin
+    perform pg_temp.weekly_contact_cache_write_probe(v_student);
+  exception when object_not_in_prerequisite_state then
+    v_generic_definer_rejected := true;
   end;
 
   begin
@@ -69,23 +88,27 @@ begin
     v_stale_rejected := true;
   end;
 
-  perform public.record_weekly_contact_consent(
+  select event.sequence into v_revoke_sequence
+  from public.record_weekly_contact_consent(
     v_student,'revoked',public.weekly_contact_policy_version(),'staff_confirmed_student'
-  );
+  ) event;
   select not (public.weekly_contact_consent_status(v_student)->>'eligible')::boolean
   into v_revoke_ineligible;
 
   reset role;
   if not coalesce(v_grant_eligible,false)
      or not coalesce(v_revoke_ineligible,false)
+     or not coalesce(v_revoke_sequence>v_grant_sequence,false)
      or not v_direct_rejected
+     or not v_generic_definer_rejected
      or not v_mutation_rejected
      or not v_stale_rejected then
     raise exception 'weekly_contact_consent_rehearsal_failed';
   end if;
 
   insert into pg_temp.weekly_contact_consent_rehearsal values(
-    v_grant_eligible,v_revoke_ineligible,v_direct_rejected,v_mutation_rejected,v_stale_rejected
+    v_grant_eligible,v_revoke_ineligible,v_revoke_sequence>v_grant_sequence,
+    v_direct_rejected,v_generic_definer_rejected,v_mutation_rejected,v_stale_rejected
   );
 end
 $rehearsal$;

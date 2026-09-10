@@ -3,15 +3,28 @@
 import { useEffect, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { MessageCircleHeart } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
-export function WeeklyContactToggle({ studentId }: { studentId: string; initial?: boolean }) {
+export function WeeklyContactToggle({ studentId }: { studentId: string }) {
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [policyVersion, setPolicyVersion] = useState<string | null>(null);
+  const [grantDialogOpen, setGrantDialogOpen] = useState(false);
+  const [attested, setAttested] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -31,7 +44,7 @@ export function WeeklyContactToggle({ studentId }: { studentId: string; initial?
     return () => { active = false; };
   }, [studentId]);
 
-  const toggle = async (next: boolean) => {
+  const persistConsent = async (next: boolean) => {
     if (!policyVersion) {
       toast.error("Política de consentimento indisponível");
       return;
@@ -49,8 +62,19 @@ export function WeeklyContactToggle({ studentId }: { studentId: string; initial?
       setEnabled(!next);
       toast.error("Não foi possível salvar");
     } else {
+      setGrantDialogOpen(false);
+      setAttested(false);
       toast.success(next ? "Contato semanal ativado" : "Contato semanal desativado");
     }
+  };
+
+  const requestToggle = (next: boolean) => {
+    if (next) {
+      setAttested(false);
+      setGrantDialogOpen(true);
+      return;
+    }
+    void persistConsent(false);
   };
 
   return (
@@ -59,12 +83,47 @@ export function WeeklyContactToggle({ studentId }: { studentId: string; initial?
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-3">
           <Label htmlFor={`wc-${studentId}`} className="text-sm font-medium cursor-pointer">Contato semanal</Label>
-          <Switch id={`wc-${studentId}`} checked={enabled} disabled={loading || saving} onCheckedChange={toggle} />
+          <Switch id={`wc-${studentId}`} checked={enabled} disabled={loading || saving} onCheckedChange={requestToggle} />
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
           Ative somente após o aluno autorizar mensagens proativas no WhatsApp. A autorização pode ser revogada a qualquer momento.
         </p>
       </div>
+      <AlertDialog open={grantDialogOpen} onOpenChange={(open) => {
+        setGrantDialogOpen(open);
+        if (!open) setAttested(false);
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar autorização do aluno</AlertDialogTitle>
+            <AlertDialogDescription>
+              O contato semanal envia mensagens proativas pelo WhatsApp. Só prossiga se o aluno autorizou essa finalidade.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex items-start gap-3 rounded-md border border-border p-3">
+            <Checkbox
+              id={`wc-attest-${studentId}`}
+              checked={attested}
+              onCheckedChange={(checked) => setAttested(checked === true)}
+            />
+            <Label htmlFor={`wc-attest-${studentId}`} className="text-sm leading-5 cursor-pointer">
+              Confirmo que o aluno autorizou mensagens proativas de acompanhamento semanal neste WhatsApp.
+            </Label>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!attested || saving}
+              onClick={(event) => {
+                event.preventDefault();
+                void persistConsent(true);
+              }}
+            >
+              {saving ? "Registrando..." : "Registrar autorização"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

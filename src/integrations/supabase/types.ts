@@ -7828,6 +7828,7 @@ export type Database = {
           occurred_at: string
           policy_version: string
           purpose: string
+          sequence: number
           source: string
           student_id: string
         }
@@ -7841,6 +7842,7 @@ export type Database = {
           occurred_at?: string
           policy_version: string
           purpose?: string
+          sequence?: number
           source: string
           student_id: string
         }
@@ -7854,6 +7856,7 @@ export type Database = {
           occurred_at?: string
           policy_version?: string
           purpose?: string
+          sequence?: number
           source?: string
           student_id?: string
         }

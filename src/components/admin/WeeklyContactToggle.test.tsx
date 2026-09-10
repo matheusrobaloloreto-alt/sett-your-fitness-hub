@@ -1,42 +1,84 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import { WeeklyContactToggle } from "./WeeklyContactToggle";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({ rpc: vi.fn() }));
 
 vi.mock("@/integrations/supabase/client", () => ({
-  supabase: { from: vi.fn() },
+  supabase: { rpc: (...args: unknown[]) => mocks.rpc(...args) },
+}));
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
 }));
 
-vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
-}));
+import { WeeklyContactToggle } from "./WeeklyContactToggle";
 
 describe("WeeklyContactToggle", () => {
-  it("blocks activation and explains the repair when the student has no reliable WhatsApp", () => {
-    render(
-      <WeeklyContactToggle
-        studentId="student-1"
-        initial={false}
-        phone="42077707180"
-        countryCode="BR"
-      />,
-    );
-
-    expect(screen.getByRole("switch", { name: "Contato semanal" })).toBeDisabled();
-    expect(screen.getByText(/Sem WhatsApp confiável/)).toBeInTheDocument();
-    expect(screen.getByText(/Corrija o número no perfil antes de ativar/)).toBeInTheDocument();
+  beforeEach(() => {
+    mocks.rpc.mockReset();
   });
 
-  it("keeps activation disabled until auditable consent storage exists", () => {
-    render(
-      <WeeklyContactToggle
-        studentId="student-1"
-        initial={false}
-        phone="(48) 99999-1234"
-        countryCode="BR"
-      />,
-    );
+  it("does not grant from the switch until staff explicitly attests authorization", async () => {
+    mocks.rpc.mockImplementation((name: string) => {
+      if (name === "weekly_contact_consent_status") {
+        return Promise.resolve({
+          data: { eligible: false, policy_version: "current-policy" },
+          error: null,
+        });
+      }
+      if (name === "record_weekly_contact_consent") {
+        return Promise.resolve({ data: {}, error: null });
+      }
+      throw new Error(`unexpected rpc ${name}`);
+    });
 
-    expect(screen.getByRole("switch", { name: "Contato semanal" })).toBeDisabled();
-    expect(screen.getByText(/consentimento auditável ainda não está disponível/)).toBeInTheDocument();
+    render(<WeeklyContactToggle studentId="student-a" />);
+    const toggle = await screen.findByRole("switch");
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+
+    expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "Registrar autorização" });
+    expect(confirm).toBeDisabled();
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByLabelText(/Confirmo que o aluno autorizou/i));
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith(
+      "record_weekly_contact_consent",
+      {
+        _student_id: "student-a",
+        _event_type: "granted",
+        _policy_version: "current-policy",
+        _source: "staff_confirmed_student",
+      },
+    ));
+  });
+
+  it("revokes immediately without requiring an attestation dialog", async () => {
+    mocks.rpc.mockImplementation((name: string) => {
+      if (name === "weekly_contact_consent_status") {
+        return Promise.resolve({
+          data: { eligible: true, policy_version: "current-policy" },
+          error: null,
+        });
+      }
+      if (name === "record_weekly_contact_consent") {
+        return Promise.resolve({ data: {}, error: null });
+      }
+      throw new Error(`unexpected rpc ${name}`);
+    });
+
+    render(<WeeklyContactToggle studentId="student-a" />);
+    const toggle = await screen.findByRole("switch");
+    await waitFor(() => expect(toggle).toBeChecked());
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith(
+      "record_weekly_contact_consent",
+      expect.objectContaining({ _event_type: "revoked" }),
+    ));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });

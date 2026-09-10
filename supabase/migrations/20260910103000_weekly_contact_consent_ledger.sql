@@ -1,8 +1,30 @@
 -- Explicit, append-only consent evidence for proactive weekly WhatsApp contact.
 -- Existing boolean opt-ins are quarantined and disabled; they are not consent.
 
+begin;
+
+set local lock_timeout='8s';
+set local statement_timeout='120s';
+select pg_advisory_xact_lock(hashtextextended('sett:weekly-contact-consent-ledger:v1',0));
+lock table public.students in share row exclusive mode;
+lock table public.flow_sessions in share row exclusive mode;
+
+-- Rollout phase 2 runs only after the consent-aware Edge dispatcher is live.
+-- Fail closed every session created under the legacy boolean-only contract
+-- before installing any path that can create new weekly-contact sessions.
+update public.flow_sessions
+set status='failed',
+    context=coalesce(context,'{}'::jsonb)||jsonb_build_object(
+      'dispatch_error','weekly_contact_consent_reconfirmation_required',
+      'next_dispatch_at',null
+    ),
+    updated_at=now()
+where context->>'trigger_type'='weekly_contact'
+  and status in ('active','waiting_response','processing');
+
 create table if not exists public.weekly_contact_consent_events (
   id uuid primary key default gen_random_uuid(),
+  sequence bigint generated always as identity unique not null,
   student_id uuid not null references public.students(id) on delete restrict,
   company_id uuid not null references public.companies(id) on delete restrict,
   channel text not null default 'whatsapp' check (channel='whatsapp'),
@@ -16,7 +38,7 @@ create table if not exists public.weekly_contact_consent_events (
 );
 
 create index if not exists weekly_contact_consent_events_latest_idx
-  on public.weekly_contact_consent_events(student_id,company_id,occurred_at desc,created_at desc,id desc);
+  on public.weekly_contact_consent_events(student_id,company_id,sequence desc);
 
 create table if not exists public.weekly_contact_legacy_opt_in_quarantine (
   student_id uuid primary key references public.students(id) on delete restrict,
@@ -38,6 +60,17 @@ where weekly_contact_enabled=true;
 
 alter table public.weekly_contact_consent_events enable row level security;
 alter table public.weekly_contact_legacy_opt_in_quarantine enable row level security;
+
+create schema if not exists private;
+revoke all on schema private from public,anon,authenticated;
+create table if not exists private.weekly_contact_boolean_write_authorizations (
+  transaction_id bigint not null,
+  backend_pid integer not null,
+  student_id uuid not null,
+  primary key(transaction_id,backend_pid,student_id)
+);
+revoke all on table private.weekly_contact_boolean_write_authorizations
+from public,anon,authenticated,service_role;
 
 revoke all on table public.weekly_contact_consent_events from public,anon,authenticated;
 grant select on table public.weekly_contact_consent_events to authenticated;
@@ -92,16 +125,18 @@ for each row execute function public.guard_weekly_contact_consent_event();
 create or replace function public.guard_weekly_contact_boolean_write()
 returns trigger
 language plpgsql
+security definer
 set search_path=public,pg_temp
 as $$
 begin
-  if new.weekly_contact_enabled is distinct from old.weekly_contact_enabled
-     and current_user is distinct from pg_get_userbyid(
-       (select routine.proowner
-        from pg_proc routine
-        where routine.oid='public.record_weekly_contact_consent(uuid,text,text,text)'::regprocedure)
-     ) then
-    raise exception 'weekly_contact_enabled_requires_consent_rpc' using errcode='55000';
+  if new.weekly_contact_enabled is distinct from old.weekly_contact_enabled then
+    delete from private.weekly_contact_boolean_write_authorizations permit
+    where permit.transaction_id=txid_current()
+      and permit.backend_pid=pg_backend_pid()
+      and permit.student_id=new.id;
+    if not found then
+      raise exception 'weekly_contact_enabled_requires_consent_rpc' using errcode='55000';
+    end if;
   end if;
   return new;
 end
@@ -133,7 +168,7 @@ as $$
       and event.company_id=_company_id
       and event.channel='whatsapp'
       and event.purpose='weekly_training_support'
-    order by event.occurred_at desc,event.created_at desc,event.id desc
+    order by event.sequence desc
     limit 1
   ),false)
 $$;
@@ -153,6 +188,7 @@ declare
   v_actor uuid := auth.uid();
   v_student public.students%rowtype;
   v_event public.weekly_contact_consent_events%rowtype;
+  v_enabled boolean;
 begin
   if v_actor is null then
     raise exception 'weekly_contact_consent_auth_required' using errcode='42501';
@@ -183,9 +219,23 @@ begin
     _policy_version,_source,v_actor,statement_timestamp(),now()
   ) returning * into v_event;
 
-  update public.students
-  set weekly_contact_enabled=(_event_type='granted')
-  where id=v_student.id and company_id=v_student.company_id;
+  v_enabled := (_event_type='granted');
+  if v_student.weekly_contact_enabled is distinct from v_enabled then
+    insert into private.weekly_contact_boolean_write_authorizations(
+      transaction_id,backend_pid,student_id
+    ) values(txid_current(),pg_backend_pid(),v_student.id);
+    update public.students
+    set weekly_contact_enabled=v_enabled
+    where id=v_student.id and company_id=v_student.company_id;
+    if exists(
+      select 1 from private.weekly_contact_boolean_write_authorizations permit
+      where permit.transaction_id=txid_current()
+        and permit.backend_pid=pg_backend_pid()
+        and permit.student_id=v_student.id
+    ) then
+      raise exception 'weekly_contact_boolean_authorization_not_consumed' using errcode='55000';
+    end if;
+  end if;
 
   return v_event;
 end
@@ -313,3 +363,5 @@ $$;
 
 revoke execute on function public.process_automation_triggers() from public,anon,authenticated;
 grant execute on function public.process_automation_triggers() to service_role;
+
+commit;
