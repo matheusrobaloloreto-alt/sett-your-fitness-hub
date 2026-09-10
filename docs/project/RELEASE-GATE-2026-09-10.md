@@ -2,7 +2,19 @@
 
 ## Escopo
 
-Este registro cobre somente governanca de CI para a branch release. Nao altera feature de produto, schema, migracao, secrets, deploy, staging ou producao.
+Este registro iniciou como governanca de CI para a branch release e agora tambem registra a decisao do gate apos a tentativa controlada de staging. O relato detalhado do incidente e da restauracao esta em `STAGING-WEEKLY-CONSENT-INCIDENT-2026-09-10.md`.
+
+## Estado corrente apos CI e tentativa de staging
+
+- HEAD tecnico: `c7047e8aabf3848e256809b2bd93fb75220ca1c2`, enviado para a branch remota.
+- CI oficial: run `34499385925`, verde.
+- Validacao local: 156/156 arquivos e 991/991 testes Vitest; foco 27/27; Deno 10/10 com permissoes explicitas; mutations 4/4; build aprovado.
+- Staging: **congelado**. A migration exata falhou com SQLSTATE `42703` porque `students.country_code` nao existe no schema vivo. O rollback transacional foi confirmado.
+- Edge de staging: restaurada em v12 com o mesmo hash da fonte v10 pre-rollout, `0b7367df2e5ff2d2e1cb0f7db2db124f65f684d85c9daf2ed87003ebd285bbd2`.
+- Frontend de staging: nao publicado.
+- Producao: nao alterada e sem autorizacao de promocao.
+
+### Registro inicial de governanca
 
 - Worktree: `/Users/macbookpro/.codex/worktrees/bn-app-20260910/release-governance`
 - Branch local: `codex/sett-release-governance-20260910`
@@ -10,7 +22,7 @@ Este registro cobre somente governanca de CI para a branch release. Nao altera f
 - `origin/main`: `f959532f5a0a537d0a7c7b14cdb98f03297dd6ab`
 - Relacao: `origin/main` e ancestral de `a6cff4b`; a release esta 35 commits a frente.
 
-## Matriz de estagio e proveniencia
+## Matriz inicial de estagio e proveniencia
 
 | Estagio | `origin/main` | Release `a6cff4b` | Gate requerido | Status em 2026-09-10 |
 |---|---|---|---|---|
@@ -94,8 +106,10 @@ Rollback desta mudanca de governanca:
 
 Rollback de release/producao nao esta autorizado neste escopo. Para promocao futura, exigir commit aprovado, CI verde, plano de rollback de deploy, e validacao separada de staging/producao.
 
-## Decisao provisoria
+## Decisao atual
 
-NO-GO para promocao da release em 2026-09-10.
+**NO-GO para nova tentativa em staging e para promocao da release em 2026-09-10.**
 
-Motivo: a lacuna de CI foi corrigida no nivel de governanca, mas a baseline integral ainda nao esta verde: TypeScript tem 36 erros existentes, lint tem 44 avisos existentes, a suite completa apresentou falhas sob carga, e o QA do orquestrador pai reportou bloqueios de PII, rollback, migrations e documentacao canonica. A proxima acao correta e rodar o novo workflow na branch release apos push autorizado e abrir tarefas separadas para zerar ou reduzir formalmente as dividas de TypeScript/lint, estabilizar os testes flaky e remover os bloqueios de release fora deste ownership.
+Motivo atual: a CI e as suites do HEAD tecnico ficaram verdes, mas a migration de consentimento nao e compativel com o schema vivo de staging. Ela falhou antes de instalar o contrato novo e foi revertida integralmente. A Edge foi restaurada com fonte byte a byte igual ao snapshot anterior, o frontend nao foi publicado e producao permaneceu intocada.
+
+Proxima acao: produzir um novo hash compativel com a ausencia de `students.country_code` — ou um prerequisite separado e formalmente revisado —, obter novo QA raiz e nova CI verde. So depois repetir o preflight e o rollout estrito Edge -> migration exata -> frontend. O drift do ledger continua proibindo `supabase db push`.
