@@ -80,7 +80,7 @@ O QA raiz aprovou a cadeia de Produto sem P0/P1/P2, e a Release Guardian integro
 - `23b2a66` (`78f752c` no branch de origem): conclusao condicionada a logs duraveis.
 - `9e58e87` (`8e576d9` no branch de origem): CAS de conclusao exige sessao `in_progress` do mesmo aluno e exatamente uma linha retornada.
 
-Divida P3 nao bloqueante: falta um teste explicito em que `completedRow.id` diverge da sessao solicitada. O codigo atual falha fechado nesse caso, mas a frente de Produto nao deve ser declarada sem P3 ate essa cobertura ser adicionada. Proxima acao: acrescentar o caso divergente sem alterar o contrato de producao e reexecutar a suite integral.
+P3 fechado na integracao: foi adicionado o teste explicito em que `completedRow.id` diverge da sessao solicitada. O fluxo falha fechado, preserva a sessao ativa local e nao concede XP. A cobertura foi adicionada sem alterar o contrato de producao; a suite integral continua sendo o gate final do HEAD.
 
 Esta integracao e apenas local/branch release. Staging e producao permanecem NO-GO ate o ledger/RPC/dispatcher de consentimento semanal estar integrado, a frente de Dados concluir seu gate e o smoke autenticado de papeis/tenant passar.
 

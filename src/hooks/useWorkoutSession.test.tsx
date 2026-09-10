@@ -76,6 +76,26 @@ describe("useWorkoutSession", () => {
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
+  it("keeps the active session locally when completion returns a different session id", async () => {
+    mocks.updateResult = { data: { id: "session-other" }, error: null };
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1"));
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+
+    await act(async () => {
+      await result.current.startSession("workout-1");
+    });
+
+    let summary: Awaited<ReturnType<typeof result.current.finishSession>> = null;
+    await act(async () => {
+      summary = await result.current.finishSession({}, [], {});
+    });
+
+    expect(summary).toBeNull();
+    expect(result.current.activeSession?.id).toBe("session-1");
+    expect(localStorage.getItem("sett_active_session_student-1")).not.toBeNull();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
   it("finishes only when the guarded update returns the active session id", async () => {
     mocks.updateResult = { data: { id: "session-1" }, error: null };
     const { result } = renderHook(() => useWorkoutSession("student-1", "company-1"));

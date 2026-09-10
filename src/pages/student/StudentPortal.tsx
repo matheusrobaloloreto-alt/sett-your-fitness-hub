@@ -94,7 +94,7 @@ export async function runStudentPortalWorkoutCompletion<TSession>({
   | { status: "completed"; session: TSession }
 > {
   const saveResult = await saveCurrentLogs();
-  if (!saveResult.ok) return { status: "save_failed", reason: saveResult.reason };
+  if (saveResult.ok === false) return { status: "save_failed", reason: saveResult.reason };
   const session = await finishSession();
   if (!session) return { status: "finish_failed" };
   onCompleted(session);
