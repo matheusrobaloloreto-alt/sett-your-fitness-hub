@@ -115,6 +115,9 @@ describe("MonthlyPrescriptionsCard", () => {
 
     const bundleSelect = calls.find((call) => call.method === "prescription_bundles.select");
     expect(bundleSelect?.args[0]).toContain("status");
+    expect(bundleSelect?.args[0]).toContain("strength_plan_id");
+    expect(bundleSelect?.args[0]).toContain("running_plan_id");
+    expect(bundleSelect?.args[0]).toContain("nutrition_plan_id");
     expect(calls).toContainEqual({
       method: "prescription_bundles.in",
       args: ["status", ["active", "scheduled"]],

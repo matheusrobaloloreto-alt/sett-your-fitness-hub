@@ -8,6 +8,10 @@ import { isPrescriptionCatalogEligible } from "../_shared/prescription/catalogEl
 import { clinicalRiskText, prescriptionRiskText } from "../_shared/prescription/clinicalContext.ts";
 import { targetVolumeFactor } from "../_shared/prescription/volumeRules.ts";
 import {
+  EMERGENCY_FALLBACK_RIR,
+  enforceEmergencyFallbackRir,
+} from "../_shared/prescription/emergencyFallback.ts";
+import {
   isIntercyclePainHandoffRequired,
   isPersistedWaiverValidForGate,
 } from "../_shared/intercycle-anamnesis.ts";
@@ -1079,14 +1083,14 @@ function buildEmergencyFallbackPlan(args: {
       out = out.map((s) => (s.phase === "forca_especifica" ? { ...s, sets: Math.max(s.sets, 3) } : s));
     } else if (isPerformance && level !== "iniciante") {
       const firstCompound = out.findIndex((s) => s.phase === "forca_global");
-      if (firstCompound >= 0) out[firstCompound] = { ...out[firstCompound], sets: 4, reps: "5-6", rest: 120, rir: "2-3", note: `${out[firstCompound].note} Ênfase de força: carga alta, reps baixas, subida com intenção de velocidade.` };
+      if (firstCompound >= 0) out[firstCompound] = { ...out[firstCompound], sets: 4, reps: "5-6", rest: 120, rir: EMERGENCY_FALLBACK_RIR, note: `${out[firstCompound].note} Ênfase de força: carga alta, reps baixas, subida com intenção de velocidade.` };
     }
     // Corretivo da avaliação substitui o foco da ativação específica (quando houver achado).
     if (corrective) {
       const ativIdx = out.findIndex((s) => s.phase === "ativacao_especifica");
       if (ativIdx >= 0) out[ativIdx] = { ...out[ativIdx], keywords: corrective.keywords, cue: corrective.cue, note: corrective.why };
     }
-    return out;
+    return out.map(enforceEmergencyFallbackRir);
   };
 
   const makeWorkout = (name: string, day: number, focus: string, rawSpecs: FallbackExerciseSpec[], extraAccessory: FallbackExerciseSpec) => {
@@ -1103,7 +1107,7 @@ function buildEmergencyFallbackPlan(args: {
       duration_min: level === "avancado" ? 60 : 50,
       split_focus: focus,
       exercises,
-      volume_load_estimate: "Conservador; usar RIR 2-4 e dor <= 3.",
+      volume_load_estimate: `Conservador; usar RIR ${EMERGENCY_FALLBACK_RIR} e dor <= 3.`,
       notes: `Motor BN: técnica antes de carga; troca de estímulo a cada 2 semanas; revisar se houver dor/restrição.${volMult < 1 ? " Volume das fases de força reduzido ~20% por prontidão em cautela (readiness)." : ""}${corrective ? ` ${corrective.why}` : ""}`,
     };
   };
@@ -1114,34 +1118,34 @@ function buildEmergencyFallbackPlan(args: {
       { phase: "ativacao_core", keywords: ["prancha", "dead bug", "core", "pallof"], sets: 2, reps: "20-30s", rest: 45, rir: "3-4", cue: "Trave costelas e pelve, sem prender o ar.", note: "Aumenta estabilidade lombo-pélvica antes da carga." },
       { phase: "ativacao_especifica", keywords: ["gluteo medio", "gluteo", "abducao", "mini band"], sets: 2, reps: "12-15", rest: 45, rir: "3", cue: "Joelho alinhado ao pé, sem colapsar.", note: kneeRisk ? "Prioriza controle de valgo dinâmico." : "Ativa quadril para padrões de agachar." },
       { phase: "controle_motor", keywords: ["agachamento", "goblet", "squat", "caixa"], sets: 2, reps: "8-10", rest: 60, rir: "3-4", cue: "Desça até onde mantém pelve e joelho alinhados.", note: backRisk ? "Limitar amplitude para manter coluna neutra." : "Reforça padrão técnico antes de carga." },
-      { phase: "forca_global", keywords: backRisk ? ["leg press", "hack", "maquina", "agachamento"] : ["agachamento", "leg press", "goblet", "squat"], sets: 3, reps: "8-10", rest: 90, rir: "2-3", cue: "Empurre o chão sem perder alinhamento.", note: "Força global com margem de segurança." },
-      { phase: "forca_especifica", keywords: ["posterior", "mesa flexora", "isquiotibiais", "gluteo"], sets: 2, reps: "10-12", rest: 75, rir: "2-3", cue: "Controle a volta e evite compensar lombar.", note: "Equilibra cadeia posterior para proteger joelho/quadril." },
-    ], { phase: "forca_especifica", keywords: ["cadeira extensora", "extensora", "quadriceps"], sets: 2, reps: "12-15", rest: 60, rir: "2-3", cue: "Extensão completa sem impulso.", note: "Acessório de quadríceps (nível avançado)." }),
+      { phase: "forca_global", keywords: backRisk ? ["leg press", "hack", "maquina", "agachamento"] : ["agachamento", "leg press", "goblet", "squat"], sets: 3, reps: "8-10", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Empurre o chão sem perder alinhamento.", note: "Força global com margem de segurança." },
+      { phase: "forca_especifica", keywords: ["posterior", "mesa flexora", "isquiotibiais", "gluteo"], sets: 2, reps: "10-12", rest: 75, rir: EMERGENCY_FALLBACK_RIR, cue: "Controle a volta e evite compensar lombar.", note: "Equilibra cadeia posterior para proteger joelho/quadril." },
+    ], { phase: "forca_especifica", keywords: ["cadeira extensora", "extensora", "quadriceps"], sets: 2, reps: "12-15", rest: 60, rir: EMERGENCY_FALLBACK_RIR, cue: "Extensão completa sem impulso.", note: "Acessório de quadríceps (nível avançado)." }),
     makeWorkout("Treino B - Postura, puxar e empurrar", 3, "mobilidade torácica, escápula, puxar e empurrar técnico", [
       { phase: "mobilidade", keywords: ["mobilidade toracica", "ombro", "shoulder", "toracica"], sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Movimento suave, sem forçar amplitude.", note: "Prepara ombro e coluna torácica para membros superiores." },
       { phase: "ativacao_core", keywords: ["pallof", "prancha", "core", "dead bug"], sets: 2, reps: "20-30s", rest: 45, rir: "3-4", cue: "Mantenha tronco estável.", note: "Estabilidade para puxadas e empurradas." },
       { phase: "ativacao_especifica", keywords: ["escapula", "face pull", "rotador", "manguito"], sets: 2, reps: "12-15", rest: 45, rir: "3", cue: "Ombros longe das orelhas.", note: "Melhora controle escapular." },
       { phase: "controle_motor", keywords: ["remada", "row", "puxada"], sets: 2, reps: "10", rest: 60, rir: "3", cue: "Puxe com cotovelos, sem jogar tronco.", note: "Ensina trajetória e controle escapular." },
-      { phase: "forca_global", keywords: ["supino", "press", "empurrar", "chest"], sets: 3, reps: "8-10", rest: 90, rir: "2-3", cue: "Escápulas firmes e punho neutro.", note: "Empurrar global com controle." },
-      { phase: "forca_especifica", keywords: ["remada", "puxada", "costas", "dorsal"], sets: 3, reps: "8-12", rest: 90, rir: "2-3", cue: "Controle a volta sem perder postura.", note: "Equilibra ombro e postura." },
-    ], { phase: "forca_especifica", keywords: ["rosca", "biceps", "triceps", "polia"], sets: 2, reps: "10-12", rest: 60, rir: "2-3", cue: "Cotovelo fixo, controle na volta.", note: "Acessório de braço (nível avançado)." }),
+      { phase: "forca_global", keywords: ["supino", "press", "empurrar", "chest"], sets: 3, reps: "8-10", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Escápulas firmes e punho neutro.", note: "Empurrar global com controle." },
+      { phase: "forca_especifica", keywords: ["remada", "puxada", "costas", "dorsal"], sets: 3, reps: "8-12", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Controle a volta sem perder postura.", note: "Equilibra ombro e postura." },
+    ], { phase: "forca_especifica", keywords: ["rosca", "biceps", "triceps", "polia"], sets: 2, reps: "10-12", rest: 60, rir: EMERGENCY_FALLBACK_RIR, cue: "Cotovelo fixo, controle na volta.", note: "Acessório de braço (nível avançado)." }),
     makeWorkout("Treino C - Corpo inteiro e unilateral leve", 5, "integração full body, unilateral e acessórios", [
       { phase: "mobilidade", keywords: ["mobilidade quadril", "tornozelo", "alongamento"], sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Busque amplitude confortável.", note: "Abre movimento antes do unilateral." },
       { phase: "ativacao_core", keywords: ["bird dog", "perdigueiro", "core", "prancha"], sets: 2, reps: "8-10 por lado", rest: 45, rir: "3-4", cue: "Quadril parado e coluna neutra.", note: "Controle anti-rotação." },
       { phase: "controle_motor", keywords: ["afundo", "lunge", "step", "unilateral"], sets: 2, reps: "8 por lado", rest: 60, rir: "3-4", cue: "Joelho acompanha o pé.", note: kneeRisk ? "Usar amplitude curta e sem dor." : "Integra equilíbrio e controle." },
-      { phase: "forca_global", keywords: backRisk ? ["hip thrust", "gluteo", "ponte"] : ["terra romeno", "rdl", "levantamento", "hip hinge"], sets: 3, reps: "8-10", rest: 90, rir: "2-3", cue: "Dobre quadril sem arredondar lombar.", note: "Fortalece cadeia posterior com controle." },
-      { phase: "forca_global", keywords: ["remada", "puxada", "costas"], sets: 3, reps: "10-12", rest: 75, rir: "2-3", cue: "Postura alta e controle de escápulas.", note: "Complementa postura e tronco." },
-      { phase: "forca_especifica", keywords: ["panturrilha", "calf", "abdomen", "core"], sets: 2, reps: "12-15", rest: 60, rir: "2-3", cue: "Controle total da fase excêntrica.", note: "Acessório leve para suporte do ciclo." },
-    ], { phase: "forca_especifica", keywords: ["elevacao lateral", "ombro", "lateral"], sets: 2, reps: "12-15", rest: 60, rir: "2-3", cue: "Suba até a linha do ombro, sem balanço.", note: "Acessório de ombro (nível avançado)." }),
+      { phase: "forca_global", keywords: backRisk ? ["hip thrust", "gluteo", "ponte"] : ["terra romeno", "rdl", "levantamento", "hip hinge"], sets: 3, reps: "8-10", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Dobre quadril sem arredondar lombar.", note: "Fortalece cadeia posterior com controle." },
+      { phase: "forca_global", keywords: ["remada", "puxada", "costas"], sets: 3, reps: "10-12", rest: 75, rir: EMERGENCY_FALLBACK_RIR, cue: "Postura alta e controle de escápulas.", note: "Complementa postura e tronco." },
+      { phase: "forca_especifica", keywords: ["panturrilha", "calf", "abdomen", "core"], sets: 2, reps: "12-15", rest: 60, rir: EMERGENCY_FALLBACK_RIR, cue: "Controle total da fase excêntrica.", note: "Acessório leve para suporte do ciclo." },
+    ], { phase: "forca_especifica", keywords: ["elevacao lateral", "ombro", "lateral"], sets: 2, reps: "12-15", rest: 60, rir: EMERGENCY_FALLBACK_RIR, cue: "Suba até a linha do ombro, sem balanço.", note: "Acessório de ombro (nível avançado)." }),
     // Treino D — só quando o aluno tem 4 dias: ênfase glúteo/posterior + core (antes o 4º dia era ignorado).
     makeWorkout("Treino D - Posterior, glúteo e core", 6, "cadeia posterior, glúteo e estabilidade", [
       { phase: "mobilidade", keywords: ["mobilidade quadril", "alongamento posterior", "quadril"], sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Amplitude confortável e progressiva.", note: "Prepara quadril para dominantes de quadril." },
       { phase: "ativacao_core", keywords: ["prancha lateral", "pallof", "core"], sets: 2, reps: "20-30s", rest: 45, rir: "3-4", cue: "Quadril alinhado, sem girar.", note: "Anti-flexão lateral e anti-rotação." },
       { phase: "ativacao_especifica", keywords: ["gluteo", "ponte", "abducao", "mini band"], sets: 2, reps: "12-15", rest: 45, rir: "3", cue: "Aperte o glúteo no topo.", note: "Prioriza glúteo antes das dominantes de quadril." },
-      { phase: "forca_global", keywords: backRisk ? ["hip thrust", "ponte", "gluteo"] : ["stiff", "terra romeno", "rdl", "posterior"], sets: 3, reps: "8-10", rest: 90, rir: "2-3", cue: "Quadril para trás, coluna neutra.", note: "Dominante de quadril com segurança." },
-      { phase: "forca_global", keywords: ["elevacao pelvica", "hip thrust", "gluteo", "ponte"], sets: 3, reps: "10-12", rest: 90, rir: "2-3", cue: "Extensão completa de quadril sem hiperextender lombar.", note: "Glúteo como motor principal." },
-      { phase: "forca_especifica", keywords: ["mesa flexora", "flexora", "isquiotibiais"], sets: 2, reps: "10-12", rest: 75, rir: "2-3", cue: "Controle a volta em 3 segundos.", note: "Isquiotibiais com ênfase excêntrica." },
-    ], { phase: "forca_especifica", keywords: ["panturrilha", "calf"], sets: 2, reps: "12-15", rest: 60, rir: "2-3", cue: "Pausa de 1s no topo.", note: "Acessório de panturrilha (nível avançado)." }),
+      { phase: "forca_global", keywords: backRisk ? ["hip thrust", "ponte", "gluteo"] : ["stiff", "terra romeno", "rdl", "posterior"], sets: 3, reps: "8-10", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Quadril para trás, coluna neutra.", note: "Dominante de quadril com segurança." },
+      { phase: "forca_global", keywords: ["elevacao pelvica", "hip thrust", "gluteo", "ponte"], sets: 3, reps: "10-12", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Extensão completa de quadril sem hiperextender lombar.", note: "Glúteo como motor principal." },
+      { phase: "forca_especifica", keywords: ["mesa flexora", "flexora", "isquiotibiais"], sets: 2, reps: "10-12", rest: 75, rir: EMERGENCY_FALLBACK_RIR, cue: "Controle a volta em 3 segundos.", note: "Isquiotibiais com ênfase excêntrica." },
+    ], { phase: "forca_especifica", keywords: ["panturrilha", "calf"], sets: 2, reps: "12-15", rest: 60, rir: EMERGENCY_FALLBACK_RIR, cue: "Pausa de 1s no topo.", note: "Acessório de panturrilha (nível avançado)." }),
   ].slice(0, days);
 
   return {
@@ -1156,7 +1160,7 @@ function buildEmergencyFallbackPlan(args: {
     },
     generated_by: "bn_emergency_fallback",
     fallback_reason: args.fallbackReason,
-    biomechanical_notes: "Plano conservador com técnica antes de carga, controle motor, RIR 2-4, sem pliometria e sem métodos avançados.",
+    biomechanical_notes: `Plano conservador com técnica antes de carga, controle motor, RIR ${EMERGENCY_FALLBACK_RIR}, sem pliometria e sem métodos avançados.`,
     workouts,
     library_policy: {
       only_library_exercises: true,

@@ -238,18 +238,32 @@ function itemMatchesDefinition(item, definition) {
     && definition.entityTypes.map(normalizedToken).includes(type);
 }
 
-function findPlanForDefinition(definition, bundle, plansByTable) {
+function pointerPlanForDefinition(definition, bundle, plansByTable) {
   const plans = plansByTable[definition.table];
   const pointerId = clean(bundle[definition.pointer]);
-  const pointerPlan = pointerId ? plans.get(pointerId) : null;
-  if (pointerPlan && planMatchesBundleContext(pointerPlan, bundle) && sportMatches(pointerPlan, definition)) {
-    return pointerPlan;
+  if (!pointerId) return null;
+  const pointerPlan = plans.get(pointerId);
+  if (!pointerPlan || !planMatchesBundleContext(pointerPlan, bundle)) return null;
+  return pointerPlan;
+}
+
+function findContextualPlanForDefinition(definition, bundle, pointerPlan, items, plansByTable) {
+  const plans = plansByTable[definition.table];
+  if (pointerPlan && sportMatches(pointerPlan, definition)) return pointerPlan;
+
+  for (const item of items) {
+    if (!itemMatchesDefinition(item, definition)) continue;
+    const itemPlan = plans.get(item.entity_id);
+    if (itemPlan && planMatchesBundleContext(itemPlan, bundle) && sportMatches(itemPlan, definition)) {
+      return itemPlan;
+    }
   }
+
   for (const plan of plans.values()) {
     if (
       planMatchesBundleContext(plan, bundle)
       && sportMatches(plan, definition)
-      && (plan.bundle_id === bundle.id || !pointerId)
+      && plan.bundle_id === bundle.id
     ) {
       return plan;
     }
@@ -278,11 +292,20 @@ function checkBundleCompleteness(bundle, itemsByBundle, plansByTable) {
   const items = itemsByBundle.get(bundle.id) || [];
 
   for (const definition of enabledDefinitions(bundle)) {
-    const plan = findPlanForDefinition(definition, bundle, plansByTable);
-    const itemOk = hasValidBundleItem(definition, bundle, plan, items);
-    const pointerOk = Boolean(plan);
-    modalities[definition.key] = { pointer_ok: pointerOk, item_ok: itemOk };
-    if (!pointerOk) missing.push(`${definition.key}_pointer`);
+    const pointerValue = clean(bundle[definition.pointer]);
+    const pointerPlan = pointerPlanForDefinition(definition, bundle, plansByTable);
+    const contextualPlan = findContextualPlanForDefinition(definition, bundle, pointerPlan, items, plansByTable);
+    const pointerPersisted = Boolean(pointerPlan);
+    const contextualPlanExists = Boolean(contextualPlan);
+    const itemOk = hasValidBundleItem(definition, bundle, contextualPlan, items);
+    modalities[definition.key] = {
+      pointer_persisted: pointerPersisted,
+      pointer_status: !pointerValue ? "missing" : pointerPersisted ? "persisted" : "stale_or_mismatch",
+      contextual_plan_exists: contextualPlanExists,
+      item_ok: itemOk,
+    };
+    if (!pointerPersisted) missing.push(`${definition.key}_pointer_persisted`);
+    if (!contextualPlanExists) missing.push(`${definition.key}_contextual_plan`);
     if (!itemOk) missing.push(`${definition.key}_item`);
   }
 
@@ -317,7 +340,13 @@ function summarizeBundles({
   const reasonCounts = {};
   const modalityChecks = Object.fromEntries(FLAG_DEFINITIONS.map(({ key }) => [key, {
     expected: 0,
+    pointer_persisted: 0,
     pointer_missing: 0,
+    pointer_stale_or_mismatch: 0,
+    pointer_not_persisted: 0,
+    contextual_plan_exists: 0,
+    contextual_plan_missing: 0,
+    item_ok: 0,
     item_missing: 0,
   }]));
   const flagCounts = Object.fromEntries(FLAG_DEFINITIONS.map(({ flag }) => [flag, 0]));
@@ -361,7 +390,13 @@ function summarizeBundles({
     for (const definition of enabledDefinitions(bundle)) {
       modalityChecks[definition.key].expected += 1;
       const result = completeness.modalities[definition.key] || {};
-      if (!result.pointer_ok) modalityChecks[definition.key].pointer_missing += 1;
+      if (result.pointer_persisted) modalityChecks[definition.key].pointer_persisted += 1;
+      if (result.pointer_status === "missing") modalityChecks[definition.key].pointer_missing += 1;
+      if (result.pointer_status === "stale_or_mismatch") modalityChecks[definition.key].pointer_stale_or_mismatch += 1;
+      if (!result.pointer_persisted) modalityChecks[definition.key].pointer_not_persisted += 1;
+      if (result.contextual_plan_exists) modalityChecks[definition.key].contextual_plan_exists += 1;
+      if (!result.contextual_plan_exists) modalityChecks[definition.key].contextual_plan_missing += 1;
+      if (result.item_ok) modalityChecks[definition.key].item_ok += 1;
       if (!result.item_ok) modalityChecks[definition.key].item_missing += 1;
     }
     if (completeness.complete) {

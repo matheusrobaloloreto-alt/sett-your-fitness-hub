@@ -141,9 +141,9 @@ describe("BN Prescription Engine v1", () => {
       {
         id: "only-safe",
         name: "Mobilidade Prancha Agachamento Leg Press Remada Supino Mesa Flexora Hip Thrust Panturrilha",
-        muscle_group: "geral",
+        muscle_group: "quadriceps",
         equipment: "livre",
-        targets: [{ muscle_group: "geral" }],
+        targets: [{ muscle_group: "quadriceps" }],
       },
     ];
     const program = generateTrainingProgram(baseInput({

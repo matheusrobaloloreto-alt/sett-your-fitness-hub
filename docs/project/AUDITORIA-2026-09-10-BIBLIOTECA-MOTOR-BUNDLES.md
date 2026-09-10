@@ -42,9 +42,9 @@ Impacto histórico/atual medido na investigação:
 | Categoria | Fato | Tratamento |
 |---|---|---|
 | Bug do motor/catálogo | Loader e normalização aceitavam qualquer linha com id+nome, mesmo sem grupo/targets. O fallback legado também recebia essas linhas. | Patch local fail-closed: exigir id, nome e ao menos `muscle_group` ou target real antes da geração. Restam 925 entradas classificadas. |
-| Bug de integração do Studio | Geração de cardio podia retornar sem `data.id`; o update de `running_plan_id` ignorava erro. | Patch local valida o ID e propaga erro de persistência. |
-| Bug de leitura do card mensal | A tela buscava tentativas falhas e exibia modalidades pedidas como se fossem planos concluídos. | Patch local limita a `active|scheduled` e exige o ponteiro persistido para cada badge. |
-| Drift de metodologia | Bloco inicial não cauteloso dizia RIR 2–3, divergindo da base BN RIR 3–4. | Texto e teste alinhados para RIR 3–4. |
+| Bug de integração do Studio | Geração de cardio podia retornar sem `data.id`; o update de `running_plan_id` não confirmava que exatamente uma linha havia sido afetada. | Patch local valida o ID e exige `select("id").single()`, falhando também em zero-row/RLS silencioso. |
+| Bug de leitura do card mensal | A tela buscava tentativas falhas e exibia modalidades pedidas como se fossem planos concluídos. | Patch local limita a `active|scheduled` e valida flag, ponteiro, bundle, modalidade, `entity_type` e `entity_id` no helper compartilhado. |
+| Drift de metodologia | O fallback emergencial emitia fases de força com RIR 2–3, divergindo da política conservadora RIR 3–4 que ele próprio declarava. | Contrato servido e teste executável alinhados para RIR 3–4 em todas as fases de força. |
 | Conteúdo profissional ausente | 245 imports não têm classificação anatômica/targets e 733 entradas não têm metadata de segurança. | Curadoria separada; não inferir anatomia, equipamento, dor ou contraindicação por nome. |
 | Gravação pendente | 872/924 códigos vivos ainda não têm vídeo próprio. | Gravar/importar em lotes: original → `_staging` → dry-run → QA de privacidade/técnica → publicação autorizada. |
 
@@ -79,7 +79,7 @@ Estado vivo agregado:
 - 13 registros não falhos são legados sem `training_cycle_id`; exigem política de retenção/arquivamento, não regeneração automática.
 - 11 bundles pertencem a ciclo atual, mas não estão em status serving; devem permanecer separados do caminho de entrega.
 
-Limite contratual remanescente: `prescription_bundles` mantém um único `running_plan_id` para corrida/natação/ciclismo. Por isso o card local não usa esse ponteiro para inferir badges; ele lê `prescription_bundle_items.modality` e só mostra cada modalidade quando existe item persistido com `entity_id`.
+Limite contratual remanescente: `prescription_bundles` mantém um único `running_plan_id` para corrida/natação/ciclismo. O card usa esse ID como âncora persistida obrigatória do bundle e certifica cada modalidade pelo seu próprio item com `bundle_id`, `entity_type`, `modality` e `entity_id` válidos; não exige que três planos distintos tenham o mesmo ID. O auditor separa a persistência do ponteiro da existência dos planos contextuais das demais modalidades.
 
 ## Vídeos próprios
 
@@ -93,19 +93,19 @@ Limite contratual remanescente: `prescription_bundles` mantém um único `runnin
 
 ## Validação
 
-- Suíte frontend integral: 148 arquivos e 938 testes passaram.
-- Testes Node do auditor, MFIT, contratos de ciclo e ingestão: 110/110 passaram.
-- Segurança Deno da ingestão: 12/12 passou.
-- Benchmark: cinco execuções dedicadas passaram com mediana de CPU entre 120–159 ms; na suíte integral, 148 ms, mantendo teto de 500 ms. Como controle externo, o GitHub Actions do Release Guardian no commit `3d22637` passou 146/146 arquivos e 930/930 testes com mediana de 105,97 ms. Isso reforça que os 561/548/850 ms locais eram wall-clock sob contenção, não regressão estável do motor.
+- Suíte frontend integral: 150 arquivos e 958 testes passaram.
+- Testes Node canônicos do auditor, MFIT e ingestão: 109 passaram e 1 skip de staging isolado, 110 no total.
+- Testes Deno de volume, anamnese interciclo e segurança da ingestão: 27/27 passaram; guard estático do motor: 46/46.
+- Benchmark: cinco execuções dedicadas passaram com mediana de CPU entre 120–159 ms; na suíte integral anterior, 148 ms, mantendo teto primário de CPU de 500 ms. O gate agora também mantém um teto diagnóstico folgado de 3.000 ms de wall-clock para detectar travamento. Como controle externo, o GitHub Actions do Release Guardian no commit `3d22637` passou 146/146 arquivos e 930/930 testes com mediana de 105,97 ms.
 - `deno check` das Edges tocadas, TypeScript, ESLint focado, build de produção, verificação de backend canônico, performance do bundle e `git diff --check`: passaram.
-- QA independente encontrou um P2 nos badges aeróbicos; a correção passou no re-review. Veredito final: GO para commit e handoff, sem P0/P1/P2/P3 remanescente no diff.
+- O QA raiz reabriu o lote após o primeiro commit e exigiu sete correções de contrato. As sete foram fechadas, a suíte integral foi repetida e o re-review independente final deu GO sem P0/P1/P2/P3 remanescente.
 
 ## Alterações locais desta rodada
 
 - Auditor agregado read-only com fixtures anonimizadas: `scripts/audit-prescription-library-integrity.mjs`.
 - Guard compartilhado de elegibilidade: `supabase/functions/_shared/prescription/catalogEligibility.ts`, aplicado no loader e no motor.
 - Correções do Studio/card/bundle, badges por item persistido de modalidade e alinhamento RIR 3–4.
-- Gate de performance preservado em 500 ms, agora sobre CPU consumida pelo worker; tempo de parede permanece no log diagnóstico e não reprova por contenção externa.
+- Gate de performance preservado em 500 ms sobre CPU consumida pelo worker; wall-clock permanece diagnóstico, mas reprova apenas acima do teto folgado de 3.000 ms.
 - Testes de catálogo, integração, UI e auditoria.
 
 ## Checklist acumulado deste escopo
@@ -122,21 +122,21 @@ Limite contratual remanescente: `prescription_bundles` mantém um único `runnin
 - ❌ Reparar as 10 referências (bloqueado) — depende de escolha canônica/decisão profissional e de um plano de escrita com backup, CAS e rollback.
 - ❌ Curar os 245 imports sem targets e os 733 sem metadata de segurança (aguardando) — exige conteúdo profissional; inferência automática está proibida.
 - ❌ Gravar/importar 872 vídeos próprios (aguardando) — não há take novo; seguir pipeline por lotes.
-- ❌ Aplicar em integração/staging/produção (aguardando) — QA independente deu GO; falta promoção pelo Release Guardian.
+- ❌ Aplicar em integração/staging/produção (aguardando) — QA independente final deu GO; falta promoção pelo Release Guardian.
 
 ## Estágios
 
 | Camada | Estado em 2026-09-10 |
 |---|---|
-| Local | Patch e auditor na worktree isolada `codex/sett-library-engine-audit-20260910`; suíte integral, gates focados, build e QA independente verdes. |
-| Commit | Preparado após QA; o hash exato consta no handoff ao Release Guardian. |
+| Local | Patch e auditor na worktree isolada `codex/sett-library-engine-audit-20260910`; suíte integral, gates focados, build e re-review independente verdes. |
+| Commit | Primeiro commit `f8cf70c5241adff688dc6a528ee3e0aafc3837d0` preservado; correções do QA raiz registradas no segundo commit que contém este relatório. |
 | Push/integração | Não executados. |
 | Staging | Não alterado. O link local do CLI aponta para staging e não deve ser usado como atalho para produção. |
 | Produção | Somente auditoria read-only; zero escrita, deploy, ingestão ou reparo. |
 
 ## Próxima ação recomendada
 
-1. Criar commit isolado e entregar ao Release Guardian para integração controlada.
+1. Criar o segundo commit isolado e entregar os dois commits ao Release Guardian para integração controlada.
 2. Preparar um reparo separado dos 10 slots, com before-image, comparação de versão, rollback e apenas aliases aprovados.
 3. Obter decisão técnica para os nomes genéricos antes de qualquer escrita.
 4. Curar os 245 imports em lotes auditáveis; não bloquear histórico existente nem inventar metadata clínica.

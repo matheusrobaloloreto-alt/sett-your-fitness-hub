@@ -265,8 +265,118 @@ test("bundle audit separates failed, serving complete, serving incomplete, and l
   assert.equal(report.bundles.serving_current_cycle.modality_checks.swimming.expected, 1);
   assert.equal(report.bundles.serving_current_cycle.modality_checks.cycling.expected, 1);
   assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.expected, 2);
-  assert.equal(report.bundles.serving_current_cycle.incomplete_reasons.nutrition_pointer, 1);
+  assert.equal(report.bundles.serving_current_cycle.incomplete_reasons.nutrition_pointer_persisted, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.pointer_persisted, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.pointer_not_persisted, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.contextual_plan_exists, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.contextual_plan_missing, 1);
   assert.equal(report.bundles.serving_current_cycle.incomplete_reasons.nutrition_item, 1);
+});
+
+test("bundle completeness fails when canonical pointer is missing even with contextual plan and item", () => {
+  const report = buildPrescriptionLibraryIntegrityReport(baseInput({
+    trainingCycles: [cycle({ id: "cycle-current" })],
+    prescriptionBundles: [
+      bundle({
+        id: "bundle-context-only",
+        has_nutrition: true,
+        nutrition_plan_id: null,
+      }),
+    ],
+    nutritionPlans: [
+      plan({ id: "nutrition-context", bundle_id: "bundle-context-only" }),
+    ],
+    prescriptionBundleItems: [
+      item({ bundle_id: "bundle-context-only", modality: "nutricao", entity_type: "nutrition_plan", entity_id: "nutrition-context" }),
+    ],
+  }));
+
+  assert.equal(report.bundles.serving_current_cycle.complete, 0);
+  assert.equal(report.bundles.serving_current_cycle.incomplete, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.pointer_persisted, 0);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.pointer_missing, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.pointer_not_persisted, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.contextual_plan_exists, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.contextual_plan_missing, 0);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.item_ok, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.nutrition.item_missing, 0);
+  assert.equal(report.bundles.serving_current_cycle.incomplete_reasons.nutrition_pointer_persisted, 1);
+  assert.equal(report.bundles.serving_current_cycle.incomplete_reasons.nutrition_contextual_plan || 0, 0);
+});
+
+test("bundle completeness fails for stale or mismatched pointer even when contextual plan exists", () => {
+  const report = buildPrescriptionLibraryIntegrityReport(baseInput({
+    trainingCycles: [
+      cycle({ id: "cycle-current" }),
+      cycle({ id: "cycle-stale", start_date: "2026-01-01", end_date: "2026-02-11" }),
+    ],
+    prescriptionBundles: [
+      bundle({
+        id: "bundle-stale-pointer",
+        has_strength: true,
+        strength_plan_id: "strength-stale",
+      }),
+    ],
+    aiStrengthPlans: [
+      plan({ id: "strength-stale", training_cycle_id: "cycle-stale", bundle_id: "bundle-stale-pointer" }),
+      plan({ id: "strength-context", bundle_id: "bundle-stale-pointer" }),
+    ],
+    prescriptionBundleItems: [
+      item({ bundle_id: "bundle-stale-pointer", modality: "musculacao", entity_type: "ai_strength_plan", entity_id: "strength-context" }),
+    ],
+  }));
+
+  assert.equal(report.bundles.serving_current_cycle.complete, 0);
+  assert.equal(report.bundles.serving_current_cycle.incomplete, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.strength.pointer_persisted, 0);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.strength.pointer_stale_or_mismatch, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.strength.pointer_not_persisted, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.strength.contextual_plan_exists, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.strength.contextual_plan_missing, 0);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.strength.item_ok, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.strength.item_missing, 0);
+  assert.equal(report.bundles.serving_current_cycle.incomplete_reasons.strength_pointer_persisted, 1);
+});
+
+test("shared aerobic pointer does not hide missing sport-specific contextual plans", () => {
+  const report = buildPrescriptionLibraryIntegrityReport(baseInput({
+    trainingCycles: [cycle({ id: "cycle-current" })],
+    prescriptionBundles: [
+      bundle({
+        id: "bundle-aero-shared",
+        has_cardio: true,
+        has_swimming: true,
+        has_cycling: true,
+        running_plan_id: "run-context",
+      }),
+    ],
+    runningPlans: [
+      plan({ id: "run-context", bundle_id: "bundle-aero-shared", sport: "corrida" }),
+      plan({ id: "swim-context", bundle_id: "bundle-aero-shared", sport: "natacao" }),
+    ],
+    prescriptionBundleItems: [
+      item({ bundle_id: "bundle-aero-shared", modality: "corrida", entity_type: "running_plan", entity_id: "run-context" }),
+      item({ bundle_id: "bundle-aero-shared", modality: "natacao", entity_type: "running_plan", entity_id: "swim-context" }),
+    ],
+  }));
+
+  assert.equal(report.bundles.serving_current_cycle.complete, 0);
+  assert.equal(report.bundles.serving_current_cycle.incomplete, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.cardio.pointer_persisted, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.swimming.pointer_persisted, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.cycling.pointer_persisted, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.cardio.pointer_not_persisted, 0);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.swimming.pointer_not_persisted, 0);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.cycling.pointer_not_persisted, 0);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.cardio.contextual_plan_exists, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.swimming.contextual_plan_exists, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.cycling.contextual_plan_exists, 0);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.cardio.contextual_plan_missing, 0);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.swimming.contextual_plan_missing, 0);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.cycling.contextual_plan_missing, 1);
+  assert.equal(report.bundles.serving_current_cycle.modality_checks.cycling.item_missing, 1);
+  assert.equal(report.bundles.serving_current_cycle.incomplete_reasons.cycling_contextual_plan, 1);
+  assert.equal(report.bundles.serving_current_cycle.incomplete_reasons.cycling_item, 1);
 });
 
 test("scheduled bundles in current non-superseded cycles serve, superseded cycles do not", () => {

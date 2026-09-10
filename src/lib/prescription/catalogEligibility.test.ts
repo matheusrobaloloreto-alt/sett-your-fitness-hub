@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isPrescriptionCatalogEligible } from "../../../supabase/functions/_shared/prescription/catalogEligibility.ts";
+import {
+  isPrescriptionCatalogEligible,
+  isPrescriptionMuscleGroup,
+} from "../../../supabase/functions/_shared/prescription/catalogEligibility.ts";
 
 describe("prescription catalog eligibility", () => {
   it("accepts a classified exercise with a general muscle group", () => {
@@ -27,6 +30,28 @@ describe("prescription catalog eligibility", () => {
       muscle_group: null,
       targets: [],
     })).toBe(false);
+  });
+
+  it.each(["geral", "General", "outro", "OUTROS", "other", "unknown", "desconhecido", "não informado"])(
+    "rejects the canonical placeholder group %s",
+    (muscleGroup) => {
+      expect(isPrescriptionMuscleGroup(muscleGroup)).toBe(false);
+      expect(isPrescriptionCatalogEligible({
+        id: `placeholder-${muscleGroup}`,
+        name: "Exercício sem classificação",
+        muscle_group: muscleGroup,
+        targets: [{ muscle_group: muscleGroup, role: "primary", volume_percentage: 100 }],
+      })).toBe(false);
+    },
+  );
+
+  it("accepts a valid target when the legacy group is only a placeholder", () => {
+    expect(isPrescriptionCatalogEligible({
+      id: "target-wins",
+      name: "Exercício classificado por target",
+      muscle_group: "geral",
+      targets: [{ muscle_group: "Quadríceps", role: "primary", volume_percentage: 100 }],
+    })).toBe(true);
   });
 
   it("rejects rows without stable identity", () => {

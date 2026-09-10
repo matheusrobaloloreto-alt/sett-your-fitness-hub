@@ -53,6 +53,7 @@ import {
   saveCardioPlanDraft,
   saveStrengthPlanDraft,
 } from "@/lib/cardioPlanPersistence";
+import { updateBundleRunningPlanPointer } from "@/lib/prescriptionBundleIntegrity";
 import {
   describeLongitudinalPhase,
   isCycleCurrent,
@@ -835,10 +836,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
           setStatus((current) => ({ ...current, [modality]: "done" }));
         }
         if (firstRunningPlanId) {
-          const { error: runningLinkError } = await db.from("prescription_bundles")
-            .update({ running_plan_id: firstRunningPlanId })
-            .eq("id", bundleId);
-          if (runningLinkError) throw new Error(`Falha ao ligar cardio: ${runningLinkError.message}`);
+          await updateBundleRunningPlanPointer(db, { bundleId, runningPlanId: firstRunningPlanId });
         }
 
         if (modalities.has("nutricao")) {

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ClipboardList } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { completedPrescriptionBundleBadges } from "@/lib/prescriptionBundleIntegrity";
 
 // Prescrições feitas no mês corrente, na ordem em que foram feitas (mais recente primeiro).
 export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId: string | null | undefined; routePrefix?: string }) {
@@ -20,7 +21,7 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
       start.setHours(0, 0, 0, 0);
       let q = (supabase as any)
         .from("prescription_bundles")
-        .select("id, student_id, created_at, status, has_strength, has_cardio, has_nutrition, has_swimming, has_cycling")
+        .select("id, student_id, created_at, status, has_strength, has_cardio, has_nutrition, has_swimming, has_cycling, strength_plan_id, running_plan_id, nutrition_plan_id")
         .gte("created_at", start.toISOString())
         .in("status", ["active", "scheduled"])
         .order("created_at", { ascending: false })
@@ -29,7 +30,7 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
       const { data } = await q;
       const bundles = data || [];
       const bundleIds = bundles.map((bundle: any) => bundle.id).filter(Boolean);
-      const completedModalities = new Map<string, Set<string>>();
+      const itemsByBundle = new Map<string, any[]>();
       if (bundleIds.length) {
         let itemQuery = (supabase as any)
           .from("prescription_bundle_items")
@@ -38,10 +39,10 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
         if (companyId) itemQuery = itemQuery.eq("company_id", companyId);
         const { data: items } = await itemQuery;
         for (const item of items || []) {
-          if (!item.bundle_id || !item.entity_id) continue;
-          const modalities = completedModalities.get(item.bundle_id) || new Set<string>();
-          modalities.add(String(item.modality || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase());
-          completedModalities.set(item.bundle_id, modalities);
+          if (!item.bundle_id) continue;
+          const bundleItems = itemsByBundle.get(item.bundle_id) || [];
+          bundleItems.push(item);
+          itemsByBundle.set(item.bundle_id, bundleItems);
         }
       }
       const ids = [...new Set(bundles.map((b: any) => b.student_id).filter(Boolean))];
@@ -53,7 +54,7 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
       if (!alive) return;
       setRows(bundles.map((b: any) => ({
         ...b,
-        completedModalities: completedModalities.get(b.id) || new Set<string>(),
+        completedBadges: completedPrescriptionBundleBadges(b, itemsByBundle.get(b.id) || []),
         name: names[b.student_id] || "Aluno",
       })));
       setLoading(false);
@@ -86,11 +87,11 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-1 justify-end shrink-0">
-                  {r.has_strength && r.completedModalities.has("musculacao") && <Badge variant="outline" className="text-[10px]">Força</Badge>}
-                  {r.has_cardio && r.completedModalities.has("corrida") && <Badge variant="outline" className="text-[10px]">Cardio</Badge>}
-                  {r.has_swimming && r.completedModalities.has("natacao") && <Badge variant="outline" className="text-[10px]">Natação</Badge>}
-                  {r.has_cycling && r.completedModalities.has("ciclismo") && <Badge variant="outline" className="text-[10px]">Ciclismo</Badge>}
-                  {r.has_nutrition && r.completedModalities.has("nutricao") && <Badge variant="outline" className="text-[10px]">Nutrição</Badge>}
+                  {r.completedBadges.strength && <Badge variant="outline" className="text-[10px]">Força</Badge>}
+                  {r.completedBadges.cardio && <Badge variant="outline" className="text-[10px]">Cardio</Badge>}
+                  {r.completedBadges.swimming && <Badge variant="outline" className="text-[10px]">Natação</Badge>}
+                  {r.completedBadges.cycling && <Badge variant="outline" className="text-[10px]">Ciclismo</Badge>}
+                  {r.completedBadges.nutrition && <Badge variant="outline" className="text-[10px]">Nutrição</Badge>}
                 </div>
               </button>
             ))}

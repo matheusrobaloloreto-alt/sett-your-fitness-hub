@@ -16,6 +16,8 @@ const NAMES = [
   "Mobilidade tornozelo quadril",
   "Puxada frente",
 ];
+const PRIMARY_CPU_BUDGET_MS = 500;
+const DIAGNOSTIC_WALL_CEILING_MS = 3_000;
 
 function buildCatalog(size = 1_200): ExerciseCatalogEntry[] {
   return Array.from({ length: size }, (_, index) => {
@@ -76,12 +78,14 @@ describe("BN Prescription Engine compute budget", () => {
     }).sort((left, right) => left.cpuMs - right.cpuMs);
 
     const medianCpuMs = samples[1].cpuMs;
+    const medianWallMs = [...samples].sort((left, right) => left.wallMs - right.wallMs)[1].wallMs;
     console.info(
-      `prescription_engine_benchmark median_cpu_ms=${medianCpuMs.toFixed(2)} cpu_samples_ms=${samples.map((sample) => sample.cpuMs.toFixed(2)).join(",")} wall_samples_ms=${samples.map((sample) => sample.wallMs.toFixed(2)).join(",")}`,
+      `prescription_engine_benchmark median_cpu_ms=${medianCpuMs.toFixed(2)} median_wall_ms=${medianWallMs.toFixed(2)} cpu_samples_ms=${samples.map((sample) => sample.cpuMs.toFixed(2)).join(",")} wall_samples_ms=${samples.map((sample) => sample.wallMs.toFixed(2)).join(",")}`,
     );
-    // O gate mede CPU realmente consumida pelo worker. Tempo de parede continua
-    // registrado para diagnóstico, mas não reprova por contenção de outros
-    // processos/arquivos no host compartilhado.
-    expect(medianCpuMs).toBeLessThan(500);
+    // CPU é o gate primário de regressão do motor. Wall-clock tem apenas um
+    // teto diagnóstico folgado para detectar travamento, sem confundir contenção
+    // normal do runner compartilhado com compute consumido pelo worker.
+    expect(medianCpuMs).toBeLessThan(PRIMARY_CPU_BUDGET_MS);
+    expect(medianWallMs).toBeLessThan(DIAGNOSTIC_WALL_CEILING_MS);
   });
 });
