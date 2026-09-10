@@ -75,8 +75,8 @@ begin
   values(v_actor,'admin'::public.app_role)
   on conflict(user_id,role) do nothing;
   delete from public.students where id=v_student;
-  insert into public.students(id,company_id,full_name,phone,whatsapp,country_code,weekly_contact_enabled)
-  values(v_student,v_company,'Synthetic Consent Probe',v_recipient_a,v_recipient_a,'BR',false);
+  insert into public.students(id,company_id,full_name,phone,whatsapp,weekly_contact_enabled)
+  values(v_student,v_company,'Synthetic Consent Probe',v_recipient_a,v_recipient_a,false);
   perform set_config('request.jwt.claim.sub',v_actor::text,true);
   perform set_config('request.jwt.claim.role','authenticated',true);
   set local role authenticated;

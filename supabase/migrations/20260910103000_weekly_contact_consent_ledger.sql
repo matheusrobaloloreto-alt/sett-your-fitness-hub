@@ -188,11 +188,11 @@ alter table public.students
 
 update public.students student
 set weekly_contact_recipient_key=public.weekly_contact_current_recipient_key(
-      student.whatsapp,student.phone,student.country_code
+      student.whatsapp,student.phone,to_jsonb(student)->>'country_code'
     ),
     weekly_contact_recipient_generation=case
       when public.weekly_contact_current_recipient_key(
-        student.whatsapp,student.phone,student.country_code
+        student.whatsapp,student.phone,to_jsonb(student)->>'country_code'
       ) is null then 0 else 1 end;
 
 create or replace function public.track_weekly_contact_recipient_generation()
@@ -206,7 +206,7 @@ declare
   v_new_recipient_key text;
 begin
   v_new_recipient_key := public.weekly_contact_current_recipient_key(
-    new.whatsapp,new.phone,new.country_code
+    new.whatsapp,new.phone,to_jsonb(new)->>'country_code'
   );
   if tg_op='INSERT' then
     new.weekly_contact_recipient_key := v_new_recipient_key;
@@ -216,7 +216,7 @@ begin
   end if;
 
   v_old_recipient_key := public.weekly_contact_current_recipient_key(
-    old.whatsapp,old.phone,old.country_code
+    old.whatsapp,old.phone,to_jsonb(old)->>'country_code'
   );
   new.weekly_contact_recipient_key := v_new_recipient_key;
   new.weekly_contact_recipient_generation := case
@@ -332,7 +332,7 @@ as $$
       and student.weekly_contact_recipient_generation=_recipient_generation
       and student.weekly_contact_recipient_key=candidate.recipient_key
       and public.weekly_contact_current_recipient_key(
-        student.whatsapp,student.phone,student.country_code
+        student.whatsapp,student.phone,to_jsonb(student)->>'country_code'
       )=candidate.recipient_key
     from public.weekly_contact_consent_events event
     join public.students student
@@ -391,7 +391,7 @@ begin
   if _event_type='granted' then
     v_presented_recipient_key := public.weekly_contact_recipient_key(_recipient_key);
     v_current_recipient_key := public.weekly_contact_current_recipient_key(
-      v_student.whatsapp,v_student.phone,v_student.country_code
+      v_student.whatsapp,v_student.phone,to_jsonb(v_student)->>'country_code'
     );
     if v_presented_recipient_key is null
        or v_current_recipient_key is null
@@ -544,6 +544,7 @@ begin
   with candidates as (
     select f.id as flow_id,c.id as chat_id,c.remote_jid as recipient_candidate,
       s.weekly_contact_recipient_generation as recipient_generation,
+      to_jsonb(s)->>'country_code' as recipient_country_code,
       public.get_automation_start_node(f.id) as start_node_id,s.id as student_id,s.full_name as student_name,
       coalesce(max(fs.created_at),'-infinity'::timestamptz) as last_weekly_contact_at,
       count(fs.id) filter(where fs.created_at>now()-interval '7 days') as contacts_last_7d
@@ -557,16 +558,17 @@ begin
       and c.remote_jid like '%@s.whatsapp.net'
       and public.weekly_contact_recipient_key(c.remote_jid) is not null
       and public.weekly_contact_current_recipient_key(
-        s.whatsapp,s.phone,s.country_code
+        s.whatsapp,s.phone,to_jsonb(s)->>'country_code'
       )=public.weekly_contact_recipient_key(c.remote_jid)
       and coalesce(s.status,'') in ('active','awaiting_training')
       and exists(select 1 from public.enrollments e where e.student_id=s.id and e.status in ('active','awaiting_training'))
-    group by f.id,c.id,s.id,s.full_name,s.weekly_contact_recipient_generation
+    group by f.id,c.id,s.id,s.full_name,s.weekly_contact_recipient_generation,
+      to_jsonb(s)->>'country_code'
     having count(fs.id) filter(where fs.created_at>now()-interval '7 days')<2
       and coalesce(max(fs.created_at),'-infinity'::timestamptz)<now()-interval '72 hours'
   ), inserted as (
     insert into public.flow_sessions(flow_id,chat_id,current_node_id,status,context,started_at,last_activity_at,created_at,updated_at)
-    select c.flow_id,c.chat_id,c.start_node_id,'active',jsonb_build_object('trigger_type','weekly_contact','automation_key','weekly_contact:'||c.student_id::text||':'||to_char(date_trunc('week',now()),'IYYY-IW')||':'||(c.contacts_last_7d+1)::text,'student_id',c.student_id,'student_name',c.student_name,'recipient_candidate',c.recipient_candidate,'recipient_generation',c.recipient_generation,'contact_objective','Perguntar se o aluno teve dificuldade no treino e se quer mandar video para correcao.','copy_seed',floor(extract(epoch from now())/3600)::bigint,'copy_guidance',jsonb_build_array('Manter o mesmo objetivo, mas variar abertura, ritmo e pergunta final.','Nao soar automatico; mencionar treino, dificuldade ou video de execucao.','Ser curto, humano e acionavel.'),'contacts_last_7d_before',c.contacts_last_7d,'last_weekly_contact_at',c.last_weekly_contact_at),now(),now(),now(),now()
+    select c.flow_id,c.chat_id,c.start_node_id,'active',jsonb_build_object('trigger_type','weekly_contact','automation_key','weekly_contact:'||c.student_id::text||':'||to_char(date_trunc('week',now()),'IYYY-IW')||':'||(c.contacts_last_7d+1)::text,'student_id',c.student_id,'student_name',c.student_name,'recipient_candidate',c.recipient_candidate,'recipient_generation',c.recipient_generation,'recipient_country_code',c.recipient_country_code,'contact_objective','Perguntar se o aluno teve dificuldade no treino e se quer mandar video para correcao.','copy_seed',floor(extract(epoch from now())/3600)::bigint,'copy_guidance',jsonb_build_array('Manter o mesmo objetivo, mas variar abertura, ritmo e pergunta final.','Nao soar automatico; mencionar treino, dificuldade ou video de execucao.','Ser curto, humano e acionavel.'),'contacts_last_7d_before',c.contacts_last_7d,'last_weekly_contact_at',c.last_weekly_contact_at),now(),now(),now(),now()
     from candidates c where not exists(select 1 from public.flow_sessions fs where fs.flow_id=c.flow_id and fs.chat_id=c.chat_id and fs.status in ('active','waiting_response') and fs.context->>'trigger_type'='weekly_contact') returning 1
   ) select count(*) into v_weekly_contact from inserted;
 

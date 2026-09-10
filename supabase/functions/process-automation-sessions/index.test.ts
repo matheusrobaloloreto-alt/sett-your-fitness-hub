@@ -41,14 +41,20 @@ Deno.test("weekly automation blocks a phone-mismatched chat before provider fetc
         });
       }
       if (table === "students") {
-        return resultQuery({
-          data: {
-            id: "student-a",
-            phone: formattedMobile("48", "7"),
-            whatsapp: null,
+        return {
+          select(columns: string) {
+            return resultQuery(columns.includes("country_code")
+              ? { data: null, error: { code: "42703", message: "column students.country_code does not exist" } }
+              : {
+                data: {
+                  id: "student-a",
+                  phone: formattedMobile("48", "7"),
+                  whatsapp: null,
+                },
+                error: null,
+              });
           },
-          error: null,
-        });
+        };
       }
       throw new Error(
         `unsafe query reached after recipient mismatch: ${table}`,
@@ -78,6 +84,7 @@ Deno.test("weekly automation blocks a phone-mismatched chat before provider fetc
             trigger_type: "weekly_contact",
             recipient_candidate: directJid("11", "8"),
             recipient_generation: 1,
+            recipient_country_code: null,
           },
         },
         { url: "https://provider.invalid", key: "redacted" },

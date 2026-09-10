@@ -12,6 +12,7 @@
 - eventos append-only: `granted` ou `revoked`, ordenados por `sequence` identity monotônica; os timestamps são evidência temporal, não critério de desempate;
 - cada `granted` persiste `recipient_key` e `recipient_generation`, a chave canônica exata do destinatário apresentado e sua geração monotônica, dentro do ledger protegido por RLS; `revoked` é sempre global para aluno/canal/finalidade e grava ambos como `null`;
 - `students.weekly_contact_recipient_generation` é estado server-owned: começa em `1` para uma identidade canônica válida e incrementa em toda mudança efetiva, inclusive A → B → A; alterações apenas de formatação que normalizam para a mesma chave não incrementam;
+- `students.country_code` é opcional entre schemas: toda leitura SQL usa `to_jsonb(record)->>'country_code'`, evitando vínculo estático com a coluna. Ausência/null degrada para a regra BR já existente; números com `+` internacional explícito continuam preservados. O cron fixa o país resolvido na fila e o dispatcher semanal não consulta diretamente a coluna opcional;
 - origem inicial: `staff_confirmed_student`, significando que o profissional confirmou a autorização do aluno antes de ligar o controle;
 - `actor_user_id`, tenant e horários são validados/gravados no servidor;
 - alteração direta do booleano é rejeitada; uma autorização privada, vinculada à transação, backend e aluno, é criada pela RPC e consumida uma única vez pelo trigger. Nem um cliente nem outra função `SECURITY DEFINER` do mesmo owner consegue atualizar o cache sem essa autorização específica;
@@ -43,6 +44,8 @@ deno test --allow-env --allow-net=provider.invalid supabase/functions/process-au
 O `--allow-env` do Deno é necessário porque os testes do handler configuram e restauram variáveis sintéticas de cron, Supabase e provedor; nenhuma credencial real é lida ou persistida.
 
 Em 2026-09-10, uma consulta read-only ao ledger de migrations confirmou `20260910103000` ausente tanto em staging (`ifymocggowdlqqcxugko`) quanto em produção (`zshrcgbyhzxpnlccssyz`). Repita essa consulta imediatamente antes do primeiro staging apply. Se a versão aparecer em qualquer alvo, não reescreva nem reaplique este arquivo: crie uma migration aditiva.
+
+Também em 2026-09-10, geração read-only dos tipos confirmou o drift mínimo de `students`: staging possui `id`, `company_id`, `full_name`, `phone`, `whatsapp`, `status` e `weekly_contact_enabled`, mas não `country_code`; produção possui as mesmas colunas e `country_code`. O primeiro F2 de staging falhou transacionalmente com `42703`, sem instalar ledger ou alterar tabelas, e a Edge F1 foi restaurada ao backup. A correção foi validada em dois PostgreSQL efêmeros clonados: schema production-like com a coluna e staging-like sem ela; ambos passaram as 16 invariantes, inclusive A → B → A, e o rollback de contenção.
 
 1. **Edge dispatcher:** publicar primeiro `process-automation-sessions`. Antes da RPC existir, esta versão falha fechada para sessões semanais porque toda checagem retorna inelegível/erro; validar que nenhuma mensagem foi enviada.
 2. **Database migration:** aplicar `20260910103000_weekly_contact_consent_ledger.sql`. Ela primeiro bloqueia novas escritas e encerra a fila legada; depois instala ledger/RPC/trigger e substitui o cron pelo gate de consentimento.

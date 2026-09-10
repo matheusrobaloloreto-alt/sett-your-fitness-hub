@@ -53,3 +53,14 @@ test("rollout verifier rejects the transient consent-check code inside the perma
     /weekly_contact_consent_check_failed must remain retryable and outside the permanent Set/,
   );
 });
+
+test("rollout verifier rejects a static reference to the optional students.country_code column", () => {
+  const sources = {
+    ...baseline,
+    migration: `${baseline.migration}\nselect student.country_code from public.students student;\n`,
+  };
+  assert.throws(
+    () => verifyWeeklyContactConsentRollout(sources),
+    /optional students.country_code must be read through to_jsonb without a static column reference/,
+  );
+});

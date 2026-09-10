@@ -44,6 +44,24 @@ function extractPermanentWeeklyContactErrorCodes(edge) {
 }
 
 export function verifyWeeklyContactConsentRollout({ edge, migration, toggle, rehearsal }) {
+const staticOptionalCountryCodeReference = /\b[a-zA-Z_][a-zA-Z0-9_]*\.country_code\b/;
+requireInvariant(
+  !staticOptionalCountryCodeReference.test(migration),
+  "optional students.country_code must be read through to_jsonb without a static column reference",
+);
+const safeCountryCodeRecords = new Set(
+  [...migration.matchAll(/to_jsonb\(\s*(student|s|new|old|v_student)\s*\)->>'country_code'/g)]
+    .map((match) => match[1]),
+);
+requireInvariant(
+  ["student", "s", "new", "old", "v_student"].every((record) => safeCountryCodeRecords.has(record)) &&
+    migration.includes("to_jsonb(s)->>'country_code' as recipient_country_code") &&
+    migration.includes("'recipient_country_code',c.recipient_country_code") &&
+    edge.includes('isWeeklyContact ? "id, phone, whatsapp" : "id, phone, whatsapp, country_code"') &&
+    edge.includes("country_code: session.context?.recipient_country_code") &&
+    edge.includes("country_code: context?.recipient_country_code"),
+  "migration and dispatcher must preserve country-aware normalization without binding weekly reads to the optional column",
+);
 const recipientResetEffectAnchor = "}, [studentId, normalizedRecipient]);";
 const recipientResetEffectEnd = toggle.indexOf(recipientResetEffectAnchor);
 const recipientResetEffectStart = recipientResetEffectEnd >= 0

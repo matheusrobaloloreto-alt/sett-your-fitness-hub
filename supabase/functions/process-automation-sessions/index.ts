@@ -136,7 +136,10 @@ async function resolveCurrentSessionRecipient(
   chatId: string,
   companyId: string,
   expectedStudentId: string,
+  context: Record<string, unknown> | null,
 ) {
+  const isWeeklyContact = context?.trigger_type === "weekly_contact";
+  if (isWeeklyContact) queuedWeeklyRecipientGeneration(context);
   const chatResult = await admin.from("whatsapp_chats")
     .select("id, company_id, instance_id, remote_jid, student_id")
     .eq("id", chatId)
@@ -145,15 +148,17 @@ async function resolveCurrentSessionRecipient(
   if (chatResult.error) throw chatResult.error;
   if (!chatResult.data?.remote_jid) throw new Error("weekly_contact_recipient_missing");
   const currentChat = chatResult.data;
-  let student: { id: string; phone: string | null; whatsapp: string | null; country_code: string | null } | null = null;
+  let student: { id: string; phone: string | null; whatsapp: string | null; country_code?: unknown } | null = null;
   if (expectedStudentId) {
     const studentResult = await admin.from("students")
-      .select("id, phone, whatsapp, country_code")
+      .select(isWeeklyContact ? "id, phone, whatsapp" : "id, phone, whatsapp, country_code")
       .eq("id", expectedStudentId)
       .eq("company_id", companyId)
       .maybeSingle();
     if (studentResult.error) throw studentResult.error;
-    student = studentResult.data;
+    student = isWeeklyContact && studentResult.data
+      ? { ...studentResult.data, country_code: context?.recipient_country_code }
+      : studentResult.data;
   }
   const verifiedRecipient = resolveVerifiedWhatsAppRecipient({
     clientRemoteJid: currentChat.remote_jid,
@@ -176,7 +181,7 @@ async function verifyWeeklyRecipientImmediatelyBeforeSend(
   companyId: string,
 ) {
   const verifiedRemoteJid = await resolveCurrentSessionRecipient(
-    admin,chatId,companyId,studentId,
+    admin,chatId,companyId,studentId,context,
   );
   assertQueuedWeeklyRecipient(context,verifiedRemoteJid);
   await assertCurrentWeeklyContactConsent(
@@ -381,6 +386,8 @@ async function applyLabel(admin: any, companyId: string, chatId: string, labelNa
 }
 
 export async function processSession(admin: any, session: FlowSession, provider: { url: string; key: string }) {
+  const isWeeklyContact = session.context?.trigger_type === "weekly_contact";
+  if (isWeeklyContact) queuedWeeklyRecipientGeneration(session.context);
   const chatResult = await admin.from("whatsapp_chats")
     .select("id, company_id, instance_id, remote_jid, student_id")
     .eq("id", session.chat_id).single();
@@ -393,15 +400,17 @@ export async function processSession(admin: any, session: FlowSession, provider:
   if (session.context?.trigger_type === "weekly_contact" && !identityStudentId) {
     throw new Error("weekly_contact_recipient_missing");
   }
-  let student: { id: string; phone: string | null; whatsapp: string | null; country_code: string | null } | null = null;
+  let student: { id: string; phone: string | null; whatsapp: string | null; country_code?: unknown } | null = null;
   if (identityStudentId) {
     const studentResult = await admin.from("students")
-      .select("id, phone, whatsapp, country_code")
+      .select(isWeeklyContact ? "id, phone, whatsapp" : "id, phone, whatsapp, country_code")
       .eq("id", identityStudentId)
       .eq("company_id", chat.company_id)
       .maybeSingle();
     if (studentResult.error) throw studentResult.error;
-    student = studentResult.data;
+    student = isWeeklyContact && studentResult.data
+      ? { ...studentResult.data, country_code: session.context?.recipient_country_code }
+      : studentResult.data;
   }
   const verifiedRecipient = resolveVerifiedWhatsAppRecipient({
     clientRemoteJid: chat.remote_jid,
