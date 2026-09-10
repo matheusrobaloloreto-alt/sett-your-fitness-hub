@@ -42,13 +42,24 @@ with expected as (
           and greatest(
             cycle.created_at,
             coalesce(cycle.superseded_at,'-infinity'::timestamptz),
-            coalesce(cycle.prescribed_offline_at,'-infinity'::timestamptz)
+            coalesce(cycle.prescribed_offline_at,'-infinity'::timestamptz),
+            coalesce(cycle.prescription_cleared_at,'-infinity'::timestamptz)
           )>audit.applied_at
       ) or exists (
         select 1 from public.training_cycles cycle
         join public.workouts workout on workout.cycle_id=cycle.id
         where cycle.enrollment_id=audit.enrollment_id
-          and greatest(workout.created_at,workout.updated_at)>audit.applied_at
+          and greatest(
+            workout.created_at,
+            workout.updated_at,
+            coalesce(workout.superseded_at,'-infinity'::timestamptz)
+          )>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.workouts workout on workout.cycle_id=cycle.id
+        join public.workout_exercises exercise on exercise.workout_id=workout.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and exercise.created_at>audit.applied_at
       ) or exists (
         select 1 from public.training_cycles cycle
         join public.workouts workout on workout.cycle_id=cycle.id
@@ -64,6 +75,99 @@ with expected as (
             coalesce(session.created_at,'-infinity'::timestamptz),
             coalesce(session.started_at,'-infinity'::timestamptz),
             coalesce(session.completed_at,'-infinity'::timestamptz)
+          )>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.cycle_feedback feedback on feedback.cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and feedback.created_at>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.ai_plan_versions version on version.cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and version.created_at>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.ai_strength_plans plan on plan.training_cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and greatest(plan.created_at,plan.updated_at)>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.running_plans plan on plan.training_cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and greatest(plan.created_at,plan.updated_at)>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.nutrition_plans plan on plan.training_cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and greatest(plan.created_at,plan.updated_at)>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.prescription_bundles bundle on bundle.training_cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and greatest(bundle.created_at,bundle.updated_at)>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.prescription_bundle_items item
+          on item.entity_type='training_cycle' and item.entity_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and item.created_at>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.prescription_bundles bundle on bundle.training_cycle_id=cycle.id
+        join public.prescription_bundle_items item on item.bundle_id=bundle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and item.created_at>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.intercycle_anamneses anamnese on anamnese.training_cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and greatest(
+            anamnese.created_at,
+            coalesce(anamnese.submitted_at,'-infinity'::timestamptz),
+            coalesce(anamnese.consented_at,'-infinity'::timestamptz)
+          )>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.intercycle_anamnesis_deliveries delivery on delivery.training_cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and greatest(
+            delivery.created_at,
+            delivery.updated_at,
+            coalesce(delivery.sent_at,'-infinity'::timestamptz),
+            coalesce(delivery.responded_at,'-infinity'::timestamptz),
+            coalesce(delivery.cancelled_at,'-infinity'::timestamptz),
+            coalesce(delivery.reopened_at,'-infinity'::timestamptz)
+          )>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.intercycle_anamnesis_invites invite on invite.training_cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and greatest(invite.created_at,coalesce(invite.consumed_at,'-infinity'::timestamptz))>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.intercycle_anamnesis_waivers waiver
+          on waiver.training_cycle_id=cycle.id or waiver.prior_cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and waiver.waived_at>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.workout_archive_events event on event.cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and event.created_at>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.cycle_prescription_clear_events event on event.cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and greatest(event.created_at,coalesce(event.restored_at,'-infinity'::timestamptz))>audit.applied_at
+      ) or exists (
+        select 1 from public.training_cycles cycle
+        join public.enrollments carry on carry.carried_over_cycle_id=cycle.id
+        where cycle.enrollment_id=audit.enrollment_id
+          and greatest(
+            carry.created_at,
+            carry.updated_at,
+            coalesce(carry.carried_over_cycle_cleared_at,'-infinity'::timestamptz)
           )>audit.applied_at
       )
     )::integer as rows_with_post_repair_dependency_activity
