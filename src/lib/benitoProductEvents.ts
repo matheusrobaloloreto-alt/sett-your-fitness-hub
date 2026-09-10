@@ -7,7 +7,7 @@ export type BenitoProductAudience = "professor" | "student";
 
 export type BenitoProductEvent =
   | { source: "professor_prescription"; action: "generation_started" | "review_started" | "completed" | "failed" | "blocked" }
-  | { source: "student_workout"; action: "start_blocked" | "started" | "completed" }
+  | { source: "student_workout"; action: "start_blocked" | "started" | "completed" | "complete_failed" }
   | { source: "student_feedback"; action: "submitted" | "failed" };
 
 export type BenitoProductEventSpec = {
@@ -107,6 +107,14 @@ const EVENT_SPECS: Readonly<Record<string, BenitoProductEventSpec>> = {
     ttlMs: SHORT_MS,
     sticky: false,
     priority: 40,
+    fallback: "idle",
+  },
+  "student_workout:complete_failed": {
+    audience: "student",
+    state: "error",
+    ttlMs: ERROR_MS,
+    sticky: false,
+    priority: 70,
     fallback: "idle",
   },
   "student_feedback:submitted": {

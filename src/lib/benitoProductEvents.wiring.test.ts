@@ -50,6 +50,7 @@ describe("Benito product event wiring contracts", () => {
     expect(source).toContain('source: "student_workout", action: "start_blocked"');
     expect(source).toContain('source: "student_workout", action: "started"');
     expect(source).toContain('source: "student_workout", action: "completed"');
+    expect(source).toContain('source: "student_workout", action: "complete_failed"');
     expect(source).toContain('source: "student_feedback", action: "submitted"');
     expect(source).toContain('source: "student_feedback", action: "failed"');
     expect(source).not.toContain('action: "set_autosaved"');

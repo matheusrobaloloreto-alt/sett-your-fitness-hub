@@ -953,6 +953,15 @@ export default function StudentPortal() {
     });
 
     const finishedSession = await session.finishSession(logs, selectedWorkout.exercises, previousBestWeights);
+    if (!finishedSession) {
+      emitBenitoProductEvent({ source: "student_workout", action: "complete_failed" });
+      toast({
+        title: "Não foi possível finalizar o treino",
+        description: "Mantivemos esta sessão neste aparelho. Confira a conexão e tente novamente.",
+        variant: "destructive",
+      });
+      return;
+    }
     emitBenitoProductEvent({ source: "student_workout", action: "completed" });
     toast({ title: "Treino concluído! 🎉", description: "Mandou bem — orgulho do seu progresso. Bora pro próximo!" });
 
@@ -960,7 +969,7 @@ export default function StudentPortal() {
     setFeedbackWorkoutTitle(selectedWorkout.title);
     setFeedbackText("");
     setFeedbackRating(null);
-    setFeedbackSessionId(finishedSession?.id ?? null);
+    setFeedbackSessionId(finishedSession.id);
     setFeedbackOpen(true);
   };
 
@@ -1063,7 +1072,8 @@ export default function StudentPortal() {
     persistedLogs: allLogs,
     localLogs: Object.values(logs),
     localSessionDate: todayStr,
-  }), [allLogs, logs, todayStr]);
+    completedSessions: workoutSessions,
+  }), [allLogs, logs, todayStr, workoutSessions]);
 
   const weeklySessionCount = useMemo(() => trainedDays.size, [trainedDays]);
 

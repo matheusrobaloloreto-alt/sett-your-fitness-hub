@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { canRoleUseModule } from "@/lib/rolePermissionPolicy";
 
 export type PermissionModule =
   | "dashboard"
@@ -106,6 +107,8 @@ export function useRolePermissions(): UseRolePermissionsReturn {
     const rolesToCheck = userRoles.length > 0 ? userRoles : (role ? [role] : []);
 
     for (const r of rolesToCheck) {
+      if (!canRoleUseModule(r, module)) continue;
+
       // Find explicit permission for this role+module
       const perm = permissions.find(
         (p) => p.role === r && p.module === module
@@ -149,6 +152,9 @@ export function useManageRolePermissions(companyId: string | null) {
 
   const togglePermission = async (role: string, module: string, enabled: boolean) => {
     if (!companyId) return;
+    if (!canRoleUseModule(role, module)) {
+      return new Error("Este módulo não está disponível para esta função.");
+    }
 
     const { error } = await supabase
       .from("role_permissions")
@@ -172,6 +178,7 @@ export function useManageRolePermissions(companyId: string | null) {
   };
 
   const isEnabled = (role: string, module: string): boolean => {
+    if (!canRoleUseModule(role, module)) return false;
     const perm = permissions.find((p) => p.role === role && p.module === module);
     if (perm !== undefined) return perm.enabled;
     // Default
@@ -181,4 +188,3 @@ export function useManageRolePermissions(companyId: string | null) {
 
   return { permissions, loading, togglePermission, isEnabled, reload: loadPermissions };
 }
-

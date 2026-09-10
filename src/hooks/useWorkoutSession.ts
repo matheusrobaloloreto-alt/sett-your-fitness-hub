@@ -152,7 +152,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     const totalSetsCompleted = exercisesSummary.reduce((sum, ex) => sum + ex.sets.filter(s => s.weight > 0 || s.reps > 0).length, 0);
     const totalSetsPrescribed = exercises.reduce((sum, ex) => sum + (parseInt(ex.sets) || 3), 0);
 
-    await supabase
+    const { error: completionError } = await supabase
       .from("workout_sessions")
       .update({
         completed_at: new Date(now).toISOString(),
@@ -164,6 +164,11 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
         exercises_summary: exercisesSummary as any,
       })
       .eq("id", activeSession.id);
+
+    if (completionError) {
+      finishingRef.current = false;
+      return null;
+    }
 
     // Gamification: award XP and check achievements (best-effort, non-blocking failures)
     try {

@@ -4,6 +4,11 @@ interface TrainingLogLike {
   deleted?: boolean | null;
 }
 
+interface CompletedSessionLike {
+  session_date?: string | null;
+  completed_at?: string | null;
+}
+
 function currentMondayRange(now: Date) {
   const jsDay = now.getDay();
   const mondayOffset = jsDay === 0 ? -6 : 1 - jsDay;
@@ -21,6 +26,7 @@ export function collectTrainedDaysForWeek(args: {
   persistedLogs: TrainingLogLike[];
   localLogs?: TrainingLogLike[];
   localSessionDate?: string;
+  completedSessions?: CompletedSessionLike[];
 }): Set<number> {
   const { start, end } = currentMondayRange(args.now);
   const days = new Set<number>();
@@ -34,5 +40,9 @@ export function collectTrainedDaysForWeek(args: {
   };
   args.persistedLogs.forEach(log => collect(log));
   (args.localLogs || []).forEach(log => collect(log, args.localSessionDate));
+  (args.completedSessions || []).forEach(session => {
+    if (!session.completed_at) return;
+    collect({ session_date: session.session_date, completed: true });
+  });
   return days;
 }

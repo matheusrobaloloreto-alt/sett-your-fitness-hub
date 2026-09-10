@@ -6,14 +6,27 @@ import { Label } from "@/components/ui/label";
 import { MessageCircleHeart } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { normalizeStudentChatPhone } from "@/lib/studentChat";
 
-export function WeeklyContactToggle({ studentId, initial }: { studentId: string; initial?: boolean }) {
+type WeeklyContactToggleProps = {
+  studentId: string;
+  initial?: boolean;
+  phone?: string | null;
+  countryCode?: string | null;
+};
+
+export function WeeklyContactToggle({ studentId, initial, phone, countryCode }: WeeklyContactToggleProps) {
   const [enabled, setEnabled] = useState(!!initial);
   const [saving, setSaving] = useState(false);
+  const hasReliableRecipient = Boolean(normalizeStudentChatPhone(phone, countryCode));
 
   useEffect(() => { setEnabled(!!initial); }, [initial]);
 
   const toggle = async (next: boolean) => {
+    if (next && !hasReliableRecipient) {
+      toast.error("Corrija o WhatsApp do aluno antes de ativar o contato semanal.");
+      return;
+    }
     setEnabled(next);
     setSaving(true);
     const { error } = await (supabase as any).from("students").update({ weekly_contact_enabled: next }).eq("id", studentId);
@@ -32,11 +45,22 @@ export function WeeklyContactToggle({ studentId, initial }: { studentId: string;
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-3">
           <Label htmlFor={`wc-${studentId}`} className="text-sm font-medium cursor-pointer">Contato semanal</Label>
-          <Switch id={`wc-${studentId}`} checked={enabled} disabled={saving} onCheckedChange={toggle} />
+          <Switch
+            id={`wc-${studentId}`}
+            checked={enabled}
+            disabled={saving || (!enabled && !hasReliableRecipient)}
+            onCheckedChange={toggle}
+          />
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          2x por semana o assistente pergunta ao aluno, de forma variada, se teve dificuldades ou quer enviar vídeo para correção.
-        </p>
+        {hasReliableRecipient ? (
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Ative somente após o aluno concordar. A automação fará até 2 contatos por semana; nenhuma mensagem é enviada agora.
+          </p>
+        ) : (
+          <p className="text-xs text-destructive mt-0.5">
+            Sem WhatsApp confiável. Corrija o número no perfil antes de ativar.
+          </p>
+        )}
       </div>
     </div>
   );

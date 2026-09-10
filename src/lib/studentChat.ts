@@ -29,7 +29,10 @@ export function normalizeStudentChatPhone(phone?: string | null, countryCode?: s
   const country = String(countryCode || "").trim().toUpperCase();
   if (country && country !== "BR") return /^[1-9]\d{7,14}$/.test(d) ? d : null;
   if (d.length <= 11) d = "55" + d; // assume Brasil se vier sem DDI
-  return /^[1-9]\d{9,14}$/.test(d) ? d : null;
+  if (!/^55\d{10,11}$/.test(d)) return null;
+  const local = d.slice(2);
+  if (local.length === 11 && local[2] !== "9") return null;
+  return d;
 }
 
 // Abre o chat interno do aluno com a mensagem pronta. Sem conversa vinculada, a tela

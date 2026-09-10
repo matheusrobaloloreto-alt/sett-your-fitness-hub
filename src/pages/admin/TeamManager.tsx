@@ -20,6 +20,7 @@ import { ptBR } from "date-fns/locale";
 import { Textarea } from "@/components/ui/textarea";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { canRoleUseModule } from "@/lib/rolePermissionPolicy";
 import {
   buildManualSessionSummary,
   resolveManualPerformanceTrainerId,
@@ -1248,10 +1249,14 @@ export default function TeamManager() {
                             <td className="py-3 px-2 font-sans text-foreground">{mod.label}</td>
                             {PERMISSION_ROLES.map((r) => (
                               <td key={r.key} className="text-center py-3 px-4">
-                                <Switch
-                                  checked={isEnabled(r.key, mod.key)}
-                                  onCheckedChange={() => handleTogglePermission(r.key, mod.key)}
-                                />
+                                {canRoleUseModule(r.key, mod.key) ? (
+                                  <Switch
+                                    checked={isEnabled(r.key, mod.key)}
+                                    onCheckedChange={() => handleTogglePermission(r.key, mod.key)}
+                                  />
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Não disponível</span>
+                                )}
                               </td>
                             ))}
                           </tr>

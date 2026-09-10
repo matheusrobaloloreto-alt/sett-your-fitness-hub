@@ -23,4 +23,15 @@ describe("student weekly training markers", () => {
     });
     expect(days.size).toBe(0);
   });
+
+  it("marks a completed workout session even when no set was explicitly checked", () => {
+    const now = new Date("2026-08-31T12:00:00-03:00");
+    const days = collectTrainedDaysForWeek({
+      now,
+      persistedLogs: [],
+      completedSessions: [{ session_date: "2026-08-31", completed_at: "2026-08-31T13:00:00-03:00" }],
+    });
+
+    expect([...days]).toEqual([1]);
+  });
 });

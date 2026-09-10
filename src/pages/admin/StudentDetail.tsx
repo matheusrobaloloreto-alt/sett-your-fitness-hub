@@ -1785,7 +1785,12 @@ export default function StudentDetail() {
           <TabsContent value="overview" className="space-y-4">
             {id && student?.company_id && (
               <div className="grid gap-3 lg:grid-cols-2">
-                <WeeklyContactToggle studentId={id} initial={(student as { weekly_contact_enabled?: boolean })?.weekly_contact_enabled} />
+                <WeeklyContactToggle
+                  studentId={id}
+                  initial={(student as { weekly_contact_enabled?: boolean })?.weekly_contact_enabled}
+                  phone={student.whatsapp || student.phone}
+                  countryCode={student.country_code}
+                />
                 <IntercycleAnamnesisControls studentId={id} companyId={student.company_id} initial={(student as { intercycle_anamnesis_enabled?: boolean })?.intercycle_anamnesis_enabled} />
               </div>
             )}

@@ -139,7 +139,6 @@ const trainerAllItems = [
   { title: "Alunos", url: "/trainer/students", icon: Users },
   { title: "Equipe", url: "/trainer/team", icon: Users },
   { title: "Agenda", url: "/trainer/agenda", icon: CalendarDays },
-  { title: "Financeiro", url: "/trainer/financial", icon: DollarSign },
   { title: "Aparência", url: "/trainer/appearance", icon: Palette },
 ];
 
