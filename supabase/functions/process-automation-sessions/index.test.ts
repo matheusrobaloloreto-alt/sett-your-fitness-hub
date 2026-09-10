@@ -1,5 +1,10 @@
 import { processIntercycleAnamnesisDeliveries, processSession } from "./index.ts";
 
+const directDigits = (area: string, digit: string) => ["55", area, "9", digit.repeat(8)].join("");
+const directJid = (area: string, digit: string) => `${directDigits(area, digit)}@s.whatsapp.net`;
+const formattedMobile = (area: string, digit: string) => `+55 (${area}) 9${digit.repeat(4)}-${digit.repeat(4)}`;
+const verifiedJid = directJid("48", "7");
+
 function resultQuery(result: { data: unknown; error: unknown }) {
   const query = {
     select: () => query,
@@ -25,7 +30,7 @@ Deno.test("weekly automation blocks a phone-mismatched chat before provider fetc
             id: "chat-corrupted",
             company_id: "company-a",
             instance_id: "instance-a",
-            remote_jid: "5511999999999@s.whatsapp.net",
+            remote_jid: directJid("11", "8"),
             student_id: "student-a",
           },
           error: null,
@@ -35,7 +40,7 @@ Deno.test("weekly automation blocks a phone-mismatched chat before provider fetc
         return resultQuery({
           data: {
             id: "student-a",
-            phone: "+55 (48) 99143-2057",
+            phone: formattedMobile("48", "7"),
             whatsapp: null,
           },
           error: null,
@@ -64,7 +69,11 @@ Deno.test("weekly automation blocks a phone-mismatched chat before provider fetc
           flow_id: "flow-a",
           chat_id: "chat-corrupted",
           current_node_id: "content-a",
-          context: { student_id: "student-a", trigger_type: "weekly_contact" },
+          context: {
+            student_id: "student-a",
+            trigger_type: "weekly_contact",
+            recipient_candidate: directJid("11", "8"),
+          },
         },
         { url: "https://provider.invalid", key: "redacted" },
       );
@@ -116,7 +125,7 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
                 id: "chat-safe",
                 company_id: "company-a",
                 instance_id: "instance-a",
-                remote_jid: "5548991432057@s.whatsapp.net",
+                remote_jid: verifiedJid,
                 student_id: "student-a",
               },
               error: null,
@@ -128,7 +137,7 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
           queries.push({ table, filters: { ...filters } });
           if (table === "students") {
             return {
-              data: { id: "student-a", phone: "+55 (48) 99143-2057", whatsapp: null },
+              data: { id: "student-a", phone: formattedMobile("48", "7"), whatsapp: null },
               error: null,
             };
           }
@@ -168,7 +177,7 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
   };
 
   const unsafeProviderBody =
-    "phone 5548991432057@s.whatsapp.net token=raw-token secret=provider-secret";
+    `phone ${verifiedJid} token=raw-token secret=provider-secret`;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (() =>
     Promise.resolve(new Response(unsafeProviderBody, { status: 502 }))) as typeof fetch;
@@ -183,7 +192,11 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
           flow_id: "flow-a",
           chat_id: "chat-safe",
           current_node_id: "content-a",
-          context: { student_id: "student-a", trigger_type: "weekly_contact" },
+          context: {
+            student_id: "student-a",
+            trigger_type: "weekly_contact",
+            recipient_candidate: verifiedJid,
+          },
         },
         { url: "https://provider.invalid", key: "redacted" },
       );
@@ -193,7 +206,7 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
     if (!message.includes("provider_status_502:whatsapp_provider_failure")) {
       throw new Error(`missing sanitized provider status: ${message}`);
     }
-    for (const leaked of ["99143", "@s.whatsapp.net", "raw-token", "secret"]) {
+    for (const leaked of [verifiedJid.slice(4, 9), "@s.whatsapp.net", "raw-token", "secret"]) {
       if (message.toLowerCase().includes(leaked)) throw new Error(`leaked ${leaked}`);
     }
   } finally {
@@ -208,8 +221,12 @@ Deno.test("weekly automation blocks a revocation that lands after claim but befo
   const admin = {
     rpc: (name: string, args: Record<string, unknown>) => {
       if (name !== "weekly_contact_consent_is_current") throw new Error(`unexpected rpc ${name}`);
-      if (args._student_id !== "student-a" || args._company_id !== "company-a") {
-        throw new Error("consent lookup lost student/company binding");
+      if (
+        args._student_id !== "student-a" ||
+        args._company_id !== "company-a" ||
+        args._recipient_candidate !== verifiedJid
+      ) {
+        throw new Error("consent lookup lost student/company/recipient binding");
       }
       consentChecks += 1;
       return Promise.resolve({ data: consentChecks === 1, error: null });
@@ -222,7 +239,7 @@ Deno.test("weekly automation blocks a revocation that lands after claim but befo
             id: "chat-a",
             company_id: "company-a",
             instance_id: "instance-a",
-            remote_jid: "5548991432057@s.whatsapp.net",
+            remote_jid: verifiedJid,
             student_id: "student-a",
           },
           error: null,
@@ -232,7 +249,7 @@ Deno.test("weekly automation blocks a revocation that lands after claim but befo
         return resultQuery({
           data: {
             id: "student-a",
-            phone: "+55 (48) 99143-2057",
+            phone: formattedMobile("48", "7"),
             whatsapp: null,
             country_code: "BR",
           },
@@ -293,7 +310,11 @@ Deno.test("weekly automation blocks a revocation that lands after claim but befo
           flow_id: "flow-a",
           chat_id: "chat-a",
           current_node_id: "content-a",
-          context: { student_id: "student-a", trigger_type: "weekly_contact" },
+          context: {
+            student_id: "student-a",
+            trigger_type: "weekly_contact",
+            recipient_candidate: verifiedJid,
+          },
         },
         { url: "https://provider.invalid", key: "redacted" },
       );
@@ -306,6 +327,135 @@ Deno.test("weekly automation blocks a revocation that lands after claim but befo
     for (const unsafeTable of ["whatsapp_messages", "flow_sessions"]) {
       if (accessedTables.includes(unsafeTable)) throw new Error(`late revocation wrote ${unsafeTable}`);
     }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("weekly automation re-resolves and blocks a recipient change immediately before send", async () => {
+  const queuedJid = verifiedJid;
+  const changedJid = directJid("48", "8");
+  let chatReads = 0;
+  let studentReads = 0;
+  let consentChecks = 0;
+  let providerFetches = 0;
+  const admin = {
+    rpc: (name: string, args: Record<string, unknown>) => {
+      if (name !== "weekly_contact_consent_is_current") throw new Error(`unexpected rpc ${name}`);
+      consentChecks += 1;
+      if (args._recipient_candidate !== queuedJid) throw new Error("initial consent used the wrong recipient");
+      return Promise.resolve({ data: true, error: null });
+    },
+    from(table: string) {
+      if (table === "whatsapp_chats") {
+        const query = {
+          select: () => query,
+          eq: () => query,
+          single: async () => {
+            chatReads += 1;
+            return {
+              data: {
+                id: "chat-a",
+                company_id: "company-a",
+                instance_id: "instance-a",
+                remote_jid: chatReads === 1 ? queuedJid : changedJid,
+                student_id: "student-a",
+              },
+              error: null,
+            };
+          },
+        };
+        return query;
+      }
+      if (table === "students") {
+        const query = {
+          select: () => query,
+          eq: () => query,
+          maybeSingle: async () => {
+            studentReads += 1;
+            const digit = studentReads === 1 ? "7" : "8";
+            return {
+              data: {
+                id: "student-a",
+                phone: formattedMobile("48", digit),
+                whatsapp: null,
+                country_code: "BR",
+              },
+              error: null,
+            };
+          },
+        };
+        return query;
+      }
+      if (table === "whatsapp_instances") {
+        const query = {
+          select: () => query,
+          eq: () => query,
+          order: () => query,
+          limit: () => query,
+          maybeSingle: async () => ({
+            data: { instance_name: "instance-a", status: "connected" },
+            error: null,
+          }),
+        };
+        return query;
+      }
+      if (table === "automation_flow_nodes") {
+        const query = {
+          select: () => query,
+          eq: () => Promise.resolve({
+            data: [{
+              id: "content-a",
+              flow_id: "flow-a",
+              node_type: "content",
+              data: { message: "Mensagem segura", wait_for_reply: false },
+            }],
+            error: null,
+          }),
+        };
+        return query;
+      }
+      if (table === "automation_flow_edges") {
+        const query = {
+          select: () => query,
+          eq: () => Promise.resolve({ data: [], error: null }),
+        };
+        return query;
+      }
+      throw new Error(`recipient race reached unexpected table ${table}`);
+    },
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    providerFetches += 1;
+    throw new Error("provider must not run after recipient change");
+  }) as typeof fetch;
+
+  try {
+    let code = "";
+    try {
+      await processSession(
+        admin,
+        {
+          id: "session-a",
+          flow_id: "flow-a",
+          chat_id: "chat-a",
+          current_node_id: "content-a",
+          context: {
+            student_id: "student-a",
+            trigger_type: "weekly_contact",
+            recipient_candidate: queuedJid,
+          },
+        },
+        { url: "https://provider.invalid", key: "redacted" },
+      );
+    } catch (error) {
+      code = error instanceof Error ? error.message : String(error);
+    }
+    if (code !== "weekly_contact_recipient_changed") throw new Error(`unexpected block code ${code}`);
+    if (chatReads !== 2 || studentReads !== 2) throw new Error("recipient was not re-read immediately before send");
+    if (consentChecks !== 1) throw new Error("stale recipient reached the second consent check");
+    if (providerFetches !== 0) throw new Error("provider was called after recipient change");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -398,9 +548,9 @@ Deno.test("intercycle dispatcher cancels a rescoped cycle before token creation 
               data: {
                 id: "student-a",
                 full_name: "Aluno Seguro",
-                phone: "+55 48 99999-9999",
+                phone: formattedMobile("48", "9"),
                 whatsapp: null,
-                country_code: "55",
+                country_code: "BR",
                 intercycle_anamnesis_enabled: true,
               },
               error: null,
@@ -485,9 +635,9 @@ Deno.test("intercycle dispatcher cancels completed renewal-history enrollment be
               data: {
                 id: "student-a",
                 full_name: "Aluno Seguro",
-                phone: "+55 48 99999-9999",
+                phone: formattedMobile("48", "9"),
                 whatsapp: null,
-                country_code: "55",
+                country_code: "BR",
                 intercycle_anamnesis_enabled: true,
               },
               error: null,
@@ -575,7 +725,7 @@ Deno.test("intercycle dispatcher retries enrollment lookup errors instead of can
               data: {
                 id: "student-a",
                 full_name: "Aluno Seguro",
-                phone: "+55 48 99999-9999",
+                phone: formattedMobile("48", "9"),
                 whatsapp: null,
                 country_code: "55",
                 intercycle_anamnesis_enabled: true,

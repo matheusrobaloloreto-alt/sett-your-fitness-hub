@@ -37,6 +37,7 @@ describe("weekly contact consent ledger", () => {
       "channel",
       "purpose",
       "event_type",
+      "recipient_key",
       "policy_version",
       "source",
       "actor_user_id",
@@ -94,19 +95,29 @@ describe("weekly contact consent ledger", () => {
     expect(migration).toContain("order by event.sequence desc");
     expect(migration).toContain("event.event_type='granted'");
     expect(migration).toContain("event.policy_version=public.weekly_contact_policy_version()");
-    expect(migration).toContain("public.weekly_contact_consent_is_current(s.id,s.company_id)");
+    expect(migration).toContain("public.weekly_contact_consent_is_current(s.id,s.company_id,c.remote_jid)");
+    expect(migration).toContain("'recipient_candidate',c.recipient_candidate");
     expect(migration).toContain("c.remote_jid like '%@s.whatsapp.net'");
-    expect(migration).toContain("public.sett_phone_key(split_part(c.remote_jid,'@',1)) in (");
+    expect(migration).toContain("public.weekly_contact_recipient_key(c.remote_jid) is not null");
+    expect(migration).toContain(")=public.weekly_contact_recipient_key(c.remote_jid)");
     expect(dispatcher).toContain('context?.trigger_type !== "weekly_contact"');
     expect(dispatcher).toContain('admin.rpc("weekly_contact_consent_is_current"');
+    expect(dispatcher).toContain("_recipient_candidate: verifiedRemoteJid");
+    expect(dispatcher).toContain("async function verifyWeeklyRecipientImmediatelyBeforeSend(");
+    expect(dispatcher).toContain("await resolveCurrentSessionRecipient(");
+    expect(dispatcher.match(/const currentVerifiedRemoteJid = await verifyWeeklyRecipientImmediatelyBeforeSend\(/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(dispatcher).toContain("assertQueuedWeeklyRecipient(context,verifiedRemoteJid)");
     expect(dispatcher).toContain('throw new Error("weekly_contact_consent_missing")');
     expect(dispatcher).toContain("resolveVerifiedWhatsAppRecipient({");
-    expect(dispatcher.match(/await assertCurrentWeeklyContactConsent\(/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(dispatcher.match(/await assertCurrentWeeklyContactConsent\(/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
   it("records grant and revoke via RPC instead of directly mutating the student", () => {
     expect(toggle).toContain('supabase.rpc("record_weekly_contact_consent"');
     expect(toggle).toContain('supabase.rpc("weekly_contact_consent_status"');
+    expect(toggle).toContain("const originRecipient = normalizedRecipient");
+    expect(toggle).toContain("_recipient_key: originRecipient");
+    expect(toggle).toContain("activeRecipientRef.current !== originRecipient");
     expect(toggle).toContain('_source: "staff_confirmed_student"');
     expect(toggle).toContain("payload?.eligible === true");
     expect(toggle).toContain("Confirmo que o aluno autorizou");
@@ -122,6 +133,8 @@ describe("weekly contact consent ledger", () => {
     expect(toggle).toContain("setAttestedRecipient(null)");
     expect(rolloutGate).toContain('recipientResetEffect.includes("setEnabled(false)")');
     expect(rolloutGate).toContain('recipientResetEffect.includes("setSaving(false)")');
+    expect(rolloutGate).toContain('toggle.includes("const originRecipient = normalizedRecipient")');
+    expect(rolloutGate).toContain('toggle.includes("_recipient_key: originRecipient")');
     expect(toggle).not.toContain("weekly-training-support-v1-2026-09-10");
     expect(toggle).not.toMatch(/\.from\("students"\)\.update\(\{ weekly_contact_enabled:/);
     expect(studentDetail).not.toContain("weekly_contact_enabled");
@@ -144,7 +157,7 @@ describe("weekly contact consent ledger", () => {
     expect(rollback).not.toMatch(/set weekly_contact_enabled=true/i);
   });
 
-  it("rehearses grant, direct-write rejection, revoke, and immutable evidence with synthetic data", () => {
+  it("rehearses recipient scope, races, direct-write rejection, revoke, and immutable evidence", () => {
     expect(rehearsal).toContain("Synthetic Consent Probe");
     expect(rehearsal).toContain("grant_eligible");
     expect(rehearsal).toContain("revoke_ineligible");
@@ -153,6 +166,12 @@ describe("weekly contact consent ledger", () => {
     expect(rehearsal).toContain("generic_definer_rejected");
     expect(rehearsal).toContain("ledger_mutation_rejected");
     expect(rehearsal).toContain("stale_policy_rejected");
+    expect(rehearsal).toContain("grant_a_then_b_false");
+    expect(rehearsal).toContain("grant_b_true");
+    expect(rehearsal).toContain("return_to_a_false");
+    expect(rehearsal).toContain("profile_rpc_race_rejected");
+    expect(rehearsal).toContain("phone_divergence_rejected");
+    expect(rehearsal).toContain("alternate_jid_rejected");
     expect(rehearsal).toContain("set local role authenticated");
     expect(rehearsal).not.toMatch(/\bcommit\s*;/i);
     expect(rehearsal).toMatch(/^begin;/im);

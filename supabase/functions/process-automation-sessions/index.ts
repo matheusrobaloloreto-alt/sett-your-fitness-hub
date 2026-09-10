@@ -3,7 +3,11 @@ import {
   providerErrorDetails,
   sanitizeProviderErrorForLog,
 } from "../_shared/provider-error-redaction.ts";
-import { evolutionTextRecipient, resolveVerifiedWhatsAppRecipient } from "../_shared/whatsappIdentity.ts";
+import {
+  evolutionTextRecipient,
+  resolveVerifiedWhatsAppRecipient,
+  sameWhatsAppRecipient,
+} from "../_shared/whatsappIdentity.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -71,15 +75,83 @@ async function assertCurrentWeeklyContactConsent(
   context: Record<string, unknown> | null,
   studentId: string,
   companyId: string,
+  verifiedRemoteJid: string,
 ) {
   if (context?.trigger_type !== "weekly_contact") return;
   const consent = await admin.rpc("weekly_contact_consent_is_current", {
     _student_id: studentId,
     _company_id: companyId,
+    _recipient_candidate: verifiedRemoteJid,
   });
   if (consent.error || consent.data !== true) {
     throw new Error("weekly_contact_consent_missing");
   }
+}
+
+function assertQueuedWeeklyRecipient(
+  context: Record<string, unknown> | null,
+  verifiedRemoteJid: string,
+) {
+  if (context?.trigger_type !== "weekly_contact") return;
+  const queuedRecipient = String(context.recipient_candidate || "").trim();
+  if (!queuedRecipient || !sameWhatsAppRecipient(queuedRecipient, verifiedRemoteJid)) {
+    throw new Error("weekly_contact_recipient_changed");
+  }
+}
+
+async function resolveCurrentSessionRecipient(
+  admin: any,
+  chatId: string,
+  companyId: string,
+  expectedStudentId: string,
+) {
+  const chatResult = await admin.from("whatsapp_chats")
+    .select("id, company_id, instance_id, remote_jid, student_id")
+    .eq("id", chatId)
+    .eq("company_id", companyId)
+    .single();
+  if (chatResult.error || !chatResult.data?.remote_jid) {
+    throw new Error("Conversa da automação não encontrada.");
+  }
+  const currentChat = chatResult.data;
+  let student: { id: string; phone: string | null; whatsapp: string | null; country_code: string | null } | null = null;
+  if (expectedStudentId) {
+    const studentResult = await admin.from("students")
+      .select("id, phone, whatsapp, country_code")
+      .eq("id", expectedStudentId)
+      .eq("company_id", companyId)
+      .maybeSingle();
+    if (studentResult.error) throw studentResult.error;
+    student = studentResult.data;
+  }
+  const verifiedRecipient = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: currentChat.remote_jid,
+    chatRemoteJid: currentChat.remote_jid,
+    chatStudentId: currentChat.student_id,
+    requestedStudentId: expectedStudentId,
+    student,
+  });
+  if (!verifiedRecipient.ok) {
+    throw new Error(`Identidade do destinatário não confirmada (${verifiedRecipient.code}); envio automático bloqueado para revisão.`);
+  }
+  return verifiedRecipient.remoteJid;
+}
+
+async function verifyWeeklyRecipientImmediatelyBeforeSend(
+  admin: any,
+  context: Record<string, unknown>,
+  chatId: string,
+  studentId: string,
+  companyId: string,
+) {
+  const verifiedRemoteJid = await resolveCurrentSessionRecipient(
+    admin,chatId,companyId,studentId,
+  );
+  assertQueuedWeeklyRecipient(context,verifiedRemoteJid);
+  await assertCurrentWeeklyContactConsent(
+    admin,context,studentId,companyId,verifiedRemoteJid,
+  );
+  return verifiedRemoteJid;
 }
 
 async function sendText(args: {
@@ -286,7 +358,6 @@ export async function processSession(admin: any, session: FlowSession, provider:
   if (!chat.remote_jid) throw new Error("Conversa sem número remoto.");
   const expectedStudentId = String(session.context?.student_id || "").trim();
   const identityStudentId = expectedStudentId || chat.student_id || "";
-  await assertCurrentWeeklyContactConsent(admin,session.context,identityStudentId,chat.company_id);
   let student: { id: string; phone: string | null; whatsapp: string | null; country_code: string | null } | null = null;
   if (identityStudentId) {
     const studentResult = await admin.from("students")
@@ -308,6 +379,10 @@ export async function processSession(admin: any, session: FlowSession, provider:
     throw new Error(`Identidade do destinatário não confirmada (${verifiedRecipient.code}); envio automático bloqueado para revisão.`);
   }
   const verifiedRemoteJid = verifiedRecipient.remoteJid;
+  assertQueuedWeeklyRecipient(session.context,verifiedRemoteJid);
+  await assertCurrentWeeklyContactConsent(
+    admin,session.context,identityStudentId,chat.company_id,verifiedRemoteJid,
+  );
 
   let instanceQuery = admin.from("whatsapp_instances")
     .select("instance_name, status")
@@ -357,13 +432,15 @@ export async function processSession(admin: any, session: FlowSession, provider:
       let message = replaceVariables(nodeData.message || node.label || "", context);
       if (context.trigger_type === "weekly_contact") message = weeklyContactMessage(context);
       if (message.trim()) {
-        await assertCurrentWeeklyContactConsent(admin,context,identityStudentId,chat.company_id);
+        const currentVerifiedRemoteJid = await verifyWeeklyRecipientImmediatelyBeforeSend(
+          admin,context,chat.id,identityStudentId,chat.company_id,
+        );
         await sendText({
           admin,
           evoUrl: provider.url,
           evoKey: provider.key,
           instanceName: instance.instance_name,
-          remoteJid: verifiedRemoteJid,
+          remoteJid: currentVerifiedRemoteJid,
           chatId: chat.id,
           companyId: chat.company_id,
           text: message.trim(),
@@ -391,13 +468,15 @@ export async function processSession(admin: any, session: FlowSession, provider:
       if (options.length) {
         message += `\n\n${options.map((option: any) => `${option.number}. ${replaceVariables(option.text || "", context)}`).join("\n")}`;
       }
-      await assertCurrentWeeklyContactConsent(admin,context,identityStudentId,chat.company_id);
+      const currentVerifiedRemoteJid = await verifyWeeklyRecipientImmediatelyBeforeSend(
+        admin,context,chat.id,identityStudentId,chat.company_id,
+      );
       await sendText({
         admin,
         evoUrl: provider.url,
         evoKey: provider.key,
         instanceName: instance.instance_name,
-        remoteJid: verifiedRemoteJid,
+        remoteJid: currentVerifiedRemoteJid,
         chatId: chat.id,
         companyId: chat.company_id,
         text: message.trim(),

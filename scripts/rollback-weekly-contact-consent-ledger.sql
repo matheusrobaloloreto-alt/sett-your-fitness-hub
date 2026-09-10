@@ -31,7 +31,8 @@ where context->>'trigger_type'='weekly_contact'
 
 create or replace function public.weekly_contact_consent_is_current(
   _student_id uuid,
-  _company_id uuid
+  _company_id uuid,
+  _recipient_candidate text
 )
 returns boolean
 language sql
@@ -40,11 +41,13 @@ security definer
 set search_path=pg_catalog
 as $$ select false $$;
 
-revoke execute on function public.record_weekly_contact_consent(uuid,text,text,text)
+revoke execute on function public.record_weekly_contact_consent(uuid,text,text,text,text)
 from public,anon,authenticated;
-revoke execute on function public.weekly_contact_consent_is_current(uuid,uuid)
+revoke execute on function public.weekly_contact_consent_status(uuid,text)
 from public,anon,authenticated;
-grant execute on function public.weekly_contact_consent_is_current(uuid,uuid)
+revoke execute on function public.weekly_contact_consent_is_current(uuid,uuid,text)
+from public,anon,authenticated;
+grant execute on function public.weekly_contact_consent_is_current(uuid,uuid,text)
 to service_role;
 
 commit;

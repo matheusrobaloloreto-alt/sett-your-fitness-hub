@@ -29,8 +29,8 @@ requireInvariant(
   "legacy queue cleanup must fail closed every dispatchable weekly status",
 );
 requireInvariant(
-  (edge.match(/await assertCurrentWeeklyContactConsent\(/g) || []).length >= 3,
-  "Edge must check consent after claim and immediately before content/menu sends",
+  (edge.match(/await assertCurrentWeeklyContactConsent\(/g) || []).length >= 2,
+  "Edge must check consent after claim and within the per-send recipient verifier",
 );
 requireInvariant(toggle.includes("Confirmo que o aluno autorizou"), "frontend grant requires explicit staff attestation");
 requireInvariant(
@@ -57,6 +57,27 @@ requireInvariant(
     toggle.includes("activeRecipientRef.current !== originRecipient") &&
     toggle.includes("open={isCurrentStudent && isGrantRecipientCurrent && grantDialogOpen}"),
   "frontend must ignore stale consent completions and scope the dialog by student and recipient identity",
+);
+requireInvariant(
+  toggle.includes("const originRecipient = normalizedRecipient") &&
+    toggle.includes('weekly_contact_consent_status", {') &&
+    toggle.includes("_recipient_key: originRecipient") &&
+    toggle.includes("activeRecipientRef.current !== originRecipient"),
+  "status fetch must capture the recipient, query recipient-aware status, and ignore stale recipient completions",
+);
+requireInvariant(
+  migration.includes("public.weekly_contact_consent_is_current(s.id,s.company_id,c.remote_jid)") &&
+    migration.includes("'recipient_candidate',c.recipient_candidate") &&
+    edge.includes("_recipient_candidate: verifiedRemoteJid"),
+  "cron must pin and authorize the queued recipient candidate",
+);
+requireInvariant(
+  edge.includes("async function verifyWeeklyRecipientImmediatelyBeforeSend(") &&
+    edge.includes("await resolveCurrentSessionRecipient(") &&
+    (edge.match(/const currentVerifiedRemoteJid = await verifyWeeklyRecipientImmediatelyBeforeSend\(/g) || []).length >= 2 &&
+    edge.includes("assertQueuedWeeklyRecipient(context,verifiedRemoteJid)") &&
+    edge.includes("remoteJid: currentVerifiedRemoteJid"),
+  "dispatcher must re-read, re-resolve, compare and authorize the current recipient immediately before every send",
 );
 requireInvariant(toggle.includes('_event_type: next ? "granted" : "revoked"'), "frontend must use the consent RPC for both events");
 

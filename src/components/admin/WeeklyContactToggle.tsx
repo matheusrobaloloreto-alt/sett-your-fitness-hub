@@ -46,6 +46,7 @@ export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyCon
 
   useEffect(() => {
     let active = true;
+    const originRecipient = normalizedRecipient;
     setEnabled(false);
     setPolicyVersion(null);
     setStatusStudentId(null);
@@ -55,8 +56,15 @@ export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyCon
     setSaving(false);
     setLoading(true);
     (async () => {
-      const status = await supabase.rpc("weekly_contact_consent_status", { _student_id: studentId });
-      if (!active || activeStudentIdRef.current !== studentId) return;
+      const status = await supabase.rpc("weekly_contact_consent_status", {
+        _student_id: studentId,
+        _recipient_key: originRecipient,
+      });
+      if (
+        !active ||
+        activeStudentIdRef.current !== studentId ||
+        activeRecipientRef.current !== originRecipient
+      ) return;
       const payload = !status.error && status.data && typeof status.data === "object" && !Array.isArray(status.data)
         ? status.data as { eligible?: boolean; policy_version?: string }
         : null;
@@ -67,7 +75,7 @@ export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyCon
       setLoading(false);
     })();
     return () => { active = false; };
-  }, [studentId]);
+  }, [studentId, normalizedRecipient]);
 
   useEffect(() => {
     setEnabled(false);
@@ -99,6 +107,7 @@ export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyCon
       _student_id: originStudentId,
       _event_type: next ? "granted" : "revoked",
       _policy_version: originPolicyVersion,
+      _recipient_key: next ? originRecipient : null,
       _source: "staff_confirmed_student",
     });
     if (activeStudentIdRef.current !== originStudentId || activeRecipientRef.current !== originRecipient) return;

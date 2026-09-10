@@ -10,6 +10,7 @@
 - finalidade fixa: `weekly_training_support`;
 - versão vigente: `weekly-training-support-v1-2026-09-10`;
 - eventos append-only: `granted` ou `revoked`, ordenados por `sequence` identity monotônica; os timestamps são evidência temporal, não critério de desempate;
+- cada `granted` persiste `recipient_key`, a chave canônica exata do destinatário apresentado, dentro do ledger protegido por RLS; `revoked` é sempre global para aluno/canal/finalidade e grava `recipient_key = null`;
 - origem inicial: `staff_confirmed_student`, significando que o profissional confirmou a autorização do aluno antes de ligar o controle;
 - `actor_user_id`, tenant e horários são validados/gravados no servidor;
 - alteração direta do booleano é rejeitada; uma autorização privada, vinculada à transação, backend e aluno, é criada pela RPC e consumida uma única vez pelo trigger. Nem um cliente nem outra função `SECURITY DEFINER` do mesmo owner consegue atualizar o cache sem essa autorização específica;
@@ -20,7 +21,7 @@
 
 Não há backfill de `granted`. Todo booleano legado ligado é primeiro registrado numa quarentena privada e depois desligado, sem fabricar consentimento ou revogação. O profissional precisa reconfirmar com o aluno e gerar um novo `granted` pela interface. A quarentena existe só para diagnóstico/recuperação controlada e não participa da elegibilidade.
 
-O cron consulta o ledger antes de criar a sessão e só aceita um JID direto cuja chave normalizada corresponda ao telefone/WhatsApp do aluno. O dispatcher repete a consulta antes de resolver o destinatário e novamente imediatamente antes de cada envio; assim, uma revogação posterior à criação da fila bloqueia o envio. Sessões sem consentimento vigente terminam como `failed` sem retry. A resolução existente de identidade/telefone confiável continua obrigatória.
+O cron passa o JID direto candidato à elegibilidade antes de criar a sessão e fixa esse candidato no contexto protegido da fila. O evento global mais recente precisa ser `granted`, estar na política vigente e ter `recipient_key` igual à identidade canônica, atual e não ambígua do aluno. Imediatamente antes de cada envio, o dispatcher relê chat e aluno, reexecuta a resolução, compara o novo `verifiedRemoteJid` com o candidato fixado na fila e só então repete a elegibilidade com o destinatário atual. Assim, revogação, mudança de perfil ou troca de JID depois da fila bloqueiam o envio. Sessões sem consentimento vigente terminam como `failed` sem retry.
 
 Antes de instalar o ledger, a migration abre uma transação, adquire advisory lock e bloqueia escritas concorrentes em `students` e `flow_sessions`. Então encerra como `failed` todas as sessões semanais antigas em `active`, `waiting_response` ou `processing`, com o motivo `weekly_contact_consent_reconfirmation_required`. Se os locks não forem obtidos em oito segundos, ela falha sem aplicar parcialmente. Isso impede que o cron antigo insira uma nova fila no intervalo do corte.
 
@@ -34,9 +35,9 @@ Execute `npm run verify:weekly-consent-rollout` antes de qualquer fase. O gate f
 
 Não inverter as fases. Frontend antes da migration quebra o grant; migration antes do Edge deixa uma janela em que o dispatcher antigo não revalida revogação imediatamente antes do envio.
 
-O controle de frontend vincula status e policy ao `studentId`, mas o modal e o ateste ficam vinculados também à identidade exata de `normalizedRecipient` apresentada ao profissional. Qualquer troca dessa identidade — inclusive de um número válido A para outro número válido B do mesmo aluno — fecha o modal e limpa destinatário/ateste. Uma nova confirmação começa desmarcada, apresenta B e só permite o grant quando o destinatário atual coincide com o destinatário do modal e com o destinatário atestado. Conclusões assíncronas só alteram a interface se `studentId` e `normalizedRecipient` ainda forem os mesmos da operação de origem.
+O controle de frontend vincula status, policy, modal e ateste a `studentId + normalizedRecipient`. O status captura o destinatário no início da chamada e ignora a resposta se aluno ou destinatário mudarem. A RPC trava a linha do aluno, recalcula a identidade atual e rejeita o grant se o valor apresentado ficou obsoleto ou se `phone` e `whatsapp` divergem. Voltar a um destinatário antigo não ressuscita um grant: somente o evento global mais recente governa a elegibilidade, portanto é necessário um novo ateste e um novo evento.
 
-Limite atual: essa vinculação por destinatário é uma barreira do frontend. A RPC e o ledger registram consentimento por aluno/canal/finalidade e ainda não persistem a identidade do número atestado. Portanto, este delta impede reaproveitar o checkbox ou a conclusão visual de A em B, mas não autoriza afirmar em produção que um grant já iniciado para A será abortado no banco após o telefone mudar. Se o requisito de produto for consentimento estritamente por número, o rollout permanece bloqueado até uma evolução explícita da migration/RPC/eligibilidade que grave e confira o destinatário normalizado.
+O rehearsal transacional cobre grant no destinatário A seguido de troca para B, novo grant em B, revogação global, retorno a A, perfil vencendo a corrida contra uma RPC obsoleta, divergência entre os dois campos de contato e JID alternativo. Dados de telefone sintéticos são construídos apenas em memória e o resultado emite exclusivamente booleanos.
 
 ## Rollback
 

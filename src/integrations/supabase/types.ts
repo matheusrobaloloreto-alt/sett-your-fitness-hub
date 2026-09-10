@@ -7828,6 +7828,7 @@ export type Database = {
           occurred_at: string
           policy_version: string
           purpose: string
+          recipient_key: string | null
           sequence: number
           source: string
           student_id: string
@@ -7842,6 +7843,7 @@ export type Database = {
           occurred_at?: string
           policy_version: string
           purpose?: string
+          recipient_key?: string | null
           sequence?: number
           source: string
           student_id: string
@@ -7856,6 +7858,7 @@ export type Database = {
           occurred_at?: string
           policy_version?: string
           purpose?: string
+          recipient_key?: string | null
           sequence?: number
           source?: string
           student_id?: string
@@ -10565,6 +10568,7 @@ export type Database = {
         Args: {
           _event_type: string
           _policy_version: string
+          _recipient_key: string | null
           _source: string
           _student_id: string
         }
@@ -10745,15 +10749,35 @@ export type Database = {
         Args: { p_template_id: string; p_user_id: string }
         Returns: boolean
       }
+      weekly_contact_current_recipient_key: {
+        Args: {
+          _country_code: string
+          _phone: string
+          _whatsapp: string
+        }
+        Returns: string
+      }
       weekly_contact_consent_is_current: {
-        Args: { _company_id: string; _student_id: string }
+        Args: {
+          _company_id: string
+          _recipient_candidate: string
+          _student_id: string
+        }
         Returns: boolean
       }
       weekly_contact_consent_status: {
-        Args: { _student_id: string }
+        Args: { _recipient_key: string | null; _student_id: string }
         Returns: Json
       }
       weekly_contact_policy_version: { Args: never; Returns: string }
+      weekly_contact_recipient_key: {
+        Args: { _candidate: string }
+        Returns: string
+      }
+      weekly_contact_stored_recipient_key: {
+        Args: { _country_code: string; _value: string }
+        Returns: string
+      }
       weekly_consistency_source_id: {
         Args: { _student_id: string; _week_start: string }
         Returns: string
