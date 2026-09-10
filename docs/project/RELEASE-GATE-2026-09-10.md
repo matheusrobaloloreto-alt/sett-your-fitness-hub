@@ -2,7 +2,7 @@
 
 ## Decisao atual
 
-**GO para staging; NO-GO para producao e `main`.** A release tecnica `18d1b184` passou CI e QA, e o rollout isolado de staging foi concluido. O pacote de producao, os backups e um rehearsal local de restore/migration/rollback foram preparados sem escrita remota. O rehearsal local ficou tecnicamente verde, mas o gate permanece aberto ate o parecer independente do dono de Dados.
+**GO para staging e GO tecnico do rehearsal de producao; NO-GO para escrita em producao e para `main`.** A release tecnica `18d1b184` passou CI e QA, o rollout isolado de staging foi concluido e Dados/Integracoes aprovou independentemente o restore, a migration e o rollback no clone fiel. O pacote de producao e os backups foram preparados sem escrita remota. A promocao continua bloqueada porque GO tecnico nao substitui autorizacao explicita nem a janela operacional.
 
 O P3 do deploy imutavel contaminado de staging continua pendente de exclusao autorizada. Ele nao esta ativo e nao reduz o GO de staging, mas precisa ser removido antes do fechamento operacional.
 
@@ -108,7 +108,7 @@ Diretorio: `/Users/macbookpro/.codex/private-backups/sett-prod-consent-preflight
 
 O aviso de FKs circulares do `pg_dump` exige `session_replication_role=replica` apenas durante a carga de dados do clone descartavel. O estado normal foi restabelecido e validado antes da migration.
 
-## Rehearsal local de migration e rollback
+## Rehearsal aprovado de migration e rollback
 
 O primeiro clone sem o schema `auth` produziu aparente orfandade em `students.assigned_trainer_id`. A verificacao read-only de PROD provou que nao era inconsistencia real:
 
@@ -119,20 +119,32 @@ O primeiro clone sem o schema `auth` produziu aparente orfandade em `students.as
 
 A FK correta e `public.students.assigned_trainer_id -> auth.users.id`.
 
-O clone fiel restaurou `auth`, `public` e `private`; ao encerrar a carga:
+O clone fiel restaurou os quatro dumps — schema e dados de `auth`, mais schema e dados de `public/private` — sem omitir a dependencia de identidade. A ordem obrigatoria para qualquer repeticao e:
+
+1. criar somente o banco descartavel e as extensoes requeridas;
+2. restaurar `prod-auth-schema.sql` ate imediatamente antes de `on_auth_user_created`;
+3. restaurar `prod-public-private-schema.sql` completo;
+4. restaurar o trecho restante de `prod-auth-schema.sql`, incluindo `on_auth_user_created` e o post-data de `auth`;
+5. carregar `prod-public-private-data.sql` e depois `prod-auth-data.sql`, com `session_replication_role=replica` somente no clone descartavel;
+6. executar `RESET ALL`, confirmar `session_replication_role=origin` e validar as FKs;
+7. exigir auditoria dinamica de todas as FKs e anti-joins explicitos das referencias a `auth.users`, todos com zero violacoes/orfaos/não validados;
+8. somente entao aplicar `20260910103000` e executar rehearsal/rollback.
+
+Ao encerrar a carga pre-migration:
 
 - `session_replication_role=origin`;
 - FKs: 344/344 validadas;
 - `ALTER TABLE ... VALIDATE CONSTRAINT` executado para todas as 344;
+- auditoria dinamica: zero FKs invalidas, nao validadas ou orfas;
 - os tres anti-joins com `auth.users` retornaram zero orfaos.
 
 Baseline do clone: `legacy=1`, `active_flows=2`, `dispatchable=0`, `weekly_sessions=1`, `messages=14355`, `consent=0`, `quarantine=0`.
 
 A migration foi aplicada numa copia do baseline; o rehearsal passou 16/16. Pos-migration: `legacy=0`, `active_flows=2`, `dispatchable=0`, `weekly_sessions=1`, `messages=14355`, `consent=0`, `quarantine=1`.
 
-O rollback catastrofico foi ensaiado recriando a copia a partir do snapshot. As sete metricas voltaram exatamente ao baseline, o ledger/quarentena ficaram ausentes e as 344/344 FKs permaneceram validas. Os dois bancos descartaveis foram removidos.
+O rollback oficial foi ensaiado e aprovado. As sete metricas voltaram exatamente ao baseline, o ledger/quarentena ficaram ausentes e a auditoria pos-migration/rollback encontrou 349 FKs, todas validas e sem orfaos. Os dois bancos descartaveis foram removidos.
 
-**Status do gate:** evidencia local verde; ❌ aceite independente de Dados ainda aguardado. Ate esse parecer, o rehearsal nao autoriza PROD.
+**Status do gate:** ✅ GO tecnico independente de Dados/Integracoes. Isso fecha o bloqueio do rehearsal, mas nao autoriza escrita em PROD.
 
 Rollback operacional recomendado continua sendo aditivo e sem perda de dados: restaurar frontend anterior, republicar Edge v45 pelo snapshot e usar o fail-closed de `scripts/rollback-weekly-contact-consent-ledger.sql`, preservando ledger/evidencia. Restauracao integral do banco e ultimo recurso, pois perderia escritas posteriores ao snapshot.
 
@@ -164,10 +176,10 @@ O push normal deve rejeitar non-fast-forward; nunca usar `--force`.
 
 | Camada | Estado real |
 |---|---|
-| Local | ✅ Codigo `18d1b184`, bundle PROD congelado, backups e rehearsal local concluidos. |
+| Local | ✅ Codigo `18d1b184`, bundle PROD congelado, quatro dumps privados e rehearsal independente concluidos. |
 | Commit/branch | ❌ Este registro ainda precisa de commit/push e CI (em andamento). Proximo passo: revisar o diff, enviar somente os tres documentos e aguardar CI. |
 | Staging | ✅ GO independente; deploy limpo ativo. |
 | P3 staging | ❌ Deploy contaminado ainda acessivel (bloqueado). Motivo: exclusao requer autorizacao explicita. Proximo passo: excluir pelo comando preparado e provar 404, mantendo o deploy limpo ativo. |
-| Rehearsal PROD | ❌ Parecer independente de Dados pendente (aguardando). Motivo: a prova local nao substitui o gate independente. Proximo passo: Dados revisar hashes, ordem de restore, FKs e metricas de ida/volta. |
+| Rehearsal PROD | ✅ GO tecnico independente: restore completo, 344 FKs pre-migration, 16/16 invariantes, rollback oficial e 349 FKs finais sem violacao. |
 | `main` | ❌ Fast-forward nao executado (bloqueado). Motivo: exige autorizacao e revalidacao do SHA de `origin/main`. Proximo passo: executar o plano acima e aguardar CI de `main`. |
-| Producao | ❌ Rollout nao executado (bloqueado). Motivo: exige parecer de Dados, autorizacao explicita, janela controlada e aceite do rollback operacional. Proximo passo: rehash/preflight, F1 -> F2 -> F3 com monitores zero-delta e parada fail-closed. |
+| Producao | ❌ Rollout nao executado (bloqueado). Motivo: exige autorizacao explicita e janela controlada; GO tecnico nao e autorizacao de escrita. Proximo passo: rehash/preflight, F1 -> F2 -> F3 com monitores zero-delta e parada fail-closed. |
