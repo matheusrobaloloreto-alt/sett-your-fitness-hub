@@ -98,7 +98,9 @@ Limite contratual remanescente: `prescription_bundles` mantém um único `runnin
 - Testes Deno de volume, anamnese interciclo e segurança da ingestão: 27/27 passaram; guard estático do motor: 46/46.
 - Benchmark: cinco execuções dedicadas passaram com mediana de CPU entre 120–159 ms; na suíte integral anterior, 148 ms, mantendo teto primário de CPU de 500 ms. O gate agora também mantém um teto diagnóstico folgado de 3.000 ms de wall-clock para detectar travamento. Como controle externo, o GitHub Actions do Release Guardian no commit `3d22637` passou 146/146 arquivos e 930/930 testes com mediana de 105,97 ms.
 - `deno check` das Edges tocadas, TypeScript, ESLint focado, build de produção, verificação de backend canônico, performance do bundle e `git diff --check`: passaram.
-- O QA raiz reabriu o lote após o primeiro commit e exigiu sete correções de contrato. As sete foram fechadas, a suíte integral foi repetida e o re-review independente final deu GO sem P0/P1/P2/P3 remanescente.
+- O conjunto Node canônico está verde, mas o glob amplo `node --test scripts/*.test.mjs` não está globalmente verde: há um harness legado que depende de fixture em `/tmp` e um contrato antigo com regex incompatível com a saída atual. Esses dois casos não pertencem ao conjunto canônico desta auditoria e permanecem registrados como dívida de harness, sem serem apresentados como aprovação global.
+- Após os cherry-picks na release, uma repetição local da suíte frontend terminou em 149/150 arquivos e 957/958 testes: somente um teste histórico de `FinancialDashboard` excedeu o timeout de 5 s sob carga. O arquivo não pertence ao diff de Conteúdo; o resultado não foi ocultado nem tratado como verde e exige o CI integral isolado do HEAD como gate de release.
+- O QA raiz reabriu o lote após o primeiro commit e exigiu sete correções de contrato. As sete foram fechadas, a suíte integral foi repetida e o re-review independente final deu GO técnico sem P0/P1/P2; permaneceram os P3 documental e arquitetural explicitados neste relatório.
 
 ## Alterações locais desta rodada
 
@@ -107,6 +109,7 @@ Limite contratual remanescente: `prescription_bundles` mantém um único `runnin
 - Correções do Studio/card/bundle, badges por item persistido de modalidade e alinhamento RIR 3–4.
 - Gate de performance preservado em 500 ms sobre CPU consumida pelo worker; wall-clock permanece diagnóstico, mas reprova apenas acima do teto folgado de 3.000 ms.
 - Testes de catálogo, integração, UI e auditoria.
+- Dívida arquitetural P3 preservada: o helper de persistência em `src/lib/prescriptionBundleIntegrity.ts` continua acoplado ao cliente Supabase por uma interface `any`. Não houve refatoração oportunista nesta integração; a extração de uma porta tipada deve ocorrer em mudança separada, com testes equivalentes.
 
 ## Checklist acumulado deste escopo
 
@@ -119,6 +122,7 @@ Limite contratual remanescente: `prescription_bundles` mantém um único `runnin
 - ✅ Corrigir contrato de persistência/visualização dos bundles — código local e testes.
 - ✅ Revalidar a progressão RIR 3–4 — código local e testes.
 - ✅ Diagnosticar o gate de performance — flake de tempo de parede demonstrado; teto não foi afrouxado e passou a medir CPU do worker.
+- ❌ Tipar e desacoplar o helper de persistência de bundles (aguardando) — dívida arquitetural P3 fora do escopo corretivo; próxima ação é extrair uma porta tipada em commit separado, preservando os testes atuais.
 - ❌ Reparar as 10 referências (bloqueado) — depende de escolha canônica/decisão profissional e de um plano de escrita com backup, CAS e rollback.
 - ❌ Curar os 245 imports sem targets e os 733 sem metadata de segurança (aguardando) — exige conteúdo profissional; inferência automática está proibida.
 - ❌ Gravar/importar 872 vídeos próprios (aguardando) — não há take novo; seguir pipeline por lotes.
@@ -129,14 +133,14 @@ Limite contratual remanescente: `prescription_bundles` mantém um único `runnin
 | Camada | Estado em 2026-09-10 |
 |---|---|
 | Local | Patch e auditor na worktree isolada `codex/sett-library-engine-audit-20260910`; suíte integral, gates focados, build e re-review independente verdes. |
-| Commit | Primeiro commit `f8cf70c5241adff688dc6a528ee3e0aafc3837d0` preservado; correções do QA raiz registradas no segundo commit que contém este relatório. |
-| Push/integração | Não executados. |
+| Commit | Commits de origem `f8cf70c5241adff688dc6a528ee3e0aafc3837d0` e `f0b2a795b0ce0e9ddeb989b075b70787b6cedbea` preservados; integração controlada na release gerou `fd7109c` e `e1541d4`. |
+| Push/integração | Integração local na branch release concluída. Push e CI integral do HEAD pertencem ao gate do Release Guardian; não autorizam staging ou produção. |
 | Staging | Não alterado. O link local do CLI aponta para staging e não deve ser usado como atalho para produção. |
 | Produção | Somente auditoria read-only; zero escrita, deploy, ingestão ou reparo. |
 
 ## Próxima ação recomendada
 
-1. Criar o segundo commit isolado e entregar os dois commits ao Release Guardian para integração controlada.
+1. Executar o CI integral do HEAD da release e manter staging/produção bloqueados até os gates independentes de Produto, Dados e consentimento.
 2. Preparar um reparo separado dos 10 slots, com before-image, comparação de versão, rollback e apenas aliases aprovados.
 3. Obter decisão técnica para os nomes genéricos antes de qualquer escrita.
 4. Curar os 245 imports em lotes auditáveis; não bloquear histórico existente nem inventar metadata clínica.
