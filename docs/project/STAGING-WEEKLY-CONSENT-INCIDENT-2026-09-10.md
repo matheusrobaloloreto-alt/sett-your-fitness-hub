@@ -10,8 +10,8 @@ Nenhum envio WhatsApp ocorreu. O frontend de staging nao foi publicado.
 
 - Worktree: `/Users/macbookpro/.codex/worktrees/bn-app-20260826/release-rc`
 - Branch: `codex/sett-release-rc-20260826`
-- HEAD tecnico testado e enviado: `c7047e8aabf3848e256809b2bd93fb75220ca1c2`
-- CI oficial: run `34499385925`, verde no HEAD tecnico
+- HEAD tecnico testado e enviado: `b1f93a6faa1860ce7cd8088f5d5f1e555c6782c3`
+- CI oficial do HEAD tecnico: run `34502603446`, verde
 - Projeto Supabase de staging: `ifymocggowdlqqcxugko`
 - Projeto Supabase de producao: `zshrcgbyhzxpnlccssyz` (nao alterado)
 - Site Netlify isolado de staging: `wondrous-sunflower-10fc8f` (`2ced1972-fed1-4af3-9ad6-e5b9856ab409`)
@@ -92,23 +92,37 @@ staging v12: 0b7367df2e5ff2d2e1cb0f7db2db124f65f684d85c9daf2ed87003ebd285bbd2
 
 A fonte remota restaurada foi baixada para verificacao, hasheada e removida do diretorio temporario apos a comparacao.
 
+## Desvio de governanca e segunda restauracao
+
+Depois de `b1f93a6` receber GO tecnico e a CI `34502603446` ficar verde, a Release Guardian iniciou uma nova F1. A ordem posterior de manter staging congelado chegou enquanto a chamada de deploy ja estava em execucao.
+
+- v13, 2026-09-10 13:34:47 -03: fonte exata do candidato `b1f93a6`, implantada pela Release Guardian; hash `ccd932b0915c865ea347b166f9b3e2e8adb4095ebc1ead67ba6ab864e32ac720`;
+- smoke v13: HTTP `503`, fail-closed por ausencia de `AUTOMATION_CRON_SECRET`; nenhum secret de provedor estava configurado;
+- F2 e F3: nao iniciadas;
+- v14, 2026-09-10 13:35:21 -03: restauracao imediata do snapshot anterior;
+- hash remoto v14, confirmado por download via API: `0b7367df2e5ff2d2e1cb0f7db2db124f65f684d85c9daf2ed87003ebd285bbd2`, identico ao backup/v10/v12;
+- smoke v14: HTTP `503`, mesmo contrato fail-closed;
+- pos-audit: migration-alvo zero, tabelas de consentimento/quarentena ausentes, cache habilitado em 1, fila semanal despachavel zero e mensagens WhatsApp zero.
+
+O desvio foi de sequenciamento de governanca, nao de identidade da fonte: v13 era exatamente o candidato aprovado, mas foi revertida para respeitar o novo freeze. Staging permanece congelado.
+
 ## Estado atual por camada
 
 | Camada | Estado real |
 |---|---|
-| Local | ✅ Implementacao e verificadores aprovados no HEAD tecnico `c7047e8`. |
+| Local | ✅ Implementacao compativel com os dois schemas e verificadores aprovados no HEAD tecnico `b1f93a6`. |
 | Commit/remoto | ✅ Cadeia tecnica enviada para `origin/codex/sett-release-rc-20260826`. |
-| CI | ✅ Run `34499385925` verde. Suite local integral: 156/156 arquivos e 991/991 testes; foco Vitest 27/27; Deno 10/10 com permissoes explicitas; mutations 4/4; build aprovado. |
-| Staging Edge | ✅ Restaurada para a fonte pre-rollout; versao v12, hash identico a v10. |
+| CI | ✅ Run `34502603446` verde no SHA `b1f93a6`. Suite integral: 156/156 arquivos e 991/991 testes; Deno 10/10; mutations 5/5; build aprovado. |
+| Staging Edge | ✅ Restaurada para a fonte pre-rollout; versao v14, hash remoto identico a v10/v12 e ao backup. |
 | Staging banco | ✅ Rollback transacional confirmado; ❌ contrato novo nao aplicado (bloqueado). |
 | Staging frontend | ❌ Nao publicado (bloqueado). O deploy estavel atual continua contaminado por referencias de producao e nao pode servir de evidencia do rollout. |
 | Producao | ✅ Intocada nesta rodada; ❌ promocao nao autorizada (bloqueado). |
 
 ## Gate obrigatorio para nova tentativa
 
-Nao reaplicar F1, F2 ou F3 ate existir um novo hash de codigo que cumpra todos os itens abaixo:
+Nao reaplicar F1, F2 ou F3 ate o novo commit de governanca que oficializa os gates de mutation/Deno receber CI verde e GO raiz. O candidato tecnico `b1f93a6` ja e compativel com os dois schemas, mas isso nao revoga o freeze.
 
-1. migration compativel com a ausencia de `students.country_code`, ou prerequisite separado, explicitamente revisado e provado em staging;
+1. migration compativel com a ausencia de `students.country_code`, explicitamente revisada e provada nos dois schemas;
 2. QA raiz independente sem P0/P1/P2;
 3. CI oficial verde no novo HEAD;
 4. novo preflight confirmando schema, fila zero, backup e rollback;

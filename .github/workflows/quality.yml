@@ -114,6 +114,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Weekly consent rollout mutation gate
+        run: npm run test:weekly-consent-rollout-mutations
+      - name: Weekly consent dispatcher Deno gate
+        run: npx -y deno@2.9.4 test --allow-env --allow-net=provider.invalid supabase/functions/process-automation-sessions/index.test.ts
       - run: npm run test
 
   build:

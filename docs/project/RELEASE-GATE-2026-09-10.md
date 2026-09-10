@@ -6,11 +6,12 @@ Este registro iniciou como governanca de CI para a branch release e agora tambem
 
 ## Estado corrente apos CI e tentativa de staging
 
-- HEAD tecnico: `c7047e8aabf3848e256809b2bd93fb75220ca1c2`, enviado para a branch remota.
-- CI oficial: run `34499385925`, verde.
-- Validacao local: 156/156 arquivos e 991/991 testes Vitest; foco 27/27; Deno 10/10 com permissoes explicitas; mutations 4/4; build aprovado.
-- Staging: **congelado**. A migration exata falhou com SQLSTATE `42703` porque `students.country_code` nao existe no schema vivo. O rollback transacional foi confirmado.
-- Edge de staging: restaurada em v12 com o mesmo hash da fonte v10 pre-rollout, `0b7367df2e5ff2d2e1cb0f7db2db124f65f684d85c9daf2ed87003ebd285bbd2`.
+- HEAD tecnico: `b1f93a6faa1860ce7cd8088f5d5f1e555c6782c3`, enviado para a branch remota.
+- CI oficial do HEAD tecnico: run `34502603446`, verde.
+- Validacao: 156/156 arquivos e 991/991 testes Vitest; Deno 10/10 com permissoes explicitas; mutations 5/5; build aprovado.
+- Compatibilidade de schema: o candidato usa `to_jsonb(record)->>'country_code'` e foi provado em bancos efemeros production-like com a coluna e staging-like sem ela, 16/16 invariantes em ambos.
+- Staging: **congelado**. O primeiro F2 falhou com SQLSTATE `42703` e teve rollback transacional confirmado. Uma nova F1 chegou a v13 antes de uma ordem de freeze recebida durante a chamada; F2/F3 nao iniciaram e a Edge foi imediatamente restaurada.
+- Edge de staging: v14, com fonte remota baixada e hash identico ao snapshot v10/v12, `0b7367df2e5ff2d2e1cb0f7db2db124f65f684d85c9daf2ed87003ebd285bbd2`.
 - Frontend de staging: nao publicado.
 - Producao: nao alterada e sem autorizacao de promocao.
 
@@ -38,6 +39,8 @@ Este registro iniciou como governanca de CI para a branch release e agora tambem
 - TypeScript: `npx tsc -b --pretty false`, com teto temporario de 36 erros de baseline. Este repo usa `tsconfig.json` em formato solution-style (`files: []` com referencias para `tsconfig.app.json` e `tsconfig.node.json`), portanto `tsc -b` e o gate real; `tsc --noEmit` isolado no arquivo raiz nao valida os projetos referenciados. O gate falha se a divida aumentar ou se houver falha sem erro TS contavel.
 - Lint: `npx eslint . --format json`, com baseline verificavel de 0 erros e 44 avisos. O gate falha em qualquer erro ou aumento dos avisos.
 - Testes: `npm run test`.
+- Mutations do verificador de consentimento: `npm run test:weekly-consent-rollout-mutations`; qualquer mutation sobrevivente falha o job.
+- Dispatcher Deno: `npx -y deno@2.9.4 test --allow-env --allow-net=provider.invalid supabase/functions/process-automation-sessions/index.test.ts`; qualquer falha interrompe o job antes da suite integral.
 - Build: `npm run build`.
 - Bundle canonico: `dist` nao pode conter o projeto Supabase aposentado `cxesecxyrndveookvlzz` e precisa conter o backend canonico `zshrcgbyhzxpnlccssyz`.
 - Whitespace: `git diff --check` roda sobre o intervalo do push atual; em `workflow_dispatch`, roda sobre o ultimo commit. Isso evita falso bloqueio por dividas historicas nao tocadas.
@@ -110,6 +113,6 @@ Rollback de release/producao nao esta autorizado neste escopo. Para promocao fut
 
 **NO-GO para nova tentativa em staging e para promocao da release em 2026-09-10.**
 
-Motivo atual: a CI e as suites do HEAD tecnico ficaram verdes, mas a migration de consentimento nao e compativel com o schema vivo de staging. Ela falhou antes de instalar o contrato novo e foi revertida integralmente. A Edge foi restaurada com fonte byte a byte igual ao snapshot anterior, o frontend nao foi publicado e producao permaneceu intocada.
+Motivo atual: `b1f93a6` tornou a migration compativel com o schema vivo de staging e recebeu CI verde, mas a CI anterior nao executava mutations e o teste Deno como passos oficiais. Alem disso, uma nova F1 ocorreu antes do fechamento formal de governanca; ela foi revertida imediatamente para v14 com fonte remota byte a byte igual ao snapshot. F2/F3 nao iniciaram, o frontend nao foi publicado e producao permaneceu intocada.
 
-Proxima acao: produzir um novo hash compativel com a ausencia de `students.country_code` — ou um prerequisite separado e formalmente revisado —, obter novo QA raiz e nova CI verde. So depois repetir o preflight e o rollout estrito Edge -> migration exata -> frontend. O drift do ledger continua proibindo `supabase db push`.
+Proxima acao: aprovar este novo commit de governanca, rodar a CI oficial com mutations e Deno fail-closed e obter GO raiz sobre o hash exato. So depois repetir o preflight e o rollout estrito Edge -> migration exata -> frontend. O drift do ledger continua proibindo `supabase db push`.
