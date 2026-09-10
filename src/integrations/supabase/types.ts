@@ -6767,6 +6767,8 @@ export type Database = {
           updated_at: string
           user_id: string | null
           weekly_contact_enabled: boolean
+          weekly_contact_recipient_generation: number
+          weekly_contact_recipient_key: string | null
           weekly_workout_goal: number
           weight_kg: number | null
           whatsapp: string | null
@@ -6819,6 +6821,8 @@ export type Database = {
           updated_at?: string
           user_id?: string | null
           weekly_contact_enabled?: boolean
+          weekly_contact_recipient_generation?: number
+          weekly_contact_recipient_key?: string | null
           weekly_workout_goal?: number
           weight_kg?: number | null
           whatsapp?: string | null
@@ -6871,6 +6875,8 @@ export type Database = {
           updated_at?: string
           user_id?: string | null
           weekly_contact_enabled?: boolean
+          weekly_contact_recipient_generation?: number
+          weekly_contact_recipient_key?: string | null
           weekly_workout_goal?: number
           weight_kg?: number | null
           whatsapp?: string | null
@@ -7828,6 +7834,7 @@ export type Database = {
           occurred_at: string
           policy_version: string
           purpose: string
+          recipient_generation: number | null
           recipient_key: string | null
           sequence: number
           source: string
@@ -7843,6 +7850,7 @@ export type Database = {
           occurred_at?: string
           policy_version: string
           purpose?: string
+          recipient_generation?: number | null
           recipient_key?: string | null
           sequence?: number
           source: string
@@ -7858,6 +7866,7 @@ export type Database = {
           occurred_at?: string
           policy_version?: string
           purpose?: string
+          recipient_generation?: number | null
           recipient_key?: string | null
           sequence?: number
           source?: string
@@ -10761,6 +10770,7 @@ export type Database = {
         Args: {
           _company_id: string
           _recipient_candidate: string
+          _recipient_generation: number
           _student_id: string
         }
         Returns: boolean

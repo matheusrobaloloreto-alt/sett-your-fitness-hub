@@ -32,7 +32,8 @@ where context->>'trigger_type'='weekly_contact'
 create or replace function public.weekly_contact_consent_is_current(
   _student_id uuid,
   _company_id uuid,
-  _recipient_candidate text
+  _recipient_candidate text,
+  _recipient_generation bigint
 )
 returns boolean
 language sql
@@ -45,9 +46,9 @@ revoke execute on function public.record_weekly_contact_consent(uuid,text,text,t
 from public,anon,authenticated;
 revoke execute on function public.weekly_contact_consent_status(uuid,text)
 from public,anon,authenticated;
-revoke execute on function public.weekly_contact_consent_is_current(uuid,uuid,text)
+revoke execute on function public.weekly_contact_consent_is_current(uuid,uuid,text,bigint)
 from public,anon,authenticated;
-grant execute on function public.weekly_contact_consent_is_current(uuid,uuid,text)
+grant execute on function public.weekly_contact_consent_is_current(uuid,uuid,text,bigint)
 to service_role;
 
 commit;

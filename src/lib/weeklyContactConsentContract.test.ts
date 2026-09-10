@@ -38,6 +38,7 @@ describe("weekly contact consent ledger", () => {
       "purpose",
       "event_type",
       "recipient_key",
+      "recipient_generation",
       "policy_version",
       "source",
       "actor_user_id",
@@ -95,19 +96,34 @@ describe("weekly contact consent ledger", () => {
     expect(migration).toContain("order by event.sequence desc");
     expect(migration).toContain("event.event_type='granted'");
     expect(migration).toContain("event.policy_version=public.weekly_contact_policy_version()");
-    expect(migration).toContain("public.weekly_contact_consent_is_current(s.id,s.company_id,c.remote_jid)");
+    expect(migration).toContain("weekly_contact_recipient_generation bigint not null default 0");
+    expect(migration).toContain("weekly_contact_recipient_key text");
+    expect(migration).toContain("track_weekly_contact_recipient_generation");
+    expect(migration).toContain("event.recipient_generation=_recipient_generation");
+    expect(migration).toContain("student.weekly_contact_recipient_generation=_recipient_generation");
+    expect(migration).toMatch(/weekly_contact_consent_is_current\(\s*s\.id,s\.company_id,c\.remote_jid,s\.weekly_contact_recipient_generation\s*\)/);
     expect(migration).toContain("'recipient_candidate',c.recipient_candidate");
+    expect(migration).toContain("'recipient_generation',c.recipient_generation");
     expect(migration).toContain("c.remote_jid like '%@s.whatsapp.net'");
     expect(migration).toContain("public.weekly_contact_recipient_key(c.remote_jid) is not null");
     expect(migration).toContain(")=public.weekly_contact_recipient_key(c.remote_jid)");
     expect(dispatcher).toContain('context?.trigger_type !== "weekly_contact"');
     expect(dispatcher).toContain('admin.rpc("weekly_contact_consent_is_current"');
     expect(dispatcher).toContain("_recipient_candidate: verifiedRemoteJid");
+    expect(dispatcher).toContain("_recipient_generation: queuedRecipientGeneration");
     expect(dispatcher).toContain("async function verifyWeeklyRecipientImmediatelyBeforeSend(");
     expect(dispatcher).toContain("await resolveCurrentSessionRecipient(");
     expect(dispatcher.match(/const currentVerifiedRemoteJid = await verifyWeeklyRecipientImmediatelyBeforeSend\(/g)?.length).toBeGreaterThanOrEqual(2);
     expect(dispatcher).toContain("assertQueuedWeeklyRecipient(context,verifiedRemoteJid)");
-    expect(dispatcher).toContain('throw new Error("weekly_contact_consent_missing")');
+    for (const code of [
+      "weekly_contact_consent_missing",
+      "weekly_contact_queued_recipient_changed",
+      "weekly_contact_recipient_missing",
+      "weekly_contact_recipient_ambiguous",
+      "weekly_contact_recipient_mismatch",
+    ]) expect(dispatcher).toContain(code);
+    expect(dispatcher).toContain("PERMANENT_WEEKLY_CONTACT_ERROR_CODES");
+    expect(dispatcher).toContain("next_dispatch_at: null");
     expect(dispatcher).toContain("resolveVerifiedWhatsAppRecipient({");
     expect(dispatcher.match(/await assertCurrentWeeklyContactConsent\(/g)?.length).toBeGreaterThanOrEqual(2);
   });
@@ -147,12 +163,17 @@ describe("weekly contact consent ledger", () => {
     expect(rolloutGate).toContain("lockIndex >= 0 && lockIndex < queueCleanup");
     expect(rolloutGate).toContain("disabled={!isCurrentStudent || !hasCurrentRecipientAttestation || saving}");
     expect(rolloutGate).toContain("activeRecipientRef.current !== originRecipient");
+    expect(rolloutGate).toContain('"}, [studentId, normalizedRecipient]);"');
+    expect(rolloutGate).toContain("recipient_generation");
+    expect(rolloutGate).toContain("PERMANENT_WEEKLY_CONTACT_ERROR_CODES");
+    expect(rolloutGate).toContain("weekly_contact_queued_recipient_changed");
   });
 
   it("rolls back by preserving evidence and disabling eligibility", () => {
     expect(rollback).toContain("set weekly_contact_enabled=false");
     expect(rollback).toContain("weekly_contact_consent_emergency_rollback");
     expect(rollback).toMatch(/as \$\$ select false \$\$/i);
+    expect(rollback).toContain("weekly_contact_consent_is_current(uuid,uuid,text,bigint)");
     expect(rollback).not.toMatch(/drop table/i);
     expect(rollback).not.toMatch(/set weekly_contact_enabled=true/i);
   });
@@ -169,6 +190,8 @@ describe("weekly contact consent ledger", () => {
     expect(rehearsal).toContain("grant_a_then_b_false");
     expect(rehearsal).toContain("grant_b_true");
     expect(rehearsal).toContain("return_to_a_false");
+    expect(rehearsal).toContain("regrant_a_true");
+    expect(rehearsal).toContain("recipient_generation_monotonic");
     expect(rehearsal).toContain("profile_rpc_race_rejected");
     expect(rehearsal).toContain("phone_divergence_rejected");
     expect(rehearsal).toContain("alternate_jid_rejected");

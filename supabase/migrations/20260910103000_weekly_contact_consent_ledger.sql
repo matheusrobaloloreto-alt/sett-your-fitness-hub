@@ -31,14 +31,15 @@ create table if not exists public.weekly_contact_consent_events (
   purpose text not null default 'weekly_training_support' check (purpose='weekly_training_support'),
   event_type text not null check (event_type in ('granted','revoked')),
   recipient_key text,
+  recipient_generation bigint,
   policy_version text not null,
   source text not null check (source in ('staff_confirmed_student')),
   actor_user_id uuid not null references auth.users(id) on delete restrict,
   occurred_at timestamptz not null default statement_timestamp(),
   created_at timestamptz not null default now(),
   constraint weekly_contact_consent_recipient_scope check (
-    (event_type='granted' and recipient_key is not null)
-    or (event_type='revoked' and recipient_key is null)
+    (event_type='granted' and recipient_key is not null and recipient_generation is not null and recipient_generation>0)
+    or (event_type='revoked' and recipient_key is null and recipient_generation is null)
   )
 );
 
@@ -174,6 +175,64 @@ as $$
   from keys
 $$;
 
+-- A recipient key alone cannot distinguish A-before-B from A-after-B. Keep a
+-- server-owned monotonic generation beside the canonical identity so returning
+-- to an earlier number never revives evidence issued for its previous epoch.
+alter table public.students
+  add column if not exists weekly_contact_recipient_key text;
+alter table public.students
+  add column if not exists weekly_contact_recipient_generation bigint not null default 0;
+alter table public.students
+  add constraint students_weekly_contact_recipient_generation_nonnegative
+  check (weekly_contact_recipient_generation>=0);
+
+update public.students student
+set weekly_contact_recipient_key=public.weekly_contact_current_recipient_key(
+      student.whatsapp,student.phone,student.country_code
+    ),
+    weekly_contact_recipient_generation=case
+      when public.weekly_contact_current_recipient_key(
+        student.whatsapp,student.phone,student.country_code
+      ) is null then 0 else 1 end;
+
+create or replace function public.track_weekly_contact_recipient_generation()
+returns trigger
+language plpgsql
+security definer
+set search_path=public,pg_temp
+as $$
+declare
+  v_old_recipient_key text;
+  v_new_recipient_key text;
+begin
+  v_new_recipient_key := public.weekly_contact_current_recipient_key(
+    new.whatsapp,new.phone,new.country_code
+  );
+  if tg_op='INSERT' then
+    new.weekly_contact_recipient_key := v_new_recipient_key;
+    new.weekly_contact_recipient_generation := case
+      when v_new_recipient_key is null then 0 else 1 end;
+    return new;
+  end if;
+
+  v_old_recipient_key := public.weekly_contact_current_recipient_key(
+    old.whatsapp,old.phone,old.country_code
+  );
+  new.weekly_contact_recipient_key := v_new_recipient_key;
+  new.weekly_contact_recipient_generation := case
+    when v_new_recipient_key is distinct from v_old_recipient_key
+      then greatest(old.weekly_contact_recipient_generation,0)+1
+    else old.weekly_contact_recipient_generation
+  end;
+  return new;
+end
+$$;
+
+drop trigger if exists track_weekly_contact_recipient_generation on public.students;
+create trigger track_weekly_contact_recipient_generation
+before insert or update on public.students
+for each row execute function public.track_weekly_contact_recipient_generation();
+
 create or replace function public.guard_weekly_contact_consent_event()
 returns trigger
 language plpgsql
@@ -182,14 +241,19 @@ set search_path=public,pg_temp
 as $$
 declare
   v_company_id uuid;
+  v_current_recipient_key text;
+  v_current_recipient_generation bigint;
 begin
   if tg_op in ('UPDATE','DELETE') then
     raise exception 'weekly_contact_consent_events_append_only' using errcode='55000';
   end if;
 
-  select student.company_id into v_company_id
+  select student.company_id,student.weekly_contact_recipient_key,
+    student.weekly_contact_recipient_generation
+  into v_company_id,v_current_recipient_key,v_current_recipient_generation
   from public.students student
-  where student.id=new.student_id;
+  where student.id=new.student_id
+  for share;
   if v_company_id is null or v_company_id is distinct from new.company_id then
     raise exception 'weekly_contact_consent_student_company_mismatch' using errcode='23514';
   end if;
@@ -198,10 +262,13 @@ begin
   end if;
   if new.event_type='granted'
      and (new.recipient_key is null
-       or new.recipient_key is distinct from public.weekly_contact_recipient_key(new.recipient_key)) then
+       or new.recipient_key is distinct from public.weekly_contact_recipient_key(new.recipient_key)
+       or new.recipient_key is distinct from v_current_recipient_key
+       or new.recipient_generation is distinct from v_current_recipient_generation) then
     raise exception 'weekly_contact_consent_recipient_invalid' using errcode='23514';
   end if;
-  if new.event_type='revoked' and new.recipient_key is not null then
+  if new.event_type='revoked'
+     and (new.recipient_key is not null or new.recipient_generation is not null) then
     raise exception 'weekly_contact_consent_revoke_must_be_global' using errcode='23514';
   end if;
   if new.occurred_at is distinct from statement_timestamp() then
@@ -244,7 +311,8 @@ for each row execute function public.guard_weekly_contact_boolean_write();
 create or replace function public.weekly_contact_consent_is_current(
   _student_id uuid,
   _company_id uuid,
-  _recipient_candidate text
+  _recipient_candidate text,
+  _recipient_generation bigint
 )
 returns boolean
 language sql
@@ -260,6 +328,9 @@ as $$
       and event.policy_version=public.weekly_contact_policy_version()
       and student.weekly_contact_enabled=true
       and event.recipient_key=candidate.recipient_key
+      and event.recipient_generation=_recipient_generation
+      and student.weekly_contact_recipient_generation=_recipient_generation
+      and student.weekly_contact_recipient_key=candidate.recipient_key
       and public.weekly_contact_current_recipient_key(
         student.whatsapp,student.phone,student.country_code
       )=candidate.recipient_key
@@ -332,11 +403,13 @@ begin
   end if;
 
   insert into public.weekly_contact_consent_events(
-    student_id,company_id,channel,purpose,event_type,recipient_key,policy_version,source,actor_user_id,
+    student_id,company_id,channel,purpose,event_type,recipient_key,recipient_generation,
+    policy_version,source,actor_user_id,
     occurred_at,created_at
   ) values (
     v_student.id,v_student.company_id,'whatsapp','weekly_training_support',_event_type,
     case when _event_type='granted' then v_presented_recipient_key else null end,
+    case when _event_type='granted' then v_student.weekly_contact_recipient_generation else null end,
     _policy_version,_source,v_actor,statement_timestamp(),now()
   ) returning * into v_event;
 
@@ -374,8 +447,10 @@ set search_path=public,pg_temp
 as $$
 declare
   v_company_id uuid;
+  v_recipient_generation bigint;
 begin
-  select student.company_id into v_company_id
+  select student.company_id,student.weekly_contact_recipient_generation
+  into v_company_id,v_recipient_generation
   from public.students student
   where student.id=_student_id;
   if auth.uid() is null
@@ -384,8 +459,11 @@ begin
     raise exception 'weekly_contact_consent_status_forbidden' using errcode='42501';
   end if;
   return jsonb_build_object(
-    'eligible',public.weekly_contact_consent_is_current(_student_id,v_company_id,_recipient_key),
-    'policy_version',public.weekly_contact_policy_version()
+    'eligible',public.weekly_contact_consent_is_current(
+      _student_id,v_company_id,_recipient_key,v_recipient_generation
+    ),
+    'policy_version',public.weekly_contact_policy_version(),
+    'recipient_generation',v_recipient_generation
   );
 end
 $$;
@@ -398,8 +476,9 @@ revoke execute on function public.weekly_contact_stored_recipient_key(text,text)
 grant execute on function public.weekly_contact_stored_recipient_key(text,text) to service_role;
 revoke execute on function public.weekly_contact_current_recipient_key(text,text,text) from public,anon,authenticated;
 grant execute on function public.weekly_contact_current_recipient_key(text,text,text) to service_role;
-revoke execute on function public.weekly_contact_consent_is_current(uuid,uuid,text) from public,anon,authenticated;
-grant execute on function public.weekly_contact_consent_is_current(uuid,uuid,text) to service_role;
+revoke execute on function public.track_weekly_contact_recipient_generation() from public,anon,authenticated,service_role;
+revoke execute on function public.weekly_contact_consent_is_current(uuid,uuid,text,bigint) from public,anon,authenticated;
+grant execute on function public.weekly_contact_consent_is_current(uuid,uuid,text,bigint) to service_role;
 revoke execute on function public.record_weekly_contact_consent(uuid,text,text,text,text) from public,anon;
 grant execute on function public.record_weekly_contact_consent(uuid,text,text,text,text) to authenticated;
 revoke execute on function public.weekly_contact_consent_status(uuid,text) from public,anon;
@@ -464,6 +543,7 @@ begin
 
   with candidates as (
     select f.id as flow_id,c.id as chat_id,c.remote_jid as recipient_candidate,
+      s.weekly_contact_recipient_generation as recipient_generation,
       public.get_automation_start_node(f.id) as start_node_id,s.id as student_id,s.full_name as student_name,
       coalesce(max(fs.created_at),'-infinity'::timestamptz) as last_weekly_contact_at,
       count(fs.id) filter(where fs.created_at>now()-interval '7 days') as contacts_last_7d
@@ -471,7 +551,9 @@ begin
     join public.whatsapp_chats c on c.company_id=f.company_id and c.student_id=s.id
     left join public.flow_sessions fs on fs.flow_id=f.id and fs.chat_id=c.id and fs.context->>'trigger_type'='weekly_contact'
     where f.is_active=true and f.trigger_type='weekly_contact'
-      and public.weekly_contact_consent_is_current(s.id,s.company_id,c.remote_jid)
+      and public.weekly_contact_consent_is_current(
+        s.id,s.company_id,c.remote_jid,s.weekly_contact_recipient_generation
+      )
       and c.remote_jid like '%@s.whatsapp.net'
       and public.weekly_contact_recipient_key(c.remote_jid) is not null
       and public.weekly_contact_current_recipient_key(
@@ -479,12 +561,12 @@ begin
       )=public.weekly_contact_recipient_key(c.remote_jid)
       and coalesce(s.status,'') in ('active','awaiting_training')
       and exists(select 1 from public.enrollments e where e.student_id=s.id and e.status in ('active','awaiting_training'))
-    group by f.id,c.id,s.id,s.full_name
+    group by f.id,c.id,s.id,s.full_name,s.weekly_contact_recipient_generation
     having count(fs.id) filter(where fs.created_at>now()-interval '7 days')<2
       and coalesce(max(fs.created_at),'-infinity'::timestamptz)<now()-interval '72 hours'
   ), inserted as (
     insert into public.flow_sessions(flow_id,chat_id,current_node_id,status,context,started_at,last_activity_at,created_at,updated_at)
-    select c.flow_id,c.chat_id,c.start_node_id,'active',jsonb_build_object('trigger_type','weekly_contact','automation_key','weekly_contact:'||c.student_id::text||':'||to_char(date_trunc('week',now()),'IYYY-IW')||':'||(c.contacts_last_7d+1)::text,'student_id',c.student_id,'student_name',c.student_name,'recipient_candidate',c.recipient_candidate,'contact_objective','Perguntar se o aluno teve dificuldade no treino e se quer mandar video para correcao.','copy_seed',floor(extract(epoch from now())/3600)::bigint,'copy_guidance',jsonb_build_array('Manter o mesmo objetivo, mas variar abertura, ritmo e pergunta final.','Nao soar automatico; mencionar treino, dificuldade ou video de execucao.','Ser curto, humano e acionavel.'),'contacts_last_7d_before',c.contacts_last_7d,'last_weekly_contact_at',c.last_weekly_contact_at),now(),now(),now(),now()
+    select c.flow_id,c.chat_id,c.start_node_id,'active',jsonb_build_object('trigger_type','weekly_contact','automation_key','weekly_contact:'||c.student_id::text||':'||to_char(date_trunc('week',now()),'IYYY-IW')||':'||(c.contacts_last_7d+1)::text,'student_id',c.student_id,'student_name',c.student_name,'recipient_candidate',c.recipient_candidate,'recipient_generation',c.recipient_generation,'contact_objective','Perguntar se o aluno teve dificuldade no treino e se quer mandar video para correcao.','copy_seed',floor(extract(epoch from now())/3600)::bigint,'copy_guidance',jsonb_build_array('Manter o mesmo objetivo, mas variar abertura, ritmo e pergunta final.','Nao soar automatico; mencionar treino, dificuldade ou video de execucao.','Ser curto, humano e acionavel.'),'contacts_last_7d_before',c.contacts_last_7d,'last_weekly_contact_at',c.last_weekly_contact_at),now(),now(),now(),now()
     from candidates c where not exists(select 1 from public.flow_sessions fs where fs.flow_id=c.flow_id and fs.chat_id=c.chat_id and fs.status in ('active','waiting_response') and fs.context->>'trigger_type'='weekly_contact') returning 1
   ) select count(*) into v_weekly_contact from inserted;
 

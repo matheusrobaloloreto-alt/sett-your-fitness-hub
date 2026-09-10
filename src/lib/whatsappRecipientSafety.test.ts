@@ -115,9 +115,9 @@ describe("WhatsApp recipient safety contracts", () => {
       "number: evolutionTextRecipient(args.remoteJid)",
     );
     expect(dispatcherSource).toContain("resolveVerifiedWhatsAppRecipient({");
-    expect(dispatcherSource).toContain(
-      "envio automático bloqueado para revisão",
-    );
+    expect(dispatcherSource).toContain("weeklyRecipientResolutionError(verifiedRecipient.code)");
+    expect(dispatcherSource).toContain("weekly_contact_recipient_ambiguous");
+    expect(dispatcherSource).toContain("weekly_contact_recipient_mismatch");
   });
 
   it("includes the student identity in CRM broadcasts", () => {

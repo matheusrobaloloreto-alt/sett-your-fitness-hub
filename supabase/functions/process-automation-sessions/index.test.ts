@@ -1,4 +1,8 @@
-import { processIntercycleAnamnesisDeliveries, processSession } from "./index.ts";
+import {
+  handleAutomationRequest,
+  processIntercycleAnamnesisDeliveries,
+  processSession,
+} from "./index.ts";
 
 const directDigits = (area: string, digit: string) => ["55", area, "9", digit.repeat(8)].join("");
 const directJid = (area: string, digit: string) => `${directDigits(area, digit)}@s.whatsapp.net`;
@@ -73,14 +77,14 @@ Deno.test("weekly automation blocks a phone-mismatched chat before provider fetc
             student_id: "student-a",
             trigger_type: "weekly_contact",
             recipient_candidate: directJid("11", "8"),
+            recipient_generation: 1,
           },
         },
         { url: "https://provider.invalid", key: "redacted" },
       );
     } catch (error) {
       blocked = error instanceof Error &&
-        error.message.includes("whatsapp_stored_recipient_mismatch") &&
-        error.message.includes("bloqueado para revisão");
+        error.message === "weekly_contact_recipient_mismatch";
     }
     if (!blocked) {
       throw new Error("mismatched weekly automation was not blocked");
@@ -196,6 +200,7 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
             student_id: "student-a",
             trigger_type: "weekly_contact",
             recipient_candidate: verifiedJid,
+            recipient_generation: 1,
           },
         },
         { url: "https://provider.invalid", key: "redacted" },
@@ -224,7 +229,8 @@ Deno.test("weekly automation blocks a revocation that lands after claim but befo
       if (
         args._student_id !== "student-a" ||
         args._company_id !== "company-a" ||
-        args._recipient_candidate !== verifiedJid
+        args._recipient_candidate !== verifiedJid ||
+        args._recipient_generation !== 1
       ) {
         throw new Error("consent lookup lost student/company/recipient binding");
       }
@@ -314,6 +320,7 @@ Deno.test("weekly automation blocks a revocation that lands after claim but befo
             student_id: "student-a",
             trigger_type: "weekly_contact",
             recipient_candidate: verifiedJid,
+            recipient_generation: 1,
           },
         },
         { url: "https://provider.invalid", key: "redacted" },
@@ -344,6 +351,7 @@ Deno.test("weekly automation re-resolves and blocks a recipient change immediate
       if (name !== "weekly_contact_consent_is_current") throw new Error(`unexpected rpc ${name}`);
       consentChecks += 1;
       if (args._recipient_candidate !== queuedJid) throw new Error("initial consent used the wrong recipient");
+      if (args._recipient_generation !== 1) throw new Error("initial consent lost the queued recipient generation");
       return Promise.resolve({ data: true, error: null });
     },
     from(table: string) {
@@ -445,6 +453,7 @@ Deno.test("weekly automation re-resolves and blocks a recipient change immediate
             student_id: "student-a",
             trigger_type: "weekly_contact",
             recipient_candidate: queuedJid,
+            recipient_generation: 1,
           },
         },
         { url: "https://provider.invalid", key: "redacted" },
@@ -452,12 +461,283 @@ Deno.test("weekly automation re-resolves and blocks a recipient change immediate
     } catch (error) {
       code = error instanceof Error ? error.message : String(error);
     }
-    if (code !== "weekly_contact_recipient_changed") throw new Error(`unexpected block code ${code}`);
+    if (code !== "weekly_contact_queued_recipient_changed") throw new Error(`unexpected block code ${code}`);
     if (chatReads !== 2 || studentReads !== 2) throw new Error("recipient was not re-read immediately before send");
     if (consentChecks !== 1) throw new Error("stale recipient reached the second consent check");
     if (providerFetches !== 0) throw new Error("provider was called after recipient change");
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+type PermanentWeeklyCode =
+  | "weekly_contact_consent_missing"
+  | "weekly_contact_queued_recipient_changed"
+  | "weekly_contact_recipient_missing"
+  | "weekly_contact_recipient_ambiguous"
+  | "weekly_contact_recipient_mismatch";
+
+function permanentWeeklyHandlerAdmin(
+  expectedCode: PermanentWeeklyCode,
+  updates: Array<Record<string, unknown>>,
+) {
+  const queuedJid = directJid("48", "7");
+  const changedJid = directJid("48", "8");
+  const session = {
+    id: `session-${expectedCode}`,
+    flow_id: "flow-a",
+    chat_id: "chat-a",
+    current_node_id: "content-a",
+    context: {
+      student_id: "student-a",
+      trigger_type: "weekly_contact",
+      recipient_candidate: queuedJid,
+      recipient_generation: 1,
+    },
+  };
+
+  return {
+    rpc(name: string) {
+      if (name === "process_automation_triggers") return Promise.resolve({ data: {}, error: null });
+      if (name === "claim_automation_sessions") return Promise.resolve({ data: [session], error: null });
+      if (name === "process_intercycle_anamnesis_schedule") return Promise.resolve({ data: 0, error: null });
+      if (name === "claim_intercycle_anamnesis_deliveries") return Promise.resolve({ data: [], error: null });
+      if (name === "weekly_contact_consent_is_current") {
+        return Promise.resolve({
+          data: expectedCode !== "weekly_contact_consent_missing",
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: new Error(`unexpected rpc ${name}`) });
+    },
+    from(table: string) {
+      if (table === "flow_sessions") {
+        return {
+          update(payload: Record<string, unknown>) {
+            updates.push(payload);
+            return { eq: () => Promise.resolve({ error: null }) };
+          },
+        };
+      }
+      if (table === "whatsapp_chats") {
+        const remoteJid = expectedCode === "weekly_contact_recipient_missing"
+          ? null
+          : expectedCode === "weekly_contact_queued_recipient_changed"
+          ? changedJid
+          : queuedJid;
+        return resultQuery({
+          data: {
+            id: "chat-a",
+            company_id: "company-a",
+            instance_id: "instance-a",
+            remote_jid: remoteJid,
+            student_id: "student-a",
+          },
+          error: null,
+        });
+      }
+      if (table === "students") {
+        const student = expectedCode === "weekly_contact_recipient_ambiguous"
+          ? {
+            id: "student-a",
+            phone: formattedMobile("48", "7"),
+            whatsapp: formattedMobile("48", "8"),
+            country_code: "BR",
+          }
+          : expectedCode === "weekly_contact_recipient_mismatch" ||
+              expectedCode === "weekly_contact_queued_recipient_changed"
+          ? {
+            id: "student-a",
+            phone: formattedMobile("48", "8"),
+            whatsapp: null,
+            country_code: "BR",
+          }
+          : {
+            id: "student-a",
+            phone: formattedMobile("48", "7"),
+            whatsapp: null,
+            country_code: "BR",
+          };
+        return resultQuery({ data: student, error: null });
+      }
+      throw new Error(`permanent recipient error reached unsafe table ${table}`);
+    },
+  };
+}
+
+Deno.test("handler terminalizes every permanent weekly recipient error without provider send", async () => {
+  const codes: PermanentWeeklyCode[] = [
+    "weekly_contact_consent_missing",
+    "weekly_contact_queued_recipient_changed",
+    "weekly_contact_recipient_missing",
+    "weekly_contact_recipient_ambiguous",
+    "weekly_contact_recipient_mismatch",
+  ];
+  const envKeys = [
+    "AUTOMATION_CRON_SECRET",
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "EVOLUTION_API_URL",
+    "EVOLUTION_API_KEY",
+  ];
+  const previousEnv = new Map(envKeys.map((key) => [key, Deno.env.get(key)]));
+  Deno.env.set("AUTOMATION_CRON_SECRET", "synthetic-cron-secret");
+  Deno.env.set("SUPABASE_URL", "https://database.invalid");
+  Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "synthetic-service-key");
+  Deno.env.set("EVOLUTION_API_URL", "https://provider.invalid");
+  Deno.env.set("EVOLUTION_API_KEY", "synthetic-provider-key");
+  const originalFetch = globalThis.fetch;
+  let providerFetches = 0;
+  globalThis.fetch = (() => {
+    providerFetches += 1;
+    throw new Error("provider must not run for permanent recipient errors");
+  }) as typeof fetch;
+
+  try {
+    for (const code of codes) {
+      const updates: Array<Record<string, unknown>> = [];
+      const response = await handleAutomationRequest(
+        new Request("https://dispatcher.invalid", {
+          method: "POST",
+          headers: { "x-cron-secret": "synthetic-cron-secret" },
+        }),
+        { admin: permanentWeeklyHandlerAdmin(code, updates) },
+      );
+      const body = await response.json();
+      if (response.status !== 200 || body.failed !== 1) {
+        throw new Error(`handler did not report terminal failure for ${code}`);
+      }
+      if (updates.length !== 1) throw new Error(`expected one terminal update for ${code}`);
+      const update = updates[0];
+      const context = update.context as Record<string, unknown>;
+      if (
+        update.status !== "failed" ||
+        context.dispatch_error !== code ||
+        context.next_dispatch_at !== null ||
+        "dispatch_retries" in context
+      ) {
+        throw new Error(`permanent code was scheduled for retry: ${code}`);
+      }
+    }
+    if (providerFetches !== 0) throw new Error("provider was called for a permanent recipient error");
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of previousEnv) {
+      if (value == null) Deno.env.delete(key);
+      else Deno.env.set(key, value);
+    }
+  }
+});
+
+Deno.test("handler retries a transient weekly consent RPC failure without provider send", async () => {
+  const updates: Array<Record<string, unknown>> = [];
+  const queuedJid = directJid("48", "7");
+  const session = {
+    id: "session-transient-consent-rpc",
+    flow_id: "flow-a",
+    chat_id: "chat-a",
+    current_node_id: "content-a",
+    context: {
+      student_id: "student-a",
+      trigger_type: "weekly_contact",
+      recipient_candidate: queuedJid,
+      recipient_generation: 1,
+    },
+  };
+  const admin = {
+    rpc(name: string) {
+      if (name === "process_automation_triggers") return Promise.resolve({ data: {}, error: null });
+      if (name === "claim_automation_sessions") return Promise.resolve({ data: [session], error: null });
+      if (name === "process_intercycle_anamnesis_schedule") return Promise.resolve({ data: 0, error: null });
+      if (name === "claim_intercycle_anamnesis_deliveries") return Promise.resolve({ data: [], error: null });
+      if (name === "weekly_contact_consent_is_current") {
+        return Promise.resolve({ data: null, error: new Error("synthetic transient database failure") });
+      }
+      return Promise.resolve({ data: null, error: new Error(`unexpected rpc ${name}`) });
+    },
+    from(table: string) {
+      if (table === "flow_sessions") {
+        return {
+          update(payload: Record<string, unknown>) {
+            updates.push(payload);
+            return { eq: () => Promise.resolve({ error: null }) };
+          },
+        };
+      }
+      if (table === "whatsapp_chats") {
+        return resultQuery({
+          data: {
+            id: "chat-a",
+            company_id: "company-a",
+            instance_id: "instance-a",
+            remote_jid: queuedJid,
+            student_id: "student-a",
+          },
+          error: null,
+        });
+      }
+      if (table === "students") {
+        return resultQuery({
+          data: {
+            id: "student-a",
+            phone: formattedMobile("48", "7"),
+            whatsapp: null,
+            country_code: "BR",
+          },
+          error: null,
+        });
+      }
+      throw new Error(`transient consent failure reached unsafe table ${table}`);
+    },
+  };
+  const envKeys = [
+    "AUTOMATION_CRON_SECRET",
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "EVOLUTION_API_URL",
+    "EVOLUTION_API_KEY",
+  ];
+  const previousEnv = new Map(envKeys.map((key) => [key, Deno.env.get(key)]));
+  Deno.env.set("AUTOMATION_CRON_SECRET", "synthetic-cron-secret");
+  Deno.env.set("SUPABASE_URL", "https://database.invalid");
+  Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "synthetic-service-key");
+  Deno.env.set("EVOLUTION_API_URL", "https://provider.invalid");
+  Deno.env.set("EVOLUTION_API_KEY", "synthetic-provider-key");
+  const originalFetch = globalThis.fetch;
+  let providerFetches = 0;
+  globalThis.fetch = (() => {
+    providerFetches += 1;
+    throw new Error("provider must not run after transient consent check failure");
+  }) as typeof fetch;
+
+  try {
+    const response = await handleAutomationRequest(
+      new Request("https://dispatcher.invalid", {
+        method: "POST",
+        headers: { "x-cron-secret": "synthetic-cron-secret" },
+      }),
+      { admin },
+    );
+    const body = await response.json();
+    if (response.status !== 200 || body.failed !== 1) throw new Error("handler did not report the transient failure");
+    if (updates.length !== 1) throw new Error("expected one retry update");
+    const update = updates[0];
+    const context = update.context as Record<string, unknown>;
+    if (
+      update.status !== "active" ||
+      context.dispatch_error !== "weekly_contact_consent_check_failed" ||
+      context.dispatch_retries !== 1 ||
+      typeof context.next_dispatch_at !== "string"
+    ) {
+      throw new Error(`transient consent failure was not scheduled for retry: ${JSON.stringify(update)}`);
+    }
+    if (providerFetches !== 0) throw new Error("provider was called after transient consent check failure");
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of previousEnv) {
+      if (value == null) Deno.env.delete(key);
+      else Deno.env.set(key, value);
+    }
   }
 });
 

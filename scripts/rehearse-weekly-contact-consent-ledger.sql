@@ -14,6 +14,8 @@ create temporary table pg_temp.weekly_contact_consent_rehearsal (
   grant_a_then_b_false boolean not null,
   grant_b_true boolean not null,
   return_to_a_false boolean not null,
+  regrant_a_true boolean not null,
+  recipient_generation_monotonic boolean not null,
   profile_rpc_race_rejected boolean not null,
   phone_divergence_rejected boolean not null,
   alternate_jid_rejected boolean not null,
@@ -36,6 +38,10 @@ declare
   v_event_id uuid;
   v_grant_sequence bigint;
   v_revoke_sequence bigint;
+  v_grant_a_generation bigint;
+  v_grant_b_generation bigint;
+  v_return_a_generation bigint;
+  v_regrant_a_generation bigint;
   v_direct_rejected boolean := false;
   v_generic_definer_rejected boolean := false;
   v_mutation_rejected boolean := false;
@@ -48,6 +54,8 @@ declare
   v_grant_a_then_b_false boolean;
   v_grant_b_true boolean;
   v_return_to_a_false boolean;
+  v_regrant_a_true boolean;
+  v_recipient_generation_monotonic boolean;
   v_profile_rpc_race_rejected boolean := false;
   v_phone_divergence_rejected boolean := false;
   v_alternate_jid_rejected boolean;
@@ -73,7 +81,8 @@ begin
   perform set_config('request.jwt.claim.role','authenticated',true);
   set local role authenticated;
 
-  select event.id,event.sequence into v_event_id,v_grant_sequence
+  select event.id,event.sequence,event.recipient_generation
+  into v_event_id,v_grant_sequence,v_grant_a_generation
   from public.record_weekly_contact_consent(
     v_student,'granted',public.weekly_contact_policy_version(),'staff_confirmed_student',v_recipient_a
   ) event;
@@ -87,12 +96,31 @@ begin
     v_student,v_recipient_b||'@s.whatsapp.net'
   )->>'eligible')::boolean into v_grant_a_then_b_false;
 
-  perform public.record_weekly_contact_consent(
+  select event.recipient_generation into v_grant_b_generation
+  from public.record_weekly_contact_consent(
     v_student,'granted',public.weekly_contact_policy_version(),'staff_confirmed_student',v_recipient_b
-  );
+  ) event;
   select (public.weekly_contact_consent_status(
     v_student,v_recipient_b||'@s.whatsapp.net'
   )->>'eligible')::boolean into v_grant_b_true;
+
+  update public.students
+  set phone=v_recipient_a,whatsapp=v_recipient_a
+  where id=v_student;
+  select student.weekly_contact_recipient_generation into v_return_a_generation
+  from public.students student where student.id=v_student;
+  select not (public.weekly_contact_consent_status(v_student,v_recipient_a)->>'eligible')::boolean
+  into v_return_to_a_false;
+  select event.recipient_generation into v_regrant_a_generation
+  from public.record_weekly_contact_consent(
+    v_student,'granted',public.weekly_contact_policy_version(),'staff_confirmed_student',v_recipient_a
+  ) event;
+  select (public.weekly_contact_consent_status(v_student,v_recipient_a)->>'eligible')::boolean
+  into v_regrant_a_true;
+  v_recipient_generation_monotonic :=
+    v_grant_a_generation < v_grant_b_generation
+    and v_grant_b_generation < v_return_a_generation
+    and v_regrant_a_generation = v_return_a_generation;
 
   begin
     update public.students set weekly_contact_enabled=false where id=v_student;
@@ -124,14 +152,8 @@ begin
   from public.record_weekly_contact_consent(
     v_student,'revoked',public.weekly_contact_policy_version(),'staff_confirmed_student',null
   ) event;
-  select not (public.weekly_contact_consent_status(v_student,v_recipient_b)->>'eligible')::boolean
-  into v_revoke_ineligible;
-
-  update public.students
-  set phone=v_recipient_a,whatsapp=v_recipient_a
-  where id=v_student;
   select not (public.weekly_contact_consent_status(v_student,v_recipient_a)->>'eligible')::boolean
-  into v_return_to_a_false;
+  into v_revoke_ineligible;
 
   -- Models a profile update winning the student-row lock before a stale grant RPC.
   update public.students
@@ -179,6 +201,8 @@ begin
      or not coalesce(v_grant_a_then_b_false,false)
      or not coalesce(v_grant_b_true,false)
      or not coalesce(v_return_to_a_false,false)
+     or not coalesce(v_regrant_a_true,false)
+     or not coalesce(v_recipient_generation_monotonic,false)
      or not v_profile_rpc_race_rejected
      or not v_phone_divergence_rejected
      or not coalesce(v_alternate_jid_rejected,false)
@@ -189,7 +213,8 @@ begin
   insert into pg_temp.weekly_contact_consent_rehearsal values(
     v_grant_eligible,v_revoke_ineligible,v_revoke_sequence>v_grant_sequence,
     v_direct_rejected,v_generic_definer_rejected,v_mutation_rejected,v_stale_rejected,
-    v_grant_a_then_b_false,v_grant_b_true,v_return_to_a_false,
+    v_grant_a_then_b_false,v_grant_b_true,v_return_to_a_false,v_regrant_a_true,
+    v_recipient_generation_monotonic,
     v_profile_rpc_race_rejected,v_phone_divergence_rejected,v_alternate_jid_rejected,
     v_international_recipient_preserved
   );
