@@ -1,6 +1,6 @@
 // Consent ledger for proactive weekly contact. The legacy student boolean is a
 // cache only; the RPC appends evidence and updates it atomically.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,44 +19,58 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
 export function WeeklyContactToggle({ studentId }: { studentId: string }) {
+  const activeStudentIdRef = useRef(studentId);
+  activeStudentIdRef.current = studentId;
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [policyVersion, setPolicyVersion] = useState<string | null>(null);
+  const [statusStudentId, setStatusStudentId] = useState<string | null>(null);
   const [grantDialogOpen, setGrantDialogOpen] = useState(false);
   const [attested, setAttested] = useState(false);
 
   useEffect(() => {
     let active = true;
     setEnabled(false);
+    setPolicyVersion(null);
+    setStatusStudentId(null);
+    setGrantDialogOpen(false);
+    setAttested(false);
+    setSaving(false);
     setLoading(true);
     (async () => {
       const status = await supabase.rpc("weekly_contact_consent_status", { _student_id: studentId });
-      if (!active) return;
+      if (!active || activeStudentIdRef.current !== studentId) return;
       const payload = !status.error && status.data && typeof status.data === "object" && !Array.isArray(status.data)
         ? status.data as { eligible?: boolean; policy_version?: string }
         : null;
       const currentPolicy = typeof payload?.policy_version === "string" ? payload.policy_version : null;
       setPolicyVersion(currentPolicy);
       setEnabled(!!currentPolicy && payload?.eligible === true);
+      setStatusStudentId(studentId);
       setLoading(false);
     })();
     return () => { active = false; };
   }, [studentId]);
 
+  const isCurrentStudent = statusStudentId === studentId;
+
   const persistConsent = async (next: boolean) => {
-    if (!policyVersion) {
+    const originStudentId = studentId;
+    const originPolicyVersion = isCurrentStudent ? policyVersion : null;
+    if (!originPolicyVersion) {
       toast.error("Política de consentimento indisponível");
       return;
     }
     setEnabled(next);
     setSaving(true);
     const { error } = await supabase.rpc("record_weekly_contact_consent", {
-      _student_id: studentId,
+      _student_id: originStudentId,
       _event_type: next ? "granted" : "revoked",
-      _policy_version: policyVersion,
+      _policy_version: originPolicyVersion,
       _source: "staff_confirmed_student",
     });
+    if (activeStudentIdRef.current !== originStudentId) return;
     setSaving(false);
     if (error) {
       setEnabled(!next);
@@ -83,13 +97,18 @@ export function WeeklyContactToggle({ studentId }: { studentId: string }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-3">
           <Label htmlFor={`wc-${studentId}`} className="text-sm font-medium cursor-pointer">Contato semanal</Label>
-          <Switch id={`wc-${studentId}`} checked={enabled} disabled={loading || saving} onCheckedChange={requestToggle} />
+          <Switch
+            id={`wc-${studentId}`}
+            checked={isCurrentStudent && enabled}
+            disabled={!isCurrentStudent || loading || saving}
+            onCheckedChange={requestToggle}
+          />
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
           Ative somente após o aluno autorizar mensagens proativas no WhatsApp. A autorização pode ser revogada a qualquer momento.
         </p>
       </div>
-      <AlertDialog open={grantDialogOpen} onOpenChange={(open) => {
+      <AlertDialog open={isCurrentStudent && grantDialogOpen} onOpenChange={(open) => {
         setGrantDialogOpen(open);
         if (!open) setAttested(false);
       }}>
@@ -113,7 +132,7 @@ export function WeeklyContactToggle({ studentId }: { studentId: string }) {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              disabled={!attested || saving}
+              disabled={!isCurrentStudent || !attested || saving}
               onClick={(event) => {
                 event.preventDefault();
                 void persistConsent(true);

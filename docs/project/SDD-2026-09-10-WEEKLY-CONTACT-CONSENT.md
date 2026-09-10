@@ -34,6 +34,8 @@ Execute `npm run verify:weekly-consent-rollout` antes de qualquer fase. O gate f
 
 Não inverter as fases. Frontend antes da migration quebra o grant; migration antes do Edge deixa uma janela em que o dispatcher antigo não revalida revogação imediatamente antes do envio.
 
+O controle de frontend vincula status, policy e mutações ao `studentId` que iniciou cada operação. Ao navegar para outro aluno, ele fecha o modal, limpa o ateste/policy/estado visual e ignora qualquer resposta assíncrona do aluno anterior; o novo aluno exige status e ateste próprios.
+
 ## Rollback
 
 O rollback é de contenção, não de downgrade inseguro: desliga todos os caches, encerra sessões semanais abertas, faz a elegibilidade retornar sempre `false`, revoga a RPC de escrita e preserva o ledger. Ele nunca restaura opt-ins booleanos legados nem apaga evidência.

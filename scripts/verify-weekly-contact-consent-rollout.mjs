@@ -12,10 +12,11 @@ const requireInvariant = (condition, message) => {
 
 const queueCleanup = migration.indexOf("weekly_contact_consent_reconfirmation_required");
 const ledgerInstall = migration.indexOf("create table if not exists public.weekly_contact_consent_events");
+const lockIndex = migration.indexOf("lock table public.flow_sessions in share row exclusive mode");
 requireInvariant(queueCleanup >= 0 && queueCleanup < ledgerInstall, "legacy queue cleanup must precede ledger installation");
 const preInstall = migration.slice(0, ledgerInstall);
 requireInvariant(
-  migration.indexOf("lock table public.flow_sessions in share row exclusive mode") < queueCleanup,
+  lockIndex >= 0 && lockIndex < queueCleanup,
   "migration must block concurrent legacy queue inserts before cleanup",
 );
 requireInvariant(
@@ -27,7 +28,12 @@ requireInvariant(
   "Edge must check consent after claim and immediately before content/menu sends",
 );
 requireInvariant(toggle.includes("Confirmo que o aluno autorizou"), "frontend grant requires explicit staff attestation");
-requireInvariant(toggle.includes("disabled={!attested || saving}"), "grant action must stay disabled without attestation");
+requireInvariant(toggle.includes("disabled={!isCurrentStudent || !attested || saving}"), "grant action must stay disabled without current-student attestation");
+requireInvariant(
+  toggle.includes("activeStudentIdRef.current !== originStudentId") &&
+    toggle.includes("open={isCurrentStudent && grantDialogOpen}"),
+  "frontend must ignore stale consent completions and close attestation across students",
+);
 requireInvariant(toggle.includes('_event_type: next ? "granted" : "revoked"'), "frontend must use the consent RPC for both events");
 
 console.log("Weekly-contact consent rollout gate: PASS");
