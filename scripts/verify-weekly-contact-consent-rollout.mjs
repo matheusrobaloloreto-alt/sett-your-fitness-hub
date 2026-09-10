@@ -5,6 +5,11 @@ const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
 const edge = read("supabase/functions/process-automation-sessions/index.ts");
 const migration = read("supabase/migrations/20260910103000_weekly_contact_consent_ledger.sql");
 const toggle = read("src/components/admin/WeeklyContactToggle.tsx");
+const recipientResetEffectStart = toggle.indexOf("useEffect(() => {", toggle.indexOf("}, [studentId]);"));
+const recipientResetEffectEnd = toggle.indexOf("}, [normalizedRecipient]);", recipientResetEffectStart);
+const recipientResetEffect = recipientResetEffectStart >= 0 && recipientResetEffectEnd > recipientResetEffectStart
+  ? toggle.slice(recipientResetEffectStart, recipientResetEffectEnd)
+  : "";
 
 const requireInvariant = (condition, message) => {
   if (!condition) throw new Error(`weekly-contact rollout gate failed: ${message}`);
@@ -29,17 +34,29 @@ requireInvariant(
 );
 requireInvariant(toggle.includes("Confirmo que o aluno autorizou"), "frontend grant requires explicit staff attestation");
 requireInvariant(
-  toggle.includes("disabled={!isCurrentStudent || !hasReliableRecipient || !attested || saving}"),
-  "grant action must stay disabled without current-student attestation and a reliable recipient",
+  toggle.includes("disabled={!isCurrentStudent || !hasCurrentRecipientAttestation || saving}"),
+  "grant action must stay disabled without an attestation for the current normalized recipient",
 );
 requireInvariant(
-  toggle.includes("next && !hasReliableRecipient") && toggle.includes("if (hasReliableRecipient) return;"),
-  "frontend must revalidate the recipient and close an open grant dialog when it becomes unreliable",
+  toggle.includes("const normalizedRecipient = useMemo(") &&
+    recipientResetEffect.includes("setEnabled(false)") &&
+    recipientResetEffect.includes("setSaving(false)") &&
+    recipientResetEffect.includes("setGrantDialogOpen(false)") &&
+    recipientResetEffect.includes("setGrantDialogRecipient(null)") &&
+    recipientResetEffect.includes("setAttestedRecipient(null)"),
+  "frontend must keep recipient identity and reset optimistic/dialog/attestation state on every normalized-recipient change",
+);
+requireInvariant(
+  toggle.includes("grantDialogRecipient !== originRecipient") &&
+    toggle.includes("attestedRecipient !== originRecipient") &&
+    toggle.includes("Destinatário desta confirmação:"),
+  "grant confirmation must present and match the current normalized recipient to the attested recipient",
 );
 requireInvariant(
   toggle.includes("activeStudentIdRef.current !== originStudentId") &&
-    toggle.includes("open={isCurrentStudent && grantDialogOpen}"),
-  "frontend must ignore stale consent completions and close attestation across students",
+    toggle.includes("activeRecipientRef.current !== originRecipient") &&
+    toggle.includes("open={isCurrentStudent && isGrantRecipientCurrent && grantDialogOpen}"),
+  "frontend must ignore stale consent completions and scope the dialog by student and recipient identity",
 );
 requireInvariant(toggle.includes('_event_type: next ? "granted" : "revoked"'), "frontend must use the consent RPC for both events");
 

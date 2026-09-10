@@ -1,6 +1,6 @@
 // Consent ledger for proactive weekly contact. The legacy student boolean is a
 // cache only; the RPC appends evidence and updates it atomically.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -28,14 +28,21 @@ type WeeklyContactToggleProps = {
 export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyContactToggleProps) {
   const activeStudentIdRef = useRef(studentId);
   activeStudentIdRef.current = studentId;
+  const normalizedRecipient = useMemo(
+    () => normalizeStudentChatPhone(phone, countryCode),
+    [phone, countryCode],
+  );
+  const activeRecipientRef = useRef(normalizedRecipient);
+  activeRecipientRef.current = normalizedRecipient;
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [policyVersion, setPolicyVersion] = useState<string | null>(null);
   const [statusStudentId, setStatusStudentId] = useState<string | null>(null);
   const [grantDialogOpen, setGrantDialogOpen] = useState(false);
-  const [attested, setAttested] = useState(false);
-  const hasReliableRecipient = Boolean(normalizeStudentChatPhone(phone, countryCode));
+  const [grantDialogRecipient, setGrantDialogRecipient] = useState<string | null>(null);
+  const [attestedRecipient, setAttestedRecipient] = useState<string | null>(null);
+  const hasReliableRecipient = normalizedRecipient !== null;
 
   useEffect(() => {
     let active = true;
@@ -43,7 +50,8 @@ export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyCon
     setPolicyVersion(null);
     setStatusStudentId(null);
     setGrantDialogOpen(false);
-    setAttested(false);
+    setGrantDialogRecipient(null);
+    setAttestedRecipient(null);
     setSaving(false);
     setLoading(true);
     (async () => {
@@ -62,17 +70,22 @@ export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyCon
   }, [studentId]);
 
   useEffect(() => {
-    if (hasReliableRecipient) return;
+    setEnabled(false);
+    setSaving(false);
     setGrantDialogOpen(false);
-    setAttested(false);
-  }, [hasReliableRecipient]);
+    setGrantDialogRecipient(null);
+    setAttestedRecipient(null);
+  }, [normalizedRecipient]);
 
   const isCurrentStudent = statusStudentId === studentId;
+  const isGrantRecipientCurrent = normalizedRecipient !== null && grantDialogRecipient === normalizedRecipient;
+  const hasCurrentRecipientAttestation = isGrantRecipientCurrent && attestedRecipient === normalizedRecipient;
 
   const persistConsent = async (next: boolean) => {
     const originStudentId = studentId;
     const originPolicyVersion = isCurrentStudent ? policyVersion : null;
-    if (next && !hasReliableRecipient) {
+    const originRecipient = normalizedRecipient;
+    if (next && (!originRecipient || grantDialogRecipient !== originRecipient || attestedRecipient !== originRecipient)) {
       toast.error("Corrija o WhatsApp do aluno antes de ativar o contato semanal.");
       return;
     }
@@ -88,14 +101,15 @@ export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyCon
       _policy_version: originPolicyVersion,
       _source: "staff_confirmed_student",
     });
-    if (activeStudentIdRef.current !== originStudentId) return;
+    if (activeStudentIdRef.current !== originStudentId || activeRecipientRef.current !== originRecipient) return;
     setSaving(false);
     if (error) {
       setEnabled(!next);
       toast.error("Não foi possível salvar");
     } else {
       setGrantDialogOpen(false);
-      setAttested(false);
+      setGrantDialogRecipient(null);
+      setAttestedRecipient(null);
       toast.success(next ? "Contato semanal ativado" : "Contato semanal desativado");
     }
   };
@@ -106,7 +120,8 @@ export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyCon
         toast.error("Corrija o WhatsApp do aluno antes de ativar o contato semanal.");
         return;
       }
-      setAttested(false);
+      setAttestedRecipient(null);
+      setGrantDialogRecipient(normalizedRecipient);
       setGrantDialogOpen(true);
       return;
     }
@@ -136,22 +151,30 @@ export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyCon
           </p>
         )}
       </div>
-      <AlertDialog open={isCurrentStudent && grantDialogOpen} onOpenChange={(open) => {
+      <AlertDialog open={isCurrentStudent && isGrantRecipientCurrent && grantDialogOpen} onOpenChange={(open) => {
         setGrantDialogOpen(open);
-        if (!open) setAttested(false);
+        if (!open) {
+          setGrantDialogRecipient(null);
+          setAttestedRecipient(null);
+        }
       }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar autorização do aluno</AlertDialogTitle>
             <AlertDialogDescription>
               O contato semanal envia mensagens proativas pelo WhatsApp. Só prossiga se o aluno autorizou essa finalidade.
+              <span className="mt-2 block font-medium text-foreground">
+                Destinatário desta confirmação: <span className="font-mono">+{grantDialogRecipient}</span>
+              </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex items-start gap-3 rounded-md border border-border p-3">
             <Checkbox
               id={`wc-attest-${studentId}`}
-              checked={attested}
-              onCheckedChange={(checked) => setAttested(checked === true)}
+              checked={hasCurrentRecipientAttestation}
+              onCheckedChange={(checked) => {
+                setAttestedRecipient(checked === true && isGrantRecipientCurrent ? normalizedRecipient : null);
+              }}
             />
             <Label htmlFor={`wc-attest-${studentId}`} className="text-sm leading-5 cursor-pointer">
               Confirmo que o aluno autorizou mensagens proativas de acompanhamento semanal neste WhatsApp.
@@ -160,7 +183,7 @@ export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyCon
           <AlertDialogFooter>
             <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              disabled={!isCurrentStudent || !hasReliableRecipient || !attested || saving}
+              disabled={!isCurrentStudent || !hasCurrentRecipientAttestation || saving}
               onClick={(event) => {
                 event.preventDefault();
                 void persistConsent(true);

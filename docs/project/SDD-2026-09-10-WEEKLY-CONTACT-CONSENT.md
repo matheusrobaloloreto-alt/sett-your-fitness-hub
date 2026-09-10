@@ -34,7 +34,9 @@ Execute `npm run verify:weekly-consent-rollout` antes de qualquer fase. O gate f
 
 Não inverter as fases. Frontend antes da migration quebra o grant; migration antes do Edge deixa uma janela em que o dispatcher antigo não revalida revogação imediatamente antes do envio.
 
-O controle de frontend vincula status, policy e mutações ao `studentId` que iniciou cada operação. Ao navegar para outro aluno, ele fecha o modal, limpa o ateste/policy/estado visual e ignora qualquer resposta assíncrona do aluno anterior; o novo aluno exige status e ateste próprios.
+O controle de frontend vincula status e policy ao `studentId`, mas o modal e o ateste ficam vinculados também à identidade exata de `normalizedRecipient` apresentada ao profissional. Qualquer troca dessa identidade — inclusive de um número válido A para outro número válido B do mesmo aluno — fecha o modal e limpa destinatário/ateste. Uma nova confirmação começa desmarcada, apresenta B e só permite o grant quando o destinatário atual coincide com o destinatário do modal e com o destinatário atestado. Conclusões assíncronas só alteram a interface se `studentId` e `normalizedRecipient` ainda forem os mesmos da operação de origem.
+
+Limite atual: essa vinculação por destinatário é uma barreira do frontend. A RPC e o ledger registram consentimento por aluno/canal/finalidade e ainda não persistem a identidade do número atestado. Portanto, este delta impede reaproveitar o checkbox ou a conclusão visual de A em B, mas não autoriza afirmar em produção que um grant já iniciado para A será abortado no banco após o telefone mudar. Se o requisito de produto for consentimento estritamente por número, o rollout permanece bloqueado até uma evolução explícita da migration/RPC/eligibilidade que grave e confira o destinatário normalizado.
 
 ## Rollback
 

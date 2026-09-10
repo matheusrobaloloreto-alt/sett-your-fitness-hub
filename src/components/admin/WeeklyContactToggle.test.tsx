@@ -110,6 +110,7 @@ describe("WeeklyContactToggle", () => {
     fireEvent.click(toggle);
     fireEvent.click(await screen.findByLabelText(/Confirmo que o aluno autorizou/i));
     expect(screen.getByRole("button", { name: "Registrar autorização" })).toBeEnabled();
+    expect(screen.getByText("+5548999991234")).toBeInTheDocument();
 
     rerender(<WeeklyContactToggle studentId="student-b" {...validRecipientProps} />);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
@@ -233,5 +234,122 @@ describe("WeeklyContactToggle", () => {
       "record_weekly_contact_consent",
       expect.anything(),
     );
+  });
+
+  it("requires a new attestation when the normalized recipient changes between valid numbers", async () => {
+    mocks.rpc.mockImplementation((name: string) => {
+      if (name === "weekly_contact_consent_status") {
+        return Promise.resolve({
+          data: { eligible: false, policy_version: "current-policy" },
+          error: null,
+        });
+      }
+      if (name === "record_weekly_contact_consent") {
+        return Promise.resolve({ data: {}, error: null });
+      }
+      throw new Error(`unexpected rpc ${name}`);
+    });
+
+    const { rerender } = render(
+      <WeeklyContactToggle
+        studentId="student-a"
+        phone="(48) 99999-1234"
+        countryCode="BR"
+      />,
+    );
+    const toggle = await screen.findByRole("switch");
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+    fireEvent.click(await screen.findByLabelText(/Confirmo que o aluno autorizou/i));
+    expect(screen.getByRole("button", { name: "Registrar autorização" })).toBeEnabled();
+
+    rerender(
+      <WeeklyContactToggle
+        studentId="student-a"
+        phone="(48) 98888-5678"
+        countryCode="BR"
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(mocks.rpc).not.toHaveBeenCalledWith(
+      "record_weekly_contact_consent",
+      expect.anything(),
+    );
+
+    fireEvent.click(screen.getByRole("switch"));
+    const confirm = await screen.findByRole("button", { name: "Registrar autorização" });
+    expect(confirm).toBeDisabled();
+    expect(screen.getByLabelText(/Confirmo que o aluno autorizou/i)).not.toBeChecked();
+    expect(screen.getByText("+5548988885678")).toBeInTheDocument();
+    expect(mocks.rpc).not.toHaveBeenCalledWith(
+      "record_weekly_contact_consent",
+      expect.anything(),
+    );
+
+    fireEvent.click(screen.getByLabelText(/Confirmo que o aluno autorizou/i));
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith(
+      "record_weekly_contact_consent",
+      expect.objectContaining({
+        _student_id: "student-a",
+        _event_type: "granted",
+      }),
+    ));
+  });
+
+  it("clears an optimistic in-flight grant when the normalized recipient changes", async () => {
+    let resolveGrant: ((value: { data: object; error: null }) => void) | undefined;
+    mocks.rpc.mockImplementation((name: string) => {
+      if (name === "weekly_contact_consent_status") {
+        return Promise.resolve({
+          data: { eligible: false, policy_version: "current-policy" },
+          error: null,
+        });
+      }
+      if (name === "record_weekly_contact_consent") {
+        return new Promise((resolve) => { resolveGrant = resolve; });
+      }
+      throw new Error(`unexpected rpc ${name}`);
+    });
+
+    const { rerender } = render(
+      <WeeklyContactToggle
+        studentId="student-a"
+        phone="(48) 99999-1234"
+        countryCode="BR"
+      />,
+    );
+    let toggle = await screen.findByRole("switch");
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+    fireEvent.click(await screen.findByLabelText(/Confirmo que o aluno autorizou/i));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar autorização" }));
+    await waitFor(() => expect(resolveGrant).toBeTypeOf("function"));
+
+    rerender(
+      <WeeklyContactToggle
+        studentId="student-a"
+        phone="(48) 98888-5678"
+        countryCode="BR"
+      />,
+    );
+
+    toggle = screen.getByRole("switch");
+    await waitFor(() => {
+      expect(toggle).toBeEnabled();
+      expect(toggle).not.toBeChecked();
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+
+    resolveGrant?.({ data: {}, error: null });
+    await Promise.resolve();
+
+    expect(toggle).toBeEnabled();
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(await screen.findByRole("button", { name: "Registrar autorização" })).toBeDisabled();
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
   });
 });
