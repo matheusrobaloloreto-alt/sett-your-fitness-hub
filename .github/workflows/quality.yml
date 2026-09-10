@@ -2,11 +2,109 @@ name: Quality gates
 
 on:
   push:
-    branches: [main, codex/claude-compat]
+    branches:
+      - main
+      - codex/claude-compat
+      - 'codex/sett-release-rc-*'
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  LINT_BASELINE_WARNINGS: "44"
+  TSC_BASELINE_ERRORS: "36"
 
 jobs:
-  verify:
+  static-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Verify committed whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          zero_sha="0000000000000000000000000000000000000000"
+
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "$zero_sha" ]]; then
+            diff_range="${{ github.event.before }}..${{ github.sha }}"
+            git diff --check "$diff_range"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            git diff --check "HEAD^..HEAD"
+          else
+            git show --check --format= --no-ext-diff HEAD
+          fi
+      - run: npm run verify:backend
+      - name: TypeScript debt gate
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          npx tsc -b --pretty false 2>&1 | tee tsc-report.log
+          tsc_exit_code="${PIPESTATUS[0]}"
+          set -e
+
+          tsc_error_count="$(node -e "const fs=require('fs'); const s=fs.readFileSync('tsc-report.log','utf8'); console.log((s.match(/error TS\\d+:/g)||[]).length);")"
+          if [[ "$tsc_exit_code" -ne 0 && "$tsc_error_count" -eq 0 ]]; then
+            echo "TypeScript failed without countable TS errors."
+            exit "$tsc_exit_code"
+          fi
+          if [[ "$tsc_error_count" -gt "$TSC_BASELINE_ERRORS" ]]; then
+            echo "TypeScript errors increased: ${tsc_error_count} > ${TSC_BASELINE_ERRORS}."
+            exit 1
+          fi
+          if [[ "$tsc_error_count" -gt 0 ]]; then
+            echo "::warning::TypeScript still has ${tsc_error_count} baseline error(s); this gate blocks increases only."
+          fi
+      - name: ESLint debt gate
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          npx eslint . --format json --output-file eslint-report.json
+          eslint_exit_code="$?"
+          set -e
+          export ESLINT_EXIT_CODE="$eslint_exit_code"
+          node <<'NODE'
+          const fs = require("fs");
+          const baselineWarnings = Number(process.env.LINT_BASELINE_WARNINGS);
+          const eslintExitCode = Number(process.env.ESLINT_EXIT_CODE);
+          const report = JSON.parse(fs.readFileSync("eslint-report.json", "utf8"));
+          const totals = report.reduce(
+            (acc, file) => ({
+              errors: acc.errors + file.errorCount,
+              warnings: acc.warnings + file.warningCount,
+            }),
+            { errors: 0, warnings: 0 },
+          );
+
+          if (totals.errors > 0) {
+            console.error(`ESLint errors found: ${totals.errors}. Baseline is 0.`);
+            process.exit(1);
+          }
+          if (totals.warnings > baselineWarnings) {
+            console.error(`ESLint warnings increased: ${totals.warnings} > ${baselineWarnings}.`);
+            process.exit(1);
+          }
+          if (totals.warnings > 0) {
+            console.log(`::warning::ESLint still has ${totals.warnings} baseline warning(s); this gate blocks increases only.`);
+          }
+          if (eslintExitCode !== 0) {
+            console.error(`ESLint exited with code ${eslintExitCode}.`);
+            process.exit(eslintExitCode);
+          }
+          NODE
+
+  tests:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -16,10 +114,28 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run verify:backend
       - run: npm run test
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
       - run: npm run build
       - name: Verify production bundle backend
+        shell: bash
         run: |
-          ! grep -R -F "cxesecxyrndveookvlzz" dist
-          grep -R -q -F "zshrcgbyhzxpnlccssyz" dist
+          set -euo pipefail
+          if grep -R -F -q "cxesecxyrndveookvlzz" dist; then
+            echo "Retired backend reference found in dist."
+            exit 1
+          fi
+          if ! grep -R -F -q "zshrcgbyhzxpnlccssyz" dist; then
+            echo "Canonical production backend reference missing from dist."
+            exit 1
+          fi
