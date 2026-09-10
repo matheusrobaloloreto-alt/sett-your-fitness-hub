@@ -32,6 +32,16 @@ Antes de instalar o ledger, a migration abre uma transação, adquire advisory l
 
 Execute `npm run verify:weekly-consent-rollout` antes de qualquer fase. O gate falha se o código deixar de cumprir a contenção e imprime a única ordem permitida:
 
+Validações locais obrigatórias deste contrato:
+
+```bash
+npm run verify:weekly-consent-rollout
+npm run test:weekly-consent-rollout-mutations
+deno test --allow-env --allow-net=provider.invalid supabase/functions/process-automation-sessions/index.test.ts
+```
+
+O `--allow-env` do Deno é necessário porque os testes do handler configuram e restauram variáveis sintéticas de cron, Supabase e provedor; nenhuma credencial real é lida ou persistida.
+
 Em 2026-09-10, uma consulta read-only ao ledger de migrations confirmou `20260910103000` ausente tanto em staging (`ifymocggowdlqqcxugko`) quanto em produção (`zshrcgbyhzxpnlccssyz`). Repita essa consulta imediatamente antes do primeiro staging apply. Se a versão aparecer em qualquer alvo, não reescreva nem reaplique este arquivo: crie uma migration aditiva.
 
 1. **Edge dispatcher:** publicar primeiro `process-automation-sessions`. Antes da RPC existir, esta versão falha fechada para sessões semanais porque toda checagem retorna inelegível/erro; validar que nenhuma mensagem foi enviada.

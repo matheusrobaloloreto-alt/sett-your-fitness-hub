@@ -1,20 +1,54 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
-const edge = read("supabase/functions/process-automation-sessions/index.ts");
-const migration = read("supabase/migrations/20260910103000_weekly_contact_consent_ledger.sql");
-const toggle = read("src/components/admin/WeeklyContactToggle.tsx");
-const rehearsal = read("scripts/rehearse-weekly-contact-consent-ledger.sql");
+const readDefaultSources = () => ({
+  edge: read("supabase/functions/process-automation-sessions/index.ts"),
+  migration: read("supabase/migrations/20260910103000_weekly_contact_consent_ledger.sql"),
+  toggle: read("src/components/admin/WeeklyContactToggle.tsx"),
+  rehearsal: read("scripts/rehearse-weekly-contact-consent-ledger.sql"),
+});
+
+const EXPECTED_PERMANENT_WEEKLY_CONTACT_ERROR_CODES = [
+  "weekly_contact_consent_missing",
+  "weekly_contact_queued_recipient_changed",
+  "weekly_contact_recipient_missing",
+  "weekly_contact_recipient_ambiguous",
+  "weekly_contact_recipient_mismatch",
+];
+
+const requireInvariant = (condition, message) => {
+  if (!condition) throw new Error(`weekly-contact rollout gate failed: ${message}`);
+};
+
+function extractPermanentWeeklyContactErrorCodes(edge) {
+  const declaration = edge.match(
+    /export\s+const\s+PERMANENT_WEEKLY_CONTACT_ERROR_CODES\s*=\s*new Set\(\s*\[([\s\S]*?)\]\s*\);/,
+  );
+  requireInvariant(
+    declaration,
+    "PERMANENT_WEEKLY_CONTACT_ERROR_CODES must be an isolated new Set string-array literal",
+  );
+
+  const codes = [];
+  const remainder = declaration[1].replace(/"(?:\\.|[^"\\])*"/g, (literal) => {
+    codes.push(JSON.parse(literal));
+    return "";
+  });
+  requireInvariant(
+    remainder.replace(/[\s,]/g, "") === "",
+    "PERMANENT_WEEKLY_CONTACT_ERROR_CODES must contain only string literals",
+  );
+  return codes;
+}
+
+export function verifyWeeklyContactConsentRollout({ edge, migration, toggle, rehearsal }) {
 const recipientResetEffectAnchor = "}, [studentId, normalizedRecipient]);";
 const recipientResetEffectEnd = toggle.indexOf(recipientResetEffectAnchor);
 const recipientResetEffectStart = recipientResetEffectEnd >= 0
   ? toggle.lastIndexOf("useEffect(() => {", recipientResetEffectEnd)
   : -1;
-
-const requireInvariant = (condition, message) => {
-  if (!condition) throw new Error(`weekly-contact rollout gate failed: ${message}`);
-};
 
 requireInvariant(
   recipientResetEffectStart >= 0 && recipientResetEffectEnd > recipientResetEffectStart,
@@ -108,23 +142,25 @@ requireInvariant(
     rehearsal.includes("v_grant_b_generation < v_return_a_generation"),
   "rehearsal must prove grant A -> B false -> grant B true -> return A false -> new grant A true with monotonic generations",
 );
-const permanentCodes = [
-  "weekly_contact_consent_missing",
-  "weekly_contact_queued_recipient_changed",
-  "weekly_contact_recipient_missing",
-  "weekly_contact_recipient_ambiguous",
-  "weekly_contact_recipient_mismatch",
-];
+const permanentCodes = extractPermanentWeeklyContactErrorCodes(edge);
+const permanentCodeSet = new Set(permanentCodes);
+requireInvariant(
+  !permanentCodeSet.has("weekly_contact_consent_check_failed"),
+  "weekly_contact_consent_check_failed must remain retryable and outside the permanent Set",
+);
+requireInvariant(
+  permanentCodes.length === permanentCodeSet.size &&
+    permanentCodeSet.size === EXPECTED_PERMANENT_WEEKLY_CONTACT_ERROR_CODES.length &&
+    EXPECTED_PERMANENT_WEEKLY_CONTACT_ERROR_CODES.every((code) => permanentCodeSet.has(code)),
+  "permanent weekly-contact error Set must equal exactly the five expected codes",
+);
 const permanentHandlerStart = edge.indexOf("PERMANENT_WEEKLY_CONTACT_ERROR_CODES.has(errorCode)");
 const permanentHandlerEnd = edge.indexOf("continue;", permanentHandlerStart);
 const permanentHandler = permanentHandlerStart >= 0 && permanentHandlerEnd > permanentHandlerStart
   ? edge.slice(permanentHandlerStart, permanentHandlerEnd)
   : "";
 requireInvariant(
-  edge.includes("PERMANENT_WEEKLY_CONTACT_ERROR_CODES") &&
-    permanentCodes.every((code) => edge.includes(`"${code}"`)) &&
-    !permanentCodes.includes("weekly_contact_consent_check_failed") &&
-    edge.includes('if (consent.error) {\n    throw new Error("weekly_contact_consent_check_failed");') &&
+  edge.includes('if (consent.error) {\n    throw new Error("weekly_contact_consent_check_failed");') &&
     edge.includes('if (consent.data !== true) {\n    throw new Error("weekly_contact_consent_missing");') &&
     permanentHandler.includes('status: "failed"') &&
     permanentHandler.includes("next_dispatch_at: null") &&
@@ -133,5 +169,11 @@ requireInvariant(
 );
 requireInvariant(toggle.includes('_event_type: next ? "granted" : "revoked"'), "frontend must use the consent RPC for both events");
 
-console.log("Weekly-contact consent rollout gate: PASS");
-console.log("Required order: 1) Edge dispatcher 2) database migration 3) frontend");
+return true;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  verifyWeeklyContactConsentRollout(readDefaultSources());
+  console.log("Weekly-contact consent rollout gate: PASS");
+  console.log("Required order: 1) Edge dispatcher 2) database migration 3) frontend");
+}

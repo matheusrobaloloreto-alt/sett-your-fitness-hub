@@ -15,6 +15,7 @@
     "replica:import": "node scripts/replica-import.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:weekly-consent-rollout-mutations": "node --test scripts/verify-weekly-contact-consent-rollout.test.mjs",
     "verify:backend": "node scripts/verify-canonical-backend.mjs",
     "verify:weekly-consent-rollout": "node scripts/verify-weekly-contact-consent-rollout.mjs"
   },
