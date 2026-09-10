@@ -5,15 +5,10 @@
 Export autenticado `Cobrancas.xlsx`: 826 cobrancas, SHA-256
 `6a8504811aa2b79efb9aa161ba62f7bc071cbb55a5922d7fc38dbfdf669aac4d`.
 
-- Isadora Barros Braz: o Asaas registra uma compra de cartao criada em
-  02/09/2026, seis parcelas confirmadas de R$ 240, total R$ 1.440. O SETT ja
-  possui a linha canonica com ID Asaas e lifecycle aplicado. As 17 linhas sem
-  ID sao tentativas locais `OVERDUE`, sem invoice e sem lifecycle.
-- Ludmila Queiroz: o Asaas registra uma compra de cartao criada em 21/04/2026,
-  seis parcelas de R$ 230, total R$ 1.380. As seis parcelas com IDs Asaas ja
-  existem no SETT. A linha total sem ID e um placeholder local redundante.
-- Identidade forte nos dois casos: nome, CPF, CPF do pagador e e-mail
-  coincidem em todas as parcelas do grupo correspondente.
+- **Grupo pseudonimo P-01:** 17 registros operacionais do mesmo caso foram reconciliados. Dados nominais, datas individuais, valores contratuais e demais dimensoes de identidade ficam exclusivamente na evidencia privada protegida por RLS.
+- **Caso pseudonimo P-02:** 1 registro operacional isolado foi reconciliado. A correspondencia nominal e os detalhes individualizantes ficam exclusivamente na evidencia privada protegida por RLS.
+- **Escopo tecnico agregado:** 18 pagamentos e 19 eventos de recuperacao, sem identificadores pessoais no repositorio.
+- **Fonte nominal protegida:** tabela privada `payment_orphan_reconciliation_audit` em PROD, com RLS ativa e leitura negada aos papeis clientes.
 
 ## Acao
 

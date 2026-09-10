@@ -2,16 +2,16 @@
 
 ## Decisoes
 
-| Pessoa | Matricula | Preservar visivel | Retirar da agenda ativa |
+| Caso pseudonimo | Matricula ref. | Ciclo canonico preservado ref. | Ciclo nao canonico retirado ref. |
 | --- | --- | --- | --- |
-| Aldylayne Rocha da Silva | `d735907ca436` | ciclo mais recente `311f71c93012` | ciclo anterior `b41fde29a9c4` |
-| Rebecca Perng | `5f9de190f3c7` | ciclo atual `cf75bbafaa2b` | ciclo historico `d48b4ada7cfa` |
-| Julia Teixeira Goncalves | `467cc79d6c5b` | ultima prescricao `ebf991044552` | envio anterior `3f3ba457e7d0` |
-| Vitoria Fank Spohr | `7975a4d98a88` | ciclo atual `8f758b912507` | ciclo futuro `8d56a0f1060d` |
+| Caso C-01 | `d735907ca436` | ciclo canonico preservado `311f71c93012` | ciclo nao canonico retirado `b41fde29a9c4` |
+| Caso C-02 | `5f9de190f3c7` | ciclo canonico preservado `cf75bbafaa2b` | ciclo nao canonico retirado `d48b4ada7cfa` |
+| Caso C-03 | `467cc79d6c5b` | ciclo canonico preservado `ebf991044552` | ciclo nao canonico retirado `3f3ba457e7d0` |
+| Caso C-04 | `7975a4d98a88` | ciclo canonico preservado `8f758b912507` | ciclo nao canonico retirado `8d56a0f1060d` |
 
-O ciclo canonico da Julia inicia em `2026-11-30`. Seu fim armazenado como
-`2027-12-11` e incompatível com um ciclo de seis semanas; o reparo o normaliza
-para `2027-01-10`, 42 dias inclusivos, sem alterar a prescricao.
+As decisoes e vigencias individuais foram aplicadas conforme a autorizacao privada do dono. Nomes, datas individualizantes e o vinculo pessoa-caso permanecem exclusivamente na evidencia privada protegida por RLS.
+
+Fonte nominal protegida: tabela privada `training_cycle_owner_decision_repair_audit` em PROD; este manifesto conserva apenas referencias tecnicas pseudonimas.
 
 ## Politica de preservacao
 
@@ -29,8 +29,8 @@ para `2027-01-10`, 42 dias inclusivos, sem alterar a prescricao.
 - Exigir datas, estados, entrega, ordem de criacao e conteudo esperados.
 - Falhar se existir residuo da mesma chave de reparo ou alteracao concorrente.
 - Preservar integralmente as dependencias de ambos os lados de cada par.
-- Alterar somente os campos de supersessao/status nos quatro perdedores e
-  somente `end_date` no ciclo canonico da Julia.
+- Pos-flight agregado confirmou o estado esperado e a ausencia de sobreposicoes operacionais;
+  evidencias nominais e o vinculo pessoa-caso permanecem apenas na auditoria privada protegida por RLS.
 - Encerrar com zero pares atuais/futuros sobrepostos nas matriculas operacionais
   do tenant BN.
 
