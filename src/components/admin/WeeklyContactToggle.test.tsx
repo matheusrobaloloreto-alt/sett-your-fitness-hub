@@ -12,6 +12,11 @@ vi.mock("sonner", () => ({
 
 import { WeeklyContactToggle } from "./WeeklyContactToggle";
 
+const validRecipientProps = {
+  phone: "(48) 99999-1234",
+  countryCode: "BR",
+};
+
 describe("WeeklyContactToggle", () => {
   beforeEach(() => {
     mocks.rpc.mockReset();
@@ -31,7 +36,7 @@ describe("WeeklyContactToggle", () => {
       throw new Error(`unexpected rpc ${name}`);
     });
 
-    render(<WeeklyContactToggle studentId="student-a" />);
+    render(<WeeklyContactToggle studentId="student-a" {...validRecipientProps} />);
     const toggle = await screen.findByRole("switch");
     await waitFor(() => expect(toggle).toBeEnabled());
     fireEvent.click(toggle);
@@ -70,7 +75,7 @@ describe("WeeklyContactToggle", () => {
       throw new Error(`unexpected rpc ${name}`);
     });
 
-    render(<WeeklyContactToggle studentId="student-a" />);
+    render(<WeeklyContactToggle studentId="student-a" {...validRecipientProps} />);
     const toggle = await screen.findByRole("switch");
     await waitFor(() => expect(toggle).toBeChecked());
     fireEvent.click(toggle);
@@ -99,14 +104,14 @@ describe("WeeklyContactToggle", () => {
       throw new Error(`unexpected rpc ${name}`);
     });
 
-    const { rerender } = render(<WeeklyContactToggle studentId="student-a" />);
+    const { rerender } = render(<WeeklyContactToggle studentId="student-a" {...validRecipientProps} />);
     let toggle = await screen.findByRole("switch");
     await waitFor(() => expect(toggle).toBeEnabled());
     fireEvent.click(toggle);
     fireEvent.click(await screen.findByLabelText(/Confirmo que o aluno autorizou/i));
     expect(screen.getByRole("button", { name: "Registrar autorização" })).toBeEnabled();
 
-    rerender(<WeeklyContactToggle studentId="student-b" />);
+    rerender(<WeeklyContactToggle studentId="student-b" {...validRecipientProps} />);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     toggle = screen.getByRole("switch");
     await waitFor(() => expect(toggle).toBeEnabled());
@@ -148,7 +153,7 @@ describe("WeeklyContactToggle", () => {
       throw new Error(`unexpected rpc ${name}`);
     });
 
-    const { rerender } = render(<WeeklyContactToggle studentId="student-a" />);
+    const { rerender } = render(<WeeklyContactToggle studentId="student-a" {...validRecipientProps} />);
     let toggle = await screen.findByRole("switch");
     await waitFor(() => expect(toggle).toBeEnabled());
     fireEvent.click(toggle);
@@ -156,7 +161,7 @@ describe("WeeklyContactToggle", () => {
     fireEvent.click(screen.getByRole("button", { name: "Registrar autorização" }));
     await waitFor(() => expect(resolveGrant).toBeTypeOf("function"));
 
-    rerender(<WeeklyContactToggle studentId="student-b" />);
+    rerender(<WeeklyContactToggle studentId="student-b" {...validRecipientProps} />);
     toggle = screen.getByRole("switch");
     await waitFor(() => expect(toggle).toBeEnabled());
     expect(toggle).not.toBeChecked();
@@ -168,6 +173,65 @@ describe("WeeklyContactToggle", () => {
     expect(mocks.rpc).not.toHaveBeenCalledWith(
       "record_weekly_contact_consent",
       expect.objectContaining({ _student_id: "student-b" }),
+    );
+  });
+
+  it("keeps grant disabled when the student has no reliable WhatsApp recipient", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: { eligible: false, policy_version: "current-policy" },
+      error: null,
+    });
+
+    render(
+      <WeeklyContactToggle
+        studentId="student-a"
+        phone="42077707180"
+        countryCode="BR"
+      />,
+    );
+
+    const toggle = await screen.findByRole("switch");
+    await waitFor(() => expect(screen.getByText(/Sem WhatsApp confiável/)).toBeInTheDocument());
+    expect(toggle).toBeDisabled();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(mocks.rpc).not.toHaveBeenCalledWith(
+      "record_weekly_contact_consent",
+      expect.anything(),
+    );
+  });
+
+  it("closes an open grant dialog when the same student's recipient becomes unreliable", async () => {
+    mocks.rpc.mockImplementation((name: string) => {
+      if (name === "weekly_contact_consent_status") {
+        return Promise.resolve({
+          data: { eligible: false, policy_version: "current-policy" },
+          error: null,
+        });
+      }
+      if (name === "record_weekly_contact_consent") {
+        return Promise.resolve({ data: {}, error: null });
+      }
+      throw new Error(`unexpected rpc ${name}`);
+    });
+
+    const { rerender } = render(
+      <WeeklyContactToggle studentId="student-a" {...validRecipientProps} />,
+    );
+    const toggle = await screen.findByRole("switch");
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+    fireEvent.click(await screen.findByLabelText(/Confirmo que o aluno autorizou/i));
+    expect(screen.getByRole("button", { name: "Registrar autorização" })).toBeEnabled();
+
+    rerender(
+      <WeeklyContactToggle studentId="student-a" phone="42077707180" countryCode="BR" />,
+    );
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("switch")).toBeDisabled();
+    expect(mocks.rpc).not.toHaveBeenCalledWith(
+      "record_weekly_contact_consent",
+      expect.anything(),
     );
   });
 });

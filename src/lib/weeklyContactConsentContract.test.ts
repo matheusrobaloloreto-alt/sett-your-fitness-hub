@@ -110,7 +110,9 @@ describe("weekly contact consent ledger", () => {
     expect(toggle).toContain('_source: "staff_confirmed_student"');
     expect(toggle).toContain("payload?.eligible === true");
     expect(toggle).toContain("Confirmo que o aluno autorizou");
-    expect(toggle).toContain("disabled={!isCurrentStudent || !attested || saving}");
+    expect(toggle).toContain("disabled={!isCurrentStudent || !hasReliableRecipient || !attested || saving}");
+    expect(toggle).toContain("next && !hasReliableRecipient");
+    expect(toggle).toContain("if (hasReliableRecipient) return;");
     expect(toggle).toContain("activeStudentIdRef.current !== originStudentId");
     expect(toggle).toContain("setPolicyVersion(null)");
     expect(toggle).toContain("setGrantDialogOpen(false)");
@@ -124,7 +126,7 @@ describe("weekly contact consent ledger", () => {
     expect(rolloutGate).toContain("Required order: 1) Edge dispatcher 2) database migration 3) frontend");
     expect(rolloutGate).toContain("queueCleanup >= 0 && queueCleanup < ledgerInstall");
     expect(rolloutGate).toContain("lockIndex >= 0 && lockIndex < queueCleanup");
-    expect(rolloutGate).toContain("disabled={!isCurrentStudent || !attested || saving}");
+    expect(rolloutGate).toContain("disabled={!isCurrentStudent || !hasReliableRecipient || !attested || saving}");
   });
 
   it("rolls back by preserving evidence and disabling eligibility", () => {

@@ -17,8 +17,15 @@ import {
 import { MessageCircleHeart } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { normalizeStudentChatPhone } from "@/lib/studentChat";
 
-export function WeeklyContactToggle({ studentId }: { studentId: string }) {
+type WeeklyContactToggleProps = {
+  studentId: string;
+  phone?: string | null;
+  countryCode?: string | null;
+};
+
+export function WeeklyContactToggle({ studentId, phone, countryCode }: WeeklyContactToggleProps) {
   const activeStudentIdRef = useRef(studentId);
   activeStudentIdRef.current = studentId;
   const [enabled, setEnabled] = useState(false);
@@ -28,6 +35,7 @@ export function WeeklyContactToggle({ studentId }: { studentId: string }) {
   const [statusStudentId, setStatusStudentId] = useState<string | null>(null);
   const [grantDialogOpen, setGrantDialogOpen] = useState(false);
   const [attested, setAttested] = useState(false);
+  const hasReliableRecipient = Boolean(normalizeStudentChatPhone(phone, countryCode));
 
   useEffect(() => {
     let active = true;
@@ -53,11 +61,21 @@ export function WeeklyContactToggle({ studentId }: { studentId: string }) {
     return () => { active = false; };
   }, [studentId]);
 
+  useEffect(() => {
+    if (hasReliableRecipient) return;
+    setGrantDialogOpen(false);
+    setAttested(false);
+  }, [hasReliableRecipient]);
+
   const isCurrentStudent = statusStudentId === studentId;
 
   const persistConsent = async (next: boolean) => {
     const originStudentId = studentId;
     const originPolicyVersion = isCurrentStudent ? policyVersion : null;
+    if (next && !hasReliableRecipient) {
+      toast.error("Corrija o WhatsApp do aluno antes de ativar o contato semanal.");
+      return;
+    }
     if (!originPolicyVersion) {
       toast.error("Política de consentimento indisponível");
       return;
@@ -84,6 +102,10 @@ export function WeeklyContactToggle({ studentId }: { studentId: string }) {
 
   const requestToggle = (next: boolean) => {
     if (next) {
+      if (!hasReliableRecipient) {
+        toast.error("Corrija o WhatsApp do aluno antes de ativar o contato semanal.");
+        return;
+      }
       setAttested(false);
       setGrantDialogOpen(true);
       return;
@@ -100,13 +122,19 @@ export function WeeklyContactToggle({ studentId }: { studentId: string }) {
           <Switch
             id={`wc-${studentId}`}
             checked={isCurrentStudent && enabled}
-            disabled={!isCurrentStudent || loading || saving}
+            disabled={!isCurrentStudent || loading || saving || (!enabled && !hasReliableRecipient)}
             onCheckedChange={requestToggle}
           />
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Ative somente após o aluno autorizar mensagens proativas no WhatsApp. A autorização pode ser revogada a qualquer momento.
-        </p>
+        {hasReliableRecipient ? (
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Ative somente após o aluno autorizar mensagens proativas no WhatsApp. A autorização pode ser revogada a qualquer momento.
+          </p>
+        ) : (
+          <p className="text-xs text-destructive mt-0.5">
+            Sem WhatsApp confiável. Corrija o número no perfil antes de ativar.
+          </p>
+        )}
       </div>
       <AlertDialog open={isCurrentStudent && grantDialogOpen} onOpenChange={(open) => {
         setGrantDialogOpen(open);
@@ -132,7 +160,7 @@ export function WeeklyContactToggle({ studentId }: { studentId: string }) {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              disabled={!isCurrentStudent || !attested || saving}
+              disabled={!isCurrentStudent || !hasReliableRecipient || !attested || saving}
               onClick={(event) => {
                 event.preventDefault();
                 void persistConsent(true);

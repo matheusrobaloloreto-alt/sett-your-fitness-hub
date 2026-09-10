@@ -82,7 +82,7 @@ O QA raiz aprovou a cadeia de Produto sem P0/P1/P2, e a Release Guardian integro
 
 P3 fechado na integracao: foi adicionado o teste explicito em que `completedRow.id` diverge da sessao solicitada. O fluxo falha fechado, preserva a sessao ativa local e nao concede XP. A cobertura foi adicionada sem alterar o contrato de producao; a suite integral continua sendo o gate final do HEAD.
 
-Esta integracao e apenas local/branch release. Staging e producao permanecem NO-GO ate o ledger/RPC/dispatcher de consentimento semanal estar integrado, a frente de Dados concluir seu gate e o smoke autenticado de papeis/tenant passar.
+Esta integracao e apenas local/branch release. Produto, Dados e o ledger/RPC/dispatcher de consentimento semanal estao integrados no codigo, mas staging e producao permanecem NO-GO ate a CI do HEAD passar, o rollout isolado seguir Edge -> migration -> frontend e os smokes autenticados de papeis/tenant e grant/revoke passarem.
 
 ## Rollback
 

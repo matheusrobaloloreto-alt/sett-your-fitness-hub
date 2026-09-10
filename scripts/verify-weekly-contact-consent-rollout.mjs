@@ -28,7 +28,14 @@ requireInvariant(
   "Edge must check consent after claim and immediately before content/menu sends",
 );
 requireInvariant(toggle.includes("Confirmo que o aluno autorizou"), "frontend grant requires explicit staff attestation");
-requireInvariant(toggle.includes("disabled={!isCurrentStudent || !attested || saving}"), "grant action must stay disabled without current-student attestation");
+requireInvariant(
+  toggle.includes("disabled={!isCurrentStudent || !hasReliableRecipient || !attested || saving}"),
+  "grant action must stay disabled without current-student attestation and a reliable recipient",
+);
+requireInvariant(
+  toggle.includes("next && !hasReliableRecipient") && toggle.includes("if (hasReliableRecipient) return;"),
+  "frontend must revalidate the recipient and close an open grant dialog when it becomes unreliable",
+);
 requireInvariant(
   toggle.includes("activeStudentIdRef.current !== originStudentId") &&
     toggle.includes("open={isCurrentStudent && grantDialogOpen}"),
