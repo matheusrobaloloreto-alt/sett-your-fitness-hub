@@ -94,6 +94,14 @@ describe("SETT integration contracts", () => {
     expect(studio).toContain("PrescriptionStudio schedule load failed");
   });
 
+  it("does not link cardio bundle items or bundle summaries without a persisted running plan id", () => {
+    const studio = source("src/pages/admin/PrescriptionStudio.tsx");
+    expect(studio).toContain('throw new Error(`A prescrição de ${modality} foi gerada sem ID persistido.`)');
+    expect(studio).toMatch(/await linkBundleItem\(modality, "running_plan", data\.id\)/);
+    expect(studio).toContain("const { error: runningLinkError } = await db.from(\"prescription_bundles\")");
+    expect(studio).toContain("if (runningLinkError) throw new Error(`Falha ao ligar cardio: ${runningLinkError.message}`);");
+  });
+
   it("clears Studio anamnesis on student changes and separates loading, error, and unanswered states", () => {
     const studio = source("src/pages/admin/PrescriptionStudio.tsx");
     expect(studio).toContain("const [anamneseLoading, setAnamneseLoading]");

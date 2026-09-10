@@ -822,6 +822,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
             block_number: cycle.cycle_number, program_sequence: programSequence,
           } });
           if (edgeError || data?.error) throw new Error((await readEdgeError(edgeError, data)) || `Falha em ${modality} no ciclo ${cycle.cycle_number}.`);
+          if (!data?.id) throw new Error(`A prescrição de ${modality} foi gerada sem ID persistido.`);
           generatedCardio = captureGeneratedCardioPlan(
             generatedCardio,
             modality as "corrida" | "natacao" | "ciclismo",
@@ -833,7 +834,12 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
           cardioPlans[modality] = data.plan; newResults[modality] = data.plan;
           setStatus((current) => ({ ...current, [modality]: "done" }));
         }
-        if (firstRunningPlanId) await db.from("prescription_bundles").update({ running_plan_id: firstRunningPlanId }).eq("id", bundleId);
+        if (firstRunningPlanId) {
+          const { error: runningLinkError } = await db.from("prescription_bundles")
+            .update({ running_plan_id: firstRunningPlanId })
+            .eq("id", bundleId);
+          if (runningLinkError) throw new Error(`Falha ao ligar cardio: ${runningLinkError.message}`);
+        }
 
         if (modalities.has("nutricao")) {
           setStatus((current) => ({ ...current, nutricao: "generating" }));

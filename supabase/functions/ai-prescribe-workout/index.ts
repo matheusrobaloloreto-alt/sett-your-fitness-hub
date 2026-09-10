@@ -4,6 +4,7 @@ import { assertBundleAccess, assertTenantAccess, HttpError, isUuid } from "../_s
 import { buildPrescriptionInputFromEdgePayload } from "../_shared/prescription/adapters/inputAdapter.ts";
 import { adaptTrainingProgramForAiStrengthPlan } from "../_shared/prescription/adapters/outputAdapter.ts";
 import { generateTrainingProgram } from "../_shared/prescription/engine.ts";
+import { isPrescriptionCatalogEligible } from "../_shared/prescription/catalogEligibility.ts";
 import { clinicalRiskText, prescriptionRiskText } from "../_shared/prescription/clinicalContext.ts";
 import { targetVolumeFactor } from "../_shared/prescription/volumeRules.ts";
 import {
@@ -489,23 +490,30 @@ async function loadExerciseCatalog(
     }
   }
 
+  const exercises = exerciseRows.map((exercise) => ({
+    id: exercise.id as string,
+    name: exercise.name as string,
+    description: (exercise.description as string | null) ?? null,
+    muscle_group: (exercise.muscle_group as string | null) ?? null,
+    equipment: (exercise.equipment as string | null) ?? null,
+    difficulty: (exercise.difficulty as string | null) ?? null,
+    contraindications: metadataByExercise.get(exercise.id as string)?.contraindications ?? [],
+    regressions: metadataByExercise.get(exercise.id as string)?.regressions ?? [],
+    progressions: metadataByExercise.get(exercise.id as string)?.progressions ?? [],
+    equivalent_substitutes: metadataByExercise.get(exercise.id as string)?.equivalent_substitutes ?? [],
+    pain_limitation_tags: metadataByExercise.get(exercise.id as string)?.pain_limitation_tags ?? [],
+    targets: targetsByExercise.get(exercise.id as string) ?? [],
+  })).filter(isPrescriptionCatalogEligible);
+
+  const excludedUnclassified = exerciseRows.length - exercises.length;
+  if (excludedUnclassified > 0) {
+    console.warn(`prescription_catalog_unclassified_excluded=${excludedUnclassified}`);
+  }
+
   return {
     company_id: companyId,
-    total: exerciseRows.length,
-    exercises: exerciseRows.map((exercise) => ({
-      id: exercise.id as string,
-      name: exercise.name as string,
-      description: (exercise.description as string | null) ?? null,
-      muscle_group: (exercise.muscle_group as string | null) ?? null,
-      equipment: (exercise.equipment as string | null) ?? null,
-      difficulty: (exercise.difficulty as string | null) ?? null,
-      contraindications: metadataByExercise.get(exercise.id as string)?.contraindications ?? [],
-      regressions: metadataByExercise.get(exercise.id as string)?.regressions ?? [],
-      progressions: metadataByExercise.get(exercise.id as string)?.progressions ?? [],
-      equivalent_substitutes: metadataByExercise.get(exercise.id as string)?.equivalent_substitutes ?? [],
-      pain_limitation_tags: metadataByExercise.get(exercise.id as string)?.pain_limitation_tags ?? [],
-      targets: targetsByExercise.get(exercise.id as string) ?? [],
-    })),
+    total: exercises.length,
+    exercises,
   };
 }
 

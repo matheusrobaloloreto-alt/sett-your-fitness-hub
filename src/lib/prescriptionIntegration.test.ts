@@ -101,4 +101,22 @@ describe("prescription integration", () => {
       .toContain("Todas as IAs recebem o mesmo resultado integrado de anamnese + avaliacao funcional.");
     expect(JSON.stringify(orchestration.blocks).toLowerCase()).not.toMatch(/up-set|upset|pir[aâ]mide|pyramid/);
   });
+
+  it("keeps the first non-cautious strength block at RIR 3-4", () => {
+    const integration = buildPrescriptionIntegration({
+      anamnese: { ...anamnesis, injuries: null },
+      assessment: {
+        id: "clear-assessment",
+        schema: "bn_functional_assessment_v1",
+        total_compensacoes: 0,
+        ohs_compensations: [],
+        report_sections: { laudo: "Sem compensações relevantes." },
+      },
+    });
+
+    const orchestration = buildBnitoOrchestrationPlan(integration);
+
+    expect(orchestration.blocks[0].strength_stimulus).toContain("RIR 3-4");
+    expect(orchestration.blocks[0].strength_stimulus).not.toContain("RIR 2-3");
+  });
 });

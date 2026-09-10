@@ -17,6 +17,7 @@ import type {
   ValidationCorrection,
 } from "./types.ts";
 import { prescriptionRiskText } from "./clinicalContext.ts";
+import { isPrescriptionCatalogEligible } from "./catalogEligibility.ts";
 
 type ExerciseSpec = {
   phase: string;
@@ -133,7 +134,7 @@ const normalizedCatalogCache = new WeakMap<ExerciseCatalogEntry[], ExerciseCatal
 function normalizeCatalog(catalog: ExerciseCatalogEntry[] = []) {
   const cached = normalizedCatalogCache.get(catalog);
   if (cached) return cached;
-  const normalized = catalog.filter((exercise) => exercise?.id && exercise?.name).map((exercise) => ({
+  const normalized = catalog.filter(isPrescriptionCatalogEligible).map((exercise) => ({
     ...exercise,
     contraindications: exercise.contraindications || [],
     regressions: exercise.regressions || [],

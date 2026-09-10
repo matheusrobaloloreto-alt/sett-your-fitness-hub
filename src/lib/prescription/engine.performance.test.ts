@@ -62,20 +62,26 @@ describe("BN Prescription Engine compute budget", () => {
 
     generateTrainingProgram(input); // aquece o runtime/imports antes da medição
     const samples = Array.from({ length: 3 }, () => {
+      const cpuStartedAt = process.cpuUsage();
       const startedAt = performance.now();
       const program = generateTrainingProgram(input);
-      const elapsedMs = performance.now() - startedAt;
+      const wallMs = performance.now() - startedAt;
+      const cpuUsage = process.cpuUsage(cpuStartedAt);
+      const cpuMs = (cpuUsage.user + cpuUsage.system) / 1_000;
 
       expect(program.library_policy.catalog_count).toBe(1_200);
       expect(program.workouts.length).toBeGreaterThanOrEqual(4);
       expect(program.library_policy.only_library_exercises).toBe(true);
-      return elapsedMs;
-    }).sort((left, right) => left - right);
+      return { cpuMs, wallMs };
+    }).sort((left, right) => left.cpuMs - right.cpuMs);
 
-    const medianMs = samples[1];
-    console.info(`prescription_engine_benchmark median_ms=${medianMs.toFixed(2)} samples_ms=${samples.map((sample) => sample.toFixed(2)).join(",")}`);
-    // Vitest executa arquivos em paralelo; a folga evita falsos negativos por
-    // contenção sem permitir retorno ao baseline anterior (> 550 ms isolado).
-    expect(medianMs).toBeLessThan(500);
+    const medianCpuMs = samples[1].cpuMs;
+    console.info(
+      `prescription_engine_benchmark median_cpu_ms=${medianCpuMs.toFixed(2)} cpu_samples_ms=${samples.map((sample) => sample.cpuMs.toFixed(2)).join(",")} wall_samples_ms=${samples.map((sample) => sample.wallMs.toFixed(2)).join(",")}`,
+    );
+    // O gate mede CPU realmente consumida pelo worker. Tempo de parede continua
+    // registrado para diagnóstico, mas não reprova por contenção de outros
+    // processos/arquivos no host compartilhado.
+    expect(medianCpuMs).toBeLessThan(500);
   });
 });
