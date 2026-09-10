@@ -28,6 +28,8 @@ lock table public.intercycle_anamnesis_invites in share row exclusive mode;
 lock table public.intercycle_anamnesis_waivers in share row exclusive mode;
 lock table public.workout_archive_events in share row exclusive mode;
 lock table public.cycle_prescription_clear_events in share row exclusive mode;
+lock table public.payments in share row exclusive mode;
+lock table public.payment_recovery_events in share row exclusive mode;
 
 create or replace function pg_temp.bn_legacy_term_has_post_repair_activity(
   p_enrollment_id uuid,
@@ -177,12 +179,37 @@ as $function$
           carry.updated_at,
           coalesce(carry.carried_over_cycle_cleared_at,'-infinity'::timestamptz)
         )>p_applied_at
+    )
+    or exists (
+      select 1 from public.payments payment
+      where coalesce(payment.lifecycle_enrollment_id,payment.enrollment_id)=p_enrollment_id
+        and greatest(
+          payment.created_at,
+          payment.updated_at,
+          coalesce(payment.paid_at,'-infinity'::timestamptz),
+          coalesce(payment.lifecycle_applied_at,'-infinity'::timestamptz)
+        )>p_applied_at
+    )
+    or exists (
+      select 1 from public.payment_recovery_events event
+      left join public.payments payment on payment.id=event.payment_id
+      where (
+        event.enrollment_id=p_enrollment_id
+        or coalesce(payment.lifecycle_enrollment_id,payment.enrollment_id)=p_enrollment_id
+      )
+      and greatest(event.occurred_at,event.created_at)>p_applied_at
     );
 $function$;
 
 do $guard$
 declare v_count integer;
 begin
+  select count(*) into v_count
+  from public.enrollment_legacy_term_repair_audit audit
+  where audit.repair_key='bn_legacy_terms_20260909'
+    and audit.state='applied';
+  if v_count<>12 then raise exception 'bn_legacy_term_rollback_cardinality_mismatch expected=12 actual=%',v_count; end if;
+
   select count(*) into v_count
   from public.enrollment_legacy_term_repair_audit audit
   where audit.repair_key='bn_legacy_terms_20260909'

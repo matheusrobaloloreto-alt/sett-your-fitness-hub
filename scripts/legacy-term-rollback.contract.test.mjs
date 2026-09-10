@@ -25,6 +25,8 @@ const dependencyTables = [
   "intercycle_anamnesis_waivers",
   "workout_archive_events",
   "cycle_prescription_clear_events",
+  "payments",
+  "payment_recovery_events",
 ];
 
 const remoteMigrations = [
@@ -62,6 +64,11 @@ test("rollback keeps the exact after-image gate and excludes trigger-managed tim
     assert.match(sql, /jsonb_strip_nulls\(to_jsonb\([^)]*\)-'updated_at'\)/i);
     assert.match(sql, /transaction_timestamp\(\)/i);
     assert.match(sql, /rollback_post_repair_dependency_activity/i);
+    assert.match(sql, /rollback_cardinality_mismatch expected=(?:12|6) actual=%/i);
+    assert.ok(
+      sql.search(/rollback_cardinality_mismatch/i) < sql.search(/before_sha256=encode\(extensions\.digest/i),
+      `${filename} must reject applied-row cardinality drift before validating hashes`,
+    );
     assert.ok(
       sql.search(/before_sha256=encode\(extensions\.digest/i) < sql.search(/update public\./i),
       `${filename} must validate before_sha256 before the first persistent update`,
@@ -71,6 +78,9 @@ test("rollback keeps the exact after-image gate and excludes trigger-managed tim
       assert.match(sql, new RegExp(`public\\.${table}\\b`, "i"));
     }
     assert.match(sql, /carried_over_cycle_id/i);
+    assert.match(sql, /coalesce\(payment\.lifecycle_enrollment_id,payment\.enrollment_id\)/i);
+    assert.match(sql, /payment\.lifecycle_applied_at/i);
+    assert.match(sql, /greatest\(event\.occurred_at,event\.created_at\)/i);
     assert.match(sql, /greatest\([^;]+(?:log|l)\.created_at,(?:log|l)\.updated_at,/is);
   }
 });
@@ -100,7 +110,23 @@ test("readiness audit is read-only, aggregate-only, and validates both real trig
     assert.match(sql, new RegExp(`public\\.${table}\\b`, "i"));
   }
   assert.match(sql, /carried_over_cycle_id/i);
+  assert.match(sql, /coalesce\(payment\.lifecycle_enrollment_id,payment\.enrollment_id\)/i);
+  assert.match(sql, /payment\.lifecycle_applied_at/i);
+  assert.match(sql, /greatest\(event\.occurred_at,event\.created_at\)/i);
   assert.doesNotMatch(sql, /student\.(?:name|email|phone)|enrollment\.(?:name|email|phone)/i);
+});
+
+test("applied-row cardinality negative rehearsal rejects an extra row in both batches", async () => {
+  const sql = await readFile(
+    script("rehearse-legacy-term-rollback-cardinality.sql"),
+    "utf8",
+  );
+  assert.match(sql, /bn_legacy_terms_20260909[^;]+generate_series\(1,12\)/is);
+  assert.match(sql, /bn_remaining_legacy_terms_20260909[^;]+generate_series\(1,6\)/is);
+  assert.match(sql, /first_batch_extra_rejected/i);
+  assert.match(sql, /second_batch_extra_rejected/i);
+  assert.match(sql, /rollback;\s*$/i);
+  assert.doesNotMatch(sql, /public\./i);
 });
 
 test("corrupted before-image rehearsal is pg_temp-only, rejects the mismatch, and rolls back", async () => {

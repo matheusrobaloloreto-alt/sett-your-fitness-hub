@@ -169,6 +169,23 @@ with expected as (
             carry.updated_at,
             coalesce(carry.carried_over_cycle_cleared_at,'-infinity'::timestamptz)
           )>audit.applied_at
+      ) or exists (
+        select 1 from public.payments payment
+        where coalesce(payment.lifecycle_enrollment_id,payment.enrollment_id)=audit.enrollment_id
+          and greatest(
+            payment.created_at,
+            payment.updated_at,
+            coalesce(payment.paid_at,'-infinity'::timestamptz),
+            coalesce(payment.lifecycle_applied_at,'-infinity'::timestamptz)
+          )>audit.applied_at
+      ) or exists (
+        select 1 from public.payment_recovery_events event
+        left join public.payments payment on payment.id=event.payment_id
+        where (
+          event.enrollment_id=audit.enrollment_id
+          or coalesce(payment.lifecycle_enrollment_id,payment.enrollment_id)=audit.enrollment_id
+        )
+        and greatest(event.occurred_at,event.created_at)>audit.applied_at
       )
     )::integer as rows_with_post_repair_dependency_activity
   from expected

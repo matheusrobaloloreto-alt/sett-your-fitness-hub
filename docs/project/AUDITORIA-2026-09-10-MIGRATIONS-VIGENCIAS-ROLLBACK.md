@@ -30,7 +30,7 @@ O mesmo gate confirmou dois triggers esperados ativos e a função real contendo
 
 O segundo lote está bloqueado por atividade operacional posterior em um ciclo existente. O guard expandido continua apontando uma linha afetada, sem expor identidade. O guard fail-closed funcionou: after-image de matrícula/aluno ainda é exato, mas isso não basta para autorizar a reversão diante de atividade dependente posterior.
 
-A cobertura de atividade e os locks agora reconciliam a migration canônica de preservação de ciclos e o reparo de decisões por owner. Incluem ciclos, treinos, exercícios, logs, sessões, feedback, versões e planos de IA, corrida e nutrição, bundles e seus itens, anamnese inter-ciclo (registro, entrega, convite e waiver), eventos de arquivamento/limpeza e referências de ciclo carregado por outra matrícula. Tabelas históricas de auditoria de reparos foram deliberadamente excluídas: são evidência administrativa append-only, não atividade operacional do aluno, e bloqueá-las tornaria o rollback dependente da própria trilha de auditoria.
+A cobertura de atividade e os locks agora reconciliam a migration canônica de preservação de ciclos e o reparo de decisões por owner. Incluem ciclos, treinos, exercícios, logs, sessões, feedback, versões e planos de IA, corrida e nutrição, bundles e seus itens, anamnese inter-ciclo (registro, entrega, convite e waiver), eventos de arquivamento/limpeza, referências de ciclo carregado por outra matrícula, pagamentos vinculados por `coalesce(lifecycle_enrollment_id,enrollment_id)` e eventos de recuperação financeira. Para pagamentos, `created_at`, `updated_at`, `paid_at` e `lifecycle_applied_at` são considerados; para eventos, `occurred_at` e `created_at`. Tabelas históricas de auditoria de reparos foram deliberadamente excluídas: são evidência administrativa append-only, não atividade operacional do aluno, e bloqueá-las tornaria o rollback dependente da própria trilha de auditoria.
 
 ## Ensaio do trigger real
 
@@ -52,11 +52,13 @@ Limite residual: nem toda tabela dependente tem um `updated_at` universal. O gua
 - versões locais das migrations reconciliadas com o ledger remoto, mantendo bytes e MD5;
 - rollbacks corrigidos para respeitar os triggers `updated_at`;
 - validação autocontida de `before_sha256` antes de qualquer `UPDATE` persistente;
+- cardinalidade bruta `state='applied'` exigida como exatamente 12/6 antes dos hashes, impedindo compensação entre linha extra e snapshot ausente/corrompido;
 - guard fail-closed expandido para todo o grafo operacional conhecido, com locks de escrita contra corrida;
 - restauração de `students` limitada aos dois registros cujo status foi realmente alterado pelo primeiro lote;
 - auditoria read-only de readiness adicionada;
 - ensaio sintético do trigger real adicionado;
 - ensaio negativo de corrupção do before-image adicionado;
+- ensaio negativo de cardinalidade extra para os dois lotes adicionado;
 - teste de contrato adicionando versão/hash, fail-closed, trigger e ausência de PII;
 - política criada para manter reparos data-specific futuros fora do deploy automático de migrations.
 
@@ -72,9 +74,10 @@ O rollback real continua **não autorizado e não executado**. O segundo lote es
 
 ## Validação desta correção
 
-- contrato Node do rollback: `6/6`;
+- contrato Node do rollback: `7/7`;
 - ensaio de trigger em `pg_temp` + `ROLLBACK`: aprovado;
 - ensaio negativo de `before_sha256` em `pg_temp` + `ROLLBACK`: aprovado;
+- ensaio negativo de cardinalidade 13/12 e 7/6 em `pg_temp` + `ROLLBACK`: ambos rejeitados;
 - readiness agregado ao vivo: lote de 12 `true`; lote de 6 `false` por uma atividade posterior;
 - backend canônico: confirmado;
 - ESLint: zero erros e 44 warnings preexistentes;
