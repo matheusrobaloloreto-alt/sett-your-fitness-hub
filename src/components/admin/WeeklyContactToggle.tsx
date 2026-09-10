@@ -15,6 +15,10 @@ type WeeklyContactToggleProps = {
   countryCode?: string | null;
 };
 
+// A base atual só guarda um booleano mutável em students. Sem ledger com ator,
+// origem, versão da política e horário, uma ativação nova não é consentimento.
+const HAS_AUDITABLE_WEEKLY_CONTACT_CONSENT = false;
+
 export function WeeklyContactToggle({ studentId, initial, phone, countryCode }: WeeklyContactToggleProps) {
   const [enabled, setEnabled] = useState(!!initial);
   const [saving, setSaving] = useState(false);
@@ -25,6 +29,10 @@ export function WeeklyContactToggle({ studentId, initial, phone, countryCode }: 
   const toggle = async (next: boolean) => {
     if (next && !hasReliableRecipient) {
       toast.error("Corrija o WhatsApp do aluno antes de ativar o contato semanal.");
+      return;
+    }
+    if (next && !HAS_AUDITABLE_WEEKLY_CONTACT_CONSENT) {
+      toast.error("Ativação indisponível até o consentimento poder ser registrado com auditoria.");
       return;
     }
     setEnabled(next);
@@ -48,13 +56,17 @@ export function WeeklyContactToggle({ studentId, initial, phone, countryCode }: 
           <Switch
             id={`wc-${studentId}`}
             checked={enabled}
-            disabled={saving || (!enabled && !hasReliableRecipient)}
+            disabled={saving || (!enabled && (!hasReliableRecipient || !HAS_AUDITABLE_WEEKLY_CONTACT_CONSENT))}
             onCheckedChange={toggle}
           />
         </div>
-        {hasReliableRecipient ? (
+        {enabled && !HAS_AUDITABLE_WEEKLY_CONTACT_CONSENT ? (
+          <p className="text-xs text-destructive mt-0.5">
+            Ativo sem prova auditável de consentimento. Desative até o registro seguro estar disponível.
+          </p>
+        ) : hasReliableRecipient ? (
           <p className="text-xs text-muted-foreground mt-0.5">
-            Ative somente após o aluno concordar. A automação fará até 2 contatos por semana; nenhuma mensagem é enviada agora.
+            A ativação está bloqueada porque o consentimento auditável ainda não está disponível.
           </p>
         ) : (
           <p className="text-xs text-destructive mt-0.5">

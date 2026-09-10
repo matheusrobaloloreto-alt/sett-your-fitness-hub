@@ -8,8 +8,10 @@ interface ActiveSession {
   elapsedSeconds: number;
 }
 
-interface SessionSummary {
+export interface SessionSummary {
   id: string;
+  workoutId: string;
+  completedAt: string;
   durationSeconds: number;
   totalVolume: number;
   totalSetsCompleted: number;
@@ -116,6 +118,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     finishingRef.current = true; // A9 — trava reentrância: só um award_xp por sessão.
 
     const now = Date.now();
+    const completedAt = new Date(now).toISOString();
     const durationSeconds = Math.floor((now - activeSession.startedAt) / 1000);
 
     // Calculate summary
@@ -155,7 +158,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     const { error: completionError } = await supabase
       .from("workout_sessions")
       .update({
-        completed_at: new Date(now).toISOString(),
+        completed_at: completedAt,
         duration_seconds: durationSeconds,
         total_volume: totalVolume,
         total_sets_completed: totalSetsCompleted,
@@ -186,6 +189,8 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
 
     const result: SessionSummary = {
       id: activeSession.id,
+      workoutId: activeSession.workoutId,
+      completedAt,
       durationSeconds,
       totalVolume,
       totalSetsCompleted,

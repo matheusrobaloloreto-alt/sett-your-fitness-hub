@@ -26,7 +26,7 @@ describe("WeeklyContactToggle", () => {
     expect(screen.getByText(/Corrija o número no perfil antes de ativar/)).toBeInTheDocument();
   });
 
-  it("makes consent and cadence explicit for an eligible student", () => {
+  it("keeps activation disabled until auditable consent storage exists", () => {
     render(
       <WeeklyContactToggle
         studentId="student-1"
@@ -36,8 +36,7 @@ describe("WeeklyContactToggle", () => {
       />,
     );
 
-    expect(screen.getByRole("switch", { name: "Contato semanal" })).toBeEnabled();
-    expect(screen.getByText(/Ative somente após o aluno concordar/)).toBeInTheDocument();
-    expect(screen.getByText(/nenhuma mensagem é enviada agora/)).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Contato semanal" })).toBeDisabled();
+    expect(screen.getByText(/consentimento auditável ainda não está disponível/)).toBeInTheDocument();
   });
 });
