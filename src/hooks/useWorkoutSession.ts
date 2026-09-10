@@ -155,7 +155,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     const totalSetsCompleted = exercisesSummary.reduce((sum, ex) => sum + ex.sets.filter(s => s.weight > 0 || s.reps > 0).length, 0);
     const totalSetsPrescribed = exercises.reduce((sum, ex) => sum + (parseInt(ex.sets) || 3), 0);
 
-    const { error: completionError } = await supabase
+    const { data: completedRow, error: completionError } = await supabase
       .from("workout_sessions")
       .update({
         completed_at: completedAt,
@@ -166,9 +166,13 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
         status: "completed",
         exercises_summary: exercisesSummary as any,
       })
-      .eq("id", activeSession.id);
+      .eq("id", activeSession.id)
+      .eq("student_id", studentId)
+      .eq("status", "in_progress")
+      .select("id")
+      .single();
 
-    if (completionError) {
+    if (completionError || !completedRow || completedRow.id !== activeSession.id) {
       finishingRef.current = false;
       return null;
     }
