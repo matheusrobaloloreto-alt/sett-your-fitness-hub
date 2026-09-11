@@ -81,7 +81,7 @@ Foi executado exatamente um build com `SETT_DEPLOY_TARGET=production npm run bui
 `/Users/macbookpro/.codex/private-backups/sett-prod-consent-preflight-20260910T141910/dist-production`
 
 - arquivos: 226;
-- tamanho: 10.903.552 bytes;
+- espaco alocado no filesystem: 10.903.552 bytes; soma dos arquivos: 10.289.087 bytes;
 - scan completo: 31 referencias de producao, zero de staging e zero legadas;
 - SHA-256 da arvore: `d2647253efae75c5538b8b1bcd2730efbdd5779714e6461f2de4449663205446`;
 - SHA-256 do tar: `055bfbe93e076fe964527c429534780bf410c2d807503904db0f0b5b90181144`.
@@ -177,7 +177,7 @@ O push normal deve rejeitar non-fast-forward; nunca usar `--force`.
 | Camada | Estado real |
 |---|---|
 | Local | ✅ Codigo `18d1b184`, bundle PROD congelado, quatro dumps privados e rehearsal independente concluidos. |
-| Commit/branch | ❌ Este registro ainda precisa de commit/push e CI (em andamento). Proximo passo: revisar o diff, enviar somente os tres documentos e aguardar CI. |
+| Commit/branch | ✅ Registro enviado na branch release; `1bf946e83954283c4b3b954febed997976436c03` ficou identico ao upstream e a CI `34516912209` passou com testes, gates estaticos e build. |
 | Staging | ✅ GO independente; deploy limpo ativo. |
 | P3 staging | ❌ Deploy contaminado ainda acessivel (bloqueado). Motivo: exclusao requer autorizacao explicita. Proximo passo: excluir pelo comando preparado e provar 404, mantendo o deploy limpo ativo. |
 | Rehearsal PROD | ✅ GO tecnico independente: restore completo, 344 FKs pre-migration, 16/16 invariantes, rollback oficial e 349 FKs finais sem violacao. |
