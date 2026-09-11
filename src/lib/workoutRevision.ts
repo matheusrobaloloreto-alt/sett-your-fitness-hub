@@ -21,18 +21,27 @@ export function currentWorkoutRevisionRows<T extends { superseded_at?: string | 
   return rows.filter((row) => !row.superseded_at);
 }
 
-function workoutRevisionError(message?: string): string {
+export class WorkoutRevisionConflictError extends Error {
+  readonly code = "workout_revision_changed";
+
+  constructor() {
+    super("O treino foi alterado em outra tela. Escolha qual versão deve permanecer para continuar.");
+    this.name = "WorkoutRevisionConflictError";
+  }
+}
+
+function workoutRevisionError(message?: string): Error {
   const raw = String(message || "");
   if (raw.includes("workout_revision_changed")) {
-    return "O treino foi alterado em outra tela. Recarregue antes de salvar para não sobrescrever a versão mais recente.";
+    return new WorkoutRevisionConflictError();
   }
   if (raw.includes("workout_revision_cycle_not_visible")) {
-    return "Este não é o ciclo que o aluno está vendo. Abra o ciclo atual indicado no perfil antes de salvar.";
+    return new Error("Este não é o ciclo que o aluno está vendo. Abra o ciclo atual indicado no perfil antes de salvar.");
   }
   if (raw.includes("workout_revision_forbidden")) {
-    return "Seu acesso atual não permite alterar este aluno. Atualize o treinador responsável ou peça acesso à coordenação.";
+    return new Error("Seu acesso atual não permite alterar este aluno. Atualize o treinador responsável ou peça acesso à coordenação.");
   }
-  return raw || "Falha ao salvar a nova versão do treino.";
+  return new Error(raw || "Falha ao salvar a nova versão do treino.");
 }
 
 export async function saveCycleWorkoutRevision(
@@ -48,7 +57,7 @@ export async function saveCycleWorkoutRevision(
     p_expected_rows: args.expectedRows,
     p_workouts: args.workouts,
   });
-  if (error) throw new Error(workoutRevisionError(error.message));
+  if (error) throw workoutRevisionError(error.message);
 
   const result = (Array.isArray(data) ? data[0] : data) as {
     cycle_id?: string;

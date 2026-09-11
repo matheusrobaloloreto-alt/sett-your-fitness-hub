@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   currentWorkoutRevisionRows,
   saveCycleWorkoutRevision,
+  WorkoutRevisionConflictError,
 } from "@/lib/workoutRevision";
 
 const cycleId = "40000000-0000-4000-8000-000000000001";
@@ -36,6 +37,18 @@ describe("workout revisions", () => {
         { title: "Treino B", description: "", exercises: [] },
       ],
     })).rejects.toThrow("não confirmou todos os treinos");
+  });
+
+  it("exposes revision conflicts as a typed recoverable error", async () => {
+    const db = {
+      rpc: async () => ({ data: null, error: { message: "workout_revision_changed" } }),
+    };
+
+    await expect(saveCycleWorkoutRevision(db, {
+      cycleId,
+      expectedRows: [],
+      workouts: [{ title: "Treino A", exercises: [] }],
+    })).rejects.toBeInstanceOf(WorkoutRevisionConflictError);
   });
 
   it("sends the exact snapshot and returns only a fully confirmed revision", async () => {

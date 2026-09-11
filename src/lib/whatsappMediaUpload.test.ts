@@ -29,6 +29,15 @@ describe("WhatsApp media upload policy", () => {
       });
   });
 
+  it("accepts only a compact WebP through the sticker delivery path", () => {
+    expect(describeWhatsAppMediaDelivery({ type: "image/webp", size: 100_000 }, { asSticker: true }))
+      .toEqual({ mediatype: "sticker", notice: null });
+    expect(() => describeWhatsAppMediaDelivery({ type: "image/png", size: 100_000 }, { asSticker: true }))
+      .toThrow("WebP");
+    expect(() => describeWhatsAppMediaDelivery({ type: "image/webp", size: 1024 * 1024 + 1 }, { asSticker: true }))
+      .toThrow("1 MB");
+  });
+
   it("routes large files through the resumable uploader and reports its progress", async () => {
     const calls: string[] = [];
     const progress: number[] = [];

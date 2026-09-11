@@ -20,7 +20,7 @@ import {
   MessageCircle, ChevronDown, Tag, Trash2, Reply, Activity,
   ArrowLeft, Loader2, Maximize2, Minimize2,
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, RefreshCw,
-  ClipboardList,
+  ClipboardList, Smile, Sticker,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, differenceInDays, isSameDay, isToday, isYesterday } from "date-fns";
@@ -65,6 +65,7 @@ import {
 } from "@/lib/whatsappMessageEdit";
 import type { WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
 import { resolveWhatsAppChatRequest } from "@/lib/whatsappChatRequest";
+import { prepareWhatsAppSticker } from "@/lib/whatsappSticker";
 
 type Chat = {
   id: string;
@@ -221,6 +222,40 @@ const isAdministrativeRole = (role: string | null) => (
   role === "admin" || role === "master" || role === "coordinator"
 );
 
+const QUICK_EMOJIS = [
+  "😀", "😂", "🥰", "😍", "😊", "😉", "😅", "🤔",
+  "👏", "🙌", "💪", "👍", "🙏", "🔥", "❤️", "💙",
+  "✅", "🎯", "🏋️", "🏃", "🚴", "🏊", "🥇", "🚀",
+  "📅", "⏰", "📈", "✨", "🎉", "🤝", "👀", "⚡",
+];
+
+function EmojiPickerButton({ disabled, onSelect }: { disabled?: boolean; onSelect: (emoji: string) => void }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" disabled={disabled} title="Adicionar emoji" aria-label="Adicionar emoji">
+          <Smile className="h-4 w-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" side="top" className="w-72 p-2">
+        <div className="grid grid-cols-8 gap-1" aria-label="Emojis">
+          {QUICK_EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-lg transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onSelect(emoji)}
+              aria-label={`Adicionar ${emoji}`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export default function WhatsAppChat({
   embedded = false,
   navigationState: panelNavigationState,
@@ -308,6 +343,7 @@ export default function WhatsAppChat({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const stickerInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -1451,7 +1487,7 @@ export default function WhatsAppChat({
     finally { setSendingAttachment(false); }
   };
 
-  const sendFileAttachment = async (file: File) => {
+  const sendFileAttachment = async (file: File, options?: { asSticker?: boolean }) => {
     if (editingMessage) {
       toast.error("Cancele a edição antes de anexar um arquivo.");
       return;
@@ -1489,7 +1525,7 @@ export default function WhatsAppChat({
         onProgress: setUploadProgress,
       });
       uploadedPath = filePath;
-      const delivery = describeWhatsAppMediaDelivery(file);
+      const delivery = describeWhatsAppMediaDelivery(file, options);
       if (delivery.notice) toast.info(delivery.notice);
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
@@ -1516,7 +1552,7 @@ export default function WhatsAppChat({
       }
       uploadedPath = null;
       appendConfirmedOutgoingMessage(payload);
-      toast.success("Mídia enviada!");
+      toast.success(options?.asSticker ? "Figurinha enviada!" : "Mídia enviada!");
     } catch (error: unknown) {
       if (uploadedPath) void supabase.storage.from("whatsapp-media").remove([uploadedPath]);
       toast.error(getErrorMessage(error, "Erro ao enviar mídia"));
@@ -1533,6 +1569,22 @@ export default function WhatsAppChat({
       return;
     }
     await sendFileAttachment(file);
+  };
+
+  const handleStickerUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const source = event.target.files?.[0];
+    event.target.value = "";
+    if (!source) return;
+    if (editingMessage) {
+      toast.error("Cancele a edição antes de enviar uma figurinha.");
+      return;
+    }
+    try {
+      const sticker = await prepareWhatsAppSticker(source);
+      await sendFileAttachment(sticker, { asSticker: true });
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Não foi possível preparar a figurinha."));
+    }
   };
 
   const handleComposerPaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -2554,6 +2606,7 @@ export default function WhatsAppChat({
                 </div>
                 <div className="border-t border-border bg-white p-2 pr-20 sm:p-3 sm:pr-24 min-[1780px]:pr-3">
                   <div className="flex min-w-0 items-end gap-2 rounded-lg border border-border bg-background p-1.5 shadow-sm">
+                    <EmojiPickerButton onSelect={(emoji) => setNewMessage((value) => `${value}${emoji}`)} />
                     <Textarea
                       value={newMessage}
                       onChange={(event) => setNewMessage(event.target.value)}
@@ -2995,6 +3048,13 @@ export default function WhatsAppChat({
                     className="hidden"
                     onChange={handleFileUpload}
                   />
+                  <input
+                    ref={stickerInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={handleStickerUpload}
+                  />
                   {isRecording ? (
                     <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 p-1.5">
                       <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
@@ -3015,6 +3075,10 @@ export default function WhatsAppChat({
                       </Button>
                       <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Gravar áudio" onClick={startRecording} disabled={sendingAttachment || Boolean(editingMessage)}>
                         <Mic className="h-4 w-4" />
+                      </Button>
+                      <EmojiPickerButton disabled={sendingAttachment} onSelect={(emoji) => setNewMessage((value) => `${value}${emoji}`)} />
+                      <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Enviar figurinha" aria-label="Enviar figurinha" onClick={() => stickerInputRef.current?.click()} disabled={sendingAttachment || Boolean(editingMessage)}>
+                        <Sticker className="h-4 w-4" />
                       </Button>
                       {selectedChat.student_id && (
                         <Button variant="ghost" size="icon" className="hidden h-9 w-9 shrink-0 sm:inline-flex" title="Anexar último treino/avaliação" onClick={handleAttachLastEvaluation} disabled={sendingAttachment || Boolean(editingMessage)}>
