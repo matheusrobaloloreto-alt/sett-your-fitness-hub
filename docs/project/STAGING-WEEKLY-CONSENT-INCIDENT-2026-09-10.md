@@ -106,15 +106,15 @@ QA independente: **GO para staging**, sem P0/P1/P2.
 
 Dados/Integracoes revisou independentemente o rehearsal de producao e deu **GO tecnico**. A ordem exata validada foi: `prod-auth-schema.sql` ate antes de `on_auth_user_created` -> `prod-public-private-schema.sql` completo -> restante de `prod-auth-schema.sql` -> `prod-public-private-data.sql` -> `prod-auth-data.sql` -> `RESET ALL`/`session_replication_role=origin` -> auditoria integral de FKs antes da migration. `replica` foi usado apenas na carga descartavel. Resultado: 344 FKs sem violacao/orfandade pre-migration, 16/16 invariantes, rollback oficial aprovado e 349 FKs finais validas/sem orfaos. PROD permaneceu somente leitura.
 
-## P3 preservado — deploy imutavel contaminado
+## P3 encerrado — deploy imutavel contaminado
 
-O deploy `6aa2df49a35aa6165fa34c4e` nao e o publicado atual; o site aponta para `6aa2e0fc48c66ff3ce35755d`. A URL imutavel contaminada, porem, ainda responde HTTP 200. A acao exata preparada, mas **nao executada**, e:
+O deploy `6aa2df49a35aa6165fa34c4e` nao era o publicado atual; o site ja apontava para `6aa2e0fc48c66ff3ce35755d`. Em 11/09, apos autorizacao explicita, foi executado exatamente:
 
 ```sh
 netlify api deleteSiteDeploy --data '{"site_id":"2ced1972-fed1-4af3-9ad6-e5b9856ab409","deploy_id":"6aa2df49a35aa6165fa34c4e"}'
 ```
 
-A exclusao exige autorizacao explicita. Antes dela, reconfirmar o published deploy atual; depois, exigir HTTP 404 na URL imutavel contaminada e confirmar que o deploy limpo continua publicado.
+A exclusao retornou sucesso. A URL imutavel contaminada passou a HTTP 404, a listagem do site retornou zero ocorrencias desse deploy e o deploy limpo continuou HTTP 200.
 
 ## Estado por camada
 
@@ -124,5 +124,5 @@ A exclusao exige autorizacao explicita. Antes dela, reconfirmar o published depl
 | Commit/remoto | ✅ Branch release enviada; documentacao posterior em `332be4bc`. |
 | CI | ✅ `34503464604` no SHA tecnico e `34506079234` no commit documental. |
 | Staging | ✅ Edge v15, migration, rehearsal, smoke autenticado e frontend limpo concluidos. |
-| P3 staging | ❌ Deploy imutavel contaminado ainda acessivel (bloqueado). Motivo: exclusao destrutiva requer autorizacao explicita. Proximo passo: executar o comando preparado e verificar 404 sem alterar o deploy ativo. |
+| P3 staging | ✅ Deploy contaminado excluido com autorizacao; URL imutavel em HTTP 404, zero ocorrencias na listagem e deploy limpo preservado em HTTP 200. |
 | Producao | ❌ Promocao nao executada (bloqueado). Motivo: GO tecnico de staging/rehearsal nao autoriza escrita/deploy em PROD. Proximo passo: autorizacao explicita sobre o pacote congelado, janela e rollback. |

@@ -44,17 +44,17 @@ O drift nominal do ledger de migrations continua proibindo `supabase db push`. R
 
 Detalhes e historico do F2 inicial, v13/v14 e F3 contaminado: `STAGING-WEEKLY-CONSENT-INCIDENT-2026-09-10.md`.
 
-## P3 de staging
+## P3 de staging — encerrado
 
-O deploy contaminado `6aa2df49a35aa6165fa34c4e` nao esta publicado; o published deploy e `6aa2e0fc48c66ff3ce35755d`. Sua URL imutavel ainda responde HTTP 200 e contem 15 referencias a producao.
+O deploy contaminado `6aa2df49a35aa6165fa34c4e` nao estava publicado; o published deploy era `6aa2e0fc48c66ff3ce35755d`. Em 11/09, apos autorizacao explicita, o deploy contaminado foi excluido pelo comando auditado abaixo.
 
-Acao exata preparada, nao executada:
+Acao exata executada:
 
 ```sh
 netlify api deleteSiteDeploy --data '{"site_id":"2ced1972-fed1-4af3-9ad6-e5b9856ab409","deploy_id":"6aa2df49a35aa6165fa34c4e"}'
 ```
 
-Exige autorizacao explicita e verificacao antes/depois.
+Pos-flight: URL imutavel contaminada em HTTP 404, zero ocorrencias na listagem do site e deploy limpo ainda HTTP 200.
 
 ## Preflight de producao — somente leitura
 
@@ -179,7 +179,7 @@ O push normal deve rejeitar non-fast-forward; nunca usar `--force`.
 | Local | ✅ Codigo `18d1b184`, bundle PROD congelado, quatro dumps privados e rehearsal independente concluidos. |
 | Commit/branch | ✅ Registro enviado na branch release; `1bf946e83954283c4b3b954febed997976436c03` ficou identico ao upstream e a CI `34516912209` passou com testes, gates estaticos e build. |
 | Staging | ✅ GO independente; deploy limpo ativo. |
-| P3 staging | ❌ Deploy contaminado ainda acessivel (bloqueado). Motivo: exclusao requer autorizacao explicita. Proximo passo: excluir pelo comando preparado e provar 404, mantendo o deploy limpo ativo. |
+| P3 staging | ✅ Deploy contaminado excluido com autorizacao; URL imutavel em HTTP 404, zero ocorrencias na listagem e deploy limpo preservado em HTTP 200. |
 | Rehearsal PROD | ✅ GO tecnico independente: restore completo, 344 FKs pre-migration, 16/16 invariantes, rollback oficial e 349 FKs finais sem violacao. |
 | `main` | ❌ Fast-forward nao executado (bloqueado). Motivo: exige autorizacao e revalidacao do SHA de `origin/main`. Proximo passo: executar o plano acima e aguardar CI de `main`. |
 | Producao | ❌ Rollout nao executado (bloqueado). Motivo: exige autorizacao explicita e janela controlada; GO tecnico nao e autorizacao de escrita. Proximo passo: rehash/preflight, F1 -> F2 -> F3 com monitores zero-delta e parada fail-closed. |
