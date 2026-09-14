@@ -169,6 +169,29 @@ test("embedded WhatsApp Sheet respects simulated visualViewport keyboard height"
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
+test("embedded WhatsApp Sheet keeps close and bulk-send controls separate", async ({ page }) => {
+  const guard = await openFixture(page, "/trainer/registration", 1440, 900);
+  await page.getByRole("button", { name: "Abrir conversas do WhatsApp" }).click();
+  const bulkSend = page.getByRole("button", { name: "Enviar para vários" });
+  const close = page.getByRole("button", { name: "Close" });
+  await expect(bulkSend).toBeVisible();
+  await expect(close).toBeVisible();
+  await expect.poll(async () => {
+    const [bulkBox, closeBox] = await Promise.all([bulkSend.boundingBox(), close.boundingBox()]);
+    if (!bulkBox || !closeBox) return false;
+    const overlap = !(
+      bulkBox.x + bulkBox.width <= closeBox.x
+      || closeBox.x + closeBox.width <= bulkBox.x
+      || bulkBox.y + bulkBox.height <= closeBox.y
+      || closeBox.y + closeBox.height <= bulkBox.y
+    );
+    return !overlap;
+  }).toBe(true);
+  await close.click();
+  await expect(page.getByRole("heading", { name: "Conversas", exact: true })).toHaveCount(0);
+  await expectClean(page, guard, 1440);
+});
+
 test("StudentHub and StudentDetail profile surfaces fit mobile and desktop", async ({ page }) => {
   const mobileGuard = await openFixture(page, "/trainer/students/student-mobile-1", 360, 900);
   await expect(page.getByText("Visão 360")).toBeVisible();

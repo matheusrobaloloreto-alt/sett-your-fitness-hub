@@ -2220,7 +2220,12 @@ export default function WhatsAppChat({
         className={cn("flex min-w-0 flex-col overflow-x-hidden", embedded ? "h-full min-h-0" : "h-[calc(100dvh-3.5rem)]")}
         style={mobileViewportHeight ? { height: mobileViewportHeight } : undefined}
       >
-        <div className="flex min-w-0 items-center justify-between gap-3 px-3 pb-2 pt-3 sm:px-4">
+        <div
+          className={cn(
+            "flex min-w-0 items-center justify-between gap-3 pb-2 pt-3",
+            embedded ? "pl-3 pr-12 sm:pl-4 sm:pr-14" : "px-3 sm:px-4",
+          )}
+        >
           <div className="min-w-0">
             <p className="text-eyebrow">WhatsApp</p>
             <h1 className="font-display text-2xl text-foreground leading-tight">Conversas</h1>
