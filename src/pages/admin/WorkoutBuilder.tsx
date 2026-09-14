@@ -39,6 +39,13 @@ import {
   validateWorkoutTemplateForDraft,
   type WorkoutTemplateDraftMode,
 } from "@/lib/workoutTemplateDraft";
+import {
+  hasBlockingSaveIssue,
+  issuesFromPrescriptionValidation,
+  resolveWorkoutSaveDraft,
+  type WorkoutSaveIssue,
+  type WorkoutSaveRepair,
+} from "@/lib/workoutSaveValidation";
 
 interface Exercise {
   id: string;
@@ -152,6 +159,10 @@ interface PrescriptionValidationResult {
   status?: "ok" | "warnings" | "blocked";
   blockers?: ValidationWarning[];
   warnings?: ValidationWarning[];
+  library?: {
+    missing?: string[];
+    invalid?: string[];
+  };
   volume_review?: Array<{ muscle_group?: string; weekly_sets?: number; status?: string; note?: string }>;
 }
 
@@ -273,6 +284,8 @@ export default function WorkoutBuilder() {
   const [bnitoLoading, setBnitoLoading] = useState<"review" | null>(null);
   const [bnitoResponse, setBnitoResponse] = useState<BnitoResponse | null>(null);
   const [validationResult, setValidationResult] = useState<PrescriptionValidationResult | null>(null);
+  const [saveIssues, setSaveIssues] = useState<WorkoutSaveIssue[]>([]);
+  const [saveRepairs, setSaveRepairs] = useState<WorkoutSaveRepair[]>([]);
   const [notifyingStudent, setNotifyingStudent] = useState(false);
 
   // Muscle targets for all exercises in library (cached)
@@ -684,6 +697,21 @@ export default function WorkoutBuilder() {
     resetWorkoutDrag();
   };
 
+  const focusSaveIssue = (issue: WorkoutSaveIssue) => {
+    const workoutIndex = issue.workoutIndex ?? 0;
+    setActiveTab(String(workoutIndex));
+    if (issue.exerciseName) {
+      setLibSearch(issue.exerciseName);
+      setLibraryOpen(true);
+    }
+    window.setTimeout(() => {
+      const selector = issue.exerciseIndex !== undefined
+        ? `[data-workout-exercise-anchor="${workoutIndex}-${issue.exerciseIndex}"]`
+        : `[data-workout-title-anchor="${workoutIndex}"]`;
+      document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+  };
+
   const handleSaveAll = async () => {
     if (isTemplate) { await saveTemplate(); return; }
     const hasEmpty = workouts.some(w => !w.title);
@@ -693,6 +721,8 @@ export default function WorkoutBuilder() {
     }
     setSaving(true);
     setValidationResult(null);
+    setSaveIssues([]);
+    setSaveRepairs([]);
 
     let saveContext: CycleInfo;
     try {
@@ -704,24 +734,48 @@ export default function WorkoutBuilder() {
       return;
     }
 
-    const validation = await validateBeforeSave(saveContext);
+    const resolvedDraft = resolveWorkoutSaveDraft({ workouts, libraryExercises });
+    if (resolvedDraft.repairs.length > 0) {
+      setWorkouts(resolvedDraft.workouts as Workout[]);
+      setSaveRepairs(resolvedDraft.repairs);
+      toast({
+        title: "Referências antigas corrigidas",
+        description: `${resolvedDraft.repairs.length} exercício(s) foram religados à biblioteca antes de validar.`,
+      });
+    }
+    if (hasBlockingSaveIssue(resolvedDraft.issues)) {
+      setSaveIssues(resolvedDraft.issues);
+      setSaving(false);
+      toast({
+        title: `${assistantName} bloqueou o salvamento`,
+        description: "Abra os pontos críticos na tela para corrigir antes de salvar.",
+        variant: "destructive",
+      });
+      focusSaveIssue(resolvedDraft.issues.find((issue) => issue.severity === "blocker") || resolvedDraft.issues[0]);
+      return;
+    }
+
+    const draftWorkouts = resolvedDraft.workouts as Workout[];
+    const validation = await validateBeforeSave(saveContext, draftWorkouts);
     if (!validation) {
       setSaving(false);
       return;
     }
-    const blockerCount = (validation.blockers || []).length;
-    if (blockerCount > 0 || validation.status === "blocked") {
+    const validationIssues = issuesFromPrescriptionValidation(validation);
+    if (hasBlockingSaveIssue(validationIssues)) {
+      setSaveIssues(validationIssues);
       setSaving(false);
       toast({
         title: `${assistantName} bloqueou o salvamento`,
-        description: "Resolva os pontos críticos do validador antes de salvar.",
+        description: "Os pontos críticos estão listados no painel de salvamento.",
         variant: "destructive",
       });
+      focusSaveIssue(validationIssues[0]);
       return;
     }
 
     try {
-      const persistedWorkouts = sanitizeWorkoutSetTypes(workouts).map((workout, workoutIndex) => ({
+      const persistedWorkouts = sanitizeWorkoutSetTypes(draftWorkouts).map((workout, workoutIndex) => ({
         title: workout.title || `Treino ${WORKOUT_LABELS[workoutIndex] || workoutIndex + 1}`,
         description: workout.description || null,
         day_of_week: workout.day_of_week ?? workoutIndex + 1,
@@ -729,12 +783,14 @@ export default function WorkoutBuilder() {
       }));
       const saved = await saveCycleWorkoutRevision(supabase as any, {
         cycleId: cycleId!,
-        expectedRows: workouts
+        expectedRows: draftWorkouts
           .filter((workout): workout is Workout & { id: string; updated_at: string } => Boolean(workout.id && workout.updated_at))
           .map((workout) => ({ id: workout.id, updated_at: workout.updated_at })),
         workouts: persistedWorkouts,
       });
-      setWorkouts((current) => current.map((workout, index) => ({
+      setSaveIssues([]);
+      setSaveRepairs([]);
+      setWorkouts(draftWorkouts.map((workout, index) => ({
         ...workout,
         id: saved.workoutIds[index],
       })));
@@ -754,7 +810,10 @@ export default function WorkoutBuilder() {
     }
   };
 
-  const validateBeforeSave = async (context: CycleInfo | null = cycleInfo): Promise<PrescriptionValidationResult | null> => {
+  const validateBeforeSave = async (
+    context: CycleInfo | null = cycleInfo,
+    draftWorkouts: Workout[] = workouts,
+  ): Promise<PrescriptionValidationResult | null> => {
     try {
       let objective = "manual";
       let fitnessLevel = "intermediario";
@@ -789,7 +848,7 @@ export default function WorkoutBuilder() {
         cycle_name: context ? `Ciclo ${context.cycle_number}` : "Treino manual",
         duration_weeks: 6,
         objective,
-        workouts: workouts.map((workout, workoutIndex) => ({
+        workouts: draftWorkouts.map((workout, workoutIndex) => ({
           name: workout.title,
           description: workout.description,
           day_of_week: workout.day_of_week ?? workoutIndex + 1,
@@ -1016,6 +1075,7 @@ export default function WorkoutBuilder() {
     acc[source].push(warning);
     return acc;
   }, {});
+  const blockerSaveIssues = saveIssues.filter((issue) => issue.severity === "blocker");
 
   const notifyStudent = async (message?: string) => {
     if (!cycleInfo?.student_id || !cycleInfo.company_id) {
@@ -1166,7 +1226,7 @@ export default function WorkoutBuilder() {
               {workouts.map((workout, wIdx) => (
                 <TabsContent key={wIdx} value={String(wIdx)} className="space-y-4">
                   {/* Workout details */}
-                  <Card className="bg-card border-border">
+                  <Card className="bg-card border-border" data-workout-title-anchor={wIdx}>
                     <CardContent className="p-4 space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1280,7 +1340,7 @@ export default function WorkoutBuilder() {
                           {dropZone(0)}
                           {groupedExercises.map((grp, unitIndex) => {
                       const cards = grp.items.map(({ ex, idx: exIdx }) => (
-                      <Card key={exIdx} className="bg-card border-border">
+                      <Card key={exIdx} className="bg-card border-border" data-workout-exercise-anchor={`${wIdx}-${exIdx}`}>
                         <CardContent className="p-4">
                           <div className="flex items-start gap-3">
                             <div className="flex flex-col items-center gap-0.5 pt-1">
@@ -1621,6 +1681,62 @@ export default function WorkoutBuilder() {
                       </div>
                     </div>
                   )}
+                </CardContent>
+              </Card>
+            )}
+
+            {(saveIssues.length > 0 || saveRepairs.length > 0) && (
+              <Card
+                data-testid="workout-save-gate-panel"
+                className={`border ${
+                  blockerSaveIssues.length > 0
+                    ? "border-destructive/40 bg-destructive/5"
+                    : "border-primary/20 bg-primary/5"
+                }`}
+              >
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-sm text-primary">
+                    <AlertCircle className="h-4 w-4" />
+                    Salvamento do treino
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground font-sans">
+                    {blockerSaveIssues.length > 0
+                      ? "Pontos críticos que impedem persistência."
+                      : "Ajustes aplicados antes de validar."}
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {saveRepairs.length > 0 && (
+                    <div className="rounded-md border border-primary/20 bg-background/70 p-2">
+                      <p className="text-xs font-semibold text-primary font-sans">Reparos automáticos</p>
+                      <div className="mt-2 space-y-1.5">
+                        {saveRepairs.slice(0, 4).map((repair) => (
+                          <p key={`${repair.toExerciseId}-${repair.workoutIndex}-${repair.exerciseIndex}`} className="text-xs text-foreground font-sans">
+                            {repair.message}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {saveIssues.map((issue, idx) => (
+                    <div key={`${issue.code}-${issue.workoutIndex ?? "x"}-${issue.exerciseIndex ?? "x"}-${idx}`} className="rounded-md border border-border bg-background/80 p-2">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <Badge variant={issue.severity === "blocker" ? "destructive" : "outline"} className="text-[10px]">
+                          {issue.severity === "blocker" ? "Crítico" : issue.severity}
+                        </Badge>
+                        {(issue.workoutIndex !== undefined || issue.exerciseIndex !== undefined) && (
+                          <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => focusSaveIssue(issue)}>
+                            Corrigir
+                          </Button>
+                        )}
+                      </div>
+                      <p className="mt-2 text-xs font-medium leading-relaxed text-foreground font-sans">{issue.message}</p>
+                      {issue.recommendation && (
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground font-sans">{issue.recommendation}</p>
+                      )}
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
             )}

@@ -31,4 +31,13 @@ describe("WorkoutBuilder assistant and header UX contract", () => {
     expect(workoutBuilder).toContain("min-w-0");
     expect(workoutBuilder).toContain("justify-self-end");
   });
+
+  it("surfaces save blockers in the page before the atomic workout revision RPC", () => {
+    expect(workoutBuilder).toContain("resolveWorkoutSaveDraft");
+    expect(workoutBuilder).toContain("issuesFromPrescriptionValidation");
+    expect(workoutBuilder).toContain('data-testid="workout-save-gate-panel"');
+    expect(workoutBuilder).toContain("focusSaveIssue");
+    expect(workoutBuilder).toContain("saveCycleWorkoutRevision(supabase as any");
+    expect(workoutBuilder.indexOf("resolveWorkoutSaveDraft")).toBeLessThan(workoutBuilder.indexOf("saveCycleWorkoutRevision(supabase as any"));
+  });
 });
