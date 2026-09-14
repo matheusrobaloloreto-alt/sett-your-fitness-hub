@@ -42,12 +42,12 @@ export default function StudentHub() {
   if (!student) return <p className="text-muted-foreground py-12 text-center">Aluno não encontrado.</p>;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-5">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}><ArrowLeft className="h-5 w-5" /></Button>
-        <div>
+    <div className="mx-auto w-full max-w-5xl space-y-5 px-3 sm:px-4 lg:px-0">
+      <div className="flex items-start gap-3">
+        <Button variant="ghost" size="icon" className="shrink-0" onClick={() => navigate(-1)}><ArrowLeft className="h-5 w-5" /></Button>
+        <div className="min-w-0">
           <p className="text-eyebrow">Visão 360</p>
-          <h1 className="font-display text-2xl text-foreground leading-tight">{student.full_name}</h1>
+          <h1 className="break-words font-display text-2xl leading-tight text-foreground sm:text-3xl">{student.full_name}</h1>
         </div>
       </div>
       <WeeklyContactToggle
@@ -55,7 +55,7 @@ export default function StudentHub() {
         phone={student.whatsapp || student.phone}
         countryCode={student.country_code}
       />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <StudentTimeline studentId={student.id} />
         <StudentFilesPanel studentId={student.id} companyId={student.company_id} />
       </div>

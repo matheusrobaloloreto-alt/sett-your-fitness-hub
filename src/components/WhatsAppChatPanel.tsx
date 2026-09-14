@@ -63,18 +63,18 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
           <Button
             type="button"
             size="lg"
-            className="fixed bottom-4 right-4 z-40 gap-2 rounded-full px-4 shadow-lg sm:bottom-6 sm:right-6"
+            className="fixed bottom-4 right-4 z-40 gap-2 rounded-full px-4 shadow-lg max-[380px]:px-3 sm:bottom-6 sm:right-6"
             onClick={() => openChatPanel()}
             aria-label="Abrir conversas do WhatsApp"
             title="Abrir conversas do WhatsApp"
           >
             <MessageSquare className="h-5 w-5" />
-            <span>Conversas</span>
+            <span className="hidden min-[360px]:inline">Conversas</span>
           </Button>
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetContent
               side="right"
-              className="flex h-dvh !w-full !max-w-none flex-col gap-0 border-l p-0 sm:!w-[min(96vw,1100px)] sm:!max-w-none"
+              className="flex h-dvh !w-full !max-w-none flex-col gap-0 overflow-hidden border-l p-0 sm:!w-[min(96vw,1100px)] sm:!max-w-none"
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>Conversas do WhatsApp</SheetTitle>

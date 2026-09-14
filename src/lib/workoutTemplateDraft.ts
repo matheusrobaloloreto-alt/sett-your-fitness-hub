@@ -1,4 +1,5 @@
 import { sanitizeWorkoutSetTypes } from "@/lib/setTypes";
+import { resolveWorkoutSaveDraft, type WorkoutSaveLibraryExercise } from "@/lib/workoutSaveValidation";
 
 export interface WorkoutTemplateDraftExercise {
   exercise_id?: string | null;
@@ -68,6 +69,22 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function resolveTemplateWorkouts(
+  template: WorkoutTemplateForDraft,
+  visibleExerciseIds: ReadonlySet<string>,
+  libraryExercises?: WorkoutSaveLibraryExercise[],
+): unknown[] {
+  if (!Array.isArray(template.workouts)) return [];
+  const library = libraryExercises?.filter((exercise) => visibleExerciseIds.has(exercise.id));
+  if (!library?.length) return template.workouts;
+  // Malformed templates must reach validation without a resolver exception.
+  return template.workouts.map((workout) => {
+    if (!workout || typeof workout !== "object" || !Array.isArray(workout.exercises)
+      || workout.exercises.some((exercise: unknown) => !exercise || typeof exercise !== "object")) return workout;
+    return resolveWorkoutSaveDraft({ workouts: [workout], libraryExercises: library }).workouts[0];
+  });
+}
+
 export function hasEditableWorkoutContent(workouts: WorkoutTemplateDraftWorkout[] = []): boolean {
   return workouts.some((workout) => (
     Boolean(String(workout.title || workout.name || "").trim())
@@ -80,6 +97,7 @@ export function validateWorkoutTemplateForDraft(args: {
   template: WorkoutTemplateForDraft;
   currentCompanyId: string | null | undefined;
   visibleExerciseIds: ReadonlySet<string>;
+  libraryExercises?: WorkoutSaveLibraryExercise[];
 }): WorkoutTemplateDraftValidationIssue[] {
   const { template, currentCompanyId, visibleExerciseIds } = args;
   const issues: WorkoutTemplateDraftValidationIssue[] = [];
@@ -96,7 +114,7 @@ export function validateWorkoutTemplateForDraft(args: {
     });
   }
 
-  const rawWorkouts = Array.isArray(template.workouts) ? template.workouts : [];
+  const rawWorkouts = resolveTemplateWorkouts(template, visibleExerciseIds, args.libraryExercises);
   if (rawWorkouts.length === 0) {
     issues.push({
       code: "empty_template",
@@ -125,11 +143,13 @@ export function validateWorkoutTemplateForDraft(args: {
     }
 
     exercises.forEach((exercise, exerciseIndex) => {
-      const exerciseId = typeof exercise.exercise_id === "string" ? exercise.exercise_id : null;
+      const exerciseId = typeof exercise?.exercise_id === "string" ? exercise.exercise_id.trim() : null;
+      const exerciseName = exercise?.exercise_name || `Exercício ${exerciseIndex + 1}`;
+      const workoutName = (rawWorkout as WorkoutTemplateDraftWorkout).title || `Treino ${workoutIndex + 1}`;
       if (!exerciseId) {
         issues.push({
           code: "missing_exercise_id",
-          message: "Um exercício do template não possui exercise_id.",
+          message: `${workoutName}: ${exerciseName} não está vinculado ao cadastro de exercícios.`,
           workoutIndex,
           exerciseIndex,
           exerciseId,
@@ -139,7 +159,7 @@ export function validateWorkoutTemplateForDraft(args: {
       if (!visibleExerciseIds.has(exerciseId)) {
         issues.push({
           code: "exercise_not_visible",
-          message: "Um exercício do template não está visível na biblioteca desta empresa.",
+          message: `${workoutName}: ${exerciseName} não está disponível na biblioteca desta empresa.`,
           workoutIndex,
           exerciseIndex,
           exerciseId,
@@ -157,18 +177,20 @@ export function buildWorkoutTemplateDraft(args: {
   mode: WorkoutTemplateDraftMode;
   currentCompanyId: string | null | undefined;
   visibleExerciseIds: ReadonlySet<string>;
+  libraryExercises?: WorkoutSaveLibraryExercise[];
 }): WorkoutTemplateDraftResult {
   const issues = validateWorkoutTemplateForDraft({
     template: args.template,
     currentCompanyId: args.currentCompanyId,
     visibleExerciseIds: args.visibleExerciseIds,
+    libraryExercises: args.libraryExercises,
   });
   if (issues.length > 0) {
     return { ok: false, workouts: cloneJson(args.existingWorkouts), issues };
   }
 
   const templateWorkouts = sanitizeWorkoutSetTypes(
-    cloneJson(args.template.workouts as WorkoutTemplateDraftWorkout[]),
+    cloneJson(resolveTemplateWorkouts(args.template, args.visibleExerciseIds, args.libraryExercises) as WorkoutTemplateDraftWorkout[]),
   ).map((workout, index) => ({
     ...workout,
     id: undefined,

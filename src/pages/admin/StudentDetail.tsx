@@ -1761,19 +1761,19 @@ export default function StudentDetail() {
           context={
             <>
               {student.email && (
-                <span className="inline-flex min-w-0 items-center gap-1 break-all">
+                <span className="inline-flex min-w-0 max-w-full items-center gap-1 break-all">
                   <Mail className="h-3.5 w-3.5 shrink-0" />
                   {student.email}
                 </span>
               )}
               {student.whatsapp && (
-                <span className="inline-flex items-center gap-1">
+                <span className="inline-flex min-w-0 max-w-full items-center gap-1 break-words">
                   <MessageCircle className="h-3.5 w-3.5 shrink-0" />
                   {formatPhoneForCountry(student.whatsapp, student.country_code)}
                 </span>
               )}
               {trainerName && (
-                <span className="inline-flex items-center gap-1">
+                <span className="inline-flex min-w-0 max-w-full items-center gap-1 break-words">
                   <Dumbbell className="h-3.5 w-3.5 shrink-0" />
                   {trainerName}
                 </span>
@@ -1791,7 +1791,7 @@ export default function StudentDetail() {
               <Button
                 variant="outline"
                 size="sm"
-                className="min-h-11 text-xs"
+                className="min-h-11 min-w-0 flex-1 text-xs sm:flex-none"
                 onClick={handleActivateStudentAccess}
                 disabled={activatingAccess || !student.email}
               >
@@ -2070,7 +2070,7 @@ export default function StudentDetail() {
                     question="Como devo organizar os ciclos e proximas prescricoes deste aluno?"
                   />
                 </CardTitle>
-                <div className="flex items-center gap-2">
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                   <Button variant="outline" size="sm" onClick={async () => {
                     try {
                       const link = await createPlansLink(id!);
@@ -2101,8 +2101,8 @@ export default function StudentDetail() {
                   <div className="space-y-4">
                     {enrollments.map((e) => (
                       <div key={e.id} className="p-3 rounded-2xl bg-secondary/50 border border-border space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-sans font-medium text-foreground">{e.plan_name}</span>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="min-w-0 break-words font-sans font-medium text-foreground">{e.plan_name}</span>
                           <Badge variant="outline" className={`text-xs ${statusColors[e.status]}`}>
                             {statusLabels[e.status] || e.status}
                           </Badge>
@@ -2157,9 +2157,9 @@ export default function StudentDetail() {
                             <p className="text-xs font-sans font-medium text-foreground">Ciclos de treino:</p>
                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-1.5">
                               {displayedEnrollmentCycles(e).map((c) => (
-                                <div key={c.id} className="flex flex-wrap items-center justify-between px-2 py-1.5 rounded-xl bg-background border border-border text-xs font-sans gap-1.5">
-                                  <span className="min-w-0 truncate text-[11px] sm:text-xs">C{c.cycle_number} · {safeFormatDate(c.start_date, "dd/MM")} a {safeFormatDate(c.end_date, "dd/MM/yy")}</span>
-                                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                                <div key={c.id} className="flex flex-col gap-2 rounded-xl border border-border bg-background px-2 py-2 text-xs font-sans sm:flex-row sm:items-center sm:justify-between">
+                                  <span className="min-w-0 break-words text-[11px] sm:text-xs">C{c.cycle_number} · {safeFormatDate(c.start_date, "dd/MM")} a {safeFormatDate(c.end_date, "dd/MM/yy")}</span>
+                                  <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:justify-end">
                                     {c.has_workout ? (
                                       <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Treino</Badge>
                                     ) : c.prescribed_offline_at ? (
@@ -2176,11 +2176,11 @@ export default function StudentDetail() {
                                       </Badge>
                                     )}
                                     {(role === "trainer" || role === "admin" || role === "master" || role === "coordinator") && (
-                                      <div className="flex items-center gap-1">
+                                      <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto">
                                         <Button
                                           variant="outline"
                                           size="sm"
-                                          className="h-5 text-[10px] px-2"
+                                          className="h-7 flex-1 px-2 text-[10px] sm:h-5 sm:flex-none"
                                           onClick={() => openManualPrescriptionBuilder(c, e)}
                                         >
                                           <Dumbbell className="h-3 w-3 mr-1" />
@@ -2190,7 +2190,7 @@ export default function StudentDetail() {
                                           <Button
                                             variant="outline"
                                             size="sm"
-                                            className="h-5 text-[10px] px-2 text-success border-success/30 hover:bg-success/10"
+                                            className="h-7 flex-1 px-2 text-[10px] text-success border-success/30 hover:bg-success/10 sm:h-5 sm:flex-none"
                                             onClick={async () => {
                                               if (!session?.user?.id) return;
                                               // Idempotente: se o ciclo já tem treino materializado, apenas recarrega.
@@ -2233,7 +2233,7 @@ export default function StudentDetail() {
                                           <Button
                                             variant="ghost"
                                             size="sm"
-                                            className="h-5 text-[10px] px-2"
+                                            className="h-7 px-2 text-[10px] sm:h-5"
                                             disabled={reschedulingCycleId !== null}
                                           >
                                             <CalendarIcon className="h-3 w-3 mr-0.5" />Alterar data
@@ -2587,28 +2587,28 @@ export default function StudentDetail() {
 
         {/* Edit Student Dialog */}
         <Dialog open={editStudentOpen} onOpenChange={setEditStudentOpen}>
-          <DialogContent className="bg-card border-border max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-h-[90vh] w-[calc(100vw-1.5rem)] overflow-y-auto border-border bg-card sm:max-w-2xl">
             <DialogHeader><DialogTitle className="text-primary">EDITAR DADOS PESSOAIS</DialogTitle></DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2"><Label className="font-sans">Nome completo *</Label><Input value={studentForm.full_name} onChange={e => setStudentForm({ ...studentForm, full_name: e.target.value })} className="bg-secondary border-border" /></div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label className="font-sans">Email</Label><Input value={studentForm.email} onChange={e => setStudentForm({ ...studentForm, email: e.target.value })} className="bg-secondary border-border" /></div>
                 <div className="space-y-2"><Label className="font-sans">WhatsApp</Label><Input value={studentForm.whatsapp} onChange={e => setStudentForm({ ...studentForm, whatsapp: formatPhoneForCountry(e.target.value, student?.country_code) })} className="bg-secondary border-border" placeholder={isBrazilianCountry(student?.country_code) ? "(00) 00000-0000" : "+351912345678"} /></div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label className="font-sans">CPF {isBrazilianCountry(student?.country_code) ? "" : "(opcional)"}</Label><Input value={studentForm.cpf} onChange={e => setStudentForm({ ...studentForm, cpf: isBrazilianCountry(student?.country_code) ? formatCPF(e.target.value) : e.target.value.slice(0, 32) })} className="bg-secondary border-border" placeholder={isBrazilianCountry(student?.country_code) ? "000.000.000-00" : "Documento fiscal, se houver"} /></div>
                 <div className="space-y-2"><Label className="font-sans">CEP {isBrazilianCountry(student?.country_code) ? "" : "(opcional)"}</Label><Input value={studentForm.cep} onChange={e => { const m = isBrazilianCountry(student?.country_code) ? formatCEP(e.target.value) : e.target.value.slice(0, 20); setStudentForm(f => ({ ...f, cep: m })); if (isBrazilianCountry(student?.country_code) && m.replace(/\D/g, "").length === 8) void fillFromCepStudent(m); }} className="bg-secondary border-border" placeholder={isBrazilianCountry(student?.country_code) ? "00000-000" : "Código postal"} /></div>
               </div>
               <div className="space-y-2"><Label className="font-sans">Rua</Label><Input value={studentForm.address} onChange={e => setStudentForm({ ...studentForm, address: e.target.value })} onBlur={fillCepFromAddressStudent} className="bg-secondary border-border" /></div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label className="font-sans">Número</Label><Input value={studentForm.address_number} onChange={e => setStudentForm({ ...studentForm, address_number: e.target.value })} className="bg-secondary border-border" /></div>
                 <div className="space-y-2"><Label className="font-sans">Bairro</Label><Input value={studentForm.neighborhood} onChange={e => setStudentForm({ ...studentForm, neighborhood: e.target.value })} className="bg-secondary border-border" /></div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label className="font-sans">Cidade</Label><Input value={studentForm.city} onChange={e => setStudentForm({ ...studentForm, city: e.target.value })} onBlur={fillCepFromAddressStudent} className="bg-secondary border-border" /></div>
                 <div className="space-y-2"><Label className="font-sans">Estado</Label><Input value={studentForm.state} onChange={e => setStudentForm({ ...studentForm, state: e.target.value })} onBlur={fillCepFromAddressStudent} className="bg-secondary border-border" maxLength={2} /></div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label className="font-sans">Data de nascimento</Label><Input type="date" value={studentForm.birth_date} onChange={e => setStudentForm({ ...studentForm, birth_date: e.target.value })} className="bg-secondary border-border" /></div>
               </div>
               <div className="space-y-2">

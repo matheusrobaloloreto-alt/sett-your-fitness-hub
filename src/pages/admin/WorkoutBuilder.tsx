@@ -359,9 +359,15 @@ export default function WorkoutBuilder() {
     [selectedTemplateId, workoutTemplates],
   );
   const templateCompanyId = cycleInfo?.company_id || effectiveCompanyId || null;
+  const visibleTemplateLibraryExercises = useMemo(
+    () => libraryExercises.filter((exercise) => (
+      exercise.is_global || Boolean(templateCompanyId && exercise.company_id === templateCompanyId)
+    )),
+    [libraryExercises, templateCompanyId],
+  );
   const visibleExerciseIds = useMemo(
-    () => new Set(libraryExercises.map((exercise) => exercise.id)),
-    [libraryExercises],
+    () => new Set(visibleTemplateLibraryExercises.map((exercise) => exercise.id)),
+    [visibleTemplateLibraryExercises],
   );
   const selectedTemplateIssues = useMemo(
     () => selectedTemplate
@@ -369,9 +375,10 @@ export default function WorkoutBuilder() {
         template: selectedTemplate,
         currentCompanyId: templateCompanyId,
         visibleExerciseIds,
+        libraryExercises: visibleTemplateLibraryExercises,
       })
       : [],
-    [selectedTemplate, templateCompanyId, visibleExerciseIds],
+    [selectedTemplate, templateCompanyId, visibleExerciseIds, visibleTemplateLibraryExercises],
   );
   const filteredWorkoutTemplates = useMemo(() => {
     const q = templateSearch.trim().toLowerCase();
@@ -561,7 +568,7 @@ export default function WorkoutBuilder() {
         .eq("company_id", templateCompanyId)
         .order("updated_at", { ascending: false })
         .limit(200);
-      const { data, error } = await query;
+      const [{ data, error }] = await Promise.all([query, loadLibrary(), loadMuscleTargets()]);
       if (error) throw error;
       const templates = (data || []) as WorkoutTemplatePickerItem[];
       setWorkoutTemplates(templates);
@@ -604,6 +611,7 @@ export default function WorkoutBuilder() {
         mode,
         currentCompanyId: templateCompanyId,
         visibleExerciseIds,
+        libraryExercises: visibleTemplateLibraryExercises,
       });
       if (!result.ok) {
         const issue = result.issues[0];
@@ -1259,7 +1267,7 @@ export default function WorkoutBuilder() {
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-5 sm:space-y-6">
         {/* Header */}
         <div
           data-testid="workout-builder-header"
@@ -1270,7 +1278,7 @@ export default function WorkoutBuilder() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="min-w-0 flex-1">
-              <h1 className="text-2xl leading-tight text-primary sm:text-3xl">
+              <h1 className="break-words text-2xl leading-tight text-primary sm:text-3xl">
                 {isTemplate ? "TREINO DA BIBLIOTECA" : "PRESCRIÇÃO DE TREINO"}
               </h1>
               {isTemplate ? (
@@ -1289,7 +1297,7 @@ export default function WorkoutBuilder() {
           </div>
           <div
             data-testid="workout-builder-header-actions"
-            className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end xl:max-w-[42rem] xl:justify-self-end"
+            className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end xl:max-w-[42rem] xl:justify-self-end"
           >
             {!isTemplate && cycleInfo && (
               <Popover>
@@ -1325,14 +1333,16 @@ export default function WorkoutBuilder() {
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full sm:w-auto"
+                className="col-span-2 w-full sm:col-span-1 sm:w-auto"
                 disabled={saving}
                 onClick={() => {
                   setPendingTemplate(null);
                   setTemplatePickerOpen(true);
                 }}
               >
-                <Library className="h-4 w-4 mr-2" />Usar treino da biblioteca
+                <Library className="h-4 w-4 mr-2" />
+                <span className="sm:hidden">Biblioteca de treinos</span>
+                <span className="hidden sm:inline">Usar treino da biblioteca</span>
               </Button>
             )}
             {!isTemplate && (
@@ -1347,21 +1357,21 @@ export default function WorkoutBuilder() {
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
           {/* Main content */}
-          <div className="flex-1 space-y-4">
+          <div className="min-w-0 flex-1 space-y-4">
             {/* Workout Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <div className="flex items-center gap-2">
-                <TabsList className="flex-1 flex-wrap h-auto">
+                <TabsList className="h-auto flex-1 justify-start overflow-x-auto overflow-y-hidden whitespace-nowrap pb-1 [-webkit-overflow-scrolling:touch]">
                   {workouts.map((w, idx) => (
-                    <TabsTrigger key={idx} value={String(idx)} className="text-sm">
+                    <TabsTrigger key={idx} value={String(idx)} className="max-w-[12rem] shrink-0 truncate text-sm">
                       {w.title || `Treino ${WORKOUT_LABELS[idx] || idx + 1}`}
                     </TabsTrigger>
                   ))}
                 </TabsList>
                 {workouts.length < 7 && (
-                  <Button variant="outline" size="sm" onClick={addWorkout} disabled={saving}>
+                  <Button variant="outline" size="sm" className="shrink-0" onClick={addWorkout} disabled={saving}>
                     <Plus className="h-4 w-4" />
                   </Button>
                 )}
@@ -1403,16 +1413,16 @@ export default function WorkoutBuilder() {
                   </Card>
 
                   {/* Exercises list */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-xl text-primary">EXERCÍCIOS ({workout.exercises.length})</h2>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <h2 className="break-words text-lg text-primary sm:text-xl">EXERCÍCIOS ({workout.exercises.length})</h2>
                       <BnitoContextButton
                         label={`exercicios do ${workout.title || `treino ${wIdx + 1}`}`}
                         context={`Treino atual: ${workout.title || `Treino ${wIdx + 1}`}. Exercicios: ${workout.exercises.map((ex) => ex.exercise_name).join(", ") || "nenhum"}.`}
                         question="A ordem, selecao e volume destes exercicios fazem sentido para o objetivo do aluno?"
                       />
                     </div>
-                    <Button onClick={() => setLibraryOpen(true)} disabled={saving}>
+                    <Button className="w-full sm:w-auto" onClick={() => setLibraryOpen(true)} disabled={saving}>
                       <Plus className="h-4 w-4 mr-2" />Adicionar
                     </Button>
                   </div>
@@ -1433,7 +1443,7 @@ export default function WorkoutBuilder() {
                     const selN = workout.exercises.filter((_, k) => methodSel[selKey(wIdx, k)]).length;
                     if (selN === 0) return null;
                     return (
-                      <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 p-2">
+                      <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 p-2 sm:sticky sm:top-3 sm:z-10">
                         <span className="text-xs font-medium text-primary">{selN} selecionado(s) — agrupar:</span>
                         {GROUPING_METHODS.map((m) => (
                           <Button key={m} size="sm" variant="outline" className="h-7 text-xs" disabled={saving || selN < WORKOUT_METHODS[m].minItems} onClick={() => applyMethod(wIdx, m)}>
@@ -1489,83 +1499,85 @@ export default function WorkoutBuilder() {
                           {groupedExercises.map((grp, unitIndex) => {
                       const cards = grp.items.map(({ ex, idx: exIdx }) => (
                       <Card key={exIdx} className="bg-card border-border" data-workout-exercise-anchor={`${wIdx}-${exIdx}`}>
-                        <CardContent className="p-4">
-                          <div className="flex items-start gap-3">
-                            <div className="flex flex-col items-center gap-0.5 pt-1">
-                              {!grp.grouping && (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 cursor-grab touch-none"
-                                  title="Arraste para mudar a ordem"
-                                  aria-label="Arrastar exercício"
-                                  aria-roledescription="alça de arrastar"
-                                  data-workout-drag-handle="true"
-                                  disabled={saving}
-                                  onPointerDown={(event) => {
-                                    if (saving) return;
-                                    dragWorkoutPointerRef.current = { wIdx, unitIndex, targetIndex: unitIndex };
-                                    setDragWorkoutUnit({ wIdx, unitIndex });
-                                    setDropWorkoutUnit({ wIdx, unitIndex });
-                                    event.currentTarget.setPointerCapture?.(event.pointerId);
-                                  }}
-                                  onKeyDown={(event) => {
-                                    if (saving) return;
-                                    if (event.key === "ArrowUp") {
-                                      event.preventDefault();
-                                      moveExerciseUnitTo(wIdx, unitIndex, unitIndex - 1);
-                                    }
-                                    if (event.key === "ArrowDown") {
-                                      event.preventDefault();
-                                      moveExerciseUnitTo(wIdx, unitIndex, unitIndex + 2);
-                                    }
-                                    if (event.key === "End") {
-                                      event.preventDefault();
-                                      moveExerciseUnitTo(wIdx, unitIndex, groupedExercises.length);
-                                    }
-                                    if (event.key === "Home") {
-                                      event.preventDefault();
-                                      moveExerciseUnitTo(wIdx, unitIndex, 0);
-                                    }
-                                  }}
-                                >
-                                  <GripVertical className="h-3.5 w-3.5" />
+                        <CardContent className="p-3 sm:p-4">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                            <div className="flex items-center gap-3 sm:contents">
+                              <div className="flex min-w-0 flex-1 items-center gap-1 rounded-md border border-border/70 bg-secondary/30 px-1.5 py-1 sm:min-w-0 sm:flex-none sm:flex-col sm:border-0 sm:bg-transparent sm:p-0 sm:pt-1">
+                                {!grp.grouping && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 shrink-0 cursor-grab touch-none sm:h-6 sm:w-6"
+                                    title="Arraste para mudar a ordem"
+                                    aria-label="Arrastar exercício"
+                                    aria-roledescription="alça de arrastar"
+                                    data-workout-drag-handle="true"
+                                    disabled={saving}
+                                    onPointerDown={(event) => {
+                                      if (saving) return;
+                                      dragWorkoutPointerRef.current = { wIdx, unitIndex, targetIndex: unitIndex };
+                                      setDragWorkoutUnit({ wIdx, unitIndex });
+                                      setDropWorkoutUnit({ wIdx, unitIndex });
+                                      event.currentTarget.setPointerCapture?.(event.pointerId);
+                                    }}
+                                    onKeyDown={(event) => {
+                                      if (saving) return;
+                                      if (event.key === "ArrowUp") {
+                                        event.preventDefault();
+                                        moveExerciseUnitTo(wIdx, unitIndex, unitIndex - 1);
+                                      }
+                                      if (event.key === "ArrowDown") {
+                                        event.preventDefault();
+                                        moveExerciseUnitTo(wIdx, unitIndex, unitIndex + 2);
+                                      }
+                                      if (event.key === "End") {
+                                        event.preventDefault();
+                                        moveExerciseUnitTo(wIdx, unitIndex, groupedExercises.length);
+                                      }
+                                      if (event.key === "Home") {
+                                        event.preventDefault();
+                                        moveExerciseUnitTo(wIdx, unitIndex, 0);
+                                      }
+                                    }}
+                                  >
+                                    <GripVertical className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                                <Checkbox className="shrink-0 sm:mb-1" checked={!!methodSel[selKey(wIdx, exIdx)]} onCheckedChange={() => toggleMethodSel(wIdx, exIdx)} disabled={saving} />
+                                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 sm:h-6 sm:w-6" onClick={() => moveExercise(wIdx, exIdx, "up")} disabled={saving || exIdx === 0}>
+                                  <ChevronUp className="h-3.5 w-3.5" />
                                 </Button>
-                              )}
-                              <Checkbox className="mb-1" checked={!!methodSel[selKey(wIdx, exIdx)]} onCheckedChange={() => toggleMethodSel(wIdx, exIdx)} disabled={saving} />
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveExercise(wIdx, exIdx, "up")} disabled={saving || exIdx === 0}>
-                                <ChevronUp className="h-3.5 w-3.5" />
-                              </Button>
-                              <span className="text-xs text-muted-foreground text-center font-sans">{exIdx + 1}</span>
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveExercise(wIdx, exIdx, "down")} disabled={saving || exIdx === workout.exercises.length - 1}>
-                                <ChevronDown className="h-3.5 w-3.5" />
-                              </Button>
+                                <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded bg-background px-1 font-sans text-xs text-muted-foreground sm:h-auto sm:min-w-0 sm:bg-transparent sm:px-0">{exIdx + 1}</span>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 sm:h-6 sm:w-6" onClick={() => moveExercise(wIdx, exIdx, "down")} disabled={saving || exIdx === workout.exercises.length - 1}>
+                                  <ChevronDown className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                              {/* Capa do exercício (vídeo) */}
+                              {(() => {
+                                const lib = libraryExercises.find((l) => l.id === ex.exercise_id);
+                                const cover = lib ? coverFor(lib) : null;
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => (hasVideo(ex) ? openVideoForExercise(ex) : lib ? openPickerVideo(lib) : undefined)}
+                                    className="relative h-12 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-secondary sm:mt-1"
+                                    aria-label="Ver vídeo"
+                                  >
+                                    {cover ? (
+                                      <img src={cover} alt="" loading="lazy" className="h-full w-full object-cover" />
+                                    ) : (
+                                      <span className="flex h-full w-full items-center justify-center"><Dumbbell className="h-4 w-4 text-muted-foreground/50" /></span>
+                                    )}
+                                    <span className="absolute inset-0 flex items-center justify-center bg-black/15"><Play className="h-3.5 w-3.5 text-white" /></span>
+                                  </button>
+                                );
+                              })()}
                             </div>
-                            {/* Capa do exercício (vídeo) */}
-                            {(() => {
-                              const lib = libraryExercises.find((l) => l.id === ex.exercise_id);
-                              const cover = lib ? coverFor(lib) : null;
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={() => (hasVideo(ex) ? openVideoForExercise(ex) : lib ? openPickerVideo(lib) : undefined)}
-                                  className="relative mt-1 h-12 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-secondary"
-                                  aria-label="Ver vídeo"
-                                >
-                                  {cover ? (
-                                    <img src={cover} alt="" loading="lazy" className="h-full w-full object-cover" />
-                                  ) : (
-                                    <span className="flex h-full w-full items-center justify-center"><Dumbbell className="h-4 w-4 text-muted-foreground/50" /></span>
-                                  )}
-                                  <span className="absolute inset-0 flex items-center justify-center bg-black/15"><Play className="h-3.5 w-3.5 text-white" /></span>
-                                </button>
-                              );
-                            })()}
-                            <div className="flex-1 space-y-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <p className="font-sans font-medium text-foreground">{ex.exercise_name}</p>
+                            <div className="min-w-0 flex-1 space-y-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                  <p className="min-w-0 break-words font-sans font-medium text-foreground">{ex.exercise_name}</p>
                                   {ex.muscle_group && <Badge variant="outline" className="capitalize text-xs">{ex.muscle_group}</Badge>}
                                   {ex.method && !isGroupingMethod(ex.method) && (
                                     <MethodBadge method={ex.method} seconds={(ex as any).method_seconds} tone="amber" />
@@ -1580,7 +1592,7 @@ export default function WorkoutBuilder() {
                                   <Trash2 className="h-4 w-4 text-destructive" />
                                 </Button>
                               </div>
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              <div className="grid grid-cols-2 gap-3 md:grid-cols-[minmax(4.5rem,0.7fr)_minmax(5.5rem,1fr)_minmax(5rem,0.8fr)_minmax(10rem,2fr)]">
                                 <div className="space-y-1">
                                   <Label className="text-xs text-muted-foreground font-sans">Séries</Label>
                                   <Input
@@ -1796,9 +1808,9 @@ export default function WorkoutBuilder() {
           </div>
 
           {/* Assistive sidebar */}
-          <div className="lg:w-80 shrink-0 space-y-4">
+          <div className="shrink-0 space-y-4 lg:w-80">
             {showVolume && (
-              <Card className="bg-card border-border sticky top-4">
+              <Card className="sticky top-4 border-border bg-card">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-primary text-sm flex items-center gap-2">
                     <BarChart3 className="h-4 w-4" />
@@ -2254,7 +2266,7 @@ export default function WorkoutBuilder() {
 
       {/* Library picker dialog */}
       <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}>
-        <DialogContent className="bg-card border-border max-w-4xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+        <DialogContent className="flex max-h-[90vh] w-[calc(100vw-1rem)] max-w-4xl flex-col overflow-hidden border-border bg-card p-0">
           <DialogHeader className="px-5 pt-5">
             <DialogTitle className="text-primary">Biblioteca de exercícios</DialogTitle>
           </DialogHeader>
@@ -2285,7 +2297,7 @@ export default function WorkoutBuilder() {
             </div>
 
             {/* Busca + filtro por músculo (boneco) */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input value={libSearch} onChange={(e) => setLibSearch(e.target.value)} placeholder="Buscar exercício..." className="pl-10 bg-secondary border-border" />
@@ -2295,7 +2307,7 @@ export default function WorkoutBuilder() {
                 variant={bodyRegions.length || showBoneco ? "default" : "outline"}
                 size="sm"
                 onClick={() => setShowBoneco((v) => !v)}
-                className="shrink-0"
+                className="w-full shrink-0 sm:w-auto"
               >
                 <PersonStanding className="mr-1 h-4 w-4" />
                 {bodyRegions.length === 0
@@ -2305,7 +2317,7 @@ export default function WorkoutBuilder() {
                     : `${bodyRegions.length} músculos`}
               </Button>
               {bodyRegions.length > 0 && (
-                <Button type="button" variant="ghost" size="sm" onClick={() => setBodyRegions([])} className="shrink-0 text-xs">
+                <Button type="button" variant="ghost" size="sm" onClick={() => setBodyRegions([])} className="w-full shrink-0 text-xs sm:w-auto">
                   Limpar
                 </Button>
               )}
@@ -2332,7 +2344,7 @@ export default function WorkoutBuilder() {
             {filteredLib.length === 0 ? (
               <p className="py-10 text-center font-sans text-muted-foreground">Nenhum exercício encontrado</p>
             ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4">
                 {filteredLib.map((ex) => {
                   const currentExercises = currentWorkout?.exercises || [];
                   const alreadyAdded = currentExercises.some((w) => w.exercise_id === ex.id);
@@ -2377,11 +2389,11 @@ export default function WorkoutBuilder() {
           </div>
 
           {/* Rodapé: continua na seleção; só vai para a prescrição em "Ver treino completo" */}
-          <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-3">
+          <div className="flex flex-col gap-3 border-t border-border px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="font-sans text-sm text-muted-foreground">
               {(currentWorkout?.exercises?.length || 0)} exercício(s) no treino
             </span>
-            <Button onClick={() => setLibraryOpen(false)}>
+            <Button className="w-full sm:w-auto" onClick={() => setLibraryOpen(false)}>
               Ver treino completo
             </Button>
           </div>

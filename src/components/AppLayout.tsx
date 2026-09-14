@@ -39,11 +39,11 @@ export function AppLayout() {
     <SidebarProvider>
       <WhatsAppChatPanelProvider>
         <BnitoAssistantProvider>
-        <div className="min-h-screen flex w-full bg-paper">
+        <div className="min-h-dvh flex w-full min-w-0 bg-paper">
           <AppSidebar />
           <main className="flex-1 flex flex-col min-w-0">
-            <header className="h-14 flex items-center gap-4 border-b border-line px-6 bg-paper">
-              <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
+            <header className="sticky top-0 z-30 h-14 shrink-0 flex items-center gap-3 border-b border-line px-3 sm:px-6 bg-paper md:static">
+              <SidebarTrigger className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground" />
               <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-muted-foreground">
                 Set / Painel
               </span>
@@ -57,7 +57,7 @@ export function AppLayout() {
                 />
               )}
             </header>
-            <div className={`flex-1 overflow-auto ${noPadding ? "" : "p-6 md:p-8"}`}>
+            <div className={`min-w-0 flex-1 ${noPadding ? "" : "p-3 pb-24 sm:p-6 sm:pb-24 md:p-8"}`}>
               {isProfessional && isDashboard && !noPadding && (
                 <PlatformAdSlot audience="professional" placement="dashboard_banner" companyId={effectiveCompanyId} className="mb-6" />
               )}

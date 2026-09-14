@@ -247,6 +247,8 @@ const ANSWER_LABELS: Record<string, string> = {
   preferred_contact_period: "Melhor horário para contato",
 };
 
+const CLOSING_FUNNEL_STAGES = FUNNEL_STAGE_ORDER.filter((stage) => stage !== "lost");
+
 function waDigits(phone?: string | null): string | null {
   if (!phone) return null;
   let d = phone.replace(/\D/g, "");
@@ -482,6 +484,7 @@ export default function RegistrationManager() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preparedFiscal, setPreparedFiscal] = useState<PreparedFiscalAction | null>(null);
   const [activeStage, setActiveStage] = useState<FunnelStageKey | "all">("all");
+  const [mobileStage, setMobileStage] = useState<FunnelStageKey>("interested");
   const [budgetFilter, setBudgetFilter] = useState("all");
   const [waitFilter, setWaitFilter] = useState("all");
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
@@ -664,7 +667,7 @@ export default function RegistrationManager() {
       .then(({ data }) => setIntercycleResponses(data || []));
   }, [effectiveCompanyId]);
 
-  const stagedStudents = useMemo<StudentWithStage[]>(() => {
+  const stageFilteredStudents = useMemo<StudentWithStage[]>(() => {
     const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const budgetPriority: Record<string, number> = { "400_500": 3, "300_400": 2, "200_300": 1 };
     return students
@@ -677,7 +680,6 @@ export default function RegistrationManager() {
         return { ...student, stage, nextAction, progress: funnelStageProgress(stage) };
       })
       .filter((student) => {
-        if (activeStage !== "all" && student.stage !== activeStage) return false;
         if (budgetFilter !== "all" && student.budget_range !== budgetFilter) return false;
         if (waitFilter !== "all") {
           const filter = WAIT_FILTERS[waitFilter];
@@ -695,7 +697,19 @@ export default function RegistrationManager() {
         }
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       });
-  }, [students, activeStage, budgetFilter, waitFilter]);
+  }, [students, budgetFilter, waitFilter]);
+
+  const stagedStudents = useMemo(
+    () => stageFilteredStudents.filter((student) => activeStage === "all" || student.stage === activeStage),
+    [activeStage, stageFilteredStudents],
+  );
+
+  const stageCounts = useMemo(() => {
+    const counts = new Map<FunnelStageKey, number>();
+    FUNNEL_STAGE_ORDER.forEach((stage) => counts.set(stage, 0));
+    stageFilteredStudents.forEach((student) => counts.set(student.stage, (counts.get(student.stage) || 0) + 1));
+    return counts;
+  }, [stageFilteredStudents]);
 
   const studentsByStage = useMemo(() => {
     const grouped = new Map<FunnelStageKey, StudentWithStage[]>();
@@ -703,6 +717,9 @@ export default function RegistrationManager() {
     stagedStudents.forEach((student) => grouped.get(student.stage)?.push(student));
     return grouped;
   }, [stagedStudents]);
+
+  const desktopStages = activeStage === "all" ? CLOSING_FUNNEL_STAGES : CLOSING_FUNNEL_STAGES.filter((stage) => stage === activeStage);
+  const mobileSelectedStage = activeStage === "all" ? mobileStage : activeStage;
 
   const cardIdFor = (student: Pick<StudentWithStage, "entityType" | "id" | "leadId">) =>
     `${student.entityType}:${student.leadId || student.id}`;
@@ -1081,6 +1098,249 @@ export default function RegistrationManager() {
     }
   };
 
+  const renderFunnelStageColumn = (stage: FunnelStageKey, layout: "desktop" | "mobile") => {
+    const Icon = stageIcon(stage);
+    const rows = studentsByStage.get(stage) || [];
+    const emptyText = dragOverStage === stage ? "Solte aqui para mover." : "Sem pessoas aqui.";
+    return (
+      <div
+        key={`${layout}-${stage}`}
+        className={cn(
+          "min-h-[220px] rounded-lg border bg-background transition-colors",
+          layout === "desktop" ? "w-[21rem] shrink-0 lg:w-[22rem] xl:w-[23rem]" : "w-full",
+          activeStage !== "all" && layout === "desktop" && "md:w-full",
+          dragOverStage === stage ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "border-border",
+        )}
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (dragOverStage !== stage) setDragOverStage(stage);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setDragOverStage(null);
+          }
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const id = event.dataTransfer.getData("text/plain") || draggingCardId;
+          const dragged = stagedStudents.find((item) => cardIdFor(item) === id);
+          if (dragged) void moveCardToStage(dragged, stage);
+          else setDragOverStage(null);
+        }}
+      >
+        <div className={cn("border-b px-3 py-3", stageTone(stage))}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-start gap-2">
+                <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                <h3 className="text-sm font-semibold leading-snug text-foreground">{FUNNEL_STAGE_META[stage].label}</h3>
+              </div>
+              <p className="mt-1 text-xs leading-snug text-muted-foreground">{FUNNEL_STAGE_META[stage].description}</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-background/80 px-2 py-0.5 font-mono-data text-xs text-foreground">
+              {rows.length}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-2 p-2">
+          {rows.length === 0 ? (
+            <p className="rounded-md border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
+              {emptyText}
+            </p>
+          ) : rows.map((student) => (
+            <div
+              key={cardIdFor(student)}
+              draggable
+              className={cn(
+                "w-full cursor-grab rounded-lg border border-border bg-card p-3 text-left transition hover:border-primary/45 hover:bg-primary/5 active:cursor-grabbing",
+                draggingCardId === cardIdFor(student) && "opacity-50 ring-2 ring-primary/20",
+                movingCardId === cardIdFor(student) && "pointer-events-none opacity-60",
+              )}
+              onDragStart={(event) => {
+                const target = event.target as HTMLElement;
+                if (target.closest("button, input, [role='combobox'], [role='option']")) {
+                  event.preventDefault();
+                  return;
+                }
+                const cardId = cardIdFor(student);
+                setDraggingCardId(cardId);
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", cardId);
+              }}
+              onDragEnd={() => {
+                setDraggingCardId(null);
+                setDragOverStage(null);
+              }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="break-words text-sm font-semibold leading-snug text-foreground">{student.full_name}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Entrou {relativeDate(student.created_at)}</p>
+                </div>
+                <Badge variant="outline" className={cn("shrink-0 border whitespace-normal text-center leading-tight", stageTone(student.stage))}>
+                  {FUNNEL_STAGE_META[student.stage].shortLabel}
+                </Badge>
+              </div>
+
+              <Progress value={student.progress} className="mt-3 h-1.5" />
+
+              {student.entityType === "lead" ? (
+                <div className="mt-3 grid gap-1.5 text-[11px] text-muted-foreground">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+                    <span>Investimento</span>
+                    <span className="break-words text-right font-mono-data">{BUDGET_LABELS[student.budget_range || ""] || "não informado"}</span>
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+                    <span>Melhor contato</span>
+                    <span className="break-words text-right font-mono-data">{CONTACT_PERIOD_LABELS[student.preferred_contact_period || ""] || "não informado"}</span>
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+                    <span>Espera</span>
+                    <span className="font-mono-data">{waitLabel(student)}</span>
+                  </div>
+                  {student.stage === "contacted" && (
+                    <div className="space-y-1 pt-1">
+                      <span>Classificação</span>
+                      <Select
+                        value={student.contact_outcome || "in_conversation"}
+                        onValueChange={async (outcome) => {
+                          const { error } = await supabase.functions.invoke("public-registration", {
+                            body: { action: "mark-lead-contacted", leadId: student.leadId || student.id, outcome },
+                          });
+                          if (error) toast.error("Não foi possível atualizar a classificação.");
+                          else await loadPipeline();
+                        }}
+                      >
+                        <SelectTrigger className="h-8 rounded-lg text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="in_conversation">Em conversa</SelectItem>
+                          <SelectItem value="no_response">Sem resposta</SelectItem>
+                          <SelectItem value="follow_up">Retornar depois</SelectItem>
+                          <SelectItem value="qualified">Qualificado</SelectItem>
+                          <SelectItem value="not_fit">Sem perfil</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-3 grid gap-1.5 text-[11px] text-muted-foreground">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+                    <span>Fiscal</span>
+                    <span className="font-mono-data">{student.fiscal_completed_at ? "ok" : "pendente"}</span>
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+                    <span>Pagamento</span>
+                    <span className="break-words text-right font-mono-data">{student.activated_at ? "confirmado" : student.payment_link_sent_at ? "link enviado" : "pendente"}</span>
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+                    <span>Anamnese</span>
+                    <span className="font-mono-data">{student.hasAnamnesis ? "ok" : "pendente"}</span>
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+                    <span>Avaliacao</span>
+                    <span className="break-words text-right font-mono-data">{student.hasAssessment ? "ok" : student.assessment_due_at ? `ate ${format(new Date(`${student.assessment_due_at}T00:00:00`), "dd/MM")}` : "pendente"}</span>
+                  </div>
+                </div>
+              )}
+
+              {student.latestEvent && (
+                <div className={cn(
+                  "mt-3 rounded-md border px-2 py-1.5 text-[11px]",
+                  student.latestEvent.status === "failed"
+                    ? "border-destructive/25 bg-destructive/5 text-destructive"
+                    : "border-border bg-secondary/35 text-muted-foreground",
+                )}>
+                  <p className="break-words font-medium text-foreground">
+                    Ultimo evento: {student.latestEvent.event_type.replace(/_/g, " ")}
+                  </p>
+                  <p>{student.latestEvent.status} - {formatDate(student.latestEvent.processed_at || student.latestEvent.created_at)}</p>
+                  {student.latestEvent.error && <p className="break-words">{student.latestEvent.error}</p>}
+                </div>
+              )}
+
+              <div className="mt-3 space-y-2">
+                <span className="block break-words text-xs font-medium leading-snug text-foreground">{student.nextAction}</span>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {(student.entityType === "lead" || student.hasAnamnesis) && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="min-h-8 h-auto w-full justify-start whitespace-normal px-2 py-1.5 text-left text-xs leading-snug"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void openPreRegistration(student);
+                      }}
+                    >
+                      <Eye className="mr-1 h-3.5 w-3.5" />
+                      <span>Ver pré-cadastro</span>
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="min-h-8 h-auto w-full whitespace-normal px-2 py-1.5 text-xs leading-snug"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void openChatWithStudent(student);
+                    }}
+                  >
+                    <MessageCircle className="mr-1 h-3.5 w-3.5" />
+                    <span>Abrir conversa</span>
+                  </Button>
+                  {student.entityType === "student" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="min-h-8 h-auto w-full whitespace-normal px-2 py-1.5 text-xs leading-snug"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        navigate(`/${chatRoutePrefix}/students/${student.id}`);
+                      }}
+                    >
+                      Abrir perfil
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="min-h-8 h-auto w-full whitespace-normal px-2 py-1.5 text-xs leading-snug"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void handleStageAction(student);
+                    }}
+                  >
+                    {student.entityType === "lead" && student.stage === "fiscal_registration_pending"
+                      ? "Preparar cadastro fiscal"
+                      : stageActionLabel(student.stage)}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="min-h-8 h-auto w-full whitespace-normal px-2 py-1.5 text-xs leading-snug text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void removeFromPipeline(student);
+                    }}
+                  >
+                    <Trash2 className="mr-1 h-3.5 w-3.5" />
+                    <span>{student.entityType === "lead" ? "Excluir pré-cadastro" : "Arquivar perfil"}</span>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1224,22 +1484,22 @@ export default function RegistrationManager() {
               Os cartoes mostram a etapa atual, a ultima acao registrada e o proximo movimento.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="hidden flex-wrap items-center gap-1.5 md:flex">
             <Button
               variant={activeStage === "all" ? "default" : "outline"}
               size="sm"
               onClick={() => setActiveStage("all")}
             >
-              Todos
+              Todos ({stageFilteredStudents.length})
             </Button>
-            {FUNNEL_STAGE_ORDER.filter((stage) => stage !== "lost").map((stage) => (
+            {CLOSING_FUNNEL_STAGES.map((stage) => (
               <Button
                 key={stage}
                 variant={activeStage === stage ? "default" : "outline"}
                 size="sm"
                 onClick={() => setActiveStage(stage)}
               >
-                {FUNNEL_STAGE_META[stage].shortLabel}
+                {FUNNEL_STAGE_META[stage].shortLabel} ({stageCounts.get(stage) || 0})
               </Button>
             ))}
           </div>
@@ -1284,244 +1544,40 @@ export default function RegistrationManager() {
             Carregando esteira
           </div>
         ) : (
-          <div className="grid gap-3 xl:grid-cols-6">
-            {FUNNEL_STAGE_ORDER.filter((stage) => stage !== "lost").map((stage) => {
-              const Icon = stageIcon(stage);
-              const rows = studentsByStage.get(stage) || [];
-              return (
-                <div
-                  key={stage}
-                  className={cn(
-                    "min-h-[220px] rounded-lg border bg-background transition-colors",
-                    dragOverStage === stage ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "border-border",
-                  )}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    if (dragOverStage !== stage) setDragOverStage(stage);
-                  }}
-                  onDragLeave={(event) => {
-                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                      setDragOverStage(null);
-                    }
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    const id = event.dataTransfer.getData("text/plain") || draggingCardId;
-                    const dragged = stagedStudents.find((item) => cardIdFor(item) === id);
-                    if (dragged) void moveCardToStage(dragged, stage);
-                    else setDragOverStage(null);
-                  }}
-                >
-                  <div className={cn("border-b px-3 py-3", stageTone(stage))}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Icon className="h-4 w-4 shrink-0" />
-                          <h3 className="truncate text-sm font-semibold text-foreground">{FUNNEL_STAGE_META[stage].label}</h3>
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{FUNNEL_STAGE_META[stage].description}</p>
-                      </div>
-                      <span className="rounded-full bg-background/80 px-2 py-0.5 font-mono-data text-xs text-foreground">
-                        {rows.length}
-                      </span>
-                    </div>
-                  </div>
+          <div className="space-y-3">
+            <div className="md:hidden">
+              <Label className="text-xs text-muted-foreground">Etapa exibida</Label>
+              <Select value={mobileSelectedStage} onValueChange={(value) => setMobileStage(value as FunnelStageKey)}>
+                <SelectTrigger className="mt-1 rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CLOSING_FUNNEL_STAGES.map((stage) => (
+                    <SelectItem key={stage} value={stage}>
+                      {FUNNEL_STAGE_META[stage].label} ({stageCounts.get(stage) || 0})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-                  <div className="max-h-[560px] space-y-2 overflow-auto p-2">
-                    {rows.length === 0 ? (
-                      <p className="rounded-md border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
-                        {dragOverStage === stage ? "Solte aqui para mover." : "Sem pessoas aqui."}
-                      </p>
-                    ) : rows.map((student) => (
-                      <div
-                        key={cardIdFor(student)}
-                        draggable
-                        className={cn(
-                          "w-full cursor-grab rounded-lg border border-border bg-card p-3 text-left transition hover:border-primary/45 hover:bg-primary/5 active:cursor-grabbing",
-                          draggingCardId === cardIdFor(student) && "opacity-50 ring-2 ring-primary/20",
-                          movingCardId === cardIdFor(student) && "pointer-events-none opacity-60",
-                        )}
-                        onDragStart={(event) => {
-                          const target = event.target as HTMLElement;
-                          if (target.closest("button, input, [role='combobox'], [role='option']")) {
-                            event.preventDefault();
-                            return;
-                          }
-                          const cardId = cardIdFor(student);
-                          setDraggingCardId(cardId);
-                          event.dataTransfer.effectAllowed = "move";
-                          event.dataTransfer.setData("text/plain", cardId);
-                        }}
-                        onDragEnd={() => {
-                          setDraggingCardId(null);
-                          setDragOverStage(null);
-                        }}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-foreground">{student.full_name}</p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">Entrou {relativeDate(student.created_at)}</p>
-                          </div>
-                          <Badge variant="outline" className={cn("shrink-0 border", stageTone(student.stage))}>
-                            {FUNNEL_STAGE_META[student.stage].shortLabel}
-                          </Badge>
-                        </div>
+            <div className="md:hidden">
+              {renderFunnelStageColumn(mobileSelectedStage, "mobile")}
+            </div>
 
-                        <Progress value={student.progress} className="mt-3 h-1.5" />
-
-                        {student.entityType === "lead" ? (
-                          <div className="mt-3 grid gap-1.5 text-[11px] text-muted-foreground">
-                            <div className="flex justify-between gap-2">
-                              <span>Investimento</span>
-                              <span className="font-mono-data">{BUDGET_LABELS[student.budget_range || ""] || "não informado"}</span>
-                            </div>
-                            <div className="flex justify-between gap-2">
-                              <span>Melhor contato</span>
-                              <span className="font-mono-data">{CONTACT_PERIOD_LABELS[student.preferred_contact_period || ""] || "não informado"}</span>
-                            </div>
-                            <div className="flex justify-between gap-2">
-                              <span>Espera</span>
-                              <span className="font-mono-data">{waitLabel(student)}</span>
-                            </div>
-                            {student.stage === "contacted" && (
-                              <div className="space-y-1 pt-1">
-                                <span>Classificação</span>
-                                <Select
-                                  value={student.contact_outcome || "in_conversation"}
-                                  onValueChange={async (outcome) => {
-                                    const { error } = await supabase.functions.invoke("public-registration", {
-                                      body: { action: "mark-lead-contacted", leadId: student.leadId || student.id, outcome },
-                                    });
-                                    if (error) toast.error("Não foi possível atualizar a classificação.");
-                                    else await loadPipeline();
-                                  }}
-                                >
-                                  <SelectTrigger className="h-8 rounded-lg text-xs"><SelectValue /></SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="in_conversation">Em conversa</SelectItem>
-                                    <SelectItem value="no_response">Sem resposta</SelectItem>
-                                    <SelectItem value="follow_up">Retornar depois</SelectItem>
-                                    <SelectItem value="qualified">Qualificado</SelectItem>
-                                    <SelectItem value="not_fit">Sem perfil</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            )}
-                          </div>
-                        ) : <div className="mt-3 grid gap-1.5 text-[11px] text-muted-foreground">
-                          <div className="flex justify-between gap-2">
-                            <span>Fiscal</span>
-                            <span className="font-mono-data">{student.fiscal_completed_at ? "ok" : "pendente"}</span>
-                          </div>
-                          <div className="flex justify-between gap-2">
-                            <span>Pagamento</span>
-                            <span className="font-mono-data">{student.activated_at ? "confirmado" : student.payment_link_sent_at ? "link enviado" : "pendente"}</span>
-                          </div>
-                          <div className="flex justify-between gap-2">
-                            <span>Anamnese</span>
-                            <span className="font-mono-data">{student.hasAnamnesis ? "ok" : "pendente"}</span>
-                          </div>
-                          <div className="flex justify-between gap-2">
-                            <span>Avaliacao</span>
-                            <span className="font-mono-data">{student.hasAssessment ? "ok" : student.assessment_due_at ? `ate ${format(new Date(`${student.assessment_due_at}T00:00:00`), "dd/MM")}` : "pendente"}</span>
-                          </div>
-                        </div>}
-
-                        {student.latestEvent && (
-                          <div className={cn(
-                            "mt-3 rounded-md border px-2 py-1.5 text-[11px]",
-                            student.latestEvent.status === "failed"
-                              ? "border-destructive/25 bg-destructive/5 text-destructive"
-                              : "border-border bg-secondary/35 text-muted-foreground",
-                          )}>
-                            <p className="font-medium text-foreground">
-                              Ultimo evento: {student.latestEvent.event_type.replace(/_/g, " ")}
-                            </p>
-                            <p>{student.latestEvent.status} - {formatDate(student.latestEvent.processed_at || student.latestEvent.created_at)}</p>
-                            {student.latestEvent.error && <p className="line-clamp-2">{student.latestEvent.error}</p>}
-                          </div>
-                        )}
-
-                        <div className="mt-3 space-y-2">
-                          <span className="line-clamp-2 block text-xs font-medium text-foreground">{student.nextAction}</span>
-                          <div className="grid grid-cols-1 gap-1.5">
-                            {(student.entityType === "lead" || student.hasAnamnesis) && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 w-full justify-start px-2 text-xs"
-                                onClick={(event) => {
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  void openPreRegistration(student);
-                                }}
-                              >
-                                <Eye className="mr-1 h-3.5 w-3.5" />
-                                Ver pré-cadastro
-                              </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 w-full px-2 text-xs"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                void openChatWithStudent(student);
-                              }}
-                            >
-                              <MessageCircle className="mr-1 h-3.5 w-3.5" />
-                              Abrir conversa
-                            </Button>
-                            {student.entityType === "student" && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 w-full px-2 text-xs"
-                                onClick={(event) => {
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  navigate(`/${chatRoutePrefix}/students/${student.id}`);
-                                }}
-                              >
-                                Abrir perfil
-                              </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="default"
-                              className="h-8 w-full px-2 text-xs"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                void handleStageAction(student);
-                              }}
-                            >
-                              {student.entityType === "lead" && student.stage === "fiscal_registration_pending"
-                                ? "Preparar cadastro fiscal"
-                                : stageActionLabel(student.stage)}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-8 w-full px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                void removeFromPipeline(student);
-                              }}
-                            >
-                              <Trash2 className="mr-1 h-3.5 w-3.5" />
-                              {student.entityType === "lead" ? "Excluir pré-cadastro" : "Arquivar perfil"}
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+            <div
+              className="hidden max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-border bg-card p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:block"
+              role="region"
+              aria-label="Esteira de fechamento com rolagem horizontal"
+              tabIndex={0}
+            >
+              <div className={cn(
+                "flex min-w-full gap-3",
+                activeStage === "all" ? "w-max" : "w-full",
+              )}>
+                {desktopStages.map((stage) => renderFunnelStageColumn(stage, "desktop"))}
+              </div>
+            </div>
           </div>
         )}
       </section>

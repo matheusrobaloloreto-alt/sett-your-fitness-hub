@@ -2001,16 +2001,16 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
 
                   {/* Revisar e editar a prescrição de força ANTES de publicar no app */}
                   {editPlan && Array.isArray(editPlan.workouts) && (
-                    <div className="border rounded-lg p-3 mt-2 bg-slate-50/60">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <button type="button" onClick={() => setShowEdit(s => !s)} className="text-sm font-medium text-[#1B2B4A] underline">
+                    <div className="mt-2 rounded-lg border bg-slate-50/60 p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                        <button type="button" onClick={() => setShowEdit(s => !s)} className="text-left text-sm font-medium text-[#1B2B4A] underline">
                           {showEdit ? "Ocultar ajuste da musculação" : "✏️ Ajustar musculação"}
                         </button>
-                        <Button type="button" size="sm" onClick={() => void saveStrengthDraft()} disabled={savingStrength || !strengthPlanId || !strengthPlanVersion}>
+                        <Button type="button" size="sm" className="w-full sm:w-auto" onClick={() => void saveStrengthDraft()} disabled={savingStrength || !strengthPlanId || !strengthPlanVersion}>
                           {savingStrength ? "Salvando…" : savedStrength ? "Musculação salva" : "Salvar alterações de musculação"}
                         </Button>
                         <button type="button" onClick={saveAsTemplate} disabled={savingTemplate}
-                          className="text-xs text-[#8B7355] underline disabled:opacity-50">
+                          className="text-left text-xs text-[#8B7355] underline disabled:opacity-50">
                           {savingTemplate ? "Salvando…" : "💾 Salvar como template"}
                         </button>
                       </div>
@@ -2030,12 +2030,12 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                             </div>
                           )}
                           {editPlan.workouts.map((w: any, wi: number) => (
-                            <div key={wi} className="border rounded-lg p-2 bg-white space-y-1.5">
-                              <div className="flex items-center gap-2">
+                            <div key={wi} className="space-y-2 rounded-lg border bg-white p-2">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                 <Input value={w.name || ""} onChange={e => updateWName(wi, e.target.value)} className="h-8 text-sm font-medium" />
-                                <button type="button" onClick={() => removeWorkout(wi)} className="text-xs text-red-500 px-2 shrink-0 whitespace-nowrap">Remover treino</button>
+                                <button type="button" onClick={() => removeWorkout(wi)} className="shrink-0 whitespace-nowrap px-2 text-left text-xs text-red-500">Remover treino</button>
                               </div>
-                              <div className="grid grid-cols-12 gap-1 text-[10px] text-slate-400 uppercase px-0.5">
+                              <div className="hidden grid-cols-12 gap-1 px-0.5 text-[10px] uppercase text-slate-400 sm:grid">
                                 <span className="col-span-1">Arrastar</span><span className="col-span-1">Vídeo</span><span className="col-span-2">Exercício</span><span className="col-span-1">Sér</span><span className="col-span-2">Reps</span><span className="col-span-2">Desc(s)</span><span className="col-span-2">Obs</span><span className="col-span-1"></span>
                               </div>
                               {(() => {
@@ -2173,24 +2173,24 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                                               const weeklyBlocks = summarizeExerciseWeeklyProgression(ex.weekly_prescription);
                                               return (
                                                 <div key={`${ex.exercise_id || ex.exercise_name || "exercise"}-${ei}`} className="rounded-lg border border-slate-100 bg-white">
-                                                  <div className="grid grid-cols-12 gap-1 items-center p-1">
+                                                  <div className="grid grid-cols-12 items-center gap-1 p-1 sm:gap-1.5">
                                                     <div className="col-span-2 sm:col-span-1 flex items-center">
                                                       <span className="font-mono-data text-[10px] text-slate-400">{ei + 1}</span>
                                                     </div>
                                                     <div className="col-span-3 sm:col-span-1">
                                                       <ExerciseVideoPreview exercise={ex} libraryExercise={libraryExercise} />
                                                     </div>
-                                                    <button type="button" onClick={() => { setPickerTarget({ wi, ei }); setPickerSearch(""); setPickerGroup(""); }} className="col-span-7 sm:col-span-2 min-w-0 text-xs font-medium text-left hover:text-[#1B2B4A] hover:underline" title="Trocar exercício (biblioteca)">
+                                                    <button type="button" onClick={() => { setPickerTarget({ wi, ei }); setPickerSearch(""); setPickerGroup(""); }} className="col-span-7 min-w-0 text-left text-xs font-medium hover:text-[#1B2B4A] hover:underline sm:col-span-2" title="Trocar exercício (biblioteca)">
                                                       <span className="block truncate">{ex.exercise_name || "—"} ✎</span>
                                                       {libraryExercise?.muscle_group && (
                                                         <span className="block truncate text-[10px] font-normal text-slate-400">{libraryExercise.muscle_group}</span>
                                                       )}
                                                     </button>
-                                                    <Input className="col-span-3 sm:col-span-1 h-7 text-xs px-1" value={String(ex.sets ?? "")} onChange={e => updateExField(wi, ei, "sets", e.target.value)} placeholder="séries" />
-                                                    <Input className="col-span-3 sm:col-span-2 h-7 text-xs px-1" value={String(ex.reps ?? "")} onChange={e => updateExField(wi, ei, "reps", e.target.value)} placeholder="reps" />
-                                                    <Input className="col-span-3 sm:col-span-2 h-7 text-xs px-1" value={String(ex.rest_seconds ?? "")} onChange={e => updateExField(wi, ei, "rest_seconds", e.target.value)} placeholder="desc(s)" />
-                                                    <Input className="col-span-9 sm:col-span-2 h-7 text-xs px-1" value={ex.cues || ex.notes || ""} onChange={e => updateExField(wi, ei, "cues", e.target.value)} placeholder="obs" />
-                                                    <button type="button" onClick={() => removeExercise(wi, ei)} className="col-span-3 sm:col-span-1 text-red-500 text-sm" title="Remover exercício">✕</button>
+                                                    <Input className="col-span-4 h-8 px-2 text-xs sm:col-span-1 sm:h-7 sm:px-1" value={String(ex.sets ?? "")} onChange={e => updateExField(wi, ei, "sets", e.target.value)} placeholder="séries" aria-label="Séries" />
+                                                    <Input className="col-span-4 h-8 px-2 text-xs sm:col-span-2 sm:h-7 sm:px-1" value={String(ex.reps ?? "")} onChange={e => updateExField(wi, ei, "reps", e.target.value)} placeholder="reps" aria-label="Repetições" />
+                                                    <Input className="col-span-4 h-8 px-2 text-xs sm:col-span-2 sm:h-7 sm:px-1" value={String(ex.rest_seconds ?? "")} onChange={e => updateExField(wi, ei, "rest_seconds", e.target.value)} placeholder="desc(s)" aria-label="Descanso em segundos" />
+                                                    <Input className="col-span-9 h-8 px-2 text-xs sm:col-span-2 sm:h-7 sm:px-1" value={ex.cues || ex.notes || ""} onChange={e => updateExField(wi, ei, "cues", e.target.value)} placeholder="obs" aria-label="Observações" />
+                                                    <button type="button" onClick={() => removeExercise(wi, ei)} className="col-span-3 text-sm text-red-500 sm:col-span-1" title="Remover exercício">✕</button>
                                                   </div>
                                                   {weeklyBlocks.length > 0 && (
                                                     <div className="grid gap-1.5 border-t border-slate-100 bg-[#FAF8F2]/70 p-2 sm:grid-cols-3">
@@ -2233,18 +2233,18 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                               })()}
                               <button type="button" onClick={() => { setPickerTarget(pickerTarget?.wi === wi && pickerTarget?.ei == null ? null : { wi, ei: null }); setPickerSearch(""); setPickerGroup(""); }} className="text-xs text-[#1B2B4A] underline mt-1">+ Adicionar exercício</button>
                               {pickerTarget?.wi === wi && (
-                                <div className="mt-2 border rounded-lg p-2 bg-slate-50">
-                                  <div className="flex items-center justify-between mb-1">
+                                <div className="mt-2 rounded-lg border bg-slate-50 p-2">
+                                  <div className="mb-2 flex items-center justify-between gap-2">
                                     <p className="text-[11px] font-medium text-slate-600">{pickerTarget.ei == null ? "Adicionar da biblioteca" : "Trocar exercício"}</p>
                                     <button type="button" onClick={() => setPickerTarget(null)} className="text-[11px] text-slate-400">fechar</button>
                                   </div>
                                   <Input value={pickerSearch} onChange={e => setPickerSearch(e.target.value)} placeholder="Buscar na biblioteca..." className="h-8 text-xs mb-2" />
-                                  <div className="flex flex-wrap gap-1 mb-2">
+                                  <div className="mb-2 flex max-h-20 gap-1 overflow-x-auto pb-1 sm:max-h-none sm:flex-wrap sm:overflow-visible sm:pb-0">
                                     {["", ...Array.from(new Set(library.map(l => l.muscle_group).filter(Boolean) as string[])).sort()].map(g => (
-                                      <button type="button" key={g || "all"} onClick={() => setPickerGroup(g)} className={`px-2 py-0.5 rounded-full text-[10px] border ${pickerGroup === g ? "border-[#8B7355] bg-[#F5EDD8]/60 text-[#1B2B4A]" : "border-slate-200 text-slate-500"}`}>{g || "Todos"}</button>
+                                      <button type="button" key={g || "all"} onClick={() => setPickerGroup(g)} className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${pickerGroup === g ? "border-[#8B7355] bg-[#F5EDD8]/60 text-[#1B2B4A]" : "border-slate-200 text-slate-500"}`}>{g || "Todos"}</button>
                                     ))}
                                   </div>
-                                  <div className="max-h-44 overflow-y-auto space-y-1">
+                                  <div className="max-h-64 space-y-1 overflow-y-auto">
                                     {library.length === 0 && <p className="text-xs text-slate-400">Carregando biblioteca…</p>}
                                     {library
                                       .filter(l => !pickerGroup || l.muscle_group === pickerGroup)

@@ -233,7 +233,7 @@ function EmojiPickerButton({ disabled, onSelect }: { disabled?: boolean; onSelec
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" disabled={disabled} title="Adicionar emoji" aria-label="Adicionar emoji">
+        <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 sm:h-9 sm:w-9" disabled={disabled} title="Adicionar emoji" aria-label="Adicionar emoji">
           <Smile className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
@@ -283,10 +283,45 @@ export default function WhatsAppChat({
   const [chatLoadError, setChatLoadError] = useState<string | null>(null);
   const performanceStartedAt = useRef(performance.now());
   const recordedChatPerformance = useRef(false);
+  const [mobileViewportHeight, setMobileViewportHeight] = useState<string | null>(null);
   useEffect(() => {
     performanceStartedAt.current = performance.now();
     recordedChatPerformance.current = false;
   }, [effectiveCompanyId]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return undefined;
+
+    const media = window.matchMedia("(max-width: 767px)");
+    const updateHeight = () => {
+      if (!media.matches || !window.visualViewport) {
+        setMobileViewportHeight(null);
+        return;
+      }
+      const headerOffset = embedded ? 0 : 56;
+      setMobileViewportHeight(`${Math.max(280, window.visualViewport.height - headerOffset)}px`);
+    };
+    const handleMediaChange = () => updateHeight();
+
+    updateHeight();
+    window.visualViewport.addEventListener("resize", updateHeight);
+    window.visualViewport.addEventListener("scroll", updateHeight);
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", handleMediaChange);
+    } else {
+      media.addListener(handleMediaChange);
+    }
+
+    return () => {
+      window.visualViewport?.removeEventListener("resize", updateHeight);
+      window.visualViewport?.removeEventListener("scroll", updateHeight);
+      if (typeof media.removeEventListener === "function") {
+        media.removeEventListener("change", handleMediaChange);
+      } else {
+        media.removeListener(handleMediaChange);
+      }
+      setMobileViewportHeight(null);
+    };
+  }, [embedded]);
   const selectedChatIdRef = useRef<string | null>(null);
   useEffect(() => { selectedChatIdRef.current = selectedChatId; }, [selectedChatId]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -2177,17 +2212,21 @@ export default function WhatsAppChat({
           </div>
         </DialogContent>
       </Dialog>
-      <div className={cn("flex flex-col", embedded ? "h-full min-h-0" : "h-[calc(100vh-3.5rem)]")}>
-        <div className="flex items-center justify-between px-4 pt-3 pb-2">
-          <div>
+      <div
+        className={cn("flex min-w-0 flex-col overflow-x-hidden", embedded ? "h-full min-h-0" : "h-[calc(100dvh-3.5rem)]")}
+        style={mobileViewportHeight ? { height: mobileViewportHeight } : undefined}
+      >
+        <div className="flex min-w-0 items-center justify-between gap-3 px-3 pb-2 pt-3 sm:px-4">
+          <div className="min-w-0">
             <p className="text-eyebrow">WhatsApp</p>
             <h1 className="font-display text-2xl text-foreground leading-tight">Conversas</h1>
           </div>
           <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2">
+              <Button variant="outline" size="sm" className="shrink-0 gap-2">
                 <Users className="h-4 w-4" />
-                Enviar para vários
+                <span className="hidden min-[380px]:inline">Enviar para vários</span>
+                <span className="min-[380px]:hidden">Vários</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
@@ -2279,10 +2318,10 @@ export default function WhatsAppChat({
           </Dialog>
         </div>
 
-        <div className="flex min-h-0 flex-1 overflow-hidden border-y border-border bg-white md:rounded-2xl md:border">
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden border-y border-border bg-white md:rounded-2xl md:border">
           {/* Chat List */}
           <div className={cn(
-            "w-full shrink-0 flex-col border-r border-border md:w-72 xl:w-80",
+            "min-w-0 w-full shrink-0 flex-col border-r border-border md:w-72 xl:w-80",
             selectedChat || draftRecipient ? "hidden md:flex" : "flex",
             isChatListCollapsed && "md:hidden",
           )}>
@@ -2303,7 +2342,7 @@ export default function WhatsAppChat({
                   <PanelLeftClose className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex min-w-0 flex-wrap gap-1">
                 {canFilterByTrainer && (
                   <Select value={trainerFilterId} onValueChange={setTrainerFilterId}>
                     <SelectTrigger className="h-7 w-[150px] rounded-full px-3 text-xs">
@@ -2431,7 +2470,7 @@ export default function WhatsAppChat({
 	                      disabled={updatingUnreadChatId === chat.id}
 	                      data-read-state={isUnread ? "unread" : "read"}
 	                      className={cn(
-	                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-background shadow-sm transition-all disabled:cursor-wait disabled:opacity-40",
+	                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-background shadow-sm transition-all disabled:cursor-wait disabled:opacity-40 md:h-9 md:w-9",
 	                        isUnread
 	                          ? "border-blue-300 text-blue-600 shadow-blue-500/25 ring-2 ring-blue-500/15 drop-shadow-[0_0_5px_rgba(37,99,235,0.45)] hover:bg-blue-50"
 	                          : "border-slate-200 bg-slate-50/80 text-slate-400 hover:bg-slate-100 hover:text-slate-500",
@@ -2460,7 +2499,7 @@ export default function WhatsAppChat({
                             setEditingName(false);
                           }
                         }}
-	                        className={cn("relative flex w-full items-start gap-3 border-b border-border p-3 pr-14 text-left transition-colors hover:bg-muted/50", selectedChatId === chat.id && "bg-primary/10")}
+	                        className={cn("relative flex min-h-[4.75rem] w-full min-w-0 items-start gap-3 border-b border-border p-3 pr-14 text-left transition-colors hover:bg-muted/50 md:min-h-0", selectedChatId === chat.id && "bg-primary/10")}
 	                      >
 	                        <div className="absolute right-3 top-3 z-10">
 	                          {readToggle}
@@ -2568,7 +2607,7 @@ export default function WhatsAppChat({
                 </div>
               </div>
             ) : draftRecipient ? (
-              <div className="flex h-full flex-col">
+              <div className="flex h-full min-h-0 min-w-0 flex-col">
                 <div className="flex items-center gap-3 border-b border-border bg-white p-3">
                   <Button
                     variant="ghost"
@@ -2584,7 +2623,7 @@ export default function WhatsAppChat({
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-foreground">{draftRecipient.contactName}</p>
-                    <p className="font-mono-data text-xs text-muted-foreground">+{draftRecipient.remoteJid}</p>
+                    <p className="truncate font-mono-data text-xs text-muted-foreground">+{draftRecipient.remoteJid}</p>
                   </div>
                   <Button
                     variant="ghost"
@@ -2597,14 +2636,14 @@ export default function WhatsAppChat({
                     <Minimize2 className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className="flex flex-1 items-center justify-center p-6 text-center text-muted-foreground">
+                <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center text-muted-foreground">
                   <div className="max-w-sm space-y-2">
                     <MessageSquare className="mx-auto h-10 w-10 opacity-30" />
                     <p className="text-sm font-medium text-foreground">Nova conversa interna</p>
                     <p className="text-xs">A mensagem só será enviada quando você confirmar abaixo.</p>
                   </div>
                 </div>
-                <div className="border-t border-border bg-white p-2 pr-20 sm:p-3 sm:pr-24 min-[1780px]:pr-3">
+                <div className={cn("border-t border-border bg-white p-2 sm:p-3", !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
                   <div className="flex min-w-0 items-end gap-2 rounded-lg border border-border bg-background p-1.5 shadow-sm">
                     <EmojiPickerButton onSelect={(emoji) => setNewMessage((value) => `${value}${emoji}`)} />
                     <Textarea
@@ -2627,8 +2666,8 @@ export default function WhatsAppChat({
                 </div>
               </div>
             ) : (
-              <>
-                <div className="flex items-center gap-3 border-b border-border bg-white p-3">
+              <div className="flex h-full min-h-0 min-w-0 flex-col">
+                <div className="flex min-w-0 items-center gap-2 border-b border-border bg-white p-2.5 sm:gap-3 sm:p-3">
                   <Button
                     variant="ghost"
                     size="icon"
@@ -2639,7 +2678,7 @@ export default function WhatsAppChat({
                     <ArrowLeft className="h-4 w-4" />
                   </Button>
                   {renderAvatar(selectedChat, "h-9 w-9")}
-                  <div className="flex-1 min-w-0">
+                  <div className="min-w-0 flex-1">
                     {editingName ? (
                       <div className="flex items-center gap-1">
                         <Input
@@ -2655,11 +2694,11 @@ export default function WhatsAppChat({
                         />
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1">
+                      <div className="flex min-w-0 items-center gap-1">
                         {selectedChat.student_id ? (
                           <button
                             type="button"
-                            className="text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
+                            className="min-w-0 truncate text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
                             title="Abrir perfil do aluno"
                             onClick={() => navigate(`/${studioRoutePrefix}/students/${selectedChat.student_id}`)}
                           >
@@ -2668,32 +2707,32 @@ export default function WhatsAppChat({
                         ) : (
                           <button
                             type="button"
-                            className="text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
+                            className="min-w-0 truncate text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
                             title="Vincular este contato a um perfil"
                             onClick={() => handleUnlinkedContactName(selectedChat)}
                           >
                             {getContactName(selectedChat)}
                           </button>
                         )}
-                        <button onClick={() => { setEditingName(true); setEditNameValue(getContactName(selectedChat)); }} className="text-muted-foreground hover:text-foreground transition-colors">
+                        <button onClick={() => { setEditingName(true); setEditNameValue(getContactName(selectedChat)); }} className="shrink-0 text-muted-foreground transition-colors hover:text-foreground" aria-label="Editar nome da conversa">
                           <Pencil className="h-3 w-3" />
                         </button>
                       </div>
                     )}
-                    <p className="text-xs text-muted-foreground">{formatPhone(selectedChat.remote_jid) || selectedChat.remote_jid.replace(/@.*$/, "")}</p>
+                    <p className="truncate text-xs text-muted-foreground">{formatPhone(selectedChat.remote_jid) || selectedChat.remote_jid.replace(/@.*$/, "")}</p>
                   </div>
-                  <div className="flex gap-1 items-center flex-wrap">
+                  <div className="flex max-w-[48%] shrink-0 items-center justify-end gap-1 overflow-hidden min-[420px]:max-w-[56%] sm:max-w-none sm:flex-wrap sm:overflow-visible">
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-8 gap-1.5 rounded-full text-xs"
+                          className="h-9 w-9 shrink-0 rounded-full p-0 text-xs sm:h-8 sm:w-auto sm:gap-1.5 sm:px-3"
                           aria-label="Abrir pré-cadastro"
                         >
                           <ClipboardList className="h-3.5 w-3.5" />
                           <span className="hidden lg:inline">Pré-cadastro</span>
-                          <ChevronDown className="h-3.5 w-3.5" />
+                          <ChevronDown className="hidden h-3.5 w-3.5 sm:block" />
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent
@@ -2794,7 +2833,7 @@ export default function WhatsAppChat({
                           <PanelRightOpen className="h-4 w-4" />
                         </Button>
                       </SheetTrigger>
-                      <SheetContent className="flex w-[min(88vw,22rem)] flex-col gap-0 p-0">
+                      <SheetContent className="flex h-dvh w-[min(92vw,22rem)] flex-col gap-0 p-0">
                         <SheetHeader className="border-b border-border p-4 pr-12 text-left">
                           <SheetTitle className="flex items-center gap-2 text-base">
                             <User className="h-4 w-4" />
@@ -2811,7 +2850,7 @@ export default function WhatsAppChat({
 
                 <ScrollArea
                   ref={messagesScrollAreaRef}
-                  className="flex-1 bg-white p-3 md:p-4"
+                  className="min-h-0 flex-1 bg-white p-2.5 sm:p-3 md:p-4"
                   onScrollCapture={(event) => {
                     const viewport = event.target as HTMLElement;
                     if (viewport.matches?.("[data-radix-scroll-area-viewport]")) {
@@ -2880,13 +2919,13 @@ export default function WhatsAppChat({
                           data-message-external-id={msg.message_id_external || undefined}
                         >
                           <div className={cn(
-                            "relative flex w-full min-w-0 items-center gap-1",
-                            msg.source === "outgoing" ? "justify-end" : "justify-start",
-                          )}>
+	                            "relative flex w-full min-w-0 items-center gap-1",
+	                            msg.source === "outgoing" ? "justify-end" : "justify-start",
+	                          )}>
                             {!editingMessage && editEligibility.ok && (
                               <button
                                 onClick={() => beginMessageEdit(msg)}
-                                className="rounded-full p-1 text-muted-foreground opacity-100 transition-opacity hover:bg-muted hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
+	                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-100 transition-opacity hover:bg-muted hover:text-foreground md:h-auto md:w-auto md:p-1 md:opacity-0 md:group-hover:opacity-100"
                                 title="Editar mensagem"
                                 aria-label="Editar mensagem"
                               >
@@ -2896,8 +2935,9 @@ export default function WhatsAppChat({
                             {!editingMessage && msg.source === "outgoing" && msg.message_id_external && (
                               <button
                                 onClick={() => handleDeleteMessage(msg)}
-                                className="rounded-full p-1 text-muted-foreground opacity-100 transition-opacity hover:bg-destructive/20 hover:text-destructive md:opacity-0 md:group-hover:opacity-100"
-                                title="Apagar para todos"
+	                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-100 transition-opacity hover:bg-destructive/20 hover:text-destructive md:h-auto md:w-auto md:p-1 md:opacity-0 md:group-hover:opacity-100"
+	                                title="Apagar para todos"
+                                  aria-label="Apagar para todos"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
@@ -2905,14 +2945,15 @@ export default function WhatsAppChat({
                             {!editingMessage && msg.message_id_external && (
                               <button
                                 onClick={() => setReplyingTo(msg)}
-                                className="rounded-full p-1 text-muted-foreground opacity-100 transition-opacity hover:bg-muted hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
-                                title="Responder"
+	                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-100 transition-opacity hover:bg-muted hover:text-foreground md:h-auto md:w-auto md:p-1 md:opacity-0 md:group-hover:opacity-100"
+	                                title="Responder"
+                                  aria-label="Responder"
                               >
                                 <Reply className="h-3.5 w-3.5" />
                               </button>
                             )}
                             <div className={cn(
-                              "min-w-0 max-w-[86%] rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[78%]",
+	                              "min-w-0 max-w-[calc(100%-6rem)] rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[78%]",
                               msg.source === "outgoing"
                                 ? "rounded-br-md bg-[#203b78] text-white shadow-sm"
                                 : "rounded-bl-md border border-sky-200 bg-sky-50 text-slate-900 shadow-sm",
@@ -3048,7 +3089,7 @@ export default function WhatsAppChat({
                     </div>
                   </div>
                 )}
-                <div className="border-t border-border bg-white p-2 pr-20 sm:p-3 sm:pr-24 min-[1780px]:pr-3">
+                <div className={cn("border-t border-border bg-white p-2 sm:p-3", !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -3077,28 +3118,30 @@ export default function WhatsAppChat({
                       </Button>
                     </div>
                   ) : (
-                    <div className="flex min-w-0 items-end gap-1.5 rounded-2xl border border-border bg-background p-1.5 shadow-sm sm:gap-2">
-                      <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Enviar imagem ou arquivo" onClick={() => fileInputRef.current?.click()} disabled={sendingAttachment || Boolean(editingMessage)}>
-                        {sendingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Image className="h-4 w-4" />}
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Gravar áudio" onClick={startRecording} disabled={sendingAttachment || Boolean(editingMessage)}>
-                        <Mic className="h-4 w-4" />
-                      </Button>
-                      <EmojiPickerButton disabled={sendingAttachment} onSelect={(emoji) => setNewMessage((value) => `${value}${emoji}`)} />
-                      <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Enviar figurinha" aria-label="Enviar figurinha" onClick={() => stickerInputRef.current?.click()} disabled={sendingAttachment || Boolean(editingMessage)}>
-                        <Sticker className="h-4 w-4" />
-                      </Button>
-                      {selectedChat.student_id && (
+	                    <div className="flex min-w-0 flex-col gap-1.5 rounded-2xl border border-border bg-background p-1.5 shadow-sm sm:flex-row sm:items-end sm:gap-2">
+                        <div className="flex min-w-0 items-center gap-1.5 sm:contents">
+	                      <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 sm:h-9 sm:w-9" title="Enviar imagem ou arquivo" aria-label="Enviar imagem ou arquivo" onClick={() => fileInputRef.current?.click()} disabled={sendingAttachment || Boolean(editingMessage)}>
+	                        {sendingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Image className="h-4 w-4" />}
+	                      </Button>
+	                      <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 sm:h-9 sm:w-9" title="Gravar áudio" aria-label="Gravar áudio" onClick={startRecording} disabled={sendingAttachment || Boolean(editingMessage)}>
+	                        <Mic className="h-4 w-4" />
+	                      </Button>
+	                      <EmojiPickerButton disabled={sendingAttachment} onSelect={(emoji) => setNewMessage((value) => `${value}${emoji}`)} />
+	                      <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 sm:h-9 sm:w-9" title="Enviar figurinha" aria-label="Enviar figurinha" onClick={() => stickerInputRef.current?.click()} disabled={sendingAttachment || Boolean(editingMessage)}>
+	                        <Sticker className="h-4 w-4" />
+	                      </Button>
+	                      {selectedChat.student_id && (
                         <Button variant="ghost" size="icon" className="hidden h-9 w-9 shrink-0 sm:inline-flex" title="Anexar último treino/avaliação" onClick={handleAttachLastEvaluation} disabled={sendingAttachment || Boolean(editingMessage)}>
                           <Paperclip className="h-4 w-4" />
                         </Button>
                       )}
-                      {uploadProgress !== null && (
-                        <span className="shrink-0 font-mono-data text-[11px] text-muted-foreground" aria-live="polite">
-                          {uploadProgress}%
-                        </span>
-                      )}
-                      <div className="relative min-w-0 flex-1">
+	                      {uploadProgress !== null && (
+	                        <span className="ml-auto shrink-0 font-mono-data text-[11px] text-muted-foreground sm:ml-0" aria-live="polite">
+	                          {uploadProgress}%
+	                        </span>
+	                      )}
+                        </div>
+	                      <div className="relative min-w-0 flex-1">
                         <Textarea
                           placeholder={editingMessage ? "Edite a mensagem..." : "Digite / para templates..."}
                           value={newMessage}
@@ -3128,7 +3171,7 @@ export default function WhatsAppChat({
                           }}
                           onPaste={handleComposerPaste}
                           disabled={sending || editingSaving}
-                          className="min-h-10 max-h-32 min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+	                          className="min-h-11 max-h-32 min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:min-h-10"
                           rows={1}
                         />
                         {showTemplates && !editingMessage && (
@@ -3169,19 +3212,20 @@ export default function WhatsAppChat({
                           </div>
                         )}
                       </div>
-                      <Button
+	                      <Button
                         onClick={editingMessage ? handleSaveMessageEdit : handleSend}
                         disabled={sending || editingSaving || !newMessage.trim()}
                         size="icon"
-                        className="h-9 w-9 shrink-0"
-                        title={editingMessage ? "Salvar edição" : "Enviar mensagem"}
-                      >
+	                        className="h-10 w-10 shrink-0 self-end sm:h-9 sm:w-9"
+	                        title={editingMessage ? "Salvar edição" : "Enviar mensagem"}
+                          aria-label={editingMessage ? "Salvar edição" : "Enviar mensagem"}
+	                      >
                         {sending || editingSaving ? <Clock className="h-4 w-4 animate-pulse" /> : editingMessage ? <Pencil className="h-4 w-4" /> : <Send className="h-4 w-4" />}
                       </Button>
                     </div>
                   )}
                 </div>
-              </>
+	              </div>
             )}
           </div>
 

@@ -57,6 +57,35 @@ const template = {
 };
 
 describe("workout template draft import", () => {
+  it("relinks an obsolete id by a unique exact visible name without changing the template", () => {
+    const old = { ...template, workouts: [{ title: "A", exercises: [{ exercise_id: "old", exercise_name: "Agachamento", sets: "4", notes: "Manter" }] }] };
+    const before = JSON.stringify(old);
+    const args = { template: old, currentCompanyId: "company-1", visibleExerciseIds: visible, libraryExercises: [{ id: "ex-1", name: "Agachamento" }] };
+    expect(validateWorkoutTemplateForDraft(args)).toEqual([]);
+    const result = buildWorkoutTemplateDraft({ ...args, existingWorkouts: [], mode: "replace" });
+    expect(result.ok).toBe(true);
+    expect(result.workouts[0].exercises?.[0]).toMatchObject({ exercise_id: "ex-1", sets: "4", notes: "Manter" });
+    expect(JSON.stringify(old)).toBe(before);
+  });
+
+  it("does not relink an ambiguous or invisible candidate and names the missing exercise", () => {
+    const old = { ...template, workouts: [{ title: "Misto 1", exercises: [{ exercise_id: "old", exercise_name: "Face Pull" }] }] };
+    for (const libraryExercises of [
+      [{ id: "ex-1", name: "Face Pull" }, { id: "ex-2", name: "Face Pull" }],
+      [{ id: "other-tenant", name: "Face Pull" }],
+      [{ id: "ex-1", name: "Face Pull com banda" }],
+    ]) {
+      const result = buildWorkoutTemplateDraft({ template: old, currentCompanyId: "company-1", visibleExerciseIds: visible, libraryExercises, existingWorkouts: [], mode: "replace" });
+      expect(result.ok).toBe(false);
+      expect(result.issues[0].message).toContain("Misto 1: Face Pull");
+    }
+  });
+
+  it("reports malformed exercise entries instead of crashing the picker", () => {
+    const result = validateWorkoutTemplateForDraft({ template: { ...template, workouts: [{ title: "A", exercises: [null] }] }, currentCompanyId: "company-1", visibleExerciseIds: visible, libraryExercises: [{ id: "ex-1", name: "Agachamento" }] });
+    expect(result[0].code).toBe("missing_exercise_id");
+  });
+
   it("detects whether the current draft already has editable content", () => {
     expect(hasEditableWorkoutContent([{ title: "", description: "", exercises: [] }])).toBe(false);
     expect(hasEditableWorkoutContent([{ title: "Treino A", description: "", exercises: [] }])).toBe(true);

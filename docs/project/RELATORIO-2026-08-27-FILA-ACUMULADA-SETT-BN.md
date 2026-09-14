@@ -237,3 +237,11 @@ Evidências e rollback: `ENTREGA-2026-09-14-FEEDBACK-ALUNO.md`.
 - ❌ E-mail real (aguardando): nenhuma mensagem enviada; próximo passo é testar com destinatário autorizado.
 
 Os itens anteriores permanecem com seus estados registrados. Evidências: `ENTREGA-2026-09-14-RECUPERACAO-SENHA.md`.
+
+## Atualizacao de 14/09: recuperacao, biblioteca e mobile
+
+Este registro substitui os estados antigos de publicacao acima: o pacote de feedback do aluno e a recuperacao por WhatsApp confirmado foram publicados no deploy `6aa7ef0cd5c01b9e1be44e49`, commit `4e3236b`. A entrega real de um link de recuperacao a um destinatario nao foi testada nesta rodada. A esteira de videos foi preparada, mas aguarda as gravacoes.
+
+A auditoria posterior de exercicios reduziu a fila historica para 99 IDs. O reparo de templates desta nova rodada cadastrou 37 exercicios privados, corrigiu 46 vinculos em sete templates e confirmou zero referencias indisponiveis nos 12 templates da BN. Nao alterou os IDs dos treinos historicos. Os tres contatos sem telefone continuam pendentes.
+
+Novo escopo e evidencias de biblioteca, esteira e quatro superficies mobile: `ENTREGA-2026-09-14-BIBLIOTECA-MOBILE.md`. Consulte esse documento para o estagio de publicacao e limites da validacao desta rodada.
