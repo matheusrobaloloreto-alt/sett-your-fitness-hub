@@ -1,5 +1,3 @@
-const FALLBACK_SUPABASE_PROJECT_REF = "zshrcgbyhzxpnlccssyz";
-
 type SupabaseStoredSession = {
   user?: { id?: unknown } | null;
   currentSession?: { user?: { id?: unknown } | null } | null;
@@ -10,18 +8,23 @@ const viteEnv = (typeof import.meta !== "undefined" && "env" in import.meta)
   ? (import.meta as unknown as { env?: Record<string, string | undefined> }).env
   : undefined;
 
-export function supabaseAuthStorageKeyFromUrl(supabaseUrl: string | null | undefined): string {
+export function supabaseAuthStorageKeyFromUrl(
+  supabaseUrl: string | null | undefined,
+  fallbackProjectRef = "sett-current",
+): string {
   try {
     const projectRef = new URL(supabaseUrl || "").hostname.split(".")[0];
     if (projectRef) return `sb-${projectRef}-auth-token`;
   } catch {
-    // Fall through to the known current project key. This preserves existing
-    // sessions if env injection is unavailable in a local test/bootstrap path.
+    // Fall through to the active build project id when URL parsing is unavailable.
   }
-  return `sb-${FALLBACK_SUPABASE_PROJECT_REF}-auth-token`;
+  return `sb-${fallbackProjectRef}-auth-token`;
 }
 
-export const SUPABASE_AUTH_STORAGE_KEY = supabaseAuthStorageKeyFromUrl(viteEnv?.VITE_SUPABASE_URL);
+export const SUPABASE_AUTH_STORAGE_KEY = supabaseAuthStorageKeyFromUrl(
+  viteEnv?.VITE_SUPABASE_URL,
+  viteEnv?.VITE_SUPABASE_PROJECT_ID,
+);
 
 export function readSupabaseStoredUserIdFromStorage(
   local: Storage | null | undefined,

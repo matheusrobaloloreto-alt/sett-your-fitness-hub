@@ -15,7 +15,7 @@
               var projectRef = new URL(supabaseUrl || "").hostname.split(".")[0];
               if (projectRef) return "sb-" + projectRef + "-auth-token";
             } catch (_) {}
-            return "sb-zshrcgbyhzxpnlccssyz-auth-token";
+            return "sb-%VITE_SUPABASE_PROJECT_ID%-auth-token";
           }
           function readUserId() {
             var key = supabaseAuthStorageKeyFromUrl("%VITE_SUPABASE_URL%");
