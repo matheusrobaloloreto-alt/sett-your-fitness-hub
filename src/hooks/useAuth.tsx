@@ -19,6 +19,8 @@ interface AuthContextType {
   role: AppRole;
   companyId: string | null;
   loading: boolean;
+  passwordRecovery: boolean;
+  completePasswordRecovery: () => void;
   signOut: () => Promise<void>;
 }
 
@@ -28,6 +30,8 @@ const AuthContext = createContext<AuthContextType>({
   role: null,
   companyId: null,
   loading: true,
+  passwordRecovery: false,
+  completePasswordRecovery: () => {},
   signOut: async () => {},
 });
 
@@ -37,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<AppRole>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [passwordRecovery, setPasswordRecovery] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get("type") === "recovery");
   const activeUserId = useRef<string | null>(null);
   const roleFetchedFor = useRef<string | null>(null);
   const roleFetchInFlight = useRef<{ userId: string; promise: Promise<void> } | null>(null);
@@ -106,6 +111,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let authEventRevision = 0;
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        if (_event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
+        if (_event === "SIGNED_OUT") setPasswordRecovery(false);
         authEventRevision += 1;
         const nextUserId = session?.user.id ?? null;
         activeUserId.current = nextUserId;
@@ -159,7 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, role, companyId, loading, signOut }}>
+    <AuthContext.Provider value={{ user, session, role, companyId, loading, signOut, passwordRecovery, completePasswordRecovery: () => setPasswordRecovery(false) }}>
       {children}
     </AuthContext.Provider>
   );

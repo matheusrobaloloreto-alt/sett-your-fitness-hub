@@ -226,3 +226,13 @@ Atualização restrita a este novo feedback; os demais itens da fila acima perma
 - ❌ Caso individual (aguardando): falta o nome do aluno para conferir o treino específico; a correção geral está implementada.
 
 Evidências e rollback: `ENTREGA-2026-09-14-FEEDBACK-ALUNO.md`.
+
+## Recuperação de senha em 14/09
+
+- ✅ Local: "Esqueci minha senha", solicitação por e-mail, nova senha com confirmação, tratamento de falhas e callback de recuperação.
+- ✅ Validação: 14 testes, TypeScript, build e navegador local; ESLint sem erros, com um aviso preexistente de Fast Refresh.
+- ❌ Configuração remota (bloqueado): dashboard Supabase pediu login. Próximo passo: conferir URLs de retorno e envio de e-mail.
+- ❌ Publicação (aguardando): sem push, staging ou deploy; próximo passo é autorizar a promoção após conferir a configuração.
+- ❌ E-mail real (aguardando): nenhuma mensagem enviada; próximo passo é testar com destinatário autorizado.
+
+Os itens anteriores permanecem com seus estados registrados. Evidências: `ENTREGA-2026-09-14-RECUPERACAO-SENHA.md`.

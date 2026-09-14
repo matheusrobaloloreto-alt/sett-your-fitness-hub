@@ -16,10 +16,12 @@ import { RouteTransition } from "@/components/RouteTransition";
 import { AppLayout } from "@/components/AppLayout";
 import { WhatsAppChatRoute } from "@/components/WhatsAppChatRoute";
 import { StudentBnitoAssistantProvider } from "@/components/StudentBnitoAssistant";
+import { PasswordRecoveryBoundary } from "@/components/PasswordRecoveryBoundary";
 
 
 // Lazy load all pages
 const Auth = lazy(() => import("./pages/Auth"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const PlansManager = lazy(() => import("./pages/admin/PlansManager"));
 const Portfolio = lazy(() => import("./pages/admin/Portfolio"));
@@ -183,8 +185,10 @@ const App = () => (
         <ErrorBoundary>
         <Suspense fallback={<PageLoader />}>
         <StudentBnitoAssistantProvider>
+        <PasswordRecoveryBoundary>
         <Routes>
           <Route path="/auth" element={<RouteTransition><Auth /></RouteTransition>} />
+          <Route path="/auth/reset-password" element={<RouteTransition><ResetPassword /></RouteTransition>} />
           <Route path="/inscricao/:slug" element={<RouteTransition><PublicAnamnesis mode="pre-registration" /></RouteTransition>} />
           <Route path="/cadastro/:slug" element={<RouteTransition><PublicAnamnesis mode="pre-registration" /></RouteTransition>} />
           <Route path="/inscricao" element={<Navigate to="/cadastro/bn-performance-training" replace />} />
@@ -303,6 +307,7 @@ const App = () => (
 
           <Route path="*" element={<RouteTransition><NotFound /></RouteTransition>} />
         </Routes>
+        </PasswordRecoveryBoundary>
         </StudentBnitoAssistantProvider>
         </Suspense>
         </ErrorBoundary>
