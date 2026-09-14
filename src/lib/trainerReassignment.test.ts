@@ -9,6 +9,7 @@ describe("student trainer reassignment hotfix", () => {
     expect(migration).toContain("public.reassign_student_trainer");
     expect(migration).toContain("_student_id uuid");
     expect(migration).toContain("_trainer_id uuid");
+    expect(migration).toContain("_expected_trainer_id uuid");
     const signature = migration.slice(
       migration.indexOf("create or replace function public.reassign_student_trainer("),
       migration.indexOf("returns table"),
@@ -36,6 +37,7 @@ describe("student trainer reassignment hotfix", () => {
   });
 
   it("updates student and operational enrollments in one RPC", () => {
+    expect(migration).toContain("drop function if exists public.reassign_student_trainer(uuid, uuid)");
     expect(migration).toContain("update public.students as s");
     expect(migration).toContain("assigned_trainer_id = _trainer_id");
     expect(migration).toContain("where s.id = _student_id");
@@ -46,12 +48,24 @@ describe("student trainer reassignment hotfix", () => {
     expect(migration).toContain("'active', 'awaiting_training', 'awaiting_renewal', 'trial'");
   });
 
+  it("rejects stale dialogs before changing assignment", () => {
+    expect(migration).toContain("v_previous_trainer_id is distinct from _expected_trainer_id");
+    expect(migration).toContain("Student assignment changed; reload before reassigning");
+    expect(portfolio).toContain("transferScope.companyId !== effectiveCompanyId");
+    expect(portfolio).toContain("transferScope.trainerId !== selectedId");
+    expect(portfolio).toContain("currentScopeRef.current.companyId !== scopeAtConfirm.companyId");
+    expect(portfolio).toContain("currentScopeRef.current.trainerId !== scopeAtConfirm.trainerId");
+    expect(portfolio).toContain("_expected_trainer_id: transferStudent.assigned_trainer_id || null");
+  });
+
   it("wires the carteira inline action to the RPC with confirmation copy", () => {
     expect(portfolio).toContain("Trocar professor");
     expect(portfolio).toContain("UserRoundCog");
     expect(portfolio).toContain('rpc("reassign_student_trainer"');
     expect(portfolio).toContain("Histórico, ciclos, treinos, pagamentos e conversas serão preservados.");
     expect(portfolio).toContain('roles.includes("trainer")');
+    expect(portfolio).toContain("currentScopeRef.current.companyId !== companyIdAtRequest");
+    expect(portfolio).toContain("loadSeqRef.current !== requestId");
     expect(portfolio).toContain("await load()");
   });
 });

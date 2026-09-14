@@ -1,6 +1,6 @@
 // Carteira — os alunos atribuídos a um colaborador + mini-CRM da carteira.
 // Trainer/coordinator veem a PRÓPRIA carteira; admin/master escolhem o colaborador.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -79,18 +79,26 @@ export default function Portfolio() {
   const [transferSearch, setTransferSearch] = useState("");
   const [transferTargetId, setTransferTargetId] = useState("");
   const [transferring, setTransferring] = useState(false);
+  const [transferScope, setTransferScope] = useState<{ companyId: string | null; trainerId: string } | null>(null);
+  const loadSeqRef = useRef(0);
+  const currentScopeRef = useRef<{ companyId: string | null; trainerId: string }>({ companyId: null, trainerId: "" });
 
   // Colaboradores da empresa: seletor do admin/master e destinos da troca de professor.
   useEffect(() => {
-    if (!effectiveCompanyId) return;
+    let active = true;
+    if (!effectiveCompanyId) {
+      setCollaborators([]);
+      return () => { active = false; };
+    }
     (async () => {
       const { data: members } = await supabase.from("company_members").select("user_id").eq("company_id", effectiveCompanyId);
       const ids = (members || []).map((m) => m.user_id);
-      if (!ids.length) { setCollaborators([]); return; }
+      if (!ids.length) { if (active) setCollaborators([]); return; }
       const [{ data: roles }, { data: profiles }] = await Promise.all([
         supabase.from("user_roles").select("user_id, role").in("user_id", ids),
         supabase.from("profiles").select("user_id, full_name").in("user_id", ids),
       ]);
+      if (!active) return;
       const nameMap = new Map((profiles || []).map((p) => [p.user_id, p.full_name || "Sem nome"]));
       const byUser = new Map<string, string[]>();
       (roles || []).forEach((r) => {
@@ -101,19 +109,38 @@ export default function Portfolio() {
       setCollaborators([...byUser.entries()].map(([uid, rs]) => ({ user_id: uid, full_name: nameMap.get(uid) || uid.slice(0, 8), roles: rs }))
         .sort((a, b) => a.full_name.localeCompare(b.full_name)));
     })();
+    return () => { active = false; };
   }, [effectiveCompanyId]);
+
+  useEffect(() => {
+    currentScopeRef.current = { companyId: effectiveCompanyId, trainerId: selectedId };
+    loadSeqRef.current += 1;
+    setStudents([]);
+    setTransferStudent(null);
+    setTransferSearch("");
+    setTransferTargetId("");
+    setTransferScope(null);
+  }, [effectiveCompanyId, selectedId]);
 
   // Seleção inicial: o próprio usuário.
   useEffect(() => { if (user?.id && !selectedId) setSelectedId(user.id); }, [user?.id, selectedId]);
 
   const load = useCallback(async () => {
-    if (!effectiveCompanyId || !selectedId) { setStudents([]); setLoading(false); return; }
+    const requestId = loadSeqRef.current + 1;
+    loadSeqRef.current = requestId;
+    const companyIdAtRequest = effectiveCompanyId;
+    const selectedIdAtRequest = selectedId;
+    if (!companyIdAtRequest || !selectedIdAtRequest) { setStudents([]); setLoading(false); return; }
+    if (
+      currentScopeRef.current.companyId !== companyIdAtRequest ||
+      currentScopeRef.current.trainerId !== selectedIdAtRequest
+    ) return;
     setLoading(true);
     const { data: studs } = await supabase
       .from("students")
       .select("id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, country_code, notes, assigned_trainer_id")
-      .eq("company_id", effectiveCompanyId)
-      .eq("assigned_trainer_id", selectedId)
+      .eq("company_id", companyIdAtRequest)
+      .eq("assigned_trainer_id", selectedIdAtRequest)
       .order("full_name");
     const list: PortfolioStudent[] = (studs || []) as any[];
     const ids = list.map((s) => s.id);
@@ -121,7 +148,7 @@ export default function Portfolio() {
       const [{ data: cycles }, { data: chats }, cad] = await Promise.all([
         (supabase as any).from("training_cycles").select("student_id, end_date").in("student_id", ids).eq("status", "active"),
         (supabase as any).from("whatsapp_chats").select("id, student_id").in("student_id", ids),
-        (supabase as any).rpc("contact_cadence", { _company_id: effectiveCompanyId }).then((r: any) => r, () => ({ data: null })),
+        (supabase as any).rpc("contact_cadence", { _company_id: companyIdAtRequest }).then((r: any) => r, () => ({ data: null })),
       ]);
       const cycleMap = new Map<string, string>();
       (cycles || []).forEach((c: any) => {
@@ -138,6 +165,11 @@ export default function Portfolio() {
         s.hours_since_contact = cadMap.has(s.id) ? cadMap.get(s.id)! : null;
       });
     }
+    if (
+      loadSeqRef.current !== requestId ||
+      currentScopeRef.current.companyId !== companyIdAtRequest ||
+      currentScopeRef.current.trainerId !== selectedIdAtRequest
+    ) return;
     setStudents(list);
     setLoading(false);
   }, [effectiveCompanyId, selectedId]);
@@ -243,12 +275,21 @@ export default function Portfolio() {
     setTransferStudent(student);
     setTransferSearch("");
     setTransferTargetId("");
+    setTransferScope({ companyId: effectiveCompanyId, trainerId: selectedId });
   };
 
   const confirmTransferStudent = async () => {
     if (!transferStudent || !transferTargetId) return;
     const destination = collaborators.find((collaborator) => collaborator.user_id === transferTargetId);
-    if (!destination) return;
+    if (!destination || !destination.roles.includes("trainer")) return;
+    if (!transferScope || transferScope.companyId !== effectiveCompanyId || transferScope.trainerId !== selectedId) {
+      toast({ title: "Carteira alterada", description: "Reabra a troca nesta carteira antes de confirmar.", variant: "destructive" });
+      setTransferStudent(null);
+      setTransferTargetId("");
+      setTransferScope(null);
+      return;
+    }
+    const scopeAtConfirm = transferScope;
     const proceed = window.confirm(
       `Trocar professor de ${transferStudent.full_name}?\n\n` +
       `Origem: ${trainerName(transferStudent.assigned_trainer_id || selectedId)}\n` +
@@ -261,8 +302,18 @@ export default function Portfolio() {
     const { error } = await (supabase as any).rpc("reassign_student_trainer", {
       _student_id: transferStudent.id,
       _trainer_id: transferTargetId,
+      _expected_trainer_id: transferStudent.assigned_trainer_id || null,
     });
     setTransferring(false);
+    if (
+      currentScopeRef.current.companyId !== scopeAtConfirm.companyId ||
+      currentScopeRef.current.trainerId !== scopeAtConfirm.trainerId
+    ) {
+      setTransferStudent(null);
+      setTransferTargetId("");
+      setTransferScope(null);
+      return;
+    }
     if (error) {
       toast({ title: "Troca não realizada", description: error.message, variant: "destructive" });
       return;
@@ -273,6 +324,7 @@ export default function Portfolio() {
     });
     setTransferStudent(null);
     setTransferTargetId("");
+    setTransferScope(null);
     await load();
   };
 
@@ -465,7 +517,7 @@ export default function Portfolio() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!transferStudent} onOpenChange={(open) => { if (!open && !transferring) setTransferStudent(null); }}>
+      <Dialog open={!!transferStudent} onOpenChange={(open) => { if (!open && !transferring) { setTransferStudent(null); setTransferScope(null); } }}>
         <DialogContent className="rounded-2xl bg-card sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-primary">Trocar professor</DialogTitle>

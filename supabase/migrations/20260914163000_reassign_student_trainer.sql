@@ -1,9 +1,13 @@
 -- Hotfix: troca atomica de professor sem recriar aluno ou matricula.
 -- Mantem students.assigned_trainer_id e enrollments.trainer_id consistentes.
 
+drop function if exists public.reassign_student_trainer(uuid, uuid);
+drop function if exists public.reassign_student_trainer(uuid, uuid, uuid);
+
 create or replace function public.reassign_student_trainer(
   _student_id uuid,
-  _trainer_id uuid
+  _trainer_id uuid,
+  _expected_trainer_id uuid
 )
 returns table (
   student_id uuid,
@@ -52,6 +56,10 @@ begin
     raise exception 'Student already assigned to this trainer' using errcode = '22023';
   end if;
 
+  if v_previous_trainer_id is distinct from _expected_trainer_id then
+    raise exception 'Student assignment changed; reload before reassigning' using errcode = '40001';
+  end if;
+
   if not exists (
     select 1
       from public.company_members cm
@@ -83,5 +91,5 @@ begin
 end;
 $$;
 
-revoke all on function public.reassign_student_trainer(uuid, uuid) from public, anon, authenticated;
-grant execute on function public.reassign_student_trainer(uuid, uuid) to authenticated, service_role;
+revoke all on function public.reassign_student_trainer(uuid, uuid, uuid) from public, anon, authenticated;
+grant execute on function public.reassign_student_trainer(uuid, uuid, uuid) to authenticated, service_role;
