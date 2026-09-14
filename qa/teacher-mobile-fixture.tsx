@@ -15,6 +15,7 @@ import StudentHub from "../src/pages/admin/StudentHub";
 import StudentDetail from "../src/pages/admin/StudentDetail";
 import WorkoutBuilder from "../src/pages/admin/WorkoutBuilder";
 import PrescriptionStudio from "../src/pages/admin/PrescriptionStudio";
+import AdminAgenda from "../src/pages/admin/AdminAgenda";
 import { supabase } from "../src/integrations/supabase/client";
 import "../src/index.css";
 
@@ -134,7 +135,18 @@ const rows: Record<string, any[]> = {
     },
   ],
   training_cycles: [
-    { id: "cycle-mobile-1", company_id: companyId, enrollment_id: "enroll-1", student_id: "student-mobile-1", cycle_number: 1, status: "active", start_date: "2026-09-03", end_date: "2026-10-14", prescribed_offline_at: null },
+    {
+      id: "cycle-mobile-1",
+      company_id: companyId,
+      enrollment_id: "enroll-1",
+      student_id: "student-mobile-1",
+      cycle_number: 1,
+      status: "active",
+      start_date: "2026-09-03",
+      end_date: "2026-10-14",
+      prescribed_offline_at: null,
+      enrollments: { student_id: "student-mobile-1", students: { full_name: longName, assigned_trainer_id: userId } },
+    },
   ],
   workouts: [
     {
@@ -213,9 +225,10 @@ class QueryBuilder {
   private wantsMaybeSingle = false;
   private headOnly = false;
   private wantsCount = false;
+  private selectedColumns = "";
 
   constructor(private table: string) {}
-  select(_columns?: string, options?: { count?: string; head?: boolean }) { this.headOnly = Boolean(options?.head); this.wantsCount = Boolean(options?.count); return this; }
+  select(columns?: string, options?: { count?: string; head?: boolean }) { this.selectedColumns = columns || ""; this.headOnly = Boolean(options?.head); this.wantsCount = Boolean(options?.count); return this; }
   eq(column: string, value: any) { this.filters.push({ type: "eq", column, value }); return this; }
   neq(column: string, value: any) { this.filters.push({ type: "neq", column, value }); return this; }
   is(column: string, value: any) { this.filters.push({ type: "is", column, value }); return this; }
@@ -240,6 +253,16 @@ class QueryBuilder {
   }
   private async execute() {
     log.reads.push(this.table);
+    if (
+      this.table === "training_cycles"
+      && this.selectedColumns.includes("enrollments(")
+      && !this.selectedColumns.includes("enrollments!training_cycles_enrollment_id_fkey(")
+    ) {
+      return {
+        data: null,
+        error: { code: "PGRST201", message: "Could not embed because more than one relationship was found" },
+      };
+    }
     let result = visibleRows(this.table).filter((row) => this.filters.every((filter) => {
       const value = valueAt(row, filter.column);
       if (filter.type === "eq") return value === filter.value;
@@ -370,6 +393,7 @@ function ReadyRoutes() {
           <Route path="/trainer/students/:id" element={<StudentHub />} />
           <Route path="/trainer/workout/:cycleId" element={<WorkoutBuilder />} />
           <Route path="/trainer/studio" element={<PrescriptionStudio embeddedStudentId="student-mobile-1" />} />
+          <Route path="/trainer/agenda" element={<AdminAgenda />} />
           <Route path="*" element={<Navigate to="/trainer/registration" replace />} />
         </Route>
       </Routes>

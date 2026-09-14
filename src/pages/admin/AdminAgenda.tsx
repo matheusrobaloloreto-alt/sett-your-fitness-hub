@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CalendarDays, RefreshCw, ClipboardList, CheckCircle, ChevronLeft, ChevronRight, Flag } from "lucide-react";
+import { AlertCircle, CalendarDays, RefreshCw, ClipboardList, CheckCircle, ChevronLeft, ChevronRight, Flag } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, isBefore } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -50,15 +50,16 @@ export default function AdminAgenda() {
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [markingCycleId, setMarkingCycleId] = useState<string | null>(null);
 
-  useEffect(() => { loadEvents(); }, [currentMonth, effectiveCompanyId]);
-
-  const loadEvents = async () => {
+  const loadEvents = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     const monthStart = format(startOfMonth(currentMonth), "yyyy-MM-dd");
     const monthEnd = format(endOfMonth(currentMonth), "yyyy-MM-dd");
     const collected: AgendaEvent[] = [];
+    const failedSources: string[] = [];
 
     // Contract renewals (enrollment end dates)
     let enrollQuery = supabase
@@ -68,7 +69,8 @@ export default function AdminAgenda() {
       .gte("end_date", monthStart)
       .lte("end_date", monthEnd);
     if (effectiveCompanyId) enrollQuery = enrollQuery.eq("company_id", effectiveCompanyId);
-    const { data: enrollments } = await enrollQuery;
+    const { data: enrollments, error: enrollmentsError } = await enrollQuery;
+    if (enrollmentsError) failedSources.push("renovações");
 
     (enrollments || []).forEach((e: any) => {
       collected.push({
@@ -84,37 +86,43 @@ export default function AdminAgenda() {
     // Training cycles — filter by start_date in month, include completed status
     let cyclesQuery = supabase
       .from("training_cycles")
-      .select("id, start_date, end_date, cycle_number, enrollment_id, status, prescribed_offline_at, enrollments(student_id, students(full_name, assigned_trainer_id))")
+      .select("id, start_date, end_date, cycle_number, enrollment_id, status, prescribed_offline_at, enrollments!training_cycles_enrollment_id_fkey(student_id, students(full_name, assigned_trainer_id))")
       .in("status", ["active", "pending", "completed"])
       .gte("start_date", monthStart)
       .lte("start_date", monthEnd);
     if (effectiveCompanyId) cyclesQuery = cyclesQuery.eq("company_id", effectiveCompanyId);
-    const { data: cycles } = await cyclesQuery;
+    const { data: cycles, error: cyclesError } = await cyclesQuery;
+    if (cyclesError) failedSources.push("ciclos de treino");
 
     if (cycles && cycles.length > 0) {
       const cycleIds = cycles.map((c: any) => c.id);
-      const { data: workouts } = await supabase
+      const { data: workouts, error: workoutsError } = await supabase
         .from("workouts")
         .select("cycle_id, exercises")
         .is("superseded_at", null)
         .in("cycle_id", cycleIds);
+      if (workoutsError) failedSources.push("treinos dos ciclos");
 
-      const cyclesWithWorkout = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
+      const cyclesWithWorkout = workoutsError
+        ? null
+        : new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
 
       // Collect unique assigned_trainer_ids from students to fetch names
       const trainerIds = [...new Set(cycles.map((c: any) => (c as any).enrollments?.students?.assigned_trainer_id).filter(Boolean))];
       const trainerMap: Record<string, string> = {};
       if (trainerIds.length > 0) {
-        const { data: profiles } = await supabase
+        const { data: profiles, error: profilesError } = await supabase
           .from("profiles")
           .select("user_id, full_name")
           .in("user_id", trainerIds);
+        if (profilesError) failedSources.push("nomes dos treinadores");
         (profiles || []).forEach((p: any) => {
           trainerMap[p.user_id] = p.full_name || "";
         });
       }
 
       cycles.forEach((c: any) => {
+        if (!cyclesWithWorkout) return;
         const hasWorkout = cyclesWithWorkout.has(c.id) || Boolean(c.prescribed_offline_at);
         const trainerId = (c as any).enrollments?.students?.assigned_trainer_id;
         collected.push({
@@ -137,7 +145,8 @@ export default function AdminAgenda() {
       .gte("target_date", monthStart)
       .lte("target_date", monthEnd);
     if (effectiveCompanyId) goalsQuery = goalsQuery.eq("company_id", effectiveCompanyId);
-    const { data: goals } = await goalsQuery;
+    const { data: goals, error: goalsError } = await goalsQuery;
+    if (goalsError) failedSources.push("provas e metas");
     (goals || []).forEach((g: any) => {
       collected.push({
         id: `goal-${g.id}`,
@@ -150,8 +159,13 @@ export default function AdminAgenda() {
     });
 
     setEvents(collected);
+    if (failedSources.length > 0) {
+      setLoadError(`Não foi possível carregar: ${[...new Set(failedSources)].join(", ")}.`);
+    }
     setLoading(false);
-  };
+  }, [currentMonth, effectiveCompanyId]);
+
+  useEffect(() => { void loadEvents(); }, [loadEvents]);
 
   const days = eachDayOfInterval({ start: startOfMonth(currentMonth), end: endOfMonth(currentMonth) });
   const firstDayOfWeek = startOfMonth(currentMonth).getDay();
@@ -222,6 +236,16 @@ export default function AdminAgenda() {
             </div>
           ))}
         </div>
+
+        {loadError && (
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1 font-sans">{loadError}</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => void loadEvents()}>
+              Tentar novamente
+            </Button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           <Card className="bg-card border-border lg:col-span-2">

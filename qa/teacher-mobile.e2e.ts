@@ -219,6 +219,15 @@ test("WorkoutBuilder and embedded PrescriptionStudio render with fixture data wi
   await expectClean(page, studioGuard, 768);
 });
 
+test("Agenda resolves the canonical enrollment relationship and shows scheduled cycles", async ({ page }) => {
+  const guard = await openFixture(page, "/trainer/agenda", 1440, 900);
+  await expect(page.getByRole("heading", { name: "AGENDA", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "setembro 2026" })).toBeVisible();
+  await expect(page.getByText("Ciclo 1")).toBeVisible();
+  await expect(page.getByText("Nenhum evento neste mês")).toHaveCount(0);
+  await expectClean(page, guard, 1440);
+});
+
 test("WorkoutBuilder keeps weekly volume clear of the assistant card and floating mascot", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem("bnito-professor-position-v1", JSON.stringify({ x: 1120, y: 300 }));
