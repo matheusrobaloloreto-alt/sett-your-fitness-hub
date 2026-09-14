@@ -19,12 +19,12 @@ Carteira, Alunos, perfil/Visao 360, prescricao, esteira, conversas e dashboard/a
 - Consulta de producao confirmou os tres planos e tres matriculas canonicas Athletic Club (duas ativas, uma aguardando renovacao), sem exportar identidades pessoais.
 - Revisao independente da logica e do provider: aprovada; testes de variantes, matricula canonica, historico e isolamento de empresa/usuario.
 - Suite de navegador com componentes reais e dados simulados: 11 testes aprovados, incluindo entrada/saida automatica da estrela ao trocar de plano e ausencia de escritas de aluno.
-- TypeScript do app, build canonico e verificacoes focadas aprovados. Avisos de dependencias de hooks preexistentes permanecem fora do escopo.
+- TypeScript do app, build canonico e 46 testes focados aprovados. Apos ajuste visual final do nome longo, o teste de estrela foi reexecutado e passou. Avisos de dependencias de hooks preexistentes permanecem fora do escopo.
 - Validacao de navegador nao equivale a sessao autenticada de producao em aparelho fisico.
 
 ## Publicacao
 
-Aguardando promocao do build final. Rollback anterior: Netlify `6aa7f6ecdc90f80ead2b7e7d`.
+Publicado em https://www.settapp.com.br, deploy Netlify `6aa7f9faa96ea0ec3c4e285e`, codigo `1e33841` enviado ao origin. Rollback anterior: Netlify `6aa7f6ecdc90f80ead2b7e7d`.
 
 ## Fila anterior
 
