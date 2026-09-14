@@ -264,6 +264,7 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const shouldShow = role === "admin" || role === "coordinator" || role === "trainer" || role === "master";
+  const shouldShowFloatingButton = shouldShow && !location.pathname.includes("/workout/");
   const cycleId = useMemo(() => getCycleId(location.pathname), [location.pathname]);
   const routeStudentId = useMemo(() => getStudentId(location.pathname), [location.pathname]);
   const pageLabel = useMemo(() => getPageLabel(location.pathname), [location.pathname]);
@@ -433,29 +434,31 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
       {children}
       {shouldShow && (
         <Dialog open={open} onOpenChange={setOpen}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                data-benito-fab="professor"
-                aria-label={`Abrir ${name}`}
-                onPointerDown={startDrag}
-                onClick={() => {
-                  if (dragStateRef.current?.moved) {
+          {shouldShowFloatingButton && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  data-benito-fab="professor"
+                  aria-label={`Abrir ${name}`}
+                  onPointerDown={startDrag}
+                  onClick={() => {
+                    if (dragStateRef.current?.moved) {
+                      dragStateRef.current = null;
+                      return;
+                    }
                     dragStateRef.current = null;
-                    return;
-                  }
-                  dragStateRef.current = null;
-                  openBnito();
-                }}
-                style={{ left: buttonPosition.x, top: buttonPosition.y, touchAction: "none" }}
-                className="fixed z-40 flex h-[76px] w-[76px] cursor-grab items-center justify-center p-0 text-navy outline-none transition-transform duration-200 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
-              >
-                <BenitoSprite state={petState} size={60} alt="" className="benito-sprite-prominent" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="left">{`Abrir ${name}`}</TooltipContent>
-          </Tooltip>
+                    openBnito();
+                  }}
+                  style={{ left: buttonPosition.x, top: buttonPosition.y, touchAction: "none" }}
+                  className="fixed z-40 flex h-[76px] w-[76px] cursor-grab items-center justify-center p-0 text-navy outline-none transition-transform duration-200 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+                >
+                  <BenitoSprite state={petState} size={60} alt="" className="benito-sprite-prominent" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{`Abrir ${name}`}</TooltipContent>
+            </Tooltip>
+          )}
 
           <DialogContent className="flex max-h-[88dvh] w-[calc(100vw-1.5rem)] max-w-2xl flex-col gap-0 overflow-hidden rounded-[24px] border-line bg-paper p-0 shadow-2xl [&>button]:rounded-full">
             <DialogHeader className="shrink-0 border-b border-line bg-background px-5 py-4 text-left">

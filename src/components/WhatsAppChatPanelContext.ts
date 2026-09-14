@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import type { WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
 
 type WhatsAppChatPanelContextValue = {
+  isAvailable: boolean;
   openChatPanel: (request?: WhatsAppChatPanelRequest) => boolean;
   closeChatPanel: () => void;
   isChatPanelOpen: boolean;

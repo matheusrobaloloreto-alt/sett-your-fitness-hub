@@ -219,6 +219,29 @@ test("WorkoutBuilder and embedded PrescriptionStudio render with fixture data wi
   await expectClean(page, studioGuard, 768);
 });
 
+test("WorkoutBuilder keeps weekly volume clear of the assistant card and floating mascot", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("bnito-professor-position-v1", JSON.stringify({ x: 1120, y: 300 }));
+  });
+  const guard = await openFixture(page, "/trainer/workout/cycle-mobile-1", 1440, 720);
+  const volumeCard = page.locator(".rounded-lg", { hasText: "VOLUME SEMANAL" }).first();
+  const auditCard = page.locator(".rounded-lg", { hasText: /Auditoria técnica do treino/ }).first();
+
+  await expect(volumeCard).toBeVisible();
+  await expect(auditCard).toBeVisible();
+  await expect(page.getByTestId("workout-builder-header-actions").getByRole("button", { name: "Conversas" })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+
+  const [volumeBox, auditBox] = await Promise.all([volumeCard.boundingBox(), auditCard.boundingBox()]);
+  expect(volumeBox).not.toBeNull();
+  expect(auditBox).not.toBeNull();
+  const overlap = Math.min(volumeBox!.y + volumeBox!.height, auditBox!.y + auditBox!.height)
+    - Math.max(volumeBox!.y, auditBox!.y);
+  expect(overlap).toBeLessThanOrEqual(0);
+  await expect(page.locator('[data-benito-fab="professor"]')).toHaveCount(0);
+  await expectClean(page, guard, 1440);
+});
+
 test("WorkoutBuilder imports a library template, relinks visible exact-name exercise and saves via mocked revision", async ({ page }) => {
   const guard = await openFixture(page, "/trainer/workout/cycle-mobile-1", 390, 900);
   await expect(page.getByRole("heading", { name: "PRESCRIÇÃO DE TREINO" })).toBeVisible();

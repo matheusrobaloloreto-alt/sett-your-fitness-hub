@@ -15,8 +15,9 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, Trash2, Search, Save, Play, ChevronUp, ChevronDown, BarChart3, Sparkles, MessageCircle, Loader2, AlertCircle, Dumbbell, PersonStanding, Clock, ClipboardList, GripVertical, Library } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Search, Save, Play, ChevronUp, ChevronDown, BarChart3, Sparkles, MessageCircle, MessageSquare, Loader2, AlertCircle, Dumbbell, PersonStanding, Clock, ClipboardList, GripVertical, Library } from "lucide-react";
 import { BnitoContextButton, useBnitoAssistant } from "@/components/BnitoFloatingAssistant";
+import { useWhatsAppChatPanel } from "@/components/WhatsAppChatPanelContext";
 import { BenitoSprite } from "@/components/BenitoSprite";
 import { useAssistantName } from "@/hooks/useAssistantName";
 import { BodyMap } from "@/components/body/BodyMap";
@@ -252,6 +253,7 @@ export default function WorkoutBuilder() {
   const { user, companyId: authCompanyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const { toast } = useToast();
+  const { isAvailable: isWhatsAppAvailable, openChatPanel } = useWhatsAppChatPanel();
   const assistantName = useAssistantName();
   const { setPageContext: setBnitoPageContext } = useBnitoAssistant();
   const muscleGroupsList = useMuscleGroups();
@@ -1332,6 +1334,17 @@ export default function WorkoutBuilder() {
             <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => setShowVolume(!showVolume)}>
               <BarChart3 className="h-4 w-4 mr-2" />Volume
             </Button>
+            {isWhatsAppAvailable && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => openChatPanel()}
+              >
+                <MessageSquare className="mr-2 h-4 w-4" />Conversas
+              </Button>
+            )}
             {!isTemplate && (
               <Button
                 variant="outline"
@@ -1813,7 +1826,7 @@ export default function WorkoutBuilder() {
           {/* Assistive sidebar */}
           <div className="shrink-0 space-y-4 lg:w-80">
             {showVolume && (
-              <Card className="sticky top-4 border-border bg-card">
+              <Card className="border-border bg-card">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-primary text-sm flex items-center gap-2">
                     <BarChart3 className="h-4 w-4" />

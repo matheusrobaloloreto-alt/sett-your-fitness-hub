@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessageSquare } from "lucide-react";
+import { useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/useAuth";
@@ -15,6 +16,7 @@ import { WhatsAppChatPanelContext } from "@/components/WhatsAppChatPanelContext"
 const WhatsAppChat = lazy(() => import("@/pages/admin/WhatsAppChat"));
 
 export function WhatsAppChatPanelProvider({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
   const { role } = useAuth();
   const { isViewingCompany } = useMaster();
   const features = useCompanyFeatures();
@@ -30,6 +32,7 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
     && isPermittedRole
     && features.hasWhatsApp
     && (role === "admin" || role === "master" || canAccess("whatsapp"));
+  const isWorkoutBuilder = /\/workout\/[^/]+/.test(location.pathname);
 
   const openChatPanel = useCallback((nextRequest: WhatsAppChatPanelRequest = {}) => {
     if (!canUseWhatsApp) return false;
@@ -53,24 +56,29 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
     if (!canUseWhatsApp) setIsOpen(false);
   }, [canUseWhatsApp]);
 
-  const value = useMemo(() => ({ openChatPanel, closeChatPanel, isChatPanelOpen: isOpen }), [closeChatPanel, isOpen, openChatPanel]);
+  const value = useMemo(
+    () => ({ isAvailable: canUseWhatsApp, openChatPanel, closeChatPanel, isChatPanelOpen: isOpen }),
+    [canUseWhatsApp, closeChatPanel, isOpen, openChatPanel],
+  );
 
   return (
     <WhatsAppChatPanelContext.Provider value={value}>
       {children}
       {canUseWhatsApp && (
         <>
-          <Button
-            type="button"
-            size="lg"
-            className="fixed bottom-4 right-4 z-40 gap-2 rounded-full px-4 shadow-lg max-[380px]:px-3 sm:bottom-6 sm:right-6"
-            onClick={() => openChatPanel()}
-            aria-label="Abrir conversas do WhatsApp"
-            title="Abrir conversas do WhatsApp"
-          >
-            <MessageSquare className="h-5 w-5" />
-            <span className="hidden min-[360px]:inline">Conversas</span>
-          </Button>
+          {!isWorkoutBuilder && (
+            <Button
+              type="button"
+              size="lg"
+              className="fixed bottom-4 right-4 z-40 gap-2 rounded-full px-4 shadow-lg max-[380px]:px-3 sm:bottom-6 sm:right-6"
+              onClick={() => openChatPanel()}
+              aria-label="Abrir conversas do WhatsApp"
+              title="Abrir conversas do WhatsApp"
+            >
+              <MessageSquare className="h-5 w-5" />
+              <span className="hidden min-[360px]:inline">Conversas</span>
+            </Button>
+          )}
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetContent
               side="right"
