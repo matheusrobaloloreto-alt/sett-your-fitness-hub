@@ -9,6 +9,8 @@ import { isPrescriptionCatalogEligible } from "../_shared/prescription/catalogEl
 import { clinicalRiskText, prescriptionRiskText } from "../_shared/prescription/clinicalContext.ts";
 import { buildCatalogVolumeSummary, canonicalCatalogTargets } from "../_shared/prescription/catalogVolume.ts";
 import { fetchExerciseRelations } from "../_shared/prescription/catalogRows.ts";
+import { getVolumeRangeForGroup, reviewWeeklyVolume } from "../_shared/prescription/volumeRules.ts";
+import type { PrescriptionInput } from "../_shared/prescription/types.ts";
 import {
   EMERGENCY_FALLBACK_RIR,
   enforceEmergencyFallbackRir,
@@ -621,6 +623,7 @@ function hasPhase(plan: unknown, phase: string) {
 }
 
 function validatePrescriptionPlan(args: {
+  volumeInput: PrescriptionInput;
   plan: any;
   libraryValidation: ReturnType<typeof validatePlanLibraryUsage>;
   catalog: ExerciseCatalog;
@@ -685,7 +688,6 @@ function validatePrescriptionPlan(args: {
     assessmentContext: args.assessmentContext,
   });
   const levelText = normalizeText(args.fitnessLevel);
-  const objectiveText = normalizeText(args.objective);
   const painActive = /(dor|eva\s*[1-9]|eva\s*10|joelho|lombar|ombro|tornozelo|quadril|lesao|lesoes|retorno|reabilit)/.test(clinicalText);
   const exerciseMap = new Map(args.catalog.exercises.map((exercise) => [exercise.id, exercise]));
 
@@ -722,21 +724,7 @@ function validatePrescriptionPlan(args: {
   }
 
   const weeklySets = buildVolumeSummary(args.plan, args.catalog);
-  const highSetLimit = levelText.includes("inic") ? 16 : objectiveText.includes("forca") ? 14 : 20;
-  const lowSetLimit = objectiveText.includes("hipertrof") ? 8 : 6;
-  const volume_review = Array.from(weeklySets.entries()).map(([muscle_group, sets]) => {
-    const reviewStatus: "baixo" | "ok" | "alto" = sets < lowSetLimit ? "baixo" : sets > highSetLimit ? "alto" : "ok";
-    return {
-      muscle_group,
-      weekly_sets: Math.round(sets * 10) / 10,
-      status: reviewStatus,
-      note: reviewStatus === "baixo"
-        ? "Volume possivelmente baixo para o objetivo, se este grupo for prioridade."
-        : reviewStatus === "alto"
-          ? "Volume alto; exige justificativa, recuperacao e ausencia de dor."
-          : "Volume dentro da faixa conservadora.",
-    };
-  });
+  const volume_review = reviewWeeklyVolume(weeklySets, args.volumeInput);
 
   for (const review of volume_review) {
     if (review.status === "alto") {
@@ -744,9 +732,7 @@ function validatePrescriptionPlan(args: {
         severity: "warning",
         code: `high_weekly_volume_${normalizeText(review.muscle_group).replace(/\s+/g, "_")}`,
         message: `${review.muscle_group}: ${review.weekly_sets} series/semana estimadas.`,
-        recommendation: levelText.includes("inic")
-          ? "Reduzir para <=16 series/semana ou justificar progressao por historico/tolerancia."
-          : "Confirmar recuperacao, sono, dor e distribuicao antes de manter >20 series/semana.",
+        recommendation: `Reduzir para <=${getVolumeRangeForGroup(review.muscle_group, args.volumeInput.fitnessLevel, args.volumeInput).mrv} series/semana para este grupo e contexto.`,
         source: "volume",
       });
     }
@@ -1655,6 +1641,7 @@ INSTRUÇÕES:
       new Set(exerciseCatalog.exercises.map((exercise) => exercise.id)),
     );
     const legacyPreSaveValidation = validatePrescriptionPlan({
+      volumeInput: adaptedPrescription.input,
       plan: planJson,
       libraryValidation,
       catalog: exerciseCatalog,

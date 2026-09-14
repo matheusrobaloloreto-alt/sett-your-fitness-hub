@@ -4,6 +4,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantAccess, HttpError } from "../_shared/tenant-auth.ts";
 import { buildCatalogVolumeSummary, canonicalCatalogTargets } from "../_shared/prescription/catalogVolume.ts";
 import { fetchExerciseRelations } from "../_shared/prescription/catalogRows.ts";
+import { getVolumeRangeForGroup, reviewWeeklyVolume } from "../_shared/prescription/volumeRules.ts";
+import { buildPrescriptionInputFromEdgePayload } from "../_shared/prescription/adapters/inputAdapter.ts";
+import type { PrescriptionInput } from "../_shared/prescription/types.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -202,9 +205,7 @@ function validateLibraryUsage(plan: unknown, validExerciseIds: Set<string>) {
 }
 
 function buildVolumeSummary(plan: unknown, catalog: ExerciseCatalogEntry[]) {
-  return [...buildCatalogVolumeSummary(plan, catalog)].map(([muscle_group, weekly_sets]) => ({
-    muscle_group, weekly_sets: Math.round(weekly_sets * 10) / 10,
-  }));
+  return buildCatalogVolumeSummary(plan, catalog);
 }
 
 function extractOhsCompensations(assessmentContext: unknown) {
@@ -232,6 +233,7 @@ function metadataMatchesRisk(exercise: ExerciseCatalogEntry | undefined, riskTex
 }
 
 function validatePrescription(args: {
+  volumeInput: PrescriptionInput;
   plan: unknown;
   catalog: ExerciseCatalogEntry[];
   objective: unknown;
@@ -297,7 +299,6 @@ function validatePrescription(args: {
 
   const text = normalizeText({ plan, anamnese: args.anamnese_context, assessment: args.assessment_context });
   const levelText = normalizeText(args.fitness_level);
-  const objectiveText = normalizeText(args.objective);
   const painActive = /(dor|eva\s*[4-9]|eva\s*10|joelho|lombar|ombro|tornozelo|quadril|lesao|lesoes)/.test(text);
   const exerciseMap = new Map(args.catalog.map((exercise) => [exercise.id, exercise]));
 
@@ -332,19 +333,7 @@ function validatePrescription(args: {
     });
   }
 
-  const volume_review = buildVolumeSummary(args.plan, args.catalog).map((item) => {
-    const highLimit = levelText.includes("inic") ? 12 : 16;
-    const lowLimit = objectiveText.includes("hipertrof") ? 8 : 6;
-    return {
-      ...item,
-      status: item.weekly_sets < lowLimit ? "baixo" : item.weekly_sets > highLimit ? "alto" : "ok",
-      note: item.weekly_sets < lowLimit
-        ? "Volume baixo se este grupo for prioridade."
-        : item.weekly_sets > highLimit
-          ? "Volume alto; revisar tolerancia, recuperacao e dor."
-          : "Volume dentro de faixa conservadora.",
-    };
-  });
+  const volume_review = reviewWeeklyVolume(buildVolumeSummary(args.plan, args.catalog), args.volumeInput);
 
   for (const item of volume_review) {
     if (item.status === "alto") {
@@ -352,7 +341,7 @@ function validatePrescription(args: {
         severity: "warning",
         code: `high_volume_${normalizeText(item.muscle_group).replace(/\s+/g, "_")}`,
         message: `${item.muscle_group}: ${item.weekly_sets} series/semana estimadas.`,
-        recommendation: levelText.includes("inic") ? "Reduzir para <=12 series/semana." : "Reduzir para <=16 series/semana na versao atual da metodologia.",
+        recommendation: `Reduzir para <=${getVolumeRangeForGroup(item.muscle_group, args.volumeInput.fitnessLevel, args.volumeInput).mrv} series/semana para este grupo e contexto.`,
         source: "volume",
       });
     }
@@ -441,6 +430,7 @@ serve(async (req) => {
     const companyId = await resolveValidationCompanyId(supabase, claims, body);
     const catalog = await loadExerciseCatalog(supabase, companyId);
     const result = validatePrescription({
+      volumeInput: buildPrescriptionInputFromEdgePayload({ payload: body, catalog: [] }).input,
       plan: body.plan ?? { workouts: body.workouts ?? [] },
       catalog,
       objective: body.objective,

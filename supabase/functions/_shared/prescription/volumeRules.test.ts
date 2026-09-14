@@ -1,5 +1,5 @@
 import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { countWeeklySets, enforceVolumeCaps, targetVolumeFactor } from "./volumeRules.ts";
+import { countWeeklySets, enforceVolumeCaps, getVolumeRangeForGroup, reviewWeeklyVolume, targetVolumeFactor } from "./volumeRules.ts";
 
 Deno.test("targetVolumeFactor uses the fixed role regardless of historical percentage", () => {
   assertEquals(targetVolumeFactor({ role: "primary", volume_percentage: 1 }), 1);
@@ -12,6 +12,16 @@ Deno.test("targetVolumeFactor uses the fixed role regardless of historical perce
   assertEquals(targetVolumeFactor({ is_primary: true, volume_percentage: 20 }), 1);
   assertEquals(targetVolumeFactor({ is_primary: false, volume_percentage: 100 }), 0.5);
   assertThrows(() => targetVolumeFactor({ volume_percentage: null }), TypeError);
+});
+
+Deno.test("volume review uses the engine small-muscle cap and excludes categories", () => {
+  const input = { catalog: [], fitnessLevel: "iniciante", objective: "hipertrofia" };
+  assertEquals(getVolumeRangeForGroup("Deltoide Lateral", input.fitnessLevel, input).mrv, 7);
+  const reviews = reviewWeeklyVolume(new Map([["Deltoide Lateral", 10], ["Core", 99], ["Base", 99]]), input);
+  assertEquals(reviews.find((r) => r.muscle_group === "deltoide_lateral")?.status, "alto");
+  assertEquals(reviews.some((r) => ["Core", "core", "Base", "base"].includes(r.muscle_group)), false);
+  assertEquals(reviewWeeklyVolume(new Map([["Deltoide Lateral", 7]]), input)
+    .find((r) => r.muscle_group === "deltoide_lateral")?.status, "ok");
 });
 
 Deno.test("targetVolumeFactor rejects missing or conflicting roles instead of inferring anatomy from percentages", () => {

@@ -48,12 +48,15 @@ describe("exercise taxonomy contract migration", () => {
     }
   });
 
-  it("preserva snapshot legado e só normaliza categorias reconhecidas", async () => {
+  it("preserva snapshot original e normaliza inclusive resultados vazios", async () => {
     const sql = await readFile(taxonomyMigrationPath, "utf8");
     expect(sql).toContain("taxonomy_legacy_categories jsonb");
-    expect(sql).toContain("cardinality(normalized.categories) > 0");
-    expect(sql).toContain("normalized.categories is not null");
-    expect(sql).toContain("case when jsonb_typeof(e.categories) = 'array' then e.categories else '[]'::jsonb end");
+    expect(sql).toContain("coalesce(e.taxonomy_legacy_categories, jsonb_build_object(");
+    expect(sql).not.toContain("cardinality(normalized.categories) > 0");
+    expect(sql).not.toContain("and normalized.categories is not null");
+    expect(sql).toContain("when p_categories is null or p_categories = 'null'::jsonb");
+    expect(sql).toContain("when jsonb_typeof(p_categories) = 'array' then p_categories");
+    expect(sql).not.toContain("not valid");
   });
 
   it("replace_exercise_muscle_targets aceita limpar alvos e fixa 100/50 por role", async () => {

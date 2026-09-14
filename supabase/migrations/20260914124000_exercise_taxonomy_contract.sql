@@ -4,7 +4,8 @@
 -- drive the fixed primary=1 / secondary=0.5 volume factor.
 
 alter table public.exercise_library add column if not exists category text;
-alter table public.exercise_library add column if not exists categories text[] default '{}'::text[];
+-- Keep missing legacy values null until inference has run; [] is an explicit choice.
+alter table public.exercise_library add column if not exists categories text[];
 alter table public.exercise_library add column if not exists taxonomy_legacy_categories jsonb;
 
 create or replace function public.exercise_taxonomy_key(p_value text)
@@ -129,6 +130,40 @@ $$;
 revoke all on function public.canonical_exercise_category(text, text, text, text, text) from public, anon;
 grant execute on function public.canonical_exercise_category(text, text, text, text, text) to authenticated, service_role;
 
+create or replace function public.normalize_exercise_category_selection(
+  p_categories jsonb,
+  p_category text,
+  p_name text,
+  p_description text,
+  p_muscle_group text,
+  p_equipment text
+)
+returns text[]
+language sql
+immutable
+set search_path = public
+as $$
+  select coalesce(array_agg(category order by first_ord), '{}'::text[])
+  from (
+    select category, min(ord) as first_ord
+    from (
+      select public.canonical_exercise_category(raw.value #>> '{}', p_name, p_description, p_muscle_group, p_equipment) as category, raw.ord
+      from jsonb_array_elements(case
+        when p_categories is null or p_categories = 'null'::jsonb then jsonb_build_array(p_category, p_muscle_group)
+        when jsonb_typeof(p_categories) = 'array' then p_categories
+        when jsonb_typeof(p_categories) = 'string' then jsonb_build_array(p_categories)
+        else '[]'::jsonb
+      end) with ordinality raw(value, ord)
+      where jsonb_typeof(raw.value) = 'string'
+    ) candidates
+    where category is not null
+    group by category
+  ) ordered_categories;
+$$;
+
+revoke all on function public.normalize_exercise_category_selection(jsonb, text, text, text, text, text) from public, anon;
+grant execute on function public.normalize_exercise_category_selection(jsonb, text, text, text, text, text) to authenticated, service_role;
+
 do $$
 declare
   v_categories_udt text;
@@ -142,55 +177,32 @@ begin
 
   if v_categories_udt = '_text' then
     execute $migration$
-      update public.exercise_library e
-         set taxonomy_legacy_categories = jsonb_build_object(
-           'category', e.category,
-           'categories', to_jsonb(e.categories),
-           'muscle_group', e.muscle_group
-         )
-       where e.taxonomy_legacy_categories is null
-         and (e.category is not null or cardinality(coalesce(e.categories, '{}'::text[])) > 0 or e.muscle_group is not null);
-    $migration$;
-
-    execute $migration$
       with normalized as (
-        select
-          e.id,
-          coalesce((
-            select array_agg(category order by first_ord)
-            from (
-              select category, min(ord) as first_ord
-              from (
-                select public.canonical_exercise_category(raw.value, e.name, e.description, e.muscle_group, e.equipment) category, raw.ord
-                from unnest(array_cat(
-                  array_cat(coalesce(e.categories, '{}'::text[]), array[e.category]),
-                  array[e.muscle_group]
-                )) with ordinality raw(value, ord)
-              ) raw_categories
-              where category is not null
-              group by category
-            ) ordered_categories
-          ), '{}'::text[]) as categories
+        select e.id, public.normalize_exercise_category_selection(
+          to_jsonb(e.categories), e.category, e.name, e.description, e.muscle_group, e.equipment
+        ) as categories
         from public.exercise_library e
       )
       update public.exercise_library e
-         set category = normalized.categories[1],
+         set taxonomy_legacy_categories = coalesce(e.taxonomy_legacy_categories, jsonb_build_object(
+               'category', e.category, 'categories', to_jsonb(e.categories), 'muscle_group', e.muscle_group
+             )),
+             category = normalized.categories[1],
              categories = normalized.categories
         from normalized
        where e.id = normalized.id
-         and cardinality(normalized.categories) > 0
          and (
-           e.category is distinct from normalized.categories[1]
-           or coalesce(e.categories, '{}'::text[]) is distinct from normalized.categories
+           e.taxonomy_legacy_categories is null
+           or e.category is distinct from normalized.categories[1]
+           or e.categories is distinct from normalized.categories
          );
     $migration$;
 
-    if not exists (
-      select 1 from pg_constraint where conname = 'exercise_library_categories_canonical'
-    ) then
-      alter table public.exercise_library
-        add constraint exercise_library_categories_canonical
-        check (coalesce(categories, '{}'::text[]) <@ array[
+    alter table public.exercise_library alter column categories set default '{}'::text[];
+    alter table public.exercise_library drop constraint if exists exercise_library_categories_canonical;
+    alter table public.exercise_library
+      add constraint exercise_library_categories_canonical
+      check (array_position(categories, null) is null and coalesce(categories, '{}'::text[]) <@ array[
           'core',
           'mobilidades',
           'funcionais',
@@ -199,56 +211,43 @@ begin
           'peso_corporal',
           'maquinas',
           'pliometria'
-        ]::text[]) not valid;
-    end if;
+        ]::text[]);
   elsif v_categories_udt = 'jsonb' then
     execute $migration$
-      update public.exercise_library e
-         set taxonomy_legacy_categories = jsonb_build_object(
-           'category', e.category,
-           'categories', e.categories,
-           'muscle_group', e.muscle_group
-         )
-       where e.taxonomy_legacy_categories is null
-         and (e.category is not null or coalesce(e.categories, '[]'::jsonb) <> '[]'::jsonb or e.muscle_group is not null);
-    $migration$;
-
-    execute $migration$
       with normalized as (
-        select
-          e.id,
-          (
-            select jsonb_agg(category order by first_ord)
-            from (
-              select category, min(ord) as first_ord
-              from (
-                select public.canonical_exercise_category(raw.value, e.name, e.description, e.muscle_group, e.equipment) category, raw.ord
-                from jsonb_array_elements_text(case when jsonb_typeof(e.categories) = 'array' then e.categories else '[]'::jsonb end) with ordinality raw(value, ord)
-                union all
-                select public.canonical_exercise_category(e.category, e.name, e.description, e.muscle_group, e.equipment), 100000
-                union all
-                select public.canonical_exercise_category(e.muscle_group, e.name, e.description, e.muscle_group, e.equipment), 100001
-              ) categories
-              where category is not null
-              group by category
-            ) ordered_categories
-          ) as categories
+        select e.id, to_jsonb(public.normalize_exercise_category_selection(
+          e.categories, e.category, e.name, e.description, e.muscle_group, e.equipment
+        )) as categories
         from public.exercise_library e
       )
       update public.exercise_library e
-         set category = normalized.categories->>0,
-             categories = coalesce(normalized.categories, '[]'::jsonb)
+         set taxonomy_legacy_categories = coalesce(e.taxonomy_legacy_categories, jsonb_build_object(
+               'category', e.category, 'categories', e.categories, 'muscle_group', e.muscle_group
+             )),
+             category = normalized.categories->>0,
+             categories = normalized.categories
         from normalized
        where e.id = normalized.id
-         and normalized.categories is not null
          and (
-           e.category is distinct from normalized.categories->>0
-           or coalesce(e.categories, '[]'::jsonb) is distinct from coalesce(normalized.categories, '[]'::jsonb)
+           e.taxonomy_legacy_categories is null
+           or e.category is distinct from normalized.categories->>0
+           or e.categories is distinct from normalized.categories
          );
     $migration$;
+    alter table public.exercise_library alter column categories set default '[]'::jsonb;
+    alter table public.exercise_library drop constraint if exists exercise_library_categories_canonical;
+    alter table public.exercise_library
+      add constraint exercise_library_categories_canonical
+      check (jsonb_typeof(coalesce(categories, '[]'::jsonb)) = 'array'
+        and coalesce(categories, '[]'::jsonb) <@ '["core","mobilidades","funcionais","base","pesos_livre","peso_corporal","maquinas","pliometria"]'::jsonb);
+  else
+    raise exception 'Unsupported exercise_library.categories type: %', v_categories_udt;
   end if;
 end
 $$;
+
+comment on column public.exercise_library.taxonomy_legacy_categories is
+  'Original category/categories/muscle_group snapshot before normalization, including unknown and mixed values. Never overwritten on rerun.';
 
 create or replace function public.replace_exercise_muscle_targets(
   p_exercise_id uuid,

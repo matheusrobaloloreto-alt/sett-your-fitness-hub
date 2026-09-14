@@ -126,11 +126,10 @@ export function normalizeExerciseCategories(exercise: ExerciseCategoryContext & 
   category?: string | null;
   categories?: string[] | null;
 }): ExerciseCategorySlug[] {
-  const raw = [
-    ...(Array.isArray(exercise.categories) ? exercise.categories : []),
-    exercise.category,
-    exercise.muscle_group,
-  ];
+  // An explicit selection, including [], supersedes all legacy clues.
+  const raw = exercise.categories == null
+    ? [exercise.category, exercise.muscle_group]
+    : Array.isArray(exercise.categories) ? exercise.categories : [exercise.categories];
   return [...new Set(raw.flatMap((category) => {
     const normalized = canonicalCategorySlug(category, exercise);
     return normalized ? [normalized] : [];

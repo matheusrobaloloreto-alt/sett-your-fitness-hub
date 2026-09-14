@@ -243,7 +243,16 @@ export function enforceVolumeCaps(
 }
 
 export function reviewVolume(program: Pick<TrainingProgram, "workouts">, input: PrescriptionInput, preset: MethodologyPreset): VolumeReview[] {
-  const counts = countWeeklySets(program);
+  return reviewWeeklyVolume(countWeeklySets(program), input);
+}
+
+/** Engine and catalog-based validators share both limits and classification. */
+export function reviewWeeklyVolume(weeklyCounts: ReadonlyMap<string, number>, input: PrescriptionInput): VolumeReview[] {
+  const counts = new Map<string, number>();
+  for (const [group, sets] of weeklyCounts) {
+    const slug = normalizeMuscleGroup(group);
+    if (slug) counts.set(slug, (counts.get(slug) || 0) + sets);
+  }
   const groups = new Set([...IMPORTANT_GROUPS, ...counts.keys()]);
   return [...groups].map((muscle_group) => {
     const range = getVolumeRangeForGroup(muscle_group, input.fitnessLevel, input);
