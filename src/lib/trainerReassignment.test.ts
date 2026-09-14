@@ -71,6 +71,11 @@ describe("student trainer reassignment hotfix", () => {
 
   it("wires bulk selection, confirmation, partial results and retry in carteira", () => {
     expect(portfolio).toContain("bulkSelectedIds");
+    expect(portfolio).toContain("bulkInteractionLocked");
+    expect(portfolio).toContain("handleSelectedTrainerChange");
+    expect(portfolio).toContain("if (bulkInteractionLocked) return");
+    expect(portfolio).toContain("visibleSelectedTrainerReassignmentStudents(eligibleFilteredStudents, bulkSelectedIds)");
+    expect(portfolio).toContain("pruneTrainerReassignmentSelection(current, eligibleFilteredStudents)");
     expect(portfolio).toContain("Selecionar filtrados");
     expect(portfolio).toContain("Aluno inativo não entra na troca em massa");
     expect(portfolio).toContain("Trocar professor em massa");
@@ -82,5 +87,10 @@ describe("student trainer reassignment hotfix", () => {
     expect(portfolio).toContain("Tentar apenas falhas");
     expect(portfolio).toContain("_expected_trainer_id");
     expect(portfolio).toContain("currentScopeRef.current");
+    expect(portfolio).toContain("disabled={bulkInteractionLocked}");
+    expect(portfolio).toContain("disabled={bulkInteractionLocked || eligibleFilteredStudents.length === 0}");
+    expect(portfolio).toContain("disabled={bulkInteractionLocked || selectedBulkStudents.length === 0}");
+    expect(portfolio).not.toContain("({failure.student.id})");
+    expect(portfolio).toContain('failure.student.full_name || "Aluno selecionado"');
   });
 });

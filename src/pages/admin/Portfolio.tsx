@@ -27,9 +27,11 @@ import { isBrazilianCountry } from "@/lib/fiscalRegistration";
 import {
   bulkTrainerOriginLabel,
   isBulkTrainerReassignmentEligible,
+  pruneTrainerReassignmentSelection,
   reassignStudentsWithLimit,
   type TrainerReassignmentBatchResult,
   type TrainerReassignmentScope,
+  visibleSelectedTrainerReassignmentStudents,
 } from "@/lib/trainerReassignmentBatch";
 
 interface Collaborator { user_id: string; full_name: string; roles: string[] }
@@ -97,6 +99,12 @@ export default function Portfolio() {
   const [bulkResult, setBulkResult] = useState<(TrainerReassignmentBatchResult & { destinationName: string }) | null>(null);
   const loadSeqRef = useRef(0);
   const currentScopeRef = useRef<{ companyId: string | null; trainerId: string }>({ companyId: null, trainerId: "" });
+  const bulkInteractionLocked = bulkRunning;
+
+  const handleSelectedTrainerChange = useCallback((value: string) => {
+    if (bulkInteractionLocked) return;
+    setSelectedId(value);
+  }, [bulkInteractionLocked]);
 
   // Colaboradores da empresa: seletor do admin/master e destinos da troca de professor.
   useEffect(() => {
@@ -198,6 +206,7 @@ export default function Portfolio() {
   useEffect(() => { load(); }, [load]);
 
   const openEditStudent = (student: PortfolioStudent) => {
+    if (bulkInteractionLocked) return;
     const brazilian = isBrazilianCountry(student.country_code);
     setEditingStudent(student);
     setStudentForm({
@@ -266,6 +275,7 @@ export default function Portfolio() {
   };
 
   const deleteStudent = async (student: PortfolioStudent) => {
+    if (bulkInteractionLocked) return;
     const confirmed = window.confirm(`Excluir ${student.full_name}? Esta ação remove o perfil e não pode ser desfeita.`);
     if (!confirmed) return;
     const { error } = await supabase.from("students").delete().eq("id", student.id).eq("company_id", effectiveCompanyId!);
@@ -307,8 +317,8 @@ export default function Portfolio() {
   const filteredInactiveCount = filtered.length - eligibleFilteredStudents.length;
 
   const selectedBulkStudents = useMemo(
-    () => students.filter((student) => bulkSelectedSet.has(student.id) && isBulkTrainerReassignmentEligible(student)),
-    [students, bulkSelectedSet],
+    () => visibleSelectedTrainerReassignmentStudents(eligibleFilteredStudents, bulkSelectedIds),
+    [eligibleFilteredStudents, bulkSelectedIds],
   );
 
   const selectedVisibleCount = useMemo(
@@ -317,6 +327,14 @@ export default function Portfolio() {
   );
 
   const allVisibleSelected = eligibleFilteredStudents.length > 0 && selectedVisibleCount === eligibleFilteredStudents.length;
+
+  useEffect(() => {
+    if (bulkInteractionLocked) return;
+    setBulkSelectedIds((current) => {
+      const pruned = pruneTrainerReassignmentSelection(current, eligibleFilteredStudents);
+      return pruned.length === current.length ? current : pruned;
+    });
+  }, [bulkInteractionLocked, eligibleFilteredStudents]);
 
   const bulkEligibleTransferTargets = useMemo(() => {
     const query = bulkSearch.trim().toLowerCase();
@@ -328,6 +346,7 @@ export default function Portfolio() {
   }, [bulkSearch, collaborators, selectedId]);
 
   const toggleBulkStudent = (student: PortfolioStudent, checked: boolean) => {
+    if (bulkInteractionLocked) return;
     if (!isBulkTrainerReassignmentEligible(student)) return;
     setBulkResult(null);
     setBulkSelectedIds((current) => {
@@ -337,6 +356,7 @@ export default function Portfolio() {
   };
 
   const toggleAllFilteredStudents = (checked: boolean) => {
+    if (bulkInteractionLocked) return;
     setBulkResult(null);
     const visibleIds = new Set(eligibleFilteredStudents.map((student) => student.id));
     setBulkSelectedIds((current) => {
@@ -346,6 +366,7 @@ export default function Portfolio() {
   };
 
   const openBulkTransferDialog = (studentsToTransfer = selectedBulkStudents) => {
+    if (bulkInteractionLocked) return;
     if (studentsToTransfer.length === 0) {
       toast({
         title: "Nenhum aluno elegivel selecionado",
@@ -363,6 +384,7 @@ export default function Portfolio() {
   };
 
   const openTransferDialog = (student: PortfolioStudent) => {
+    if (bulkInteractionLocked) return;
     setTransferStudent(student);
     setTransferSearch("");
     setTransferTargetId("");
@@ -475,6 +497,7 @@ export default function Portfolio() {
   };
 
   const retryBulkFailures = () => {
+    if (bulkInteractionLocked) return;
     if (!bulkResult?.failures.length) return;
     const retryStudents = bulkResult.failures.map((failure) => failure.student);
     setBulkResult(null);
@@ -500,7 +523,7 @@ export default function Portfolio() {
         </h1>
         <Badge variant="outline" className="text-sm">{students.length} aluno(s)</Badge>
         {canPickOthers && (
-          <Select value={selectedId} onValueChange={setSelectedId}>
+          <Select value={selectedId} onValueChange={handleSelectedTrainerChange} disabled={bulkInteractionLocked}>
             <SelectTrigger className="ml-auto h-9 w-[240px]"><SelectValue placeholder="Escolher colaborador" /></SelectTrigger>
             <SelectContent>
               {user?.id && !collaborators.some((c) => c.user_id === user.id) && (
@@ -519,13 +542,14 @@ export default function Portfolio() {
       {/* Mini-CRM: filtros por status + busca */}
       <div className="flex flex-wrap items-center gap-2">
         {["todos", "active", "pending", "awaiting_renewal", "inactive"].map((st) => (
-          <button key={st} type="button" onClick={() => setStatusFilter(st)}
+          <button key={st} type="button" onClick={() => setStatusFilter(st)} disabled={bulkInteractionLocked}
             className={cn("rounded-full border px-3 py-1 text-xs transition",
+              bulkInteractionLocked && "cursor-not-allowed opacity-60",
               statusFilter === st ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground")}>
             {st === "todos" ? "Todos" : STATUS_LABEL[st] || st} {counts[st] ? `(${counts[st]})` : "(0)"}
           </button>
         ))}
-        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar aluno..." className="ml-auto h-8 w-52" />
+        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar aluno..." className="ml-auto h-8 w-52" disabled={bulkInteractionLocked} />
       </div>
 
       {canReassignStudents && (
@@ -535,7 +559,7 @@ export default function Portfolio() {
               <Checkbox
                 checked={allVisibleSelected ? true : selectedVisibleCount > 0 ? "indeterminate" : false}
                 onCheckedChange={(checked) => toggleAllFilteredStudents(checked === true)}
-                disabled={eligibleFilteredStudents.length === 0}
+                disabled={bulkInteractionLocked || eligibleFilteredStudents.length === 0}
                 aria-label="Selecionar alunos filtrados"
               />
               Selecionar filtrados
@@ -547,11 +571,11 @@ export default function Portfolio() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {selectedBulkStudents.length > 0 && (
-              <Button variant="ghost" size="sm" onClick={() => setBulkSelectedIds([])}>
+              <Button variant="ghost" size="sm" onClick={() => setBulkSelectedIds([])} disabled={bulkInteractionLocked}>
                 Limpar seleção
               </Button>
             )}
-            <Button size="sm" onClick={() => openBulkTransferDialog()} disabled={selectedBulkStudents.length === 0}>
+            <Button size="sm" onClick={() => openBulkTransferDialog()} disabled={bulkInteractionLocked || selectedBulkStudents.length === 0}>
               <UsersRound className="mr-2 h-4 w-4" />
               Trocar professor
             </Button>
@@ -594,6 +618,7 @@ export default function Portfolio() {
                         className="max-w-full truncate text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
                         onClick={() => navigate(`/${routePrefix}/students/${s.id}`)}
                         title="Abrir perfil do aluno"
+                        disabled={bulkInteractionLocked}
                       >
                         {s.full_name}
                       </button>
@@ -613,18 +638,22 @@ export default function Portfolio() {
                       </div>
                     </div>
                     <div className="ml-2 flex shrink-0 items-center gap-1">
-                      <BnitoContextButton
-                        label={`aluno ${s.full_name}`}
-                        context={`Aluno da carteira. Status: ${STATUS_LABEL[s.status] || s.status}. ${s.cycle_end ? `Ciclo atual termina em ${format(parseISO(s.cycle_end), "dd/MM/yyyy")}.` : "Sem ciclo ativo identificado."}`}
-                        question="Qual é a ação técnica ou operacional prioritária para este aluno?"
-                      />
-                      <StudentChatButton
-                        studentId={s.id}
-                        studentName={s.full_name}
-                        phone={s.whatsapp || s.phone}
-                        chatId={s.chat_id}
-                        className="text-primary hover:bg-muted/60"
-                      />
+                      {!bulkInteractionLocked && (
+                        <>
+                          <BnitoContextButton
+                            label={`aluno ${s.full_name}`}
+                            context={`Aluno da carteira. Status: ${STATUS_LABEL[s.status] || s.status}. ${s.cycle_end ? `Ciclo atual termina em ${format(parseISO(s.cycle_end), "dd/MM/yyyy")}.` : "Sem ciclo ativo identificado."}`}
+                            question="Qual é a ação técnica ou operacional prioritária para este aluno?"
+                          />
+                          <StudentChatButton
+                            studentId={s.id}
+                            studentName={s.full_name}
+                            phone={s.whatsapp || s.phone}
+                            chatId={s.chat_id}
+                            className="text-primary hover:bg-muted/60"
+                          />
+                        </>
+                      )}
                       {canReassignStudents && (
                         <TooltipProvider>
                           <Tooltip>
@@ -634,6 +663,7 @@ export default function Portfolio() {
                                 size="icon"
                                 aria-label={`Trocar professor de ${s.full_name}`}
                                 onClick={() => openTransferDialog(s)}
+                                disabled={bulkInteractionLocked}
                               >
                                 <UserRoundCog className="h-4 w-4" />
                               </Button>
@@ -642,13 +672,13 @@ export default function Portfolio() {
                           </Tooltip>
                         </TooltipProvider>
                       )}
-                      <Button variant="ghost" size="icon" aria-label={`Ver perfil de ${s.full_name}`} title={`Ver perfil de ${s.full_name}`} onClick={() => navigate(`/${routePrefix}/students/${s.id}`)}>
+                      <Button variant="ghost" size="icon" aria-label={`Ver perfil de ${s.full_name}`} title={`Ver perfil de ${s.full_name}`} onClick={() => navigate(`/${routePrefix}/students/${s.id}`)} disabled={bulkInteractionLocked}>
                         <Eye className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" aria-label={`Editar ${s.full_name}`} title={`Editar ${s.full_name}`} onClick={() => openEditStudent(s)}>
+                      <Button variant="ghost" size="icon" aria-label={`Editar ${s.full_name}`} title={`Editar ${s.full_name}`} onClick={() => openEditStudent(s)} disabled={bulkInteractionLocked}>
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" aria-label={`Excluir ${s.full_name}`} title={`Excluir ${s.full_name}`} className="text-destructive hover:text-destructive" onClick={() => deleteStudent(s)}>
+                      <Button variant="ghost" size="icon" aria-label={`Excluir ${s.full_name}`} title={`Excluir ${s.full_name}`} className="text-destructive hover:text-destructive" onClick={() => deleteStudent(s)} disabled={bulkInteractionLocked}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -757,11 +787,11 @@ export default function Portfolio() {
                     <div className="max-h-28 space-y-1 overflow-y-auto">
                       {bulkResult.failures.map((failure) => (
                         <p key={failure.student.id} className="text-xs text-muted-foreground">
-                          <span className="text-foreground">{failure.student.full_name}</span> ({failure.student.id}): {failure.message}
+                          <span className="text-foreground">{failure.student.full_name || "Aluno selecionado"}</span>: {failure.message}
                         </p>
                       ))}
                     </div>
-                    <Button type="button" variant="outline" size="sm" onClick={retryBulkFailures}>
+                    <Button type="button" variant="outline" size="sm" onClick={retryBulkFailures} disabled={bulkInteractionLocked}>
                       <RotateCcw className="mr-2 h-3.5 w-3.5" />
                       Tentar apenas falhas
                     </Button>

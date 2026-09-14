@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   bulkTrainerOriginLabel,
   isBulkTrainerReassignmentEligible,
+  pruneTrainerReassignmentSelection,
   reassignStudentsWithLimit,
+  safeTrainerReassignmentFailureMessage,
   sameTrainerReassignmentScope,
   type TrainerReassignmentStudent,
+  visibleSelectedTrainerReassignmentStudents,
 } from "./trainerReassignmentBatch";
 
 const student = (id: string, trainer = "trainer-a", status = "active"): TrainerReassignmentStudent => ({
@@ -32,7 +35,7 @@ describe("bulk trainer reassignment", () => {
     });
     expect(rpc).not.toHaveBeenCalled();
     expect(result.successes).toHaveLength(0);
-    expect(result.failures[0].message).toContain("Carteira alterada");
+    expect(result.failures[0].message).toBe("A carteira mudou durante a troca. Reabra a acao em massa e tente novamente.");
   });
 
   it("passes CAS expected trainer to every RPC and limits concurrency", async () => {
@@ -78,7 +81,7 @@ describe("bulk trainer reassignment", () => {
     expect(result.successes.map((s) => s.id).sort()).toEqual(["1", "3"]);
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0].student.id).toBe("2");
-    expect(result.failures[0].message).toBe("CAS stale");
+    expect(result.failures[0].message).toBe("A atribuicao deste aluno mudou. Recarregue a carteira e tente novamente.");
   });
 
   it("summarizes homogeneous and mixed origins", () => {
@@ -86,5 +89,24 @@ describe("bulk trainer reassignment", () => {
     expect(bulkTrainerOriginLabel([student("1"), student("2")], name)).toBe("Professor A");
     expect(bulkTrainerOriginLabel([student("1"), student("2", "trainer-b")], name)).toBe("origens diferentes");
     expect(sameTrainerReassignmentScope({ companyId: "a", trainerId: "b" }, { companyId: "a", trainerId: "b" })).toBe(true);
+  });
+
+  it("keeps bulk operation restricted to the currently visible filtered selection", () => {
+    const selectedIds = ["1", "2", "3"];
+    const beforeFilterChange = [student("1"), student("2"), student("3", "trainer-a", "inactive")];
+    const afterFilterChange = [student("2")];
+
+    expect(visibleSelectedTrainerReassignmentStudents(beforeFilterChange, selectedIds).map((item) => item.id)).toEqual(["1", "2"]);
+    expect(visibleSelectedTrainerReassignmentStudents(afterFilterChange, selectedIds).map((item) => item.id)).toEqual(["2"]);
+    expect(pruneTrainerReassignmentSelection(selectedIds, afterFilterChange)).toEqual(["2"]);
+  });
+
+  it("maps internal RPC errors to safe user-facing messages", () => {
+    expect(safeTrainerReassignmentFailureMessage("Student assignment changed; reload before reassigning")).toContain("atribuicao");
+    expect(safeTrainerReassignmentFailureMessage("Destination trainer is not active in this company")).toContain("destino");
+    expect(safeTrainerReassignmentFailureMessage("permission denied for table students")).toContain("acesso");
+    expect(safeTrainerReassignmentFailureMessage("duplicate key value violates unique constraint")).toBe(
+      "Nao foi possivel trocar este aluno agora. Recarregue a carteira e tente novamente.",
+    );
   });
 });
