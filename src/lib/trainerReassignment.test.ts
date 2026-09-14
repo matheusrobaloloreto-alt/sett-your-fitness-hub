@@ -56,6 +56,8 @@ describe("student trainer reassignment hotfix", () => {
     expect(portfolio).toContain("currentScopeRef.current.companyId !== scopeAtConfirm.companyId");
     expect(portfolio).toContain("currentScopeRef.current.trainerId !== scopeAtConfirm.trainerId");
     expect(portfolio).toContain("_expected_trainer_id: transferStudent.assigned_trainer_id || null");
+    expect(portfolio).toContain("safeTrainerReassignmentFailureMessage(error.message)");
+    expect(portfolio).not.toContain('title: "Troca não realizada", description: error.message');
   });
 
   it("wires the carteira inline action to the RPC with confirmation copy", () => {

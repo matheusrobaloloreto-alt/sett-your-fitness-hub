@@ -29,6 +29,7 @@ import {
   isBulkTrainerReassignmentEligible,
   pruneTrainerReassignmentSelection,
   reassignStudentsWithLimit,
+  safeTrainerReassignmentFailureMessage,
   type TrainerReassignmentBatchResult,
   type TrainerReassignmentScope,
   visibleSelectedTrainerReassignmentStudents,
@@ -428,7 +429,7 @@ export default function Portfolio() {
       return;
     }
     if (error) {
-      toast({ title: "Troca não realizada", description: error.message, variant: "destructive" });
+      toast({ title: "Troca não realizada", description: safeTrainerReassignmentFailureMessage(error.message), variant: "destructive" });
       return;
     }
     toast({
