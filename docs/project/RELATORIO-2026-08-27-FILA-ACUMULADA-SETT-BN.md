@@ -231,8 +231,9 @@ Evidências e rollback: `ENTREGA-2026-09-14-FEEDBACK-ALUNO.md`.
 
 - ✅ Local: "Esqueci minha senha", solicitação por e-mail, nova senha com confirmação, tratamento de falhas e callback de recuperação.
 - ✅ Validação: 14 testes, TypeScript, build e navegador local; ESLint sem erros, com um aviso preexistente de Fast Refresh.
-- ❌ Configuração remota (bloqueado): dashboard Supabase pediu login. Próximo passo: conferir URLs de retorno e envio de e-mail.
-- ❌ Publicação (aguardando): sem push, staging ou deploy; próximo passo é autorizar a promoção após conferir a configuração.
+- ✅ Configuração das URLs: Site URL e callbacks de recuperação com/sem `www` corrigidos e revalidados pela Management API do Supabase.
+- ❌ SMTP (bloqueado): o projeto não possui servidor SMTP próprio; próximo passo é configurar um provedor de e-mail para entregar o link a alunas externas à equipe do Supabase.
+- ❌ Publicação (bloqueado): sem push, staging ou deploy; a autorização foi condicionada ao fechamento das pendências e o gate SMTP continua aberto.
 - ❌ E-mail real (aguardando): nenhuma mensagem enviada; próximo passo é testar com destinatário autorizado.
 
 Os itens anteriores permanecem com seus estados registrados. Evidências: `ENTREGA-2026-09-14-RECUPERACAO-SENHA.md`.

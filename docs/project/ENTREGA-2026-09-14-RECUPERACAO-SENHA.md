@@ -20,9 +20,10 @@
 
 ## Pendencias e limites
 
-- Configuracao Auth remota: bloqueada por login no dashboard Supabase. Conferir Site URL, allowlist das URLs de reset com/sem www e SMTP/template de recuperacao antes da publicacao.
+- Configuracao Auth remota: Site URL corrigida de `http://localhost:3000` para `https://www.settapp.com.br`; allowlist restrita aos callbacks de reset com/sem `www`. Leitura posterior pela Management API confirmou os dois valores.
+- SMTP (bloqueado): o projeto nao possui servidor SMTP proprio. O envio padrao do Supabase nao entrega recuperacao a uma aluna comum; configurar um provedor de e-mail antes da publicacao.
 - Teste de entrega real: pendente; utilizar conta de teste e destinatario autorizado, nunca enviar para aluna sem identificacao/consentimento.
-- Push, staging e producao: nao realizados. Publicacao exige autorizacao atual; a implementacao usa o fluxo oficial, mas a entrega de e-mail nao foi comprovada.
+- Push, staging e frontend de producao: nao realizados. A autorizacao de deploy era condicional a todas as pendencias estarem concluidas; o gate SMTP permanece aberto e a entrega de e-mail nao foi comprovada.
 - Pacote anterior de calendario, cargas e aquecimento em `5d513b2` permanece local, aguardando publicacao.
 - Rollback: reverter apenas o commit de recuperacao. Nao ha migration, alteracao de permissoes ou escrita em dados de alunos nesta entrega.
 
