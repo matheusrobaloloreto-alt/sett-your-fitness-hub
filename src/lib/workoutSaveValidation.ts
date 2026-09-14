@@ -262,15 +262,13 @@ export function hasBlockingSaveIssue(issues: WorkoutSaveIssue[]) {
   return issues.some((issue) => issue.severity === "blocker");
 }
 
-export function issueFromPrescriptionValidationFailure(message?: string): WorkoutSaveIssue {
+export function issueFromPrescriptionValidationFailure(_message?: string): WorkoutSaveIssue {
   return {
     severity: "blocker",
     code: "remote_validation_unavailable",
     source: "validador",
     message: "Não foi possível validar o treino agora.",
-    recommendation: message
-      ? `Tente salvar novamente. Se continuar, confira a conexão e acione o suporte com esta mensagem: ${message}`
-      : "Tente salvar novamente. Se continuar, confira a conexão e acione o suporte.",
+    recommendation: "Tente salvar novamente. Se continuar, confira a conexão e acione o suporte.",
   };
 }
 
