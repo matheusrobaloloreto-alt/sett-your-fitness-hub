@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
-import { Dumbbell, Play, Clock, CheckCircle2, Circle, Loader2, LogOut, Save, CalendarDays, History, BarChart3, ArrowLeft, ExternalLink, Flame } from "lucide-react";
+import { Dumbbell, Play, Clock, CheckCircle2, Circle, Loader2, LogOut, Save, CalendarDays, History, BarChart3, ArrowLeft, Flame } from "lucide-react";
 import { format, parseISO, differenceInDays, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
@@ -22,6 +22,8 @@ import { PeriodizationBanner } from "@/components/student/PeriodizationBanner";
 import { WhySafetyCard } from "@/components/student/WhySafetyCard";
 import { CheckinCard } from "@/components/student/CheckinCard";
 import { PushBanner } from "@/components/student/PushBanner";
+import { ExerciseVideoPlayer } from "@/components/student/ExerciseVideoPlayer";
+import { buildYouTubeSearchUrl, type ExerciseVideoModalState } from "@/lib/exerciseVideoPlayer";
 import { WarmupGuide, type WarmupExercise } from "@/components/student/WarmupGuide";
 import { WARMUP_VIDEO_LIBRARY_NAMES } from "@/lib/warmupVideoMatches";
 import { useRestTimer } from "@/components/student/RestTimer";
@@ -180,7 +182,7 @@ export default function StudentPortal() {
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
-  const [videoModal, setVideoModal] = useState<{ type: "path" | "url" | "loading" | "unavailable"; value: string; title: string } | null>(null);
+  const [videoModal, setVideoModal] = useState<ExerciseVideoModalState | null>(null);
   // Feedback pós-treino — persiste no painel; WhatsApp é um canal adicional.
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
@@ -908,25 +910,13 @@ export default function StudentPortal() {
     return data.publicUrl;
   };
 
-  const getEmbedUrl = (url: string) => {
-    if (url.includes("youtube.com/watch")) {
-      const vid = new URL(url).searchParams.get("v");
-      return vid ? `https://www.youtube.com/embed/${vid}` : url;
-    }
-    if (url.includes("youtu.be/")) {
-      const vid = url.split("youtu.be/")[1]?.split("?")[0];
-      return vid ? `https://www.youtube.com/embed/${vid}` : url;
-    }
-    return url;
-  };
-
   const openVideoForExercise = async (ex: WorkoutExercise) => {
     if (ex.video_path) { setVideoModal({ type: "path", value: getStoragePublicUrl(ex.video_path), title: ex.exercise_name }); return; }
     if (ex.video_url) { setVideoModal({ type: "url", value: ex.video_url, title: ex.exercise_name }); return; }
     if (ex.youtube_video_id) { setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${ex.youtube_video_id}`, title: ex.exercise_name }); return; }
     // Sem vídeo gravado → puxa um vídeo do YouTube pelo nome do exercício (resolvido/cacheado no servidor).
     setVideoModal({ type: "loading", value: "", title: ex.exercise_name });
-    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(ex.exercise_name + " execução técnica")}`;
+    const searchUrl = buildYouTubeSearchUrl(ex.exercise_name);
     try {
       const { data } = await supabase.functions.invoke("youtube-exercise-video", { body: { exercise_id: ex.exercise_id, name: ex.exercise_name } });
       const vid = (data as any)?.video_id as string | null;
@@ -1668,42 +1658,7 @@ export default function StudentPortal() {
             </DialogTitle>
           </DialogHeader>
           {videoModal && (
-            <div className="space-y-3">
-              <div className="aspect-video w-full">
-                {videoModal.type === "loading" ? (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-md bg-muted/40">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                    <p className="text-xs text-muted-foreground">Buscando demonstração no YouTube…</p>
-                  </div>
-                ) : videoModal.type === "unavailable" ? (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-6 text-center">
-                    <Play className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
-                    <p className="text-sm font-medium text-foreground">Vídeo ainda não disponível no catálogo</p>
-                    <p className="text-xs text-muted-foreground">Você pode buscar uma demonstração externa e confirmar a técnica com a equipe.</p>
-                  </div>
-                ) : videoModal.type === "path" ? (
-                  <video src={videoModal.value} controls className="w-full h-full rounded-md" />
-                ) : (
-                  <iframe src={getEmbedUrl(videoModal.value)} title="Demonstração do exercício" className="w-full h-full rounded-md" allowFullScreen />
-                )}
-              </div>
-              {videoModal.type === "url" && (
-                <Button variant="outline" size="sm" className="w-full" asChild>
-                  <a href={videoModal.value} target="_blank" rel="noreferrer">
-                    Abrir vídeo original
-                    <ExternalLink className="ml-2 h-4 w-4" />
-                  </a>
-                </Button>
-              )}
-              {videoModal.type === "unavailable" && (
-                <Button variant="outline" size="sm" className="w-full" asChild>
-                  <a href={videoModal.value} target="_blank" rel="noreferrer">
-                    Buscar demonstração no YouTube
-                    <ExternalLink className="ml-2 h-4 w-4" />
-                  </a>
-                </Button>
-              )}
-            </div>
+            <ExerciseVideoPlayer video={videoModal} />
           )}
         </DialogContent>
       </Dialog>
