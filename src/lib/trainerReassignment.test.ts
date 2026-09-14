@@ -36,10 +36,13 @@ describe("student trainer reassignment hotfix", () => {
   });
 
   it("updates student and operational enrollments in one RPC", () => {
-    expect(migration).toContain("update public.students");
+    expect(migration).toContain("update public.students as s");
     expect(migration).toContain("assigned_trainer_id = _trainer_id");
-    expect(migration).toContain("update public.enrollments");
+    expect(migration).toContain("where s.id = _student_id");
+    expect(migration).toContain("update public.enrollments as e");
     expect(migration).toContain("trainer_id = _trainer_id");
+    expect(migration).toContain("where e.student_id = _student_id");
+    expect(migration).toContain("and e.company_id = v_company_id");
     expect(migration).toContain("'active', 'awaiting_training', 'awaiting_renewal', 'trial'");
   });
 

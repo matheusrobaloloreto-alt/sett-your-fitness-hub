@@ -63,18 +63,18 @@ begin
     raise exception 'Destination trainer is not active in this company' using errcode = '23514';
   end if;
 
-  update public.students
+  update public.students as s
      set assigned_trainer_id = _trainer_id,
          updated_at = now()
-   where id = _student_id
-     and company_id = v_company_id;
+   where s.id = _student_id
+     and s.company_id = v_company_id;
 
-  update public.enrollments
+  update public.enrollments as e
      set trainer_id = _trainer_id,
          updated_at = now()
-   where student_id = _student_id
-     and company_id = v_company_id
-     and status in ('active', 'awaiting_training', 'awaiting_renewal', 'trial');
+   where e.student_id = _student_id
+     and e.company_id = v_company_id
+     and e.status in ('active', 'awaiting_training', 'awaiting_renewal', 'trial');
 
   get diagnostics v_updated_enrollments = row_count;
 
