@@ -13,7 +13,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Briefcase, Loader2, Eye, Pencil, Trash2, CalendarDays } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Briefcase, Loader2, Eye, Pencil, Trash2, CalendarDays, UserRoundCog } from "lucide-react";
 import { format, parseISO, differenceInDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { cadenceTone, formatCadence } from "@/lib/contactCadence";
@@ -29,6 +30,7 @@ interface PortfolioStudent {
   email: string | null; birth_date: string | null; cpf: string | null; cep: string | null;
   address: string | null; address_number: string | null; neighborhood: string | null;
   city: string | null; state: string | null; notes: string | null;
+  assigned_trainer_id: string | null;
   country_code: string | null;
   cycle_end?: string | null; chat_id?: string | null; hours_since_contact?: number | null;
 }
@@ -62,6 +64,7 @@ export default function Portfolio() {
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId ?? null;
   const canPickOthers = role === "admin" || role === "master";
+  const canReassignStudents = role === "admin" || role === "coordinator" || role === "master";
 
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
@@ -72,10 +75,14 @@ export default function Portfolio() {
   const [editingStudent, setEditingStudent] = useState<PortfolioStudent | null>(null);
   const [studentForm, setStudentForm] = useState(emptyStudentForm);
   const [savingStudent, setSavingStudent] = useState(false);
+  const [transferStudent, setTransferStudent] = useState<PortfolioStudent | null>(null);
+  const [transferSearch, setTransferSearch] = useState("");
+  const [transferTargetId, setTransferTargetId] = useState("");
+  const [transferring, setTransferring] = useState(false);
 
-  // Colaboradores da empresa (para o seletor do admin/master).
+  // Colaboradores da empresa: seletor do admin/master e destinos da troca de professor.
   useEffect(() => {
-    if (!effectiveCompanyId || !canPickOthers) return;
+    if (!effectiveCompanyId) return;
     (async () => {
       const { data: members } = await supabase.from("company_members").select("user_id").eq("company_id", effectiveCompanyId);
       const ids = (members || []).map((m) => m.user_id);
@@ -94,7 +101,7 @@ export default function Portfolio() {
       setCollaborators([...byUser.entries()].map(([uid, rs]) => ({ user_id: uid, full_name: nameMap.get(uid) || uid.slice(0, 8), roles: rs }))
         .sort((a, b) => a.full_name.localeCompare(b.full_name)));
     })();
-  }, [effectiveCompanyId, canPickOthers]);
+  }, [effectiveCompanyId]);
 
   // Seleção inicial: o próprio usuário.
   useEffect(() => { if (user?.id && !selectedId) setSelectedId(user.id); }, [user?.id, selectedId]);
@@ -104,7 +111,7 @@ export default function Portfolio() {
     setLoading(true);
     const { data: studs } = await supabase
       .from("students")
-      .select("id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, country_code, notes")
+      .select("id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, country_code, notes, assigned_trainer_id")
       .eq("company_id", effectiveCompanyId)
       .eq("assigned_trainer_id", selectedId)
       .order("full_name");
@@ -217,6 +224,58 @@ export default function Portfolio() {
     await load();
   };
 
+  const trainerName = useCallback((trainerId: string | null | undefined) => {
+    if (!trainerId) return "Sem professor";
+    return collaborators.find((collaborator) => collaborator.user_id === trainerId)?.full_name || "Professor atual";
+  }, [collaborators]);
+
+  const eligibleTransferTargets = useMemo(() => {
+    const currentTrainerId = transferStudent?.assigned_trainer_id || selectedId;
+    const query = transferSearch.trim().toLowerCase();
+    return collaborators
+      .filter((collaborator) => collaborator.roles.includes("trainer"))
+      .filter((collaborator) => collaborator.user_id !== currentTrainerId)
+      .filter((collaborator) => !query || collaborator.full_name.toLowerCase().includes(query))
+      .sort((a, b) => a.full_name.localeCompare(b.full_name));
+  }, [collaborators, selectedId, transferSearch, transferStudent?.assigned_trainer_id]);
+
+  const openTransferDialog = (student: PortfolioStudent) => {
+    setTransferStudent(student);
+    setTransferSearch("");
+    setTransferTargetId("");
+  };
+
+  const confirmTransferStudent = async () => {
+    if (!transferStudent || !transferTargetId) return;
+    const destination = collaborators.find((collaborator) => collaborator.user_id === transferTargetId);
+    if (!destination) return;
+    const proceed = window.confirm(
+      `Trocar professor de ${transferStudent.full_name}?\n\n` +
+      `Origem: ${trainerName(transferStudent.assigned_trainer_id || selectedId)}\n` +
+      `Destino: ${destination.full_name}\n\n` +
+      "Histórico, ciclos, treinos, pagamentos e conversas serão preservados."
+    );
+    if (!proceed) return;
+
+    setTransferring(true);
+    const { error } = await (supabase as any).rpc("reassign_student_trainer", {
+      _student_id: transferStudent.id,
+      _trainer_id: transferTargetId,
+    });
+    setTransferring(false);
+    if (error) {
+      toast({ title: "Troca não realizada", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({
+      title: "Professor trocado",
+      description: `${transferStudent.full_name} agora está com ${destination.full_name}.`,
+    });
+    setTransferStudent(null);
+    setTransferTargetId("");
+    await load();
+  };
+
   const filtered = useMemo(() => students.filter((s) =>
     (statusFilter === "todos" || s.status === statusFilter) &&
     (!search.trim() || s.full_name.toLowerCase().includes(search.trim().toLowerCase()))
@@ -324,6 +383,23 @@ export default function Portfolio() {
                         chatId={s.chat_id}
                         className="text-primary hover:bg-muted/60"
                       />
+                      {canReassignStudents && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Trocar professor de ${s.full_name}`}
+                                onClick={() => openTransferDialog(s)}
+                              >
+                                <UserRoundCog className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Trocar professor</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
                       <Button variant="ghost" size="icon" aria-label={`Ver perfil de ${s.full_name}`} title={`Ver perfil de ${s.full_name}`} onClick={() => navigate(`/${routePrefix}/students/${s.id}`)}>
                         <Eye className="h-4 w-4" />
                       </Button>
@@ -385,6 +461,56 @@ export default function Portfolio() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingStudent(null)}>Cancelar</Button>
             <Button onClick={saveStudent} disabled={savingStudent}>{savingStudent ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!transferStudent} onOpenChange={(open) => { if (!open && !transferring) setTransferStudent(null); }}>
+        <DialogContent className="rounded-2xl bg-card sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-primary">Trocar professor</DialogTitle>
+          </DialogHeader>
+          {transferStudent && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                <p className="font-medium text-foreground">{transferStudent.full_name}</p>
+                <p className="text-muted-foreground">
+                  Professor atual: <span className="text-foreground">{trainerName(transferStudent.assigned_trainer_id || selectedId)}</span>
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Histórico, ciclos, treinos, pagamentos e conversas serão preservados.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Buscar professor ativo</Label>
+                <Input value={transferSearch} onChange={(event) => setTransferSearch(event.target.value)} placeholder="Nome do professor..." />
+              </div>
+              <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border p-1">
+                {eligibleTransferTargets.length === 0 ? (
+                  <p className="px-3 py-6 text-center text-sm text-muted-foreground">Nenhum professor elegível encontrado.</p>
+                ) : eligibleTransferTargets.map((trainer) => (
+                  <button
+                    key={trainer.user_id}
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition hover:bg-muted",
+                      transferTargetId === trainer.user_id && "bg-primary/10 text-primary"
+                    )}
+                    onClick={() => setTransferTargetId(trainer.user_id)}
+                  >
+                    <span className="truncate">{trainer.full_name}</span>
+                    <Badge variant="outline" className="ml-2 shrink-0 text-[10px]">Professor</Badge>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTransferStudent(null)} disabled={transferring}>Cancelar</Button>
+            <Button onClick={confirmTransferStudent} disabled={!transferTargetId || transferring}>
+              {transferring ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Confirmar troca
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
