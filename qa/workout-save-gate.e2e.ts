@@ -33,6 +33,9 @@ test("workout save gate allows non-critical warnings and surfaces critical fixes
   await expect(page.getByTestId("workout-save-gate-panel")).toBeVisible();
   await expect(page.getByText("Não foi possível validar o treino agora.")).toBeVisible();
   await expect(page.getByText("Tente salvar novamente")).toBeVisible();
+  await expect(page.getByText("password=secret")).toHaveCount(0);
+  await expect(page.getByText("training_cycles")).toHaveCount(0);
+  await expect(page.getByText("student_id")).toHaveCount(0);
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: testInfo.outputPath("workout-save-gate-mobile.png"), fullPage: true });

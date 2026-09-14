@@ -51,7 +51,7 @@ function Fixture() {
     await new Promise((resolve) => window.setTimeout(resolve, 250));
 
     if (mode === "remote") {
-      setIssues([issueFromPrescriptionValidationFailure("validador indisponível")]);
+      setIssues([issueFromPrescriptionValidationFailure("postgres password=secret table=training_cycles payload={student_id:123}")]);
       setSaving(false);
       return;
     }

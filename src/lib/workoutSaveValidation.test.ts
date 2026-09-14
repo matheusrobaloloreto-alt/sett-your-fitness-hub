@@ -98,16 +98,20 @@ describe("workout save validation", () => {
     expect(hasBlockingSaveIssue(issues)).toBe(false);
   });
 
-  it("turns a remote validation failure into a persistent save blocker", () => {
-    const issue = issueFromPrescriptionValidationFailure("Edge Function returned a non-2xx status code");
+  it("turns a remote validation failure into a persistent safe save blocker", () => {
+    const rawProviderMessage = "postgres password=secret table=training_cycles payload={student_id:123}";
+    const issue = issueFromPrescriptionValidationFailure(rawProviderMessage);
 
     expect(issue).toMatchObject({
       severity: "blocker",
       code: "remote_validation_unavailable",
       source: "validador",
       message: "Não foi possível validar o treino agora.",
+      recommendation: "Tente salvar novamente. Se continuar, confira a conexão e acione o suporte.",
     });
-    expect(issue.recommendation).toContain("Tente salvar novamente");
+    expect(JSON.stringify(issue)).not.toContain("password=secret");
+    expect(JSON.stringify(issue)).not.toContain("training_cycles");
+    expect(JSON.stringify(issue)).not.toContain("student_id");
     expect(hasBlockingSaveIssue([issue])).toBe(true);
   });
 
