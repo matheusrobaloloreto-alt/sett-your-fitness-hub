@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { openStudentChat } from "@/lib/studentChat";
 import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
+import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 interface RiskRow {
   id: string;
@@ -169,6 +170,7 @@ export function AtRiskStudents({ readOnly = false, routePrefix = "admin" }: { re
                   >
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-foreground truncate">{r.name}</p>
+                      <AthleticClubStar studentId={r.id} companyId={effectiveCompanyId} className="shrink-0" />
                       <Badge className={cn("text-[10px]", r.pain && r.status === "ativo" ? "bg-destructive/15 text-destructive" : STUDENT_STATUS_COLORS[r.status])}>
                         {r.pain && r.status === "ativo" ? "Dor relatada" : STUDENT_STATUS_LABELS[r.status]}
                       </Badge>

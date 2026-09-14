@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { StudentTimeline } from "@/components/admin/StudentTimeline";
 import { StudentFilesPanel } from "@/components/admin/StudentFilesPanel";
 import { WeeklyContactToggle } from "@/components/admin/WeeklyContactToggle";
+import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 interface StudentRow {
   id: string;
@@ -47,7 +48,9 @@ export default function StudentHub() {
         <Button variant="ghost" size="icon" className="shrink-0" onClick={() => navigate(-1)}><ArrowLeft className="h-5 w-5" /></Button>
         <div className="min-w-0">
           <p className="text-eyebrow">Visão 360</p>
-          <h1 className="break-words font-display text-2xl leading-tight text-foreground sm:text-3xl">{student.full_name}</h1>
+          <h1 className="min-w-0 break-words font-display text-2xl leading-tight text-foreground sm:text-3xl">
+            {student.full_name}<AthleticClubStar studentId={student.id} companyId={student.company_id} />
+          </h1>
         </div>
       </div>
       <WeeklyContactToggle

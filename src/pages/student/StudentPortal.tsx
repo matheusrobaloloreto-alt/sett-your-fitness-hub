@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef, Fragment, Suspense, lazy } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { AthleticClubProvider, AthleticClubStar } from "@/components/AthleticClubStar";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1144,6 +1145,7 @@ export default function StudentPortal() {
 
 
   return (
+    <AthleticClubProvider companyId={companyId}>
     <div className="min-h-screen bg-background">
       <EditorialPageHeader
         compactMobile
@@ -1170,7 +1172,7 @@ export default function StudentPortal() {
             </span>
           )
         }
-        context={activeView === "home" ? <span className="text-foreground">{studentName}</span> : null}
+        context={activeView === "home" ? <span className="text-foreground">{studentName}<AthleticClubStar studentId={studentId} /></span> : null}
         actions={
           <>
             {studentId && companyId && <AnnouncementsBell studentId={studentId} companyId={companyId} />}
@@ -1226,6 +1228,7 @@ export default function StudentPortal() {
           {studentId && <CheckinCard studentId={studentId} companyId={companyId} />}
           <PlatformAdSlot audience="student" placement="dashboard_banner" companyId={companyId} />
           <StudentHome
+            nameBadge={<AthleticClubStar studentId={studentId} />}
             studentName={studentName}
             enrollmentInfo={enrollmentInfo}
             overallProgress={getOverallProgress()}
@@ -1641,5 +1644,6 @@ export default function StudentPortal() {
       )}
 
     </div>
+    </AthleticClubProvider>
   );
 }

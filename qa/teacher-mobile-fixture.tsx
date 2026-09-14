@@ -320,26 +320,41 @@ Object.defineProperty(supabase, "storage", {
   configurable: true,
   value: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), upload: async () => ({ data: null, error: null }), remove: async () => ({ data: null, error: null }) }) },
 });
+const membershipRefresh = new Set<() => void>();
 Object.defineProperty(supabase, "channel", {
   configurable: true,
   value: () => {
+    const callbacks = new Set<() => void>();
     const channel = {
-      on: () => channel,
+      on: (_event: string, filter: { table?: string }, callback: () => void) => {
+        if (["plans", "enrollments"].includes(filter.table || "")) {
+          callbacks.add(callback);
+          membershipRefresh.add(callback);
+        }
+        return channel;
+      },
       subscribe: () => channel,
-      unsubscribe: () => {},
+      unsubscribe: () => callbacks.forEach((callback) => membershipRefresh.delete(callback)),
     };
     return channel;
   },
 });
 Object.defineProperty(supabase, "removeChannel", {
   configurable: true,
-  value: () => {},
+  value: (channel: { unsubscribe: () => void }) => channel.unsubscribe(),
 });
 
 (window as any).__teacherMobileFixture = {
   getWrites: () => [...log.writes],
   getInvokes: () => [...log.invokes],
   getReads: () => [...log.reads],
+  changeMembership: (athletic: boolean) => {
+    if (!rows.plans.some((plan) => plan.id === "plan-athletic")) {
+      rows.plans.push({ ...rows.plans[0], id: "plan-athletic", name: "Athletic Club Anual" });
+    }
+    rows.enrollments[0].plan_id = athletic ? "plan-athletic" : "plan-standard";
+    membershipRefresh.forEach((callback) => callback());
+  },
 };
 
 function ReadyRoutes() {

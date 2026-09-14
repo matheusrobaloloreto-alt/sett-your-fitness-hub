@@ -3,6 +3,21 @@ import { expect, test, type Page } from "@playwright/test";
 const fixturePath = "/qa/teacher-mobile-fixture.html";
 const artifactDir = "output/teacher-mobile-qa";
 
+test("Athletic Club star follows current membership without editing a student name", async ({ page }) => {
+  const guard = await openFixture(page, "/trainer/students/student-mobile-1", 390, 844);
+  const name = page.getByRole("heading", { name: /Ana Carolina/ });
+  const star = name.locator("..").getByRole("img", { name: "Athletic Club" });
+  await expect(name).toBeVisible();
+  await expect(star).toHaveCount(0);
+  await page.evaluate(() => (window as any).__teacherMobileFixture.changeMembership(true));
+  await expect(star).toBeVisible();
+  await page.screenshot({ path: `${artifactDir}/athletic-club-star-390.png`, fullPage: true });
+  await expectClean(page, guard, 390);
+  await page.evaluate(() => (window as any).__teacherMobileFixture.changeMembership(false));
+  await expect(star).toHaveCount(0);
+  await expectClean(page, guard, 390);
+});
+
 async function openFixture(page: Page, route: string, width: number, height = 900) {
   const blocked: string[] = [];
   const errors: string[] = [];

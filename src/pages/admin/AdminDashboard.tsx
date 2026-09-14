@@ -23,6 +23,7 @@ import { selectCurrentCyclePerEnrollment } from "@/lib/prescriptionSchedule";
 import { RenewalsAndCyclesPanel } from "@/components/dashboard/RenewalsAndCyclesPanel";
 import { DashboardSnapshotContext, type CompanyDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 import { parseCompanyDashboardSnapshot } from "@/lib/companyDashboardSnapshot";
+import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 const LazyChart = lazy(() => import("recharts").then(mod => ({
   default: ({ data, colors }: { data: { name: string; count: number }[]; colors: string[] }) => (
@@ -495,7 +496,10 @@ export default function AdminDashboard({
                               navigateWhenInteractive(`/${routePrefix}/students/${contract.student_id}`);
                             }}
                           >
-                            {contract.students?.full_name}
+                            <span className="inline-flex min-w-0 items-center gap-1.5">
+                              <span className="truncate">{contract.students?.full_name}</span>
+                              <AthleticClubStar studentId={contract.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                            </span>
                           </button>
                           <p className="text-muted-foreground text-xs font-sans">{contract.plans?.name}</p>
                           {contract.trainer_id && trainerMap[contract.trainer_id] && (
@@ -549,7 +553,10 @@ export default function AdminDashboard({
                             }
                           }}
                         >
-                          {m.student_name}
+                          <span className="inline-flex min-w-0 items-center gap-1.5">
+                            <span className="truncate">{m.student_name}</span>
+                            <AthleticClubStar studentId={m.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                          </span>
                         </button>
                         <p className="text-muted-foreground text-xs font-sans">Ciclo {m.cycle_number} · vence {format(parseISO(m.end_date), "dd/MM")}</p>
                         <p className={`mt-1 text-xs font-medium ${m.next_ready ? "text-emerald-700" : "text-amber-700"}`}>

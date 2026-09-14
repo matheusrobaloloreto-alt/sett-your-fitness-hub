@@ -13,6 +13,7 @@ import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { FUNNEL_STAGE_META, normalizeSalesStage, stageNextAction } from "@/lib/salesFunnelView";
 import { fiscalRegistrationValidation } from "@/lib/fiscalRegistration";
 import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
+import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 interface Birthday { full_name: string; birth_date: string; student_id: string; isToday: boolean; day: number; }
 interface MissingWorkout { student_name: string; student_id: string; cycle_number: number; cycle_id: string; start_date: string; end_date: string; trainer_name?: string; }
@@ -41,6 +42,7 @@ interface AttentionItem {
   subtitle: string;
   action: () => void | Promise<void>;
   resolveId?: string;
+  studentId?: string | null;
   birthday?: Birthday;
 }
 
@@ -332,6 +334,7 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
         subtitle: a.message || "Pendência administrativa ou técnica.",
         action: () => a.action_url ? navigateWhenInteractive(a.action_url) : a.student_id && goToStudent(a.student_id),
         resolveId: a.id,
+        studentId: a.student_id,
       })),
       ...awaitingTrainer.map((a, i) => ({
         key: `trainer-${a.student_id}-${i}`,
@@ -340,6 +343,7 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
         title: a.student_name,
         subtitle: "Aguardando definição de treinador.",
         action: () => goToStudent(a.student_id),
+        studentId: a.student_id,
       })),
       ...awaitingTrainingDate.map((a, i) => ({
         key: `date-${a.enrollment_id}-${i}`,
@@ -348,6 +352,7 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
         title: a.student_name,
         subtitle: a.trainer_name ? `Sem data de treino · ${a.trainer_name}` : "Sem data de início do treino.",
         action: () => goToStudent(a.student_id),
+        studentId: a.student_id,
       })),
       ...missingEnrollment.map((a, i) => ({
         key: `enrollment-${a.student_id}-${i}`,
@@ -356,6 +361,7 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
         title: a.student_name,
         subtitle: "Aluno ativo sem matrícula ativa.",
         action: () => goToStudent(a.student_id),
+        studentId: a.student_id,
       })),
       ...incompleteBilling.map((a, i) => ({
         key: `billing-${a.student_id}-${i}`,
@@ -364,6 +370,7 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
         title: a.student_name,
         subtitle: `Falta: ${a.missing.join(", ")}`,
         action: () => goToStudent(a.student_id),
+        studentId: a.student_id,
       })),
       ...missingWorkouts.map((a, i) => ({
         key: `workout-${a.cycle_id}-${i}`,
@@ -372,6 +379,7 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
         title: a.student_name,
         subtitle: `Ciclo ${a.cycle_number} sem treino prescrito.`,
         action: () => goToStudent(a.student_id),
+        studentId: a.student_id,
       })),
       ...birthdays.map((a, i) => ({
         key: `birthday-${a.student_id}-${i}`,
@@ -380,6 +388,7 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
         title: a.full_name,
         subtitle: a.isToday ? "Hoje" : `Dia ${a.day}`,
         action: () => goToStudent(a.student_id),
+        studentId: a.student_id,
         birthday: a,
       })),
       ...recentStudents.map((student, i) => {
@@ -391,6 +400,7 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
           title: student.student_name,
           subtitle: `${FUNNEL_STAGE_META[stage].label} · ${stageNextAction(student)}`,
           action: () => goToStudent(student.student_id),
+          studentId: student.student_id,
         };
       }),
     ];
@@ -441,7 +451,10 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
                 <button type="button" disabled={readOnly} className="min-w-0 flex-1 text-left disabled:cursor-default" onClick={item.action}>
                   <div className="flex items-center gap-2">
                     <span className="shrink-0 rounded bg-background/70 px-1.5 py-0.5 text-[11px] font-sans">{item.label}</span>
-                    <p className="truncate text-sm font-medium text-foreground font-sans">{item.title}</p>
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="truncate text-sm font-medium text-foreground font-sans">{item.title}</span>
+                      {item.studentId && <AthleticClubStar studentId={item.studentId} companyId={effectiveCompanyId} className="shrink-0" />}
+                    </span>
                   </div>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground font-sans">{item.subtitle}</p>
                 </button>
@@ -537,7 +550,10 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
               {awaitingTrainingDate.map((a, i) => (
                 <div key={i} className={`${itemClass} bg-warning/5 border border-warning/20`} onClick={() => goToStudent(a.student_id)}>
                   <div>
-                    <p className="text-sm font-sans text-foreground">{a.student_name}</p>
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="text-sm font-sans text-foreground truncate">{a.student_name}</span>
+                      <AthleticClubStar studentId={a.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                    </span>
                     {a.trainer_name && <p className="text-xs text-muted-foreground/70 font-sans">{a.trainer_name}</p>}
                   </div>
                   <span className="text-xs font-sans font-medium px-2 py-0.5 rounded bg-warning/20 text-warning">Sem data</span>
@@ -565,7 +581,10 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
             <div className="space-y-2 max-h-[200px] overflow-auto">
               {awaitingTrainer.map((a, i) => (
                 <div key={i} className={`${itemClass} bg-warning/5 border border-warning/20`} onClick={() => goToStudent(a.student_id)}>
-                  <p className="text-sm font-sans text-foreground">{a.student_name}</p>
+                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                    <span className="text-sm font-sans text-foreground truncate">{a.student_name}</span>
+                    <AthleticClubStar studentId={a.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                  </span>
                   <span className="text-xs font-sans font-medium px-2 py-0.5 rounded bg-warning/20 text-warning">Sem treinador</span>
                 </div>
               ))}
@@ -610,7 +629,10 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
                     onClick={() => goToStudent(student.student_id)}
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-sans text-foreground truncate">{student.student_name}</p>
+                      <span className="inline-flex min-w-0 items-center gap-1.5">
+                        <span className="text-sm font-sans text-foreground truncate">{student.student_name}</span>
+                        <AthleticClubStar studentId={student.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                      </span>
                       <p className="text-xs text-muted-foreground font-sans truncate">
                         {FUNNEL_STAGE_META[stage].label} · {stageNextAction(student)}
                       </p>
@@ -643,7 +665,10 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
             <div className="space-y-2 max-h-[200px] overflow-auto">
               {missingEnrollment.map((m, i) => (
                 <div key={i} className={`${itemClass} bg-destructive/5 border border-destructive/20`} onClick={() => goToStudent(m.student_id)}>
-                  <p className="text-sm font-sans text-foreground">{m.student_name}</p>
+                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                    <span className="text-sm font-sans text-foreground truncate">{m.student_name}</span>
+                    <AthleticClubStar studentId={m.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                  </span>
                   <span className="text-xs font-sans font-medium px-2 py-0.5 rounded bg-destructive/20 text-destructive">Pendente</span>
                 </div>
               ))}
@@ -670,7 +695,10 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
               {incompleteBilling.map((b, i) => (
                 <div key={i} className={`${itemClass} bg-destructive/5 border border-destructive/20`} onClick={() => goToStudent(b.student_id)}>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-sans text-foreground truncate">{b.student_name}</p>
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="text-sm font-sans text-foreground truncate">{b.student_name}</span>
+                      <AthleticClubStar studentId={b.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                    </span>
                     <p className="text-xs text-muted-foreground font-sans truncate">Falta: {b.missing.join(", ")}</p>
                   </div>
                   <span className="text-xs font-sans font-medium px-2 py-0.5 rounded bg-destructive/20 text-destructive shrink-0 ml-2">Link não funciona</span>
@@ -693,7 +721,10 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
               {birthdays.map((b, i) => (
                 <div key={i} className={`${itemClass} bg-secondary/50 border border-border`} onClick={() => goToStudent(b.student_id)}>
                   <div className="min-w-0">
-                    <p className="text-sm font-sans text-foreground truncate">{b.full_name}</p>
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="text-sm font-sans text-foreground truncate">{b.full_name}</span>
+                      <AthleticClubStar studentId={b.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                    </span>
                     <span className={`text-xs font-sans font-medium ${b.isToday ? "text-primary" : "text-muted-foreground"}`}>
                       {b.isToday ? "🎉 Hoje!" : `dia ${b.day}`}
                     </span>
@@ -733,7 +764,10 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
               {missingWorkouts.map((m, i) => (
                 <div key={i} className={`${itemClass} bg-destructive/5 border border-destructive/20`} onClick={() => goToStudent(m.student_id)}>
                   <div>
-                    <p className="text-sm font-sans text-foreground">{m.student_name}</p>
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="text-sm font-sans text-foreground truncate">{m.student_name}</span>
+                      <AthleticClubStar studentId={m.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                    </span>
                     <p className="text-xs text-muted-foreground font-sans">Ciclo {m.cycle_number} — {new Date(m.start_date).toLocaleDateString("pt-BR")} a {new Date(m.end_date).toLocaleDateString("pt-BR")}</p>
                     {m.trainer_name && <p className="text-xs text-muted-foreground/70 font-sans">{m.trainer_name}</p>}
                   </div>

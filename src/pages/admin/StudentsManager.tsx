@@ -19,6 +19,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { StudentChatButton } from "@/components/admin/StudentChatButton";
+import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { preRegistrationUrl } from "@/lib/publicFlowLinks";
 import { fiscalRegistrationValidation, isBrazilianCountry, normalizeCountryCode, normalizeFiscalDocument } from "@/lib/fiscalRegistration";
 import { isInfluencerPlan } from "@/lib/influencerPlan";
@@ -587,12 +588,13 @@ export default function StudentsManager() {
                     <div className="flex items-center gap-2 mb-1">
                       <button
                         type="button"
-                        className="max-w-full truncate text-left font-sans font-medium text-foreground hover:text-primary hover:underline"
+                        className="min-w-0 max-w-full truncate text-left font-sans font-medium text-foreground hover:text-primary hover:underline"
                         onClick={() => navigate(`${rolePrefix}/students/${s.id}`)}
                         title="Abrir perfil do aluno"
                       >
                         {s.full_name}
                       </button>
+                      <AthleticClubStar studentId={s.id} companyId={effectiveCompanyId} className="shrink-0" />
                       <Badge variant="outline" className={`text-xs ${statusColors[s.status]}`}>{statusLabels[s.status] || s.status}</Badge>
                       {s.plan_name && <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">{s.plan_name}</Badge>}
                       {s.status === "active" && !s.user_id && <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">Sem acesso</Badge>}

@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { AthleticClubProvider } from "@/components/AthleticClubStar";
 import { Outlet, useLocation } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -37,6 +38,7 @@ export function AppLayout() {
 
   return (
     <SidebarProvider>
+      <AthleticClubProvider>
       <WhatsAppChatPanelProvider>
         <BnitoAssistantProvider>
         <div className="min-h-dvh flex w-full min-w-0 bg-paper">
@@ -74,6 +76,7 @@ export function AppLayout() {
         </div>
         </BnitoAssistantProvider>
       </WhatsAppChatPanelProvider>
+      </AthleticClubProvider>
     </SidebarProvider>
   );
 }

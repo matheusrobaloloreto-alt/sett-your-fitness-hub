@@ -66,6 +66,7 @@ import {
 import type { WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
 import { resolveWhatsAppChatRequest } from "@/lib/whatsappChatRequest";
 import { prepareWhatsAppSticker } from "@/lib/whatsappSticker";
+import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 type Chat = {
   id: string;
@@ -2033,9 +2034,12 @@ export default function WhatsAppChat({
       <div className="space-y-4 p-4">
         <div className="space-y-1">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Contato</p>
-          <p className="break-words text-sm font-medium text-foreground">
-            {studentCtx?.studentName || selectedChat.student?.full_name || selectedChat.contact_name || "Contato"}
-          </p>
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <p className="min-w-0 break-words text-sm font-medium text-foreground">
+              {studentCtx?.studentName || selectedChat.student?.full_name || selectedChat.contact_name || "Contato"}
+            </p>
+            {selectedChat.student_id && <AthleticClubStar studentId={selectedChat.student_id} companyId={effectiveCompanyId} className="shrink-0" />}
+          </div>
         </div>
 
         <div className="space-y-2">
@@ -2517,7 +2521,10 @@ export default function WhatsAppChat({
 	                                  navigate(`/${studioRoutePrefix}/students/${chat.student_id}`);
 	                                }}
 	                              >
-	                                {getContactName(chat)}
+                                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                                    <span className="truncate">{getContactName(chat)}</span>
+                                    <AthleticClubStar studentId={chat.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                                  </span>
 	                              </button>
 	                            ) : (
 	                              <button
@@ -2702,7 +2709,10 @@ export default function WhatsAppChat({
                             title="Abrir perfil do aluno"
                             onClick={() => navigate(`/${studioRoutePrefix}/students/${selectedChat.student_id}`)}
                           >
-                            {getContactName(selectedChat)}
+                            <span className="inline-flex min-w-0 items-center gap-1.5">
+                              <span className="truncate">{getContactName(selectedChat)}</span>
+                              <AthleticClubStar studentId={selectedChat.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                            </span>
                           </button>
                         ) : (
                           <button

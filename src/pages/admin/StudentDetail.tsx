@@ -25,6 +25,7 @@ import { StudentGoalsManager } from "@/components/admin/StudentGoalsManager";
 import { StudentTimeline } from "@/components/admin/StudentTimeline";
 import { StudentFilesPanel } from "@/components/admin/StudentFilesPanel";
 import { WeeklyContactToggle } from "@/components/admin/WeeklyContactToggle";
+import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { IntercycleAnamnesisControls, IntercycleAnamnesisTimeline } from "@/components/admin/IntercycleAnamnesisControls";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Mail, Phone, Cake, CalendarDays, Dumbbell, Plus, CalendarIcon, MapPin, CreditCard, MessageCircle, Pencil, DollarSign, Upload, Image, Mic, FileText, Download, Square, MicOff, RefreshCw, ExternalLink, Copy, Link, Check, Trash2, UserPlus, BarChart3, Clock, CheckCircle2, Edit, KeyRound, ChevronDown } from "lucide-react";
@@ -1754,9 +1755,12 @@ export default function StudentDetail() {
             </Button>
           }
           meta={
-            <Badge variant="outline" className={`text-xs ${statusColors[student.status]}`}>
-              {statusLabels[student.status] || student.status}
-            </Badge>
+            <>
+              <AthleticClubStar studentId={student.id} companyId={student.company_id} className="shrink-0" />
+              <Badge variant="outline" className={`text-xs ${statusColors[student.status]}`}>
+                {statusLabels[student.status] || student.status}
+              </Badge>
+            </>
           }
           context={
             <>

@@ -25,6 +25,7 @@ interface Cycle {
 
 interface StudentHomeProps {
   studentName: string;
+  nameBadge?: React.ReactNode;
   enrollmentInfo: { plan_name: string; start_date: string; end_date: string } | null;
   overallProgress: number;
   selectedCycle: Cycle | null;
@@ -95,6 +96,7 @@ const SECONDARY_NAV_ITEMS: readonly NavItem[] = [
 
 export function StudentHome({
   studentName,
+  nameBadge,
   enrollmentInfo,
   overallProgress,
   selectedCycle,
@@ -153,7 +155,7 @@ export function StudentHome({
       <div>
         <p className="text-eyebrow">{todayLabel}</p>
         <h2 className="font-display text-3xl sm:text-4xl text-foreground mt-1 leading-tight">
-          Olá, {firstName}.
+          Olá, {firstName}.{nameBadge}
         </h2>
         {enrollmentInfo && (
           <div className="mt-4 space-y-1.5">

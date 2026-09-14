@@ -20,6 +20,7 @@ import { format, parseISO, differenceInDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { cadenceTone, formatCadence } from "@/lib/contactCadence";
 import { StudentChatButton } from "@/components/admin/StudentChatButton";
+import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useToast } from "@/hooks/use-toast";
 import { formatCEP, formatCPF, formatPhoneForCountry } from "@/lib/masks";
@@ -614,15 +615,18 @@ export default function Portfolio() {
                       />
                     )}
                     <div className="min-w-0 flex-1">
-                      <button
-                        type="button"
-                        className="max-w-full truncate text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
-                        onClick={() => navigate(`/${routePrefix}/students/${s.id}`)}
-                        title="Abrir perfil do aluno"
-                        disabled={bulkInteractionLocked}
-                      >
-                        {s.full_name}
-                      </button>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          className="min-w-0 max-w-full truncate text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
+                          onClick={() => navigate(`/${routePrefix}/students/${s.id}`)}
+                          title="Abrir perfil do aluno"
+                          disabled={bulkInteractionLocked}
+                        >
+                          {s.full_name}
+                        </button>
+                        <AthleticClubStar studentId={s.id} companyId={effectiveCompanyId} className="shrink-0" />
+                      </div>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                         <Badge className={cn("text-[10px]", STATUS_CLASS[s.status] || "bg-muted")}>{STATUS_LABEL[s.status] || s.status}</Badge>
                         {s.hours_since_contact != null && (

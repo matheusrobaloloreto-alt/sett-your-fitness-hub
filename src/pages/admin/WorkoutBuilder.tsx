@@ -28,6 +28,7 @@ import { groupWorkoutExercises, WORKOUT_METHODS, GROUPING_METHODS, SINGLE_METHOD
 import { moveWorkoutOrderUnit, moveWorkoutOrderUnitByExerciseIndex } from "@/lib/workoutOrder";
 import { normalizeSetType, sanitizeSetTypes, sanitizeWorkoutSetTypes } from "@/lib/setTypes";
 import { MethodBadge } from "@/components/workout/MethodBadge";
+import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { useMaster } from "@/contexts/MasterContext";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
@@ -1289,9 +1290,11 @@ export default function WorkoutBuilder() {
                   className="mt-1 h-9 max-w-md bg-secondary border-border"
                 />
               ) : cycleInfo && (
-                <p className="mt-1 break-words font-sans text-sm leading-snug text-muted-foreground sm:text-base">
-                  {cycleInfo.student_name} — Ciclo {cycleInfo.cycle_number}
-                </p>
+                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 font-sans text-sm leading-snug text-muted-foreground sm:text-base">
+                  <span className="min-w-0 break-words">{cycleInfo.student_name}</span>
+                  <AthleticClubStar studentId={cycleInfo.student_id} companyId={cycleInfo.company_id} className="shrink-0" />
+                  <span className="shrink-0">— Ciclo {cycleInfo.cycle_number}</span>
+                </div>
               )}
             </div>
           </div>

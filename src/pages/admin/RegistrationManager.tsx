@@ -51,6 +51,7 @@ import {
   stageActionLabel,
   stageNextAction,
 } from "@/lib/salesFunnelView";
+import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 const BUDGET_LABELS: Record<string, string> = {
   "200_300": "R$ 200-300",
@@ -1175,7 +1176,12 @@ export default function RegistrationManager() {
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="break-words text-sm font-semibold leading-snug text-foreground">{student.full_name}</p>
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <p className="min-w-0 break-words text-sm font-semibold leading-snug text-foreground">{student.full_name}</p>
+                    {student.entityType === "student" && (
+                      <AthleticClubStar studentId={student.id} companyId={effectiveCompanyId} className="shrink-0" />
+                    )}
+                  </div>
                   <p className="mt-0.5 text-xs text-muted-foreground">Entrou {relativeDate(student.created_at)}</p>
                 </div>
                 <Badge variant="outline" className={cn("shrink-0 border whitespace-normal text-center leading-tight", stageTone(student.stage))}>
@@ -1398,7 +1404,14 @@ export default function RegistrationManager() {
                 <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione para gerar o link individual..." /></SelectTrigger>
                 <SelectContent>
                   {students.filter((student) => student.entityType === "student" && ["active", "awaiting_training", "awaiting_renewal"].includes(student.status || ""))
-                    .map((student) => <SelectItem key={student.id} value={student.id}>{student.full_name}</SelectItem>)}
+                    .map((student) => (
+                      <SelectItem key={student.id} value={student.id}>
+                        <span className="inline-flex min-w-0 items-center gap-1.5">
+                          <span className="truncate">{student.full_name}</span>
+                          <AthleticClubStar studentId={student.id} companyId={effectiveCompanyId} className="shrink-0" />
+                        </span>
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
@@ -1408,7 +1421,7 @@ export default function RegistrationManager() {
             </Button>
           </div>
           {intercycleLink && <p className="break-all rounded-xl border border-border bg-secondary/35 p-3 font-mono-data text-xs text-muted-foreground">{intercycleLink}</p>}
-          {intercycleResponses.length ? <div className="space-y-2">{intercycleResponses.map((response) => <button type="button" key={response.id} onClick={() => navigate(`/${chatRoutePrefix}/students/${response.student_id}`, { state: { tab: "anamnesis" } })} className="flex w-full items-center justify-between rounded-lg border border-border px-3 py-2 text-left text-sm hover:bg-secondary/50"><span>{response.students?.full_name || "Aluno"}</span><span className="text-xs text-muted-foreground">{response.pain_present ? `Dor EVA ${response.pain_eva ?? "—"}` : response.prescription_evaluation}</span></button>)}</div> : <p className="text-sm text-muted-foreground">Sem respostas interciclos nesta empresa.</p>}
+          {intercycleResponses.length ? <div className="space-y-2">{intercycleResponses.map((response) => <button type="button" key={response.id} onClick={() => navigate(`/${chatRoutePrefix}/students/${response.student_id}`, { state: { tab: "anamnesis" } })} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-left text-sm hover:bg-secondary/50"><span className="inline-flex min-w-0 items-center gap-1.5"><span className="truncate">{response.students?.full_name || "Aluno"}</span><AthleticClubStar studentId={response.student_id} companyId={effectiveCompanyId} className="shrink-0" /></span><span className="shrink-0 text-xs text-muted-foreground">{response.pain_present ? `Dor EVA ${response.pain_eva ?? "—"}` : response.prescription_evaluation}</span></button>)}</div> : <p className="text-sm text-muted-foreground">Sem respostas interciclos nesta empresa.</p>}
         </CardContent>
       </Card>
 
