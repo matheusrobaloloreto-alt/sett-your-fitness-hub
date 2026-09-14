@@ -42,7 +42,8 @@ describe("WorkoutBuilder assistant and header UX contract", () => {
   });
 
   it("keeps the workout editor locked during the async save window", () => {
-    expect(workoutBuilder).toContain("mergeSavedWorkoutIdsAfterSave");
+    expect(workoutBuilder).toContain("workoutRevisionPayload(draftWorkouts)");
+    expect(workoutBuilder).toContain("workoutsWithSavedRows(draftWorkouts, saved)");
     expect(workoutBuilder).not.toContain("setWorkouts(draftWorkouts.map");
     expect(workoutBuilder).toContain("disabled={saving || workouts.length === 0}");
     expect(workoutBuilder).toContain("onClick={addWorkout} disabled={saving}");
