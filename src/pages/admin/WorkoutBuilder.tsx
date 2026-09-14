@@ -38,10 +38,13 @@ import {
   hasEditableWorkoutContent,
   validateWorkoutTemplateForDraft,
   type WorkoutTemplateDraftMode,
+  type WorkoutTemplateDraftWorkout,
 } from "@/lib/workoutTemplateDraft";
 import {
   hasBlockingSaveIssue,
+  issueFromPrescriptionValidationFailure,
   issuesFromPrescriptionValidation,
+  mergeSavedWorkoutIdsAfterSave,
   resolveWorkoutSaveDraft,
   type WorkoutSaveIssue,
   type WorkoutSaveRepair,
@@ -208,6 +211,7 @@ export default function WorkoutBuilder() {
 
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [activeTab, setActiveTab] = useState("0");
+  const [saving, setSaving] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryExercises, setLibraryExercises] = useState<Exercise[]>([]);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
@@ -234,12 +238,17 @@ export default function WorkoutBuilder() {
   const [dropWorkoutUnit, setDropWorkoutUnit] = useState<{ wIdx: number; unitIndex: number } | null>(null);
   const dragWorkoutPointerRef = useRef<{ wIdx: number; unitIndex: number; targetIndex: number | null } | null>(null);
   const selKey = (wIdx: number, exIdx: number) => `${wIdx}-${exIdx}`;
-  const toggleMethodSel = (wIdx: number, exIdx: number) =>
+  const toggleMethodSel = (wIdx: number, exIdx: number) => {
+    if (saving) return;
     setMethodSel((s) => ({ ...s, [selKey(wIdx, exIdx)]: !s[selKey(wIdx, exIdx)] }));
-  const clearMethodSel = (wIdx: number) =>
+  };
+  const clearMethodSel = (wIdx: number) => {
+    if (saving) return;
     setMethodSel((s) => { const n = { ...s }; Object.keys(n).forEach((k) => { if (k.startsWith(`${wIdx}-`)) delete n[k]; }); return n; });
+  };
 
   const applyMethod = (wIdx: number, method: MethodId) => {
+    if (saving) return;
     const meta = WORKOUT_METHODS[method];
     // Técnicas com sustentação (isometria, pico de contração/alongamento) pedem o tempo em segundos.
     let methodSeconds: number | null = null;
@@ -273,10 +282,11 @@ export default function WorkoutBuilder() {
     }
   };
 
-  const ungroupBlock = (wIdx: number, idxs: number[]) =>
+  const ungroupBlock = (wIdx: number, idxs: number[]) => {
+    if (saving) return;
     setWorkouts((prev) => prev.map((w, i) => i !== wIdx ? w : ({ ...w, exercises: w.exercises.map((e, k) => idxs.includes(k) ? { ...e, group_id: null, method: null, method_seconds: null } : e) })));
+  };
   const [videoModal, setVideoModal] = useState<{ type: "path" | "url"; value: string } | null>(null);
-  const [saving, setSaving] = useState(false);
   const [cycleInfo, setCycleInfo] = useState<CycleInfo | null>(null);
   const [preRegistration, setPreRegistration] = useState<PreRegistrationData | null>(null);
   const [preRegistrationLoading, setPreRegistrationLoading] = useState(false);
@@ -529,7 +539,7 @@ export default function WorkoutBuilder() {
     try {
       const result = buildWorkoutTemplateDraft({
         template,
-        existingWorkouts: workouts,
+        existingWorkouts: workouts as unknown as WorkoutTemplateDraftWorkout[],
         mode,
         currentCompanyId: templateCompanyId,
         visibleExerciseIds,
@@ -545,7 +555,7 @@ export default function WorkoutBuilder() {
       }
 
       const insertedStart = mode === "replace" ? 0 : workouts.length;
-      setWorkouts(result.workouts as Workout[]);
+      setWorkouts(result.workouts as unknown as Workout[]);
       setActiveTab(String(insertedStart));
       setPendingTemplate(null);
       setTemplatePickerOpen(false);
@@ -572,7 +582,7 @@ export default function WorkoutBuilder() {
       });
       return;
     }
-    if (hasEditableWorkoutContent(workouts)) {
+    if (hasEditableWorkoutContent(workouts as unknown as WorkoutTemplateDraftWorkout[])) {
       setPendingTemplate(selectedTemplate);
       return;
     }
@@ -585,12 +595,14 @@ export default function WorkoutBuilder() {
   };
 
   const addWorkout = () => {
+    if (saving) return;
     const nextLabel = WORKOUT_LABELS[workouts.length] || `Treino ${workouts.length + 1}`;
     setWorkouts(prev => [...prev, { title: `Treino ${nextLabel}`, description: "", exercises: [] }]);
     setActiveTab(String(workouts.length));
   };
 
   const removeWorkout = (idx: number) => {
+    if (saving) return;
     const newWorkouts = workouts.filter((_, i) => i !== idx);
     if (newWorkouts.length === 0) {
       newWorkouts.push({ title: "Treino A", description: "", exercises: [] });
@@ -601,10 +613,12 @@ export default function WorkoutBuilder() {
   };
 
   const updateWorkout = (idx: number, field: keyof Workout, value: any) => {
+    if (saving) return;
     setWorkouts(prev => prev.map((w, i) => i === idx ? { ...w, [field]: value } : w));
   };
 
   const addExercise = (ex: Exercise) => {
+    if (saving) return;
     const idx = parseInt(activeTab);
     setWorkouts(prev => prev.map((w, i) => {
       if (i !== idx) return w;
@@ -628,6 +642,7 @@ export default function WorkoutBuilder() {
   };
 
   const removeExercise = (workoutIdx: number, exIdx: number) => {
+    if (saving) return;
     setWorkouts(prev => prev.map((w, i) => {
       if (i !== workoutIdx) return w;
       return { ...w, exercises: w.exercises.filter((_, j) => j !== exIdx) };
@@ -635,6 +650,7 @@ export default function WorkoutBuilder() {
   };
 
   const updateExercise = (workoutIdx: number, exIdx: number, field: keyof WorkoutExercise, value: any) => {
+    if (saving) return;
     setWorkouts(prev => prev.map((w, i) => {
       if (i !== workoutIdx) return w;
       return {
@@ -645,6 +661,7 @@ export default function WorkoutBuilder() {
   };
 
   const moveExercise = (workoutIdx: number, exIdx: number, direction: "up" | "down") => {
+    if (saving) return;
     setWorkouts(prev => prev.map((w, i) => {
       if (i !== workoutIdx) return w;
       return { ...w, exercises: moveWorkoutOrderUnitByExerciseIndex(w.exercises, exIdx, direction) };
@@ -652,6 +669,7 @@ export default function WorkoutBuilder() {
   };
 
   const moveExerciseUnitTo = (workoutIdx: number, fromUnitIndex: number, toUnitIndex: number) => {
+    if (saving) return;
     setWorkouts(prev => prev.map((w, i) => {
       if (i !== workoutIdx) return w;
       return { ...w, exercises: moveWorkoutOrderUnit(w.exercises, fromUnitIndex, toUnitIndex) };
@@ -681,6 +699,7 @@ export default function WorkoutBuilder() {
   };
 
   const handleWorkoutPointerMove = (event: any, wIdx: number) => {
+    if (saving) return resetWorkoutDrag();
     const drag = dragWorkoutPointerRef.current;
     if (!drag || drag.wIdx !== wIdx) return;
     scrollWorkoutDragViewport(event.clientY);
@@ -691,6 +710,7 @@ export default function WorkoutBuilder() {
   };
 
   const handleWorkoutPointerUp = () => {
+    if (saving) return resetWorkoutDrag();
     const drag = dragWorkoutPointerRef.current;
     if (!drag) return resetWorkoutDrag();
     if (drag.targetIndex !== null) moveExerciseUnitTo(drag.wIdx, drag.unitIndex, drag.targetIndex);
@@ -790,10 +810,11 @@ export default function WorkoutBuilder() {
       });
       setSaveIssues([]);
       setSaveRepairs([]);
-      setWorkouts(draftWorkouts.map((workout, index) => ({
-        ...workout,
-        id: saved.workoutIds[index],
-      })));
+      setWorkouts((current) => mergeSavedWorkoutIdsAfterSave({
+        currentWorkouts: current,
+        savedDraftWorkouts: draftWorkouts,
+        savedWorkoutIds: saved.workoutIds,
+      }));
       toast({
         title: "Todos os treinos salvos!",
         description: "A nova versão foi confirmada e já é a versão exibida ao aluno.",
@@ -891,7 +912,9 @@ export default function WorkoutBuilder() {
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erro inesperado";
-      toast({ title: "Falha no validador", description: message, variant: "destructive" });
+      const issue = issueFromPrescriptionValidationFailure(message);
+      setSaveIssues([issue]);
+      toast({ title: `${assistantName} bloqueou o salvamento`, description: issue.message, variant: "destructive" });
       return null;
     }
   };
@@ -1183,6 +1206,7 @@ export default function WorkoutBuilder() {
                 variant="outline"
                 size="sm"
                 className="w-full sm:w-auto"
+                disabled={saving}
                 onClick={() => {
                   setPendingTemplate(null);
                   setTemplatePickerOpen(true);
@@ -1192,7 +1216,7 @@ export default function WorkoutBuilder() {
               </Button>
             )}
             {!isTemplate && (
-              <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={saveAsTemplate} disabled={workouts.length === 0}>
+              <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={saveAsTemplate} disabled={saving || workouts.length === 0}>
                 <Save className="h-4 w-4 mr-2" />Salvar na biblioteca
               </Button>
             )}
@@ -1217,7 +1241,7 @@ export default function WorkoutBuilder() {
                   ))}
                 </TabsList>
                 {workouts.length < 7 && (
-                  <Button variant="outline" size="sm" onClick={addWorkout}>
+                  <Button variant="outline" size="sm" onClick={addWorkout} disabled={saving}>
                     <Plus className="h-4 w-4" />
                   </Button>
                 )}
@@ -1236,6 +1260,7 @@ export default function WorkoutBuilder() {
                             onChange={(e) => updateWorkout(wIdx, "title", e.target.value)}
                             placeholder="Ex: Treino A - Superior"
                             className="bg-secondary border-border"
+                            disabled={saving}
                           />
                         </div>
                         <div className="space-y-2">
@@ -1245,11 +1270,12 @@ export default function WorkoutBuilder() {
                             onChange={(e) => updateWorkout(wIdx, "description", e.target.value)}
                             placeholder="Observações gerais..."
                             className="bg-secondary border-border"
+                            disabled={saving}
                           />
                         </div>
                       </div>
                       {workouts.length > 1 && (
-                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeWorkout(wIdx)}>
+                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeWorkout(wIdx)} disabled={saving}>
                           <Trash2 className="h-4 w-4 mr-1" />Remover este treino
                         </Button>
                       )}
@@ -1266,7 +1292,7 @@ export default function WorkoutBuilder() {
                         question="A ordem, selecao e volume destes exercicios fazem sentido para o objetivo do aluno?"
                       />
                     </div>
-                    <Button onClick={() => setLibraryOpen(true)}>
+                    <Button onClick={() => setLibraryOpen(true)} disabled={saving}>
                       <Plus className="h-4 w-4 mr-2" />Adicionar
                     </Button>
                   </div>
@@ -1275,7 +1301,7 @@ export default function WorkoutBuilder() {
                     <Card className="bg-card border-border border-dashed">
                       <CardContent className="p-8 text-center">
                         <p className="text-muted-foreground font-sans">Nenhum exercício adicionado</p>
-                        <Button variant="outline" className="mt-4" onClick={() => setLibraryOpen(true)}>
+                        <Button variant="outline" className="mt-4" onClick={() => setLibraryOpen(true)} disabled={saving}>
                           <Plus className="h-4 w-4 mr-2" />Buscar na Biblioteca
                         </Button>
                       </CardContent>
@@ -1290,17 +1316,17 @@ export default function WorkoutBuilder() {
                       <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 p-2">
                         <span className="text-xs font-medium text-primary">{selN} selecionado(s) — agrupar:</span>
                         {GROUPING_METHODS.map((m) => (
-                          <Button key={m} size="sm" variant="outline" className="h-7 text-xs" disabled={selN < WORKOUT_METHODS[m].minItems} onClick={() => applyMethod(wIdx, m)}>
+                          <Button key={m} size="sm" variant="outline" className="h-7 text-xs" disabled={saving || selN < WORKOUT_METHODS[m].minItems} onClick={() => applyMethod(wIdx, m)}>
                             {WORKOUT_METHODS[m].label}
                           </Button>
                         ))}
                         <span className="mx-1 text-xs text-muted-foreground">técnica:</span>
                         {SINGLE_METHODS.map((m) => (
-                          <Button key={m} size="sm" variant="outline" className="h-7 text-xs" onClick={() => applyMethod(wIdx, m)}>
+                          <Button key={m} size="sm" variant="outline" className="h-7 text-xs" onClick={() => applyMethod(wIdx, m)} disabled={saving}>
                             {WORKOUT_METHODS[m].label}
                           </Button>
                         ))}
-                        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => clearMethodSel(wIdx)}>Cancelar</Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => clearMethodSel(wIdx)} disabled={saving}>Cancelar</Button>
                       </div>
                     );
                   })()}
@@ -1314,6 +1340,7 @@ export default function WorkoutBuilder() {
                           data-workout-index={wIdx}
                           data-workout-builder-drop-index={unitIndex}
                           onDragOver={(event) => {
+                            if (saving) return;
                             if (dragWorkoutUnit?.wIdx === wIdx) {
                               event.preventDefault();
                               event.dataTransfer.dropEffect = "move";
@@ -1321,6 +1348,7 @@ export default function WorkoutBuilder() {
                             }
                           }}
                           onDrop={(event) => {
+                            if (saving) return;
                             event.preventDefault();
                             const source = dragWorkoutUnit;
                             resetWorkoutDrag();
@@ -1354,13 +1382,16 @@ export default function WorkoutBuilder() {
                                   aria-label="Arrastar exercício"
                                   aria-roledescription="alça de arrastar"
                                   data-workout-drag-handle="true"
+                                  disabled={saving}
                                   onPointerDown={(event) => {
+                                    if (saving) return;
                                     dragWorkoutPointerRef.current = { wIdx, unitIndex, targetIndex: unitIndex };
                                     setDragWorkoutUnit({ wIdx, unitIndex });
                                     setDropWorkoutUnit({ wIdx, unitIndex });
                                     event.currentTarget.setPointerCapture?.(event.pointerId);
                                   }}
                                   onKeyDown={(event) => {
+                                    if (saving) return;
                                     if (event.key === "ArrowUp") {
                                       event.preventDefault();
                                       moveExerciseUnitTo(wIdx, unitIndex, unitIndex - 1);
@@ -1382,12 +1413,12 @@ export default function WorkoutBuilder() {
                                   <GripVertical className="h-3.5 w-3.5" />
                                 </Button>
                               )}
-                              <Checkbox className="mb-1" checked={!!methodSel[selKey(wIdx, exIdx)]} onCheckedChange={() => toggleMethodSel(wIdx, exIdx)} />
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveExercise(wIdx, exIdx, "up")} disabled={exIdx === 0}>
+                              <Checkbox className="mb-1" checked={!!methodSel[selKey(wIdx, exIdx)]} onCheckedChange={() => toggleMethodSel(wIdx, exIdx)} disabled={saving} />
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveExercise(wIdx, exIdx, "up")} disabled={saving || exIdx === 0}>
                                 <ChevronUp className="h-3.5 w-3.5" />
                               </Button>
                               <span className="text-xs text-muted-foreground text-center font-sans">{exIdx + 1}</span>
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveExercise(wIdx, exIdx, "down")} disabled={exIdx === workout.exercises.length - 1}>
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveExercise(wIdx, exIdx, "down")} disabled={saving || exIdx === workout.exercises.length - 1}>
                                 <ChevronDown className="h-3.5 w-3.5" />
                               </Button>
                             </div>
@@ -1425,7 +1456,7 @@ export default function WorkoutBuilder() {
                                     </Button>
                                   )}
                                 </div>
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeExercise(wIdx, exIdx)}>
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeExercise(wIdx, exIdx)} disabled={saving}>
                                   <Trash2 className="h-4 w-4 text-destructive" />
                                 </Button>
                               </div>
@@ -1437,6 +1468,7 @@ export default function WorkoutBuilder() {
                                     onChange={(e) => updateExercise(wIdx, exIdx, "sets", e.target.value)}
                                     className="bg-secondary border-border h-8 text-sm"
                                     placeholder="3"
+                                    disabled={saving}
                                   />
                                 </div>
                                 <div className="space-y-1">
@@ -1446,6 +1478,7 @@ export default function WorkoutBuilder() {
                                     onChange={(e) => updateExercise(wIdx, exIdx, "reps", e.target.value)}
                                     className="bg-secondary border-border h-8 text-sm"
                                     placeholder="12"
+                                    disabled={saving}
                                   />
                                 </div>
                                 <div className="space-y-1">
@@ -1455,6 +1488,7 @@ export default function WorkoutBuilder() {
                                     onChange={(e) => updateExercise(wIdx, exIdx, "rest", e.target.value)}
                                     className="bg-secondary border-border h-8 text-sm"
                                     placeholder="60s"
+                                    disabled={saving}
                                   />
                                 </div>
                                 <div className="space-y-1">
@@ -1465,6 +1499,7 @@ export default function WorkoutBuilder() {
                                     className="bg-secondary border-border text-sm min-h-[60px]"
                                     rows={2}
                                     placeholder="Cadência 3-1-2"
+                                    disabled={saving}
                                   />
                                 </div>
                               </div>
@@ -1489,6 +1524,7 @@ export default function WorkoutBuilder() {
                                           <Select
                                             key={s}
                                             value={type}
+                                            disabled={saving}
                                             onValueChange={(val) => {
                                               const newTypes = [...currentTypes];
                                               while (newTypes.length < numSets) newTypes.push('normal');
@@ -1525,8 +1561,12 @@ export default function WorkoutBuilder() {
                         return (
                           <div
                             key={grp.key}
-                            draggable
+                            draggable={!saving}
                             onDragStart={(event) => {
+                              if (saving) {
+                                event.preventDefault();
+                                return;
+                              }
                               if (!(event.target as HTMLElement).closest("[data-workout-drag-handle]")) {
                                 event.preventDefault();
                                 return;
@@ -1551,13 +1591,16 @@ export default function WorkoutBuilder() {
                                 aria-label="Arrastar bloco de método sem separar exercícios"
                                 aria-roledescription="alça de arrastar"
                                 data-workout-drag-handle="true"
+                                disabled={saving}
                                 onPointerDown={(event) => {
+                                  if (saving) return;
                                   dragWorkoutPointerRef.current = { wIdx, unitIndex, targetIndex: unitIndex };
                                   setDragWorkoutUnit({ wIdx, unitIndex });
                                   setDropWorkoutUnit({ wIdx, unitIndex });
                                   event.currentTarget.setPointerCapture?.(event.pointerId);
                                 }}
                                 onKeyDown={(event) => {
+                                  if (saving) return;
                                   if (event.key === "ArrowUp") {
                                     event.preventDefault();
                                     moveExerciseUnitTo(wIdx, unitIndex, unitIndex - 1);
@@ -1583,7 +1626,7 @@ export default function WorkoutBuilder() {
                                 {isCircuit && rounds ? `×${rounds} voltas` : `${grp.items.length} exercícios em sequência`}
                               </span>
                               <span className="text-xs text-muted-foreground">{meta?.hint}</span>
-                              <Button variant="ghost" size="sm" className="ml-auto h-6 text-xs" onClick={() => ungroupBlock(wIdx, grp.items.map((it) => it.idx))}>Desagrupar</Button>
+                              <Button variant="ghost" size="sm" className="ml-auto h-6 text-xs" onClick={() => ungroupBlock(wIdx, grp.items.map((it) => it.idx))} disabled={saving}>Desagrupar</Button>
                             </div>
                             {cards}
                             {blockRest && (
@@ -1599,8 +1642,12 @@ export default function WorkoutBuilder() {
                             return (
                               <div
                                 key={grp.key}
-                                draggable
+                                draggable={!saving}
                                 onDragStart={(event) => {
+                                  if (saving) {
+                                    event.preventDefault();
+                                    return;
+                                  }
                                   if (!(event.target as HTMLElement).closest("[data-workout-drag-handle]")) {
                                     event.preventDefault();
                                     return;
@@ -1701,7 +1748,7 @@ export default function WorkoutBuilder() {
                   </CardTitle>
                   <p className="text-xs text-muted-foreground font-sans">
                     {blockerSaveIssues.length > 0
-                      ? "Pontos críticos que impedem persistência."
+                      ? "Revise estes pontos para salvar o treino."
                       : "Ajustes aplicados antes de validar."}
                   </p>
                 </CardHeader>
@@ -2066,7 +2113,7 @@ export default function WorkoutBuilder() {
                       <Button
                         type="button"
                         onClick={requestWorkoutTemplateDraft}
-                        disabled={selectedTemplateIssues.length > 0 || applyingTemplateId === selectedTemplate.id}
+                        disabled={saving || selectedTemplateIssues.length > 0 || applyingTemplateId === selectedTemplate.id}
                       >
                         {applyingTemplateId === selectedTemplate.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Usar este treino
@@ -2169,7 +2216,7 @@ export default function WorkoutBuilder() {
                     <button
                       key={ex.id}
                       type="button"
-                      disabled={alreadyAdded}
+                      disabled={saving || alreadyAdded}
                       onClick={() => addExercise(ex)}
                       title={ex.name}
                       className={`group relative aspect-[4/3] overflow-hidden rounded-xl border text-left transition ${alreadyAdded ? "border-primary/60 opacity-80" : "border-border hover:-translate-y-0.5 hover:border-primary"}`}

@@ -40,4 +40,14 @@ describe("WorkoutBuilder assistant and header UX contract", () => {
     expect(workoutBuilder).toContain("saveCycleWorkoutRevision(supabase as any");
     expect(workoutBuilder.indexOf("resolveWorkoutSaveDraft")).toBeLessThan(workoutBuilder.indexOf("saveCycleWorkoutRevision(supabase as any"));
   });
+
+  it("keeps the workout editor locked during the async save window", () => {
+    expect(workoutBuilder).toContain("mergeSavedWorkoutIdsAfterSave");
+    expect(workoutBuilder).not.toContain("setWorkouts(draftWorkouts.map");
+    expect(workoutBuilder).toContain("disabled={saving || workouts.length === 0}");
+    expect(workoutBuilder).toContain("onClick={addWorkout} disabled={saving}");
+    expect(workoutBuilder).toContain("onClick={() => setLibraryOpen(true)} disabled={saving}");
+    expect(workoutBuilder).toContain("disabled={saving || exIdx === 0}");
+    expect(workoutBuilder).toContain("disabled={saving || alreadyAdded}");
+  });
 });
