@@ -29,6 +29,8 @@ Ensaio transacional com ROLLBACK aprovado, seguido da aplicacao. Pos-flight: 213
 - Reparador: oito testes Node e ensaio SQL real revertido.
 - ESLint dos arquivos de produto alterados sem erros; build e backend canonico aprovados.
 - QA de navegador usa componentes reais e dados sinteticos, com chamadas externas bloqueadas. Nenhuma mensagem real enviada e nenhum treino de aluno salvo para testes.
+- Suite `qa/teacher-mobile.e2e.ts`: dez testes aprovados na reexecucao final principal (21,8 s), apos corrigir dados/expectativas do harness. Inclui quatro larguras, perfil, Studio, chat, teclado, esteira e importacao/salvamento.
+- Gate independente e reexecucao principal aprovaram importacao/religacao/salvamento por revisao simulada, troca de etapa e conversa com teclado simulado. Telas verificadas em 360, 390, 768 e 1440 pixels. Isso nao equivale a teste em aparelho fisico ou sessao autenticada de producao.
 
 ## Pendencias e escopo anterior
 
@@ -40,4 +42,12 @@ Ensaio transacional com ROLLBACK aprovado, seguido da aplicacao. Pos-flight: 213
 
 ## Publicacao
 
-Dados aplicados no Supabase `zshrcgbyhzxpnlccssyz`. Frontend aguardando fechamento de QA e promocao do build aprovado no site Netlify `9a061d2e-ee2c-444b-aa69-fe262caf0246`. Deploy anterior preservado para rollback.
+Dados aplicados no Supabase `zshrcgbyhzxpnlccssyz`. Codigo de produto commitado e enviado ao origin em `c13c01b`.
+
+Frontend publicado no site Netlify `9a061d2e-ee2c-444b-aa69-fe262caf0246`, deploy `6aa7f6ecdc90f80ead2b7e7d`, em https://www.settapp.com.br. Foi promovido o mesmo `dist` aprovado em build, sem recompilacao durante o deploy.
+
+URL imutavel: https://6aa7f6ecdc90f80ead2b7e7d--bn-performance-webapp-matheus.netlify.app.
+
+Pos-deploy: HTML de producao aponta para `index-DJl4UWxX.js`, identico ao build aprovado. HTML, rotas `/admin/registration` e `/auth` e chunks de WorkoutBuilder, RegistrationManager e WhatsAppChat responderam HTTP 200. A validacao funcional autenticada foi feita no harness local, nao na conta de um aluno/professor em producao.
+
+Rollback de frontend: deploy anterior `6aa7ef0cd5c01b9e1be44e49`, preservado. Rollback de dados separado conforme backup privado acima.
