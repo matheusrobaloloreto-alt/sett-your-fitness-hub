@@ -1,11 +1,18 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { canonicalMuscleSlug, normalizeExerciseCategories } from "../_shared/exerciseTaxonomy.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertBundleAccess, assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
 import { buildPrescriptionInputFromEdgePayload } from "../_shared/prescription/adapters/inputAdapter.ts";
 import { adaptTrainingProgramForAiStrengthPlan } from "../_shared/prescription/adapters/outputAdapter.ts";
 import { generateTrainingProgram } from "../_shared/prescription/engine.ts";
+import { isPrescriptionCatalogEligible } from "../_shared/prescription/catalogEligibility.ts";
 import { clinicalRiskText, prescriptionRiskText } from "../_shared/prescription/clinicalContext.ts";
-import { targetVolumeFactor } from "../_shared/prescription/volumeRules.ts";
+import { buildCatalogVolumeSummary, canonicalCatalogTargets } from "../_shared/prescription/catalogVolume.ts";
+import { fetchExerciseRelations } from "../_shared/prescription/catalogRows.ts";
+import {
+  EMERGENCY_FALLBACK_RIR,
+  enforceEmergencyFallbackRir,
+} from "../_shared/prescription/emergencyFallback.ts";
 import {
   isIntercyclePainHandoffRequired,
   isPersistedWaiverValidForGate,
@@ -137,6 +144,7 @@ interface ExerciseCatalogEntry {
   name: string;
   description: string | null;
   muscle_group: string | null;
+  categories?: string[];
   equipment?: string | null;
   difficulty?: string | null;
   contraindications: string[];
@@ -343,14 +351,6 @@ function asTextArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => String(item ?? "").trim()).filter(Boolean) : [];
 }
 
-function chunkArray<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-}
-
 async function selectByExerciseIdChunks(
   supabase: any,
   table: string,
@@ -358,15 +358,7 @@ async function selectByExerciseIdChunks(
   exerciseIds: string[],
   options: { companyId?: string | null; chunkSize?: number } = {},
 ) {
-  const rows: any[] = [];
-  for (const ids of chunkArray(exerciseIds, options.chunkSize ?? 80)) {
-    let query = supabase.from(table).select(columns).in("exercise_id", ids);
-    if (options.companyId) query = query.eq("company_id", options.companyId);
-    const { data, error } = await query;
-    if (error) return { data: rows, error };
-    rows.push(...((data ?? []) as any[]));
-  }
-  return { data: rows, error: null };
+  return fetchExerciseRelations({ supabase, table, columns, exerciseIds, ...options });
 }
 
 async function loadExerciseCatalog(
@@ -380,7 +372,7 @@ async function loadExerciseCatalog(
   const makeExerciseLibraryQuery = (from: number, to: number) => {
     const q = supabase
       .from("exercise_library")
-      .select("id, name, description, muscle_group, equipment, difficulty, is_global, company_id")
+      .select("id, name, description, muscle_group, categories, equipment, difficulty, is_global, company_id")
       .order("muscle_group", { ascending: true })
       .order("name", { ascending: true })
       .range(from, to);
@@ -402,25 +394,16 @@ async function loadExerciseCatalog(
   }
   const exerciseIds = exerciseRows.map((exercise) => exercise.id as string).filter(Boolean);
 
-  const [targetsResult, groupsResult, overridesResult, metadataResult] = await Promise.all([
+  const [targetsResult, groupsResult, metadataResult] = await Promise.all([
     exerciseIds.length
       ? selectByExerciseIdChunks(
           supabase,
           "exercise_muscle_targets",
-          "exercise_id, muscle_group_id, role, volume_percentage",
+          "exercise_id, muscle_group_id, role, is_primary, volume_percentage",
           exerciseIds,
         )
       : Promise.resolve({ data: [], error: null }),
     supabase.from("muscle_groups").select("id, name"),
-    companyId && exerciseIds.length
-      ? selectByExerciseIdChunks(
-          supabase,
-          "company_exercise_volumes",
-          "exercise_id, muscle_group_id, role, volume_percentage",
-          exerciseIds,
-          { companyId },
-        )
-      : Promise.resolve({ data: [], error: null }),
     exerciseIds.length
       ? selectByExerciseIdChunks(
           supabase,
@@ -433,7 +416,6 @@ async function loadExerciseCatalog(
 
   if (targetsResult.error) throw new Error(`Falha ao carregar alvos musculares: ${targetsResult.error.message}`);
   if (groupsResult.error) throw new Error(`Falha ao carregar grupos musculares: ${groupsResult.error.message}`);
-  if (overridesResult.error) throw new Error(`Falha ao carregar volumes da empresa: ${overridesResult.error.message}`);
   if (metadataResult.error) {
     console.warn("exercise_metadata skipped:", metadataResult.error.message);
   }
@@ -443,29 +425,15 @@ async function loadExerciseCatalog(
     groupNames.set(group.id as string, group.name as string);
   }
 
-  const volumeOverrides = new Map<string, { role: string | null; volume_percentage: number }>();
-  for (const override of ((overridesResult.data ?? []) as any[])) {
-    volumeOverrides.set(
-      `${override.exercise_id as string}:${override.muscle_group_id as string}`,
-      {
-        role: (override.role as string | null) ?? null,
-        volume_percentage: override.volume_percentage as number,
-      },
-    );
-  }
-
   const targetsByExercise = new Map<string, ExerciseCatalogEntry["targets"]>();
   for (const target of ((targetsResult.data ?? []) as any[])) {
     const exerciseId = target.exercise_id as string;
     const muscleGroupId = target.muscle_group_id as string;
-    const override = volumeOverrides.get(`${exerciseId}:${muscleGroupId}`);
     const targets = targetsByExercise.get(exerciseId) ?? [];
     targets.push({
       muscle_group: groupNames.get(muscleGroupId) ?? muscleGroupId,
-      role: override?.role ?? ((target.role as string | null) ?? null),
-      volume_percentage:
-        override?.volume_percentage ??
-        ((target.volume_percentage as number | null) ?? null),
+      role: (target.role as string | null) ?? (target.is_primary ? "primary" : "secondary"),
+      volume_percentage: (target.role === "primary" || (!target.role && target.is_primary)) ? 100 : 50,
     });
     targetsByExercise.set(exerciseId, targets);
   }
@@ -489,23 +457,31 @@ async function loadExerciseCatalog(
     }
   }
 
+  const exercises = exerciseRows.map((exercise) => ({
+    id: exercise.id as string,
+    name: exercise.name as string,
+    description: (exercise.description as string | null) ?? null,
+    muscle_group: canonicalMuscleSlug(exercise.muscle_group),
+    categories: normalizeExerciseCategories(exercise),
+    equipment: (exercise.equipment as string | null) ?? null,
+    difficulty: (exercise.difficulty as string | null) ?? null,
+    contraindications: metadataByExercise.get(exercise.id as string)?.contraindications ?? [],
+    regressions: metadataByExercise.get(exercise.id as string)?.regressions ?? [],
+    progressions: metadataByExercise.get(exercise.id as string)?.progressions ?? [],
+    equivalent_substitutes: metadataByExercise.get(exercise.id as string)?.equivalent_substitutes ?? [],
+    pain_limitation_tags: metadataByExercise.get(exercise.id as string)?.pain_limitation_tags ?? [],
+    targets: canonicalCatalogTargets(targetsByExercise.get(exercise.id as string) ?? []),
+  })).filter(isPrescriptionCatalogEligible);
+
+  const excludedUnclassified = exerciseRows.length - exercises.length;
+  if (excludedUnclassified > 0) {
+    console.warn(`prescription_catalog_unclassified_excluded=${excludedUnclassified}`);
+  }
+
   return {
     company_id: companyId,
-    total: exerciseRows.length,
-    exercises: exerciseRows.map((exercise) => ({
-      id: exercise.id as string,
-      name: exercise.name as string,
-      description: (exercise.description as string | null) ?? null,
-      muscle_group: (exercise.muscle_group as string | null) ?? null,
-      equipment: (exercise.equipment as string | null) ?? null,
-      difficulty: (exercise.difficulty as string | null) ?? null,
-      contraindications: metadataByExercise.get(exercise.id as string)?.contraindications ?? [],
-      regressions: metadataByExercise.get(exercise.id as string)?.regressions ?? [],
-      progressions: metadataByExercise.get(exercise.id as string)?.progressions ?? [],
-      equivalent_substitutes: metadataByExercise.get(exercise.id as string)?.equivalent_substitutes ?? [],
-      pain_limitation_tags: metadataByExercise.get(exercise.id as string)?.pain_limitation_tags ?? [],
-      targets: targetsByExercise.get(exercise.id as string) ?? [],
-    })),
+    total: exercises.length,
+    exercises,
   };
 }
 
@@ -518,6 +494,7 @@ function formatExerciseCatalog(catalog: ExerciseCatalog) {
         id: exercise.id,
         name: exercise.name,
         group: exercise.muscle_group ?? "nao_informado",
+    categories: exercise.categories || [],
         targets: exercise.targets
           .map((target) =>
             [
@@ -610,29 +587,7 @@ function extractOhsCompensations(assessmentContext: unknown): any[] {
 }
 
 function buildVolumeSummary(plan: unknown, catalog: ExerciseCatalog) {
-  const exerciseMap = new Map(catalog.exercises.map((exercise) => [exercise.id, exercise]));
-  const weeklySets = new Map<string, number>();
-  if (!isRecord(plan) || !Array.isArray(plan.workouts)) return weeklySets;
-
-  for (const workout of plan.workouts) {
-    if (!isRecord(workout) || !Array.isArray(workout.exercises)) continue;
-    for (const exercise of workout.exercises) {
-      if (!isRecord(exercise)) continue;
-      const sets = typeof exercise.sets === "number" ? exercise.sets : Number(exercise.sets || 0);
-      if (!Number.isFinite(sets) || sets <= 0) continue;
-      const exerciseId = typeof exercise.exercise_id === "string" ? exercise.exercise_id : "";
-      const catalogExercise = exerciseMap.get(exerciseId);
-      const targets = catalogExercise?.targets?.length
-        ? catalogExercise.targets
-        : [{ muscle_group: clean(exercise.muscle_group || catalogExercise?.muscle_group || "nao_informado"), role: null, volume_percentage: 100 }];
-      for (const target of targets) {
-        const group = target.muscle_group || "nao_informado";
-        const multiplier = targetVolumeFactor(target);
-        weeklySets.set(group, (weeklySets.get(group) ?? 0) + sets * multiplier);
-      }
-    }
-  }
-  return weeklySets;
+  return buildCatalogVolumeSummary(plan, catalog.exercises);
 }
 
 function hasAdvancedMethod(plan: unknown) {
@@ -869,6 +824,7 @@ function exerciseText(exercise: ExerciseCatalogEntry) {
     exercise.name,
     exercise.description,
     exercise.muscle_group,
+    exercise.categories?.join(" "),
     exercise.targets.map((target) => target.muscle_group).join(" "),
     exercise.pain_limitation_tags.join(" "),
   ].join(" "));
@@ -988,7 +944,8 @@ function fallbackExercise(
     exercise_id: exercise.id,
     exercise_name: exercise.name,
     library_exercise_name: exercise.name,
-    muscle_group: exercise.muscle_group || exercise.targets[0]?.muscle_group || "geral",
+    muscle_group: canonicalMuscleSlug(exercise.muscle_group) || exercise.targets.map((target) => canonicalMuscleSlug(target.muscle_group)).find(Boolean) || "",
+    categories: exercise.categories || [],
     targets: exercise.targets.map((target) => ({ ...target })),
     sets: params.sets,
     reps: params.reps,
@@ -1071,14 +1028,14 @@ function buildEmergencyFallbackPlan(args: {
       out = out.map((s) => (s.phase === "forca_especifica" ? { ...s, sets: Math.max(s.sets, 3) } : s));
     } else if (isPerformance && level !== "iniciante") {
       const firstCompound = out.findIndex((s) => s.phase === "forca_global");
-      if (firstCompound >= 0) out[firstCompound] = { ...out[firstCompound], sets: 4, reps: "5-6", rest: 120, rir: "2-3", note: `${out[firstCompound].note} Ênfase de força: carga alta, reps baixas, subida com intenção de velocidade.` };
+      if (firstCompound >= 0) out[firstCompound] = { ...out[firstCompound], sets: 4, reps: "5-6", rest: 120, rir: EMERGENCY_FALLBACK_RIR, note: `${out[firstCompound].note} Ênfase de força: carga alta, reps baixas, subida com intenção de velocidade.` };
     }
     // Corretivo da avaliação substitui o foco da ativação específica (quando houver achado).
     if (corrective) {
       const ativIdx = out.findIndex((s) => s.phase === "ativacao_especifica");
       if (ativIdx >= 0) out[ativIdx] = { ...out[ativIdx], keywords: corrective.keywords, cue: corrective.cue, note: corrective.why };
     }
-    return out;
+    return out.map(enforceEmergencyFallbackRir);
   };
 
   const makeWorkout = (name: string, day: number, focus: string, rawSpecs: FallbackExerciseSpec[], extraAccessory: FallbackExerciseSpec) => {
@@ -1095,7 +1052,7 @@ function buildEmergencyFallbackPlan(args: {
       duration_min: level === "avancado" ? 60 : 50,
       split_focus: focus,
       exercises,
-      volume_load_estimate: "Conservador; usar RIR 2-4 e dor <= 3.",
+      volume_load_estimate: `Conservador; usar RIR ${EMERGENCY_FALLBACK_RIR} e dor <= 3.`,
       notes: `Motor BN: técnica antes de carga; troca de estímulo a cada 2 semanas; revisar se houver dor/restrição.${volMult < 1 ? " Volume das fases de força reduzido ~20% por prontidão em cautela (readiness)." : ""}${corrective ? ` ${corrective.why}` : ""}`,
     };
   };
@@ -1106,34 +1063,34 @@ function buildEmergencyFallbackPlan(args: {
       { phase: "ativacao_core", keywords: ["prancha", "dead bug", "core", "pallof"], sets: 2, reps: "20-30s", rest: 45, rir: "3-4", cue: "Trave costelas e pelve, sem prender o ar.", note: "Aumenta estabilidade lombo-pélvica antes da carga." },
       { phase: "ativacao_especifica", keywords: ["gluteo medio", "gluteo", "abducao", "mini band"], sets: 2, reps: "12-15", rest: 45, rir: "3", cue: "Joelho alinhado ao pé, sem colapsar.", note: kneeRisk ? "Prioriza controle de valgo dinâmico." : "Ativa quadril para padrões de agachar." },
       { phase: "controle_motor", keywords: ["agachamento", "goblet", "squat", "caixa"], sets: 2, reps: "8-10", rest: 60, rir: "3-4", cue: "Desça até onde mantém pelve e joelho alinhados.", note: backRisk ? "Limitar amplitude para manter coluna neutra." : "Reforça padrão técnico antes de carga." },
-      { phase: "forca_global", keywords: backRisk ? ["leg press", "hack", "maquina", "agachamento"] : ["agachamento", "leg press", "goblet", "squat"], sets: 3, reps: "8-10", rest: 90, rir: "2-3", cue: "Empurre o chão sem perder alinhamento.", note: "Força global com margem de segurança." },
-      { phase: "forca_especifica", keywords: ["posterior", "mesa flexora", "isquiotibiais", "gluteo"], sets: 2, reps: "10-12", rest: 75, rir: "2-3", cue: "Controle a volta e evite compensar lombar.", note: "Equilibra cadeia posterior para proteger joelho/quadril." },
-    ], { phase: "forca_especifica", keywords: ["cadeira extensora", "extensora", "quadriceps"], sets: 2, reps: "12-15", rest: 60, rir: "2-3", cue: "Extensão completa sem impulso.", note: "Acessório de quadríceps (nível avançado)." }),
+      { phase: "forca_global", keywords: backRisk ? ["leg press", "hack", "maquina", "agachamento"] : ["agachamento", "leg press", "goblet", "squat"], sets: 3, reps: "8-10", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Empurre o chão sem perder alinhamento.", note: "Força global com margem de segurança." },
+      { phase: "forca_especifica", keywords: ["posterior", "mesa flexora", "isquiotibiais", "gluteo"], sets: 2, reps: "10-12", rest: 75, rir: EMERGENCY_FALLBACK_RIR, cue: "Controle a volta e evite compensar lombar.", note: "Equilibra cadeia posterior para proteger joelho/quadril." },
+    ], { phase: "forca_especifica", keywords: ["cadeira extensora", "extensora", "quadriceps"], sets: 2, reps: "12-15", rest: 60, rir: EMERGENCY_FALLBACK_RIR, cue: "Extensão completa sem impulso.", note: "Acessório de quadríceps (nível avançado)." }),
     makeWorkout("Treino B - Postura, puxar e empurrar", 3, "mobilidade torácica, escápula, puxar e empurrar técnico", [
       { phase: "mobilidade", keywords: ["mobilidade toracica", "ombro", "shoulder", "toracica"], sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Movimento suave, sem forçar amplitude.", note: "Prepara ombro e coluna torácica para membros superiores." },
       { phase: "ativacao_core", keywords: ["pallof", "prancha", "core", "dead bug"], sets: 2, reps: "20-30s", rest: 45, rir: "3-4", cue: "Mantenha tronco estável.", note: "Estabilidade para puxadas e empurradas." },
       { phase: "ativacao_especifica", keywords: ["escapula", "face pull", "rotador", "manguito"], sets: 2, reps: "12-15", rest: 45, rir: "3", cue: "Ombros longe das orelhas.", note: "Melhora controle escapular." },
       { phase: "controle_motor", keywords: ["remada", "row", "puxada"], sets: 2, reps: "10", rest: 60, rir: "3", cue: "Puxe com cotovelos, sem jogar tronco.", note: "Ensina trajetória e controle escapular." },
-      { phase: "forca_global", keywords: ["supino", "press", "empurrar", "chest"], sets: 3, reps: "8-10", rest: 90, rir: "2-3", cue: "Escápulas firmes e punho neutro.", note: "Empurrar global com controle." },
-      { phase: "forca_especifica", keywords: ["remada", "puxada", "costas", "dorsal"], sets: 3, reps: "8-12", rest: 90, rir: "2-3", cue: "Controle a volta sem perder postura.", note: "Equilibra ombro e postura." },
-    ], { phase: "forca_especifica", keywords: ["rosca", "biceps", "triceps", "polia"], sets: 2, reps: "10-12", rest: 60, rir: "2-3", cue: "Cotovelo fixo, controle na volta.", note: "Acessório de braço (nível avançado)." }),
+      { phase: "forca_global", keywords: ["supino", "press", "empurrar", "chest"], sets: 3, reps: "8-10", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Escápulas firmes e punho neutro.", note: "Empurrar global com controle." },
+      { phase: "forca_especifica", keywords: ["remada", "puxada", "costas", "dorsal"], sets: 3, reps: "8-12", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Controle a volta sem perder postura.", note: "Equilibra ombro e postura." },
+    ], { phase: "forca_especifica", keywords: ["rosca", "biceps", "triceps", "polia"], sets: 2, reps: "10-12", rest: 60, rir: EMERGENCY_FALLBACK_RIR, cue: "Cotovelo fixo, controle na volta.", note: "Acessório de braço (nível avançado)." }),
     makeWorkout("Treino C - Corpo inteiro e unilateral leve", 5, "integração full body, unilateral e acessórios", [
       { phase: "mobilidade", keywords: ["mobilidade quadril", "tornozelo", "alongamento"], sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Busque amplitude confortável.", note: "Abre movimento antes do unilateral." },
       { phase: "ativacao_core", keywords: ["bird dog", "perdigueiro", "core", "prancha"], sets: 2, reps: "8-10 por lado", rest: 45, rir: "3-4", cue: "Quadril parado e coluna neutra.", note: "Controle anti-rotação." },
       { phase: "controle_motor", keywords: ["afundo", "lunge", "step", "unilateral"], sets: 2, reps: "8 por lado", rest: 60, rir: "3-4", cue: "Joelho acompanha o pé.", note: kneeRisk ? "Usar amplitude curta e sem dor." : "Integra equilíbrio e controle." },
-      { phase: "forca_global", keywords: backRisk ? ["hip thrust", "gluteo", "ponte"] : ["terra romeno", "rdl", "levantamento", "hip hinge"], sets: 3, reps: "8-10", rest: 90, rir: "2-3", cue: "Dobre quadril sem arredondar lombar.", note: "Fortalece cadeia posterior com controle." },
-      { phase: "forca_global", keywords: ["remada", "puxada", "costas"], sets: 3, reps: "10-12", rest: 75, rir: "2-3", cue: "Postura alta e controle de escápulas.", note: "Complementa postura e tronco." },
-      { phase: "forca_especifica", keywords: ["panturrilha", "calf", "abdomen", "core"], sets: 2, reps: "12-15", rest: 60, rir: "2-3", cue: "Controle total da fase excêntrica.", note: "Acessório leve para suporte do ciclo." },
-    ], { phase: "forca_especifica", keywords: ["elevacao lateral", "ombro", "lateral"], sets: 2, reps: "12-15", rest: 60, rir: "2-3", cue: "Suba até a linha do ombro, sem balanço.", note: "Acessório de ombro (nível avançado)." }),
+      { phase: "forca_global", keywords: backRisk ? ["hip thrust", "gluteo", "ponte"] : ["terra romeno", "rdl", "levantamento", "hip hinge"], sets: 3, reps: "8-10", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Dobre quadril sem arredondar lombar.", note: "Fortalece cadeia posterior com controle." },
+      { phase: "forca_global", keywords: ["remada", "puxada", "costas"], sets: 3, reps: "10-12", rest: 75, rir: EMERGENCY_FALLBACK_RIR, cue: "Postura alta e controle de escápulas.", note: "Complementa postura e tronco." },
+      { phase: "forca_especifica", keywords: ["panturrilha", "calf", "abdomen", "core"], sets: 2, reps: "12-15", rest: 60, rir: EMERGENCY_FALLBACK_RIR, cue: "Controle total da fase excêntrica.", note: "Acessório leve para suporte do ciclo." },
+    ], { phase: "forca_especifica", keywords: ["elevacao lateral", "ombro", "lateral"], sets: 2, reps: "12-15", rest: 60, rir: EMERGENCY_FALLBACK_RIR, cue: "Suba até a linha do ombro, sem balanço.", note: "Acessório de ombro (nível avançado)." }),
     // Treino D — só quando o aluno tem 4 dias: ênfase glúteo/posterior + core (antes o 4º dia era ignorado).
     makeWorkout("Treino D - Posterior, glúteo e core", 6, "cadeia posterior, glúteo e estabilidade", [
       { phase: "mobilidade", keywords: ["mobilidade quadril", "alongamento posterior", "quadril"], sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Amplitude confortável e progressiva.", note: "Prepara quadril para dominantes de quadril." },
       { phase: "ativacao_core", keywords: ["prancha lateral", "pallof", "core"], sets: 2, reps: "20-30s", rest: 45, rir: "3-4", cue: "Quadril alinhado, sem girar.", note: "Anti-flexão lateral e anti-rotação." },
       { phase: "ativacao_especifica", keywords: ["gluteo", "ponte", "abducao", "mini band"], sets: 2, reps: "12-15", rest: 45, rir: "3", cue: "Aperte o glúteo no topo.", note: "Prioriza glúteo antes das dominantes de quadril." },
-      { phase: "forca_global", keywords: backRisk ? ["hip thrust", "ponte", "gluteo"] : ["stiff", "terra romeno", "rdl", "posterior"], sets: 3, reps: "8-10", rest: 90, rir: "2-3", cue: "Quadril para trás, coluna neutra.", note: "Dominante de quadril com segurança." },
-      { phase: "forca_global", keywords: ["elevacao pelvica", "hip thrust", "gluteo", "ponte"], sets: 3, reps: "10-12", rest: 90, rir: "2-3", cue: "Extensão completa de quadril sem hiperextender lombar.", note: "Glúteo como motor principal." },
-      { phase: "forca_especifica", keywords: ["mesa flexora", "flexora", "isquiotibiais"], sets: 2, reps: "10-12", rest: 75, rir: "2-3", cue: "Controle a volta em 3 segundos.", note: "Isquiotibiais com ênfase excêntrica." },
-    ], { phase: "forca_especifica", keywords: ["panturrilha", "calf"], sets: 2, reps: "12-15", rest: 60, rir: "2-3", cue: "Pausa de 1s no topo.", note: "Acessório de panturrilha (nível avançado)." }),
+      { phase: "forca_global", keywords: backRisk ? ["hip thrust", "ponte", "gluteo"] : ["stiff", "terra romeno", "rdl", "posterior"], sets: 3, reps: "8-10", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Quadril para trás, coluna neutra.", note: "Dominante de quadril com segurança." },
+      { phase: "forca_global", keywords: ["elevacao pelvica", "hip thrust", "gluteo", "ponte"], sets: 3, reps: "10-12", rest: 90, rir: EMERGENCY_FALLBACK_RIR, cue: "Extensão completa de quadril sem hiperextender lombar.", note: "Glúteo como motor principal." },
+      { phase: "forca_especifica", keywords: ["mesa flexora", "flexora", "isquiotibiais"], sets: 2, reps: "10-12", rest: 75, rir: EMERGENCY_FALLBACK_RIR, cue: "Controle a volta em 3 segundos.", note: "Isquiotibiais com ênfase excêntrica." },
+    ], { phase: "forca_especifica", keywords: ["panturrilha", "calf"], sets: 2, reps: "12-15", rest: 60, rir: EMERGENCY_FALLBACK_RIR, cue: "Pausa de 1s no topo.", note: "Acessório de panturrilha (nível avançado)." }),
   ].slice(0, days);
 
   return {
@@ -1148,7 +1105,7 @@ function buildEmergencyFallbackPlan(args: {
     },
     generated_by: "bn_emergency_fallback",
     fallback_reason: args.fallbackReason,
-    biomechanical_notes: "Plano conservador com técnica antes de carga, controle motor, RIR 2-4, sem pliometria e sem métodos avançados.",
+    biomechanical_notes: `Plano conservador com técnica antes de carga, controle motor, RIR ${EMERGENCY_FALLBACK_RIR}, sem pliometria e sem métodos avançados.`,
     workouts,
     library_policy: {
       only_library_exercises: true,

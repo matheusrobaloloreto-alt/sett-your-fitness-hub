@@ -73,7 +73,7 @@ describe("fractionalSetsByMuscleGroup", () => {
     ]);
     expect(out).toEqual([
       { group: "Peitoral", sets: 1 },
-      { group: "Tríceps", sets: 0.5 },
+      { group: "Triceps", sets: 0.5 },
     ]);
   });
 
@@ -104,14 +104,9 @@ describe("fractionalSetsByMuscleGroup", () => {
 });
 
 describe("normalizeTargetWeight", () => {
-  it.each([
-    [1, 1],
-    [100, 1],
-    [0.5, 0.5],
-    [50, 0.5],
-    [20, 0.2],
-  ])("normaliza %s para %s", (volumePercentage, expected) => {
-    expect(normalizeTargetWeight({ volumePercentage })).toBe(expected);
+  it.each([0, 1, 100, 0.5, 50, 20, -1, 101, Number.NaN, null])("ignora o percentual histórico %s", (volumePercentage) => {
+    expect(normalizeTargetWeight({ role: "primary", volumePercentage })).toBe(1);
+    expect(normalizeTargetWeight({ role: "secondary", volumePercentage })).toBe(0.5);
   });
 
   it("usa defaults explícitos apenas quando o percentual está ausente", () => {
@@ -124,7 +119,24 @@ describe("normalizeTargetWeight", () => {
     expect(() => normalizeTargetWeight({ role: "primary", isPrimary: false, volumePercentage: null })).toThrow(TypeError);
   });
 
-  it.each([-1, 101, Number.NaN, Number.POSITIVE_INFINITY])("rejeita percentual inválido %s", (volumePercentage) => {
-    expect(() => normalizeTargetWeight({ volumePercentage })).toThrow(RangeError);
+  it("aceita is_primary legado sem deixar percentual determinar papel", () => {
+    expect(normalizeTargetWeight({ isPrimary: true, volumePercentage: 20 })).toBe(1);
+    expect(normalizeTargetWeight({ isPrimary: false, volumePercentage: 100 })).toBe(0.5);
+    expect(() => normalizeTargetWeight({ volumePercentage: 100 })).toThrow(TypeError);
+  });
+
+  it("não duplica aliases e mantém deltoides separados", () => {
+    const logs = [{ workout_id: "w1", exercise_index: 0 }];
+    const meta = buildExerciseMeta(cycles);
+    const targets = [
+      { exerciseId: "ex-supino", muscleGroup: "Peito", role: "primary", volumePercentage: 30 },
+      { exerciseId: "ex-supino", muscleGroup: "Peitoral", role: "secondary", volumePercentage: 100 },
+      { exerciseId: "ex-supino", muscleGroup: "Deltoide Anterior", role: "secondary" },
+      { exerciseId: "ex-supino", muscleGroup: "Deltoide Posterior", role: "primary" },
+      { exerciseId: "ex-supino", muscleGroup: "Core", role: "primary" },
+    ];
+    expect(Object.fromEntries(fractionalSetsByMuscleGroup(logs, meta, targets).map((item) => [item.group, item.sets]))).toEqual({
+      Peitoral: 1, "Deltoide Anterior": 0.5, "Deltoide Posterior": 1,
+    });
   });
 });

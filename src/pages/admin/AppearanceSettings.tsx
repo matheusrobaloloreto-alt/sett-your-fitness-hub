@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PersonalThemeSegmentedControl } from "@/components/PersonalThemeToggle";
 import { toast } from "sonner";
 import { Loader2, Palette, Sparkles, Upload, RotateCcw, Save } from "lucide-react";
 import { prepareLogoImage, type PreparedLogo } from "@/lib/logoImage";
@@ -292,6 +293,18 @@ export default function AppearanceSettings() {
         </Card>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl">Tema pessoal</CardTitle>
+              <p className="text-muted-foreground font-sans text-sm">
+                Ajuste claro ou escuro para esta conta neste aparelho.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <PersonalThemeSegmentedControl className="w-full max-w-xs" />
+            </CardContent>
+          </Card>
+
           {/* Colors */}
           <Card>
             <CardHeader>

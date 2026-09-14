@@ -2,6 +2,7 @@
 // exercise_metadata -> ExerciseCatalogEntry[]. NÃO inventa exercício; expõe gaps/warnings quando
 // faltar dado essencial (em vez de preencher falso). NÃO altera loadExerciseCatalog da edge.
 import type { ExerciseCatalogEntry, ExerciseTarget } from "../types.ts";
+import { canonicalCatalogTargets } from "../catalogVolume.ts";
 import type {
   CatalogAdapterResult,
   EdgeExerciseMetadataRow,
@@ -36,6 +37,7 @@ export function buildExerciseCatalogFromEdgeRows(args: {
     list.push({
       muscle_group: (t.muscle_group_id && groupName.get(t.muscle_group_id)) || String(t.muscle_group_id ?? "desconhecido"),
       role: t.role ?? null,
+      is_primary: t.is_primary,
       volume_percentage: t.volume_percentage ?? null,
     });
     targetsByExercise.set(t.exercise_id, list);
@@ -62,6 +64,7 @@ export function buildExerciseCatalogFromEdgeRows(args: {
       name: row.name,
       description: row.description ?? null,
       muscle_group: row.muscle_group ?? null,
+      categories: cleanArray(row.categories),
       equipment: row.equipment ?? null,
       difficulty: row.difficulty ?? null,
       contraindications,
@@ -69,7 +72,7 @@ export function buildExerciseCatalogFromEdgeRows(args: {
       progressions: cleanArray(meta?.progressions),
       equivalent_substitutes: cleanArray(meta?.equivalent_substitutes),
       pain_limitation_tags,
-      targets: targetsByExercise.get(row.id) ?? [],
+      targets: canonicalCatalogTargets(targetsByExercise.get(row.id) ?? []),
       movement_pattern: null, // schema atual não expõe; engine usa keywords/grupo como fallback
     });
   }

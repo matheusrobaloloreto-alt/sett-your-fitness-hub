@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateTrainingProgram } from "./engine";
 import type { ExerciseCatalogEntry, PrescriptionInput } from "./types";
 
-const GROUPS = ["quadriceps", "posterior", "gluteos", "costas", "peitoral", "ombros", "core"];
+const GROUPS = ["quadriceps", "posterior_de_coxa", "gluteos", "dorsal", "peitoral", "deltoide_posterior", "abdomen"];
 const EQUIPMENT = ["maquina", "cabo", "halteres", "barra", "livre"];
 const NAMES = [
   "Agachamento controle motor",
@@ -16,6 +16,8 @@ const NAMES = [
   "Mobilidade tornozelo quadril",
   "Puxada frente",
 ];
+const PRIMARY_CPU_BUDGET_MS = 500;
+const DIAGNOSTIC_WALL_CEILING_MS = 3_000;
 
 function buildCatalog(size = 1_200): ExerciseCatalogEntry[] {
   return Array.from({ length: size }, (_, index) => {
@@ -62,20 +64,28 @@ describe("BN Prescription Engine compute budget", () => {
 
     generateTrainingProgram(input); // aquece o runtime/imports antes da medição
     const samples = Array.from({ length: 3 }, () => {
+      const cpuStartedAt = process.cpuUsage();
       const startedAt = performance.now();
       const program = generateTrainingProgram(input);
-      const elapsedMs = performance.now() - startedAt;
+      const wallMs = performance.now() - startedAt;
+      const cpuUsage = process.cpuUsage(cpuStartedAt);
+      const cpuMs = (cpuUsage.user + cpuUsage.system) / 1_000;
 
       expect(program.library_policy.catalog_count).toBe(1_200);
       expect(program.workouts.length).toBeGreaterThanOrEqual(4);
       expect(program.library_policy.only_library_exercises).toBe(true);
-      return elapsedMs;
-    }).sort((left, right) => left - right);
+      return { cpuMs, wallMs };
+    }).sort((left, right) => left.cpuMs - right.cpuMs);
 
-    const medianMs = samples[1];
-    console.info(`prescription_engine_benchmark median_ms=${medianMs.toFixed(2)} samples_ms=${samples.map((sample) => sample.toFixed(2)).join(",")}`);
-    // Vitest executa arquivos em paralelo; a folga evita falsos negativos por
-    // contenção sem permitir retorno ao baseline anterior (> 550 ms isolado).
-    expect(medianMs).toBeLessThan(500);
+    const medianCpuMs = samples[1].cpuMs;
+    const medianWallMs = [...samples].sort((left, right) => left.wallMs - right.wallMs)[1].wallMs;
+    console.info(
+      `prescription_engine_benchmark median_cpu_ms=${medianCpuMs.toFixed(2)} median_wall_ms=${medianWallMs.toFixed(2)} cpu_samples_ms=${samples.map((sample) => sample.cpuMs.toFixed(2)).join(",")} wall_samples_ms=${samples.map((sample) => sample.wallMs.toFixed(2)).join(",")}`,
+    );
+    // CPU é o gate primário de regressão do motor. Wall-clock tem apenas um
+    // teto diagnóstico folgado para detectar travamento, sem confundir contenção
+    // normal do runner compartilhado com compute consumido pelo worker.
+    expect(medianCpuMs).toBeLessThan(PRIMARY_CPU_BUDGET_MS);
+    expect(medianWallMs).toBeLessThan(DIAGNOSTIC_WALL_CEILING_MS);
   });
 });

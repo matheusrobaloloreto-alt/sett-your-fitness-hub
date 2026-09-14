@@ -8,8 +8,10 @@ interface ActiveSession {
   elapsedSeconds: number;
 }
 
-interface SessionSummary {
+export interface SessionSummary {
   id: string;
+  workoutId: string;
+  completedAt: string;
   durationSeconds: number;
   totalVolume: number;
   totalSetsCompleted: number;
@@ -116,6 +118,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     finishingRef.current = true; // A9 — trava reentrância: só um award_xp por sessão.
 
     const now = Date.now();
+    const completedAt = new Date(now).toISOString();
     const durationSeconds = Math.floor((now - activeSession.startedAt) / 1000);
 
     // Calculate summary
@@ -152,10 +155,10 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     const totalSetsCompleted = exercisesSummary.reduce((sum, ex) => sum + ex.sets.filter(s => s.weight > 0 || s.reps > 0).length, 0);
     const totalSetsPrescribed = exercises.reduce((sum, ex) => sum + (parseInt(ex.sets) || 3), 0);
 
-    await supabase
+    const { data: completedRow, error: completionError } = await supabase
       .from("workout_sessions")
       .update({
-        completed_at: new Date(now).toISOString(),
+        completed_at: completedAt,
         duration_seconds: durationSeconds,
         total_volume: totalVolume,
         total_sets_completed: totalSetsCompleted,
@@ -163,7 +166,16 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
         status: "completed",
         exercises_summary: exercisesSummary as any,
       })
-      .eq("id", activeSession.id);
+      .eq("id", activeSession.id)
+      .eq("student_id", studentId)
+      .eq("status", "in_progress")
+      .select("id")
+      .single();
+
+    if (completionError || !completedRow || completedRow.id !== activeSession.id) {
+      finishingRef.current = false;
+      return null;
+    }
 
     // Gamification: award XP and check achievements (best-effort, non-blocking failures)
     try {
@@ -181,6 +193,8 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
 
     const result: SessionSummary = {
       id: activeSession.id,
+      workoutId: activeSession.workoutId,
+      completedAt,
       durationSeconds,
       totalVolume,
       totalSetsCompleted,

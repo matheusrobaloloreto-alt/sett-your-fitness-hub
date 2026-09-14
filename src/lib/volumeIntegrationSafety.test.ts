@@ -9,7 +9,7 @@ describe("volume integration safety contracts", () => {
     const [studentView, trainerView, migration] = await Promise.all([
       read("src/components/student/VolumeInsights.tsx"),
       read("src/components/trainer/WorkoutAnalysis.tsx"),
-      read("supabase/migrations/20260814233000_fix_multitarget_weekly_volume.sql"),
+      read("supabase/migrations/20260914130000_fix_fixed_muscle_volume.sql"),
     ]);
     expect(studentView).toContain('rpc("get_effective_exercise_targets"');
     expect(studentView).not.toContain('.from("company_exercise_volumes")');
@@ -33,7 +33,7 @@ describe("volume integration safety contracts", () => {
   it("replaces muscle targets through one validated transactional RPC", async () => {
     const [adminView, migration] = await Promise.all([
       read("src/pages/admin/ExerciseLibrary.tsx"),
-      read("supabase/migrations/20260814233000_fix_multitarget_weekly_volume.sql"),
+      read("supabase/migrations/20260914124000_exercise_taxonomy_contract.sql"),
     ]);
     expect(adminView).toContain("replaceExerciseMuscleTargets");
     expect(adminView).not.toContain('.from("exercise_muscle_targets").delete()');
@@ -52,9 +52,15 @@ describe("volume integration safety contracts", () => {
       read("src/pages/admin/StudentDetail.tsx"),
       read("src/pages/admin/WorkoutBuilder.tsx"),
     ]);
-    for (const source of sources) {
-      expect(source).toContain("canonicalAnatomicalMuscleGroup");
+    for (const index of [0, 2, 5]) {
+      expect(sources[index]).toContain("canonicalAnatomicalMuscleGroup");
     }
+    expect(sources[1]).toContain("fractionalSetsByMuscleGroup");
+    expect(sources[1]).toContain("useExerciseVolumeTargets");
+    expect(sources[3]).toContain("calculateWeeklyMuscleVolume");
+    expect(sources[3]).toContain("fractionalSetsByMuscleGroup");
+    expect(sources[4]).toContain("calculateWeeklyMuscleVolume");
+    expect(sources[4]).toContain("useExerciseVolumeTargets");
     expect(sources[5]).toContain("anatomicalBnitoVolumeReview");
   });
 });

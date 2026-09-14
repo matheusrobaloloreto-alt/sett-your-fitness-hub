@@ -5,6 +5,8 @@ import { RefreshCw, Timer } from "lucide-react";
 import { format, addDays } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
+import { cn } from "@/lib/utils";
 
 interface PanelData {
   expiringContracts: any[];
@@ -104,24 +106,44 @@ async function fetchRenewalsAndCycles(effectiveCompanyId: string | null | undefi
 interface Props {
   effectiveCompanyId: string | null | undefined;
   routePrefix: string;
+  readOnly?: boolean;
   /** When true, only the RENOVAÇÃO card is rendered (intended to sit beside another card in a 2-col grid). */
   renewalsOnly?: boolean;
   /** When true, only the TROCA DE TREINO card is rendered. */
   cyclesOnly?: boolean;
 }
 
-export function RenewalsAndCyclesPanel({ effectiveCompanyId, routePrefix, renewalsOnly, cyclesOnly }: Props) {
+export function RenewalsAndCyclesPanel({ effectiveCompanyId, routePrefix, readOnly = false, renewalsOnly, cyclesOnly }: Props) {
   const navigate = useNavigate();
-  const { data } = useQuery({
+  const snapshot = useDashboardSnapshot();
+  const renewalSnapshot = snapshot?.renewals;
+  const snapshotData = readOnly && snapshot ? {
+    expiringContracts: renewalSnapshot?.expiringContracts || [],
+    awaitingRenewal: renewalSnapshot?.awaitingRenewal || [],
+    cycleCountdowns: renewalSnapshot?.cycleCountdowns || [],
+    trainerMap: renewalSnapshot?.trainerMap || {},
+  } : null;
+  const { data: queriedData } = useQuery({
     queryKey: ["renewals-cycles", effectiveCompanyId ?? "all"],
     queryFn: () => fetchRenewalsAndCycles(effectiveCompanyId),
     staleTime: 60_000,
+    enabled: !readOnly,
   });
+  const data = snapshotData ?? queriedData;
 
   const expiringContracts = data?.expiringContracts || [];
   const awaitingRenewal = data?.awaitingRenewal || [];
   const cycleCountdowns = data?.cycleCountdowns || [];
   const trainerMap = data?.trainerMap || {};
+  const openStudent = (studentId: string | null | undefined) => {
+    if (readOnly || !studentId) return;
+    navigate(`/${routePrefix}/students/${studentId}`);
+  };
+  const rowClassName = cn(
+    "flex items-center justify-between rounded-lg border border-border bg-secondary/50 p-3 transition-all",
+    !readOnly && "cursor-pointer hover:brightness-110",
+  );
+  const studentNameClassName = "max-w-full truncate text-left font-sans text-sm font-medium text-foreground";
 
   const renewalsCard = (
     <Card className="bg-card border-border">
@@ -144,19 +166,23 @@ export function RenewalsAndCyclesPanel({ effectiveCompanyId, routePrefix, renewa
               {awaitingRenewal.map((contract: any) => {
                 const isOverdue = contract.payment_status === "overdue";
                 return (
-                  <div key={contract.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 border border-border cursor-pointer hover:brightness-110 transition-all" onClick={() => navigate(`/${routePrefix}/students/${contract.student_id}`)}>
+                  <div key={contract.id} className={rowClassName} onClick={readOnly ? undefined : () => openStudent(contract.student_id)}>
                     <div>
-                      <button
-                        type="button"
-                        className="max-w-full truncate text-left font-sans text-sm font-medium text-foreground hover:text-primary hover:underline"
-                        title="Abrir perfil do aluno"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          navigate(`/${routePrefix}/students/${contract.student_id}`);
-                        }}
-                      >
-                        {contract.students?.full_name}
-                      </button>
+                      {readOnly ? (
+                        <p className={studentNameClassName}>{contract.students?.full_name}</p>
+                      ) : (
+                        <button
+                          type="button"
+                          className={`${studentNameClassName} hover:text-primary hover:underline`}
+                          title="Abrir perfil do aluno"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openStudent(contract.student_id);
+                          }}
+                        >
+                          {contract.students?.full_name}
+                        </button>
+                      )}
                       <p className="text-muted-foreground text-xs font-sans">{contract.plans?.name}</p>
                       {contract.trainer_id && trainerMap[contract.trainer_id] && (
                         <p className="text-muted-foreground/70 text-[11px] font-sans">Treinador: {trainerMap[contract.trainer_id]}</p>
@@ -178,19 +204,23 @@ export function RenewalsAndCyclesPanel({ effectiveCompanyId, routePrefix, renewa
             {expiringContracts.map((contract: any) => {
               const daysLeft = Math.ceil((new Date(contract.end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
               return (
-                <div key={contract.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 border border-border cursor-pointer hover:brightness-110 transition-all" onClick={() => navigate(`/${routePrefix}/students/${contract.student_id}`)}>
+                <div key={contract.id} className={rowClassName} onClick={readOnly ? undefined : () => openStudent(contract.student_id)}>
                   <div>
-                    <button
-                      type="button"
-                      className="max-w-full truncate text-left font-sans text-sm font-medium text-foreground hover:text-primary hover:underline"
-                      title="Abrir perfil do aluno"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        navigate(`/${routePrefix}/students/${contract.student_id}`);
-                      }}
-                    >
-                      {contract.students?.full_name}
-                    </button>
+                    {readOnly ? (
+                      <p className={studentNameClassName}>{contract.students?.full_name}</p>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`${studentNameClassName} hover:text-primary hover:underline`}
+                        title="Abrir perfil do aluno"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openStudent(contract.student_id);
+                        }}
+                      >
+                        {contract.students?.full_name}
+                      </button>
+                    )}
                     <p className="text-muted-foreground text-xs font-sans">{contract.plans?.name}</p>
                     {contract.trainer_id && trainerMap[contract.trainer_id] && (
                       <p className="text-muted-foreground/70 text-[11px] font-sans">Treinador: {trainerMap[contract.trainer_id]}</p>
@@ -230,16 +260,16 @@ export function RenewalsAndCyclesPanel({ effectiveCompanyId, routePrefix, renewa
         {cycleCountdowns.length > 0 ? (
           <div className="space-y-3 max-h-[300px] overflow-auto">
             {cycleCountdowns.map((m: any, i: number) => (
-              <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 border border-border cursor-pointer hover:brightness-110 transition-all" onClick={() => m.student_id && navigate(`/${routePrefix}/students/${m.student_id}`)}>
+              <div key={i} className={rowClassName} onClick={readOnly ? undefined : () => openStudent(m.student_id)}>
                 <div>
-                  {m.student_id ? (
+                  {m.student_id && !readOnly ? (
                     <button
                       type="button"
-                      className="max-w-full truncate text-left font-sans text-sm font-medium text-foreground hover:text-primary hover:underline"
+                      className={`${studentNameClassName} hover:text-primary hover:underline`}
                       title="Abrir perfil do aluno"
                       onClick={(event) => {
                         event.stopPropagation();
-                        navigate(`/${routePrefix}/students/${m.student_id}`);
+                        openStudent(m.student_id);
                       }}
                     >
                       {m.student_name}

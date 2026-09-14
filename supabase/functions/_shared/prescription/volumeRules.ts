@@ -9,50 +9,30 @@ import type {
 import { LARGE_GROUPS, SMALL_GROUPS, VOLUME_RULES } from "./methodology.ts";
 import { classifyPainSeverity } from "./restrictionRules.ts";
 import { clinicalRiskText } from "./clinicalContext.ts";
+import { canonicalMuscleSlug } from "../exerciseTaxonomy.ts";
+import { fixedTargetWeight } from "../muscleVolumeWeight.ts";
 
-/**
- * Normalizes the two historical scales found in exercise_muscle_targets:
- * 0..1 is a fraction and values above 1 are percentages (0..100).
- * Missing values preserve the documented primary/secondary defaults.
- */
+/** Percentages remain historical metadata; roles alone determine exposure. */
 export function targetVolumeFactor(
-  target: { role?: string | null; volume_percentage?: number | null },
+  target: { role?: string | null; is_primary?: boolean | null; volume_percentage?: number | null },
 ) {
-  const raw = target.volume_percentage;
-  if (raw !== null && raw !== undefined) {
-    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || raw > 100) {
-      throw new RangeError("volume_percentage must be a finite number between 0 and 100");
-    }
-    return raw <= 1 ? raw : raw / 100;
-  }
-  if (target.role === "primary") return 1;
-  if (target.role === "secondary") return 0.5;
-  throw new TypeError("target role is required when volume_percentage is absent");
+  return fixedTargetWeight({ role: target.role, isPrimary: target.is_primary });
 }
 
-export const IMPORTANT_GROUPS = ["quadriceps", "posterior", "gluteos", "costas", "peitoral", "core"];
+export const IMPORTANT_GROUPS = ["quadriceps", "posterior_de_coxa", "gluteos", "dorsal", "peitoral", "abdomen"];
 
 export function normalizeMuscleGroup(group: unknown) {
-  const text = normalizeText(group);
-  if (/quad|coxa anterior/.test(text)) return "quadriceps";
-  if (/posterior|isquio|hamstring/.test(text)) return "posterior";
-  if (/glut/.test(text)) return "gluteos";
-  if (/costas|dorsal|remada|lat/.test(text)) return "costas";
-  if (/peit|chest|supino/.test(text)) return "peitoral";
-  if (/core|abd|lombar/.test(text)) return "core";
-  if (/ombro|delto/.test(text)) return "ombros";
-  if (/panturr|calf/.test(text)) return "panturrilhas";
-  return text || "geral";
+  return canonicalMuscleSlug(group);
 }
 
 export function isSmallGroup(group: unknown) {
   const normalized = normalizeMuscleGroup(group);
-  return (SMALL_GROUPS as readonly string[]).includes(normalized);
+  return (SMALL_GROUPS as readonly string[]).includes(normalized || "");
 }
 
 export function isLargeGroup(group: unknown) {
   const normalized = normalizeMuscleGroup(group);
-  return (LARGE_GROUPS as readonly string[]).includes(normalized);
+  return (LARGE_GROUPS as readonly string[]).includes(normalized || "");
 }
 
 function normalizedLevel(level: unknown): "iniciante" | "intermediario" | "avancado" {
@@ -64,7 +44,7 @@ function normalizedLevel(level: unknown): "iniciante" | "intermediario" | "avanc
 
 // F2: redução por endurance só quando frequência >= 3x/semana e SÓ em MMII.
 // Membros superiores (peito, costas, ombro, bíceps, tríceps, antebraço) não são reduzidos.
-const MMII_GROUPS = ["quadriceps", "posterior", "gluteos", "panturrilhas", "adutores", "adductors"];
+const MMII_GROUPS = ["quadriceps", "posterior_de_coxa", "gluteos", "panturrilha", "adutores"];
 
 function enduranceDaysPerWeek(input?: PrescriptionInput) {
   if (!input) return 0;
@@ -77,7 +57,7 @@ function enduranceDaysPerWeek(input?: PrescriptionInput) {
 
 function enduranceFactorForGroup(group: unknown, input?: PrescriptionInput) {
   if (enduranceDaysPerWeek(input) < 3) return 1;
-  return MMII_GROUPS.includes(normalizeMuscleGroup(group)) ? 0.75 : 1; // -25% (faixa 20-30%) só em MMII
+  return MMII_GROUPS.includes(normalizeMuscleGroup(group) || "") ? 0.75 : 1; // -25% (faixa 20-30%) só em MMII
 }
 
 function objectiveMultiplier(input: PrescriptionInput) {
@@ -94,7 +74,10 @@ export function getVolumeRangeForGroup(group: unknown, level: unknown, input?: P
   const smallFactor = isSmallGroup(group) ? VOLUME_RULES.smallGroupFactor : 1;
   const objectiveFactor = input ? objectiveMultiplier(input) : 1;
   const enduranceFactor = enduranceFactorForGroup(group, input);
-  const painSeverity = input ? classifyPainSeverity(input, normalizeMuscleGroup(group)) : "leve";
+  // Safety classification uses regions (e.g. deltoids -> shoulder), never categories.
+  const slug = normalizeMuscleGroup(group);
+  const safetyRegion = slug?.startsWith("deltoide_") ? "ombro" : slug || "";
+  const painSeverity = input ? classifyPainSeverity(input, safetyRegion) : "leve";
   const painFactor = painSeverity === "severa" ? 0.5 : painSeverity === "moderada" ? 0.67 : 1;
   const rawMev = base.mev * smallFactor * objectiveFactor * enduranceFactor * painFactor;
   const rawMav = base.mavMax * smallFactor * objectiveFactor * enduranceFactor * painFactor;
@@ -129,7 +112,9 @@ export function countWeeklySets(program: Pick<TrainingProgram, "workouts">) {
   for (const workout of program.workouts || []) {
     for (const exercise of workout.exercises || []) {
       for (const [group, factor] of exerciseGroupFactors(exercise)) {
-        const contribution = Number(exercise.sets || 0) * factor;
+        const sets = Number(exercise.sets || 0);
+        if (!Number.isFinite(sets) || sets <= 0) continue;
+        const contribution = sets * factor;
         out.set(group, (out.get(group) || 0) + contribution);
       }
     }
@@ -137,19 +122,25 @@ export function countWeeklySets(program: Pick<TrainingProgram, "workouts">) {
   return out;
 }
 
-function exerciseGroupFactors(exercise: TrainingWorkout["exercises"][number]) {
-  const explicitTargets = exercise.targets?.filter((target) =>
-    target.role === "primary" || target.role === "secondary" || target.volume_percentage !== null && target.volume_percentage !== undefined
-  );
-  const targets = explicitTargets?.length
-    ? explicitTargets
-    : [{ muscle_group: exercise.muscle_group, role: "primary", volume_percentage: 1 }];
+export function exerciseGroupFactors(exercise: {
+  muscle_group?: string | null;
+  targets?: Array<{ muscle_group: string; role?: string | null; is_primary?: boolean | null; volume_percentage?: number | null }>;
+}) {
+  const targets = exercise.targets || [];
   const factors = new Map<string, number>();
   for (const target of targets) {
     const group = normalizeMuscleGroup(target.muscle_group);
+    if (!group) continue;
+    // Older plan JSON may list anatomical hints without a role. Keep the
+    // explicit legacy primary group as fallback instead of inventing roles.
+    if (!target.role && typeof target.is_primary !== "boolean") continue;
     // Parent/child aliases that collapse to the same reporting group represent
     // one exposure for the set, not two independent sets.
     factors.set(group, Math.max(factors.get(group) || 0, targetVolumeFactor(target)));
+  }
+  if (!factors.size) {
+    const group = normalizeMuscleGroup(exercise.muscle_group);
+    if (group) factors.set(group, 1);
   }
   return factors;
 }

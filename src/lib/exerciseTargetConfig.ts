@@ -1,3 +1,5 @@
+import { buildExerciseTargetRows } from "@/lib/exerciseTaxonomy";
+
 export interface ExerciseTargetPayload {
   muscle_group_id: string;
   role: "primary" | "secondary";
@@ -16,24 +18,7 @@ export function buildExerciseTargetPayload(
   primaryMuscleIds: string[],
   secondaryMuscleIds: string[],
 ): ExerciseTargetPayload[] {
-  const primary = [...new Set(primaryMuscleIds.filter(Boolean))];
-  const primarySet = new Set(primary);
-  const secondary = [...new Set(secondaryMuscleIds.filter((id) => id && !primarySet.has(id)))];
-  if (primary.length === 0) throw new Error("Selecione ao menos um grupamento primário.");
-  return [
-    ...primary.map((muscle_group_id) => ({
-      muscle_group_id,
-      role: "primary" as const,
-      is_primary: true,
-      volume_percentage: 100,
-    })),
-    ...secondary.map((muscle_group_id) => ({
-      muscle_group_id,
-      role: "secondary" as const,
-      is_primary: false,
-      volume_percentage: 50,
-    })),
-  ];
+  return buildExerciseTargetRows(primaryMuscleIds, secondaryMuscleIds);
 }
 
 export async function replaceExerciseMuscleTargets(

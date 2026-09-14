@@ -12,6 +12,7 @@ import { buildStudentChatMap, openStudentChat, birthdayMessage } from "@/lib/stu
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { FUNNEL_STAGE_META, normalizeSalesStage, stageNextAction } from "@/lib/salesFunnelView";
 import { fiscalRegistrationValidation } from "@/lib/fiscalRegistration";
+import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 
 interface Birthday { full_name: string; birth_date: string; student_id: string; isToday: boolean; day: number; }
 interface MissingWorkout { student_name: string; student_id: string; cycle_number: number; cycle_id: string; start_date: string; end_date: string; trainer_name?: string; }
@@ -56,6 +57,7 @@ interface AlertsData {
 interface Props {
   trainerId?: string;
   compact?: boolean;
+  readOnly?: boolean;
 }
 
 async function fetchAlerts(
@@ -241,7 +243,7 @@ async function fetchAlerts(
   return { birthdays, missingWorkouts, awaitingTrainer, awaitingTrainingDate, missingEnrollment, incompleteBilling, recentStudents };
 }
 
-export function DashboardAlerts({ trainerId, compact = false }: Props) {
+export function DashboardAlerts({ trainerId, compact = false, readOnly = false }: Props) {
   const { role, companyId, user } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const navigate = useNavigate();
@@ -249,14 +251,17 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
   const routePrefix = role === "master" && isViewingCompany ? "admin" : role;
   const safeRoutePrefix = (routePrefix as string) || "admin";
+  const snapshot = useDashboardSnapshot();
+  const snapshotAlerts = readOnly ? snapshot?.alerts : null;
 
-  const { data } = useQuery({
+  const { data: queriedAlerts } = useQuery({
     queryKey: ["dashboard-alerts", trainerId ?? "all", effectiveCompanyId ?? "all"],
     queryFn: () => fetchAlerts(trainerId, effectiveCompanyId),
     staleTime: 60_000,
+    enabled: !readOnly,
   });
 
-  const { data: pendingActions = [] } = useQuery({
+  const { data: queriedPendingActions = [] } = useQuery({
     queryKey: ["admin-alerts", effectiveCompanyId ?? "all", user?.id ?? "anon"],
     queryFn: async () => {
       let q = supabase.from("admin_alerts" as any)
@@ -269,7 +274,7 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
       return (data as any[]) || [];
     },
     staleTime: 30_000,
-    enabled: !!user?.id,
+    enabled: !readOnly && !!user?.id,
   });
 
   const resolveAlert = async (id: string) => {
@@ -277,23 +282,31 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
     queryClient.invalidateQueries({ queryKey: ["admin-alerts"] });
   };
 
-  const birthdays = data?.birthdays ?? [];
-  const missingWorkouts = data?.missingWorkouts ?? [];
-  const awaitingTrainer = data?.awaitingTrainer ?? [];
-  const awaitingTrainingDate = data?.awaitingTrainingDate ?? [];
-  const missingEnrollment = data?.missingEnrollment ?? [];
-  const incompleteBilling = data?.incompleteBilling ?? [];
-  const recentStudents = data?.recentStudents ?? [];
+  const alerts = readOnly ? snapshotAlerts : queriedAlerts;
+  const pendingActions = readOnly ? (snapshotAlerts?.pendingActions ?? []) : queriedPendingActions;
+  const birthdays = alerts?.birthdays ?? [];
+  const missingWorkouts = alerts?.missingWorkouts ?? [];
+  const awaitingTrainer = alerts?.awaitingTrainer ?? [];
+  const awaitingTrainingDate = alerts?.awaitingTrainingDate ?? [];
+  const missingEnrollment = alerts?.missingEnrollment ?? [];
+  const incompleteBilling = alerts?.incompleteBilling ?? [];
+  const recentStudents = alerts?.recentStudents ?? [];
 
-  const goToStudent = (studentId: string) => navigate(`/${safeRoutePrefix}/students/${studentId}`);
+  const navigateWhenInteractive = (target: string) => {
+    if (readOnly) return;
+    navigate(target);
+  };
+  const goToStudent = (studentId: string) => navigateWhenInteractive(`/${safeRoutePrefix}/students/${studentId}`);
 
   // Mapa aluno→conversa para o botão de mensagem de aniversário (abre o chat com a mensagem pronta).
   const { data: studentChatMap } = useQuery({
     queryKey: ["student-chat-map", effectiveCompanyId ?? "all"],
     queryFn: () => buildStudentChatMap(effectiveCompanyId),
     staleTime: 60_000,
+    enabled: !readOnly,
   });
   const sendBirthday = (studentId: string, fullName: string) => {
+    if (readOnly) return;
     void openStudentChat({
       navigate,
       routePrefix: safeRoutePrefix,
@@ -317,7 +330,7 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
         label: "Ação",
         title: a.title,
         subtitle: a.message || "Pendência administrativa ou técnica.",
-        action: () => a.action_url ? navigate(a.action_url) : a.student_id && goToStudent(a.student_id),
+        action: () => a.action_url ? navigateWhenInteractive(a.action_url) : a.student_id && goToStudent(a.student_id),
         resolveId: a.id,
       })),
       ...awaitingTrainer.map((a, i) => ({
@@ -425,19 +438,19 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {visibleItems.map((item) => (
               <div key={item.key} className={`flex items-center justify-between gap-3 rounded-lg border p-2 ${toneClass[item.tone] || toneClass.neutral}`}>
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={item.action}>
+                <button type="button" disabled={readOnly} className="min-w-0 flex-1 text-left disabled:cursor-default" onClick={item.action}>
                   <div className="flex items-center gap-2">
                     <span className="shrink-0 rounded bg-background/70 px-1.5 py-0.5 text-[11px] font-sans">{item.label}</span>
                     <p className="truncate text-sm font-medium text-foreground font-sans">{item.title}</p>
                   </div>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground font-sans">{item.subtitle}</p>
                 </button>
-                {item.resolveId && (
+                {item.resolveId && !readOnly && (
                   <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => resolveAlert(item.resolveId)}>
                     <Check className="h-4 w-4" />
                   </Button>
                 )}
-                {item.birthday && (
+                {item.birthday && !readOnly && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -488,14 +501,16 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
                     <button
                       type="button"
                       className="flex-1 text-left min-w-0"
-                      onClick={() => a.action_url ? navigate(a.action_url) : a.student_id && goToStudent(a.student_id)}
+                      onClick={() => a.action_url ? navigateWhenInteractive(a.action_url) : a.student_id && goToStudent(a.student_id)}
                     >
                       <p className="text-sm font-sans text-foreground font-medium truncate">{a.title}</p>
                       {a.message && <p className="text-xs text-muted-foreground font-sans line-clamp-2">{a.message}</p>}
                     </button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={(e) => { e.stopPropagation(); resolveAlert(a.id); }}>
-                      <Check className="h-4 w-4" />
-                    </Button>
+                    {!readOnly && (
+                      <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={(e) => { e.stopPropagation(); resolveAlert(a.id); }}>
+                        <Check className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 );
               })}
@@ -568,7 +583,7 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
                 size="sm"
                 variant="ghost"
                 className="ml-auto h-7 px-2 text-xs"
-                onClick={() => navigate(`/${safeRoutePrefix}/registration`)}
+                onClick={() => navigateWhenInteractive(`/${safeRoutePrefix}/registration`)}
               >
                 Ver esteira
               </Button>
@@ -683,14 +698,16 @@ export function DashboardAlerts({ trainerId, compact = false }: Props) {
                       {b.isToday ? "🎉 Hoje!" : `dia ${b.day}`}
                     </span>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 px-2 text-xs shrink-0 border-primary/40 text-primary hover:bg-primary/5"
-                    onClick={(e) => { e.stopPropagation(); sendBirthday(b.student_id, b.full_name); }}
-                  >
-                    <MessageCircle className="h-3.5 w-3.5 mr-1" /> Mensagem
-                  </Button>
+                  {!readOnly && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs shrink-0 border-primary/40 text-primary hover:bg-primary/5"
+                      onClick={(e) => { e.stopPropagation(); sendBirthday(b.student_id, b.full_name); }}
+                    >
+                      <MessageCircle className="h-3.5 w-3.5 mr-1" /> Mensagem
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>

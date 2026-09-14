@@ -3,7 +3,11 @@ import {
   providerErrorDetails,
   sanitizeProviderErrorForLog,
 } from "../_shared/provider-error-redaction.ts";
-import { evolutionTextRecipient, resolveVerifiedWhatsAppRecipient } from "../_shared/whatsappIdentity.ts";
+import {
+  evolutionTextRecipient,
+  resolveVerifiedWhatsAppRecipient,
+  sameWhatsAppRecipient,
+} from "../_shared/whatsappIdentity.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -15,6 +19,32 @@ type FlowSession = {
   current_node_id: string;
   context: Record<string, unknown> | null;
 };
+
+export const PERMANENT_WEEKLY_CONTACT_ERROR_CODES = new Set([
+  "weekly_contact_consent_missing",
+  "weekly_contact_queued_recipient_changed",
+  "weekly_contact_recipient_missing",
+  "weekly_contact_recipient_ambiguous",
+  "weekly_contact_recipient_mismatch",
+]);
+
+function queuedWeeklyRecipientGeneration(context: Record<string, unknown> | null) {
+  const generation = Number(context?.recipient_generation);
+  if (!Number.isSafeInteger(generation) || generation <= 0) {
+    throw new Error("weekly_contact_queued_recipient_changed");
+  }
+  return generation;
+}
+
+function weeklyRecipientResolutionError(code: string) {
+  if (code === "whatsapp_student_phone_ambiguous") {
+    return new Error("weekly_contact_recipient_ambiguous");
+  }
+  if (code === "whatsapp_student_phone_missing" || code === "whatsapp_student_not_found") {
+    return new Error("weekly_contact_recipient_missing");
+  }
+  return new Error("weekly_contact_recipient_mismatch");
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
@@ -64,6 +94,100 @@ function providerSendCode(status: number) {
   if (status === 408 || status === 429) return "whatsapp_provider_busy";
   if (status === 400 || status === 404) return "whatsapp_recipient_rejected";
   return "whatsapp_provider_failure";
+}
+
+async function assertCurrentWeeklyContactConsent(
+  admin: any,
+  context: Record<string, unknown> | null,
+  studentId: string,
+  companyId: string,
+  verifiedRemoteJid: string,
+) {
+  if (context?.trigger_type !== "weekly_contact") return;
+  const queuedRecipientGeneration = queuedWeeklyRecipientGeneration(context);
+  const consent = await admin.rpc("weekly_contact_consent_is_current", {
+    _student_id: studentId,
+    _company_id: companyId,
+    _recipient_candidate: verifiedRemoteJid,
+    _recipient_generation: queuedRecipientGeneration,
+  });
+  if (consent.error) {
+    throw new Error("weekly_contact_consent_check_failed");
+  }
+  if (consent.data !== true) {
+    throw new Error("weekly_contact_consent_missing");
+  }
+}
+
+function assertQueuedWeeklyRecipient(
+  context: Record<string, unknown> | null,
+  verifiedRemoteJid: string,
+) {
+  if (context?.trigger_type !== "weekly_contact") return;
+  queuedWeeklyRecipientGeneration(context);
+  const queuedRecipient = String(context.recipient_candidate || "").trim();
+  if (!queuedRecipient || !sameWhatsAppRecipient(queuedRecipient, verifiedRemoteJid)) {
+    throw new Error("weekly_contact_queued_recipient_changed");
+  }
+}
+
+async function resolveCurrentSessionRecipient(
+  admin: any,
+  chatId: string,
+  companyId: string,
+  expectedStudentId: string,
+  context: Record<string, unknown> | null,
+) {
+  const isWeeklyContact = context?.trigger_type === "weekly_contact";
+  if (isWeeklyContact) queuedWeeklyRecipientGeneration(context);
+  const chatResult = await admin.from("whatsapp_chats")
+    .select("id, company_id, instance_id, remote_jid, student_id")
+    .eq("id", chatId)
+    .eq("company_id", companyId)
+    .single();
+  if (chatResult.error) throw chatResult.error;
+  if (!chatResult.data?.remote_jid) throw new Error("weekly_contact_recipient_missing");
+  const currentChat = chatResult.data;
+  let student: { id: string; phone: string | null; whatsapp: string | null; country_code?: unknown } | null = null;
+  if (expectedStudentId) {
+    const studentResult = await admin.from("students")
+      .select(isWeeklyContact ? "id, phone, whatsapp" : "id, phone, whatsapp, country_code")
+      .eq("id", expectedStudentId)
+      .eq("company_id", companyId)
+      .maybeSingle();
+    if (studentResult.error) throw studentResult.error;
+    student = isWeeklyContact && studentResult.data
+      ? { ...studentResult.data, country_code: context?.recipient_country_code }
+      : studentResult.data;
+  }
+  const verifiedRecipient = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: currentChat.remote_jid,
+    chatRemoteJid: currentChat.remote_jid,
+    chatStudentId: currentChat.student_id,
+    requestedStudentId: expectedStudentId,
+    student,
+  });
+  if (!verifiedRecipient.ok) {
+    throw weeklyRecipientResolutionError(verifiedRecipient.code);
+  }
+  return verifiedRecipient.remoteJid;
+}
+
+async function verifyWeeklyRecipientImmediatelyBeforeSend(
+  admin: any,
+  context: Record<string, unknown>,
+  chatId: string,
+  studentId: string,
+  companyId: string,
+) {
+  const verifiedRemoteJid = await resolveCurrentSessionRecipient(
+    admin,chatId,companyId,studentId,context,
+  );
+  assertQueuedWeeklyRecipient(context,verifiedRemoteJid);
+  await assertCurrentWeeklyContactConsent(
+    admin,context,studentId,companyId,verifiedRemoteJid,
+  );
+  return verifiedRemoteJid;
 }
 
 async function sendText(args: {
@@ -262,23 +386,31 @@ async function applyLabel(admin: any, companyId: string, chatId: string, labelNa
 }
 
 export async function processSession(admin: any, session: FlowSession, provider: { url: string; key: string }) {
+  const isWeeklyContact = session.context?.trigger_type === "weekly_contact";
+  if (isWeeklyContact) queuedWeeklyRecipientGeneration(session.context);
   const chatResult = await admin.from("whatsapp_chats")
     .select("id, company_id, instance_id, remote_jid, student_id")
     .eq("id", session.chat_id).single();
-  if (chatResult.error || !chatResult.data) throw new Error("Conversa da automação não encontrada.");
+  if (chatResult.error) throw chatResult.error;
+  if (!chatResult.data) throw new Error("weekly_contact_recipient_missing");
   const chat = chatResult.data;
-  if (!chat.remote_jid) throw new Error("Conversa sem número remoto.");
+  if (!chat.remote_jid) throw new Error("weekly_contact_recipient_missing");
   const expectedStudentId = String(session.context?.student_id || "").trim();
   const identityStudentId = expectedStudentId || chat.student_id || "";
-  let student: { id: string; phone: string | null; whatsapp: string | null; country_code: string | null } | null = null;
+  if (session.context?.trigger_type === "weekly_contact" && !identityStudentId) {
+    throw new Error("weekly_contact_recipient_missing");
+  }
+  let student: { id: string; phone: string | null; whatsapp: string | null; country_code?: unknown } | null = null;
   if (identityStudentId) {
     const studentResult = await admin.from("students")
-      .select("id, phone, whatsapp, country_code")
+      .select(isWeeklyContact ? "id, phone, whatsapp" : "id, phone, whatsapp, country_code")
       .eq("id", identityStudentId)
       .eq("company_id", chat.company_id)
       .maybeSingle();
     if (studentResult.error) throw studentResult.error;
-    student = studentResult.data;
+    student = isWeeklyContact && studentResult.data
+      ? { ...studentResult.data, country_code: session.context?.recipient_country_code }
+      : studentResult.data;
   }
   const verifiedRecipient = resolveVerifiedWhatsAppRecipient({
     clientRemoteJid: chat.remote_jid,
@@ -288,9 +420,13 @@ export async function processSession(admin: any, session: FlowSession, provider:
     student,
   });
   if (!verifiedRecipient.ok) {
-    throw new Error(`Identidade do destinatário não confirmada (${verifiedRecipient.code}); envio automático bloqueado para revisão.`);
+    throw weeklyRecipientResolutionError(verifiedRecipient.code);
   }
   const verifiedRemoteJid = verifiedRecipient.remoteJid;
+  assertQueuedWeeklyRecipient(session.context,verifiedRemoteJid);
+  await assertCurrentWeeklyContactConsent(
+    admin,session.context,identityStudentId,chat.company_id,verifiedRemoteJid,
+  );
 
   let instanceQuery = admin.from("whatsapp_instances")
     .select("instance_name, status")
@@ -340,12 +476,15 @@ export async function processSession(admin: any, session: FlowSession, provider:
       let message = replaceVariables(nodeData.message || node.label || "", context);
       if (context.trigger_type === "weekly_contact") message = weeklyContactMessage(context);
       if (message.trim()) {
+        const currentVerifiedRemoteJid = await verifyWeeklyRecipientImmediatelyBeforeSend(
+          admin,context,chat.id,identityStudentId,chat.company_id,
+        );
         await sendText({
           admin,
           evoUrl: provider.url,
           evoKey: provider.key,
           instanceName: instance.instance_name,
-          remoteJid: verifiedRemoteJid,
+          remoteJid: currentVerifiedRemoteJid,
           chatId: chat.id,
           companyId: chat.company_id,
           text: message.trim(),
@@ -373,12 +512,15 @@ export async function processSession(admin: any, session: FlowSession, provider:
       if (options.length) {
         message += `\n\n${options.map((option: any) => `${option.number}. ${replaceVariables(option.text || "", context)}`).join("\n")}`;
       }
+      const currentVerifiedRemoteJid = await verifyWeeklyRecipientImmediatelyBeforeSend(
+        admin,context,chat.id,identityStudentId,chat.company_id,
+      );
       await sendText({
         admin,
         evoUrl: provider.url,
         evoKey: provider.key,
         instanceName: instance.instance_name,
-        remoteJid: verifiedRemoteJid,
+        remoteJid: currentVerifiedRemoteJid,
         chatId: chat.id,
         companyId: chat.company_id,
         text: message.trim(),
@@ -424,7 +566,10 @@ export async function processSession(admin: any, session: FlowSession, provider:
   return "completed";
 }
 
-export async function handleAutomationRequest(request: Request) {
+export async function handleAutomationRequest(
+  request: Request,
+  overrides: { admin?: any } = {},
+) {
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
   const expectedSecret = Deno.env.get("AUTOMATION_CRON_SECRET") || "";
   const suppliedSecret = request.headers.get("x-cron-secret") || "";
@@ -436,7 +581,7 @@ export async function handleAutomationRequest(request: Request) {
   const evolutionUrl = (Deno.env.get("EVOLUTION_API_URL") || "").replace(/\/$/, "");
   const evolutionKey = Deno.env.get("EVOLUTION_API_KEY") || "";
   if (!supabaseUrl || !serviceKey) return json({ error: "Supabase service configuration missing" }, 503);
-  const admin = createClient(supabaseUrl, serviceKey);
+  const admin = overrides.admin ?? createClient(supabaseUrl, serviceKey);
 
   const triggerResult = await admin.rpc("process_automation_triggers");
   if (triggerResult.error) console.error("automation trigger scan failed", triggerResult.error.message);
@@ -474,12 +619,30 @@ export async function handleAutomationRequest(request: Request) {
       else waiting += 1;
     } catch (error) {
       failed += 1;
+      const errorCode = error instanceof Error ? error.message : "Unknown dispatcher error";
+      if (
+        session.context?.trigger_type === "weekly_contact" &&
+        PERMANENT_WEEKLY_CONTACT_ERROR_CODES.has(errorCode)
+      ) {
+        const context: Record<string, unknown> = {
+          ...(session.context || {}),
+          dispatch_error: errorCode,
+          next_dispatch_at: null,
+        };
+        delete context.dispatch_retries;
+        await admin.from("flow_sessions").update({
+          status: "failed",
+          context,
+          updated_at: new Date().toISOString(),
+        }).eq("id", session.id);
+        continue;
+      }
       const previousRetries = Number(session.context?.dispatch_retries || 0);
       const retryMinutes = Math.min(360, Math.max(5, 2 ** Math.min(previousRetries, 8)));
       const context = {
         ...(session.context || {}),
         dispatch_retries: previousRetries + 1,
-        dispatch_error: error instanceof Error ? error.message.slice(0, 300) : "Unknown dispatcher error",
+        dispatch_error: errorCode.slice(0, 300),
         next_dispatch_at: new Date(Date.now() + retryMinutes * 60 * 1000).toISOString(),
       };
       await admin.from("flow_sessions").update({ status: "active", context, updated_at: new Date().toISOString() }).eq("id", session.id);
@@ -489,4 +652,4 @@ export async function handleAutomationRequest(request: Request) {
   return json({ claimed: sessions.length, completed, waiting, failed, intercycle, triggers: triggerResult.data || null });
 }
 
-if (import.meta.main) Deno.serve(handleAutomationRequest);
+if (import.meta.main) Deno.serve((request) => handleAutomationRequest(request));

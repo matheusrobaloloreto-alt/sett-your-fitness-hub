@@ -1,5 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { canonicalMuscleSlug, normalizeExerciseCategories } from "../_shared/exerciseTaxonomy.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+import { canonicalCatalogTargets } from "../_shared/prescription/catalogVolume.ts";
+import { fetchExerciseRelations } from "../_shared/prescription/catalogRows.ts";
 
 type Modality =
   | "strength"
@@ -32,6 +36,7 @@ interface ExerciseCatalogEntry {
   name: string;
   description: string | null;
   muscle_group: string | null;
+  categories?: string[];
   is_global: boolean;
   targets: Array<{
     muscle_group: string;
@@ -231,7 +236,7 @@ async function loadStrengthCatalog(auth: AuthContext): Promise<StrengthCatalog> 
   for (let from = 0; ; from += CATALOG_PAGE_SIZE) {
     const { data: page, error: exerciseError } = await supabase
       .from("exercise_library")
-      .select("id, name, description, muscle_group, is_global, company_id")
+      .select("id, name, description, muscle_group, categories, is_global, company_id")
       .order("muscle_group", { ascending: true })
       .order("name", { ascending: true })
       .range(from, from + CATALOG_PAGE_SIZE - 1);
@@ -245,21 +250,16 @@ async function loadStrengthCatalog(auth: AuthContext): Promise<StrengthCatalog> 
   }
   const exerciseIds = exerciseRows.map((exercise) => exercise.id as string).filter(Boolean);
 
-  const [targetsResult, groupsResult, overridesResult] = await Promise.all([
+  const [targetsResult, groupsResult] = await Promise.all([
     exerciseIds.length
-      ? supabase
-          .from("exercise_muscle_targets")
-          .select("exercise_id, muscle_group_id, role, volume_percentage")
-          .in("exercise_id", exerciseIds)
+      ? fetchExerciseRelations({
+          supabase,
+          table: "exercise_muscle_targets",
+          columns: "exercise_id, muscle_group_id, role, is_primary, volume_percentage",
+          exerciseIds,
+        })
       : Promise.resolve({ data: [], error: null }),
     supabase.from("muscle_groups").select("id, name"),
-    companyId && exerciseIds.length
-      ? supabase
-          .from("company_exercise_volumes")
-          .select("exercise_id, muscle_group_id, volume_percentage")
-          .eq("company_id", companyId)
-          .in("exercise_id", exerciseIds)
-      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (targetsResult.error) {
@@ -268,21 +268,10 @@ async function loadStrengthCatalog(auth: AuthContext): Promise<StrengthCatalog> 
   if (groupsResult.error) {
     throw new Error(`Falha ao carregar grupos musculares: ${groupsResult.error.message}`);
   }
-  if (overridesResult.error) {
-    throw new Error(`Falha ao carregar volumes da empresa: ${overridesResult.error.message}`);
-  }
 
   const groupNames = new Map<string, string>();
   for (const group of groupsResult.data ?? []) {
     groupNames.set(group.id as string, group.name as string);
-  }
-
-  const volumeOverrides = new Map<string, number>();
-  for (const override of overridesResult.data ?? []) {
-    volumeOverrides.set(
-      `${override.exercise_id as string}:${override.muscle_group_id as string}`,
-      override.volume_percentage as number,
-    );
   }
 
   const targetsByExercise = new Map<string, ExerciseCatalogEntry["targets"]>();
@@ -292,10 +281,8 @@ async function loadStrengthCatalog(auth: AuthContext): Promise<StrengthCatalog> 
     const currentTargets = targetsByExercise.get(exerciseId) ?? [];
     currentTargets.push({
       muscle_group: groupNames.get(muscleGroupId) ?? muscleGroupId,
-      role: (target.role as string | null) ?? null,
-      volume_percentage:
-        volumeOverrides.get(`${exerciseId}:${muscleGroupId}`) ??
-        ((target.volume_percentage as number | null) ?? null),
+      role: (target.role as string | null) ?? (target.is_primary ? "primary" : "secondary"),
+      volume_percentage: (target.role === "primary" || (!target.role && target.is_primary)) ? 100 : 50,
     });
     targetsByExercise.set(exerciseId, currentTargets);
   }
@@ -307,9 +294,10 @@ async function loadStrengthCatalog(auth: AuthContext): Promise<StrengthCatalog> 
       id: exercise.id as string,
       name: exercise.name as string,
       description: (exercise.description as string | null) ?? null,
-      muscle_group: (exercise.muscle_group as string | null) ?? null,
+      muscle_group: canonicalMuscleSlug(exercise.muscle_group),
+      categories: normalizeExerciseCategories(exercise),
       is_global: Boolean(exercise.is_global),
-      targets: targetsByExercise.get(exercise.id as string) ?? [],
+      targets: canonicalCatalogTargets(targetsByExercise.get(exercise.id as string) ?? []),
     })),
   };
 }
@@ -319,6 +307,7 @@ function formatStrengthCatalog(catalog: StrengthCatalog) {
     id: exercise.id,
     name: exercise.name,
     group: exercise.muscle_group ?? "nao_informado",
+    categories: exercise.categories || [],
     targets: exercise.targets
       .map((target) =>
         [

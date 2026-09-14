@@ -2,14 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 import { buildExerciseTargetPayload, replaceExerciseMuscleTargets } from "./exerciseTargetConfig";
 
 describe("buildExerciseTargetPayload", () => {
-  it("keeps role and is_primary coherent for primary and secondary targets", () => {
+  it("keeps fixed role/is_primary and volume for primary and secondary targets", () => {
     expect(buildExerciseTargetPayload(["chest"], ["chest", "triceps"])).toEqual([
       { muscle_group_id: "chest", role: "primary", is_primary: true, volume_percentage: 100 },
       { muscle_group_id: "triceps", role: "secondary", is_primary: false, volume_percentage: 50 },
     ]);
   });
 
-  it("fails closed without a primary target", () => {
+  it("permite exercício apenas categorizado sem alvos de volume", () => {
+    expect(buildExerciseTargetPayload([], [])).toEqual([]);
+  });
+
+  it("fails closed when secondary targets exist without a primary target", () => {
     expect(() => buildExerciseTargetPayload([], ["triceps"])).toThrow(/primário/);
   });
 });

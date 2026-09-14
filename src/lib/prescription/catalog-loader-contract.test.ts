@@ -62,4 +62,10 @@ describe("ORDEM 044 — contrato do loader de catálogo (estático)", () => {
     expect(src).toMatch(/exerciseRows\.push\(\.\.\.page\)/);
     expect(src).toMatch(/page\.length\s*<\s*CATALOG_PAGE_SIZE/);
   });
+
+  it("exclui linhas sem grupo/alvo antes de expor catálogo ao motor e ao fallback", () => {
+    expect(src).toMatch(/\.filter\(isPrescriptionCatalogEligible\)/);
+    expect(src).toMatch(/prescription_catalog_unclassified_excluded/);
+    expect(src).toMatch(/total:\s*exercises\.length/);
+  });
 });

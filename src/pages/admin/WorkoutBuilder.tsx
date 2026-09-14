@@ -32,7 +32,8 @@ import { useMaster } from "@/contexts/MasterContext";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
 import type { PreRegistrationData } from "@/lib/preRegistration";
-import { saveCycleWorkoutRevision } from "@/lib/workoutRevision";
+import { saveCycleWorkoutRevision, WorkoutRevisionConflictError } from "@/lib/workoutRevision";
+import { calculateWeeklyMuscleVolume } from "@/lib/workoutVolume";
 import {
   buildWorkoutTemplateDraft,
   hasEditableWorkoutContent,
@@ -44,7 +45,6 @@ import {
   hasBlockingSaveIssue,
   issueFromPrescriptionValidationFailure,
   issuesFromPrescriptionValidation,
-  mergeSavedWorkoutIdsAfterSave,
   resolveWorkoutSaveDraft,
   type WorkoutSaveIssue,
   type WorkoutSaveRepair,
@@ -147,6 +147,7 @@ interface MuscleTarget {
   exercise_id: string;
   muscle_group_id: string;
   role: string;
+  is_primary?: boolean | null;
   volume_percentage: number;
 }
 
@@ -177,6 +178,57 @@ type CycleInfo = {
   student_id: string;
   company_id: string;
   gender?: "male" | "female";
+};
+
+const mapWorkoutRows = (rows: any[]): Workout[] => sanitizeWorkoutSetTypes(rows.map((workout) => ({
+  id: workout.id,
+  updated_at: workout.updated_at,
+  day_of_week: workout.day_of_week,
+  title: workout.title,
+  description: workout.description || "",
+  exercises: (workout.exercises as WorkoutExercise[]) || [],
+})));
+
+const workoutRevisionPayload = (draft: Workout[]) => sanitizeWorkoutSetTypes(draft).map((workout, workoutIndex) => ({
+  title: workout.title || `Treino ${WORKOUT_LABELS[workoutIndex] || workoutIndex + 1}`,
+  description: workout.description || null,
+  day_of_week: workout.day_of_week ?? workoutIndex + 1,
+  exercises: workout.exercises as unknown[],
+}));
+
+const workoutRevisionRows = (draft: Workout[]) => draft
+  .filter((workout): workout is Workout & { id: string; updated_at: string } => Boolean(workout.id && workout.updated_at))
+  .map((workout) => ({ id: workout.id, updated_at: workout.updated_at }));
+
+const workoutsWithSavedRows = (
+  draft: Workout[],
+  saved: { workoutIds: string[]; workoutRows: Array<{ id: string; updated_at: string }> },
+) => draft.map((workout, index) => ({
+  ...workout,
+  id: saved.workoutRows[index]?.id || saved.workoutIds[index],
+  updated_at: saved.workoutRows[index]?.updated_at || undefined,
+}));
+
+
+const SUPABASE_PAGE_SIZE = 1000;
+
+async function fetchAllPages<T>(queryFactory: () => any, pageSize = SUPABASE_PAGE_SIZE): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await queryFactory().range(from, from + pageSize - 1);
+    if (error) throw error;
+    rows.push(...((data || []) as T[]));
+    if (!data || data.length < pageSize) break;
+  }
+  return rows;
+}
+
+const workoutExerciseCount = (workout: Workout) => workout.exercises?.length || 0;
+
+const workoutConflictLine = (workout: Workout, index: number) => {
+  const label = workout.title || `Treino ${WORKOUT_LABELS[index] || index + 1}`;
+  const exerciseCount = workoutExerciseCount(workout);
+  return `${label}: ${exerciseCount} exercício${exerciseCount === 1 ? "" : "s"}`;
 };
 
 const useMuscleGroups = () => {
@@ -210,6 +262,7 @@ export default function WorkoutBuilder() {
   const [templateName, setTemplateName] = useState("");
 
   const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [workoutRevisionSnapshot, setWorkoutRevisionSnapshot] = useState<Array<{ id: string; updated_at: string }>>([]);
   const [activeTab, setActiveTab] = useState("0");
   const [saving, setSaving] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -297,6 +350,7 @@ export default function WorkoutBuilder() {
   const [saveIssues, setSaveIssues] = useState<WorkoutSaveIssue[]>([]);
   const [saveRepairs, setSaveRepairs] = useState<WorkoutSaveRepair[]>([]);
   const [notifyingStudent, setNotifyingStudent] = useState(false);
+  const [revisionConflict, setRevisionConflict] = useState<{ draft: Workout[]; latest: Workout[] } | null>(null);
 
   // Muscle targets for all exercises in library (cached)
   const [muscleTargets, setMuscleTargets] = useState<MuscleTarget[]>([]);
@@ -332,6 +386,7 @@ export default function WorkoutBuilder() {
 
   useEffect(() => {
     if (isTemplate) {
+      setWorkoutRevisionSnapshot([]);
       if (tplId && tplId !== "new") loadTemplate(tplId);
       else setWorkouts([{ title: "Treino A", description: "", exercises: [] }]);
     } else if (cycleId) {
@@ -353,6 +408,7 @@ export default function WorkoutBuilder() {
     if (data) {
       setTemplateName(data.name || "");
       const ws = Array.isArray(data.workouts) ? data.workouts : [];
+      setWorkoutRevisionSnapshot([]);
       setWorkouts(ws.length ? sanitizeWorkoutSetTypes(ws) : [{ title: "Treino A", description: "", exercises: [] }]);
     }
   };
@@ -441,36 +497,39 @@ export default function WorkoutBuilder() {
     }
   };
 
-  const loadExisting = async () => {
-    const { data } = await supabase
+  const fetchExistingWorkouts = async (): Promise<Workout[]> => {
+    const { data, error } = await supabase
       .from("workouts")
       .select("*")
       .eq("cycle_id", cycleId!)
       .is("superseded_at", null)
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
-    
-    if (data && data.length > 0) {
-      setWorkouts(sanitizeWorkoutSetTypes(data.map(w => ({
-        id: w.id,
-        updated_at: w.updated_at,
-        day_of_week: w.day_of_week,
-        title: w.title,
-        description: w.description || "",
-        exercises: (w.exercises as unknown as WorkoutExercise[]) || [],
-      }))));
-    } else {
-      // Start with one empty workout
-      setWorkouts([{ title: "Treino A", description: "", exercises: [] }]);
+    if (error) throw error;
+    return data?.length ? mapWorkoutRows(data) : [{ title: "Treino A", description: "", exercises: [] }];
+  };
+
+  const loadExisting = async () => {
+    try {
+      const loaded = await fetchExistingWorkouts();
+      setWorkouts(loaded);
+      setWorkoutRevisionSnapshot(workoutRevisionRows(loaded));
+    } catch (error) {
+      toast({
+        title: "Erro ao carregar treino",
+        description: error instanceof Error ? error.message : "Não foi possível carregar a versão atual.",
+        variant: "destructive",
+      });
     }
   };
 
   const loadLibrary = async () => {
-    const { data } = await supabase
+    const data = await fetchAllPages<Exercise>(() => supabase
       .from("exercise_library")
       .select("id, company_id, is_global, name, muscle_group, category, categories, body_regions, video_url, video_path, description, thumbnail_url, youtube_video_id")
       .order("muscle_group")
-      .order("name");
+      .order("name")
+      .order("id"));
     setLibraryExercises(((data || []) as unknown as Exercise[]).map((exercise) => ({
       ...exercise,
       body_regions: exercise.body_regions ?? null,
@@ -479,9 +538,11 @@ export default function WorkoutBuilder() {
   };
 
   const loadMuscleTargets = async () => {
-    const { data } = await (supabase as any)
+    const data = await fetchAllPages<MuscleTarget>(() => (supabase as any)
       .from("exercise_muscle_targets")
-      .select("exercise_id, muscle_group_id, role, volume_percentage");
+      .select("exercise_id, muscle_group_id, role, is_primary, volume_percentage")
+      .order("exercise_id")
+      .order("muscle_group_id"));
     setMuscleTargets((data as MuscleTarget[]) || []);
   };
 
@@ -795,35 +856,108 @@ export default function WorkoutBuilder() {
     }
 
     try {
-      const persistedWorkouts = sanitizeWorkoutSetTypes(draftWorkouts).map((workout, workoutIndex) => ({
-        title: workout.title || `Treino ${WORKOUT_LABELS[workoutIndex] || workoutIndex + 1}`,
-        description: workout.description || null,
-        day_of_week: workout.day_of_week ?? workoutIndex + 1,
-        exercises: workout.exercises as unknown[],
-      }));
       const saved = await saveCycleWorkoutRevision(supabase as any, {
         cycleId: cycleId!,
-        expectedRows: draftWorkouts
-          .filter((workout): workout is Workout & { id: string; updated_at: string } => Boolean(workout.id && workout.updated_at))
-          .map((workout) => ({ id: workout.id, updated_at: workout.updated_at })),
-        workouts: persistedWorkouts,
+        expectedRows: workoutRevisionSnapshot,
+        workouts: workoutRevisionPayload(draftWorkouts),
       });
+      let confirmedWorkouts: Workout[] | null = null;
+      try {
+        confirmedWorkouts = await fetchExistingWorkouts();
+      } catch (loadError) {
+        console.warn("Treino salvo, mas a versão confirmada não foi recarregada", loadError);
+      }
+      const nextWorkouts = confirmedWorkouts || workoutsWithSavedRows(draftWorkouts, saved);
       setSaveIssues([]);
       setSaveRepairs([]);
-      setWorkouts((current) => mergeSavedWorkoutIdsAfterSave({
-        currentWorkouts: current,
-        savedDraftWorkouts: draftWorkouts,
-        savedWorkoutIds: saved.workoutIds,
-      }));
+      setWorkouts(nextWorkouts);
+      setWorkoutRevisionSnapshot(workoutRevisionRows(nextWorkouts));
       toast({
         title: "Todos os treinos salvos!",
         description: "A nova versão foi confirmada e já é a versão exibida ao aluno.",
       });
       navigate(returnTo);
     } catch (error) {
+      if (error instanceof WorkoutRevisionConflictError) {
+        try {
+          const latest = await fetchExistingWorkouts();
+          setRevisionConflict({ draft: draftWorkouts, latest });
+          return;
+        } catch (loadError) {
+          toast({
+            title: "Não foi possível comparar as versões",
+            description: loadError instanceof Error ? loadError.message : "Reabra o ciclo e tente novamente.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
       toast({
         title: "Treino não salvo",
         description: error instanceof Error ? error.message : "Não foi possível confirmar a nova versão do treino.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleResolveRevisionConflict = async (keepDraft: boolean) => {
+    if (!revisionConflict || !cycleId) return;
+    if (!keepDraft) {
+      setWorkouts(revisionConflict.latest);
+      setWorkoutRevisionSnapshot(workoutRevisionRows(revisionConflict.latest));
+      setActiveTab("0");
+      setRevisionConflict(null);
+      toast({ title: "Versão mais recente carregada" });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const saved = await saveCycleWorkoutRevision(supabase as any, {
+        cycleId,
+        expectedRows: workoutRevisionRows(revisionConflict.latest),
+        workouts: workoutRevisionPayload(revisionConflict.draft),
+      });
+      let confirmedWorkouts: Workout[] | null = null;
+      try {
+        confirmedWorkouts = await fetchExistingWorkouts();
+      } catch (loadError) {
+        console.warn("Rascunho salvo, mas a versão confirmada não foi recarregada", loadError);
+      }
+      const nextWorkouts = confirmedWorkouts || workoutsWithSavedRows(revisionConflict.draft, saved);
+      setWorkouts(nextWorkouts);
+      setWorkoutRevisionSnapshot(workoutRevisionRows(nextWorkouts));
+      setRevisionConflict(null);
+      toast({
+        title: "Seu rascunho foi salvo como nova versão",
+        description: "A versão anterior continua preservada no histórico.",
+      });
+      navigate(returnTo);
+    } catch (error) {
+      if (error instanceof WorkoutRevisionConflictError) {
+        try {
+          const latest = await fetchExistingWorkouts();
+          setRevisionConflict((current) => current ? { ...current, latest } : null);
+        } catch (loadError) {
+          toast({
+            title: "Não foi possível comparar as versões",
+            description: loadError instanceof Error ? loadError.message : "Seu rascunho continua aberto; tente novamente.",
+            variant: "destructive",
+          });
+          return;
+        }
+        toast({
+          title: "Uma versão ainda mais recente foi encontrada",
+          description: "Revise novamente antes de substituir.",
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({
+        title: "Treino não salvo",
+        description: error instanceof Error ? error.message : "Não foi possível confirmar a nova versão.",
         variant: "destructive",
       });
     } finally {
@@ -920,27 +1054,13 @@ export default function WorkoutBuilder() {
   };
 
   // Volume calculation
-  const weeklyVolume = useMemo(() => {
-    const volume: Record<string, number> = {};
-    
-    workouts.forEach(workout => {
-      workout.exercises.forEach(ex => {
-        const sets = parseInt(ex.sets) || 0;
-        const targets = muscleTargets.filter(t => t.exercise_id === ex.exercise_id);
-        
-        targets.forEach(target => {
-          const mg = muscleGroupsList.find(g => g.id === target.muscle_group_id);
-          const anatomicalGroup = canonicalAnatomicalMuscleGroup(mg?.name);
-          if (anatomicalGroup) {
-            const weighted = sets * (target.volume_percentage / 100);
-            volume[anatomicalGroup] = (volume[anatomicalGroup] || 0) + weighted;
-          }
-        });
-      });
-    });
-
-    return volume;
-  }, [workouts, muscleTargets, muscleGroupsList]);
+  const weeklyVolumeResult = useMemo(() => calculateWeeklyMuscleVolume({
+    workouts,
+    targets: muscleTargets,
+    muscleGroups: muscleGroupsList,
+  }), [workouts, muscleTargets, muscleGroupsList]);
+  const weeklyVolume = weeklyVolumeResult.volume;
+  const uncoveredVolumeExercises = weeklyVolumeResult.uncoveredExerciseIds.length;
 
   const maxVolume = Math.max(...Object.values(weeklyVolume), 1);
 
@@ -1446,7 +1566,7 @@ export default function WorkoutBuilder() {
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <p className="font-sans font-medium text-foreground">{ex.exercise_name}</p>
-                                  <Badge variant="outline" className="capitalize text-xs">{ex.muscle_group}</Badge>
+                                  {ex.muscle_group && <Badge variant="outline" className="capitalize text-xs">{ex.muscle_group}</Badge>}
                                   {ex.method && !isGroupingMethod(ex.method) && (
                                     <MethodBadge method={ex.method} seconds={(ex as any).method_seconds} tone="amber" />
                                   )}
@@ -1718,6 +1838,11 @@ export default function WorkoutBuilder() {
                           </div>
                         </div>
                       ))
+                  )}
+                  {uncoveredVolumeExercises > 0 && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-900">
+                      {uncoveredVolumeExercises} exercício(s) sem alvo anatômico não entram no total.
+                    </div>
                   )}
                   {Object.keys(weeklyVolume).length > 0 && (
                     <div className="pt-2 border-t border-border">
@@ -2260,6 +2385,62 @@ export default function WorkoutBuilder() {
               Ver treino completo
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(revisionConflict)} onOpenChange={(open) => { if (!open && !saving) setRevisionConflict(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Escolha qual versão deve permanecer</DialogTitle>
+            <DialogDescription>
+              Outra tela salvou este ciclo enquanto você editava. A versão atual e o seu rascunho estão preservados.
+            </DialogDescription>
+          </DialogHeader>
+          {revisionConflict && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-md border p-3">
+                  <p className="font-medium">Versão salva</p>
+                  <p className="text-muted-foreground">
+                    {revisionConflict.latest.length} treino(s), {revisionConflict.latest.reduce((total, workout) => total + workoutExerciseCount(workout), 0)} exercício(s)
+                  </p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="font-medium">Seu rascunho</p>
+                  <p className="text-muted-foreground">
+                    {revisionConflict.draft.length} treino(s), {revisionConflict.draft.reduce((total, workout) => total + workoutExerciseCount(workout), 0)} exercício(s)
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-3 text-sm sm:grid-cols-2">
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="font-medium">O que está salvo agora</p>
+                  <ul className="space-y-1 text-muted-foreground">
+                    {revisionConflict.latest.map((workout, index) => (
+                      <li key={workout.id || `latest-${index}`}>{workoutConflictLine(workout, index)}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="font-medium">O seu rascunho nesta tela</p>
+                  <ul className="space-y-1 text-muted-foreground">
+                    {revisionConflict.draft.map((workout, index) => (
+                      <li key={workout.id || `draft-${index}`}>{workoutConflictLine(workout, index)}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button variant="outline" disabled={saving} onClick={() => void handleResolveRevisionConflict(false)}>
+                  Carregar versão salva
+                </Button>
+                <Button disabled={saving} onClick={() => void handleResolveRevisionConflict(true)}>
+                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Salvar meu rascunho
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

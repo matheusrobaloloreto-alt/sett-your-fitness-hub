@@ -8,11 +8,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
-import { Dumbbell, Play, Clock, CheckCircle2, Circle, Loader2, LogOut, Save, CalendarDays, History, BarChart3, ArrowLeft, ExternalLink, Flame } from "lucide-react";
+import { Dumbbell, Play, Clock, CheckCircle2, Circle, Loader2, LogOut, Save, CalendarDays, History, BarChart3, ArrowLeft, Flame } from "lucide-react";
 import { format, parseISO, differenceInDays, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
-import { useWorkoutSession } from "@/hooks/useWorkoutSession";
+import { useWorkoutSession, type SessionSummary } from "@/hooks/useWorkoutSession";
 import { WorkoutTimer } from "@/components/student/WorkoutTimer";
 import { WorkoutSummary } from "@/components/student/WorkoutSummary";
 import { ExerciseCard } from "@/components/student/ExerciseCard";
@@ -22,6 +22,8 @@ import { PeriodizationBanner } from "@/components/student/PeriodizationBanner";
 import { WhySafetyCard } from "@/components/student/WhySafetyCard";
 import { CheckinCard } from "@/components/student/CheckinCard";
 import { PushBanner } from "@/components/student/PushBanner";
+import { ExerciseVideoPlayer } from "@/components/student/ExerciseVideoPlayer";
+import { buildYouTubeSearchUrl, type ExerciseVideoModalState } from "@/lib/exerciseVideoPlayer";
 import { WarmupGuide, type WarmupExercise } from "@/components/student/WarmupGuide";
 import { WARMUP_VIDEO_LIBRARY_NAMES } from "@/lib/warmupVideoMatches";
 import { useRestTimer } from "@/components/student/RestTimer";
@@ -30,12 +32,13 @@ import { WeeklyBar } from "@/components/student/WeeklyBar";
 import { AnnouncementsBell } from "@/components/student/AnnouncementsBell";
 import { StudentHome } from "@/components/student/StudentHome";
 import { EditorialPageHeader } from "@/components/EditorialPageHeader";
+import { PersonalThemeIconToggle } from "@/components/PersonalThemeToggle";
 import { businessDateYmd } from "@/lib/businessDate";
 import { PlatformAdSlot } from "@/components/PlatformAdSlot";
 import { WorkoutHeader } from "@/components/student/WorkoutHeader";
 import { WeeklyGoalEditor } from "@/components/student/WeeklyGoalEditor";
 import { resolveActiveWorkoutInCycles, resolveWorkoutForCycleWeek, type ResolvedWeekContext, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
-import { collectTrainedDaysForWeek } from "@/lib/studentWeek";
+import { collectTrainedDaysForWeek, upsertCompletedWorkoutSession } from "@/lib/studentWeek";
 
 import { CycleFeedbackBanner } from "@/components/student/CycleFeedbackBanner";
 import { calculateStreak } from "@/lib/streakCalculator";
@@ -59,6 +62,7 @@ import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
 import { selectPreferredVisibleCycle, selectPrescriptionEnrollment, selectStudentWorkoutCycleWindow } from "@/lib/prescriptionSchedule";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
+import { saveWorkoutLogBatchIfCurrent, type WorkoutLogSaveResult } from "@/lib/workoutLogPersistence";
 
 const StatsCharts = lazy(() => import("@/components/student/StatsCharts").then((module) => ({ default: module.StatsCharts })));
 const VolumeInsights = lazy(() => import("@/components/student/VolumeInsights").then((module) => ({ default: module.VolumeInsights })));
@@ -76,6 +80,29 @@ const BodyMeasurements = lazy(() => import("@/components/student/BodyMeasurement
 type ActiveView = "home" | "treino" | "stats" | "calendario" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
 const MAX_EXTRA_SETS = 5;
 const STALE_ACTIVE_SESSION_MESSAGE = "Há uma sessão ativa que não está mais na sua ficha. Encerre essa sessão antes de iniciar outro treino.";
+
+// Exportado somente para o teste integrado do fluxo de conclusão.
+// eslint-disable-next-line react-refresh/only-export-components
+export async function runStudentPortalWorkoutCompletion<TSession>({
+  saveCurrentLogs,
+  finishSession,
+  onCompleted,
+}: {
+  saveCurrentLogs: () => Promise<WorkoutLogSaveResult>;
+  finishSession: () => Promise<TSession | null>;
+  onCompleted: (session: TSession) => void;
+}): Promise<
+  | { status: "save_failed"; reason: Extract<WorkoutLogSaveResult, { ok: false }>["reason"] }
+  | { status: "finish_failed" }
+  | { status: "completed"; session: TSession }
+> {
+  const saveResult = await saveCurrentLogs();
+  if (saveResult.ok === false) return { status: "save_failed", reason: saveResult.reason };
+  const session = await finishSession();
+  if (!session) return { status: "finish_failed" };
+  onCompleted(session);
+  return { status: "completed", session };
+}
 
 
 interface WorkoutExercise {
@@ -156,7 +183,7 @@ export default function StudentPortal() {
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
-  const [videoModal, setVideoModal] = useState<{ type: "path" | "url" | "loading" | "unavailable"; value: string; title: string } | null>(null);
+  const [videoModal, setVideoModal] = useState<ExerciseVideoModalState | null>(null);
   // Feedback pós-treino — persiste no painel; WhatsApp é um canal adicional.
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
@@ -564,7 +591,7 @@ export default function StudentPortal() {
               .in("workout_id", workoutIds),
             supabase
               .from("workout_sessions")
-              .select("id, workout_id, session_date, duration_seconds, total_volume, total_sets_completed, total_sets_prescribed, completed_at")
+              .select("id, workout_id, session_date, duration_seconds, total_volume, total_sets_completed, total_sets_prescribed, completed_at, status")
               .eq("student_id", student.id)
               .in("workout_id", workoutIds),
             supabase
@@ -693,8 +720,8 @@ export default function StudentPortal() {
     });
   };
 
-  const saveCurrentLogs = async (opts?: { silent?: boolean }) => {
-    if (!selectedWorkout || !studentId) return;
+  const saveCurrentLogs = async (opts?: { silent?: boolean; notifyConflict?: boolean }) => {
+    if (!selectedWorkout || !studentId) return { ok: false, reason: "not_ready" } as const;
     const silent = opts?.silent === true;
     if (!silent) setSavingLogs(true);
     const workoutId = selectedWorkout.id;
@@ -730,24 +757,28 @@ export default function StudentPortal() {
         setSavingLogs(false);
         toast({ title: "As séries não foram salvas", description: "Recarregue o treino e tente novamente.", variant: "destructive" });
       }
-      return;
+      return { ok: false, reason: "validation_error" } as const;
     }
     const canonicalRows = canonicalBatch.rows;
+    let failureReason: Extract<WorkoutLogSaveResult, { ok: false }>["reason"] | null = null;
     if (canonicalRows.length > 0) {
       const sentByKey = new Map(canonicalRows.filter(row => !row.deleted).map(row => [getLogKey(row.workout_id, row.exercise_index, row.set_number), row]));
       // RPC com compare-and-swap por revisão: outro dispositivo não pode ser
       // sobrescrito por um autosave baseado numa versão antiga.
-      let error: any = null;
-      let result: any = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const res = await (supabase as any).rpc("save_workout_logs_if_current", { _rows: canonicalRows });
-        error = res.error;
-        result = res.data;
-        if (!error) break;
-        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      const persistence = await saveWorkoutLogBatchIfCurrent({
+        rows: canonicalRows,
+        save: async () => {
+          const response = await (supabase as any).rpc("save_workout_logs_if_current", { _rows: canonicalRows });
+          return { data: response.data, error: response.error };
+        },
+      });
+      if (persistence.reason === "rpc_error") {
+        hadError = true;
+        failureReason = "rpc_error";
+        console.error("Erro ao salvar carga:", persistence.error);
       }
-      if (error) { hadError = true; console.error("Erro ao salvar carga:", error); }
       else {
+        const result = persistence.data;
         const allSavedRows = (Array.isArray(result?.saved) ? result.saved : [])
           .filter((row: WorkoutLog | null) => !!row?.workout_id);
         const deletedRows = allSavedRows.filter((row: WorkoutLog) => row.deleted === true);
@@ -756,7 +787,7 @@ export default function StudentPortal() {
         const deletionConflict = rawConflicts.some((row: WorkoutLog & { requested_deleted?: boolean }) => row?.requested_deleted === true);
         const conflictRows = rawConflicts
           .filter((row: WorkoutLog | null) => !!row?.workout_id);
-        if (rawConflicts.length > 0) hadError = true;
+        if (persistence.reason === "conflict") { hadError = true; failureReason = "conflict"; }
         const authoritativeRows = [...savedRows, ...conflictRows] as WorkoutLog[];
         if (deletionConflict) {
           // Não permita que um reload imediato reaplique a transação local que
@@ -786,7 +817,7 @@ export default function StudentPortal() {
             return Array.from(map.values());
           });
         }
-        if (rawConflicts.length > 0 && silent) {
+        if (rawConflicts.length > 0 && silent && opts?.notifyConflict !== false) {
           toast({
             title: "Treino atualizado em outro dispositivo",
             description: "Mantivemos a versão mais recente para evitar perder progresso.",
@@ -795,12 +826,16 @@ export default function StudentPortal() {
       }
     }
     if (!silent) setSavingLogs(false);
-    if (silent) return; // autosave: sem toast para não poluir
+    const outcome: WorkoutLogSaveResult = failureReason
+      ? { ok: false, reason: failureReason }
+      : { ok: true, reason: canonicalRows.length > 0 ? "saved" : "no_changes" };
+    if (silent) return outcome; // autosave: sem toast para não poluir
     if (hadError) {
       toast({ title: "Algumas cargas não foram salvas", description: "Verifique sua conexão e tente novamente.", variant: "destructive" });
     } else {
       toast({ title: "Cargas salvas!" });
     }
+    return outcome;
   };
 
   // ---- Autosave + backup local dos logs do dia (resiliência a wifi ruim / reload) ----
@@ -876,25 +911,13 @@ export default function StudentPortal() {
     return data.publicUrl;
   };
 
-  const getEmbedUrl = (url: string) => {
-    if (url.includes("youtube.com/watch")) {
-      const vid = new URL(url).searchParams.get("v");
-      return vid ? `https://www.youtube.com/embed/${vid}` : url;
-    }
-    if (url.includes("youtu.be/")) {
-      const vid = url.split("youtu.be/")[1]?.split("?")[0];
-      return vid ? `https://www.youtube.com/embed/${vid}` : url;
-    }
-    return url;
-  };
-
   const openVideoForExercise = async (ex: WorkoutExercise) => {
     if (ex.video_path) { setVideoModal({ type: "path", value: getStoragePublicUrl(ex.video_path), title: ex.exercise_name }); return; }
     if (ex.video_url) { setVideoModal({ type: "url", value: ex.video_url, title: ex.exercise_name }); return; }
     if (ex.youtube_video_id) { setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${ex.youtube_video_id}`, title: ex.exercise_name }); return; }
     // Sem vídeo gravado → puxa um vídeo do YouTube pelo nome do exercício (resolvido/cacheado no servidor).
     setVideoModal({ type: "loading", value: "", title: ex.exercise_name });
-    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(ex.exercise_name + " execução técnica")}`;
+    const searchUrl = buildYouTubeSearchUrl(ex.exercise_name);
     try {
       const { data } = await supabase.functions.invoke("youtube-exercise-video", { body: { exercise_id: ex.exercise_id, name: ex.exercise_name } });
       const vid = (data as any)?.video_id as string | null;
@@ -943,7 +966,6 @@ export default function StudentPortal() {
 
   const handleFinishSession = async () => {
     if (!selectedWorkout) return;
-    await saveCurrentLogs();
 
     const previousBestWeights: Record<string, number> = {};
     selectedWorkout.exercises.forEach((ex, idx) => {
@@ -952,7 +974,32 @@ export default function StudentPortal() {
       previousBestWeights[`ex-${idx}`] = maxW;
     });
 
-    const finishedSession = await session.finishSession(logs, selectedWorkout.exercises, previousBestWeights);
+    const completion = await runStudentPortalWorkoutCompletion<SessionSummary>({
+      saveCurrentLogs: () => saveCurrentLogs({ silent: true, notifyConflict: false }),
+      finishSession: () => session.finishSession(logs, selectedWorkout.exercises, previousBestWeights),
+      onCompleted: (finishedSession) => {
+        setWorkoutSessions((current) => upsertCompletedWorkoutSession(current, finishedSession, todayStr));
+      },
+    });
+    if (completion.status === "save_failed") {
+      emitBenitoProductEvent({ source: "student_workout", action: "complete_failed" });
+      toast({
+        title: "Não foi possível salvar as séries",
+        description: "A sessão continua aberta. Resolva o conflito ou a conexão e tente novamente.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (completion.status === "finish_failed") {
+      emitBenitoProductEvent({ source: "student_workout", action: "complete_failed" });
+      toast({
+        title: "Não foi possível finalizar o treino",
+        description: "Mantivemos esta sessão neste aparelho. Confira a conexão e tente novamente.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const finishedSession = completion.session;
     emitBenitoProductEvent({ source: "student_workout", action: "completed" });
     toast({ title: "Treino concluído! 🎉", description: "Mandou bem — orgulho do seu progresso. Bora pro próximo!" });
 
@@ -960,7 +1007,7 @@ export default function StudentPortal() {
     setFeedbackWorkoutTitle(selectedWorkout.title);
     setFeedbackText("");
     setFeedbackRating(null);
-    setFeedbackSessionId(finishedSession?.id ?? null);
+    setFeedbackSessionId(finishedSession.id);
     setFeedbackOpen(true);
   };
 
@@ -1063,7 +1110,8 @@ export default function StudentPortal() {
     persistedLogs: allLogs,
     localLogs: Object.values(logs),
     localSessionDate: todayStr,
-  }), [allLogs, logs, todayStr]);
+    completedSessions: workoutSessions,
+  }), [allLogs, logs, todayStr, workoutSessions]);
 
   const weeklySessionCount = useMemo(() => trainedDays.size, [trainedDays]);
 
@@ -1166,6 +1214,7 @@ export default function StudentPortal() {
         actions={
           <>
             {studentId && companyId && <AnnouncementsBell studentId={studentId} companyId={companyId} />}
+            <PersonalThemeIconToggle />
             <Button variant="ghost" size="icon" className="h-11 w-11" onClick={signOut} aria-label="Sair" title="Sair">
               <LogOut className="h-4 w-4" />
             </Button>
@@ -1517,7 +1566,7 @@ export default function StudentPortal() {
         {activeView === "stats" && (
           <div className="space-y-4">
             <VolumeInsights allLogs={allLogs} cycles={cycles} studentId={studentId} />
-            <StatsCharts allLogs={allLogs} cycles={cycles} todayStr={todayStr} />
+            <StatsCharts studentId={studentId ?? undefined} allLogs={allLogs} cycles={cycles} todayStr={todayStr} />
             {studentId && totalSessions > 0 && (
               <AchievementsPanel studentId={studentId} />
             )}
@@ -1611,42 +1660,7 @@ export default function StudentPortal() {
             </DialogTitle>
           </DialogHeader>
           {videoModal && (
-            <div className="space-y-3">
-              <div className="aspect-video w-full">
-                {videoModal.type === "loading" ? (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-md bg-muted/40">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                    <p className="text-xs text-muted-foreground">Buscando demonstração no YouTube…</p>
-                  </div>
-                ) : videoModal.type === "unavailable" ? (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-6 text-center">
-                    <Play className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
-                    <p className="text-sm font-medium text-foreground">Vídeo ainda não disponível no catálogo</p>
-                    <p className="text-xs text-muted-foreground">Você pode buscar uma demonstração externa e confirmar a técnica com a equipe.</p>
-                  </div>
-                ) : videoModal.type === "path" ? (
-                  <video src={videoModal.value} controls className="w-full h-full rounded-md" />
-                ) : (
-                  <iframe src={getEmbedUrl(videoModal.value)} title="Demonstração do exercício" className="w-full h-full rounded-md" allowFullScreen />
-                )}
-              </div>
-              {videoModal.type === "url" && (
-                <Button variant="outline" size="sm" className="w-full" asChild>
-                  <a href={videoModal.value} target="_blank" rel="noreferrer">
-                    Abrir vídeo original
-                    <ExternalLink className="ml-2 h-4 w-4" />
-                  </a>
-                </Button>
-              )}
-              {videoModal.type === "unavailable" && (
-                <Button variant="outline" size="sm" className="w-full" asChild>
-                  <a href={videoModal.value} target="_blank" rel="noreferrer">
-                    Buscar demonstração no YouTube
-                    <ExternalLink className="ml-2 h-4 w-4" />
-                  </a>
-                </Button>
-              )}
-            </div>
+            <ExerciseVideoPlayer video={videoModal} />
           )}
         </DialogContent>
       </Dialog>

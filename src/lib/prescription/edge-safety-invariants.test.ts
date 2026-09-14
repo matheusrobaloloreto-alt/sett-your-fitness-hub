@@ -69,6 +69,18 @@ describe("ORDEM 045 — edge safety invariants (estático)", () => {
     }
   });
 
+  it("fallback emergencial servido emite RIR 3-4 em todas as fases de força", () => {
+    const servedFallback = src.slice(
+      src.indexOf("function buildEmergencyFallbackPlan"),
+      src.indexOf("const SYSTEM_PROMPT"),
+    );
+    expect(src).toContain("enforceEmergencyFallbackRir");
+    expect(servedFallback).toContain("return out.map(enforceEmergencyFallbackRir)");
+    expect(servedFallback).toContain("rir: EMERGENCY_FALLBACK_RIR");
+    expect(servedFallback).not.toContain("RIR 2-4");
+    expect(src).toMatch(/catch \(engineError\)[\s\S]*?planJson = buildEmergencyFallbackPlan\(/);
+  });
+
   // ── IA / fallback preservados ───────────────────────────────────────────
   it("Anthropic preservado (não removido)", () => {
     expect(src).toMatch(/ANTHROPIC_API_KEY/);

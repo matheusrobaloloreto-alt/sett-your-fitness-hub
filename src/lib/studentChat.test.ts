@@ -13,4 +13,8 @@ describe("student chat recipient normalization", () => {
   it("keeps the legacy Brazilian default for local numbers", () => {
     expect(normalizeStudentChatPhone("(48) 99143-2057", "BR")).toBe("5548991432057");
   });
+
+  it("rejects a malformed Brazilian mobile destination", () => {
+    expect(normalizeStudentChatPhone("42077707180", "BR")).toBeNull();
+  });
 });

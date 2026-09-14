@@ -5,13 +5,16 @@ describe("anatomical muscle-group allowlist", () => {
   it.each([
     ["Costas", "Dorsal"],
     ["Dorsal", "Dorsal"],
-    ["Glúteos", "Glúteo"],
-    ["Abdômen", "Abdominais"],
-    ["Adutor Magno", "Adutor Magno"],
-    ["Reto Femoral", "Reto Femoral"],
-    ["Trapézio Inferior", "Trapézio Inferior"],
-    ["Braquiorradial", "Braquiorradial"],
-    ["Manguito Rotador", "Manguito"],
+    ["Glúteos", "Glúteos"],
+    ["Abdômen", "Abdômen"],
+    ["Adutor Magno", "Adutores"],
+    ["Reto Femoral", "Quadríceps"],
+    ["Trapézio", "Trapezio"],
+    ["Trapézio Inferior", "Trapezio"],
+    ["Braquiorradial", "Antebraço"],
+    ["Deltóide Frontal", "Deltoide Anterior"],
+    ["Bíceps", "Biceps"],
+    ["Tríceps", "Triceps"],
   ])("normaliza %s para %s", (input, expected) => {
     expect(canonicalAnatomicalMuscleGroup(input)).toBe(expected);
   });
@@ -19,7 +22,8 @@ describe("anatomical muscle-group allowlist", () => {
   it.each([
     "Mobilidade", "Alongamento", "Core", "Ativação", "Funcionais",
     "Funcional", "Controle Motor", "Fisioterapia", "Performance", "Pliometria", "Base", "Geral",
-  ])("bloqueia categoria não anatômica: %s", (value) => {
+    "Ombro", "Ombros", "Deltoide", "Lombar", "Manguito Rotador", "Tibial Anterior",
+  ])("bloqueia categoria ou anatomia genérica/fora da allowlist: %s", (value) => {
     expect(isAnatomicalMuscleGroup(value)).toBe(false);
     expect(canonicalAnatomicalMuscleGroup(value)).toBeNull();
   });

@@ -11,6 +11,8 @@ describe("student workout video integration", () => {
   it("routes warmup previews through the canonical portal viewer and fallback", () => {
     const portal = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");
     const warmup = readFileSync("src/components/student/WarmupGuide.tsx", "utf8");
+    const player = readFileSync("src/components/student/ExerciseVideoPlayer.tsx", "utf8");
+    const helpers = readFileSync("src/lib/exerciseVideoPlayer.ts", "utf8");
     const warmupMatches = readFileSync("src/lib/warmupVideoMatches.ts", "utf8");
     expect(portal).toContain("onVideoPlay={openVideoForExercise}");
     expect(portal).toContain("libraryExercises={warmupVideoExercises}");
@@ -21,6 +23,10 @@ describe("student workout video integration", () => {
     expect(portal.indexOf("if (ex.video_url)")).toBeLessThan(portal.indexOf("if (ex.youtube_video_id)"));
     expect(portal).toContain('supabase.functions.invoke("youtube-exercise-video"');
     expect(portal).toContain('type: "unavailable"');
+    expect(helpers).toContain("youtube-nocookie.com/embed");
+    expect(helpers).toContain("playlist: videoId");
+    expect(player).toContain("autoPlay");
+    expect(player).toContain("playsInline");
     expect(warmup).toContain("exerciseThumb(exercise)");
     expect(warmup).toContain('loading="lazy"');
     expect(warmup).toContain("Demonstrações do aquecimento");

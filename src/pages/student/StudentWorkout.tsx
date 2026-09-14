@@ -6,13 +6,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { Dumbbell, Play, Clock, RotateCcw, ChevronDown, ChevronUp, Timer, CheckCircle2, Circle, ExternalLink, Loader2 } from "lucide-react";
+import { Dumbbell, Play, Clock, RotateCcw, ChevronDown, ChevronUp, Timer, CheckCircle2, Circle, Loader2 } from "lucide-react";
 import { format, parseISO, differenceInDays, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { filterMaterializedWorkouts, orderWorkoutsByPrescription } from "@/lib/workoutPresence";
 import { businessDateYmd } from "@/lib/businessDate";
 import { MethodBadge } from "@/components/workout/MethodBadge";
 import { StudentMethodGroup } from "@/components/student/StudentMethodGroup";
+import { ExerciseVideoPlayer } from "@/components/student/ExerciseVideoPlayer";
+import { buildYouTubeSearchUrl, type ExerciseVideoModalState } from "@/lib/exerciseVideoPlayer";
 import { formatBiweeklyProgressionForDisplay, STUDENT_EFFORT_HELP_TEXT, studentEffortLabel, studentFacingEffortText, resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
 import { sanitizeStudentWorkoutDescription } from "@/lib/studentWorkoutDescription";
@@ -80,7 +82,7 @@ export default function StudentWorkout() {
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
-  const [videoModal, setVideoModal] = useState<{ type: "path" | "url" | "loading"; value: string; title: string } | null>(null);
+  const [videoModal, setVideoModal] = useState<ExerciseVideoModalState | null>(null);
   const [loading, setLoading] = useState(true);
   const [workoutsLoading, setWorkoutsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -348,22 +350,6 @@ export default function StudentWorkout() {
     }
   };
 
-  const getEmbedUrl = (url: string) => {
-    if (url.includes("youtube.com/watch")) {
-      const vid = new URL(url).searchParams.get("v");
-      return vid ? `https://www.youtube.com/embed/${vid}` : url;
-    }
-    if (url.includes("youtu.be/")) {
-      const vid = url.split("youtu.be/")[1]?.split("?")[0];
-      return vid ? `https://www.youtube.com/embed/${vid}` : url;
-    }
-    if (url.includes("vimeo.com/")) {
-      const vid = url.split("vimeo.com/")[1]?.split("?")[0];
-      return vid ? `https://player.vimeo.com/video/${vid}` : url;
-    }
-    return url;
-  };
-
   const openVideoForExercise = async (ex: WorkoutExercise) => {
     if (ex.video_path) { setVideoModal({ type: "path", value: getStoragePublicUrl(ex.video_path), title: ex.exercise_name }); return; }
     if (ex.video_url) { setVideoModal({ type: "url", value: ex.video_url, title: ex.exercise_name }); return; }
@@ -381,8 +367,7 @@ export default function StudentWorkout() {
       if (error || !videoId) throw error || new Error("Vídeo não encontrado");
       setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${videoId}`, title: ex.exercise_name });
     } catch {
-      setVideoModal(null);
-      window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(`${ex.exercise_name} execução técnica`)}`, "_blank");
+      setVideoModal({ type: "unavailable", value: buildYouTubeSearchUrl(ex.exercise_name), title: ex.exercise_name });
     }
   };
 
@@ -749,34 +734,7 @@ export default function StudentWorkout() {
             </DialogTitle>
           </DialogHeader>
           {videoModal && (
-            <div className="space-y-3">
-              <div className="aspect-video w-full">
-                {videoModal.type === "loading" ? (
-                  <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground">
-                    <Loader2 className="h-7 w-7 animate-spin text-primary" />
-                    <p className="text-sm">Buscando demonstração de {videoModal.title}…</p>
-                  </div>
-                ) : videoModal.type === "path" ? (
-                  <video src={videoModal.value} controls className="w-full h-full rounded-md" />
-                ) : (
-                  <iframe
-                    src={getEmbedUrl(videoModal.value)}
-                    title="Demonstração do exercício"
-                    className="w-full h-full rounded-md"
-                    allowFullScreen
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  />
-                )}
-              </div>
-              {videoModal.type === "url" && (
-                <Button variant="outline" size="sm" className="w-full" asChild>
-                  <a href={videoModal.value} target="_blank" rel="noreferrer">
-                    Abrir vídeo original
-                    <ExternalLink className="ml-2 h-4 w-4" />
-                  </a>
-                </Button>
-              )}
-            </div>
+            <ExerciseVideoPlayer video={videoModal} />
           )}
         </DialogContent>
       </Dialog>

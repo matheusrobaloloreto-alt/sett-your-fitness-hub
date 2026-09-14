@@ -1,6 +1,7 @@
 import {
   INLINE_OUTBOUND_VIDEO_MAX_BYTES,
   MAX_OUTBOUND_WHATSAPP_MEDIA_BYTES,
+  MAX_OUTBOUND_WHATSAPP_STICKER_BYTES,
   resolveOutboundWhatsAppMediaType,
   validateOutboundWhatsAppMedia,
 } from "./whatsappMedia.ts";
@@ -130,5 +131,26 @@ Deno.test("requires large videos to use the provider document path", () => {
   });
   if (inlineRequest.ok || inlineRequest.code !== "whatsapp_media_delivery_type_mismatch") {
     throw new Error("Expected an oversized inline-video request to be rejected");
+  }
+});
+
+Deno.test("allows only compact WebP media through the sticker path", () => {
+  const sticker = resolveOutboundWhatsAppMediaType({
+    mimeType: "image/webp",
+    size: 100_000,
+    requestedMediaType: "sticker",
+  });
+  if (!sticker.ok || sticker.mediaType !== "sticker") {
+    throw new Error("Expected a WebP sticker to use sticker delivery");
+  }
+
+  for (const input of [
+    { mimeType: "image/png", size: 100_000 },
+    { mimeType: "image/webp", size: MAX_OUTBOUND_WHATSAPP_STICKER_BYTES + 1 },
+  ]) {
+    const invalid = resolveOutboundWhatsAppMediaType({ ...input, requestedMediaType: "sticker" });
+    if (invalid.ok || invalid.code !== "whatsapp_media_delivery_type_mismatch") {
+      throw new Error("Expected an invalid sticker to be rejected");
+    }
   }
 });

@@ -14,11 +14,13 @@ import {
 import { format, parseISO, differenceInCalendarDays, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { MuscleRadar } from "./MuscleRadar";
-import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
+import { buildExerciseMeta, fractionalSetsByMuscleGroup } from "@/lib/volumeStats";
+import { useExerciseVolumeTargets } from "@/hooks/useExerciseVolumeTargets";
 
 interface StatsChartsProps {
+  studentId?: string;
   allLogs: any[];
-  cycles: { id: string; cycle_number: number; workouts: { id: string; exercises: { exercise_name: string; muscle_group: string; sets: string }[] }[] }[];
+  cycles: { id: string; cycle_number: number; workouts: { id: string; exercises: { exercise_id?: string; exerciseId?: string; exercise_name: string; muscle_group: string; sets: string }[] }[] }[];
   todayStr: string;
 }
 
@@ -27,7 +29,7 @@ type Period = "7" | "30" | "90" | "all";
 // Epley 1RM: peso * (1 + reps/30)
 const epley = (weight: number, reps: number) => (reps > 0 ? weight * (1 + reps / 30) : weight);
 
-export function StatsCharts({ allLogs, cycles, todayStr }: StatsChartsProps) {
+export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChartsProps) {
   const [selectedExercise, setSelectedExercise] = useState<string>("all");
   const [period, setPeriod] = useState<Period>("all");
   const [show1RM, setShow1RM] = useState<boolean>(false);
@@ -35,12 +37,9 @@ export function StatsCharts({ allLogs, cycles, todayStr }: StatsChartsProps) {
 
   // Meta dos exercícios
   const allExercisesMeta = useMemo(() => {
-    const meta: { workoutId: string; index: number; name: string; muscleGroup: string }[] = [];
-    cycles.forEach(c => c.workouts.forEach(w => w.exercises.forEach((ex, idx) => {
-      meta.push({ workoutId: w.id, index: idx, name: ex.exercise_name, muscleGroup: ex.muscle_group });
-    })));
-    return meta;
+    return buildExerciseMeta(cycles);
   }, [cycles]);
+  const targets = useExerciseVolumeTargets(studentId, allExercisesMeta.flatMap((item) => item.exerciseId ? [item.exerciseId] : []));
 
   const allExercises = useMemo(() => Array.from(new Set(allExercisesMeta.map(m => m.name))).sort(), [allExercisesMeta]);
 
@@ -54,23 +53,16 @@ export function StatsCharts({ allLogs, cycles, todayStr }: StatsChartsProps) {
 
   const filteredLogs = useMemo(() => {
     // Descarta registros sem session_date para não quebrar parseISO/sort/localeCompare.
-    const valid = allLogs.filter((l: any) => l.session_date);
+    const valid = allLogs.filter((l: any) => l.session_date && l.completed === true);
     if (!periodCutoff) return valid;
     return valid.filter((l: any) => parseISO(l.session_date) >= periodCutoff);
   }, [allLogs, periodCutoff]);
 
-  // Volume por grupamento (BodyMap)
+  // Anatomical exposure counts work sets; external kg x reps stays separate.
   const muscleVolumes = useMemo(() => {
-    const v: Record<string, number> = {};
-    filteredLogs.forEach((l: any) => {
-      const meta = findMeta(l.workout_id, l.exercise_index);
-      const muscleGroup = canonicalAnatomicalMuscleGroup(meta?.muscleGroup);
-      if (!muscleGroup) return;
-      const t = (Number(l.weight) || 0) * (Number(l.reps_done) || 0);
-      if (t > 0) v[muscleGroup] = (v[muscleGroup] || 0) + t;
-    });
-    return Object.entries(v).map(([muscleGroup, volume]) => ({ muscleGroup, volume }));
-  }, [filteredLogs, allExercisesMeta]);
+    return fractionalSetsByMuscleGroup(filteredLogs, allExercisesMeta, targets)
+      .map(({ group, sets }) => ({ muscleGroup: group, volume: sets }));
+  }, [filteredLogs, allExercisesMeta, targets]);
 
   const sessionDates = useMemo(
     () => Array.from(new Set(filteredLogs.map((l: any) => l.session_date))).sort() as string[],
@@ -160,16 +152,15 @@ export function StatsCharts({ allLogs, cycles, todayStr }: StatsChartsProps) {
   const muscleFrequency = useMemo(() => {
     const map: Record<string, Set<string>> = {};
     filteredLogs.forEach((l: any) => {
-      const meta = findMeta(l.workout_id, l.exercise_index);
-      const muscleGroup = canonicalAnatomicalMuscleGroup(meta?.muscleGroup);
-      if (!muscleGroup) return;
-      if (!map[muscleGroup]) map[muscleGroup] = new Set();
-      map[muscleGroup].add(l.session_date);
+      for (const { group } of fractionalSetsByMuscleGroup([l], allExercisesMeta, targets)) {
+        if (!map[group]) map[group] = new Set();
+        map[group].add(l.session_date);
+      }
     });
     return Object.entries(map)
       .map(([muscle, dates]) => ({ muscle, sessions: dates.size }))
       .sort((a, b) => b.sessions - a.sessions);
-  }, [filteredLogs, allExercisesMeta]);
+  }, [filteredLogs, allExercisesMeta, targets]);
 
   const maxFreq = Math.max(1, ...muscleFrequency.map(m => m.sessions));
 
@@ -297,7 +288,7 @@ export function StatsCharts({ allLogs, cycles, todayStr }: StatsChartsProps) {
           <Card className="bg-card border-border">
             <CardContent className="p-4">
               <h3 className="text-sm font-mono-data font-semibold text-muted-foreground uppercase tracking-wider mb-4">Volume por Grupamento</h3>
-              <MuscleRadar muscleVolumes={muscleVolumes} />
+              <MuscleRadar muscleVolumes={muscleVolumes} unit="sets" />
             </CardContent>
           </Card>
 

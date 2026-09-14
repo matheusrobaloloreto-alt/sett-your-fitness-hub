@@ -1456,6 +1456,15 @@ Deno.serve(async (req) => {
             }),
           });
         }
+      } else if (evoMediaType === "sticker") {
+        sendRes = await fetch(`${evoUrl}/message/sendSticker/${instanceName}`, {
+          method: "POST",
+          headers: evoHeaders,
+          body: JSON.stringify({
+            number: effectiveMediaRecipient,
+            sticker: mediaUrl,
+          }),
+        });
       } else {
         sendRes = await fetch(`${evoUrl}/message/sendMedia/${instanceName}`, {
           method: "POST",
@@ -1497,6 +1506,8 @@ Deno.serve(async (req) => {
       // Determine DB type and media_type
       const dbType = evoMediaType === "image"
         ? "image"
+        : evoMediaType === "sticker"
+        ? "sticker"
         : evoMediaType === "video"
         ? "video"
         : evoMediaType === "audio"
@@ -1511,6 +1522,8 @@ Deno.serve(async (req) => {
         : "application/pdf");
       const defaultContent = evoMediaType === "image"
         ? "📷 Imagem"
+        : evoMediaType === "sticker"
+        ? "Figurinha"
         : evoMediaType === "video"
         ? "🎬 Vídeo"
         : evoMediaType === "audio"

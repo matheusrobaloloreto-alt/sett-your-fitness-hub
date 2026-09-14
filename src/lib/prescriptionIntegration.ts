@@ -262,7 +262,7 @@ export function buildBnitoOrchestrationPlan(integration: PrescriptionIntegration
         name: "Base tecnica e tolerancia",
         strength_stimulus: cautiousLoad
           ? "tecnica, amplitude segura, controle motor, RIR 3-4 e volume conservador"
-          : "base de volume, controle motor, RIR 2-3 e consolidacao dos padroes principais",
+          : "base de volume, controle motor, RIR 3-4 e consolidacao dos padroes principais",
         running_stimulus: isEndurance
           ? "base aerobica Z1-Z2, tecnica e volume controlado"
           : "cardio leve opcional para recuperacao e aderencia",

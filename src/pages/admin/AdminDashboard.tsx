@@ -20,6 +20,9 @@ import { businessDateYmd } from "@/lib/businessDate";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { selectCurrentCyclePerEnrollment } from "@/lib/prescriptionSchedule";
+import { RenewalsAndCyclesPanel } from "@/components/dashboard/RenewalsAndCyclesPanel";
+import { DashboardSnapshotContext, type CompanyDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
+import { parseCompanyDashboardSnapshot } from "@/lib/companyDashboardSnapshot";
 
 const LazyChart = lazy(() => import("recharts").then(mod => ({
   default: ({ data, colors }: { data: { name: string; count: number }[]; colors: string[] }) => (
@@ -239,28 +242,91 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
 
 const chartColors = ["hsl(220, 70%, 25%)", "hsl(220, 60%, 35%)", "hsl(220, 50%, 45%)", "hsl(220, 40%, 55%)"];
 
-export default function AdminDashboard() {
+function dashboardDataFromSnapshot(snapshot: CompanyDashboardSnapshot | null | undefined): DashboardData | undefined {
+  if (!snapshot) return undefined;
+  return {
+    stats: {
+      totalStudents: Number(snapshot.stats?.totalStudents) || 0,
+      interestedStudents: Number(snapshot.stats?.interestedStudents) || 0,
+      pendingStudents: Number(snapshot.stats?.pendingStudents) || 0,
+      awaitingRenewalStudents: Number(snapshot.stats?.awaitingRenewalStudents) || 0,
+      inactiveStudents: Number(snapshot.stats?.inactiveStudents) || 0,
+      trainers: Number(snapshot.stats?.trainers) || 0,
+    },
+    planChart: snapshot.planChart || [],
+    expiringContracts: snapshot.expiringContracts || [],
+    cycleCountdowns: snapshot.cycleCountdowns || [],
+    trainerMap: snapshot.trainerMap || {},
+  };
+}
+
+function dashboardErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object" && "message" in error && typeof (error as { message?: unknown }).message === "string") {
+    return (error as { message: string }).message;
+  }
+  return "Atualize a página e tente novamente.";
+}
+
+interface AdminDashboardProps {
+  readOnly?: boolean;
+  routePrefixOverride?: string;
+  title?: string;
+  subtitle?: string;
+  includeCoordinatorPanels?: boolean;
+}
+
+export default function AdminDashboard({
+  readOnly = false,
+  routePrefixOverride,
+  title = "DASHBOARD",
+  subtitle,
+  includeCoordinatorPanels = false,
+}: AdminDashboardProps = {}) {
   const { role, companyId } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const navigate = useNavigate();
   const [insightsOpen, setInsightsOpen] = useState(false);
-  const routePrefix = role === "master" && isViewingCompany ? "admin" : role;
+  const routePrefix = routePrefixOverride ?? (role === "master" && isViewingCompany ? "admin" : role);
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
 
-  const { data, error: dashboardError, isLoading: dashboardLoading } = useQuery({
+  const { data: snapshotData, error: snapshotError, isLoading: snapshotLoading } = useQuery({
+    queryKey: ["company-dashboard-snapshot", effectiveCompanyId ?? "none"],
+    queryFn: async () => {
+      if (!effectiveCompanyId) return null;
+      const { data, error } = await supabase.rpc("get_company_dashboard_snapshot", { _company_id: effectiveCompanyId });
+      if (error) throw error;
+      return parseCompanyDashboardSnapshot(data, effectiveCompanyId);
+    },
+    staleTime: 60_000,
+    enabled: readOnly && !!effectiveCompanyId,
+  });
+
+  const { data: liveData, error: liveDashboardError, isLoading: liveDashboardLoading } = useQuery({
     queryKey: ["admin-dashboard", effectiveCompanyId ?? "all"],
     queryFn: () => fetchDashboardData(effectiveCompanyId),
     staleTime: 60_000,
+    enabled: !readOnly,
   });
+  const data = readOnly ? dashboardDataFromSnapshot(snapshotData) : liveData;
+  const dashboardError = readOnly ? snapshotError : liveDashboardError;
+  const dashboardLoading = readOnly ? snapshotLoading : liveDashboardLoading;
 
   // Mapa aluno→conversa para os botões "Renovar agora" (abre o chat com a mensagem pronta).
   const { data: studentChatMap } = useQuery({
     queryKey: ["student-chat-map", effectiveCompanyId ?? "all"],
     queryFn: () => buildStudentChatMap(effectiveCompanyId),
     staleTime: 60_000,
+    enabled: !readOnly,
   });
 
+  const navigateWhenInteractive = (target: string, options?: any) => {
+    if (readOnly) return;
+    navigate(target, options);
+  };
+
   const handleRenew = async (studentId: string, fullName?: string, planName?: string, daysLeft?: number) => {
+    if (readOnly) return;
     try {
       const paymentLink = await createPlansLink(studentId);
       const message = renewalMessage({ fullName, planName, daysLeft, paymentLink, overdue: typeof daysLeft === "number" && daysLeft <= 0 });
@@ -278,6 +344,7 @@ export default function AdminDashboard() {
   };
 
   const handleCycleNotice = async (cycle: any) => {
+    if (readOnly) return;
     const firstName = String(cycle.student_name || "").trim().split(/\s+/)[0];
     const startLabel = cycle.next_start_date ? format(parseISO(cycle.next_start_date), "dd/MM") : "na próxima troca";
     const message = `Oi, ${firstName}! Seu próximo ciclo de treino já está programado e entra no app em ${startLabel}. Quando ele liberar, me conta como se sentiu no bloco anterior para eu acompanhar sua evolução.`;
@@ -300,25 +367,31 @@ export default function AdminDashboard() {
 
   return (
     <>
+      <DashboardSnapshotContext.Provider value={readOnly ? snapshotData ?? null : null}>
       <div className="space-y-6">
         <div>
-          <h1 className="text-4xl text-primary">DASHBOARD</h1>
+          <h1 className="text-4xl text-primary">{title}</h1>
           <p className="text-muted-foreground font-sans">
-            {isViewingCompany ? `Visualizando: ${viewingCompany?.name}` : "Visão geral da consultoria"}
+            {subtitle ?? (isViewingCompany ? `Visualizando: ${viewingCompany?.name}` : "Visão geral da consultoria")}
           </p>
+          {readOnly && (
+            <p className="mt-1 text-xs text-muted-foreground font-sans">
+              Visualização completa da empresa. Ações administrativas permanecem restritas a admin/coordenador.
+            </p>
+          )}
         </div>
 
         {dashboardError && (
           <Card className="border-destructive/40 bg-destructive/5">
             <CardContent className="pt-6">
               <p className="text-sm font-medium text-destructive">Não foi possível carregar os indicadores do painel.</p>
-              <p className="mt-1 text-xs text-muted-foreground">{dashboardError instanceof Error ? dashboardError.message : "Atualize a página e tente novamente."}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{dashboardErrorMessage(dashboardError)}</p>
             </CardContent>
           </Card>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-          <Card className="bg-card border-border cursor-pointer hover:border-primary/50 transition-colors" onClick={() => navigate(`/${routePrefix}/students?status=active`)}>
+          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-primary/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=active`)}>
             <CardContent className="flex items-center gap-4 pt-6">
               <div className="p-3 rounded-lg bg-primary/10"><Users className="h-6 w-6 text-primary" /></div>
               <div>
@@ -327,7 +400,7 @@ export default function AdminDashboard() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-card border-border cursor-pointer hover:border-blue-500/50 transition-colors" onClick={() => navigate(`/${routePrefix}/registration`)}>
+          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-blue-500/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/registration`)}>
             <CardContent className="flex items-center gap-4 pt-6">
               <div className="p-3 rounded-lg bg-blue-500/10"><UserPlus className="h-6 w-6 text-blue-600" /></div>
               <div>
@@ -336,7 +409,7 @@ export default function AdminDashboard() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-card border-border cursor-pointer hover:border-warning/50 transition-colors" onClick={() => navigate(`/${routePrefix}/students?status=pending`)}>
+          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-warning/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=pending`)}>
             <CardContent className="flex items-center gap-4 pt-6">
               <div className="p-3 rounded-lg bg-warning/10"><Clock className="h-6 w-6 text-warning" /></div>
               <div>
@@ -345,7 +418,7 @@ export default function AdminDashboard() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-card border-border cursor-pointer hover:border-warning/50 transition-colors" onClick={() => navigate(`/${routePrefix}/students?status=awaiting_renewal`)}>
+          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-warning/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=awaiting_renewal`)}>
             <CardContent className="flex items-center gap-4 pt-6">
               <div className="p-3 rounded-lg bg-warning/10"><RotateCcw className="h-6 w-6 text-warning" /></div>
               <div>
@@ -354,7 +427,7 @@ export default function AdminDashboard() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-card border-border cursor-pointer hover:border-muted-foreground/50 transition-colors" onClick={() => navigate(`/${routePrefix}/students?status=inactive`)}>
+          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-muted-foreground/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=inactive`)}>
             <CardContent className="flex items-center gap-4 pt-6">
               <div className="p-3 rounded-lg bg-muted"><UserX className="h-6 w-6 text-muted-foreground" /></div>
               <div>
@@ -374,12 +447,30 @@ export default function AdminDashboard() {
           </Card>
         </div>
 
-        <DashboardAlerts />
+        <DashboardAlerts readOnly={readOnly} />
 
         <ContactCadenceCard
           companyId={effectiveCompanyId}
           routePrefix={(routePrefix as string) || "admin"}
+          readOnly={readOnly}
         />
+
+        {includeCoordinatorPanels && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <RenewalsAndCyclesPanel
+              effectiveCompanyId={effectiveCompanyId}
+              routePrefix={(routePrefix as string) || "trainer"}
+              readOnly={readOnly}
+              renewalsOnly
+            />
+            <RenewalsAndCyclesPanel
+              effectiveCompanyId={effectiveCompanyId}
+              routePrefix={(routePrefix as string) || "trainer"}
+              readOnly={readOnly}
+              cyclesOnly
+            />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="bg-card border-border">
@@ -394,14 +485,14 @@ export default function AdminDashboard() {
                   {expiringContracts.map((contract: any) => {
                     const daysLeft = differenceInCalendarDays(parseISO(contract.end_date), businessToday);
                     return (
-                      <div key={contract.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 border border-border cursor-pointer hover:brightness-110 transition-all" onClick={() => navigate(`/${routePrefix}/students/${contract.student_id}`)}>
+                      <div key={contract.id} className={`flex items-center justify-between p-3 rounded-lg bg-secondary/50 border border-border transition-all ${readOnly ? "" : "cursor-pointer hover:brightness-110"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students/${contract.student_id}`)}>
                         <div>
                           <button
                             type="button"
                             className="text-left font-sans text-sm font-medium text-foreground hover:text-primary hover:underline"
                             onClick={(event) => {
                               event.stopPropagation();
-                              navigate(`/${routePrefix}/students/${contract.student_id}`);
+                              navigateWhenInteractive(`/${routePrefix}/students/${contract.student_id}`);
                             }}
                           >
                             {contract.students?.full_name}
@@ -415,14 +506,16 @@ export default function AdminDashboard() {
                           <span className="rounded bg-destructive/20 px-2 py-1 text-xs font-medium text-destructive font-mono-data">
                             {daysLeft < 0 ? `${Math.abs(daysLeft)}d em atraso` : daysLeft === 0 ? "Vence hoje" : `${daysLeft}d restantes`}
                           </span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs border-primary/40 text-primary hover:bg-primary/5"
-                            onClick={(e) => { e.stopPropagation(); handleRenew(contract.student_id, contract.students?.full_name, contract.plans?.name, daysLeft); }}
-                          >
-                            <MessageCircle className="h-3.5 w-3.5 mr-1" /> Renovar agora
-                          </Button>
+                          {!readOnly && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs border-primary/40 text-primary hover:bg-primary/5"
+                              onClick={(e) => { e.stopPropagation(); handleRenew(contract.student_id, contract.students?.full_name, contract.plans?.name, daysLeft); }}
+                            >
+                              <MessageCircle className="h-3.5 w-3.5 mr-1" /> Renovar agora
+                            </Button>
+                          )}
                         </div>
                       </div>
                     );
@@ -444,7 +537,7 @@ export default function AdminDashboard() {
               {cycleCountdowns.length > 0 ? (
                 <div className="space-y-3 max-h-[300px] overflow-auto">
                   {cycleCountdowns.map((m: any, i: number) => (
-                    <div key={i} className="flex flex-col gap-3 rounded-lg border border-border bg-secondary/50 p-3 sm:flex-row sm:items-center sm:justify-between" onClick={() => m.student_id && navigate(`/${routePrefix}/students/${m.student_id}`)}>
+                    <div key={i} className={`flex flex-col gap-3 rounded-lg border border-border bg-secondary/50 p-3 sm:flex-row sm:items-center sm:justify-between ${readOnly ? "" : "cursor-pointer hover:brightness-110 transition-all"}`} onClick={() => m.student_id && navigateWhenInteractive(`/${routePrefix}/students/${m.student_id}`)}>
                       <div>
                         <button
                           type="button"
@@ -452,7 +545,7 @@ export default function AdminDashboard() {
                           onClick={(event) => {
                             event.stopPropagation();
                             if (m.student_id) {
-                              navigate(`/${routePrefix}/students/${m.student_id}`);
+                              navigateWhenInteractive(`/${routePrefix}/students/${m.student_id}`);
                             }
                           }}
                         >
@@ -470,7 +563,7 @@ export default function AdminDashboard() {
                         <span className={`rounded px-2 py-1 text-xs font-medium font-mono-data ${m.days_left <= 0 ? "bg-destructive/20 text-destructive" : "bg-warning/20 text-warning"}`}>
                           {m.days_left <= 0 ? "Hoje" : `${m.days_left}d para troca`}
                         </span>
-                        {m.next_ready ? (
+                        {!readOnly && (m.next_ready ? (
                           <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => handleCycleNotice(m)}>
                             <MessageCircle className="mr-1.5 h-3.5 w-3.5" /> Avisar aluno
                           </Button>
@@ -482,7 +575,7 @@ export default function AdminDashboard() {
                           >
                             <CalendarRange className="mr-1.5 h-3.5 w-3.5" /> Prescrever
                           </Button>
-                        )}
+                        ))}
                       </div>
                     </div>
                   ))}
@@ -525,15 +618,16 @@ export default function AdminDashboard() {
                 </section>
 
                 {/* EVASÃO embutida na dashboard (antes era a rota separada /admin/evasao). */}
-                <AtRiskStudents />
-                <MonthlyPrescriptionsCard companyId={effectiveCompanyId} routePrefix={(routePrefix as string) || "admin"} />
-                <PendingFeedbackCard companyId={effectiveCompanyId} routePrefix={(routePrefix as string) || "admin"} />
-                <CohortInsightsCard companyId={effectiveCompanyId} />
+                <AtRiskStudents readOnly={readOnly} routePrefix={(routePrefix as string) || "admin"} />
+                <MonthlyPrescriptionsCard companyId={effectiveCompanyId} routePrefix={(routePrefix as string) || "admin"} readOnly={readOnly} />
+                <PendingFeedbackCard companyId={effectiveCompanyId} routePrefix={(routePrefix as string) || "admin"} readOnly={readOnly} />
+                <CohortInsightsCard companyId={effectiveCompanyId} readOnly={readOnly} />
               </CardContent>
             </CollapsibleContent>
           </Card>
         </Collapsible>
       </div>
+      </DashboardSnapshotContext.Provider>
     </>
   );
 }

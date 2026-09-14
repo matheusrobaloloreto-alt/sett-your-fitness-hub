@@ -9,12 +9,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Search, Pencil, Trash2, Play, Globe, Building2, Upload, Loader2, Dumbbell } from "lucide-react";
-import { exerciseThumb, normalizedExerciseLibraryGroup } from "@/lib/exerciseCover";
-import { canonicalAnatomicalMuscleGroup, isAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
+import { EXERCISE_CATEGORIES, exerciseThumb, normalizedExerciseCategories, normalizedExerciseLibraryGroup } from "@/lib/exerciseCover";
+import { canonicalCategorySlug, canonicalMuscleSlug, categoryLabel, muscleLabel, MUSCLE_GROUP_OPTIONS, normalizeExerciseTargets } from "@/lib/exerciseTaxonomy";
 import { useMaster } from "@/contexts/MasterContext";
 import { buildExerciseTargetPayload, replaceExerciseMuscleTargets } from "@/lib/exerciseTargetConfig";
 import { resolveExerciseUploadScope } from "@/lib/exerciseUploadScope";
@@ -25,6 +26,7 @@ interface Exercise {
   description: string | null;
   muscle_group: string;
   category: string | null;
+  categories?: string[] | null;
   youtube_video_id?: string | null;
   video_url: string | null;
   video_path: string | null;
@@ -41,15 +43,17 @@ interface MuscleGroup {
 
 interface MuscleTarget {
   muscle_group_id: string;
-  role: string;
-  volume_percentage: number;
+  role: string | null;
+  volume_percentage: number | null;
+  is_primary?: boolean | null;
 }
 
 type MfitImportExercise = {
   name: string;
   description: string | null;
-  muscle_group: string;
+  muscle_group: string | null;
   category: string | null;
+  categories: string[];
   equipment: string | null;
   difficulty: string | null;
   video_url: string | null;
@@ -69,13 +73,34 @@ const useMuscleGroups = (effectiveCompanyId: string | null | undefined) => {
   return groups;
 };
 
-const MUSCLE_GROUP_NAMES_FALLBACK = [
-  "Quadríceps", "Glúteo", "Posterior de Coxa", "Adutores", "Panturrilha",
-  "Peitoral", "Dorsal", "Deltoide Lateral", "Deltoide Anterior", "Deltoide Posterior",
-  "Bíceps", "Tríceps", "Antebraço", "Abdominais", "Lombar / Eretores",
-];
-
 const EXERCISES_PER_PAGE = 80;
+const SUPABASE_PAGE_SIZE = 1000;
+const SUPABASE_IN_CHUNK = 500;
+
+async function fetchAllPages<T>(queryFactory: () => any, pageSize = SUPABASE_PAGE_SIZE): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await queryFactory().range(from, from + pageSize - 1);
+    if (error) throw error;
+    rows.push(...((data || []) as T[]));
+    if (!data || data.length < pageSize) break;
+  }
+  return rows;
+}
+
+async function fetchExerciseTargets(exerciseIds: string[]): Promise<Array<MuscleTarget & { exercise_id: string }>> {
+  const targets: Array<MuscleTarget & { exercise_id: string }> = [];
+  for (let index = 0; index < exerciseIds.length; index += SUPABASE_IN_CHUNK) {
+    const chunk = exerciseIds.slice(index, index + SUPABASE_IN_CHUNK);
+    targets.push(...await fetchAllPages<Array<MuscleTarget & { exercise_id: string }>[number]>(() => (supabase as any)
+      .from("exercise_muscle_targets")
+      .select("exercise_id, muscle_group_id, role, is_primary, volume_percentage")
+      .in("exercise_id", chunk)
+      .order("exercise_id")
+      .order("muscle_group_id")));
+  }
+  return targets;
+}
 
 export default function ExerciseLibrary() {
   const { user, role, companyId } = useAuth();
@@ -83,23 +108,35 @@ export default function ExerciseLibrary() {
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
   const isMaster = role === "master";
   const muscleGroups = useMuscleGroups(effectiveCompanyId);
-  const ANATOMICAL_MUSCLE_GROUP_NAMES = useMemo(() => {
-    const source = muscleGroups.length > 0 ? muscleGroups.map((group) => group.name) : MUSCLE_GROUP_NAMES_FALLBACK;
-    return Array.from(new Set(source.flatMap((name) => {
-      const canonical = canonicalAnatomicalMuscleGroup(name);
-      return canonical ? [canonical] : [];
-    })));
+  const anatomicalMuscleOptions = useMemo(() => {
+    const bySlug = new Map<string, MuscleGroup & { label: string; exact: boolean }>();
+    for (const group of muscleGroups) {
+      const slug = canonicalMuscleSlug(group.name);
+      if (!slug) continue;
+      const label = muscleLabel(slug) || group.name;
+      const exact = group.name === label;
+      const current = bySlug.get(slug);
+      if (!current || (exact && !current.exact)) {
+        bySlug.set(slug, { ...group, label, exact });
+      }
+    }
+    return MUSCLE_GROUP_OPTIONS.flatMap((option) => {
+      const group = bySlug.get(option.slug);
+      return group ? [group] : [];
+    });
   }, [muscleGroups]);
   const { toast } = useToast();
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [search, setSearch] = useState("");
   const [filterGroup, setFilterGroup] = useState("all");
+  const [categoryFilters, setCategoryFilters] = useState<string[]>([]);
   const [visibleCount, setVisibleCount] = useState(EXERCISES_PER_PAGE);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Exercise | null>(null);
   const [videoModal, setVideoModal] = useState<{ type: "path" | "url"; value: string } | null>(null);
   const [form, setForm] = useState({
-    name: "", description: "", muscle_group: "geral",
+    name: "", description: "", muscle_group: "",
+    categories: [] as string[],
     video_url: "", is_global: isMaster,
   });
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -118,61 +155,43 @@ export default function ExerciseLibrary() {
   const [primaryMuscleIds, setPrimaryMuscleIds] = useState<string[]>([]);
   const [secondaryMuscleIds, setSecondaryMuscleIds] = useState<string[]>([]);
 
-  // Map exercise_id -> targets (with effective % considering company override)
+  // Map exercise_id -> explicit anatomical targets. Company overrides are historical only.
   const [targetsByExercise, setTargetsByExercise] = useState<Record<string, MuscleTarget[]>>({});
-  // Per-company volume overrides for the editing exercise: muscle_group_id -> volume_percentage
-  const [companyVolumes, setCompanyVolumes] = useState<Record<string, number>>({});
-
   const loadExercises = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("exercise_library")
-      .select("*")
-      .order("muscle_group")
-      .order("name");
-    if (error) console.error(error);
-    const list = ((data || []) as unknown as Exercise[]).map((exercise) => ({
-      ...exercise,
-      youtube_video_id: exercise.youtube_video_id ?? null,
-    }));
-    setExercises(list);
+    try {
+      const data = await fetchAllPages<Exercise>(() => supabase
+        .from("exercise_library")
+        .select("*")
+        .order("muscle_group")
+        .order("name")
+        .order("id"));
+      const list = (data as Exercise[]).map((exercise) => ({
+        ...exercise,
+        youtube_video_id: exercise.youtube_video_id ?? null,
+      }));
+      setExercises(list);
 
-    // Load muscle targets for all exercises in one query
-    const ids = list.map((e) => e.id);
-    if (ids.length === 0) {
-      setTargetsByExercise({});
-      return;
-    }
-    const { data: targets } = await (supabase as any)
-      .from("exercise_muscle_targets")
-      .select("exercise_id, muscle_group_id, role, volume_percentage")
-      .in("exercise_id", ids);
-
-    // Apply company overrides if scoped to a company
-    const overrides: Record<string, Record<string, number>> = {};
-    if (effectiveCompanyId) {
-      const { data: ovs } = await (supabase as any)
-        .from("company_exercise_volumes")
-        .select("exercise_id, muscle_group_id, volume_percentage")
-        .eq("company_id", effectiveCompanyId)
-        .in("exercise_id", ids);
-      (ovs || []).forEach((o: any) => {
-        if (!overrides[o.exercise_id]) overrides[o.exercise_id] = {};
-        overrides[o.exercise_id][o.muscle_group_id] = Number(o.volume_percentage);
+      const ids = list.map((e) => e.id);
+      if (ids.length === 0) {
+        setTargetsByExercise({});
+        return;
+      }
+      const targets = await fetchExerciseTargets(ids);
+      const map: Record<string, MuscleTarget[]> = {};
+      targets.forEach((t) => {
+        const target: MuscleTarget = {
+          muscle_group_id: t.muscle_group_id,
+          role: t.role,
+          is_primary: t.is_primary,
+          volume_percentage: Number(t.volume_percentage),
+        };
+        if (!map[t.exercise_id]) map[t.exercise_id] = [];
+        map[t.exercise_id].push(target);
       });
+      setTargetsByExercise(map);
+    } catch (error) {
+      console.error(error);
     }
-
-    const map: Record<string, MuscleTarget[]> = {};
-    (targets || []).forEach((t: any) => {
-      const ov = overrides[t.exercise_id]?.[t.muscle_group_id];
-      const eff: MuscleTarget = {
-        muscle_group_id: t.muscle_group_id,
-        role: t.role,
-        volume_percentage: ov != null ? ov : Number(t.volume_percentage),
-      };
-      if (!map[t.exercise_id]) map[t.exercise_id] = [];
-      map[t.exercise_id].push(eff);
-    });
-    setTargetsByExercise(map);
   }, [effectiveCompanyId]);
 
   useEffect(() => { void loadExercises(); }, [loadExercises]);
@@ -185,24 +204,21 @@ export default function ExerciseLibrary() {
   const loadMuscleTargets = async (exerciseId: string) => {
     const { data } = await (supabase as any)
       .from("exercise_muscle_targets")
-      .select("muscle_group_id, role, volume_percentage")
-      .eq("exercise_id", exerciseId);
+      .select("muscle_group_id, role, is_primary, volume_percentage")
+      .eq("exercise_id", exerciseId)
+      .order("muscle_group_id");
     const targets = (data as MuscleTarget[]) || [];
-    const primaries = targets.filter(t => t.role === "primary");
-    const secondaries = targets.filter(t => t.role === "secondary");
+    const primaries = targets.filter(t => t.role === "primary" || t.is_primary === true);
+    const secondaries = targets.filter(t => t.role === "secondary" || t.is_primary === false);
     setPrimaryMuscleIds(primaries.map(p => p.muscle_group_id));
     setSecondaryMuscleIds(secondaries.map(s => s.muscle_group_id));
   };
 
-  const saveMuscleTargets = async (exerciseId: string) => {
-    const targets = buildExerciseTargetPayload(primaryMuscleIds, secondaryMuscleIds);
-    await replaceExerciseMuscleTargets(supabase as any, exerciseId, targets);
-  };
-
   const handleSave = async () => {
     if (!form.name) return;
+    let targetPayload;
     try {
-      buildExerciseTargetPayload(primaryMuscleIds, secondaryMuscleIds);
+      targetPayload = buildExerciseTargetPayload(primaryMuscleIds, secondaryMuscleIds);
     } catch (error) {
       toast({
         title: "Configuração muscular incompleta",
@@ -249,10 +265,14 @@ export default function ExerciseLibrary() {
       videoPath = filePath;
     }
 
+    const primaryMuscleName = muscleGroups.find((group) => group.id === primaryMuscleIds[0])?.name;
+    const legacyMuscleGroup = muscleLabel(form.muscle_group) || muscleLabel(primaryMuscleName);
     const payload: any = {
       name: form.name,
       description: form.description || null,
-      muscle_group: form.muscle_group,
+      muscle_group: legacyMuscleGroup,
+      category: form.categories[0] || null,
+      categories: form.categories,
       video_url: form.video_url || null,
       video_path: videoPath,
       is_global: uploadScope.is_global,
@@ -275,8 +295,7 @@ export default function ExerciseLibrary() {
     // Save muscle targets
     try {
       if (exerciseId) {
-        await saveMuscleTargets(exerciseId);
-        await saveCompanyVolumes(exerciseId);
+        await replaceExerciseMuscleTargets(supabase as any, exerciseId, targetPayload);
       }
     } catch (error) {
       toast({
@@ -305,54 +324,26 @@ export default function ExerciseLibrary() {
     loadExercises();
   };
 
-  const loadCompanyVolumes = async (exerciseId: string) => {
-    if (!effectiveCompanyId) { setCompanyVolumes({}); return; }
-    const { data } = await (supabase as any)
-      .from("company_exercise_volumes")
-      .select("muscle_group_id, volume_percentage")
-      .eq("company_id", effectiveCompanyId)
-      .eq("exercise_id", exerciseId);
-    const map: Record<string, number> = {};
-    (data || []).forEach((row: any) => { map[row.muscle_group_id] = Number(row.volume_percentage); });
-    setCompanyVolumes(map);
-  };
-
-  const saveCompanyVolumes = async (exerciseId: string) => {
-    if (!effectiveCompanyId) return;
-    const rows = Object.entries(companyVolumes)
-      .filter(([mgId]) => allSelectedIds.includes(mgId))
-      .map(([mgId, pct]) => ({
-        company_id: effectiveCompanyId,
-        exercise_id: exerciseId,
-        muscle_group_id: mgId,
-        role: primaryMuscleIds.includes(mgId) ? "primary" : "secondary",
-        volume_percentage: pct,
-      }));
-    if (rows.length > 0) {
-      const { error } = await (supabase as any)
-        .from("company_exercise_volumes")
-        .upsert(rows, { onConflict: "company_id,exercise_id,muscle_group_id" });
-      if (error) throw new Error(error.message || "Falha ao salvar percentuais da empresa.");
-    }
-  };
-
   const openEdit = async (ex: Exercise) => {
     setEditing(ex);
     setForm({
       name: ex.name, description: ex.description || "",
-      muscle_group: ex.muscle_group, video_url: ex.video_url || "",
+      muscle_group: canonicalMuscleSlug(ex.muscle_group) || "",
+      categories: normalizedExerciseCategories(ex),
+      video_url: ex.video_url || "",
       is_global: ex.is_global,
     });
     setVideoFile(null);
     await loadMuscleTargets(ex.id);
-    await loadCompanyVolumes(ex.id);
     setOpen(true);
   };
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", description: "", muscle_group: "geral", video_url: "", is_global: isMaster });
+    setForm({ name: "", description: "", muscle_group: "", categories: [], video_url: "", is_global: isMaster });
     setVideoFile(null);
+    setPrimaryMuscleIds([]);
+    setSecondaryMuscleIds([]);
     setOpen(true);
   };
 
@@ -362,8 +353,7 @@ export default function ExerciseLibrary() {
     setVideoFile(null);
     setPrimaryMuscleIds([]);
     setSecondaryMuscleIds([]);
-    setCompanyVolumes({});
-    setForm({ name: "", description: "", muscle_group: "geral", video_url: "", is_global: isMaster });
+    setForm({ name: "", description: "", muscle_group: "", categories: [], video_url: "", is_global: isMaster });
   };
 
   const getEmbedUrl = (url: string) => {
@@ -430,17 +420,19 @@ export default function ExerciseLibrary() {
 
   useEffect(() => {
     setVisibleCount(EXERCISES_PER_PAGE);
-  }, [search, filterGroup, effectiveCompanyId]);
+  }, [search, filterGroup, categoryFilters, effectiveCompanyId]);
 
   const filtered = useMemo(() => exercises.filter((ex) => {
     const matchSearch = ex.name.toLowerCase().includes(search.toLowerCase());
     const matchGroup = filterGroup === "all" || normalizedExerciseLibraryGroup(ex) === filterGroup;
-    return matchSearch && matchGroup;
-  }), [exercises, filterGroup, search]);
+    const exCategories = normalizedExerciseCategories(ex);
+    const matchCategory = categoryFilters.length === 0 || exCategories.some((category) => categoryFilters.includes(category));
+    return matchSearch && matchGroup && matchCategory;
+  }), [categoryFilters, exercises, filterGroup, search]);
 
   const visibleExercises = filtered.slice(0, visibleCount);
   const grouped = visibleExercises.reduce<Record<string, Exercise[]>>((acc, ex) => {
-    const g = normalizedExerciseLibraryGroup(ex) || "Sem categoria";
+    const g = normalizedExerciseLibraryGroup(ex) || "Sem grupo principal";
     if (!acc[g]) acc[g] = [];
     acc[g].push(ex);
     return acc;
@@ -451,6 +443,45 @@ export default function ExerciseLibrary() {
   )).sort((a, b) => a.localeCompare(b, "pt-BR")), [exercises]);
 
   const allSelectedIds = [...primaryMuscleIds, ...secondaryMuscleIds];
+  const toggleCategoryFilter = (categoryId: string) => {
+    setCategoryFilters((current) => (
+      current.includes(categoryId)
+        ? current.filter((item) => item !== categoryId)
+        : [...current, categoryId]
+    ));
+  };
+  const toggleFormCategory = (categoryId: string) => {
+    setForm((current) => ({
+      ...current,
+      categories: current.categories.includes(categoryId)
+        ? current.categories.filter((item) => item !== categoryId)
+        : [...current.categories, categoryId],
+    }));
+  };
+  const muscleNameById = (muscleGroupId: string) => {
+    const raw = muscleGroups.find((m) => m.id === muscleGroupId)?.name;
+    return muscleLabel(raw) || raw || "—";
+  };
+  const normalizedTargetsForExercise = (exerciseId: string) => normalizeExerciseTargets(
+    (targetsByExercise[exerciseId] || []).map((target) => ({
+      ...target,
+      muscle_group_name: muscleGroups.find((group) => group.id === target.muscle_group_id)?.name,
+    })),
+  ).filter((target) => target.muscle_group_id);
+  const selectedLegacyMuscleGroups = allSelectedIds
+    .map((id) => muscleGroups.find((group) => group.id === id))
+    .filter((group): group is MuscleGroup => Boolean(group && !canonicalMuscleSlug(group.name)));
+  const selectableMuscleGroups = (currentId: string) => {
+    const current = muscleGroups.find((group) => group.id === currentId);
+    const currentOption = current ? [{ ...current, label: `${current.name} (fora da taxonomia — remova)`, legacy: !canonicalMuscleSlug(current.name) }] : [];
+    const options = anatomicalMuscleOptions
+      .filter((group) => group.id === currentId || !allSelectedIds.includes(group.id))
+      .map((group) => ({ ...group, legacy: false }));
+    return [
+      ...currentOption.filter((group) => !options.some((option) => option.id === group.id)),
+      ...options,
+    ];
+  };
 
   const updateSlot = (list: string[], setList: (v: string[]) => void, index: number, value: string) => {
     const next = [...list];
@@ -473,48 +504,7 @@ export default function ExerciseLibrary() {
   const normalizeText = (value: unknown) => String(value ?? "").trim();
 
   const normalizeMfitGroup = (value: unknown) => {
-    const raw = normalizeText(value).toLowerCase();
-    const map: Record<string, string> = {
-      abd: "Abdominais",
-      abdomen: "Abdominais",
-      abdominal: "Abdominais",
-      abs: "Abdominais",
-      biceps: "Bíceps",
-      bíceps: "Bíceps",
-      triceps: "Tríceps",
-      tríceps: "Tríceps",
-      chest: "Peitoral",
-      peito: "Peitoral",
-      dorsal: "Dorsal",
-      back: "Dorsal",
-      costas: "Dorsal",
-      shoulder: "Ombros",
-      ombro: "Ombros",
-      ombros: "Ombros",
-      inferiores: "Quadríceps",
-      inf: "Quadríceps",
-      quadriceps: "Quadríceps",
-      quadríceps: "Quadríceps",
-      gluteo: "Glúteo",
-      glúteo: "Glúteo",
-      posterior: "Posterior de Coxa",
-      hamstrings: "Posterior de Coxa",
-      panturrilha: "Panturrilha",
-      calf: "Panturrilha",
-      calves: "Panturrilha",
-      mobilidade: "Mobilidade",
-      mobility: "Mobilidade",
-      alongamento: "Alongamento",
-      stretching: "Alongamento",
-      funcional: "Funcional",
-      functional: "Funcional",
-      elastico: "Elástico",
-      elástico: "Elástico",
-      resistance_band: "Elástico",
-      outros: "geral",
-      other: "geral",
-    };
-    return map[raw] || normalizeText(value) || "geral";
+    return muscleLabel(value);
   };
 
   const parseCsvRows = (text: string) => {
@@ -564,12 +554,22 @@ export default function ExerciseLibrary() {
     const name = normalizeText(row.name ?? row.nome ?? row.exercise ?? row.exercicio ?? row.exercise_name);
     if (!name) return null;
     const rawGroup = row.group ?? row.grupo ?? row.exerciseGroup?.nome ?? row.exerciseGroup?.id ?? row.muscle_group ?? row.category;
+    const description = normalizeText(row.description ?? row.descricao ?? row.obs ?? row.instructions);
+    const rawCategory = normalizeText(row.category ?? row.categoria ?? row.exerciseCategory?.name ?? row.exerciseCategory?.id);
+    const categories = normalizedExerciseCategories({
+      category: rawCategory,
+      categories: [],
+      name,
+      description,
+      muscle_group: normalizeText(rawGroup),
+    });
     const poster = normalizeText(row.urlPoster ?? row.url_poster ?? row.thumbnail_url ?? row.poster);
     return {
       name,
-      description: normalizeText(row.description ?? row.descricao ?? row.obs ?? row.instructions) || null,
+      description: description || null,
       muscle_group: normalizeMfitGroup(rawGroup),
-      category: normalizeText(row.category ?? row.categoria ?? row.exerciseCategory?.name ?? row.exerciseCategory?.id) || null,
+      category: categories[0] || canonicalCategorySlug(rawCategory) || null,
+      categories,
       equipment: normalizeText(row.equipment ?? row.equipamento) || null,
       difficulty: normalizeText(row.difficulty ?? row.nivel) || null,
       video_url: mfitMediaToUrl(row),
@@ -657,6 +657,8 @@ export default function ExerciseLibrary() {
         name: ex.name,
         description: buildMfitDescription(ex),
         muscle_group: ex.muscle_group,
+        category: ex.category,
+        categories: ex.categories,
         equipment: ex.equipment,
         difficulty: ex.difficulty || "intermediate",
         video_url: ex.video_url,
@@ -673,13 +675,21 @@ export default function ExerciseLibrary() {
 
       let updated = 0;
       for (const { importRow, existing } of duplicates) {
-        const update: Record<string, string | null> = {
+        const update: Record<string, string | string[] | null> = {
           description: buildMfitDescription(importRow, existing.description || ""),
         };
         if (importRow.video_url && !existing.video_url && !existing.video_path) update.video_url = importRow.video_url;
         if (importRow.thumbnail_url && !existing.thumbnail_url) update.thumbnail_url = importRow.thumbnail_url;
         if (importRow.muscle_group && ["", "geral", "outros"].includes((existing.muscle_group || "").toLowerCase())) {
           update.muscle_group = importRow.muscle_group;
+        }
+        if (importRow.categories.length > 0) {
+          const existingCategories = normalizedExerciseCategories(existing);
+          const mergedCategories = Array.from(new Set([...existingCategories, ...importRow.categories]));
+          if (mergedCategories.join("|") !== existingCategories.join("|")) {
+            update.category = mergedCategories[0] || null;
+            update.categories = mergedCategories;
+          }
         }
         if (Object.keys(update).length > 1 || update.description !== (existing.description || "")) {
           const { error } = await (supabase as any).from("exercise_library").update(update).eq("id", existing.id);
@@ -716,8 +726,8 @@ export default function ExerciseLibrary() {
               <h1 className="text-4xl text-primary">BIBLIOTECA DE EXERCÍCIOS</h1>
               <BnitoContextButton
                 label="biblioteca de exercicios"
-                context="Cadastro de exercicios, grupos musculares, videos e distribuicao de volume usada pela prescricao."
-                question="Como devo cadastrar exercicios e volume muscular para a prescricao ficar mais precisa?"
+                context="Cadastro de exercicios, categorias, videos e alvos anatomicos primarios/secundarios usados pela prescricao."
+                question="Como devo cadastrar categorias e alvos musculares para a prescricao ficar mais precisa?"
               />
             </div>
             <p className="text-muted-foreground font-sans">
@@ -735,6 +745,7 @@ export default function ExerciseLibrary() {
         </div>
 
         {/* Filters */}
+        <div className="space-y-3">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -757,6 +768,29 @@ export default function ExerciseLibrary() {
             </SelectContent>
           </Select>
         </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            <button
+              type="button"
+              onClick={() => setCategoryFilters([])}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition ${categoryFilters.length === 0 ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"}`}
+            >
+              Todas categorias
+            </button>
+            {EXERCISE_CATEGORIES.map((category) => {
+              const active = categoryFilters.includes(category.id);
+              return (
+                <button
+                  key={category.id}
+                  type="button"
+                  onClick={() => toggleCategoryFilter(category.id)}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition ${active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"}`}
+                >
+                  {category.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <p className="text-xs text-muted-foreground font-mono-data">
           Exibindo {Math.min(visibleCount, filtered.length)} de {filtered.length} exercício(s)
@@ -772,8 +806,8 @@ export default function ExerciseLibrary() {
               <h2 className="text-lg text-primary capitalize">{group}</h2>
               <BnitoContextButton
                 label={`grupo muscular ${group}`}
-                context={`Grupo muscular/categoria da biblioteca: ${group}. Ajuda para organizar exercicios, foco primario/secundario e prescricao.`}
-                question={`Como devo usar os exercicios de ${group} na prescricao e no controle de volume?`}
+                context={`Grupo muscular/categoria da biblioteca: ${group}. Ajuda para organizar exercicios, categorias, foco primario/secundario e prescricao.`}
+                question={`Como devo usar os exercicios de ${group} na prescricao e nos filtros da biblioteca?`}
               />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-6">
@@ -810,7 +844,14 @@ export default function ExerciseLibrary() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant="outline" className="capitalize text-xs">{ex.muscle_group}</Badge>
+                      {ex.muscle_group && (
+                        <Badge variant="outline" className="capitalize text-xs">{muscleLabel(ex.muscle_group) || ex.muscle_group}</Badge>
+                      )}
+                      {normalizedExerciseCategories(ex).map((category) => (
+                        <Badge key={category} variant="outline" className="text-xs">
+                          {categoryLabel(category) || category}
+                        </Badge>
+                      ))}
                       {ex.is_global && (
                         <Badge variant="secondary" className="text-xs">
                           <Globe className="h-3 w-3 mr-1" />Global
@@ -822,21 +863,19 @@ export default function ExerciseLibrary() {
                         </Badge>
                       )}
                     </div>
-                    {(targetsByExercise[ex.id]?.length ?? 0) > 0 && (
+                    {normalizedTargetsForExercise(ex.id).length > 0 && (
                       <div className="flex flex-wrap gap-1">
-                        {targetsByExercise[ex.id]
-                          .slice()
+                        {normalizedTargetsForExercise(ex.id)
                           .sort((a, b) => (a.role === b.role ? 0 : a.role === "primary" ? -1 : 1))
-                          .map((t, i) => {
-                            const mgName = muscleGroups.find((m) => m.id === t.muscle_group_id)?.name || "—";
-                            const isPrimary = t.role === "primary";
+                          .map((target) => {
+                            const isPrimary = target.role === "primary";
                             return (
                               <Badge
-                                key={`${t.muscle_group_id}-${i}`}
+                                key={target.muscle_slug}
                                 variant={isPrimary ? "default" : "outline"}
                                 className="text-[10px] font-sans"
                               >
-                                {isPrimary ? "P" : "S"} · {mgName} · {Math.round(t.volume_percentage)}%
+                                {isPrimary ? "P" : "S"} · {target.muscle_label} · {isPrimary ? 100 : 50}%
                               </Badge>
                             );
                           })}
@@ -911,7 +950,11 @@ export default function ExerciseLibrary() {
                     <div key={`${ex.name}-${ex.source_id || ""}`} className="flex items-center justify-between gap-3 border-b border-border last:border-b-0 p-3">
                       <div className="min-w-0">
                         <p className="truncate font-sans font-medium text-sm">{ex.name}</p>
-                        <p className="text-xs text-muted-foreground font-sans">{ex.muscle_group}{ex.category ? ` · ${ex.category}` : ""}</p>
+                        <p className="text-xs text-muted-foreground font-sans">
+                          {[ex.muscle_group, ...(ex.categories || []).map((item) => categoryLabel(item) || item)]
+                            .filter(Boolean)
+                            .join(" · ") || "sem taxonomia"}
+                        </p>
                       </div>
                       <Badge variant={ex.video_url ? "default" : "outline"} className="shrink-0 text-xs">
                         {ex.video_url ? "com vídeo" : "sem vídeo"}
@@ -933,8 +976,8 @@ export default function ExerciseLibrary() {
               {editing ? "EDITAR EXERCÍCIO" : "NOVO EXERCÍCIO"}
               <BnitoContextButton
                 label="cadastro de exercicio"
-                context="Formulario de exercicio: nome, categoria, video, musculos primarios/secundarios e percentual de volume."
-                question="Me ajuda a definir grupo muscular, musculos primarios/secundarios e percentual de volume deste exercicio?"
+                context="Formulario de exercicio: nome, categorias, video e musculos primarios/secundarios."
+                question="Me ajuda a definir as categorias e os alvos primarios/secundarios deste exercicio?"
                 className="ml-auto"
               />
             </DialogTitle>
@@ -945,17 +988,41 @@ export default function ExerciseLibrary() {
               <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Agachamento Livre" className="bg-secondary border-border" />
             </div>
             <div className="space-y-2">
-              <Label className="font-sans">Grupo Muscular (categoria)</Label>
-              <Select value={form.muscle_group} onValueChange={(v) => setForm({ ...form, muscle_group: v })}>
+              <Label className="font-sans">Grupo principal</Label>
+              <Select value={form.muscle_group || "none"} onValueChange={(v) => setForm({ ...form, muscle_group: v === "none" ? "" : v })}>
                 <SelectTrigger className="bg-secondary border-border">
-                  <SelectValue />
+                  <SelectValue placeholder="Opcional" />
                 </SelectTrigger>
                 <SelectContent>
-                  {ANATOMICAL_MUSCLE_GROUP_NAMES.map((g) => (
-                    <SelectItem key={g} value={g} className="capitalize">{g}</SelectItem>
+                  <SelectItem value="none">Sem grupo principal</SelectItem>
+                  {MUSCLE_GROUP_OPTIONS.map((group) => (
+                    <SelectItem key={group.slug} value={group.slug}>{group.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="font-sans">Categorias</Label>
+              <div className="flex flex-wrap gap-2 rounded-md border border-border bg-secondary/40 p-2">
+                {EXERCISE_CATEGORIES.map((category) => {
+                  const active = form.categories.includes(category.id);
+                  return (
+                    <label
+                      key={category.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
+                        active ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground"
+                      }`}
+                    >
+                      <Checkbox
+                        checked={active}
+                        onCheckedChange={() => toggleFormCategory(category.id)}
+                        className="h-3.5 w-3.5"
+                      />
+                      {category.label}
+                    </label>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Muscle Target Configuration */}
@@ -965,13 +1032,18 @@ export default function ExerciseLibrary() {
                   <Label className="font-sans text-sm font-semibold">Distribuição de Carga (Volume)</Label>
                   <BnitoContextButton
                     label="distribuicao de carga do exercicio"
-                    context="Define quais musculos recebem volume primario/secundario e qual percentual entra no calculo semanal."
-                    question="Qual percentual de volume faz sentido para os musculos primarios e secundarios deste exercicio?"
+                    context="Define quais musculos recebem volume primario ou secundario no calculo semanal."
+                    question="Quais musculos devem entrar como primarios e secundarios neste exercicio?"
                   />
                 </div>
                 <p className="text-xs text-muted-foreground font-sans">
                   Configure quais músculos este exercício trabalha para o cálculo de volume semanal.
                 </p>
+                {selectedLegacyMuscleGroups.length > 0 && (
+                  <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300 font-sans">
+                    Há alvo salvo fora da taxonomia anatômica de volume. Remova ou substitua antes de salvar para não transformar categoria em músculo.
+                  </p>
+                )}
                 
                 <div className="grid grid-cols-2 gap-4">
                   {/* Primary muscles (100%) */}
@@ -989,11 +1061,9 @@ export default function ExerciseLibrary() {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="none">Remover</SelectItem>
-                              {muscleGroups
-                                .filter(mg => isAnatomicalMuscleGroup(mg.name) || mg.id === mgId)
-                                .filter(mg => mg.id === mgId || !allSelectedIds.includes(mg.id))
+                              {selectableMuscleGroups(mgId)
                                 .map(mg => (
-                                  <SelectItem key={mg.id} value={mg.id}>{mg.name}</SelectItem>
+                                  <SelectItem key={mg.id} value={mg.id}>{mg.label}{mg.legacy ? " (legado)" : ""}</SelectItem>
                                 ))}
                             </SelectContent>
                           </Select>
@@ -1031,11 +1101,9 @@ export default function ExerciseLibrary() {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="none">Remover</SelectItem>
-                              {muscleGroups
-                                .filter(mg => isAnatomicalMuscleGroup(mg.name) || mg.id === mgId)
-                                .filter(mg => mg.id === mgId || !allSelectedIds.includes(mg.id))
+                              {selectableMuscleGroups(mgId)
                                 .map(mg => (
-                                  <SelectItem key={mg.id} value={mg.id}>{mg.name}</SelectItem>
+                                  <SelectItem key={mg.id} value={mg.id}>{mg.label}{mg.legacy ? " (legado)" : ""}</SelectItem>
                                 ))}
                             </SelectContent>
                           </Select>
@@ -1061,48 +1129,6 @@ export default function ExerciseLibrary() {
               </div>
             )}
 
-            {/* Per-company volume override (only when editing and scoped to a company) */}
-            {editing && effectiveCompanyId && allSelectedIds.length > 0 && (
-              <div className="space-y-2 p-3 rounded-lg bg-secondary/50 border border-border">
-                <Label className="font-sans text-sm font-semibold">Volume desta empresa (%)</Label>
-                <p className="text-xs text-muted-foreground font-sans">
-                  Personalize o percentual de volume contado para esta empresa. Em branco usa o padrão (100% primário / 50% secundário).
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {allSelectedIds.map((mgId) => {
-                    const mg = muscleGroups.find((m) => m.id === mgId);
-                    const isPrimary = primaryMuscleIds.includes(mgId);
-                    const def = isPrimary ? 100 : 50;
-                    return (
-                      <div key={mgId} className="flex items-center gap-2">
-                        <Label className="text-xs flex-1 truncate font-sans">
-                          <span className="text-muted-foreground mr-1">{isPrimary ? "P" : "S"}</span>
-                          {mg?.name || "—"}
-                        </Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={200}
-                          step={1}
-                          value={companyVolumes[mgId] ?? ""}
-                          placeholder={String(def)}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setCompanyVolumes((prev) => {
-                              const next = { ...prev };
-                              if (v === "") delete next[mgId];
-                              else next[mgId] = Number(v);
-                              return next;
-                            });
-                          }}
-                          className="bg-secondary border-border h-8 w-20 text-xs"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
             {/* Video upload */}
             <div className="space-y-2">
               <Label className="font-sans">Upload de Vídeo</Label>

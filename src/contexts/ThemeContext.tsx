@@ -1,8 +1,19 @@
-import React, { createContext, useContext, useEffect } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
+import {
+  applyPlatformTheme,
+  getStoredPersonalThemeMode,
+  getSystemThemeMode,
+  personalThemeStorageKey,
+  readSupabaseStoredUserId,
+  resolveInitialPersonalThemeMode,
+  resolvePersonalThemeMode,
+  storePersonalThemeMode,
+  type PersonalThemeMode,
+} from "@/lib/personalTheme";
 
 interface PlatformSettings {
   id: string;
@@ -45,6 +56,8 @@ interface ThemeContextValue {
   settings: PlatformSettings | null;
   isLoading: boolean;
   defaults: typeof DEFAULTS;
+  themeMode: PersonalThemeMode;
+  setThemeMode: (mode: PersonalThemeMode) => void;
   refetch: () => void;
 }
 
@@ -52,120 +65,32 @@ const ThemeContext = createContext<ThemeContextValue>({
   settings: null,
   isLoading: true,
   defaults: DEFAULTS,
+  themeMode: "light",
+  setThemeMode: () => {},
   refetch: () => {},
 });
 
 export const useTheme = () => useContext(ThemeContext);
 
-function hexToHSL(hex: string): string {
-  hex = hex.replace("#", "");
-  const r = parseInt(hex.substring(0, 2), 16) / 255;
-  const g = parseInt(hex.substring(2, 4), 16) / 255;
-  const b = parseInt(hex.substring(4, 6), 16) / 255;
-
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  let h = 0, s = 0;
-  const l = (max + min) / 2;
-
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
-      case g: h = ((b - r) / d + 2) / 6; break;
-      case b: h = ((r - g) / d + 4) / 6; break;
-    }
-  }
-
-  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
-}
-
-function adjustLightness(hex: string, amount: number): string {
-  hex = hex.replace("#", "");
-  const r = parseInt(hex.substring(0, 2), 16) / 255;
-  const g = parseInt(hex.substring(2, 4), 16) / 255;
-  const b = parseInt(hex.substring(4, 6), 16) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  let h = 0, s = 0;
-  let l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
-      case g: h = ((b - r) / d + 2) / 6; break;
-      case b: h = ((r - g) / d + 4) / 6; break;
-    }
-  }
-  l = Math.max(0, Math.min(1, l + amount));
-  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
-}
-
-export function applyTheme(settings: { primary_color: string; background_color: string; card_color: string; text_color: string }) {
-  const root = document.documentElement;
-  const bg = hexToHSL(settings.background_color);
-  const fg = hexToHSL(settings.text_color);
-  const primary = hexToHSL(settings.primary_color);
-  const card = hexToHSL(settings.card_color);
-
-  // Detect light vs dark surface to derive sensible neutrals in either direction.
-  const isLight = (() => {
-    const hex = settings.background_color.replace("#", "");
-    const r = parseInt(hex.substring(0, 2), 16) / 255;
-    const g = parseInt(hex.substring(2, 4), 16) / 255;
-    const b = parseInt(hex.substring(4, 6), 16) / 255;
-    return (Math.max(r, g, b) + Math.min(r, g, b)) / 2 > 0.5;
-  })();
-
-  const sign = isLight ? -1 : 1;
-  const mutedBg = adjustLightness(settings.background_color, sign * 0.03);
-  const mutedFg = adjustLightness(settings.text_color, sign * -0.35);
-  const border = adjustLightness(settings.background_color, sign * 0.08);
-  const sidebarBg = adjustLightness(settings.background_color, sign * 0.04);
-  const sidebarAccent = adjustLightness(settings.background_color, sign * 0.06);
-
-  root.style.setProperty("--background", bg);
-  root.style.setProperty("--foreground", fg);
-  root.style.setProperty("--primary", primary);
-  root.style.setProperty("--primary-foreground", isLight ? "60 19% 98%" : "0 0% 100%");
-  root.style.setProperty("--card", card);
-  root.style.setProperty("--card-foreground", fg);
-  root.style.setProperty("--popover", isLight ? bg : card);
-  root.style.setProperty("--popover-foreground", fg);
-  root.style.setProperty("--secondary", card);
-  root.style.setProperty("--secondary-foreground", fg);
-  root.style.setProperty("--muted", mutedBg);
-  root.style.setProperty("--muted-foreground", mutedFg);
-  root.style.setProperty("--accent", primary);
-  root.style.setProperty("--accent-foreground", isLight ? "60 19% 98%" : "0 0% 100%");
-  root.style.setProperty("--border", border);
-  root.style.setProperty("--input", border);
-  root.style.setProperty("--ring", primary);
-
-  // Extra brand tokens (Paper / Navy / Ink) used by landing + chrome
-  root.style.setProperty("--paper", bg);
-  root.style.setProperty("--paper-warm", card);
-  root.style.setProperty("--line", border);
-  root.style.setProperty("--ink", fg);
-  root.style.setProperty("--ink-soft", adjustLightness(settings.text_color, isLight ? 0.06 : -0.06));
-  root.style.setProperty("--navy", primary);
-
-  root.style.setProperty("--sidebar-background", card);
-  root.style.setProperty("--sidebar-foreground", fg);
-  root.style.setProperty("--sidebar-primary", primary);
-  root.style.setProperty("--sidebar-primary-foreground", isLight ? "60 19% 98%" : "0 0% 100%");
-  root.style.setProperty("--sidebar-accent", sidebarAccent);
-  root.style.setProperty("--sidebar-accent-foreground", fg);
-  root.style.setProperty("--sidebar-border", border);
-  root.style.setProperty("--sidebar-ring", primary);
+export function applyTheme(
+  settings: { primary_color: string; background_color: string; card_color: string; text_color: string },
+  mode?: PersonalThemeMode,
+) {
+  applyPlatformTheme(settings, mode);
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
-  const { companyId, role, user } = useAuth();
+  const { companyId, role, user, loading: authLoading } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
+  const [themeMode, setThemeModeState] = useState<PersonalThemeMode>(() => resolveInitialPersonalThemeMode());
+  const [preAuthPersonalThemeUserId, setPreAuthPersonalThemeUserId] = useState<string | null>(() => readSupabaseStoredUserId());
+  const personalThemeUserId = user?.id ?? (authLoading ? preAuthPersonalThemeUserId : null);
+
+  useEffect(() => {
+    if (authLoading) return;
+    setPreAuthPersonalThemeUserId(user?.id ?? null);
+  }, [authLoading, user?.id]);
 
   // Aluno não está em company_members → a empresa vem de students.company_id.
   // Sem isso, o app do aluno carregava o tema GLOBAL e ignorava o tema/layout da empresa dele.
@@ -207,18 +132,56 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     staleTime: 1000 * 60 * 5,
   });
 
+  const activeThemeSettings = settings || (!isLoading ? DEFAULTS : null);
+
+  useLayoutEffect(() => {
+    const nextMode = resolvePersonalThemeMode(personalThemeUserId);
+    setThemeModeState(nextMode);
+    applyTheme(activeThemeSettings || DEFAULTS, nextMode);
+    // Re-resolve only when the account scope changes. Settings refetches must keep
+    // the in-memory choice when localStorage writes fail.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personalThemeUserId]);
+
   useEffect(() => {
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!media) return;
+    const syncSystemMode = () => {
+      if (getStoredPersonalThemeMode(personalThemeUserId)) return;
+      setThemeModeState(getSystemThemeMode());
+    };
+    media.addEventListener("change", syncSystemMode);
+    return () => media.removeEventListener("change", syncSystemMode);
+  }, [personalThemeUserId, themeMode]);
+
+  useEffect(() => {
+    const key = personalThemeStorageKey(personalThemeUserId);
+    const syncStoredMode = (event: StorageEvent) => {
+      if (event.key !== key) return;
+      setThemeModeState(resolvePersonalThemeMode(personalThemeUserId));
+    };
+    window.addEventListener("storage", syncStoredMode);
+    return () => window.removeEventListener("storage", syncStoredMode);
+  }, [personalThemeUserId]);
+
+  useLayoutEffect(() => {
     if (settings) {
-      applyTheme(settings);
+      applyTheme(settings, themeMode);
       document.documentElement.dataset.layout = settings.layout_style || "classico";
       document.title = settings.platform_title || DEFAULTS.platform_title;
     } else if (!isLoading) {
       // Empresa sem tema custom → volta ao padrão (não herda o tema da empresa anterior).
-      applyTheme(DEFAULTS);
+      applyTheme(DEFAULTS, themeMode);
       document.documentElement.dataset.layout = "classico";
       document.title = DEFAULTS.platform_title;
     }
-  }, [settings, isLoading]);
+  }, [settings, isLoading, themeMode]);
+
+  const setThemeMode = useCallback((mode: PersonalThemeMode) => {
+    storePersonalThemeMode(mode, personalThemeUserId);
+    setThemeModeState(mode);
+    applyTheme(activeThemeSettings || DEFAULTS, mode);
+  }, [activeThemeSettings, personalThemeUserId]);
 
   return (
     <ThemeContext.Provider
@@ -226,6 +189,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         settings,
         isLoading,
         defaults: DEFAULTS,
+        themeMode,
+        setThemeMode,
         refetch: () => queryClient.invalidateQueries({ queryKey: ["platform-settings", effectiveCompanyId] }),
       }}
     >

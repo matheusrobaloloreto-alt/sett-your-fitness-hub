@@ -1,3 +1,4 @@
+import { canonicalMuscleSlug, normalizeExerciseCategories } from "../exerciseTaxonomy.ts";
 import { hasFullEquipmentAccess, pickCatalogExercise } from "./exerciseScoring.ts";
 import { correctionsToExplanations, deloadExplanation, enduranceExplanation, explanationsFromRestrictions, frequencyDowngradeExplanation, progressionExplanation } from "./explanations.ts";
 import { normalizeText, objectiveModifier, resolveSplit, selectMethodologyPreset } from "./presets.ts";
@@ -17,6 +18,7 @@ import type {
   ValidationCorrection,
 } from "./types.ts";
 import { prescriptionRiskText } from "./clinicalContext.ts";
+import { isPrescriptionCatalogEligible } from "./catalogEligibility.ts";
 
 type ExerciseSpec = {
   phase: string;
@@ -29,6 +31,7 @@ type ExerciseSpec = {
   note: string;
   tempo?: string;
   preferredMuscleGroup?: string;
+  preferredCategory?: string;
   preferredPattern?: string;
   required?: boolean;
   reportGap?: boolean;
@@ -88,9 +91,9 @@ function hasSpecializationCatalog(input: PrescriptionInput) {
 
 function hasCircuitCatalog(input: PrescriptionInput) {
   const groups = new Set(stableCatalogEntries(input).map((exercise) =>
-    normalizeText(exercise.muscle_group || exercise.targets?.[0]?.muscle_group)
+    canonicalMuscleSlug(exercise.muscle_group || exercise.targets?.[0]?.muscle_group)
   ).filter(Boolean));
-  return ["posterior", "costas", "peitoral"].every((group) => groups.has(group));
+  return (["posterior_de_coxa", "dorsal", "peitoral"] as const).every((group) => groups.has(group));
 }
 
 function isPerformanceObjective(input: PrescriptionInput) {
@@ -133,8 +136,9 @@ const normalizedCatalogCache = new WeakMap<ExerciseCatalogEntry[], ExerciseCatal
 function normalizeCatalog(catalog: ExerciseCatalogEntry[] = []) {
   const cached = normalizedCatalogCache.get(catalog);
   if (cached) return cached;
-  const normalized = catalog.filter((exercise) => exercise?.id && exercise?.name).map((exercise) => ({
+  const normalized = catalog.filter(isPrescriptionCatalogEligible).map((exercise) => ({
     ...exercise,
+    categories: normalizeExerciseCategories(exercise),
     contraindications: exercise.contraindications || [],
     regressions: exercise.regressions || [],
     progressions: exercise.progressions || [],
@@ -166,7 +170,8 @@ function exerciseToTrainingExercise(exercise: ExerciseCatalogEntry, spec: Exerci
     exercise_id: exercise.id,
     exercise_name: exercise.name,
     library_exercise_name: exercise.name,
-    muscle_group: exercise.muscle_group || exercise.targets?.[0]?.muscle_group || spec.preferredMuscleGroup || "geral",
+    muscle_group: canonicalMuscleSlug(exercise.muscle_group) || exercise.targets?.map((target) => canonicalMuscleSlug(target.muscle_group)).find(Boolean) || "",
+    categories: normalizeExerciseCategories(exercise),
     equipment: exercise.equipment ?? null,
     targets: (exercise.targets || []).map((target) => ({ ...target })),
     sets: spec.sets,
@@ -203,6 +208,7 @@ function hasSessionExcludedEligibleAlternative(args: {
     equipment: args.input.equipment,
     fitnessLevel: args.input.fitnessLevel,
     preferredMuscleGroup: args.spec.preferredMuscleGroup,
+    preferredCategory: args.spec.preferredCategory,
     preferredPattern: args.spec.preferredPattern,
     preferredExerciseIds: previousExerciseIds(args.input, args.spec.phase, args.spec.preferredMuscleGroup),
   }));
@@ -235,6 +241,7 @@ function selectExercises(
       equipment: input.equipment,
       fitnessLevel: input.fitnessLevel,
       preferredMuscleGroup: spec.preferredMuscleGroup,
+      preferredCategory: spec.preferredCategory,
       preferredPattern: spec.preferredPattern,
       preferredExerciseIds: previousExerciseIds(input, spec.phase, spec.preferredMuscleGroup),
     });
@@ -273,16 +280,16 @@ function lowerWorkoutSpecs(input: PrescriptionInput): ExerciseSpec[] {
   const back = /lombar|butt|retrovers/.test(text);
   const sets = input.isEnduranceAthlete || input.runningDaysContext ? 2 : 3;
   const specs: ExerciseSpec[] = [
-    { phase: "mobilidade", keywords: ["mobilidade tornozelo quadril", "tornozelo", "quadril", "alongamento"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Amplitude sem dor e respiração calma.", note: knee ? "Preparar tornozelo/quadril para reduzir estresse no joelho." : "Preparar amplitude antes da força." },
-    { phase: "autoliberacao", keywords: ["auto liberacao", "liberacao miofascial", "rolo", "foam roller", "mobilidade"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "30-45s", rest: 15, rir: "4", cue: "Pressão tolerável, sem insistir em dor aguda.", note: "Preparação opcional em circuito, sem gerar fadiga." },
-    { phase: "ativacao_core", keywords: back ? ["pallof", "bird dog", "dead bug", "core"] : ["prancha", "dead bug", "core", "pallof"], preferredMuscleGroup: "core", preferredPattern: "core", sets: 2, reps: "20-30s", rest: 45, rir: input.deload ? "4" : "3-4", cue: "Trave costelas e pelve, sem prender o ar.", note: back ? "Core anti-extensão/anti-rotação para proteger lombar." : "Aumenta estabilidade lombo-pélvica antes da carga." },
+    { phase: "mobilidade", keywords: ["mobilidade tornozelo quadril", "tornozelo", "quadril", "alongamento"], preferredCategory: "mobilidades", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Amplitude sem dor e respiração calma.", note: knee ? "Preparar tornozelo/quadril para reduzir estresse no joelho." : "Preparar amplitude antes da força." },
+    { phase: "autoliberacao", keywords: ["auto liberacao", "liberacao miofascial", "rolo", "foam roller", "mobilidade"], preferredCategory: "mobilidades", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "30-45s", rest: 15, rir: "4", cue: "Pressão tolerável, sem insistir em dor aguda.", note: "Preparação opcional em circuito, sem gerar fadiga." },
+    { phase: "ativacao_core", keywords: back ? ["pallof", "bird dog", "dead bug", "core"] : ["prancha", "dead bug", "core", "pallof"], preferredCategory: "core", preferredPattern: "core", sets: 2, reps: "20-30s", rest: 45, rir: input.deload ? "4" : "3-4", cue: "Trave costelas e pelve, sem prender o ar.", note: back ? "Core anti-extensão/anti-rotação para proteger lombar." : "Aumenta estabilidade lombo-pélvica antes da carga." },
     { phase: knee ? "controle_motor" : "ativacao_especifica", keywords: ["gluteo medio", "gluteo", "abducao", "mini band"], preferredMuscleGroup: "gluteos", preferredPattern: "isolado_acessorio", sets: 2, reps: "12-15", rest: 45, rir: input.deload ? "4" : "3", cue: "Joelho alinhado ao pé, sem colapsar.", note: knee ? "Controle motor corretivo de quadril para reduzir valgo antes do padrão joelho-dominante." : "Ativa quadril para padrões de agachar." },
     { phase: "controle_motor", keywords: knee ? ["leg press", "agachamento caixa", "caixa", "rom parcial"] : ["agachamento", "goblet", "squat", "caixa"], preferredMuscleGroup: "quadriceps", preferredPattern: "joelho_dominante", sets: knee ? 1 : 2, reps: "8-10", rest: 60, rir: input.deload ? "4" : "3-4", cue: "Desça até onde mantém pelve e joelho alinhados.", note: back ? "Limitar amplitude para manter coluna neutra." : "Reforça padrão técnico antes de carga." },
     { phase: "forca_global", keywords: back ? ["leg press", "hack", "maquina", "agachamento"] : knee ? ["leg press", "agachamento caixa", "caixa", "rom parcial"] : ["agachamento", "leg press", "goblet", "squat"], preferredMuscleGroup: "quadriceps", preferredPattern: "joelho_dominante", sets: knee ? Math.max(1, sets - 1) : sets, reps: "8-10", rest: 90, rir: input.deload ? "4" : "2-3", cue: "Empurre o chão sem perder alinhamento.", note: "Força global com margem de segurança." },
-    { phase: "forca_especifica", keywords: ["posterior", "mesa flexora", "isquiotibiais", "gluteo"], preferredMuscleGroup: "posterior", preferredPattern: "quadril_dominante", required: false, sets: 2, reps: "10-12", rest: 75, rir: input.deload ? "4" : "2-3", cue: "Controle a volta e evite compensar lombar.", note: "Equilibra cadeia posterior para proteger joelho/quadril." },
+    { phase: "forca_especifica", keywords: ["posterior", "mesa flexora", "isquiotibiais", "gluteo"], preferredMuscleGroup: "posterior_de_coxa", preferredPattern: "quadril_dominante", required: false, sets: 2, reps: "10-12", rest: 75, rir: input.deload ? "4" : "2-3", cue: "Controle a volta e evite compensar lombar.", note: "Equilibra cadeia posterior para proteger joelho/quadril." },
   ];
   if (canUsePlyometrics(input)) {
-    specs.push({ phase: "pliometria", keywords: ["salto baixo", "pogo", "hop", "pliometria", "med ball"], preferredMuscleGroup: "pernas", preferredPattern: "pliometria", required: false, reportGap: false, sets: 2, reps: "3-5", rest: 75, rir: "4", cue: "Poucas repetições, aterrissagem silenciosa e técnica limpa.", note: "Potência técnica antes da força; interromper na primeira perda de qualidade." });
+    specs.push({ phase: "pliometria", keywords: ["salto baixo", "pogo", "hop", "pliometria", "med ball"], preferredCategory: "pliometria", preferredPattern: "pliometria", required: false, reportGap: false, sets: 2, reps: "3-5", rest: 75, rir: "4", cue: "Poucas repetições, aterrissagem silenciosa e técnica limpa.", note: "Potência técnica antes da força; interromper na primeira perda de qualidade." });
   }
   if (isHypertrophyObjective(input)) {
     specs.push({ phase: "forca_especifica", keywords: ["cadeira extensora", "mesa flexora", "maquina", "isolado"], preferredMuscleGroup: "quadriceps", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 3, reps: "10-15", rest: 60, rir: input.deload ? "4" : "2-3", cue: "Controle a amplitude e mantenha tensão no músculo-alvo.", note: "Maior proporção de força isolada e máquinas para hipertrofia." });
@@ -293,13 +300,13 @@ function lowerWorkoutSpecs(input: PrescriptionInput): ExerciseSpec[] {
 function upperWorkoutSpecs(input: PrescriptionInput): ExerciseSpec[] {
   const shoulder = /ombro|overhead|cifose|protrus/.test(riskText(input));
   const specs: ExerciseSpec[] = [
-    { phase: "mobilidade", keywords: ["mobilidade toracica", "ombro", "shoulder", "toracica"], preferredMuscleGroup: "ombros", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Movimento suave, sem forçar amplitude.", note: "Prepara ombro e coluna torácica para membros superiores." },
-    { phase: "fisioterapia", keywords: ["fisioterapia ombro", "manguito", "rotacao externa", "escapula"], preferredMuscleGroup: "ombros", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "10-12", rest: 20, rir: "4", cue: "Baixa resistência e controle total.", note: "Preparação opcional agrupada, sem substituir atendimento clínico." },
-    { phase: "ativacao_core", keywords: ["pallof", "prancha", "core", "dead bug"], preferredMuscleGroup: "core", preferredPattern: "core", sets: 2, reps: "20-30s", rest: 45, rir: input.deload ? "4" : "3-4", cue: "Mantenha tronco estável.", note: "Estabilidade para puxadas e empurradas." },
-    { phase: "ativacao_especifica", keywords: shoulder ? ["face pull", "rotacao externa", "rotador", "manguito"] : ["escapula", "face pull", "rotador", "manguito"], preferredMuscleGroup: "ombros", preferredPattern: "isolado_acessorio", sets: 2, reps: "12-15", rest: 45, rir: input.deload ? "4" : "3", cue: "Ombros longe das orelhas.", note: shoulder ? "Prioriza controle escapular antes de empurrar." : "Melhora controle escapular." },
-    { phase: "controle_motor", keywords: ["remada", "row", "puxada"], preferredMuscleGroup: "costas", preferredPattern: "puxar_horizontal", sets: 2, reps: "10", rest: 60, rir: input.deload ? "4" : "3", cue: "Puxe com cotovelos, sem jogar tronco.", note: "Ensina trajetória e controle escapular." },
+    { phase: "mobilidade", keywords: ["mobilidade toracica", "ombro", "shoulder", "toracica"], preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Movimento suave, sem forçar amplitude.", note: "Prepara ombro e coluna torácica para membros superiores." },
+    { phase: "fisioterapia", keywords: ["fisioterapia ombro", "manguito", "rotacao externa", "escapula"], preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "10-12", rest: 20, rir: "4", cue: "Baixa resistência e controle total.", note: "Preparação opcional agrupada, sem substituir atendimento clínico." },
+    { phase: "ativacao_core", keywords: ["pallof", "prancha", "core", "dead bug"], preferredCategory: "core", preferredPattern: "core", sets: 2, reps: "20-30s", rest: 45, rir: input.deload ? "4" : "3-4", cue: "Mantenha tronco estável.", note: "Estabilidade para puxadas e empurradas." },
+    { phase: "ativacao_especifica", keywords: shoulder ? ["face pull", "rotacao externa", "rotador", "manguito"] : ["escapula", "face pull", "rotador", "manguito"], preferredPattern: "isolado_acessorio", sets: 2, reps: "12-15", rest: 45, rir: input.deload ? "4" : "3", cue: "Ombros longe das orelhas.", note: shoulder ? "Prioriza controle escapular antes de empurrar." : "Melhora controle escapular." },
+    { phase: "controle_motor", keywords: ["remada", "row", "puxada"], preferredMuscleGroup: "dorsal", preferredPattern: "puxar_horizontal", sets: 2, reps: "10", rest: 60, rir: input.deload ? "4" : "3", cue: "Puxe com cotovelos, sem jogar tronco.", note: "Ensina trajetória e controle escapular." },
     { phase: "forca_global", keywords: shoulder ? ["landmine", "supino maquina", "pegada neutra", "supino inclinado"] : ["supino", "press", "empurrar", "chest"], preferredMuscleGroup: "peitoral", preferredPattern: "empurrar_horizontal", sets: 3, reps: "8-10", rest: 90, rir: input.deload ? "4" : "2-3", cue: "Escápulas firmes e punho neutro.", note: shoulder ? "ROM indolor e controle escapular." : "Empurrar global com controle." },
-    { phase: "forca_especifica", keywords: ["remada", "puxada", "costas", "dorsal"], preferredMuscleGroup: "costas", preferredPattern: "puxar_vertical", required: false, sets: 3, reps: "8-12", rest: 90, rir: input.deload ? "4" : "2-3", cue: "Controle a volta sem perder postura.", note: "Equilibra ombro e postura." },
+    { phase: "forca_especifica", keywords: ["remada", "puxada", "costas", "dorsal"], preferredMuscleGroup: "dorsal", preferredPattern: "puxar_vertical", required: false, sets: 3, reps: "8-12", rest: 90, rir: input.deload ? "4" : "2-3", cue: "Controle a volta sem perder postura.", note: "Equilibra ombro e postura." },
   ];
   if (canUsePlyometrics(input)) {
     specs.push({ phase: "pliometria", keywords: ["med ball chest throw", "arremesso medicine ball", "potencia superior", "pliometria"], preferredMuscleGroup: "peitoral", preferredPattern: "pliometria", required: false, reportGap: false, sets: 2, reps: "3-5", rest: 75, rir: "4", cue: "Acelere sem perder o controle do tronco.", note: "Potência técnica de membros superiores antes da força." });
@@ -316,16 +323,16 @@ function fullBodySpecs(input: PrescriptionInput): ExerciseSpec[] {
   const back = /lombar|butt|retrovers/.test(text);
   const beginner = normalizeText(input.fitnessLevel).includes("inic");
   const specs: ExerciseSpec[] = [
-    { phase: "mobilidade", keywords: ["mobilidade quadril", "tornozelo", "alongamento"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Busque amplitude confortável.", note: "Abre movimento antes do unilateral." },
-    { phase: "alongamento", keywords: ["alongamento dinamico", "mobilidade", "cadeia posterior", "quadril"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "30s", rest: 15, rir: "4", cue: "Sem rebotes e sem dor.", note: "Preparação curta agrupada com mobilidade e ativação." },
-    { phase: "ativacao_core", keywords: back ? ["bird dog", "pallof", "dead bug", "core"] : ["bird dog", "perdigueiro", "core", "prancha"], preferredMuscleGroup: "core", preferredPattern: "core", sets: 2, reps: "8-10 por lado", rest: 45, rir: input.deload ? "4" : "3-4", cue: "Quadril parado e coluna neutra.", note: "Controle anti-rotação." },
+    { phase: "mobilidade", keywords: ["mobilidade quadril", "tornozelo", "alongamento"], preferredCategory: "mobilidades", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Busque amplitude confortável.", note: "Abre movimento antes do unilateral." },
+    { phase: "alongamento", keywords: ["alongamento dinamico", "mobilidade", "cadeia posterior", "quadril"], preferredCategory: "mobilidades", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "30s", rest: 15, rir: "4", cue: "Sem rebotes e sem dor.", note: "Preparação curta agrupada com mobilidade e ativação." },
+    { phase: "ativacao_core", keywords: back ? ["bird dog", "pallof", "dead bug", "core"] : ["bird dog", "perdigueiro", "core", "prancha"], preferredCategory: "core", preferredPattern: "core", sets: 2, reps: "8-10 por lado", rest: 45, rir: input.deload ? "4" : "3-4", cue: "Quadril parado e coluna neutra.", note: "Controle anti-rotação." },
     { phase: "controle_motor", keywords: knee ? ["step", "unilateral", "rom parcial", "gluteo"] : ["afundo", "lunge", "step", "unilateral"], preferredMuscleGroup: "gluteos", preferredPattern: "unilateral", sets: knee ? 1 : 2, reps: "8 por lado", rest: 60, rir: input.deload ? "4" : "3-4", cue: "Joelho acompanha o pé.", note: knee ? "Usar amplitude curta e sem dor." : "Integra equilíbrio e controle." },
-    { phase: "forca_global", keywords: back ? ["hip thrust", "gluteo", "ponte"] : ["terra romeno", "rdl", "levantamento", "hip hinge"], preferredMuscleGroup: "posterior", preferredPattern: "quadril_dominante", sets: back ? 2 : 3, reps: "8-10", rest: 90, rir: input.deload ? "4" : "2-3", cue: "Dobre quadril sem arredondar lombar.", note: back ? "Preferir hinge leve ou hip thrust apoiado." : "Fortalece cadeia posterior com controle." },
-    { phase: "forca_global", keywords: back ? ["remada apoiada", "remada maquina", "costas"] : ["remada", "puxada", "costas"], preferredMuscleGroup: "costas", preferredPattern: "puxar_horizontal", sets: 3, reps: "10-12", rest: 75, rir: input.deload ? "4" : "2-3", cue: "Postura alta e controle de escápulas.", note: "Complementa postura e tronco." },
-    { phase: "forca_especifica", keywords: ["panturrilha", "calf", "abdomen", "core"], preferredMuscleGroup: "core", preferredPattern: "isolado_acessorio", required: false, sets: beginner ? 1 : 2, reps: "12-15", rest: 60, rir: input.deload ? "4" : "2-3", cue: "Controle total da fase excêntrica.", note: "Acessório leve para suporte do ciclo." },
+    { phase: "forca_global", keywords: back ? ["hip thrust", "gluteo", "ponte"] : ["terra romeno", "rdl", "levantamento", "hip hinge"], preferredMuscleGroup: "posterior_de_coxa", preferredPattern: "quadril_dominante", sets: back ? 2 : 3, reps: "8-10", rest: 90, rir: input.deload ? "4" : "2-3", cue: "Dobre quadril sem arredondar lombar.", note: back ? "Preferir hinge leve ou hip thrust apoiado." : "Fortalece cadeia posterior com controle." },
+    { phase: "forca_global", keywords: back ? ["remada apoiada", "remada maquina", "costas"] : ["remada", "puxada", "costas"], preferredMuscleGroup: "dorsal", preferredPattern: "puxar_horizontal", sets: 3, reps: "10-12", rest: 75, rir: input.deload ? "4" : "2-3", cue: "Postura alta e controle de escápulas.", note: "Complementa postura e tronco." },
+    { phase: "forca_especifica", keywords: ["panturrilha", "calf", "abdomen", "core"], preferredCategory: "core", preferredPattern: "isolado_acessorio", required: false, sets: beginner ? 1 : 2, reps: "12-15", rest: 60, rir: input.deload ? "4" : "2-3", cue: "Controle total da fase excêntrica.", note: "Acessório leve para suporte do ciclo." },
   ];
   if (canUsePlyometrics(input)) {
-    specs.push({ phase: "pliometria", keywords: ["salto baixo", "pogo", "hop", "med ball", "pliometria"], preferredMuscleGroup: "pernas", preferredPattern: "pliometria", required: false, reportGap: false, sets: 2, reps: "3-5", rest: 75, rir: "4", cue: "Qualidade máxima e aterrissagem controlada.", note: "Baixo volume de potência antes da força global." });
+    specs.push({ phase: "pliometria", keywords: ["salto baixo", "pogo", "hop", "med ball", "pliometria"], preferredCategory: "pliometria", preferredPattern: "pliometria", required: false, reportGap: false, sets: 2, reps: "3-5", rest: 75, rir: "4", cue: "Qualidade máxima e aterrissagem controlada.", note: "Baixo volume de potência antes da força global." });
   }
   if (isHypertrophyObjective(input)) {
     specs.push({ phase: "forca_especifica", keywords: ["maquina", "isolado", "extensora", "flexora", "crossover"], preferredMuscleGroup: "quadriceps", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 3, reps: "10-15", rest: 60, rir: input.deload ? "4" : "2-3", cue: "Tensão contínua sem compensar.", note: "Volume isolado adicional para hipertrofia." });
@@ -336,8 +343,8 @@ function fullBodySpecs(input: PrescriptionInput): ExerciseSpec[] {
 function upperSpecializationSpecs(): ExerciseSpec[] {
   const stablePeitoralKeywords = ["peitoral", "chest press", "supino maquina", "voador", "pec deck", "crossover", "cabo"];
   return [
-    { phase: "mobilidade", keywords: ["mobilidade toracica", "ombro", "toracica"], preferredMuscleGroup: "ombros", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "8-10", rest: 30, rir: "4", cue: "Movimento suave e sem dor.", note: "Preparação curta para a sessão de especialização." },
-    { phase: "ativacao_core", keywords: ["pallof", "prancha", "core", "dead bug"], preferredMuscleGroup: "core", preferredPattern: "core", required: false, reportGap: false, sets: 1, reps: "20-30s", rest: 45, rir: "3-4", cue: "Mantenha tronco e pelve estáveis.", note: "Estabilidade antes das estações de peitoral." },
+    { phase: "mobilidade", keywords: ["mobilidade toracica", "ombro", "toracica"], preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "8-10", rest: 30, rir: "4", cue: "Movimento suave e sem dor.", note: "Preparação curta para a sessão de especialização." },
+    { phase: "ativacao_core", keywords: ["pallof", "prancha", "core", "dead bug"], preferredCategory: "core", preferredPattern: "core", required: false, reportGap: false, sets: 1, reps: "20-30s", rest: 45, rir: "3-4", cue: "Mantenha tronco e pelve estáveis.", note: "Estabilidade antes das estações de peitoral." },
     { phase: "forca_especifica", keywords: stablePeitoralKeywords, preferredMuscleGroup: "peitoral", preferredPattern: "empurrar_horizontal", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "8-12", rest: 75, rir: "2-3", cue: "Escápulas firmes e amplitude confortável.", note: "Estação estável de peitoral para aluno avançado." },
     { phase: "forca_especifica", keywords: stablePeitoralKeywords, preferredMuscleGroup: "peitoral", preferredPattern: "isolado_acessorio", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Controle a volta sem perder tensão.", note: "Estação estável de peitoral para aluno avançado." },
     { phase: "forca_especifica", keywords: stablePeitoralKeywords, preferredMuscleGroup: "peitoral", preferredPattern: "isolado_acessorio", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Sem compensar tronco ou ombro.", note: "Estação estável de peitoral para aluno avançado." },
@@ -347,11 +354,11 @@ function upperSpecializationSpecs(): ExerciseSpec[] {
 
 function metabolicCircuitSpecs(): ExerciseSpec[] {
   return [
-    { phase: "mobilidade", keywords: ["mobilidade quadril", "tornozelo", "toracica"], preferredMuscleGroup: "mobilidade", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "8-10", rest: 30, rir: "4", cue: "Amplitude confortável e respiração calma.", note: "Preparação curta para o circuito." },
-    { phase: "ativacao_core", keywords: ["pallof", "prancha", "core", "dead bug"], preferredMuscleGroup: "core", preferredPattern: "core", required: false, reportGap: false, sets: 1, reps: "20-30s", rest: 40, rir: "3-4", cue: "Tronco estável e respiração contínua.", note: "Estabilidade antes das estações." },
+    { phase: "mobilidade", keywords: ["mobilidade quadril", "tornozelo", "toracica"], preferredCategory: "mobilidades", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "8-10", rest: 30, rir: "4", cue: "Amplitude confortável e respiração calma.", note: "Preparação curta para o circuito." },
+    { phase: "ativacao_core", keywords: ["pallof", "prancha", "core", "dead bug"], preferredCategory: "core", preferredPattern: "core", required: false, reportGap: false, sets: 1, reps: "20-30s", rest: 40, rir: "3-4", cue: "Tronco estável e respiração contínua.", note: "Estabilidade antes das estações." },
     { phase: "controle_motor", keywords: ["step", "unilateral", "gluteo", "agachamento caixa"], preferredMuscleGroup: "gluteos", preferredPattern: "unilateral", required: false, reportGap: false, sets: 2, reps: "8 por lado", rest: 60, rir: "3", cue: "Joelho alinhado ao pé.", note: "Controle técnico antes da densidade." },
-    { phase: "forca_especifica", keywords: ["mesa flexora", "flexora", "posterior maquina"], preferredMuscleGroup: "posterior", preferredPattern: "isolado_acessorio", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Controle a fase excêntrica.", note: "Estação segura de membros inferiores." },
-    { phase: "forca_especifica", keywords: ["remada maquina", "remada baixa", "puxada maquina"], preferredMuscleGroup: "costas", preferredPattern: "puxar_horizontal", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Sem balançar o tronco.", note: "Estação segura de puxar." },
+    { phase: "forca_especifica", keywords: ["mesa flexora", "flexora", "posterior maquina"], preferredMuscleGroup: "posterior_de_coxa", preferredPattern: "isolado_acessorio", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Controle a fase excêntrica.", note: "Estação segura de membros inferiores." },
+    { phase: "forca_especifica", keywords: ["remada maquina", "remada baixa", "puxada maquina"], preferredMuscleGroup: "dorsal", preferredPattern: "puxar_horizontal", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Sem balançar o tronco.", note: "Estação segura de puxar." },
     { phase: "forca_especifica", keywords: ["supino maquina", "chest press", "press convergente"], preferredMuscleGroup: "peitoral", preferredPattern: "empurrar_horizontal", required: false, preferBestMatchOverNovelty: true, sets: 2, reps: "10-15", rest: 60, rir: "2-3", cue: "Escápulas firmes e punhos neutros.", note: "Estação segura de empurrar." },
   ];
 }

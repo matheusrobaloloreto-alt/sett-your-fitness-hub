@@ -4,10 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ClipboardList } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { completedPrescriptionBundleBadges } from "@/lib/prescriptionBundleIntegrity";
+import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 
 // Prescrições feitas no mês corrente, na ordem em que foram feitas (mais recente primeiro).
-export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId: string | null | undefined; routePrefix?: string }) {
+export function MonthlyPrescriptionsCard({ companyId, routePrefix, readOnly = false }: { companyId: string | null | undefined; routePrefix?: string; readOnly?: boolean }) {
   const navigate = useNavigate();
+  const snapshot = useDashboardSnapshot();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -15,18 +18,40 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
     let alive = true;
     (async () => {
       setLoading(true);
+      if (readOnly) {
+        setRows(snapshot?.monthlyPrescriptions || []);
+        setLoading(false);
+        return;
+      }
       const start = new Date();
       start.setDate(1);
       start.setHours(0, 0, 0, 0);
       let q = (supabase as any)
         .from("prescription_bundles")
-        .select("id, student_id, created_at, has_strength, has_cardio, has_nutrition, has_swimming, has_cycling")
+        .select("id, student_id, created_at, status, has_strength, has_cardio, has_nutrition, has_swimming, has_cycling, strength_plan_id, running_plan_id, nutrition_plan_id")
         .gte("created_at", start.toISOString())
+        .in("status", ["active", "scheduled"])
         .order("created_at", { ascending: false })
         .limit(80);
       if (companyId) q = q.eq("company_id", companyId);
       const { data } = await q;
       const bundles = data || [];
+      const bundleIds = bundles.map((bundle: any) => bundle.id).filter(Boolean);
+      const itemsByBundle = new Map<string, any[]>();
+      if (bundleIds.length) {
+        let itemQuery = (supabase as any)
+          .from("prescription_bundle_items")
+          .select("bundle_id, modality, entity_type, entity_id")
+          .in("bundle_id", bundleIds);
+        if (companyId) itemQuery = itemQuery.eq("company_id", companyId);
+        const { data: items } = await itemQuery;
+        for (const item of items || []) {
+          if (!item.bundle_id) continue;
+          const bundleItems = itemsByBundle.get(item.bundle_id) || [];
+          bundleItems.push(item);
+          itemsByBundle.set(item.bundle_id, bundleItems);
+        }
+      }
       const ids = [...new Set(bundles.map((b: any) => b.student_id).filter(Boolean))];
       let names: Record<string, string> = {};
       if (ids.length) {
@@ -34,11 +59,15 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
         names = Object.fromEntries((studs || []).map((s: any) => [s.id, s.full_name]));
       }
       if (!alive) return;
-      setRows(bundles.map((b: any) => ({ ...b, name: names[b.student_id] || "Aluno" })));
+      setRows(bundles.map((b: any) => ({
+        ...b,
+        completedBadges: completedPrescriptionBundleBadges(b, itemsByBundle.get(b.id) || []),
+        name: names[b.student_id] || "Aluno",
+      })));
       setLoading(false);
     })();
     return () => { alive = false; };
-  }, [companyId]);
+  }, [companyId, readOnly, snapshot]);
 
   return (
     <Card className="bg-card border-border">
@@ -56,7 +85,7 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
         ) : (
           <div className="space-y-2 max-h-80 overflow-y-auto">
             {rows.map((r: any) => (
-              <button key={r.id} type="button" onClick={() => navigate(`/${routePrefix || "admin"}/students/${r.student_id}`)} className="w-full text-left flex items-center justify-between gap-2 p-2 rounded-lg bg-secondary/40 border border-border hover:border-primary/40 transition-colors">
+              <button key={r.id} type="button" disabled={readOnly} onClick={readOnly ? undefined : () => navigate(`/${routePrefix || "admin"}/students/${r.student_id}`)} className="w-full text-left flex items-center justify-between gap-2 p-2 rounded-lg bg-secondary/40 border border-border transition-colors enabled:hover:border-primary/40 disabled:cursor-default">
                 <div className="min-w-0">
                   <p className="text-sm font-sans font-medium text-foreground truncate">{r.name}</p>
                   <p className="text-xs text-muted-foreground font-sans">
@@ -65,11 +94,11 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-1 justify-end shrink-0">
-                  {r.has_strength && <Badge variant="outline" className="text-[10px]">Força</Badge>}
-                  {r.has_cardio && <Badge variant="outline" className="text-[10px]">Cardio</Badge>}
-                  {r.has_swimming && <Badge variant="outline" className="text-[10px]">Natação</Badge>}
-                  {r.has_cycling && <Badge variant="outline" className="text-[10px]">Ciclismo</Badge>}
-                  {r.has_nutrition && <Badge variant="outline" className="text-[10px]">Nutrição</Badge>}
+                  {r.completedBadges.strength && <Badge variant="outline" className="text-[10px]">Força</Badge>}
+                  {r.completedBadges.cardio && <Badge variant="outline" className="text-[10px]">Cardio</Badge>}
+                  {r.completedBadges.swimming && <Badge variant="outline" className="text-[10px]">Natação</Badge>}
+                  {r.completedBadges.cycling && <Badge variant="outline" className="text-[10px]">Ciclismo</Badge>}
+                  {r.completedBadges.nutrition && <Badge variant="outline" className="text-[10px]">Nutrição</Badge>}
                 </div>
               </button>
             ))}

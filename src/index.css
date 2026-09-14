@@ -70,6 +70,55 @@
     --student-rule: 45 12% 83%;
     --student-content-width: 42rem;
   }
+
+  .dark {
+    --background: 220 18% 8%;
+    --foreground: 0 0% 94%;
+    --card: 220 18% 14%;
+    --card-foreground: 0 0% 94%;
+    --popover: 220 18% 12%;
+    --popover-foreground: 0 0% 94%;
+    --primary: 223 62% 68%;
+    --primary-foreground: 223 22% 10%;
+    --secondary: 220 18% 14%;
+    --secondary-foreground: 0 0% 94%;
+    --muted: 220 18% 17%;
+    --muted-foreground: 0 0% 69%;
+    --accent: 223 62% 68%;
+    --accent-foreground: 223 22% 10%;
+    --destructive: 0 65% 58%;
+    --destructive-foreground: 223 22% 10%;
+    --border: 220 16% 24%;
+    --input: 220 16% 24%;
+    --ring: 223 62% 68%;
+    --paper: 220 18% 8%;
+    --paper-warm: 220 18% 14%;
+    --line: 220 16% 24%;
+    --ink: 0 0% 94%;
+    --ink-soft: 0 0% 69%;
+    --navy: 223 62% 68%;
+    --sidebar-background: 220 18% 11%;
+    --sidebar-foreground: 0 0% 94%;
+    --sidebar-primary: 223 62% 68%;
+    --sidebar-primary-foreground: 223 22% 10%;
+    --sidebar-accent: 220 18% 18%;
+    --sidebar-accent-foreground: 0 0% 94%;
+    --sidebar-border: 220 16% 24%;
+    --sidebar-ring: 223 62% 68%;
+    --chart-1: 223 62% 68%;
+    --chart-2: 223 44% 58%;
+    --chart-3: 0 0% 94%;
+    --chart-4: 0 0% 69%;
+    --chart-5: 220 16% 24%;
+    --success: 142 45% 55%;
+    --success-foreground: 223 22% 10%;
+    --warning: 38 86% 62%;
+    --warning-foreground: 223 22% 10%;
+    --student-action: 223 62% 68%;
+    --student-action-foreground: 223 22% 10%;
+    --student-surface: 220 18% 8%;
+    --student-rule: 220 16% 24%;
+  }
 }
 
 @layer base {
@@ -175,7 +224,7 @@
 [data-layout="moderno"] .font-display {
   font-family: 'Inter', system-ui, sans-serif;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 [data-layout="moderno"] .bg-card,
 [data-layout="moderno"] .bg-paper-warm {
@@ -190,7 +239,7 @@
 [data-layout="minimal"] .font-display {
   font-family: 'Inter', system-ui, sans-serif;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 [data-layout="minimal"] .bg-card,
 [data-layout="minimal"] .bg-paper-warm {
@@ -233,7 +282,7 @@
 [data-layout="compacto"] .font-display {
   font-family: 'Inter', system-ui, sans-serif;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 /* Benito stays chromeless while retaining a readable silhouette on light and dark themes. */

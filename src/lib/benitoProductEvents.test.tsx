@@ -66,6 +66,7 @@ describe("Benito product event map", () => {
       [{ source: "student_workout", action: "start_blocked" }, "waiting"],
       [{ source: "student_workout", action: "started" }, "greeting"],
       [{ source: "student_workout", action: "completed" }, "celebration"],
+      [{ source: "student_workout", action: "complete_failed" }, "error"],
       [{ source: "student_feedback", action: "submitted" }, "success"],
       [{ source: "student_feedback", action: "failed" }, "error"],
     ];

@@ -3,6 +3,11 @@ export interface WorkoutRevisionRow {
   updated_at: string;
 }
 
+export interface WorkoutRevisionSavedRow {
+  id: string;
+  updated_at: string;
+}
+
 export interface WorkoutRevisionInput {
   title: string;
   description?: string | null;
@@ -14,25 +19,49 @@ type RpcDatabase = {
   rpc: (
     name: string,
     params: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+  ) => Promise<{ data: unknown; error: { code?: string; details?: string; hint?: string; message?: string } | null }>;
 };
 
 export function currentWorkoutRevisionRows<T extends { superseded_at?: string | null }>(rows: T[]): T[] {
   return rows.filter((row) => !row.superseded_at);
 }
 
-function workoutRevisionError(message?: string): string {
-  const raw = String(message || "");
+export class WorkoutRevisionConflictError extends Error {
+  readonly code = "workout_revision_changed";
+
+  constructor() {
+    super("O treino foi alterado em outra tela. Escolha qual versão deve permanecer para continuar.");
+    this.name = "WorkoutRevisionConflictError";
+  }
+}
+
+function workoutRevisionError(error?: { code?: string; details?: string; hint?: string; message?: string } | null): Error {
+  const raw = [error?.code, error?.message, error?.details, error?.hint].filter(Boolean).join(" ");
   if (raw.includes("workout_revision_changed")) {
-    return "O treino foi alterado em outra tela. Recarregue antes de salvar para não sobrescrever a versão mais recente.";
+    return new WorkoutRevisionConflictError();
   }
   if (raw.includes("workout_revision_cycle_not_visible")) {
-    return "Este não é o ciclo que o aluno está vendo. Abra o ciclo atual indicado no perfil antes de salvar.";
+    return new Error("Este não é o ciclo que o aluno está vendo. Abra o ciclo atual indicado no perfil antes de salvar.");
   }
   if (raw.includes("workout_revision_forbidden")) {
-    return "Seu acesso atual não permite alterar este aluno. Atualize o treinador responsável ou peça acesso à coordenação.";
+    return new Error("Seu acesso atual não permite alterar este aluno. Atualize o treinador responsável ou peça acesso à coordenação.");
   }
-  return raw || "Falha ao salvar a nova versão do treino.";
+  return new Error(raw || "Falha ao salvar a nova versão do treino.");
+}
+
+function parseSavedWorkoutRows(result: { workout_rows?: unknown; workout_ids?: unknown }): WorkoutRevisionSavedRow[] {
+  if (Array.isArray(result.workout_rows)) {
+    return result.workout_rows
+      .map((row) => row as Partial<WorkoutRevisionSavedRow>)
+      .filter((row): row is WorkoutRevisionSavedRow => Boolean(row.id && row.updated_at))
+      .map((row) => ({ id: row.id, updated_at: row.updated_at }));
+  }
+  if (Array.isArray(result.workout_ids)) {
+    return result.workout_ids
+      .filter((id): id is string => typeof id === "string" && id.length > 0)
+      .map((id) => ({ id, updated_at: "" }));
+  }
+  return [];
 }
 
 export async function saveCycleWorkoutRevision(
@@ -42,21 +71,23 @@ export async function saveCycleWorkoutRevision(
     expectedRows: WorkoutRevisionRow[];
     workouts: WorkoutRevisionInput[];
   },
-): Promise<{ revisionId: string; workoutIds: string[] }> {
+): Promise<{ revisionId: string; workoutIds: string[]; workoutRows: WorkoutRevisionSavedRow[] }> {
   const { data, error } = await db.rpc("replace_cycle_workout_revision", {
     p_cycle_id: args.cycleId,
     p_expected_rows: args.expectedRows,
     p_workouts: args.workouts,
   });
-  if (error) throw new Error(workoutRevisionError(error.message));
+  if (error) throw workoutRevisionError(error);
 
   const result = (Array.isArray(data) ? data[0] : data) as {
     cycle_id?: string;
     revision_id?: string;
     workouts_created?: number;
     workout_ids?: string[];
+    workout_rows?: Array<{ id?: string; updated_at?: string }>;
   } | null;
-  const workoutIds = Array.isArray(result?.workout_ids) ? result.workout_ids : [];
+  const workoutRows = result ? parseSavedWorkoutRows(result) : [];
+  const workoutIds = workoutRows.map((row) => row.id);
   if (
     !result?.revision_id
     || result.cycle_id !== args.cycleId
@@ -66,5 +97,5 @@ export async function saveCycleWorkoutRevision(
     throw new Error("O banco não confirmou todos os treinos da nova versão. Nada foi considerado salvo.");
   }
 
-  return { revisionId: result.revision_id, workoutIds };
+  return { revisionId: result.revision_id, workoutIds, workoutRows };
 }

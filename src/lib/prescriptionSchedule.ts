@@ -221,9 +221,16 @@ export function selectCurrentPlanCycleWindow<T extends PrescriptionScheduleCycle
   if (visible.length <= windowSize) return visible;
 
   const activeIndex = visible.findIndex((item) => item.status === "active");
+  let lastMaterializedIndex = 0;
+  for (let index = visible.length - 1; index >= 0; index -= 1) {
+    if (hasActivePrescriptionContent(visible[index])) {
+      lastMaterializedIndex = index;
+      break;
+    }
+  }
   const anchorIndex = activeIndex >= 0
     ? activeIndex
-    : Math.max(0, visible.findLastIndex((item) => hasActivePrescriptionContent(item)));
+    : lastMaterializedIndex;
   const windowStart = Math.floor(anchorIndex / windowSize) * windowSize;
   return visible.slice(windowStart, windowStart + windowSize);
 }

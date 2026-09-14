@@ -18,6 +18,7 @@ import {
 } from "@/lib/contactCadence";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { requestWhatsAppChatPanel } from "@/lib/whatsappChatPanel";
+import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 
 const TONE_CLASS: Record<string, string> = {
   ok: "bg-emerald-500/15 text-emerald-600",
@@ -25,23 +26,30 @@ const TONE_CLASS: Record<string, string> = {
   late: "bg-destructive/15 text-destructive",
 };
 
-export function ContactCadenceCard({ companyId, routePrefix }: { companyId: string | null | undefined; routePrefix?: string }) {
+export function ContactCadenceCard({ companyId, routePrefix, readOnly = false }: { companyId: string | null | undefined; routePrefix?: string; readOnly?: boolean }) {
   const navigate = useNavigate();
+  const snapshot = useDashboardSnapshot();
   const [rows, setRows] = useState<CadenceRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [windowDays, setWindowDays] = useState<CadenceWindowDays>(90);
 
   const load = useCallback(async () => {
+    if (readOnly) {
+      setRows((snapshot?.contactCadence || []) as CadenceRow[]);
+      setLoaded(true);
+      return;
+    }
     if (!companyId) { setRows([]); setLoaded(true); return; }
     const { data, error } = await (supabase as any).rpc("contact_cadence", { _company_id: companyId });
     if (error) { setRows([]); setLoaded(true); return; } // RPC ainda não migrada → card se esconde
     setRows((data || []) as CadenceRow[]);
     setLoaded(true);
-  }, [companyId]);
+  }, [companyId, readOnly, snapshot]);
 
   useEffect(() => { load(); }, [load]);
 
   const mute = async (row: CadenceRow) => {
+    if (readOnly) return;
     const { error } = await (supabase as any).from("whatsapp_chats").update({ cadence_muted: true }).eq("id", row.chat_id);
     if (error) { toast.error("Não consegui inativar este contato"); return; }
     setRows((r) => r.filter((x) => x.chat_id !== row.chat_id));
@@ -87,26 +95,30 @@ export function ContactCadenceCard({ companyId, routePrefix }: { companyId: stri
                   {r.kind === "lead" ? "Lead (ainda não é aluno)" : `Aluno · ${r.student_status || ""}`} · sem responder
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!requestWhatsAppChatPanel({ chatId: r.chat_id })) {
-                    navigate(`/${routePrefix || "admin"}/whatsapp-chat`, { state: { chatId: r.chat_id } });
-                  }
-                }}
-                className="rounded p-1.5 text-primary hover:bg-muted/60"
-                title="Abrir conversa"
-              >
-                <MessageSquare className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => mute(r)}
-                className="rounded p-1.5 text-muted-foreground hover:text-destructive hover:bg-muted/60"
-                title="Inativar (tirar do countdown)"
-              >
-                <BellOff className="h-4 w-4" />
-              </button>
+              {!readOnly && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!requestWhatsAppChatPanel({ chatId: r.chat_id })) {
+                        navigate(`/${routePrefix || "admin"}/whatsapp-chat`, { state: { chatId: r.chat_id } });
+                      }
+                    }}
+                    className="rounded p-1.5 text-primary hover:bg-muted/60"
+                    title="Abrir conversa"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => mute(r)}
+                    className="rounded p-1.5 text-muted-foreground hover:text-destructive hover:bg-muted/60"
+                    title="Inativar (tirar do countdown)"
+                  >
+                    <BellOff className="h-4 w-4" />
+                  </button>
+                </>
+              )}
             </div>
           ))}
         </div>

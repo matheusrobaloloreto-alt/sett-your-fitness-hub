@@ -1,4 +1,9 @@
-import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
+import {
+  CATEGORY_OPTIONS,
+  canonicalCategorySlug,
+  muscleLabel,
+  normalizeExerciseCategories as normalizeTaxonomyCategories,
+} from "@/lib/exerciseTaxonomy";
 
 // Capa (thumbnail) do exercício + categorias do seletor estilo Mywellness.
 
@@ -41,41 +46,11 @@ export type ExerciseCategory = {
   hint?: string;
 };
 
-const normalizeCategoryId = (value: unknown) => String(value ?? "")
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "")
-  .toLowerCase()
-  .trim()
-  .replace(/[^a-z0-9]+/g, "_")
-  .replace(/^_+|_+$/g, "");
-
-const physiotherapyReplacement = (exercise: {
-  name?: string | null;
-  description?: string | null;
-  muscle_group?: string | null;
-}) => {
-  const text = normalizeCategoryId(`${exercise.name ?? ""} ${exercise.description ?? ""} ${exercise.muscle_group ?? ""}`)
-    .replace(/_/g, " ");
-  if (/salto|jump|hop|bound|drop|pliometr|arremesso|slam|rebote|aterriss/.test(text)) return "pliometria";
-  if (/mobil|along|libera|foam|amplitude|rotacao articular/.test(text)) return "mobilidade";
-  if (/prancha|abdom|pallof|bird dog|dead bug/.test(text)) return "core";
-  if (/mini band|thera band|ativ|isometr/.test(text)) return "ativacao";
-  if (/maquina|polia|leg press|cadeira|mesa flexora/.test(text)) return "maquinas";
-  if (/halter|barra|kettlebell|anilha/.test(text)) return "pesos_livres";
-  if (/agach|terra|levantamento|supino|remada|puxada/.test(text)) return "base";
-  return "funcionais";
-};
-
 export function normalizeExerciseCategory(
   value: unknown,
   exercise: { name?: string | null; description?: string | null; muscle_group?: string | null } = {},
 ): string | null {
-  const id = normalizeCategoryId(value);
-  if (!id) return null;
-  if (["controle_motor", "funcional", "funcionais"].includes(id)) return "funcionais";
-  if (id === "performance") return "pliometria";
-  if (["fisioterapia", "fisio"].includes(id)) return physiotherapyReplacement(exercise);
-  return id;
+  return canonicalCategorySlug(value, exercise);
 }
 
 export function normalizedExerciseCategories(exercise: {
@@ -85,15 +60,7 @@ export function normalizedExerciseCategories(exercise: {
   description?: string | null;
   muscle_group?: string | null;
 }): string[] {
-  const raw = exercise.categories?.length
-    ? exercise.categories
-    : exercise.category
-      ? [exercise.category]
-      : [];
-  return [...new Set(raw.flatMap((category) => {
-    const normalized = normalizeExerciseCategory(category, exercise);
-    return normalized ? [normalized] : [];
-  }))];
+  return normalizeTaxonomyCategories(exercise);
 }
 
 export function normalizedExerciseLibraryGroup(exercise: {
@@ -102,26 +69,20 @@ export function normalizedExerciseLibraryGroup(exercise: {
   description?: string | null;
 }): string | null {
   const raw = String(exercise.muscle_group ?? "").trim();
-  const id = normalizeCategoryId(raw);
-  if (!id) return null;
-  if (["controle_motor", "funcional", "funcionais"].includes(id)) return "Funcionais";
-  if (id === "performance") return "Pliometria";
-  if (["fisioterapia", "fisio"].includes(id)) {
-    const category = physiotherapyReplacement(exercise);
-    return EXERCISE_CATEGORIES.find((item) => item.id === category)?.label ?? "Funcionais";
-  }
-  return canonicalAnatomicalMuscleGroup(raw) ?? raw;
+  if (!raw) return null;
+  return muscleLabel(raw) ?? categoryLabelFor(raw, exercise) ?? raw;
 }
 
 // Filtros canônicos. IDs legados são normalizados no cliente até a migration ser aplicada.
-export const EXERCISE_CATEGORIES: ExerciseCategory[] = [
-  { id: "mobilidade", label: "Mobilidade", hint: "mobilidade, estabilidade, foam roll" },
-  { id: "funcionais", label: "Funcionais", hint: "controle motor, estabilidade, propriocepção" },
-  { id: "ativacao", label: "Ativação", hint: "mini band, tera band" },
-  { id: "core", label: "Core" },
-  { id: "base", label: "Base", hint: "agachamento, terra…" },
-  { id: "pesos_livres", label: "Pesos Livres" },
-  { id: "peso_corporal", label: "Peso Corporal" },
-  { id: "maquinas", label: "Máquinas" },
-  { id: "pliometria", label: "Pliometria" },
-];
+export const EXERCISE_CATEGORIES: ExerciseCategory[] = CATEGORY_OPTIONS.map((category) => ({
+  id: category.slug,
+  label: category.label,
+}));
+
+function categoryLabelFor(
+  value: unknown,
+  exercise: { name?: string | null; description?: string | null; muscle_group?: string | null } = {},
+): string | null {
+  const slug = canonicalCategorySlug(value, exercise);
+  return slug ? EXERCISE_CATEGORIES.find((item) => item.id === slug)?.label ?? null : null;
+}

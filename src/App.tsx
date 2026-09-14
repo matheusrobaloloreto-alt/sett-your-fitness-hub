@@ -283,7 +283,7 @@ const App = () => (
           <Route path="/trainer/carteira" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasStudents" requiredModule="students"><Portfolio /></FeatureRoute>} />
           <Route path="/trainer/students/:id" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasStudents" requiredModule="students"><StudentDetail /></FeatureRoute>} />
           <Route path="/trainer/agenda" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasAgenda" requiredModule="agenda"><AdminAgenda /></FeatureRoute>} />
-          <Route path="/trainer/financial" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasFinancial" requiredModule="financial"><FinancialDashboard /></FeatureRoute>} />
+          <Route path="/trainer/financial" element={<Navigate to="/trainer" replace />} />
           <Route path="/trainer/appearance" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasAppearance" requiredModule="appearance"><AppearanceSettings /></FeatureRoute>} />
           <Route path="/trainer/exercises" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasPrescription" requiredModule="exercises"><ExerciseLibrary /></FeatureRoute>} />
           <Route path="/trainer/biblioteca-treinos" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasPrescription" requiredModule="exercises"><WorkoutLibrary /></FeatureRoute>} />

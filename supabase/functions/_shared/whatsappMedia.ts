@@ -1,8 +1,9 @@
 export const MAX_OUTBOUND_WHATSAPP_MEDIA_BYTES = 512 * 1024 * 1024;
 export const INLINE_OUTBOUND_VIDEO_MAX_BYTES = 64 * 1024 * 1024;
+export const MAX_OUTBOUND_WHATSAPP_STICKER_BYTES = 1024 * 1024;
 
 export type OutboundWhatsAppMediaSource = "chat-upload" | "student-upload";
-export type OutboundWhatsAppMediaType = "image" | "video" | "audio" | "document";
+export type OutboundWhatsAppMediaType = "image" | "video" | "audio" | "document" | "sticker";
 
 type OutboundWhatsAppMediaInput = {
   source: OutboundWhatsAppMediaSource;
@@ -116,6 +117,12 @@ export function resolveOutboundWhatsAppMediaType(input: {
   | { ok: false; code: "whatsapp_media_delivery_type_mismatch" } {
   const mimeType = normalizeMimeType(input.mimeType);
   const requested = String(input.requestedMediaType || "").trim().toLowerCase();
+  if (requested === "sticker") {
+    if (mimeType !== "image/webp" || input.size > MAX_OUTBOUND_WHATSAPP_STICKER_BYTES) {
+      return { ok: false, code: "whatsapp_media_delivery_type_mismatch" };
+    }
+    return { ok: true, mediaType: "sticker" };
+  }
   let expected: OutboundWhatsAppMediaType;
 
   if (mimeType.startsWith("image/")) expected = "image";

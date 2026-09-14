@@ -14,6 +14,7 @@ export type ValidationSource =
 export interface ExerciseTarget {
   muscle_group: string;
   role?: string | null;
+  is_primary?: boolean | null;
   volume_percentage?: number | null;
 }
 
@@ -22,6 +23,7 @@ export interface ExerciseCatalogEntry {
   name: string;
   description?: string | null;
   muscle_group?: string | null;
+  categories?: string[];
   difficulty?: string | null;
   equipment?: string | null;
   contraindications?: string[];
@@ -99,6 +101,7 @@ export interface TrainingExercise {
   exercise_name: string;
   library_exercise_name: string;
   muscle_group: string;
+  categories?: string[];
   equipment?: string | null;
   /** Multi-group contribution used by the volume engine. */
   targets?: ExerciseTarget[];

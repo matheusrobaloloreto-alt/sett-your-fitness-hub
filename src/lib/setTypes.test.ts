@@ -50,8 +50,10 @@ describe("set type W/N/F contract", () => {
     const source = readFileSync(`${process.cwd()}/src/pages/admin/WorkoutBuilder.tsx`, "utf8");
     expect(source).toContain("setWorkouts(ws.length ? sanitizeWorkoutSetTypes(ws)");
     expect(source).toContain("workouts: sanitizeWorkoutSetTypes(workouts) as any");
-    expect(source).toContain("setWorkouts(sanitizeWorkoutSetTypes(data.map");
-    expect(source).toContain("const persistedWorkouts = sanitizeWorkoutSetTypes(draftWorkouts).map");
+    expect(source).toContain("const mapWorkoutRows = (rows: any[]): Workout[] => sanitizeWorkoutSetTypes(rows.map");
+    expect(source).toContain("data?.length ? mapWorkoutRows(data)");
+    expect(source).toContain("const workoutRevisionPayload = (draft: Workout[]) => sanitizeWorkoutSetTypes(draft).map");
+    expect(source).toContain("workouts: workoutRevisionPayload(draftWorkouts)");
     expect(source).not.toContain("exercises: workout.exercises as any");
   });
 });

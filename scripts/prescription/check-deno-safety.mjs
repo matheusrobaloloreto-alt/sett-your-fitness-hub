@@ -18,6 +18,8 @@ const files = [
   "supabase/functions/_shared/prescription/adapters/inputAdapter.ts",
   "supabase/functions/_shared/prescription/adapters/catalogAdapter.ts",
   "supabase/functions/_shared/prescription/adapters/outputAdapter.ts",
+  "supabase/functions/_shared/prescription/catalogEligibility.ts",
+  "supabase/functions/_shared/prescription/emergencyFallback.ts",
 ];
 
 function read(file) {
@@ -58,7 +60,7 @@ checks.push(check(
 checks.push(check("supabase/functions/ai-prescribe-workout/index.ts", "no_limit_700", !/\.limit\(\s*700\s*\)/.test(edge), "Sem .limit(700) em ai-prescribe-workout."));
 checks.push(check("supabase/functions/ai-prescribe-workout/index.ts", "fallback_preserved", /function\s+buildEmergencyFallbackPlan/.test(edge), "buildEmergencyFallbackPlan preservado."));
 checks.push(check("supabase/functions/ai-prescribe-workout/index.ts", "anthropic_preserved", /ANTHROPIC_API_KEY/.test(edge), "Anthropic preservado."));
-checks.push(check("supabase/functions/ai-prescribe-workout/index.ts", "response_contract_id_plan", /JSON\.stringify\(\s*\{\s*id:\s*planId,\s*plan:\s*planJson\s*\}/.test(edge), "Resposta padrão { id, plan }."));
+checks.push(check("supabase/functions/ai-prescribe-workout/index.ts", "response_contract_id_plan", /JSON\.stringify\(\s*\{\s*id:\s*planId,\s*plan:\s*planJson(?:\s*,|\s*\})/.test(edge), "Resposta padrão inclui { id, plan }."));
 checks.push(check(
   "supabase/functions/ai-prescribe-workout/index.ts",
   "deterministic_primary_with_legacy_fallback",

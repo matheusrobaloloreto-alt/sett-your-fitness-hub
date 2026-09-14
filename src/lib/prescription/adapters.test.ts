@@ -248,7 +248,7 @@ describe("adapters — pureza Deno-safe e independência da edge", () => {
       // Prova de independência: TODO import resolve só a ../types.ts (tipos do engine compartilhado)
       // ou ./types.ts (tipos dos adapters) — nenhum import de edge function / index de função.
       for (const p of importsOf(code)) {
-        expect(/(^\.\.\/types\.ts$|^\.\/types\.ts$)/.test(p)).toBe(true);
+        expect(/(^\.\.\/(types|catalogVolume)\.ts$|^\.\/types\.ts$)/.test(p)).toBe(true);
         expect(p.includes("ai-prescribe-workout")).toBe(false);
         expect(p.includes("/functions/")).toBe(false);
       }

@@ -17,18 +17,18 @@ function safeFormatDate(value: string | null | undefined, fmt: string): string {
   }
 }
 
-interface ManualPrescriptionPanelProps {
-  cycles: ManualPrescriptionCycle[];
-  selectedCycle: ManualPrescriptionCycle | null;
+interface ManualPrescriptionPanelProps<Cycle extends ManualPrescriptionCycle> {
+  cycles: Cycle[];
+  selectedCycle: Cycle | null;
   onCycleChange: (cycleId: string) => void;
-  onOpenCycle: (cycle: ManualPrescriptionCycle | null) => void;
-  onClearCycle?: (cycle: ManualPrescriptionCycle) => void;
-  onRestoreCycle?: (cycle: ManualPrescriptionCycle) => void;
+  onOpenCycle: (cycle: Cycle | null) => void;
+  onClearCycle?: (cycle: Cycle) => void;
+  onRestoreCycle?: (cycle: Cycle) => void;
   canClearSelectedCycle?: boolean;
   cycleActionLoading?: boolean;
 }
 
-export function ManualPrescriptionPanel({
+export function ManualPrescriptionPanel<Cycle extends ManualPrescriptionCycle>({
   cycles,
   selectedCycle,
   onCycleChange,
@@ -37,7 +37,7 @@ export function ManualPrescriptionPanel({
   onRestoreCycle,
   canClearSelectedCycle = false,
   cycleActionLoading = false,
-}: ManualPrescriptionPanelProps) {
+}: ManualPrescriptionPanelProps<Cycle>) {
   const isCleared = Boolean(selectedCycle?.prescription_cleared_at);
   const hasWorkout = Boolean(selectedCycle?.has_workout || selectedCycle?.has_workouts) && !isCleared;
 

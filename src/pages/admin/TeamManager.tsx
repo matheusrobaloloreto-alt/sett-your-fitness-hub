@@ -20,6 +20,7 @@ import { ptBR } from "date-fns/locale";
 import { Textarea } from "@/components/ui/textarea";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
+import { canRoleUseModule } from "@/lib/rolePermissionPolicy";
 import {
   buildManualSessionSummary,
   resolveManualPerformanceTrainerId,
@@ -118,7 +119,6 @@ export default function TeamManager() {
   const [editUserEmail, setEditUserEmail] = useState("");
   const [editAuthExists, setEditAuthExists] = useState<boolean | undefined>(undefined);
   const [editRoles, setEditRoles] = useState<string[]>([]);
-  const [editFullDashboard, setEditFullDashboard] = useState(false);
 
   // Performance tab
   const [trainerPerformance, setTrainerPerformance] = useState<TrainerPerformance[]>([]);
@@ -873,17 +873,7 @@ export default function TeamManager() {
     setEditUserEmail(member.email || "");
     setEditAuthExists(member.auth_exists);
     setEditRoles([...member.roles]);
-    setEditFullDashboard(false);
     setEditDialogOpen(true);
-    if (!effectiveCompanyId) return;
-    const { data } = await supabase
-      .from("staff_permissions" as any)
-      .select("enabled")
-      .eq("company_id", effectiveCompanyId)
-      .eq("user_id", member.user_id)
-      .eq("permission", "company_dashboard_full")
-      .maybeSingle();
-    setEditFullDashboard((data as { enabled?: boolean } | null)?.enabled === true);
   };
 
   const toggleEditRole = (role: string) => {
@@ -918,19 +908,6 @@ export default function TeamManager() {
     }
     for (const roleToAdd of rolesToAdd) {
       await supabase.from("user_roles").insert({ user_id: editUserId, role: roleToAdd as Role });
-    }
-    if (effectiveCompanyId && user) {
-      const { error: permissionError } = await supabase.rpc("set_staff_permission", {
-        _company_id: effectiveCompanyId,
-        _user_id: editUserId,
-        _permission: "company_dashboard_full",
-        _enabled: editRoles.includes("trainer") && editFullDashboard,
-      });
-      if (permissionError) {
-        setLoading(false);
-        toast({ title: "Papéis salvos, mas a visão empresarial falhou", description: permissionError.message, variant: "destructive" });
-        return;
-      }
     }
     setLoading(false);
     toast({ title: "Membro atualizado!" });
@@ -1147,15 +1124,16 @@ export default function TeamManager() {
                     {editRoles.includes("trainer") && (
                       <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-background p-3">
                         <div>
-                          <Label htmlFor="trainer-company-dashboard" className="font-sans">Visão completa da empresa</Label>
+                          <Label htmlFor="trainer-company-dashboard" className="font-sans">Dashboard da empresa</Label>
                           <p className="mt-1 text-xs text-muted-foreground font-sans">
-                            Concessão individual: permite ver matrículas e alertas de toda a empresa. Não altera os demais treinadores.
+                            Disponível automaticamente para treinadores como visualização, sem liberar permissões administrativas.
                           </p>
                         </div>
                         <Switch
                           id="trainer-company-dashboard"
-                          checked={editFullDashboard}
-                          onCheckedChange={setEditFullDashboard}
+                          checked
+                          disabled
+                          aria-readonly="true"
                         />
                       </div>
                     )}
@@ -1248,10 +1226,14 @@ export default function TeamManager() {
                             <td className="py-3 px-2 font-sans text-foreground">{mod.label}</td>
                             {PERMISSION_ROLES.map((r) => (
                               <td key={r.key} className="text-center py-3 px-4">
-                                <Switch
-                                  checked={isEnabled(r.key, mod.key)}
-                                  onCheckedChange={() => handleTogglePermission(r.key, mod.key)}
-                                />
+                                {canRoleUseModule(r.key, mod.key) ? (
+                                  <Switch
+                                    checked={isEnabled(r.key, mod.key)}
+                                    onCheckedChange={() => handleTogglePermission(r.key, mod.key)}
+                                  />
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Não disponível</span>
+                                )}
                               </td>
                             ))}
                           </tr>

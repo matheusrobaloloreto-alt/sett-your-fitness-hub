@@ -12,10 +12,16 @@ export function selectWhatsAppUploadMode(size: number): "standard" | "resumable"
   return size <= STANDARD_UPLOAD_MAX_BYTES ? "standard" : "resumable";
 }
 
-export function describeWhatsAppMediaDelivery(file: Pick<File, "size" | "type">): {
-  mediatype: "image" | "video" | "audio" | "document";
-  notice: string | null;
-} {
+export function describeWhatsAppMediaDelivery(
+  file: Pick<File, "size" | "type">,
+  options?: { asSticker?: boolean },
+): { mediatype: "image" | "video" | "audio" | "document" | "sticker"; notice: string | null } {
+  if (options?.asSticker) {
+    if (file.type !== "image/webp" || file.size > 1024 * 1024) {
+      throw new Error("A figurinha deve ser WebP e ter no máximo 1 MB.");
+    }
+    return { mediatype: "sticker", notice: null };
+  }
   if (file.type.startsWith("video/")) {
     if (file.size > INLINE_VIDEO_MAX_BYTES) {
       return {
