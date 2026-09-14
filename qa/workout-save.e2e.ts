@@ -100,6 +100,12 @@ test("desktop save persists added and removed workouts with exact row count", as
   await titleInput(page).fill("Treino B - Inferior");
   await descriptionInput(page).fill("Treino adicionado");
 
+  await page.getByRole("button", { name: "Adicionar", exact: true }).click();
+  const libraryDialog = page.getByRole("dialog", { name: "Biblioteca de exercícios" });
+  await libraryDialog.getByTitle("Supino reto").click();
+  await libraryDialog.getByRole("button", { name: "Ver treino completo" }).click();
+  await expect(activeWorkoutPanel(page).getByText("Supino reto", { exact: true })).toBeVisible();
+
   await saveAll(page);
   await expect(toastTitle(page, "Todos os treinos salvos!")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Treino B - Inferior" })).toBeVisible();
