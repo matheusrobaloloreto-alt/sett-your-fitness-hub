@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   hasBlockingSaveIssue,
+  issueFromPrescriptionValidationFailure,
   issuesFromPrescriptionValidation,
+  mergeSavedWorkoutIdsAfterSave,
   resolveWorkoutSaveDraft,
 } from "./workoutSaveValidation";
 
@@ -19,6 +21,12 @@ const library = [
     muscle_group: "Dorsal",
   },
 ];
+
+type TestWorkout = {
+  id?: string;
+  title: string;
+  exercises: Array<{ exercise_id?: string; exercise_name?: string }>;
+};
 
 describe("workout save validation", () => {
   it("repairs legacy exercises by exact library name before the remote validator runs", () => {
@@ -90,6 +98,19 @@ describe("workout save validation", () => {
     expect(hasBlockingSaveIssue(issues)).toBe(false);
   });
 
+  it("turns a remote validation failure into a persistent save blocker", () => {
+    const issue = issueFromPrescriptionValidationFailure("Edge Function returned a non-2xx status code");
+
+    expect(issue).toMatchObject({
+      severity: "blocker",
+      code: "remote_validation_unavailable",
+      source: "validador",
+      message: "Não foi possível validar o treino agora.",
+    });
+    expect(issue.recommendation).toContain("Tente salvar novamente");
+    expect(hasBlockingSaveIssue([issue])).toBe(true);
+  });
+
   it("maps remote library blockers back to the affected workout exercise", () => {
     const issues = issuesFromPrescriptionValidation({
       status: "blocked",
@@ -149,5 +170,43 @@ describe("workout save validation", () => {
       expectedRows: [{ id: "workout-a", updated_at: "2026-09-14T03:00:00Z" }],
       workouts: [{ title: "Treino A", exercises: [{ exercise_id: "supino-atual" }] }],
     })).rejects.toThrow("alterado em outra tela");
+  });
+
+  it("applies saved ids without replacing edits made while the save request was pending", () => {
+    const result = mergeSavedWorkoutIdsAfterSave<TestWorkout>({
+      savedDraftWorkouts: [{
+        id: "workout-a",
+        title: "Treino A",
+        exercises: [{ exercise_id: "supino-atual", exercise_name: "Supino Inclinado com Halteres" }],
+      }],
+      currentWorkouts: [{
+        id: "workout-a",
+        title: "Treino A editado durante o salvamento",
+        exercises: [{ exercise_id: "supino-atual", exercise_name: "Supino Inclinado com Halteres" }],
+      }],
+      savedWorkoutIds: ["workout-a-saved"],
+    });
+
+    expect(result).toEqual([expect.objectContaining({
+      id: "workout-a-saved",
+      title: "Treino A editado durante o salvamento",
+    })]);
+  });
+
+  it("does not assign returned ids by stale index after the workout list shape changed", () => {
+    const result = mergeSavedWorkoutIdsAfterSave<TestWorkout>({
+      savedDraftWorkouts: [
+        { title: "Treino A", exercises: [{ exercise_id: "supino-atual" }] },
+        { title: "Treino B", exercises: [{ exercise_id: "remada-atual" }] },
+      ],
+      currentWorkouts: [
+        { title: "Treino inserido durante o salvamento", exercises: [{ exercise_id: "supino-atual" }] },
+        { title: "Treino A", exercises: [{ exercise_id: "supino-atual" }] },
+        { title: "Treino B", exercises: [{ exercise_id: "remada-atual" }] },
+      ],
+      savedWorkoutIds: ["saved-a", "saved-b"],
+    });
+
+    expect(result.map((workout) => workout.id)).toEqual([undefined, undefined, undefined]);
   });
 });

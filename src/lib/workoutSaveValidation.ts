@@ -8,7 +8,6 @@ export interface WorkoutSaveDraftExercise {
   video_path?: string | null;
   thumbnail_url?: string | null;
   youtube_video_id?: string | null;
-  [key: string]: unknown;
 }
 
 export interface WorkoutSaveDraftWorkout {
@@ -19,7 +18,6 @@ export interface WorkoutSaveDraftWorkout {
   description?: string | null;
   day_of_week?: number | null;
   exercises?: WorkoutSaveDraftExercise[];
-  [key: string]: unknown;
 }
 
 export interface WorkoutSaveLibraryExercise {
@@ -108,8 +106,8 @@ function selectExactLibraryMatch(
   return { match: null, ambiguous: true };
 }
 
-export function resolveWorkoutSaveDraft(args: {
-  workouts: WorkoutSaveDraftWorkout[];
+export function resolveWorkoutSaveDraft<TWorkout extends WorkoutSaveDraftWorkout>(args: {
+  workouts: TWorkout[];
   libraryExercises: WorkoutSaveLibraryExercise[];
 }) {
   const issues: WorkoutSaveIssue[] = [];
@@ -122,7 +120,7 @@ export function resolveWorkoutSaveDraft(args: {
     return acc;
   }, new Map());
 
-  const workouts = args.workouts.map((workout, workoutIndex) => {
+  const workouts = args.workouts.map((workout, workoutIndex): TWorkout => {
     const clonedWorkout: WorkoutSaveDraftWorkout = {
       ...workout,
       exercises: Array.isArray(workout.exercises)
@@ -142,7 +140,7 @@ export function resolveWorkoutSaveDraft(args: {
         workoutIndex,
         workoutTitle,
       });
-      return clonedWorkout;
+      return clonedWorkout as TWorkout;
     }
 
     clonedWorkout.exercises = exercises.map((exercise, exerciseIndex) => {
@@ -179,7 +177,7 @@ export function resolveWorkoutSaveDraft(args: {
         source: "biblioteca",
         message: exerciseId
           ? `${workoutTitle}: ${exerciseName} não está vinculado a um exercício válido da biblioteca.`
-          : `${workoutTitle}: ${exerciseName} está sem ID de exercício da biblioteca.`,
+          : `${workoutTitle}: ${exerciseName} não está vinculado a um exercício da biblioteca.`,
         recommendation: ambiguous
           ? "Há mais de um exercício com esse nome. Use a biblioteca para trocar pelo item correto."
           : "Substitua pelo exercício correspondente da biblioteca antes de salvar.",
@@ -191,7 +189,7 @@ export function resolveWorkoutSaveDraft(args: {
       return exercise;
     });
 
-    return clonedWorkout;
+    return clonedWorkout as TWorkout;
   });
 
   if (workouts.length === 0) {
@@ -218,7 +216,7 @@ export function issuesFromPrescriptionValidation(result: PrescriptionValidationL
           severity: "blocker" as const,
           code: "missing_exercise_id",
           source: warning.source || "biblioteca",
-          message: "Um exercício está sem ID de exercício da biblioteca.",
+          message: "Um exercício não está vinculado a um exercício da biblioteca.",
           recommendation: warning.recommendation || "Troque pelo item correspondente da biblioteca antes de salvar.",
           workoutIndex: match ? Number(match[1]) : undefined,
           exerciseIndex: match ? Number(match[2]) : undefined,
@@ -262,4 +260,37 @@ export function issuesFromPrescriptionValidation(result: PrescriptionValidationL
 
 export function hasBlockingSaveIssue(issues: WorkoutSaveIssue[]) {
   return issues.some((issue) => issue.severity === "blocker");
+}
+
+export function issueFromPrescriptionValidationFailure(message?: string): WorkoutSaveIssue {
+  return {
+    severity: "blocker",
+    code: "remote_validation_unavailable",
+    source: "validador",
+    message: "Não foi possível validar o treino agora.",
+    recommendation: message
+      ? `Tente salvar novamente. Se continuar, confira a conexão e acione o suporte com esta mensagem: ${message}`
+      : "Tente salvar novamente. Se continuar, confira a conexão e acione o suporte.",
+  };
+}
+
+export function mergeSavedWorkoutIdsAfterSave<TWorkout extends { id?: string | null }>(args: {
+  currentWorkouts: TWorkout[];
+  savedDraftWorkouts: TWorkout[];
+  savedWorkoutIds: Array<string | null | undefined>;
+}) {
+  const savedIdByPreviousId = new Map<string, string>();
+  args.savedDraftWorkouts.forEach((workout, index) => {
+    const previousId = typeof workout.id === "string" ? workout.id : "";
+    const savedId = args.savedWorkoutIds[index];
+    if (previousId && savedId) savedIdByPreviousId.set(previousId, savedId);
+  });
+
+  const canUseIndexFallback = args.currentWorkouts.length === args.savedDraftWorkouts.length;
+  return args.currentWorkouts.map((workout, index) => {
+    const previousId = typeof workout.id === "string" ? workout.id : "";
+    const savedId = (previousId ? savedIdByPreviousId.get(previousId) : undefined)
+      || (canUseIndexFallback ? args.savedWorkoutIds[index] : undefined);
+    return savedId ? { ...workout, id: savedId } : workout;
+  });
 }
