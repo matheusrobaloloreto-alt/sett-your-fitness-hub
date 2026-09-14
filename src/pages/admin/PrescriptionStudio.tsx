@@ -268,14 +268,15 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   }, [embeddedStudentId]);
 
   useEffect(() => {
-    if (isEmbedded) return;
     const handoff = resolveWhatsAppAssessmentHandoff(location.state);
     if (handoff) {
-      setStudentId(handoff.studentId);
+      if (embeddedStudentId && handoff.studentId !== embeddedStudentId) return;
+      if (!embeddedStudentId) setStudentId(handoff.studentId);
       setTab("avaliacao");
       setPendingWhatsAppVideo(handoff);
       return;
     }
+    if (isEmbedded) return;
     const dashboardHandoff = location.state as { studentId?: unknown; tab?: unknown } | null;
     if (typeof dashboardHandoff?.studentId === "string") setStudentId(dashboardHandoff.studentId);
     if (
@@ -285,7 +286,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
     ) {
       setTab(dashboardHandoff.tab);
     }
-  }, [isEmbedded, location.state]);
+  }, [embeddedStudentId, isEmbedded, location.state]);
 
   const consumeWhatsAppAssessmentHandoff = () => {
     clearWhatsAppAssessmentHandoff();

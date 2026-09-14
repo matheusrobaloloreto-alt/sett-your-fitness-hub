@@ -48,9 +48,13 @@ describe("WhatsApp -> Studio assessment handoff", () => {
     expect(chat).toContain("studentId: selectedChat.student_id");
     expect(chat).toContain("mediaStoragePath: msg.media_storage_path || null");
     expect(chat).toContain("persistWhatsAppAssessmentHandoff(handoff)");
+    expect(chat).toContain("`/${studioRoutePrefix}/students/${selectedChat.student_id}`");
+    expect(chat).toContain("studentId: selectedChat.student_id");
+    expect(chat).toContain('tab: "integrada"');
     expect(studio).toContain("resolveWhatsAppAssessmentHandoff(location.state)");
     expect(studio).toContain("clearWhatsAppAssessmentHandoff()");
     expect(chat).not.toContain("fallbackUrl: mediaSrc");
+    expect(chat).not.toContain("navigate(`/${studioRoutePrefix}/studio`");
   });
 
   it("restores the selected student and video after a full-page navigation loses history.state", () => {
@@ -128,5 +132,15 @@ describe("WhatsApp -> Studio assessment handoff", () => {
     expect(assessment).toContain("const isCurrentRequest = () => initialVideoRequestRef.current === requestVersion");
     expect(assessment).toContain("if (!shouldContinue()) return false");
     expect(assessment).toContain("if (initialVideoRequestRef.current === requestVersion) initialVideoRequestRef.current += 1");
+  });
+
+  it("lets the embedded student Studio consume only handoffs for the same profile student", async () => {
+    const studio = await read("src/pages/admin/PrescriptionStudio.tsx");
+
+    expect(studio).not.toContain("if (isEmbedded) return;\n    const handoff = resolveWhatsAppAssessmentHandoff(location.state)");
+    expect(studio).toContain("if (embeddedStudentId && handoff.studentId !== embeddedStudentId) return;");
+    expect(studio).toContain("if (!embeddedStudentId) setStudentId(handoff.studentId)");
+    expect(studio).toContain('setTab("avaliacao")');
+    expect(studio).toContain("setPendingWhatsAppVideo(handoff)");
   });
 });

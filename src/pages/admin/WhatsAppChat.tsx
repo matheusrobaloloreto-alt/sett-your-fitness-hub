@@ -2959,8 +2959,10 @@ export default function WhatsAppChat({
                                         mediaStoragePath: msg.media_storage_path || null,
                                       };
                                       persistWhatsAppAssessmentHandoff(handoff);
-                                      navigate(`/${studioRoutePrefix}/studio`, {
+                                      navigate(`/${studioRoutePrefix}/students/${selectedChat.student_id}`, {
                                         state: {
+                                          studentId: selectedChat.student_id,
+                                          tab: "integrada",
                                           whatsappAssessmentHandoff: handoff,
                                         },
                                       });
