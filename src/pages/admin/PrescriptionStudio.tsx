@@ -70,7 +70,7 @@ import {
 } from "@/lib/prescriptionSchedule";
 import {
   clearWhatsAppAssessmentHandoff,
-  resolveWhatsAppAssessmentHandoff,
+  resolveStudioWhatsAppAssessmentHandoff,
   type WhatsAppAssessmentVideoHandoff,
 } from "@/lib/whatsappAssessmentHandoff";
 
@@ -268,7 +268,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   }, [embeddedStudentId]);
 
   useEffect(() => {
-    const handoff = resolveWhatsAppAssessmentHandoff(location.state);
+    const handoff = resolveStudioWhatsAppAssessmentHandoff(location.state, { embeddedStudentId });
     if (handoff) {
       if (embeddedStudentId && handoff.studentId !== embeddedStudentId) return;
       if (!embeddedStudentId) setStudentId(handoff.studentId);
@@ -291,6 +291,17 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   const consumeWhatsAppAssessmentHandoff = () => {
     clearWhatsAppAssessmentHandoff();
     setPendingWhatsAppVideo(null);
+    if (isEmbedded) {
+      const state = location.state && typeof location.state === "object"
+        ? { ...(location.state as Record<string, unknown>) }
+        : null;
+      if (state) delete state.whatsappAssessmentHandoff;
+      nav(`${location.pathname}${location.search}`, {
+        replace: true,
+        state: state && Object.keys(state).length ? state : null,
+      });
+      return;
+    }
     nav(location.pathname, { replace: true, state: null });
   };
 

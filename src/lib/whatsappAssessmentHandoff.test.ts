@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   clearWhatsAppAssessmentHandoff,
   persistWhatsAppAssessmentHandoff,
+  resolveStudioWhatsAppAssessmentHandoff,
   resolveWhatsAppAssessmentHandoff,
   type WhatsAppAssessmentVideoHandoff,
 } from "./whatsappAssessmentHandoff";
@@ -48,11 +49,17 @@ describe("WhatsApp -> Studio assessment handoff", () => {
     expect(chat).toContain("studentId: selectedChat.student_id");
     expect(chat).toContain("mediaStoragePath: msg.media_storage_path || null");
     expect(chat).toContain("persistWhatsAppAssessmentHandoff(handoff)");
-    expect(chat).toContain("`/${studioRoutePrefix}/students/${selectedChat.student_id}`");
-    expect(chat).toContain("studentId: selectedChat.student_id");
     expect(chat).toContain('tab: "integrada"');
-    expect(studio).toContain("resolveWhatsAppAssessmentHandoff(location.state)");
+    expect(chat).toContain("returnTo");
+    expect(chat).toContain("`/${studioRoutePrefix}/students/${selectedChat.student_id}?${targetSearch.toString()}`");
+    expect(chat).not.toContain("`/${studioRoutePrefix}/studio`");
+    expect(studio).toContain("resolveStudioWhatsAppAssessmentHandoff(location.state, { embeddedStudentId })");
+    expect(studio.indexOf("resolveStudioWhatsAppAssessmentHandoff(location.state, { embeddedStudentId })")).toBeLessThan(
+      studio.indexOf("if (isEmbedded) return;"),
+    );
+    expect(studio).toContain('setTab("avaliacao")');
     expect(studio).toContain("clearWhatsAppAssessmentHandoff()");
+    expect(studio).toContain("delete state.whatsappAssessmentHandoff");
     expect(chat).not.toContain("fallbackUrl: mediaSrc");
     expect(chat).not.toContain("navigate(`/${studioRoutePrefix}/studio`");
   });
@@ -92,6 +99,18 @@ describe("WhatsApp -> Studio assessment handoff", () => {
     expect(() => persistWhatsAppAssessmentHandoff(handoff, blockedStorage, 1_000)).not.toThrow();
     expect(resolveWhatsAppAssessmentHandoff({ whatsappAssessmentHandoff: handoff }, blockedStorage, 1_001)).toEqual(handoff);
     expect(() => clearWhatsAppAssessmentHandoff(blockedStorage)).not.toThrow();
+  });
+
+  it("accepts embedded Studio handoffs only for the currently opened student", () => {
+    expect(resolveStudioWhatsAppAssessmentHandoff(
+      { whatsappAssessmentHandoff: handoff },
+      { embeddedStudentId: "student-1", now: 1_001 },
+    )).toEqual(handoff);
+
+    expect(resolveStudioWhatsAppAssessmentHandoff(
+      { whatsappAssessmentHandoff: handoff },
+      { embeddedStudentId: "student-2", now: 1_001 },
+    )).toBeNull();
   });
 
   it("validates tenant, student, chat and message before loading private media", async () => {

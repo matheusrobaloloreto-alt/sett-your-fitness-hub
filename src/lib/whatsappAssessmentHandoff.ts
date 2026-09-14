@@ -93,6 +93,24 @@ export function resolveWhatsAppAssessmentHandoff(
   return null;
 }
 
+export function resolveStudioWhatsAppAssessmentHandoff(
+  navigationState: unknown,
+  {
+    embeddedStudentId,
+    storage,
+    now = Date.now(),
+  }: {
+    embeddedStudentId?: string;
+    storage?: HandoffStorage;
+    now?: number;
+  } = {},
+) {
+  const handoff = resolveWhatsAppAssessmentHandoff(navigationState, storage, now);
+  if (!handoff) return null;
+  if (embeddedStudentId && handoff.studentId !== embeddedStudentId) return null;
+  return handoff;
+}
+
 export function clearWhatsAppAssessmentHandoff(storage?: HandoffStorage) {
   try {
     browserStorage(storage)?.removeItem(STORAGE_KEY);

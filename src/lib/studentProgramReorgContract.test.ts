@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { STUDENT_PROGRAM_PRIMARY_TABS, resolveStudentProgramHandoff } from "./studentProgramSections";
+import { STUDENT_PROGRAM_PRIMARY_TABS, resolveStudentProgramHandoff, resolveStudentProgramReturnTo } from "./studentProgramSections";
 
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
@@ -62,8 +62,11 @@ describe("student profile program reorganization contract", () => {
     expect(studentDetail).toContain("resolveManualPrescriptionTargetCycle");
     expect(studentDetail).toContain("EmbeddedPrescriptionStudio embeddedStudentId={id}");
     expect(studentDetail).toContain("resolveStudentProgramHandoff");
+    expect(studentDetail).toContain('new URLSearchParams(location.search).get("tab")');
     expect(studentDetail).toContain("activePrescriptionPanel === \"prescricao\"");
     expect(studentDetail).toContain("activePrescriptionPanel === \"integrada\"");
+    expect(studentDetail).toContain("resolveStudentProgramReturnTo");
+    expect(studentDetail).toContain('new URLSearchParams(location.search).get("returnTo")');
     expect(prescriber).toContain("embeddedStudentId?: string");
     expect(prescriber).toContain("const isEmbedded = Boolean(embeddedStudentId)");
     expect(prescriber).toContain("if (embeddedStudentId) setStudentId(embeddedStudentId)");
@@ -73,6 +76,24 @@ describe("student profile program reorganization contract", () => {
     expect(studio).toContain("if (embeddedStudentId) setStudentId(embeddedStudentId)");
     expect(studio).toContain("{!isEmbedded &&");
     expect(studio).toContain("Prescrição Integrada");
+  });
+
+  it("resolves safe return targets for profile handoffs", () => {
+    const fallbackPath = "/admin/students";
+
+    expect(resolveStudentProgramReturnTo({
+      stateReturnTo: "/admin/whatsapp-chat",
+      queryReturnTo: "/admin/students",
+      fallbackPath,
+    })).toBe("/admin/whatsapp-chat");
+
+    expect(resolveStudentProgramReturnTo({
+      queryReturnTo: "/admin/whatsapp-chat?chatId=chat-1",
+      fallbackPath,
+    })).toBe("/admin/whatsapp-chat?chatId=chat-1");
+
+    expect(resolveStudentProgramReturnTo({ queryReturnTo: "https://example.com", fallbackPath })).toBe(fallbackPath);
+    expect(resolveStudentProgramReturnTo({ queryReturnTo: "//example.com", fallbackPath })).toBe(fallbackPath);
   });
 
   it("moves cycle calendar and finance to overview, anamnesis to program, workouts to analysis, and progress photos to evaluation", () => {

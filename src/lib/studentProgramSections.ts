@@ -39,3 +39,17 @@ export function resolveStudentProgramHandoff(tab: StudentProgramHandoffTab): {
   }
   return { activeTab: null, prescriptionPanel: null };
 }
+
+export function resolveStudentProgramReturnTo({
+  stateReturnTo,
+  queryReturnTo,
+  fallbackPath,
+}: {
+  stateReturnTo?: unknown;
+  queryReturnTo?: string | null;
+  fallbackPath: string;
+}) {
+  const candidate = typeof stateReturnTo === "string" ? stateReturnTo : queryReturnTo;
+  if (candidate && candidate.startsWith("/") && !candidate.startsWith("//")) return candidate;
+  return fallbackPath;
+}

@@ -74,7 +74,7 @@ import {
   isCyclePrescriptionArchiveActionStale,
   type CyclePrescriptionArchivePreviewState,
 } from "@/lib/cyclePrescriptionArchiveUi";
-import { STUDENT_PROGRAM_PRIMARY_TABS, resolveStudentProgramHandoff, type StudentProgramPrimaryTabValue } from "@/lib/studentProgramSections";
+import { STUDENT_PROGRAM_PRIMARY_TABS, resolveStudentProgramHandoff, resolveStudentProgramReturnTo, type StudentProgramPrimaryTabValue } from "@/lib/studentProgramSections";
 import { resolveManualPrescriptionTargetCycle, workoutBuilderUrl } from "@/lib/manualPrescriptionNavigation";
 // Heavy children loaded only when their tab is opened (chunk size win)
 const WorkoutAnalysis = lazy(() => import("@/components/trainer/WorkoutAnalysis").then(m => ({ default: m.WorkoutAnalysis })));
@@ -302,6 +302,17 @@ export default function StudentDetail() {
   const location = useLocation();
   const { session, role } = useAuth();
   const { toast } = useToast();
+  const studentDetailRoutePrefix = role === "master" ? "admin" : role || "admin";
+  const returnToPath = useMemo(() => {
+    const state = location.state && typeof location.state === "object"
+      ? location.state as { returnTo?: unknown }
+      : null;
+    return resolveStudentProgramReturnTo({
+      stateReturnTo: state?.returnTo,
+      queryReturnTo: new URLSearchParams(location.search).get("returnTo"),
+      fallbackPath: `/${studentDetailRoutePrefix}/students`,
+    });
+  }, [location.search, location.state, studentDetailRoutePrefix]);
   const [student, setStudent] = useState<Student | null>(null);
   const [preRegistration, setPreRegistration] = useState<PreRegistrationData | null>(null);
   const [preRegistrationLoading, setPreRegistrationLoading] = useState(true);
@@ -391,16 +402,20 @@ export default function StudentDetail() {
 	  }, [id]);
 
   useEffect(() => {
-    const handoff = location.state as { studentId?: unknown; tab?: unknown } | null;
-    if (!handoff || (typeof handoff.studentId === "string" && handoff.studentId !== id)) return;
-    const resolved = resolveStudentProgramHandoff(typeof handoff.tab === "string" ? handoff.tab : null);
+    const handoff = location.state && typeof location.state === "object"
+      ? location.state as { studentId?: unknown; tab?: unknown }
+      : null;
+    if (typeof handoff?.studentId === "string" && handoff.studentId !== id) return;
+    const tabFromQuery = new URLSearchParams(location.search).get("tab");
+    const requestedTab = typeof handoff?.tab === "string" ? handoff.tab : tabFromQuery;
+    const resolved = resolveStudentProgramHandoff(requestedTab);
     if (resolved.activeTab) {
       setActiveTab(resolved.activeTab);
     }
     if (resolved.prescriptionPanel) {
       setActivePrescriptionPanel(resolved.prescriptionPanel);
     }
-  }, [id, location.state]);
+  }, [id, location.search, location.state]);
 
   const handleActivateStudentAccess = async () => {
     if (!student?.email) {
@@ -1718,7 +1733,7 @@ export default function StudentDetail() {
       <>
         <div className="text-center py-20">
           <p className="text-muted-foreground font-sans">Aluno não encontrado</p>
-          <Button variant="outline" className="mt-4" onClick={() => navigate("/admin/students")}>
+          <Button variant="outline" className="mt-4" onClick={() => navigate(returnToPath)}>
             <ArrowLeft className="h-4 w-4 mr-2" />Voltar
           </Button>
         </div>
@@ -1734,7 +1749,7 @@ export default function StudentDetail() {
           title={student.full_name.toUpperCase()}
           titleClassName="text-primary"
           leading={
-            <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => navigate("/admin/students")} aria-label="Voltar para alunos">
+            <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => navigate(returnToPath)} aria-label="Voltar para alunos">
               <ArrowLeft className="h-5 w-5" />
             </Button>
           }
