@@ -21,7 +21,12 @@ export async function saveWorkoutLogBatchIfCurrent<TRow, TData extends { conflic
 
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const result = await save(rows);
+    let result: RpcResult<TData>;
+    try {
+      result = await save(rows);
+    } catch (error) {
+      result = { data: null, error };
+    }
     if (!result.error && result.data) {
       if (Array.isArray(result.data.conflicts) && result.data.conflicts.length > 0) {
         return { ok: false, reason: "conflict", data: result.data };

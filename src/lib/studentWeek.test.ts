@@ -1,7 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { collectTrainedDaysForWeek, upsertCompletedWorkoutSession } from "./studentWeek";
+import { collectTrainedDates, collectTrainedDaysForWeek, mergeTrainingLogsForDisplay, upsertCompletedWorkoutSession } from "./studentWeek";
 
 describe("student weekly training markers", () => {
+  it("uses the same completed dates for the calendar and both weekly bars", () => {
+    const log = { workout_id: "w1", exercise_index: 0, set_number: 1, session_date: "2026-09-14", completed: true };
+    const display = mergeTrainingLogsForDisplay([log], [{ ...log, completed: false }], "2026-09-14");
+    expect(collectTrainedDates(display).size).toBe(0);
+    const checked = mergeTrainingLogsForDisplay(display, [log], "2026-09-14");
+    expect([...collectTrainedDates(checked)]).toEqual(["2026-09-14"]);
+    expect([...collectTrainedDaysForWeek({ now: new Date("2026-09-14T12:00:00"), persistedLogs: checked })]).toEqual([1]);
+  });
+
+  it("includes completed sessions without logs and excludes abandoned sessions and tombstones", () => {
+    expect([...collectTrainedDates([{ completed: true, deleted: true, session_date: "2026-09-13" }], [
+      { status: "completed", completed_at: "2026-09-14T12:00:00Z", session_date: "2026-09-14" },
+      { status: "abandoned", completed_at: "2026-09-13T12:00:00Z", session_date: "2026-09-13" },
+    ])]).toEqual(["2026-09-14"]);
+  });
   it("marks today's locally completed workout before the remote autosave returns", () => {
     const now = new Date("2026-08-31T12:00:00-03:00");
     const days = collectTrainedDaysForWeek({

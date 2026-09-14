@@ -38,3 +38,25 @@ test("student mobile training shell keeps compact actions, accordion state and l
   await expect(page.locator("video, iframe")).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
+
+test("warmup video returns to the checked movement on mobile and desktop", async ({ page }) => {
+  await page.route("https://example.test/**", route => route.fulfill({ status: 200, contentType: "video/mp4", body: "" }));
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/qa/student-training-ux-fixture.html");
+    await page.getByRole("button", { name: "Prepare-se" }).click();
+    const movement = page.getByRole("button", { name: "Agachamento livre — 2×10", exact: true });
+    await movement.click();
+    await expect(movement).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Assistir demonstração de Agachamento livre (air squat)" }).click();
+    await expect(page.locator("video")).toHaveAttribute("src", "https://example.test/air-squat.mp4");
+    await page.getByRole("button", { name: "Voltar ao aquecimento" }).click();
+    await expect(movement).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Assistir demonstração de Agachamento livre (air squat)" }).click();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(movement).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("dialog", { name: "Prepare-se para o treino" })).toBeVisible();
+    await page.screenshot({ path: `output/playwright/student-warmup-${viewport.width}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+  }
+});

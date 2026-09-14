@@ -23,7 +23,8 @@ import { WhySafetyCard } from "@/components/student/WhySafetyCard";
 import { CheckinCard } from "@/components/student/CheckinCard";
 import { PushBanner } from "@/components/student/PushBanner";
 import { ExerciseVideoPlayer } from "@/components/student/ExerciseVideoPlayer";
-import { buildYouTubeSearchUrl, type ExerciseVideoModalState } from "@/lib/exerciseVideoPlayer";
+import { useExerciseVideo } from "@/hooks/useExerciseVideo";
+import { loadStudentTrainingHistory } from "@/lib/studentTrainingHistory";
 import { WarmupGuide, type WarmupExercise } from "@/components/student/WarmupGuide";
 import { WARMUP_VIDEO_LIBRARY_NAMES } from "@/lib/warmupVideoMatches";
 import { useRestTimer } from "@/components/student/RestTimer";
@@ -38,7 +39,7 @@ import { PlatformAdSlot } from "@/components/PlatformAdSlot";
 import { WorkoutHeader } from "@/components/student/WorkoutHeader";
 import { WeeklyGoalEditor } from "@/components/student/WeeklyGoalEditor";
 import { resolveActiveWorkoutInCycles, resolveWorkoutForCycleWeek, type ResolvedWeekContext, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
-import { collectTrainedDaysForWeek, upsertCompletedWorkoutSession } from "@/lib/studentWeek";
+import { collectTrainedDaysForWeek, mergeTrainingLogsForDisplay, upsertCompletedWorkoutSession } from "@/lib/studentWeek";
 
 import { CycleFeedbackBanner } from "@/components/student/CycleFeedbackBanner";
 import { calculateStreak } from "@/lib/streakCalculator";
@@ -183,7 +184,7 @@ export default function StudentPortal() {
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
-  const [videoModal, setVideoModal] = useState<ExerciseVideoModalState | null>(null);
+  const { video: videoModal, openVideo: openVideoForExercise, closeVideo } = useExerciseVideo();
   // Feedback pós-treino — persiste no painel; WhatsApp é um canal adicional.
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
@@ -577,63 +578,45 @@ export default function StudentPortal() {
           todayDow,
         ));
 
-        const workoutIds = materializedWorkouts.map(w => w.id);
-        if (workoutIds.length > 0) {
-          const [
-            { data: logsData },
-            { data: sessionsData },
-            { data: feedbackData },
-          ] = await Promise.all([
-            supabase
-              .from("workout_logs")
-              .select("id, workout_id, exercise_index, set_number, weight, reps_done, session_date, set_type, rpe, completed, revision, updated_at, created_at, client_updated_at")
-              .eq("student_id", student.id)
-              .in("workout_id", workoutIds),
-            supabase
-              .from("workout_sessions")
-              .select("id, workout_id, session_date, duration_seconds, total_volume, total_sets_completed, total_sets_prescribed, completed_at, status")
-              .eq("student_id", student.id)
-              .in("workout_id", workoutIds),
-            supabase
-              .from("workout_feedback")
-              .select("id, workout_session_id, notes, trainer_reply, trainer_replied_at, trainer_reply_author_name")
-              .eq("student_id", student.id)
-              .order("created_at", { ascending: false })
-              .limit(50),
-          ]);
-
-          if (sessionsData) setWorkoutSessions(sessionsData);
-          if (feedbackData) setWorkoutFeedbacks(feedbackData);
-
-          if (logsData) {
-            setAllLogs(logsData);
-            const todayLogMap: Record<string, WorkoutLog> = {};
-            const prevLogMap: Record<string, WorkoutLog> = {};
-            const grouped: Record<string, any[]> = {};
-
-            logsData.forEach((l: any) => {
-              const key = `${l.workout_id}-${l.exercise_index}-${l.set_number}`;
-              if (!grouped[key]) grouped[key] = [];
-              grouped[key].push(l);
-            });
-
-            Object.entries(grouped).forEach(([key, entries]) => {
-              entries.sort((a, b) => (b.session_date || "").localeCompare(a.session_date || ""));
-              const todayEntry = entries.find(e => e.session_date === todayStr);
-              if (todayEntry) todayLogMap[key] = todayEntry;
-              const prevEntry = entries.find(e => e.session_date !== todayStr);
-              if (prevEntry) prevLogMap[key] = prevEntry;
-            });
-
-            // Token refreshes and conflict recovery can reload data while a set is
-            // being edited. Keep dirty local checks/cargas until their CAS save is
-            // acknowledged instead of replacing them with an older server snapshot.
-            setLogs((current) => mergeWorkoutDraftLogs(todayLogMap, current));
-            setPreviousLogs(prevLogMap);
-          }
-        }
       }
     }
+    const [
+      { logs: logsData, sessions: sessionsData },
+      { data: feedbackData },
+    ] = await Promise.all([
+      loadStudentTrainingHistory(supabase, student.id),
+      supabase
+        .from("workout_feedback")
+        .select("id, workout_session_id, notes, trainer_reply, trainer_replied_at, trainer_reply_author_name")
+        .eq("student_id", student.id)
+        .order("created_at", { ascending: false })
+        .limit(50),
+    ]);
+
+    setWorkoutSessions(sessionsData);
+    if (feedbackData) setWorkoutFeedbacks(feedbackData);
+    setAllLogs(logsData);
+    const todayLogMap: Record<string, WorkoutLog> = {};
+    const prevLogMap: Record<string, WorkoutLog> = {};
+    const grouped: Record<string, WorkoutLog[]> = {};
+
+    logsData.forEach((log) => {
+      const key = `${log.workout_id}-${log.exercise_index}-${log.set_number}`;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(log);
+    });
+
+    Object.entries(grouped).forEach(([key, entries]) => {
+      entries.sort((a, b) => (b.session_date || "").localeCompare(a.session_date || ""));
+      const todayEntry = entries.find(e => e.session_date === todayStr);
+      if (todayEntry) todayLogMap[key] = todayEntry;
+      const prevEntry = entries.find(e => e.session_date !== todayStr);
+      if (prevEntry) prevLogMap[key] = prevEntry;
+    });
+
+    // Keep pending local changes when reloading server revisions.
+    setLogs((current) => mergeWorkoutDraftLogs(todayLogMap, current));
+    setPreviousLogs(prevLogMap);
     setContentLoading(false);
     recordLoadPerformance("content_ready");
     } catch (err) {
@@ -906,28 +889,6 @@ export default function StudentPortal() {
     };
   }, [activeView, expandedExercise, extraSets, logs, logsBackupKey, selectedCycle?.id, selectedWorkoutId, workoutUiDraftStorageKey]);
 
-  const getStoragePublicUrl = (path: string) => {
-    const { data } = supabase.storage.from("exercises-videos").getPublicUrl(path);
-    return data.publicUrl;
-  };
-
-  const openVideoForExercise = async (ex: WorkoutExercise) => {
-    if (ex.video_path) { setVideoModal({ type: "path", value: getStoragePublicUrl(ex.video_path), title: ex.exercise_name }); return; }
-    if (ex.video_url) { setVideoModal({ type: "url", value: ex.video_url, title: ex.exercise_name }); return; }
-    if (ex.youtube_video_id) { setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${ex.youtube_video_id}`, title: ex.exercise_name }); return; }
-    // Sem vídeo gravado → puxa um vídeo do YouTube pelo nome do exercício (resolvido/cacheado no servidor).
-    setVideoModal({ type: "loading", value: "", title: ex.exercise_name });
-    const searchUrl = buildYouTubeSearchUrl(ex.exercise_name);
-    try {
-      const { data } = await supabase.functions.invoke("youtube-exercise-video", { body: { exercise_id: ex.exercise_id, name: ex.exercise_name } });
-      const vid = (data as any)?.video_id as string | null;
-      if (vid) setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${vid}`, title: ex.exercise_name });
-      else setVideoModal({ type: "unavailable", value: searchUrl, title: ex.exercise_name });
-    } catch {
-      setVideoModal({ type: "unavailable", value: searchUrl, title: ex.exercise_name });
-    }
-  };
-
   const getOverallProgress = () => {
     if (!enrollmentInfo || !enrollmentInfo.start_date || !enrollmentInfo.end_date) return 0;
     const today = new Date();
@@ -1105,13 +1066,12 @@ export default function StudentPortal() {
   }, [selectedWorkout, expandedExercise, selectedCycle, logs]);
 
   // Computed values for Home — based on actual sessions, not day_of_week
+  const displayLogs = useMemo(() => mergeTrainingLogsForDisplay(allLogs, Object.values(logs), todayStr), [allLogs, logs, todayStr]);
   const trainedDays = useMemo(() => collectTrainedDaysForWeek({
-    now: new Date(),
-    persistedLogs: allLogs,
-    localLogs: Object.values(logs),
-    localSessionDate: todayStr,
+    now: new Date(`${todayStr}T12:00:00`),
+    persistedLogs: displayLogs,
     completedSessions: workoutSessions,
-  }), [allLogs, logs, todayStr, workoutSessions]);
+  }), [displayLogs, todayStr, workoutSessions]);
 
   const weeklySessionCount = useMemo(() => trainedDays.size, [trainedDays]);
 
@@ -1417,11 +1377,11 @@ export default function StudentPortal() {
                         />
 
                         <WarmupGuide
+                          key={`${studentId}:${selectedWorkout.id}:${todayStr}`}
                           muscleGroups={selectedWorkout.exercises.map((e) => e.muscle_group)}
                           libraryExercises={warmupVideoExercises}
                           open={warmupOpen}
                           onOpenChange={setWarmupOpen}
-                          onVideoPlay={openVideoForExercise}
                         />
 
                         {/* A4 — resumo inline do treino em andamento (volume / séries / tempo) */}
@@ -1580,7 +1540,7 @@ export default function StudentPortal() {
             trainedDays={trainedDays}
             currentDayOfWeek={new Date().getDay()}
             onSelectWorkout={handleCalendarSelectWorkout}
-            allLogs={allLogs}
+            allLogs={displayLogs}
             cycleStartDate={selectedCycle.start_date}
             cycleEndDate={selectedCycle.end_date}
             workoutSessions={workoutSessions}
@@ -1652,7 +1612,7 @@ export default function StudentPortal() {
       </Dialog>
 
       {/* Video Modal */}
-      <Dialog open={!!videoModal} onOpenChange={() => setVideoModal(null)}>
+      <Dialog open={!!videoModal} onOpenChange={(open) => { if (!open) closeVideo(); }}>
         <DialogContent className="bg-card border-border max-w-lg sm:max-w-2xl p-2 sm:p-4">
           <DialogHeader>
             <DialogTitle className="pr-8 text-left text-base leading-snug text-primary break-words">

@@ -4,6 +4,12 @@ import { saveWorkoutLogBatchIfCurrent } from "./workoutLogPersistence";
 const rows = [{ workout_id: "workout-1", exercise_index: 0, set_number: 1 }];
 
 describe("workout log persistence boundary", () => {
+  it("settles rejected network requests so the save button can leave its pending state", async () => {
+    const save = vi.fn().mockRejectedValue(new Error("network disconnected"));
+    await expect(saveWorkoutLogBatchIfCurrent({ rows, save, wait: async () => undefined }))
+      .resolves.toMatchObject({ ok: false, reason: "rpc_error" });
+    expect(save).toHaveBeenCalledTimes(3);
+  });
   it("returns rpc_error after bounded retries instead of allowing completion", async () => {
     const save = vi.fn().mockResolvedValue({ data: null, error: new Error("offline") });
 

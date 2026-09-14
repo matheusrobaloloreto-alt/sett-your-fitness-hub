@@ -1,6 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WarmupGuide } from "./WarmupGuide";
+
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: { functions: { invoke: vi.fn().mockResolvedValue({ data: null }) } },
+}));
 
 const exercises = [
   {
@@ -71,14 +75,9 @@ describe("WarmupGuide exercise previews", () => {
     expect(screen.getAllByText("Vídeo indisponível para este item").length).toBeGreaterThan(0);
   });
 
-  it("shows a lazy actionable preview for every exercise without mounting any player", () => {
+  it("shows a lazy actionable preview for every exercise without mounting any player", async () => {
     const onVideoPlay = vi.fn();
     const onOpenChange = vi.fn();
-    const frameCallbacks: FrameRequestCallback[] = [];
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      frameCallbacks.push(callback);
-      return frameCallbacks.length;
-    });
     render(
       <WarmupGuide
         muscleGroups={["perna"]}
@@ -95,16 +94,46 @@ describe("WarmupGuide exercise previews", () => {
     expect(document.querySelector("video, iframe")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Assistir demonstração de Agachamento livre (air squat)" }));
-    expect(onOpenChange).toHaveBeenLastCalledWith(false);
-    expect(onVideoPlay).not.toHaveBeenCalled();
-    frameCallbacks.shift()?.(0);
+    expect(onOpenChange).not.toHaveBeenCalled();
     expect(onVideoPlay).toHaveBeenCalledWith(exercises[0]);
+    expect(document.querySelector("video")).toHaveAttribute("src", exercises[0].video_url);
+    fireEvent.click(screen.getByRole("button", { name: "Voltar ao aquecimento" }));
 
     expect(screen.getByText("Vídeo ainda não vinculado")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Buscar demonstração de Mobilidade de Tornozelo" }));
-    expect(onOpenChange).toHaveBeenLastCalledWith(false);
-    frameCallbacks.shift()?.(16);
+    expect(onOpenChange).not.toHaveBeenCalled();
     expect(onVideoPlay).toHaveBeenCalledWith(exercises[1]);
+    await screen.findByText("Vídeo ainda não disponível no catálogo");
+  });
+
+  it("keeps checks when returning from video, closing its X, and reopening the same warmup", () => {
+    const props = { muscleGroups: ["perna"], libraryExercises: exercises, onOpenChange: vi.fn() };
+    const { rerender } = render(<WarmupGuide {...props} open />);
+    const label = "Agachamento livre — 2×10";
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Assistir demonstração de Agachamento livre (air squat)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(props.onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-pressed", "true");
+    rerender(<WarmupGuide {...props} open={false} />);
+    rerender(<WarmupGuide {...props} open />);
+    expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows execution cues even without a linked video and avoids classifying deltoids as back/hamstrings", () => {
+    render(<WarmupGuide muscleGroups={["Deltoide Lateral", "Deltoide Posterior"]} open onOpenChange={vi.fn()} />);
+    expect(screen.getByText(/faça círculos lentos com os braços/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Gato-camelo — 30s" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Bom-dia sem carga — 2×10" })).not.toBeInTheDocument();
+  });
+
+  it("does not reopen a video after its lookup completes late", async () => {
+    render(<WarmupGuide muscleGroups={["perna"]} libraryExercises={exercises} open onOpenChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Buscar demonstração de Mobilidade de Tornozelo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Voltar ao aquecimento" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Prepare-se para o treino" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Voltar ao aquecimento" })).not.toBeInTheDocument();
   });
 
   it("uses a preferred unique warmup match when the generic library name is duplicated", () => {

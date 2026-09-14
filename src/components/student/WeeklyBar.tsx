@@ -34,6 +34,7 @@ export function WeeklyBar({ trainedDays, currentDayOfWeek, weeklySessionCount, w
           return (
             <div
               key={day.label}
+              aria-label={`${day.label}: ${isTrained ? "treino registrado" : "sem treino registrado"}`}
               className={cn(
                 "flex flex-col items-center gap-1 py-2 px-2 sm:px-3 rounded-lg flex-1 min-w-0 font-sans border",
                 isToday && "ring-2 ring-primary ring-offset-1 ring-offset-background",
@@ -73,4 +74,3 @@ export function WeeklyBar({ trainedDays, currentDayOfWeek, weeklySessionCount, w
     </div>
   );
 }
-

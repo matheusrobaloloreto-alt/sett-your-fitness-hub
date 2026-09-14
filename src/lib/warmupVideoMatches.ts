@@ -11,9 +11,9 @@ export const WARMUP_VIDEO_MATCHES: Record<string, string[]> = {
   "gato-camelo": ["Cat-camel (gato-camelo)"],
   "caminhada com elástico lateral": ["Caminhada lateral com mini band"],
   "abdução em pé": ["Abdução de quadril em pé com banda"],
-  "dead bug": ["Dead bug de ativação"],
+  "dead bug": ["Dead bug de ativação", "Abdominal Dead Bug"],
   "prancha": ["Prancha frontal"],
-  "flexão lenta de braços": ["Flexão de braço"],
+  "flexão lenta de braços": ["Flexão de Braços", "Flexão de braço"],
 };
 
 export const WARMUP_VIDEO_LIBRARY_NAMES = [...new Set(Object.values(WARMUP_VIDEO_MATCHES).flat())];

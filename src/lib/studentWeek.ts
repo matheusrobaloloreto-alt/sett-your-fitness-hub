@@ -1,7 +1,29 @@
 interface TrainingLogLike {
+  workout_id?: string;
+  exercise_index?: number;
+  set_number?: number;
   session_date?: string | null;
   completed?: boolean | null;
   deleted?: boolean | null;
+}
+
+export function mergeTrainingLogsForDisplay<T extends TrainingLogLike>(persisted: T[], local: T[], sessionDate: string): T[] {
+  const key = (log: T) => `${log.workout_id}|${log.exercise_index}|${log.set_number}|${log.session_date || sessionDate}`;
+  const rows = new Map(persisted.map(log => [key(log), log]));
+  local.filter(log => log.deleted).forEach(log => rows.delete(key(log)));
+  local.filter(log => !log.deleted).forEach(log => rows.set(key(log), { ...log, session_date: log.session_date || sessionDate }));
+  return [...rows.values()];
+}
+
+export function collectTrainedDates(logs: TrainingLogLike[], sessions: CompletedSessionLike[] = []): Set<string> {
+  const dates = new Set<string>();
+  logs.forEach(log => {
+    if (log.completed === true && !log.deleted && log.session_date) dates.add(log.session_date);
+  });
+  sessions.forEach(session => {
+    if (session.status === "completed" && session.completed_at && session.session_date) dates.add(session.session_date);
+  });
+  return dates;
 }
 
 interface CompletedSessionLike {
@@ -58,19 +80,14 @@ export function collectTrainedDaysForWeek(args: {
 }): Set<number> {
   const { start, end } = currentMondayRange(args.now);
   const days = new Set<number>();
-  const collect = (log: TrainingLogLike, fallbackDate?: string) => {
-    if (log.deleted || log.completed !== true) return;
-    const dateYmd = log.session_date || fallbackDate;
-    if (!dateYmd) return;
+  const dates = collectTrainedDates([
+    ...args.persistedLogs,
+    ...(args.localLogs || []).map(log => ({ ...log, session_date: log.session_date || args.localSessionDate })),
+  ], args.completedSessions);
+  dates.forEach(dateYmd => {
     const date = new Date(`${dateYmd}T12:00:00`);
     if (!Number.isFinite(date.getTime()) || date < start || date > end) return;
     days.add(date.getDay());
-  };
-  args.persistedLogs.forEach(log => collect(log));
-  (args.localLogs || []).forEach(log => collect(log, args.localSessionDate));
-  (args.completedSessions || []).forEach(session => {
-    if (session.status !== "completed" || !session.completed_at) return;
-    collect({ session_date: session.session_date, completed: true });
   });
   return days;
 }

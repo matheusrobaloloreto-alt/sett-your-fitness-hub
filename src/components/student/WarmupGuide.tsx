@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Flame, Timer, Check, Play, Search, VideoOff } from "lucide-react";
+import { ArrowLeft, Flame, Timer, Check, Play, Search, VideoOff } from "lucide-react";
 import { exerciseThumb } from "@/lib/exerciseCover";
 import { WARMUP_VIDEO_MATCHES } from "@/lib/warmupVideoMatches";
+import { warmupInstruction } from "@/lib/warmupInstructions";
+import { useExerciseVideo } from "@/hooks/useExerciseVideo";
+import { ExerciseVideoPlayer } from "./ExerciseVideoPlayer";
 
 export type WarmupExercise = {
   exercise_id: string;
@@ -60,7 +63,8 @@ function resolveWarmupVideoItems(labels: string[], exercises: WarmupExercise[]):
 
   return labels.map((label) => {
     const preferredNames = preferredNamesByWarmup.get(warmupMovementName(label)) || [];
-    const matches = preferredNames.flatMap((name) => candidatesByName.get(normalizeExerciseName(name)) || []);
+    const matches = preferredNames.map((name) => candidatesByName.get(normalizeExerciseName(name)) || [])
+      .find((candidates) => candidates.length === 1) || [];
     return {
       label,
       exercise: matches.length === 1 ? matches[0] : null,
@@ -73,10 +77,10 @@ function categoriesFor(muscleGroups: string[]): string[] {
   (muscleGroups || []).forEach((raw) => {
     const n = (raw || "").toLowerCase();
     if (/peito|peit/.test(n)) cats.add("peito");
-    if (/costa|dorsal|lat/.test(n)) cats.add("costa");
+    if (/costa|dorsal/.test(n)) cats.add("costa");
     if (/ombro|delt/.test(n)) cats.add("ombro");
     if (/quadr|coxa|perna|panturr/.test(n)) cats.add("perna");
-    if (/posterior|isquio/.test(n)) cats.add("posterior");
+    if (/posterior de coxa|isquio|^posterior$/.test(n)) cats.add("posterior");
     if (/gl[uú]te/.test(n)) cats.add("glúteo");
     if (/b[ií]ceps/.test(n)) cats.add("bíceps");
     if (/tr[ií]ceps/.test(n)) cats.add("tríceps");
@@ -104,11 +108,12 @@ export function WarmupGuide({ muscleGroups, libraryExercises = [], open, onOpenC
   const [done, setDone] = useState<Set<number>>(new Set());
   const [remaining, setRemaining] = useState(300);
   const [running, setRunning] = useState(false);
+  const { video, openVideo, closeVideo } = useExerciseVideo();
   const endRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!open) { setRunning(false); setDone(new Set()); setRemaining(300); endRef.current = null; }
-  }, [open]);
+    if (!open) { setRunning(false); closeVideo(); }
+  }, [open, closeVideo]);
 
   useEffect(() => {
     if (!running) return;
@@ -123,27 +128,32 @@ export function WarmupGuide({ muscleGroups, libraryExercises = [], open, onOpenC
 
   const startTimer = () => { endRef.current = Date.now() + remaining * 1000; setRunning(true); };
   const openExerciseVideo = (exercise: WarmupExercise) => {
-    // Radix dialogs must not be nested: close the warmup and let its focus
-    // scope/overlay unmount before the video viewer opens on the next frame.
-    onOpenChange(false);
-    window.requestAnimationFrame(() => onVideoPlay?.(exercise));
+    void openVideo(exercise);
+    onVideoPlay?.(exercise);
   };
   const videoItems = useMemo(() => resolveWarmupVideoItems(items, libraryExercises), [items, libraryExercises]);
   const mm = String(Math.floor(remaining / 60)).padStart(1, "0");
   const ss = String(remaining % 60).padStart(2, "0");
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => {
+      if (!next && video) closeVideo();
+      else onOpenChange(next);
+    }}>
       <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-primary">
-            <Flame className="h-5 w-5" /> Prepare-se para o treino
+            <Flame className="h-5 w-5" /> {video ? video.title : "Prepare-se para o treino"}
           </DialogTitle>
           <DialogDescription>
-            ~5 minutos de mobilidade e ativação para o foco de hoje. Entra aquecido, treina melhor e com menos risco.
+            {video ? "Demonstração do aquecimento" : "Siga as orientações do professor. Faça os movimentos sem dor; pare e procure a equipe se tiver dúvida ou desconforto."}
           </DialogDescription>
         </DialogHeader>
 
+        {video ? <div className="space-y-3">
+          <Button variant="outline" onClick={closeVideo}><ArrowLeft className="mr-2 h-4 w-4" /> Voltar ao aquecimento</Button>
+          <ExerciseVideoPlayer video={video} />
+        </div> : <>
         <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/40 p-3">
           <div className="flex items-center gap-2">
             <Timer className="h-4 w-4 text-primary" />
@@ -161,6 +171,8 @@ export function WarmupGuide({ muscleGroups, libraryExercises = [], open, onOpenC
               <button
                 key={i}
                 type="button"
+                aria-pressed={isDone}
+                aria-label={label}
                 onClick={() => setDone((prev) => {
                   const next = new Set(prev);
                   if (next.has(i)) next.delete(i);
@@ -168,13 +180,16 @@ export function WarmupGuide({ muscleGroups, libraryExercises = [], open, onOpenC
                   return next;
                 })}
                 className={`flex w-full items-center gap-2 rounded-md border p-2 text-left text-sm transition-colors ${
-                  isDone ? "border-green-500/40 bg-green-500/10 text-muted-foreground line-through" : "border-border bg-card hover:border-primary/40"
+                  isDone ? "border-green-500/40 bg-green-500/10 text-muted-foreground" : "border-border bg-card hover:border-primary/40"
                 }`}
               >
                 <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${isDone ? "border-green-500 bg-green-500 text-white" : "border-border"}`}>
                   {isDone && <Check className="h-3 w-3" />}
                 </span>
-                {label}
+                <span className="min-w-0">
+                  <span className={`block font-medium ${isDone ? "line-through" : ""}`}>{label}</span>
+                  <span className="mt-1 block text-xs font-normal leading-relaxed text-muted-foreground">{warmupInstruction(label)}</span>
+                </span>
               </button>
             );
           })}
@@ -186,9 +201,6 @@ export function WarmupGuide({ muscleGroups, libraryExercises = [], open, onOpenC
               <h3 id="warmup-exercises-title" className="font-sans text-sm font-semibold text-foreground">
                 Demonstrações do aquecimento
               </h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Toque apenas quando houver demonstração ligada ao aquecimento. O vídeo só carrega quando você escolher.
-              </p>
             </div>
             <div className="grid max-h-[34vh] grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
               {videoItems.map(({ label, exercise }, index) => {
@@ -269,6 +281,7 @@ export function WarmupGuide({ muscleGroups, libraryExercises = [], open, onOpenC
         <Button onClick={() => onOpenChange(false)} className="w-full">
           {done.size >= items.length ? "Pronto, bora treinar! 💪" : "Pular aquecimento"}
         </Button>
+        </>}
       </DialogContent>
     </Dialog>
   );

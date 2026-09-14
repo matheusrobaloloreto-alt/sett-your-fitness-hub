@@ -212,3 +212,17 @@ Validação: suíte integral 137 arquivos/860 testes, 11 testes focados de paine
 - Não reutilizar os secrets de Strava/Polar expostos nas capturas.
 - Não chamar upload em Storage de prova de entrega no WhatsApp; o canário do provedor precisa de destinatário autorizado.
 - Não apagar os originais da triagem privada antes de uma política explícita de retenção/rollback.
+
+## Feedback do aluno em 14/09: aquecimento, cargas e calendário
+
+Atualização restrita a este novo feedback; os demais itens da fila acima permanecem com seus estados anteriores.
+
+- ✅ Local: corrigido SELECT de cargas que consultava coluna inexistente, com paginação e tratamento de erro.
+- ✅ Local: vídeo dentro do aquecimento preserva checklist; instruções escritas e nomes canônicos corrigidos.
+- ✅ Local: calendário, início e treino compartilham o critério de conclusão e mantêm histórico de revisões anteriores.
+- ✅ Validação: 78 testes, 3 cenários de navegador, TypeScript e build; canários em produção com rollback integral.
+- ❌ Publicação (aguardando): autorização solicitada; o app em produção ainda não recebeu este pacote.
+- ❌ Vídeos faltantes (aguardando): catálogo ainda sem demonstração para parte dos movimentos; próximo passo é vincular mídia apropriada.
+- ❌ Caso individual (aguardando): falta o nome do aluno para conferir o treino específico; a correção geral está implementada.
+
+Evidências e rollback: `ENTREGA-2026-09-14-FEEDBACK-ALUNO.md`.

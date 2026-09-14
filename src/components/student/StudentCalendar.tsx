@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Dumbbell, CheckCircle2, ArrowRight, TrendingUp, TrendingDown, Clock, Target, Flag } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { collectTrainedDates } from "@/lib/studentWeek";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, format, isSameMonth, isSameDay,
@@ -34,6 +35,8 @@ interface WorkoutLog {
   weight: number;
   reps_done: number;
   session_date?: string;
+  completed?: boolean;
+  deleted?: boolean;
 }
 
 interface WorkoutSession {
@@ -45,6 +48,7 @@ interface WorkoutSession {
   total_sets_completed?: number | null;
   total_sets_prescribed?: number | null;
   completed_at?: string | null;
+  status?: string | null;
 }
 
 interface StudentGoal {
@@ -76,7 +80,7 @@ export function StudentCalendar({ workouts, onSelectWorkout, allLogs = [], worko
   const logsByDate = useMemo(() => {
     const map: Record<string, { workout_id: string; logs: WorkoutLog[] }[]> = {};
     allLogs.forEach(l => {
-      if (!l.session_date) return;
+      if (!l.session_date || !l.completed || l.deleted) return;
       if (!map[l.session_date]) map[l.session_date] = [];
       const existing = map[l.session_date].find(g => g.workout_id === l.workout_id);
       if (existing) {
@@ -91,7 +95,7 @@ export function StudentCalendar({ workouts, onSelectWorkout, allLogs = [], worko
   const sessionsByDate = useMemo(() => {
     const map: Record<string, WorkoutSession[]> = {};
     workoutSessions.forEach(s => {
-      if (!s.session_date) return;
+      if (!s.session_date || s.status !== "completed" || !s.completed_at) return;
       if (!map[s.session_date]) map[s.session_date] = [];
       map[s.session_date].push(s);
     });
@@ -104,7 +108,7 @@ export function StudentCalendar({ workouts, onSelectWorkout, allLogs = [], worko
     const sessionsByWorkout: Record<string, { date: string; volume: number }[]> = {};
     
     workoutSessions.forEach(s => {
-      if (!s.session_date || !s.total_volume) return;
+      if (!s.session_date || !s.total_volume || s.status !== "completed" || !s.completed_at) return;
       if (!sessionsByWorkout[s.workout_id]) sessionsByWorkout[s.workout_id] = [];
       sessionsByWorkout[s.workout_id].push({ date: s.session_date, volume: s.total_volume });
     });
@@ -120,7 +124,7 @@ export function StudentCalendar({ workouts, onSelectWorkout, allLogs = [], worko
     return map;
   }, [workoutSessions]);
 
-  const trainedDates = useMemo(() => new Set(Object.keys(logsByDate)), [logsByDate]);
+  const trainedDates = useMemo(() => collectTrainedDates(allLogs, workoutSessions), [allLogs, workoutSessions]);
 
   const goalsByDate = useMemo(() => {
     const map: Record<string, StudentGoal[]> = {};
@@ -142,9 +146,16 @@ export function StudentCalendar({ workouts, onSelectWorkout, allLogs = [], worko
 
   const getWorkoutsForDate = (date: Date) => {
     const dateStr = format(date, "yyyy-MM-dd");
-    const dayGroups = logsByDate[dateStr] || [];
+    const dayGroups = [...(logsByDate[dateStr] || [])];
+    for (const session of sessionsByDate[dateStr] || []) {
+      if (!dayGroups.some(group => group.workout_id === session.workout_id)) {
+        dayGroups.push({ workout_id: session.workout_id, logs: [] });
+      }
+    }
     return dayGroups.map(g => {
-      const workout = workouts.find(w => w.id === g.workout_id);
+      const workout = workouts.find(w => w.id === g.workout_id) || {
+        id: g.workout_id, title: "Treino anterior", day_of_week: null, exercises: [],
+      };
       const session = (sessionsByDate[dateStr] || []).find(s => s.workout_id === g.workout_id);
       const prevVolume = previousSessionVolume[dateStr]?.[g.workout_id];
       return { workout, logs: g.logs, session, prevVolume };
@@ -207,6 +218,8 @@ export function StudentCalendar({ workouts, onSelectWorkout, allLogs = [], worko
           return (
             <button
               key={idx}
+              aria-label={`${format(day, "yyyy-MM-dd")}: ${trained ? "treino registrado" : "sem treino registrado"}`}
+              aria-pressed={Boolean(isSelected)}
               onClick={() => setSelectedDate(prev => prev && isSameDay(prev, day) ? null : day)}
               className={cn(
                 "relative aspect-square flex flex-col items-center justify-center rounded-lg text-sm font-mono-data transition-all",
@@ -360,9 +373,9 @@ export function StudentCalendar({ workouts, onSelectWorkout, allLogs = [], worko
                         })}
                       </div>
 
-                      <Button size="sm" className="w-full font-sans" onClick={() => onSelectWorkout(workout!.id)}>
+                      {workouts.some(current => current.id === workout.id) && <Button size="sm" className="w-full font-sans" onClick={() => onSelectWorkout(workout!.id)}>
                         Ir para o treino <ArrowRight className="h-4 w-4 ml-1" />
-                      </Button>
+                      </Button>}
                     </div>
                   );
                 })}
