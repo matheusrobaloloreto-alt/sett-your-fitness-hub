@@ -10,6 +10,7 @@ const DURATION_MIN_SECONDS = 3;
 const DURATION_MAX_SECONDS = 90;
 const MIN_ACCEPTED_EDGE_PX = 360;
 const LOW_RES_WARNING_EDGE_PX = 480;
+export const VIDEO_INGEST_APPLY_CONFIRMATION = "APLICAR-VIDEOS-SETT";
 
 export class VideoIngestBlockedError extends Error {
   constructor(blockers) {
@@ -101,6 +102,17 @@ export function assertUploadableVideoMetadata(info) {
   const decision = decideVideoIngestSafety(info);
   if (!decision.ready) throw new VideoIngestBlockedError(decision.blockers);
   return decision;
+}
+
+export function assertVideoIngestApplyAllowed({
+  dryRun = false,
+  status = false,
+  pruneLedger = null,
+  applyConfirm = null,
+} = {}) {
+  if (dryRun || status || pruneLedger) return;
+  if (applyConfirm === VIDEO_INGEST_APPLY_CONFIRMATION) return;
+  throw new Error(`Aplicação bloqueada: informe --apply-confirm ${VIDEO_INGEST_APPLY_CONFIRMATION}.`);
 }
 
 export function localStagingFileName(remoteName) {

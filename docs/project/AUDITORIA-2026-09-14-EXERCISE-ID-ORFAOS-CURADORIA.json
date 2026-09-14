@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "project_ref": "zshrcgbyhzxpnlccssyz",
+  "company_slug": "bn-performance-training",
+  "contains_pii": false,
+  "source": "astra_technical_curation_2026-09-14",
+  "scope": "restore_only_approved_ambiguous_exercise_library_ids",
+  "guardrails": [
+    "each approval must currently be candidato_ambiguo in the live audit",
+    "each approval must have recording_roster evidence for the same exercise_id and canonical name",
+    "no fuzzy matching, no inferred identity, no production apply without explicit confirmation"
+  ],
+  "approvals": [
+    {
+      "exercise_id": "1a213f58-784c-4218-83fc-6e11a5666275",
+      "canonical_name": "Flexora na Bola",
+      "justification": "Approved canonical SETT roster identity for the ambiguous historical aliases around ball leg curl."
+    },
+    {
+      "exercise_id": "3cc40978-bc88-4d1c-88b4-670d761db741",
+      "canonical_name": "Tríceps Polia Corda",
+      "justification": "Approved canonical SETT roster identity for the ambiguous historical aliases around cable rope triceps."
+    },
+    {
+      "exercise_id": "4161c89d-9db9-473f-97ca-acf4ac83b968",
+      "canonical_name": "Passada Halteres",
+      "justification": "Approved canonical SETT roster identity for the ambiguous historical aliases around dumbbell lunge."
+    },
+    {
+      "exercise_id": "4f30a215-6227-46f8-92a1-f7149eae8c60",
+      "canonical_name": "Bicycle crunch",
+      "justification": "Approved canonical SETT roster identity for the ambiguous historical aliases around bicycle crunch."
+    },
+    {
+      "exercise_id": "672c0d1e-59af-46c1-b3ec-d3135a745b1b",
+      "canonical_name": "Nórdico Reverso",
+      "justification": "Approved canonical SETT roster identity for the ambiguous historical aliases around reverse nordic."
+    },
+    {
+      "exercise_id": "721e4851-7b5b-47c4-8d90-a8315323ad40",
+      "canonical_name": "Prancha na bola suíça",
+      "justification": "Approved canonical SETT roster identity for the ambiguous historical aliases around swiss ball plank."
+    },
+    {
+      "exercise_id": "9a667138-66cf-42d3-a36f-0ffb0cd611e9",
+      "canonical_name": "Pulldown Corda",
+      "justification": "Approved canonical SETT roster identity for the ambiguous historical aliases around rope pulldown."
+    },
+    {
+      "exercise_id": "ac085604-d230-44fa-bb9c-393696a3d3e3",
+      "canonical_name": "Remada Baixa Pronada",
+      "justification": "Approved canonical SETT roster identity for the ambiguous historical aliases around pronated low row."
+    },
+    {
+      "exercise_id": "cc4885b7-5983-46eb-836f-4c31b8b2323c",
+      "canonical_name": "Mountain climbers",
+      "justification": "Approved canonical SETT roster identity for the ambiguous historical aliases around mountain climbers."
+    },
+    {
+      "exercise_id": "d2e55bc6-411a-4ca9-8b6f-8fb86e8099b8",
+      "canonical_name": "Elevação Pélvica Máquina",
+      "justification": "Approved canonical SETT roster identity for the ambiguous historical aliases around machine hip thrust."
+    }
+  ]
+}

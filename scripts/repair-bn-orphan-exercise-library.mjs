@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 export const EXPECTED_PROJECT_REF = "zshrcgbyhzxpnlccssyz";
 const COMPANY_SLUG = "bn-performance-training";
 const DEFAULT_AUDIT = "docs/project/AUDITORIA-2026-09-14-EXERCISE-ID-ORFAOS.json";
+const DEFAULT_CURATED_MANIFEST = "docs/project/AUDITORIA-2026-09-14-EXERCISE-ID-ORFAOS-CURADORIA.json";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MUSCLES = [
@@ -84,7 +85,16 @@ function categoryFor(item) {
 }
 
 export function parseArgs(argv = process.argv.slice(2)) {
-  const options = { audit: DEFAULT_AUDIT, apply: false, batch: 0, confirmProject: "", confirmAuditSha256: "", manifest: "" };
+  const options = {
+    audit: DEFAULT_AUDIT,
+    apply: false,
+    batch: 0,
+    confirmProject: "",
+    confirmAuditSha256: "",
+    confirmCurationSha256: "",
+    manifest: "",
+    curationManifest: "",
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--help" || arg === "-h") options.help = true;
@@ -93,6 +103,8 @@ export function parseArgs(argv = process.argv.slice(2)) {
     else if (arg === "--batch") options.batch = Number(argv[++index] || 0);
     else if (arg === "--confirm-project") options.confirmProject = argv[++index] || "";
     else if (arg === "--confirm-audit-sha256") options.confirmAuditSha256 = argv[++index] || "";
+    else if (arg === "--confirm-curation-sha256") options.confirmCurationSha256 = argv[++index] || "";
+    else if (arg === "--curation-manifest") options.curationManifest = argv[++index] || DEFAULT_CURATED_MANIFEST;
     else if (arg === "--manifest") options.manifest = argv[++index] || "";
     else if (arg === "--rollback-manifest") options.rollbackManifest = argv[++index] || "";
     else throw new Error(`unknown_argument:${arg}`);
@@ -118,6 +130,51 @@ export function validateAudit(audit, { expectedRestorableCount = 184 } = {}) {
     throw new Error("audit_non_restauravel_or_invalid_item");
   }
   return restorable;
+}
+
+export function validateCuratedAudit(audit, manifest) {
+  if (audit?.project_ref !== EXPECTED_PROJECT_REF) throw new Error("audit_project_ref_mismatch");
+  if (audit?.company?.slug !== COMPANY_SLUG) throw new Error("audit_company_mismatch");
+  if (audit?.contains_pii !== false) throw new Error("audit_contains_pii");
+  if (manifest?.schema_version !== 1) throw new Error("curation_schema_version");
+  if (manifest?.project_ref !== EXPECTED_PROJECT_REF) throw new Error("curation_project_ref_mismatch");
+  if (manifest?.company_slug !== COMPANY_SLUG) throw new Error("curation_company_mismatch");
+  if (manifest?.contains_pii !== false) throw new Error("curation_contains_pii");
+  const approvals = manifest?.approvals;
+  if (!Array.isArray(approvals) || !approvals.length) throw new Error("curation_empty");
+  if (approvals.length > 25) throw new Error("curation_limit_exceeded");
+
+  const byId = new Map((audit?.items || []).map((item) => [clean(item.exercise_id), item]));
+  const seen = new Set();
+  const curated = [];
+  for (const approval of approvals) {
+    const exerciseId = clean(approval?.exercise_id);
+    const canonicalName = clean(approval?.canonical_name);
+    const justification = clean(approval?.justification);
+    if (!UUID_RE.test(exerciseId) || !canonicalName || !justification) throw new Error("curation_invalid_approval");
+    if (seen.has(exerciseId)) throw new Error(`curation_duplicate:${exerciseId}`);
+    seen.add(exerciseId);
+    const item = byId.get(exerciseId);
+    if (!item) throw new Error(`curation_missing_audit_item:${exerciseId}`);
+    if (item.classification !== "candidato_ambiguo") throw new Error(`curation_item_not_ambiguous:${exerciseId}`);
+    const rosterEvidence = (item.exact_evidence || []).find((evidence) =>
+      evidence?.source_type === "recording_roster" && clean(evidence.exact_name || evidence.name) === canonicalName
+    );
+    if (!rosterEvidence) throw new Error(`curation_recording_roster_missing:${exerciseId}`);
+    curated.push({
+      ...item,
+      classification: "restauravel",
+      reason: "technical_curation_approved_ambiguous_candidate",
+      canonical_name: canonicalName,
+      curation: {
+        source: clean(manifest.source || "technical_curation_manifest"),
+        approved_canonical_name: canonicalName,
+        justification,
+        recording_roster_code: clean(rosterEvidence.code),
+      },
+    });
+  }
+  return curated;
 }
 
 export function auditScopeHash(audit) {
@@ -314,20 +371,29 @@ function runLinked(sql) {
 async function main() {
   const options = parseArgs();
   if (options.help) {
-    process.stdout.write(`Usage: node scripts/repair-bn-orphan-exercise-library.mjs [--audit FILE] [--apply --batch N --confirm-project ${EXPECTED_PROJECT_REF} --confirm-audit-sha256 SHA --manifest FILE]\n`);
+    process.stdout.write(`Usage: node scripts/repair-bn-orphan-exercise-library.mjs [--audit FILE] [--curation-manifest FILE] [--apply --batch N --confirm-project ${EXPECTED_PROJECT_REF} --confirm-audit-sha256 SHA --confirm-curation-sha256 SHA --manifest FILE]\n`);
     return;
   }
   const auditBytes = await readFile(options.audit);
   const auditSha256 = sha256(auditBytes);
   const audit = JSON.parse(auditBytes.toString("utf8"));
-  const items = validateAudit(audit);
-  const scopeSha256 = auditScopeHash(audit);
+  let curationSha256 = null;
+  let items;
+  if (options.curationManifest) {
+    const curationBytes = await readFile(options.curationManifest);
+    curationSha256 = sha256(curationBytes);
+    items = validateCuratedAudit(audit, JSON.parse(curationBytes.toString("utf8")));
+  } else {
+    items = validateAudit(audit);
+  }
+  const scopeSha256 = auditScopeHash({ ...audit, items });
   const batches = planBatches(items);
   if (!options.apply) {
-    process.stdout.write(`${JSON.stringify({ mode: "dry-run", audit_sha256: auditSha256, scope_sha256: scopeSha256, restorable_ids: items.length, restorable_slots: items.reduce((sum, item) => sum + item.active_impact.slots, 0), batches: batches.map((batch) => ({ batch: batch.number, ids: batch.items.length, slots: batch.slot_count })) }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ mode: "dry-run", audit_sha256: auditSha256, curation_sha256: curationSha256, scope_sha256: scopeSha256, restorable_ids: items.length, restorable_slots: items.reduce((sum, item) => sum + item.active_impact.slots, 0), batches: batches.map((batch) => ({ batch: batch.number, ids: batch.items.length, slots: batch.slot_count })) }, null, 2)}\n`);
     return;
   }
   if (auditSha256 !== options.confirmAuditSha256) throw new Error("confirmed_audit_sha256_mismatch");
+  if (curationSha256 && curationSha256 !== options.confirmCurationSha256) throw new Error("confirmed_curation_sha256_mismatch");
   const batch = batches[options.batch - 1];
   if (!batch) throw new Error("batch_out_of_range");
   const payloads = batch.items.map((item) => deriveInsertPayload(item));

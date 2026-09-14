@@ -6,12 +6,13 @@ import ResetPassword from "./ResetPassword";
 import { PasswordRecoveryBoundary } from "@/components/PasswordRecoveryBoundary";
 
 const mocks = vi.hoisted(() => ({
-  reset: vi.fn(), update: vi.fn(), getUser: vi.fn(), complete: vi.fn(),
+  invoke: vi.fn(), update: vi.fn(), getUser: vi.fn(), complete: vi.fn(),
   auth: { user: null as null | { id: string }, loading: false, passwordRecovery: false },
 }));
-vi.mock("@/integrations/supabase/client", () => ({ supabase: { auth: {
-  resetPasswordForEmail: mocks.reset, updateUser: mocks.update, getUser: mocks.getUser,
-} } }));
+vi.mock("@/integrations/supabase/client", () => ({ supabase: {
+  auth: { updateUser: mocks.update, getUser: mocks.getUser },
+  functions: { invoke: mocks.invoke },
+} }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ ...mocks.auth, completePasswordRecovery: mocks.complete }) }));
 vi.mock("@/components/Logo", () => ({ Logo: () => <span>SETT</span> }));
 
@@ -20,7 +21,7 @@ describe("password recovery", () => {
     vi.clearAllMocks();
     window.history.replaceState({}, "", "/");
     mocks.auth = { user: null, loading: false, passwordRecovery: false };
-    mocks.reset.mockResolvedValue({ error: null });
+    mocks.invoke.mockResolvedValue({ data: { ok: true }, error: null });
     mocks.getUser.mockResolvedValue({ data: { user: { id: "student" } }, error: null });
     mocks.update.mockResolvedValue({ data: { user: { id: "student" } }, error: null });
   });
@@ -32,12 +33,15 @@ describe("password recovery", () => {
     expect(screen.queryByLabelText("Senha")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Enviar link de recuperação" }));
     await screen.findByRole("status");
-    expect(mocks.reset).toHaveBeenCalledWith("student@example.test", { redirectTo: `${window.location.origin}/auth/reset-password` });
+    expect(mocks.invoke).toHaveBeenCalledWith("student-recovery-whatsapp", {
+      body: { email: "student@example.test" },
+    });
     expect(screen.getByRole("status")).toHaveTextContent("Se este e-mail estiver cadastrado");
+    expect(screen.getByRole("status")).toHaveTextContent("WhatsApp confirmado");
   });
 
   it("recovers from network errors and handles rate limits without a false sent message", async () => {
-    mocks.reset.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({ error: { status: 429 } });
+    mocks.invoke.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({ error: { status: 429 } });
     render(<MemoryRouter initialEntries={["/auth?mode=recovery"]}><Auth /></MemoryRouter>);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "student@example.test" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar link de recuperação" }));
@@ -49,12 +53,12 @@ describe("password recovery", () => {
 
   it("does not issue a second recovery request while the first is pending", async () => {
     let resolve: (value: unknown) => void = () => {};
-    mocks.reset.mockReturnValue(new Promise(done => { resolve = done; }));
+    mocks.invoke.mockReturnValue(new Promise(done => { resolve = done; }));
     render(<MemoryRouter initialEntries={["/auth?mode=recovery"]}><Auth /></MemoryRouter>);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "student@example.test" } });
     const form = screen.getByLabelText("Email").closest("form")!;
     fireEvent.submit(form); fireEvent.submit(form);
-    expect(mocks.reset).toHaveBeenCalledTimes(1);
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
     resolve({ error: null });
     await screen.findByRole("status");
   });

@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 
 import {
   assertUploadableVideoMetadata,
+  assertVideoIngestApplyAllowed,
   buildUploadTranscodeArgs,
   decideVideoIngestSafety,
   inspectVideoSource,
@@ -17,6 +18,7 @@ import {
   selectLatestStagingItems,
   stagingCodeFromName,
   stagingNamesForSuccessfulCommits,
+  VIDEO_INGEST_APPLY_CONFIRMATION,
 } from "./video-ingest-safety.mjs";
 
 const run = promisify(execFile);
@@ -167,4 +169,14 @@ test("contrato do upload final permanece H264/yuv420p", () => {
 
   assert.deepEqual(args.slice(args.indexOf("-c:v"), args.indexOf("-c:v") + 2), ["-c:v", "libx264"]);
   assert.deepEqual(args.slice(args.indexOf("-pix_fmt"), args.indexOf("-pix_fmt") + 2), ["-pix_fmt", "yuv420p"]);
+});
+
+test("aplicação escrita exige confirmação textual explícita", () => {
+  assert.doesNotThrow(() => assertVideoIngestApplyAllowed({ dryRun: true }));
+  assert.doesNotThrow(() => assertVideoIngestApplyAllowed({ status: true }));
+  assert.doesNotThrow(() => assertVideoIngestApplyAllowed({ pruneLedger: "operador" }));
+  assert.throws(() => assertVideoIngestApplyAllowed({}), /Aplicação bloqueada/);
+  assert.doesNotThrow(() => assertVideoIngestApplyAllowed({
+    applyConfirm: VIDEO_INGEST_APPLY_CONFIRMATION,
+  }));
 });

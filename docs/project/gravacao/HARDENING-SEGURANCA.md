@@ -73,7 +73,11 @@ python3 scripts/gerar-material-gravacao.py --prune-stale-only --confirm-prune-co
    node scripts/test-recording-hardening.mjs
    python3 scripts/test-recording-roster-reconcile.py
    node --test scripts/video-ingest-safety.test.mjs
+   node --test scripts/video-prepare.test.mjs
+   node --test scripts/video-ingest-config.test.mjs
    node scripts/test-recording-http-headers.mjs
+   node --check scripts/video-prepare.mjs
+   node --check scripts/video-prepare-lib.mjs
    node --check scripts/video-ingest.mjs
    python3 -m py_compile scripts/gerar-material-gravacao.py
    ```

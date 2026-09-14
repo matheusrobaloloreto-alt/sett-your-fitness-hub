@@ -57,6 +57,40 @@ ritmo controlado, sem pressa. Se errar no meio, grave de novo (mais rápido que 
 
 ### Publicar o que os modelos gravaram
 
+Quando os arquivos chegarem por Drive, AirDrop, cartão ou download local, faça primeiro um preparo
+local. Ele cria uma pasta `_staging` ignorada pelo Git, copia os arquivos selecionados e gera um
+manifest auditável com código, exercício, hash, codec, duração, resolução, duplicatas e destino:
+
+```bash
+node scripts/video-prepare.mjs --source ~/Downloads/videos-bn
+```
+
+Use o caminho do `manifest.json` impresso no terminal para o ensaio determinístico:
+
+```bash
+node scripts/video-ingest.mjs --prepared-manifest docs/project/gravacao/_staging/<run>/manifest.json --dry-run
+```
+
+Esse dry-run não usa segredo, não lê Supabase e não publica nada. Corrija todo arquivo bloqueado,
+duplicado, obsoleto ou sem código antes de aplicar.
+
+Depois da revisão humana e com ambiente explícito, aplique em comando separado:
+
+```bash
+SETT_DEPLOY_TARGET=staging \
+VIDEO_INGEST_SUPABASE_URL=https://ifymocggowdlqqcxugko.supabase.co \
+VIDEO_INGEST_PUBLISHABLE_KEY=<chave-publicavel-staging> \
+VIDEO_INGEST_SECRET=<segredo-efemero> \
+node scripts/video-ingest.mjs \
+  --confirm-project ifymocggowdlqqcxugko \
+  --prepared-manifest docs/project/gravacao/_staging/<run>/manifest.json \
+  --apply-confirm APLICAR-VIDEOS-SETT
+```
+
+Produção usa o mesmo fluxo, mas só depois de autorização explícita atual.
+
+### Fluxo legado/staging remoto
+
 ```bash
 node scripts/video-ingest.mjs --staging --dry-run
 ```
@@ -65,7 +99,7 @@ Esse primeiro comando baixa os takes e mostra matching/QA **sem enviar nem apaga
 qualquer item ilegível, ambíguo ou fora dos limites. Só depois da revisão humana execute:
 
 ```bash
-node scripts/video-ingest.mjs --staging
+node scripts/video-ingest.mjs --staging --apply-confirm APLICAR-VIDEOS-SETT
 ```
 
 Essa segunda execução comprime, gera as capas e publica no app. A triagem crua e a reserva de replay

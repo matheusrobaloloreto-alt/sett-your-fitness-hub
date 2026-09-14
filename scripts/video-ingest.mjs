@@ -11,8 +11,9 @@
  *   SETT_DEPLOY_TARGET=production node scripts/video-ingest.mjs --confirm-project zshrcgbyhzxpnlccssyz --status
  *   SETT_DEPLOY_TARGET=production node scripts/video-ingest.mjs --confirm-project zshrcgbyhzxpnlccssyz --manifest drive.json
  *   SETT_DEPLOY_TARGET=production node scripts/video-ingest.mjs --confirm-project zshrcgbyhzxpnlccssyz --dir ~/Downloads/videos-bn --dry-run
+ *   node scripts/video-ingest.mjs --prepared-manifest docs/project/gravacao/_staging/<run>/manifest.json --dry-run
  *   SETT_DEPLOY_TARGET=staging VIDEO_INGEST_SUPABASE_URL=https://ifymocggowdlqqcxugko.supabase.co \
- *     node scripts/video-ingest.mjs --confirm-project ifymocggowdlqqcxugko --staging --dry-run
+ *     node scripts/video-ingest.mjs --confirm-project ifymocggowdlqqcxugko --prepared-manifest docs/project/gravacao/_staging/<run>/manifest.json --apply-confirm APLICAR-VIDEOS-SETT
  *
  * `--staging` seleciona a fila privada de gravações do backend já confirmado; não escolhe o
  * ambiente. URL, chave pública e segredo do staging devem ser fornecidos por env efêmero.
@@ -21,6 +22,7 @@
  * compartilhada como "qualquer pessoa com o link".
  *
  * Retomável: pula o que já baixou e, por padrão, o que já tem vídeo próprio no app (--force refaz).
+ * Escrita remota exige --apply-confirm APLICAR-VIDEOS-SETT.
  * Requer: alvo/projeto explícitos, ffmpeg/ffprobe no PATH e segredo por canal seguro.
  */
 import { execFile } from "node:child_process";
@@ -29,6 +31,7 @@ import { join, extname, basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   assertUploadableVideoMetadata,
+  assertVideoIngestApplyAllowed,
   buildUploadTranscodeArgs,
   decideVideoIngestSafety,
   inspectVideoSource,
@@ -49,8 +52,6 @@ const WORK = "/tmp/bn-video-ingest";
 
 const args = process.argv.slice(2);
 const flag = (n, d = null) => { const i = args.indexOf(`--${n}`); return i >= 0 ? (args[i + 1] ?? true) : d; };
-const ingestConfig = resolveVideoIngestConfig({ args });
-console.log(`Video ingest target: ${ingestConfig.target} (${ingestConfig.projectRef}).`);
 const DRY = args.includes("--dry-run");
 const STATUS = args.includes("--status");
 const STAGING = args.includes("--staging");
@@ -60,11 +61,24 @@ const KEEP = args.includes("--keep-source");
 const NOTRIM = args.includes("--no-trim");
 const JOBS = Math.max(1, parseInt(flag("jobs", "4"), 10) || 4);
 const MANIFEST = flag("manifest");
-const DIR = flag("dir") || (MANIFEST || STAGING ? join(WORK, "download") : null);
+const PREPARED_MANIFEST = flag("prepared-manifest");
+const preparedManifest = PREPARED_MANIFEST ? JSON.parse(readFileSync(resolve(process.cwd(), PREPARED_MANIFEST), "utf8")) : null;
+const DIR = flag("dir") || preparedManifest?.staging_dir || (MANIFEST || STAGING ? join(WORK, "download") : null);
 const ONLY = flag("only") ? String(flag("only")).split(",").map((s) => s.trim()) : null;
 const MAP_FILE = flag("map", "docs/project/gravacao/codigo-para-exercicio.json");
 const PRUNE_LEDGER = flag("prune-ledger");
+const APPLY_CONFIRM = flag("apply-confirm");
+const LOCAL_PREPARED_DRY_RUN = Boolean(preparedManifest && DRY && !STAGING && !MANIFEST);
 
+assertVideoIngestApplyAllowed({
+  dryRun: DRY,
+  status: STATUS,
+  pruneLedger: PRUNE_LEDGER,
+  applyConfirm: APPLY_CONFIRM,
+});
+
+const ingestConfig = LOCAL_PREPARED_DRY_RUN ? null : resolveVideoIngestConfig({ args });
+if (ingestConfig) console.log(`Video ingest target: ${ingestConfig.target} (${ingestConfig.projectRef}).`);
 const call = (body) => requestVideoIngest(ingestConfig, body);
 
 const slug = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "")
@@ -95,6 +109,9 @@ async function pool(itens, n, tarefa) {
 
 const mapPath = resolve(process.cwd(), MAP_FILE);
 const codeMap = existsSync(mapPath) ? JSON.parse(readFileSync(mapPath, "utf8")) : {};
+if (preparedManifest && preparedManifest.schema !== "sett-video-preparation/v1") {
+  throw new Error("Manifest preparado inválido ou versão incompatível.");
+}
 
 if (PRUNE_LEDGER) {
   const operatorTags = String(PRUNE_LEDGER).split(",").map((tag) => tag.trim()).filter(Boolean);
@@ -177,42 +194,83 @@ if (MANIFEST) {
 }
 
 // ---------- 1. Casar arquivos com exercícios ----------
-const library = (await call({ action: "list" })).items;
-const byId = new Map(library.map((e) => [e.id, e]));
-const arquivos = (STAGING ? [...stagingReadyNames] : readdirSync(DIR))
-  .filter((f) => VIDEO_EXT.has(extname(f).toLowerCase()) && !f.startsWith("."));
-
+let library = [];
+let arquivos = [];
 const ambiguos = [], semMatch = [], duplicados = [];
-const porExercicio = new Map(); // exercise_id → candidatos
+let casados = [];
 
-for (const f of arquivos) {
-  const nome = basename(f, extname(f));
-  const cod = STAGING
-    ? stagingCodeFromName(f)
-    : nome.match(/^(\d{3})(?=\D|$)/)?.[1];
-  let alvo = null, como = null;
-  if (cod && codeMap[cod] && byId.has(codeMap[cod].id)) {
-    alvo = byId.get(codeMap[cod].id); como = `código ${cod}`;
-  } else {
-    const rank = library.map((e) => ({ e, s: similarity(nome, e.name) })).sort((a, b) => b.s - a.s);
-    const [top, seg] = rank;
-    if (top && top.s >= 0.62 && (!seg || top.s - seg.s >= 0.12)) { alvo = top.e; como = `nome (${top.s.toFixed(2)})`; }
-    else if (top && top.s >= 0.45) { ambiguos.push({ arquivo: f, candidatos: rank.slice(0, 3).map((r) => `${r.e.name} (${r.s.toFixed(2)})`) }); continue; }
-    else { semMatch.push(f); continue; }
+if (preparedManifest) {
+  const hardProblems = (preparedManifest.items || []).filter((item) => (
+    item.status === "blocked" ||
+    item.status === "duplicate" ||
+    item.status === "unmatched" ||
+    item.status === "stale_code"
+  ));
+  if (!DRY && hardProblems.length) {
+    throw new Error(`Manifest preparado contém ${hardProblems.length} arquivo(s) bloqueado(s), duplicado(s) ou sem código válido; corrija e rode o preparo/dry-run de novo.`);
   }
-  const lista = porExercicio.get(alvo.id) || [];
-  lista.push({ arquivo: f, ex: alvo, como, aderencia: similarity(nome, alvo.name) });
-  porExercicio.set(alvo.id, lista);
-}
+  if (!existsSync(DIR)) throw new Error(`Diretório de staging do manifest não encontrado: ${DIR}`);
+  if (!DRY) library = (await call({ action: "list" })).items;
+  const liveById = new Map(library.map((e) => [e.id, e]));
+  casados = (preparedManifest.items || [])
+    .filter((item) => item.staged_name && (DRY || item.status === "ready"))
+    .map((item) => {
+      const live = liveById.get(item.exercise_id);
+      return {
+        arquivo: item.staged_name,
+        ex: live || {
+          id: item.exercise_id,
+          name: item.exercise_name,
+          video_path: null,
+        },
+        como: "manifest preparado",
+        aderencia: 1,
+      };
+    });
+  arquivos = casados.map((item) => item.arquivo);
+  for (const item of preparedManifest.items || []) {
+    if (item.status === "duplicate") {
+      duplicados.push({ arquivo: item.source_name, conflita_com: item.duplicate_of || "", exercicio: item.exercise_name || "" });
+    } else if (item.status === "unmatched" || item.status === "stale_code") {
+      semMatch.push(item.source_name);
+    }
+  }
+} else {
+  library = (await call({ action: "list" })).items;
+  const byId = new Map(library.map((e) => [e.id, e]));
+  arquivos = (STAGING ? [...stagingReadyNames] : readdirSync(DIR))
+    .filter((f) => VIDEO_EXT.has(extname(f).toLowerCase()) && !f.startsWith("."));
 
-// Mesmo exercício com mais de um arquivo: fica o nome mais fiel ao exercício
-// (regravação costuma vir como "047-supino-reto-barra-2"; cópia solta perde do descritivo).
-const casados = [];
-for (const lista of porExercicio.values()) {
-  lista.sort((a, b) => b.aderencia - a.aderencia || a.arquivo.localeCompare(b.arquivo));
-  const [escolhido, ...resto] = lista;
-  casados.push(escolhido);
-  for (const r of resto) duplicados.push({ arquivo: r.arquivo, conflita_com: escolhido.arquivo, exercicio: escolhido.ex.name });
+  const porExercicio = new Map(); // exercise_id → candidatos
+
+  for (const f of arquivos) {
+    const nome = basename(f, extname(f));
+    const cod = STAGING
+      ? stagingCodeFromName(f)
+      : nome.match(/^(\d{3})(?=\D|$)/)?.[1];
+    let alvo = null, como = null;
+    if (cod && codeMap[cod] && byId.has(codeMap[cod].id)) {
+      alvo = byId.get(codeMap[cod].id); como = `código ${cod}`;
+    } else {
+      const rank = library.map((e) => ({ e, s: similarity(nome, e.name) })).sort((a, b) => b.s - a.s);
+      const [top, seg] = rank;
+      if (top && top.s >= 0.62 && (!seg || top.s - seg.s >= 0.12)) { alvo = top.e; como = `nome (${top.s.toFixed(2)})`; }
+      else if (top && top.s >= 0.45) { ambiguos.push({ arquivo: f, candidatos: rank.slice(0, 3).map((r) => `${r.e.name} (${r.s.toFixed(2)})`) }); continue; }
+      else { semMatch.push(f); continue; }
+    }
+    const lista = porExercicio.get(alvo.id) || [];
+    lista.push({ arquivo: f, ex: alvo, como, aderencia: similarity(nome, alvo.name) });
+    porExercicio.set(alvo.id, lista);
+  }
+
+  // Mesmo exercício com mais de um arquivo: fica o nome mais fiel ao exercício
+  // (regravação costuma vir como "047-supino-reto-barra-2"; cópia solta perde do descritivo).
+  for (const lista of porExercicio.values()) {
+    lista.sort((a, b) => b.aderencia - a.aderencia || a.arquivo.localeCompare(b.arquivo));
+    const [escolhido, ...resto] = lista;
+    casados.push(escolhido);
+    for (const r of resto) duplicados.push({ arquivo: r.arquivo, conflita_com: escolhido.arquivo, exercicio: escolhido.ex.name });
+  }
 }
 
 let alvos = ONLY ? casados.filter((m) => ONLY.some((c) => m.arquivo.startsWith(c))) : casados;

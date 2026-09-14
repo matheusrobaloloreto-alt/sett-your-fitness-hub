@@ -40,8 +40,8 @@ export default function Auth() {
       recoveryInFlight.current = true;
       setRecoveryError("");
       try {
-        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: `${window.location.origin}/auth/reset-password`,
+        const { error } = await supabase.functions.invoke("student-recovery-whatsapp", {
+          body: { email: email.trim() },
         });
         if (error) throw error;
         setRecoverySent(true);
@@ -101,8 +101,8 @@ export default function Auth() {
         </CardHeader>
         <CardContent>
           {recoverySent ? <div role="status" className="space-y-3 text-sm text-foreground">
-            <p>Se este e-mail estiver cadastrado, você receberá um link para criar uma nova senha.</p>
-            <p className="text-muted-foreground">Confira também a caixa de spam.</p>
+            <p>Se este e-mail estiver cadastrado e vinculado a um WhatsApp confirmado, você receberá um link para criar uma nova senha.</p>
+            <p className="text-muted-foreground">O link será enviado na conversa já cadastrada no SETT.</p>
           </div> : <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && !forgotPassword && (
               <div className="space-y-2">

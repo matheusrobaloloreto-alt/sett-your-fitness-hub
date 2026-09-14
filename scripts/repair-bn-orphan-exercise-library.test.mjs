@@ -11,6 +11,7 @@ import {
   parseLinkedEnvelope,
   planBatches,
   validateAudit,
+  validateCuratedAudit,
 } from "./repair-bn-orphan-exercise-library.mjs";
 
 const ids = Array.from({ length: 27 }, (_, index) =>
@@ -56,6 +57,49 @@ function audit(items) {
   };
 }
 
+function curatedItem(index, name = "Flexora na Bola", overrides = {}) {
+  return item(index, 1, {
+    classification: "candidato_ambiguo",
+    reason: "conflicting_exact_names_for_same_missing_id",
+    canonical_name: undefined,
+    exact_evidence: [{
+      source_type: "recording_roster",
+      source_file: "docs/project/gravacao/codigo-para-exercicio.json",
+      code: "503",
+      name,
+      exact_name: name,
+      exact_name_normalized: "flexora na bola",
+      trust: 90,
+    }, {
+      source_type: "db_snapshot",
+      exact_name: "Flexora na Bola Suíça",
+      exact_name_normalized: "flexora na bola suica",
+      trust: 80,
+    }],
+    ...overrides,
+  });
+}
+
+function curation(approvals) {
+  return {
+    schema_version: 1,
+    project_ref: EXPECTED_PROJECT_REF,
+    company_slug: "bn-performance-training",
+    contains_pii: false,
+    source: "astra_technical_curation_2026-09-14",
+    approvals,
+  };
+}
+
+function approval(index = 0, name = "Flexora na Bola", overrides = {}) {
+  return {
+    exercise_id: ids[index],
+    canonical_name: name,
+    justification: "Approved by technical curation against the SETT recording roster.",
+    ...overrides,
+  };
+}
+
 test("CLI defaults to dry-run and apply requires project, audit hash and one batch", () => {
   const dry = parseArgs([]);
   assert.equal(dry.apply, false);
@@ -75,6 +119,10 @@ test("CLI defaults to dry-run and apply requires project, audit hash and one bat
     "--apply", "--confirm-project", "wrong",
     "--confirm-audit-sha256", "a".repeat(64), "--batch", "1",
   ]), /canonical/);
+  const curated = parseArgs([
+    "--curation-manifest", "docs/project/AUDITORIA-2026-09-14-EXERCISE-ID-ORFAOS-CURADORIA.json",
+  ]);
+  assert.equal(curated.curationManifest, "docs/project/AUDITORIA-2026-09-14-EXERCISE-ID-ORFAOS-CURADORIA.json");
   assert.throws(() => parseArgs(["--rollback-manifest", "x.json"]), /--apply/);
   assert.throws(() => parseArgs(["--unknown"]), /unknown_argument/);
 });
@@ -85,6 +133,50 @@ test("audit validation refuses wrong project, PII, wrong counts and non-restorab
   assert.throws(() => validateAudit({ ...audit([item(0)]), contains_pii: true }, { expectedRestorableCount: 1 }), /contains_pii/);
   assert.throws(() => validateAudit({ ...audit([item(0)]), aggregate: { ...audit([item(0)]).aggregate, classification_counts: { restauravel: 2 } } }, { expectedRestorableCount: 1 }), /count/);
   assert.throws(() => validateAudit(audit([item(0, 1, { classification: "candidato_ambiguo" })]), { expectedRestorableCount: 1 }), /restauravel/);
+});
+
+test("technical curation accepts only approved ambiguous IDs backed by the same recording roster name", () => {
+  const result = validateCuratedAudit(
+    audit([curatedItem(0)]),
+    curation([approval(0)]),
+  );
+  assert.equal(result.length, 1);
+  assert.equal(result[0].classification, "restauravel");
+  assert.equal(result[0].canonical_name, "Flexora na Bola");
+  assert.equal(result[0].curation.recording_roster_code, "503");
+});
+
+test("technical curation is fail-closed for tampered name or ID", () => {
+  assert.throws(() => validateCuratedAudit(
+    audit([curatedItem(0)]),
+    curation([approval(0, "Flexora na Bola Suíça")]),
+  ), /recording_roster_missing/);
+  assert.throws(() => validateCuratedAudit(
+    audit([curatedItem(0)]),
+    curation([approval(1)]),
+  ), /missing_audit_item/);
+});
+
+test("technical curation refuses non-ambiguous audit items and missing roster evidence", () => {
+  assert.throws(() => validateCuratedAudit(
+    audit([item(0)]),
+    curation([approval(0)]),
+  ), /not_ambiguous/);
+  assert.throws(() => validateCuratedAudit(
+    audit([curatedItem(0, "Flexora na Bola", { exact_evidence: [{ source_type: "db_snapshot", exact_name: "Flexora na Bola" }] })]),
+    curation([approval(0)]),
+  ), /recording_roster_missing/);
+});
+
+test("technical curation refuses duplicate approvals and lists over 25", () => {
+  assert.throws(() => validateCuratedAudit(
+    audit([curatedItem(0)]),
+    curation([approval(0), approval(0)]),
+  ), /duplicate/);
+  const oversized = Array.from({ length: 26 }, (_, index) => approval(0, "Flexora na Bola", {
+    exercise_id: `${String(index + 100).padStart(8, "0")}-1111-4111-8111-${String(index + 100).padStart(12, "0")}`,
+  }));
+  assert.throws(() => validateCuratedAudit(audit([curatedItem(0)]), curation(oversized)), /limit/);
 });
 
 test("stable scope hash changes on identity, impact or evidence drift", () => {

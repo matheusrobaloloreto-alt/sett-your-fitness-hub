@@ -58,6 +58,12 @@ verify_jwt = false
 [functions.student-workout-feedback]
 verify_jwt = false
 
+[functions.student-recovery-whatsapp]
+# Public recovery entrypoint. The handler does all identity checks with the
+# service-role client, always returns a neutral response, and is disabled until
+# RECOVERY_WHATSAPP_SEND_ENABLED=true is explicitly configured.
+verify_jwt = false
+
 [functions.whatsapp-manager]
 verify_jwt = true
 
