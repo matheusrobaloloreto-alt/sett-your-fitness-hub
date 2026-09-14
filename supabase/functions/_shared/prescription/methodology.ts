@@ -153,5 +153,5 @@ export const DELOAD_RULES = {
 
 export const EXPLANATION_CATEGORIES = ["seguranca", "priorizacao", "nivel", "volume", "substituicao", "progressao", "deload"] as const;
 
-export const LARGE_GROUPS = ["quadriceps", "posterior", "gluteos", "costas", "peitoral"] as const;
-export const SMALL_GROUPS = ["core", "ombros", "biceps", "triceps", "panturrilhas", "mobilidade"] as const;
+export const LARGE_GROUPS = ["quadriceps", "posterior_de_coxa", "gluteos", "dorsal", "peitoral"] as const;
+export const SMALL_GROUPS = ["abdomen", "deltoide_anterior", "deltoide_lateral", "deltoide_posterior", "biceps", "triceps", "panturrilha", "antebraco", "trapezio", "adutores"] as const;

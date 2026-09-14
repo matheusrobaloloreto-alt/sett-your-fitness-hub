@@ -1,21 +1,25 @@
 import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { countWeeklySets, enforceVolumeCaps, targetVolumeFactor } from "./volumeRules.ts";
 
-Deno.test("targetVolumeFactor normalizes historical fraction and percentage scales", () => {
+Deno.test("targetVolumeFactor uses the fixed role regardless of historical percentage", () => {
   assertEquals(targetVolumeFactor({ role: "primary", volume_percentage: 1 }), 1);
   assertEquals(targetVolumeFactor({ role: "primary", volume_percentage: 100 }), 1);
   assertEquals(targetVolumeFactor({ role: "secondary", volume_percentage: 0.5 }), 0.5);
   assertEquals(targetVolumeFactor({ role: "secondary", volume_percentage: 50 }), 0.5);
-  assertEquals(targetVolumeFactor({ role: "secondary", volume_percentage: 20 }), 0.2);
+  assertEquals(targetVolumeFactor({ role: "secondary", volume_percentage: 20 }), 0.5);
   assertEquals(targetVolumeFactor({ role: "primary", volume_percentage: null }), 1);
   assertEquals(targetVolumeFactor({ role: "secondary", volume_percentage: null }), 0.5);
+  assertEquals(targetVolumeFactor({ is_primary: true, volume_percentage: 20 }), 1);
+  assertEquals(targetVolumeFactor({ is_primary: false, volume_percentage: 100 }), 0.5);
   assertThrows(() => targetVolumeFactor({ volume_percentage: null }), TypeError);
 });
 
-Deno.test("targetVolumeFactor rejects values outside the documented domain", () => {
-  assertThrows(() => targetVolumeFactor({ volume_percentage: -1 }), RangeError);
-  assertThrows(() => targetVolumeFactor({ volume_percentage: 101 }), RangeError);
-  assertThrows(() => targetVolumeFactor({ volume_percentage: Number.NaN }), RangeError);
+Deno.test("targetVolumeFactor rejects missing or conflicting roles instead of inferring anatomy from percentages", () => {
+  assertThrows(() => targetVolumeFactor({ volume_percentage: -1 }), TypeError);
+  assertThrows(() => targetVolumeFactor({ volume_percentage: 100 }), TypeError);
+  assertThrows(() => targetVolumeFactor({ role: "primary", is_primary: false }), TypeError);
+  assertEquals(targetVolumeFactor({ role: "primary", volume_percentage: Number.NaN }), 1);
+  assertEquals(targetVolumeFactor({ role: "secondary", volume_percentage: 101 }), 0.5);
 });
 
 Deno.test("countWeeklySets attributes one exercise to multiple muscle groups", () => {
@@ -53,7 +57,8 @@ Deno.test("countWeeklySets attributes one exercise to multiple muscle groups", (
 
   assertEquals(counts.get("peitoral"), 3);
   assertEquals(counts.get("triceps"), 1.5);
-  assertEquals(counts.get("ombros"), 1.5);
+  assertEquals(counts.get("deltoide_anterior"), 1.5);
+  assertEquals(counts.has("ombros"), false);
 });
 
 Deno.test("enforceVolumeCaps reduces weighted secondary exposure above the cap", () => {
@@ -94,9 +99,9 @@ Deno.test("enforceVolumeCaps reduces weighted secondary exposure above the cap",
   });
   const counts = countWeeklySets({ workouts: capped.workouts });
 
-  assertEquals((counts.get("costas") || 0) <= 12, true);
+  assertEquals((counts.get("dorsal") || 0) <= 12, true);
   assertEquals(capped.workouts[0].exercises.reduce((sum, exercise) => sum + exercise.sets, 0) < 28, true);
-  assertEquals(capped.adjustments.some((item) => item.muscle_group === "costas"), true);
+  assertEquals(capped.adjustments.some((item) => item.muscle_group === "dorsal"), true);
 });
 
 Deno.test("enforceVolumeCaps removes one-set contributors when needed to honor the cap", () => {
@@ -131,9 +136,9 @@ Deno.test("enforceVolumeCaps removes one-set contributors when needed to honor t
     objective: "hipertrofia",
     daysPerWeek: 3,
   });
-  const after = countWeeklySets({ workouts: capped.workouts }).get("costas") || 0;
+  const after = countWeeklySets({ workouts: capped.workouts }).get("dorsal") || 0;
 
   assertEquals(after <= 12, true);
   assertEquals(capped.workouts[0].exercises.length, 12);
-  assertEquals(capped.adjustments[0], { muscle_group: "costas", before: 13, after: 12, cap: 12 });
+  assertEquals(capped.adjustments[0], { muscle_group: "dorsal", before: 13, after: 12, cap: 12 });
 });

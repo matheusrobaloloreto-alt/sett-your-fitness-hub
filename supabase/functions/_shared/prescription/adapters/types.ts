@@ -58,6 +58,7 @@ export interface EdgeExerciseRow {
   name: string;
   description?: string | null;
   muscle_group?: string | null;
+  categories?: string[] | null;
   equipment?: string | null;
   difficulty?: string | null;
   is_global?: boolean | null;
@@ -67,6 +68,7 @@ export interface EdgeMuscleTargetRow {
   exercise_id: string;
   muscle_group_id?: string | null;
   role?: string | null;
+  is_primary?: boolean | null;
   volume_percentage?: number | null;
 }
 export interface EdgeMuscleGroupRow { id: string; name: string; }

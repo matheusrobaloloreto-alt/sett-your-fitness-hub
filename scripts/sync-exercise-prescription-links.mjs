@@ -58,47 +58,40 @@ const anatomicalGroupAliases = new Map(Object.entries({
   costas: "Dorsal",
   dorsal: "Dorsal",
   dorsais: "Dorsal",
-  ombro: "Ombro",
-  ombros: "Ombro",
-  deltoide: "Ombro",
-  deltoides: "Ombro",
   "deltoide anterior": "Deltoide Anterior",
+  "deltoide frontal": "Deltoide Anterior",
+  "deltóide frontal": "Deltoide Anterior",
   "deltoide lateral": "Deltoide Lateral",
   "deltoide posterior": "Deltoide Posterior",
-  biceps: "Bíceps",
-  triceps: "Tríceps",
+  biceps: "Biceps",
+  triceps: "Triceps",
   antebraco: "Antebraço",
-  braquiorradial: "Braquiorradial",
-  abdomen: "Abdominais",
-  abdominal: "Abdominais",
-  abdominais: "Abdominais",
-  trapezio: "Trapézio",
-  "trapezio inferior": "Trapézio Inferior",
-  lombar: "Lombar / Eretores",
-  "lombar eretores": "Lombar / Eretores",
-  eretores: "Lombar / Eretores",
-  gluteo: "Glúteo",
-  gluteos: "Glúteo",
+  antebracos: "Antebraço",
+  braquiorradial: "Antebraço",
+  abdomen: "Abdômen",
+  abdominal: "Abdômen",
+  abdominais: "Abdômen",
+  abs: "Abdômen",
+  trapezio: "Trapezio",
+  trapezios: "Trapezio",
+  "trapezio inferior": "Trapezio",
+  "trapézio inferior": "Trapezio",
+  gluteo: "Glúteos",
+  gluteos: "Glúteos",
   quadriceps: "Quadríceps",
-  "reto femoral": "Reto Femoral",
-  posterior: "Posterior de Coxa",
-  posteriores: "Posterior de Coxa",
-  "posterior de coxa": "Posterior de Coxa",
-  isquiotibiais: "Posterior de Coxa",
+  "reto femoral": "Quadríceps",
+  posterior: "Posterior de coxa",
+  posteriores: "Posterior de coxa",
+  "posterior de coxa": "Posterior de coxa",
+  isquiotibiais: "Posterior de coxa",
   adutor: "Adutores",
   adutores: "Adutores",
-  "adutor magno": "Adutor Magno",
-  abdutor: "Abdutores",
-  abdutores: "Abdutores",
+  "adutor magno": "Adutores",
   panturrilha: "Panturrilha",
   panturrilhas: "Panturrilha",
-  "tibial anterior": "Tibial Anterior",
-  "flexores de quadril": "Flexores de Quadril",
-  iliopsoas: "Flexores de Quadril",
-  manguito: "Manguito",
-  "manguito rotador": "Manguito",
-  serratil: "Serrátil",
-  "serratil anterior": "Serrátil",
+  gastrocnemio: "Panturrilha",
+  gastrocnemios: "Panturrilha",
+  soleo: "Panturrilha",
 }));
 
 function canonicalAnatomicalGroup(value) {
@@ -111,20 +104,8 @@ function inferMuscleGroup(exercise) {
 
   if (explicit) return explicit;
 
-  if (/abdomen|abdominal|prancha|pallof|bird dog|perdigueiro|anti rotacao/.test(text)) return "Abdominais";
-  if (/glute|quadril|abducao|ponte|elevacao pelvica|hip thrust|mini band/.test(text)) return "Glúteo";
-  if (/posterior|isquio|flexao de joelho|stiff|deadlift|terra|hamstring/.test(text)) return "Posterior de Coxa";
-  if (/quadriceps|agach|squat|leg press|afundo|passada|lunge|step|bulgar|knee drive|front squat/.test(text)) return "Quadríceps";
-  if (/panturrilha|calf|tornozelo|ankle|tibial/.test(text)) return "Panturrilha";
-  if (/adutor|aducao|copenhagen/.test(text)) return "Adutores";
-  if (/peito|peitoral|supino|flexao|push up|crucifixo|chest/.test(text)) return "Peitoral";
-  if (/costas|dorsal|remada|puxada|pull|row|yt|y t/.test(text)) return "Dorsal";
-  if (/ombro|shoulder|deltoide|face pull|manguito|rotacao externa|halo|push press|overhead/.test(text)) return "Deltoide Posterior";
-  if (/biceps|rosca/.test(text)) return "Bíceps";
-  if (/triceps|paralela|frances|testa/.test(text)) return "Tríceps";
-  if (/lombar|eretor|superman|extensao da coluna/.test(text)) return "Lombar / Eretores";
-  // Categorias de filtro nunca podem virar muscle_group. Sem pista anatômica,
-  // deixe o item para revisão em vez de poluir alvos/volume futuros.
+  // Categorias de filtro e nomes de movimento nunca viram alvo anatômico.
+  // Sem pista anatômica explícita, deixe o item para revisão.
   if (/cardio|corrida|esteira|bike|bicicleta|pedal|natacao/.test(text)) return null;
   if (/mobilidade|along|liberacao|rolinho/.test(text)) return null;
   if (/fisio|fisioterapia|controle motor|estabilidade|propriocepcao/.test(text)) return null;

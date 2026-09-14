@@ -112,6 +112,74 @@ function cleanText(value) {
   return String(value).normalize("NFC").trim();
 }
 
+const CANONICAL_MFIT_MUSCLE_GROUPS = new Map([
+  ["abdomen", "Abdômen"],
+  ["abdominal", "Abdômen"],
+  ["abdominais", "Abdômen"],
+  ["abs", "Abdômen"],
+  ["quadriceps", "Quadríceps"],
+  ["quadri", "Quadríceps"],
+  ["reto femoral", "Quadríceps"],
+  ["posterior de coxa", "Posterior de coxa"],
+  ["posterior", "Posterior de coxa"],
+  ["posteriores", "Posterior de coxa"],
+  ["isquiotibiais", "Posterior de coxa"],
+  ["hamstring", "Posterior de coxa"],
+  ["hamstrings", "Posterior de coxa"],
+  ["gluteo", "Glúteos"],
+  ["gluteos", "Glúteos"],
+  ["gluteo maximo", "Glúteos"],
+  ["gluteo medio", "Glúteos"],
+  ["gluteo minimo", "Glúteos"],
+  ["adutor", "Adutores"],
+  ["adutores", "Adutores"],
+  ["adutor magno", "Adutores"],
+  ["panturrilha", "Panturrilha"],
+  ["panturrilhas", "Panturrilha"],
+  ["gastrocnemio", "Panturrilha"],
+  ["gastrocnemios", "Panturrilha"],
+  ["soleo", "Panturrilha"],
+  ["deltoide lateral", "Deltoide Lateral"],
+  ["lateral de ombro", "Deltoide Lateral"],
+  ["deltoide posterior", "Deltoide Posterior"],
+  ["posterior de ombro", "Deltoide Posterior"],
+  ["deltoide anterior", "Deltoide Anterior"],
+  ["anterior de ombro", "Deltoide Anterior"],
+  ["deltoide frontal", "Deltoide Anterior"],
+  ["deltóide frontal", "Deltoide Anterior"],
+  ["antebraco", "Antebraço"],
+  ["antebracos", "Antebraço"],
+  ["braquiorradial", "Antebraço"],
+  ["biceps", "Biceps"],
+  ["triceps", "Triceps"],
+  ["dorsal", "Dorsal"],
+  ["dorsais", "Dorsal"],
+  ["costas", "Dorsal"],
+  ["latissimo", "Dorsal"],
+  ["latissimos", "Dorsal"],
+  ["trapezio", "Trapezio"],
+  ["trapezios", "Trapezio"],
+  ["trapezio inferior", "Trapezio"],
+  ["trapézio inferior", "Trapezio"],
+  ["peitoral", "Peitoral"],
+  ["peito", "Peitoral"],
+  ["peitorais", "Peitoral"],
+  ["chest", "Peitoral"],
+]);
+
+function taxonomyKey(value) {
+  return cleanText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function canonicalMfitMuscleGroup(value) {
+  return CANONICAL_MFIT_MUSCLE_GROUPS.get(taxonomyKey(value)) || null;
+}
+
 function valueAtPath(row, path) {
   let value = row;
   for (const part of path.split(".")) {
@@ -504,9 +572,9 @@ function normalizeMfitExercise(raw, index) {
       firstValue(row, ["id", "exercise_id", "exerciseId", "exercicio_id", "objectID", "exercise.id"]),
     ) || `exercise-${index + 1}`,
     name,
-    muscle_group: cleanText(
-      firstValue(row, ["muscle_group", "muscleGroup", "group", "grupo", "exerciseGroup.nome", "category"]),
-    ) || "geral",
+    muscle_group: canonicalMfitMuscleGroup(
+      firstValue(row, ["muscle_group", "muscleGroup", "group", "grupo", "exerciseGroup.nome"]),
+    ),
     description: cleanText(firstValue(row, ["description", "descricao", "instructions", "instrucoes"])),
     equipment: cleanText(firstValue(row, ["equipment", "equipamento"])),
     difficulty: cleanText(firstValue(row, ["difficulty", "nivel", "level"])),

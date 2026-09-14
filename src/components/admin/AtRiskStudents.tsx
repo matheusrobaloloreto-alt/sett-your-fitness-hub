@@ -13,6 +13,7 @@ import { deriveStudentStatus, riskReasons, STUDENT_STATUS_LABELS, STUDENT_STATUS
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { openStudentChat } from "@/lib/studentChat";
+import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 
 interface RiskRow {
   id: string;
@@ -45,15 +46,21 @@ function buildMessage(name: string, status: StudentStatus, reasons: string[], pa
   return `Oi ${first}! Passando pra saber como estão os treinos. Precisa de algum ajuste? Estou aqui. 💪`;
 }
 
-export function AtRiskStudents() {
+export function AtRiskStudents({ readOnly = false, routePrefix = "admin" }: { readOnly?: boolean; routePrefix?: string } = {}) {
   const navigate = useNavigate();
   const { companyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
+  const snapshot = useDashboardSnapshot();
   const [rows, setRows] = useState<RiskRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
+    if (readOnly) {
+      setRows((snapshot?.atRiskStudents || []) as RiskRow[]);
+      setLoading(false);
+      return;
+    }
     // Sem empresa efetiva (master fora do company-view), não lista global de todas as empresas.
     if (!effectiveCompanyId) { setRows([]); setLoading(false); return; }
     setLoading(true);
@@ -122,12 +129,12 @@ export function AtRiskStudents() {
     } finally {
       setLoading(false);
     }
-  }, [effectiveCompanyId]);
+  }, [effectiveCompanyId, readOnly, snapshot]);
 
   useEffect(() => { load(); }, [load]);
 
   const openConversation = async (row: RiskRow) => {
-    const routePrefix = role === "master" && isViewingCompany ? "admin" : (role || "admin");
+    if (readOnly) return;
     await openStudentChat({
       navigate,
       routePrefix,
@@ -136,6 +143,10 @@ export function AtRiskStudents() {
       message: row.message,
       onNoChat: () => toast.error("Esse aluno ainda não tem telefone ou conversa cadastrada."),
     });
+  };
+  const openStudent = (studentId: string) => {
+    if (readOnly) return;
+    navigate(`/${routePrefix}/students/${studentId}`);
   };
 
   return (
@@ -152,7 +163,10 @@ export function AtRiskStudents() {
               <div key={r.id} className="py-2.5">
                 <div className="flex items-center gap-3">
                   <span className={cn("h-2 w-2 rounded-full shrink-0", r.tone === "red" ? "bg-destructive" : "bg-amber-500")} />
-                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/admin/students/${r.id}`)}>
+                  <div
+                    className={cn("flex-1 min-w-0", !readOnly && "cursor-pointer")}
+                    onClick={readOnly ? undefined : () => openStudent(r.id)}
+                  >
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-foreground truncate">{r.name}</p>
                       <Badge className={cn("text-[10px]", r.pain && r.status === "ativo" ? "bg-destructive/15 text-destructive" : STUDENT_STATUS_COLORS[r.status])}>
@@ -161,14 +175,16 @@ export function AtRiskStudents() {
                     </div>
                     <p className="text-xs text-muted-foreground truncate">{r.reasons.join(" · ")}</p>
                   </div>
-                  <button
-                    onClick={() => void openConversation(r)}
-                    className="rounded p-1.5 text-primary transition-colors hover:bg-muted/60"
-                    title="Abrir conversa interna"
-                    aria-label={`Abrir conversa interna com ${r.name}`}
-                  >
-                    <MessageSquare className="h-4 w-4" />
-                  </button>
+                  {!readOnly && (
+                    <button
+                      onClick={() => void openConversation(r)}
+                      className="rounded p-1.5 text-primary transition-colors hover:bg-muted/60"
+                      title="Abrir conversa interna"
+                      aria-label={`Abrir conversa interna com ${r.name}`}
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

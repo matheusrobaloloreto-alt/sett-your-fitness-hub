@@ -9,8 +9,6 @@ import {
 
 describe("exerciseThumb — a capa sempre representa o vídeo que vai tocar", () => {
   it("exercício MFIT: usa a capa oficial (.jpg do próprio .mp4), NÃO a thumb do YouTube", () => {
-    // Caso real: o importador do MFIT grava o poster correspondente ao vídeo,
-    // mas o youtube_video_id foi resolvido pelo NOME e aponta para outro vídeo.
     const cover = exerciseThumb({
       video_url: "https://d2vfutiy2j6sqj.cloudfront.net/115171/mp4/gapun2d27mv_opt.mp4",
       thumbnail_url: "https://d2vfutiy2j6sqj.cloudfront.net/115171/jpg/md/gapun2d2.jpg",
@@ -55,23 +53,28 @@ describe("youtubeIdFromUrl", () => {
 });
 
 describe("exercise category compatibility", () => {
-  it("expõe somente os filtros canônicos pedidos", () => {
-    const ids = EXERCISE_CATEGORIES.map((category) => category.id);
-    expect(ids).toContain("funcionais");
-    expect(ids).toContain("pliometria");
-    expect(ids).not.toContain("controle_motor");
-    expect(ids).not.toContain("fisioterapia");
-    expect(ids).not.toContain("performance");
+  it("expõe somente os oito filtros canônicos pedidos", () => {
+    expect(EXERCISE_CATEGORIES.map((category) => category.id)).toEqual([
+      "core",
+      "mobilidades",
+      "funcionais",
+      "base",
+      "pesos_livre",
+      "peso_corporal",
+      "maquinas",
+      "pliometria",
+    ]);
   });
 
   it("normaliza ids legados imediatamente, antes da migration", () => {
     expect(normalizedExerciseCategories({ category: "controle_motor" })).toEqual(["funcionais"]);
     expect(normalizedExerciseCategories({ categories: ["performance", "pliometria"] })).toEqual(["pliometria"]);
+    expect(normalizedExerciseCategories({ category: "pesos livres" })).toEqual(["pesos_livre"]);
   });
 
   it("recategoriza fisioterapia pela evidência do exercício e usa Funcionais como fallback", () => {
     expect(normalizedExerciseCategories({ category: "Fisioterapia", name: "Mobilidade de tornozelo" }))
-      .toEqual(["mobilidade"]);
+      .toEqual(["mobilidades"]);
     expect(normalizedExerciseCategories({ category: "Fisioterapia", name: "Salto em profundidade" }))
       .toEqual(["pliometria"]);
     expect(normalizedExerciseCategories({ category: "Fisioterapia", name: "Exercício de retorno" }))
@@ -85,12 +88,12 @@ describe("exercise category compatibility", () => {
       { muscle_group: "Performance" },
       { muscle_group: "Fisioterapia", name: "Mobilidade de quadril" },
     ].map(normalizedExerciseLibraryGroup);
-    expect([...new Set(labels)]).toEqual(["Funcionais", "Pliometria", "Mobilidade"]);
+    expect([...new Set(labels)]).toEqual(["Funcionais", "Pliometria", "Mobilidades"]);
   });
 
   it("estabiliza aliases anatômicos nos rótulos históricos da UX", () => {
     expect(normalizedExerciseLibraryGroup({ muscle_group: "Costas" })).toBe("Dorsal");
-    expect(normalizedExerciseLibraryGroup({ muscle_group: "Glúteos" })).toBe("Glúteo");
-    expect(normalizedExerciseLibraryGroup({ muscle_group: "Abdômen" })).toBe("Abdominais");
+    expect(normalizedExerciseLibraryGroup({ muscle_group: "Glúteos" })).toBe("Glúteos");
+    expect(normalizedExerciseLibraryGroup({ muscle_group: "Abdômen" })).toBe("Abdômen");
   });
 });

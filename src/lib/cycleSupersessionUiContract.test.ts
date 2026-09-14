@@ -6,7 +6,6 @@ const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf
 
 describe("cycle supersession UI contract", () => {
   it.each([
-    "src/pages/trainer/TrainerDashboard.tsx",
     "src/pages/admin/WorkoutPrescriptions.tsx",
     "src/pages/admin/AdminDashboard.tsx",
     "src/pages/admin/WhatsAppChat.tsx",
@@ -14,6 +13,14 @@ describe("cycle supersession UI contract", () => {
     "src/components/trainer/TrainerWeeklyBar.tsx",
   ])("não carrega ciclos substituídos em %s", (path) => {
     expect(source(path)).toContain('.neq("status", "superseded")');
+  });
+
+  it("mantém o dashboard do treinador delegado para o dashboard completo sem perder o filtro de superseded", () => {
+    const trainerDashboard = source("src/pages/trainer/TrainerDashboard.tsx");
+    const adminDashboard = source("src/pages/admin/AdminDashboard.tsx");
+    expect(trainerDashboard).toContain("<AdminDashboard");
+    expect(trainerDashboard).toContain("readOnly");
+    expect(adminDashboard).toContain('.neq("status", "superseded")');
   });
 
   it("bloqueia edição direta de um ciclo substituído", () => {

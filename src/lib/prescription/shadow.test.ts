@@ -107,7 +107,7 @@ describe("shadow — comparação (B5)", () => {
 
   it("volumeByGroup conta séries por grupo", () => {
     const v = volumeByGroup(CURRENT_PLAN);
-    expect(v["costas"]).toBe(3);
+    expect(v["dorsal"]).toBe(3);
     expect(v["peitoral"]).toBe(4);
   });
 });

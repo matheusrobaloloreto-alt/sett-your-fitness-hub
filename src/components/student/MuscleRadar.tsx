@@ -15,10 +15,11 @@ interface MuscleVolume {
 
 interface MuscleRadarProps {
   muscleVolumes: MuscleVolume[];
+  unit?: "kg" | "sets";
 }
 
 // Aggregates volume per muscle group and renders a radar (spider) chart.
-export function MuscleRadar({ muscleVolumes }: MuscleRadarProps) {
+export function MuscleRadar({ muscleVolumes, unit = "kg" }: MuscleRadarProps) {
   const { data, hasData, maxVolume } = useMemo(() => {
     const agg: Record<string, number> = {};
     muscleVolumes.forEach(({ muscleGroup, volume }) => {
@@ -91,7 +92,7 @@ export function MuscleRadar({ muscleVolumes }: MuscleRadarProps) {
               />
             </div>
             <span className="text-muted-foreground tabular-nums min-w-[70px] text-right">
-              {Math.round(m.volume).toLocaleString("pt-BR")}kg
+              {m.volume.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}{unit === "sets" ? " séries" : "kg"}
             </span>
           </div>
         ))}

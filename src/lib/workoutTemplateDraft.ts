@@ -19,18 +19,17 @@ export interface WorkoutTemplateDraftExercise {
   rest_seconds?: number | null;
   notes?: string | null;
   exercise_order?: number | null;
-  [key: string]: unknown;
 }
 
 export interface WorkoutTemplateDraftWorkout {
   id?: string;
+  updated_at?: string;
   title?: string | null;
   name?: string | null;
   description?: string | null;
   day_of_week?: number | null;
   sort_order?: number | null;
   exercises?: WorkoutTemplateDraftExercise[];
-  [key: string]: unknown;
 }
 
 export interface WorkoutTemplateForDraft {

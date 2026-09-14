@@ -42,7 +42,7 @@ export function Logo({
         "w-auto object-contain select-none",
         // White JPG background: multiply removes the white on light surfaces;
         // invert + screen produces a white-on-dark mark for the Ink footer.
-        inverted ? "invert mix-blend-screen" : "mix-blend-multiply",
+        inverted ? "invert mix-blend-screen" : "mix-blend-multiply dark:invert dark:mix-blend-screen",
         className
       )}
       draggable={false}

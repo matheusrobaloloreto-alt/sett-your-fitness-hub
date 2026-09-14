@@ -3,6 +3,7 @@
 // NÃO faz I/O, NÃO altera resposta: só resolve a flag e monta o objeto de comparação para log.
 import type { PrescriptionValidationResult, TrainingProgram } from "./types.ts";
 import type { OutputAdapterResult } from "./adapters/types.ts";
+import { exerciseGroupFactors } from "./volumeRules.ts";
 
 export type EngineFlag = "off" | "shadow" | "on";
 
@@ -24,8 +25,11 @@ export function volumeByGroup(plan: unknown): Record<string, number> {
   for (const w of workouts) {
     const exs = Array.isArray(w?.exercises) ? w.exercises : [];
     for (const ex of exs) {
-      const g = (String(ex?.muscle_group ?? "").trim().toLowerCase()) || "nao_informado";
-      out[g] = (out[g] ?? 0) + (Number(ex?.sets) || 0);
+      const sets = Number(ex?.sets);
+      if (!Number.isFinite(sets) || sets <= 0) continue;
+      for (const [group, factor] of exerciseGroupFactors(ex || {})) {
+        out[group] = (out[group] || 0) + sets * factor;
+      }
     }
   }
   return out;

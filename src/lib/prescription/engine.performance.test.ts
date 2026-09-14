@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateTrainingProgram } from "./engine";
 import type { ExerciseCatalogEntry, PrescriptionInput } from "./types";
 
-const GROUPS = ["quadriceps", "posterior", "gluteos", "costas", "peitoral", "ombros", "core"];
+const GROUPS = ["quadriceps", "posterior_de_coxa", "gluteos", "dorsal", "peitoral", "deltoide_posterior", "abdomen"];
 const EQUIPMENT = ["maquina", "cabo", "halteres", "barra", "livre"];
 const NAMES = [
   "Agachamento controle motor",

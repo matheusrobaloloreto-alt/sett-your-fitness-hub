@@ -455,7 +455,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
             .filter(Boolean));
         }
 
-        let rows = ((cycleRows || []) as PrescriptionScheduleCycle[]).map((cycle) => ({
+        let rows: PrescriptionScheduleCycle[] = ((cycleRows || []) as PrescriptionScheduleCycle[]).map((cycle) => ({
           ...cycle,
           has_workouts: workoutCycleIds.has(cycle.id),
           has_bundle: bundleCycleIds.has(cycle.id),

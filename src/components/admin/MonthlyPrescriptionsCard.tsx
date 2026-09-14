@@ -5,10 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { ClipboardList } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { completedPrescriptionBundleBadges } from "@/lib/prescriptionBundleIntegrity";
+import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 
 // Prescrições feitas no mês corrente, na ordem em que foram feitas (mais recente primeiro).
-export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId: string | null | undefined; routePrefix?: string }) {
+export function MonthlyPrescriptionsCard({ companyId, routePrefix, readOnly = false }: { companyId: string | null | undefined; routePrefix?: string; readOnly?: boolean }) {
   const navigate = useNavigate();
+  const snapshot = useDashboardSnapshot();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -16,6 +18,11 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
     let alive = true;
     (async () => {
       setLoading(true);
+      if (readOnly) {
+        setRows(snapshot?.monthlyPrescriptions || []);
+        setLoading(false);
+        return;
+      }
       const start = new Date();
       start.setDate(1);
       start.setHours(0, 0, 0, 0);
@@ -60,7 +67,7 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
       setLoading(false);
     })();
     return () => { alive = false; };
-  }, [companyId]);
+  }, [companyId, readOnly, snapshot]);
 
   return (
     <Card className="bg-card border-border">
@@ -78,7 +85,7 @@ export function MonthlyPrescriptionsCard({ companyId, routePrefix }: { companyId
         ) : (
           <div className="space-y-2 max-h-80 overflow-y-auto">
             {rows.map((r: any) => (
-              <button key={r.id} type="button" onClick={() => navigate(`/${routePrefix || "admin"}/students/${r.student_id}`)} className="w-full text-left flex items-center justify-between gap-2 p-2 rounded-lg bg-secondary/40 border border-border hover:border-primary/40 transition-colors">
+              <button key={r.id} type="button" disabled={readOnly} onClick={readOnly ? undefined : () => navigate(`/${routePrefix || "admin"}/students/${r.student_id}`)} className="w-full text-left flex items-center justify-between gap-2 p-2 rounded-lg bg-secondary/40 border border-border transition-colors enabled:hover:border-primary/40 disabled:cursor-default">
                 <div className="min-w-0">
                   <p className="text-sm font-sans font-medium text-foreground truncate">{r.name}</p>
                   <p className="text-xs text-muted-foreground font-sans">

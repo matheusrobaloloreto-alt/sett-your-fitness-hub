@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1D2D5C" />
+    <script>
+      (function () {
+        try {
+          function readMode(key) {
+            var value = localStorage.getItem(key);
+            return value === "light" || value === "dark" ? value : null;
+          }
+          function supabaseAuthStorageKeyFromUrl(supabaseUrl) {
+            try {
+              var projectRef = new URL(supabaseUrl || "").hostname.split(".")[0];
+              if (projectRef) return "sb-" + projectRef + "-auth-token";
+            } catch (_) {}
+            return "sb-zshrcgbyhzxpnlccssyz-auth-token";
+          }
+          function readUserId() {
+            var key = supabaseAuthStorageKeyFromUrl("%VITE_SUPABASE_URL%");
+            var parsed = JSON.parse(localStorage.getItem(key) || "{}");
+            var user = parsed.user || (parsed.currentSession && parsed.currentSession.user) || (parsed.session && parsed.session.user);
+            if (user && typeof user.id === "string" && user.id) return user.id;
+            return null;
+          }
+          var userId = readUserId();
+          var stored = userId
+            ? readMode("sett-personal-theme-mode:user:" + userId)
+            : readMode("sett-personal-theme-mode:anonymous");
+          var mode = stored === "light" || stored === "dark"
+            ? stored
+            : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          document.documentElement.classList.toggle("dark", mode === "dark");
+          document.documentElement.dataset.themeMode = mode;
+        } catch (_) {}
+      })();
+    </script>
+    <title>Fixture de tema pessoal</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/qa/personal-theme-fixture.tsx"></script>
+  </body>
+</html>

@@ -12,10 +12,6 @@ export function selectWhatsAppUploadMode(size: number): "standard" | "resumable"
   return size <= STANDARD_UPLOAD_MAX_BYTES ? "standard" : "resumable";
 }
 
-export function describeWhatsAppMediaDelivery(file: Pick<File, "size" | "type">): {
-  mediatype: "image" | "video" | "audio" | "document" | "sticker";
-  notice: string | null;
-};
 export function describeWhatsAppMediaDelivery(
   file: Pick<File, "size" | "type">,
   options?: { asSticker?: boolean },

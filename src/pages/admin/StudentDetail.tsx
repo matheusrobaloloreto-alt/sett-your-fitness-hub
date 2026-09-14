@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, lazy, Suspense } from "react";
+import { useEffect, useState, useRef, useMemo, lazy, Suspense } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
@@ -37,7 +37,8 @@ import { EditorialTabStrip } from "@/components/EditorialTabStrip";
 import { ProgressPhotosPanel } from "@/components/ProgressPhotosPanel";
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
 import type { PreRegistrationData } from "@/lib/preRegistration";
-import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
+import { calculateWeeklyMuscleVolume } from "@/lib/workoutVolume";
+import { useExerciseVolumeTargets } from "@/hooks/useExerciseVolumeTargets";
 import { businessDateYmd } from "@/lib/businessDate";
 
 // Safely format a date string. Returns "—" when value is missing or invalid.
@@ -311,6 +312,21 @@ export default function StudentDetail() {
   const [reschedulingCycleId, setReschedulingCycleId] = useState<string | null>(null);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [allWorkouts, setAllWorkouts] = useState<StudentWorkoutRow[]>([]);
+  const volumeExerciseIds = useMemo(() => allWorkouts.flatMap((workout) =>
+    (Array.isArray(workout.exercises) ? workout.exercises : []).flatMap((exercise: any) => {
+      const exerciseId = exercise?.exercise_id || exercise?.exerciseId;
+      return typeof exerciseId === "string" ? [exerciseId] : [];
+    }),
+  ), [allWorkouts]);
+  const volumeTargets = useExerciseVolumeTargets(id, volumeExerciseIds);
+  const volumeTargetConfig = useMemo(() => ({
+    targets: volumeTargets.map((target) => ({
+      exercise_id: target.exerciseId, muscle_group_id: target.muscleGroup,
+      role: target.role, is_primary: target.isPrimary,
+    })),
+    muscleGroups: [...new Set(volumeTargets.map((target) => target.muscleGroup))]
+      .map((name) => ({ id: name, name })),
+  }), [volumeTargets]);
   const [archivedWorkouts, setArchivedWorkouts] = useState<StudentWorkoutRow[]>([]);
   const [workoutUsageCounts, setWorkoutUsageCounts] = useState<Record<string, { logs: number; sessions: number }>>({});
   const [asaasPayments, setAsaasPayments] = useState<AsaasPayment[]>([]);
@@ -1523,19 +1539,19 @@ export default function StudentDetail() {
                       <div className="grid grid-cols-1 gap-3 pt-2 border-t border-border/50">
                         {cycleWorkouts.map((w: any) => {
                           const exercises = (w.exercises as any[]) || [];
-                          const muscleVolumes = exercises.reduce((acc: any[], ex: any) => {
-                            const mg = canonicalAnatomicalMuscleGroup(ex.muscle_group);
-                            if (!mg) return acc;
-                            const sets = parseInt(ex.sets) || 0;
-                            const existing = acc.find((a: any) => a.muscleGroup === mg);
-                            if (existing) existing.volume += sets;
-                            else acc.push({ muscleGroup: mg, volume: sets });
-                            return acc;
-                          }, []);
+                          const { volume } = calculateWeeklyMuscleVolume({
+                            ...volumeTargetConfig,
+                            workouts: [{ exercises: exercises.map((ex: any) => ({
+                              exercise_id: ex.exercise_id || ex.exerciseId || "",
+                              muscle_group: ex.muscle_group,
+                              sets: ex.sets,
+                            })) }],
+                          });
+                          const muscleVolumes = Object.entries(volume).map(([muscleGroup, sets]) => ({ muscleGroup, volume: sets }));
                           return (
                             <div key={w.id} className="space-y-2">
                               <p className="text-xs font-sans font-medium text-muted-foreground truncate">{w.title || `Treino ${w.name}`}</p>
-                              <MuscleRadar muscleVolumes={muscleVolumes} />
+                              <MuscleRadar muscleVolumes={muscleVolumes} unit="sets" />
                             </div>
                           );
                         })}

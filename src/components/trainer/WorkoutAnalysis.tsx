@@ -10,8 +10,8 @@ import { MuscleRadar } from "@/components/student/MuscleRadar";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
-import { effectiveCoverageWindow, normalizeTargetWeight } from "@/lib/volumeStats";
-import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
+import { buildExerciseMeta, effectiveCoverageWindow, fractionalSetsByMuscleGroup } from "@/lib/volumeStats";
+import { calculateWeeklyMuscleVolume } from "@/lib/workoutVolume";
 
 interface Props {
   studentId: string;
@@ -117,7 +117,6 @@ export function WorkoutAnalysis({ studentId }: Props) {
 
     // Get all exercise IDs from workouts — support both exercise_id and exerciseId
     const exerciseIds = new Set<string>();
-    const prescribedByExercise: Record<string, number> = {};
 
     materializedWorkouts.forEach(w => {
       const exercises = (w.exercises as any[]) || [];
@@ -125,8 +124,6 @@ export function WorkoutAnalysis({ studentId }: Props) {
         const exId = ex.exercise_id || ex.exerciseId;
         if (exId) {
           exerciseIds.add(exId);
-          const sets = parseInt(ex.sets) || 0;
-          prescribedByExercise[exId] = (prescribedByExercise[exId] || 0) + sets;
         }
       });
     });
@@ -191,30 +188,39 @@ export function WorkoutAnalysis({ studentId }: Props) {
       p_student_id: studentId,
       p_exercise_ids: Array.from(exerciseIds),
     });
-    if (targetsError || !targets?.length) {
+    if (targetsError) {
       if (targetsError) console.error("effective exercise targets:", targetsError.message);
       setMuscleData([]);
       setLoading(false);
       return;
     }
 
-    // Aggregate by muscle group
+    // Share the same fixed factors, alias dedupe and anatomical legacy fallback
+    // as the student charts and the manual prescription builder.
     const mgData: Record<string, MuscleGroupVolume> = {};
-
-    (targets || []).forEach(t => {
-      const mgName = canonicalAnatomicalMuscleGroup(t.muscle_group_name);
-      if (!mgName) return;
-      if (!mgData[mgName]) {
-        mgData[mgName] = { name: mgName, prescribedSets: 0, executedSets: 0 };
-      }
-      const factor = normalizeTargetWeight({
-        role: t.role,
-        isPrimary: t.is_primary,
-        volumePercentage: t.volume_percentage,
-      });
-      mgData[mgName].prescribedSets += (prescribedByExercise[t.exercise_id] || 0) * factor;
-      mgData[mgName].executedSets += (executedByExercise[t.exercise_id] || 0) * factor;
-    });
+    const cycleWorkouts = materializedWorkouts.map((workout) => ({
+      id: workout.id,
+      exercises: ((workout.exercises as any[]) || []).map((exercise) => ({
+        ...exercise, exercise_id: exercise.exercise_id || exercise.exerciseId || "",
+      })),
+    }));
+    const targetRows = targets || [];
+    const prescribed = calculateWeeklyMuscleVolume({
+      workouts: cycleWorkouts,
+      targets: targetRows.map((target) => ({ ...target, muscle_group_id: target.muscle_group_name })),
+      muscleGroups: targetRows.map((target) => ({ id: target.muscle_group_name, name: target.muscle_group_name })),
+    }).volume;
+    const executed = fractionalSetsByMuscleGroup(filteredLogs, buildExerciseMeta([{ workouts: cycleWorkouts }]), targetRows.map((target) => ({
+      exerciseId: target.exercise_id, muscleGroup: target.muscle_group_name,
+      role: target.role, isPrimary: target.is_primary,
+    })));
+    for (const [name, sets] of Object.entries(prescribed)) {
+      mgData[name] = { name, prescribedSets: sets, executedSets: 0 };
+    }
+    for (const { group: name, sets } of executed) {
+      mgData[name] ||= { name, prescribedSets: 0, executedSets: 0 };
+      mgData[name].executedSets = sets;
+    }
 
     setMuscleData(Object.values(mgData).sort((a, b) => b.prescribedSets - a.prescribedSets));
     setLoading(false);
@@ -327,7 +333,7 @@ export function WorkoutAnalysis({ studentId }: Props) {
               Distribuição Muscular
             </h3>
             <div className="w-full">
-              <MuscleRadar muscleVolumes={muscleData.map(mg => ({ muscleGroup: mg.name, volume: mg.executedSets }))} />
+              <MuscleRadar muscleVolumes={muscleData.map(mg => ({ muscleGroup: mg.name, volume: mg.executedSets }))} unit="sets" />
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">

@@ -20,7 +20,7 @@ describe("calculateWeeklyMuscleVolume", () => {
       ],
     });
 
-    expect(result.volume).toEqual({ Glúteo: 4, Quadríceps: 2, Dorsal: 3 });
+    expect(result.volume).toEqual({ Glúteos: 4, Quadríceps: 2, Dorsal: 3 });
     expect(result.uncoveredExerciseIds).toEqual([]);
   });
 

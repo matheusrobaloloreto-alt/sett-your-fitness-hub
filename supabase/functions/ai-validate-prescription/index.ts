@@ -1,7 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { canonicalMuscleSlug, normalizeExerciseCategories } from "../_shared/exerciseTaxonomy.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantAccess, HttpError } from "../_shared/tenant-auth.ts";
-import { targetVolumeFactor } from "../_shared/prescription/volumeRules.ts";
+import { buildCatalogVolumeSummary, canonicalCatalogTargets } from "../_shared/prescription/catalogVolume.ts";
+import { fetchExerciseRelations } from "../_shared/prescription/catalogRows.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -26,6 +28,7 @@ interface ExerciseCatalogEntry {
   id: string;
   name: string;
   muscle_group: string | null;
+  categories?: string[];
   contraindications: string[];
   regressions: string[];
   progressions: string[];
@@ -56,14 +59,6 @@ function asTextArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => String(item ?? "").trim()).filter(Boolean) : [];
 }
 
-function chunkArray<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-}
-
 async function selectByExerciseIdChunks(
   supabase: any,
   table: string,
@@ -71,15 +66,7 @@ async function selectByExerciseIdChunks(
   exerciseIds: string[],
   options: { companyId?: string | null } = {},
 ) {
-  const rows: any[] = [];
-  for (const ids of chunkArray(exerciseIds, 80)) {
-    let query = supabase.from(table).select(columns).in("exercise_id", ids);
-    if (options.companyId) query = query.eq("company_id", options.companyId);
-    const { data, error } = await query;
-    if (error) return { data: rows, error };
-    rows.push(...((data ?? []) as any[]));
-  }
-  return { data: rows, error: null };
+  return fetchExerciseRelations({ supabase, table, columns, exerciseIds, ...options });
 }
 
 async function requireUser(req: Request) {
@@ -101,7 +88,7 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
   const makeQuery = (from: number, to: number) => {
     const q = supabase
       .from("exercise_library")
-      .select("id, name, muscle_group, is_global, company_id")
+      .select("id, name, muscle_group, categories, is_global, company_id")
       .order("muscle_group", { ascending: true })
       .order("name", { ascending: true })
       .range(from, to);
@@ -117,25 +104,16 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
     if (page.length < CATALOG_PAGE_SIZE) break;
   }
   const exerciseIds = exerciseRows.map((exercise) => exercise.id as string).filter(Boolean);
-  const [targetsResult, groupsResult, overridesResult, metadataResult] = await Promise.all([
+  const [targetsResult, groupsResult, metadataResult] = await Promise.all([
     exerciseIds.length
       ? selectByExerciseIdChunks(
           supabase,
           "exercise_muscle_targets",
-          "exercise_id, muscle_group_id, role, volume_percentage",
+          "exercise_id, muscle_group_id, role, is_primary, volume_percentage",
           exerciseIds,
         )
       : Promise.resolve({ data: [], error: null }),
     supabase.from("muscle_groups").select("id, name"),
-    companyId && exerciseIds.length
-      ? selectByExerciseIdChunks(
-          supabase,
-          "company_exercise_volumes",
-          "exercise_id, muscle_group_id, role, volume_percentage",
-          exerciseIds,
-          { companyId },
-        )
-      : Promise.resolve({ data: [], error: null }),
     exerciseIds.length
       ? selectByExerciseIdChunks(
           supabase,
@@ -148,7 +126,6 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
 
   if (targetsResult.error) throw new Error(`Falha ao carregar alvos musculares: ${targetsResult.error.message}`);
   if (groupsResult.error) throw new Error(`Falha ao carregar grupos musculares: ${groupsResult.error.message}`);
-  if (overridesResult.error) throw new Error(`Falha ao carregar volumes da empresa: ${overridesResult.error.message}`);
   if (metadataResult.error) {
     console.warn("exercise_metadata skipped:", metadataResult.error.message);
   }
@@ -156,24 +133,15 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
   const groupNames = new Map<string, string>();
   for (const group of ((groupsResult.data ?? []) as any[])) groupNames.set(group.id as string, group.name as string);
 
-  const volumeOverrides = new Map<string, { role: string | null; volume_percentage: number }>();
-  for (const override of ((overridesResult.data ?? []) as any[])) {
-    volumeOverrides.set(`${override.exercise_id}:${override.muscle_group_id}`, {
-      role: (override.role as string | null) ?? null,
-      volume_percentage: override.volume_percentage as number,
-    });
-  }
-
   const targetsByExercise = new Map<string, ExerciseCatalogEntry["targets"]>();
   for (const target of ((targetsResult.data ?? []) as any[])) {
     const exerciseId = target.exercise_id as string;
     const muscleGroupId = target.muscle_group_id as string;
-    const override = volumeOverrides.get(`${exerciseId}:${muscleGroupId}`);
     const targets = targetsByExercise.get(exerciseId) ?? [];
     targets.push({
       muscle_group: groupNames.get(muscleGroupId) ?? muscleGroupId,
-      role: override?.role ?? ((target.role as string | null) ?? null),
-      volume_percentage: override?.volume_percentage ?? ((target.volume_percentage as number | null) ?? null),
+      role: (target.role as string | null) ?? (target.is_primary ? "primary" : "secondary"),
+      volume_percentage: (target.role === "primary" || (!target.role && target.is_primary)) ? 100 : 50,
     });
     targetsByExercise.set(exerciseId, targets);
   }
@@ -200,13 +168,14 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
   return exerciseRows.map((exercise) => ({
     id: exercise.id as string,
     name: exercise.name as string,
-    muscle_group: (exercise.muscle_group as string | null) ?? null,
+    muscle_group: canonicalMuscleSlug(exercise.muscle_group),
+    categories: normalizeExerciseCategories(exercise),
     contraindications: metadataByExercise.get(exercise.id as string)?.contraindications ?? [],
     regressions: metadataByExercise.get(exercise.id as string)?.regressions ?? [],
     progressions: metadataByExercise.get(exercise.id as string)?.progressions ?? [],
     equivalent_substitutes: metadataByExercise.get(exercise.id as string)?.equivalent_substitutes ?? [],
     pain_limitation_tags: metadataByExercise.get(exercise.id as string)?.pain_limitation_tags ?? [],
-    targets: targetsByExercise.get(exercise.id as string) ?? [],
+    targets: canonicalCatalogTargets(targetsByExercise.get(exercise.id as string) ?? []),
   }));
 }
 
@@ -233,30 +202,8 @@ function validateLibraryUsage(plan: unknown, validExerciseIds: Set<string>) {
 }
 
 function buildVolumeSummary(plan: unknown, catalog: ExerciseCatalogEntry[]) {
-  const exerciseMap = new Map(catalog.map((exercise) => [exercise.id, exercise]));
-  const weeklySets = new Map<string, number>();
-  if (!isRecord(plan) || !Array.isArray(plan.workouts)) return [];
-
-  for (const workout of plan.workouts) {
-    if (!isRecord(workout) || !Array.isArray(workout.exercises)) continue;
-    for (const exercise of workout.exercises) {
-      if (!isRecord(exercise)) continue;
-      const sets = typeof exercise.sets === "number" ? exercise.sets : Number(exercise.sets || 0);
-      if (!Number.isFinite(sets) || sets <= 0) continue;
-      const catalogExercise = exerciseMap.get(String(exercise.exercise_id || ""));
-      const targets = catalogExercise?.targets?.length
-        ? catalogExercise.targets
-        : [{ muscle_group: clean(exercise.muscle_group || catalogExercise?.muscle_group || "nao_informado"), role: "primary", volume_percentage: 100 }];
-      for (const target of targets) {
-        const multiplier = targetVolumeFactor(target);
-        weeklySets.set(target.muscle_group, (weeklySets.get(target.muscle_group) ?? 0) + sets * multiplier);
-      }
-    }
-  }
-
-  return Array.from(weeklySets.entries()).map(([muscle_group, weekly_sets]) => ({
-    muscle_group,
-    weekly_sets: Math.round(weekly_sets * 10) / 10,
+  return [...buildCatalogVolumeSummary(plan, catalog)].map(([muscle_group, weekly_sets]) => ({
+    muscle_group, weekly_sets: Math.round(weekly_sets * 10) / 10,
   }));
 }
 

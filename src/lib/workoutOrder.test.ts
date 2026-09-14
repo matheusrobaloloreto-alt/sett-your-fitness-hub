@@ -4,9 +4,10 @@ import {
   findWorkoutOrderUnitIndexByExerciseIndex,
   moveWorkoutOrderUnit,
   moveWorkoutOrderUnitByExerciseIndex,
+  type WorkoutOrderExercise,
 } from "@/lib/workoutOrder";
 
-const ex = (name: string, extra: Record<string, unknown> = {}) => ({
+const ex = (name: string, extra: WorkoutOrderExercise & Record<string, unknown> = {}) => ({
   exercise_name: name,
   exercise_order: 0,
   sets: 3,

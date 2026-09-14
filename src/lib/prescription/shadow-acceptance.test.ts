@@ -99,8 +99,8 @@ describe("B7 — shadow hardening (lógica pura)", () => {
   it("13) mede volume_by_group_delta (objeto de deltas numéricos)", () => {
     const cmp = cmpFor({ objective: "hipertrofia", fitnessLevel: "intermediario", daysPerWeek: 4 });
     expect(typeof cmp.diff.volume_by_group_delta).toBe("object");
-    // 'costas' existe no plano atual e no novo => delta é número
-    expect(typeof cmp.diff.volume_by_group_delta["costas"]).toBe("number");
+    // O alias histórico Costas contribui para o slug anatômico dorsal.
+    expect(typeof cmp.diff.volume_by_group_delta["dorsal"]).toBe("number");
   });
   it("14) mede timing_ms", () => {
     const cmp = cmpFor({ objective: "hipertrofia", fitnessLevel: "intermediario", daysPerWeek: 4 }, { timingMs: 42 });

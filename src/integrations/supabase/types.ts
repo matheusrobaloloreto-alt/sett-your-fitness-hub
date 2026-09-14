@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       achievements: {
@@ -2184,6 +2159,88 @@ export type Database = {
           },
         ]
       }
+      cycle_prescription_clear_events: {
+        Row: {
+          actor_id: string
+          bundle_item_snapshot: Json
+          bundle_snapshot: Json
+          company_id: string
+          content_signature: string
+          created_at: string
+          cycle_id: string
+          cycle_snapshot: Json
+          id: string
+          reason: string | null
+          restored_at: string | null
+          restored_by: string | null
+          restored_reason: string | null
+          running_plan_snapshot: Json
+          strength_plan_snapshot: Json
+          student_id: string
+          workout_snapshot: Json
+        }
+        Insert: {
+          actor_id: string
+          bundle_item_snapshot?: Json
+          bundle_snapshot?: Json
+          company_id: string
+          content_signature: string
+          created_at?: string
+          cycle_id: string
+          cycle_snapshot: Json
+          id?: string
+          reason?: string | null
+          restored_at?: string | null
+          restored_by?: string | null
+          restored_reason?: string | null
+          running_plan_snapshot?: Json
+          strength_plan_snapshot?: Json
+          student_id: string
+          workout_snapshot?: Json
+        }
+        Update: {
+          actor_id?: string
+          bundle_item_snapshot?: Json
+          bundle_snapshot?: Json
+          company_id?: string
+          content_signature?: string
+          created_at?: string
+          cycle_id?: string
+          cycle_snapshot?: Json
+          id?: string
+          reason?: string | null
+          restored_at?: string | null
+          restored_by?: string | null
+          restored_reason?: string | null
+          running_plan_snapshot?: Json
+          strength_plan_snapshot?: Json
+          student_id?: string
+          workout_snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_prescription_clear_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cycle_prescription_clear_events_cycle_id_fkey"
+            columns: ["cycle_id"]
+            isOneToOne: false
+            referencedRelation: "training_cycles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cycle_prescription_clear_events_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cycle_templates: {
         Row: {
           company_id: string
@@ -2211,8 +2268,63 @@ export type Database = {
         }
         Relationships: []
       }
+      enrollment_legacy_term_repair_audit: {
+        Row: {
+          action: string
+          after_enrollment: Json | null
+          after_sha256: string | null
+          after_student: Json | null
+          applied_at: string
+          before_enrollment: Json
+          before_sha256: string
+          before_student: Json
+          company_id: string
+          enrollment_id: string
+          id: string
+          repair_key: string
+          rolled_back_at: string | null
+          state: string
+          student_id: string
+        }
+        Insert: {
+          action: string
+          after_enrollment?: Json | null
+          after_sha256?: string | null
+          after_student?: Json | null
+          applied_at?: string
+          before_enrollment: Json
+          before_sha256: string
+          before_student: Json
+          company_id: string
+          enrollment_id: string
+          id?: string
+          repair_key: string
+          rolled_back_at?: string | null
+          state?: string
+          student_id: string
+        }
+        Update: {
+          action?: string
+          after_enrollment?: Json | null
+          after_sha256?: string | null
+          after_student?: Json | null
+          applied_at?: string
+          before_enrollment?: Json
+          before_sha256?: string
+          before_student?: Json
+          company_id?: string
+          enrollment_id?: string
+          id?: string
+          repair_key?: string
+          rolled_back_at?: string | null
+          state?: string
+          student_id?: string
+        }
+        Relationships: []
+      }
       enrollments: {
         Row: {
+          carried_over_cycle_cleared_at: string | null
           carried_over_cycle_id: string | null
           company_id: string | null
           created_at: string
@@ -2233,6 +2345,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          carried_over_cycle_cleared_at?: string | null
           carried_over_cycle_id?: string | null
           company_id?: string | null
           created_at?: string
@@ -2253,6 +2366,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          carried_over_cycle_cleared_at?: string | null
           carried_over_cycle_id?: string | null
           company_id?: string | null
           created_at?: string
@@ -2273,6 +2387,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "enrollments_carried_over_cycle_id_fkey"
+            columns: ["carried_over_cycle_id"]
+            isOneToOne: false
+            referencedRelation: "training_cycles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "enrollments_company_id_fkey"
             columns: ["company_id"]
@@ -4535,6 +4656,78 @@ export type Database = {
           },
         ]
       }
+      payment_orphan_reconciliation_audit: {
+        Row: {
+          applied_at: string
+          canonical_after_sha256: string | null
+          canonical_before: Json
+          canonical_before_sha256: string
+          canonical_payment_ids: string[]
+          company_id: string
+          export_sha256: string
+          id: string
+          payment_before: Json
+          payment_before_sha256: string
+          payment_deleted: boolean
+          payment_id: string
+          provider_evidence: Json
+          recovery_events_after: Json | null
+          recovery_events_after_sha256: string | null
+          recovery_events_before: Json
+          recovery_events_before_sha256: string
+          repair_key: string
+          rolled_back_at: string | null
+          state: string
+          student_id: string
+        }
+        Insert: {
+          applied_at?: string
+          canonical_after_sha256?: string | null
+          canonical_before: Json
+          canonical_before_sha256: string
+          canonical_payment_ids: string[]
+          company_id: string
+          export_sha256: string
+          id?: string
+          payment_before: Json
+          payment_before_sha256: string
+          payment_deleted?: boolean
+          payment_id: string
+          provider_evidence: Json
+          recovery_events_after?: Json | null
+          recovery_events_after_sha256?: string | null
+          recovery_events_before: Json
+          recovery_events_before_sha256: string
+          repair_key: string
+          rolled_back_at?: string | null
+          state?: string
+          student_id: string
+        }
+        Update: {
+          applied_at?: string
+          canonical_after_sha256?: string | null
+          canonical_before?: Json
+          canonical_before_sha256?: string
+          canonical_payment_ids?: string[]
+          company_id?: string
+          export_sha256?: string
+          id?: string
+          payment_before?: Json
+          payment_before_sha256?: string
+          payment_deleted?: boolean
+          payment_id?: string
+          provider_evidence?: Json
+          recovery_events_after?: Json | null
+          recovery_events_after_sha256?: string | null
+          recovery_events_before?: Json
+          recovery_events_before_sha256?: string
+          repair_key?: string
+          rolled_back_at?: string | null
+          state?: string
+          student_id?: string
+        }
+        Relationships: []
+      }
       payment_recovery_events: {
         Row: {
           company_id: string
@@ -6767,8 +6960,6 @@ export type Database = {
           updated_at: string
           user_id: string | null
           weekly_contact_enabled: boolean
-          weekly_contact_recipient_generation: number
-          weekly_contact_recipient_key: string | null
           weekly_workout_goal: number
           weight_kg: number | null
           whatsapp: string | null
@@ -6821,8 +7012,6 @@ export type Database = {
           updated_at?: string
           user_id?: string | null
           weekly_contact_enabled?: boolean
-          weekly_contact_recipient_generation?: number
-          weekly_contact_recipient_key?: string | null
           weekly_workout_goal?: number
           weight_kg?: number | null
           whatsapp?: string | null
@@ -6875,8 +7064,6 @@ export type Database = {
           updated_at?: string
           user_id?: string | null
           weekly_contact_enabled?: boolean
-          weekly_contact_recipient_generation?: number
-          weekly_contact_recipient_key?: string | null
           weekly_workout_goal?: number
           weight_kg?: number | null
           whatsapp?: string | null
@@ -7396,6 +7583,207 @@ export type Database = {
         }
         Relationships: []
       }
+      training_cycle_overlap_repair_audit: {
+        Row: {
+          after_cycles: Json | null
+          after_cycles_sha256: string | null
+          after_workouts: Json | null
+          after_workouts_sha256: string | null
+          applied_at: string
+          batch_sha256: string
+          before_cycles: Json
+          before_cycles_sha256: string
+          before_enrollment: Json
+          before_workouts: Json
+          before_workouts_sha256: string
+          company_id: string
+          enrollment_id: string
+          id: string
+          repair_key: string
+          rolled_back_at: string | null
+          state: string
+          student_id: string
+        }
+        Insert: {
+          after_cycles?: Json | null
+          after_cycles_sha256?: string | null
+          after_workouts?: Json | null
+          after_workouts_sha256?: string | null
+          applied_at?: string
+          batch_sha256: string
+          before_cycles: Json
+          before_cycles_sha256: string
+          before_enrollment: Json
+          before_workouts: Json
+          before_workouts_sha256: string
+          company_id: string
+          enrollment_id: string
+          id?: string
+          repair_key: string
+          rolled_back_at?: string | null
+          state?: string
+          student_id: string
+        }
+        Update: {
+          after_cycles?: Json | null
+          after_cycles_sha256?: string | null
+          after_workouts?: Json | null
+          after_workouts_sha256?: string | null
+          applied_at?: string
+          batch_sha256?: string
+          before_cycles?: Json
+          before_cycles_sha256?: string
+          before_enrollment?: Json
+          before_workouts?: Json
+          before_workouts_sha256?: string
+          company_id?: string
+          enrollment_id?: string
+          id?: string
+          repair_key?: string
+          rolled_back_at?: string | null
+          state?: string
+          student_id?: string
+        }
+        Relationships: []
+      }
+      training_cycle_owner_decision_repair_audit: {
+        Row: {
+          action: string
+          applied_at: string
+          batch_sha256: string
+          canonical_after: Json | null
+          canonical_after_sha256: string | null
+          canonical_before: Json
+          canonical_before_sha256: string
+          canonical_cycle_id: string
+          company_id: string
+          decision: string
+          dependencies_after: Json | null
+          dependencies_before: Json
+          enrollment_id: string
+          id: string
+          repair_key: string
+          rolled_back_at: string | null
+          state: string
+          student_id: string
+          superseded_after: Json | null
+          superseded_after_sha256: string | null
+          superseded_before: Json
+          superseded_before_sha256: string
+          superseded_cycle_id: string
+        }
+        Insert: {
+          action: string
+          applied_at?: string
+          batch_sha256: string
+          canonical_after?: Json | null
+          canonical_after_sha256?: string | null
+          canonical_before: Json
+          canonical_before_sha256: string
+          canonical_cycle_id: string
+          company_id: string
+          decision: string
+          dependencies_after?: Json | null
+          dependencies_before: Json
+          enrollment_id: string
+          id?: string
+          repair_key: string
+          rolled_back_at?: string | null
+          state?: string
+          student_id: string
+          superseded_after?: Json | null
+          superseded_after_sha256?: string | null
+          superseded_before: Json
+          superseded_before_sha256: string
+          superseded_cycle_id: string
+        }
+        Update: {
+          action?: string
+          applied_at?: string
+          batch_sha256?: string
+          canonical_after?: Json | null
+          canonical_after_sha256?: string | null
+          canonical_before?: Json
+          canonical_before_sha256?: string
+          canonical_cycle_id?: string
+          company_id?: string
+          decision?: string
+          dependencies_after?: Json | null
+          dependencies_before?: Json
+          enrollment_id?: string
+          id?: string
+          repair_key?: string
+          rolled_back_at?: string | null
+          state?: string
+          student_id?: string
+          superseded_after?: Json | null
+          superseded_after_sha256?: string | null
+          superseded_before?: Json
+          superseded_before_sha256?: string
+          superseded_cycle_id?: string
+        }
+        Relationships: []
+      }
+      training_cycle_safe_overlap_repair_audit: {
+        Row: {
+          action: string
+          after_cycle: Json | null
+          after_sha256: string | null
+          applied_at: string
+          batch_sha256: string
+          before_cycle: Json
+          before_dependencies: Json
+          before_sha256: string
+          canonical_cycle_id: string | null
+          company_id: string
+          cycle_id: string
+          enrollment_id: string
+          id: string
+          repair_key: string
+          rolled_back_at: string | null
+          state: string
+          student_id: string
+        }
+        Insert: {
+          action: string
+          after_cycle?: Json | null
+          after_sha256?: string | null
+          applied_at?: string
+          batch_sha256: string
+          before_cycle: Json
+          before_dependencies: Json
+          before_sha256: string
+          canonical_cycle_id?: string | null
+          company_id: string
+          cycle_id: string
+          enrollment_id: string
+          id?: string
+          repair_key: string
+          rolled_back_at?: string | null
+          state?: string
+          student_id: string
+        }
+        Update: {
+          action?: string
+          after_cycle?: Json | null
+          after_sha256?: string | null
+          applied_at?: string
+          batch_sha256?: string
+          before_cycle?: Json
+          before_dependencies?: Json
+          before_sha256?: string
+          canonical_cycle_id?: string | null
+          company_id?: string
+          cycle_id?: string
+          enrollment_id?: string
+          id?: string
+          repair_key?: string
+          rolled_back_at?: string | null
+          state?: string
+          student_id?: string
+        }
+        Relationships: []
+      }
       training_cycle_supersession_audit: {
         Row: {
           applied_at: string
@@ -7450,6 +7838,69 @@ export type Database = {
         }
         Relationships: []
       }
+      training_cycle_targeted_overlap_repair_audit: {
+        Row: {
+          action: string
+          after_cycle: Json | null
+          after_sha256: string | null
+          applied_at: string
+          batch_sha256: string
+          before_cycle: Json
+          before_dependencies: Json
+          before_sha256: string
+          company_id: string
+          cycle_id: string
+          enrollment_id: string
+          id: string
+          previous_cycle_id: string
+          repair_key: string
+          rolled_back_at: string | null
+          scope: string
+          state: string
+          student_id: string
+        }
+        Insert: {
+          action: string
+          after_cycle?: Json | null
+          after_sha256?: string | null
+          applied_at?: string
+          batch_sha256: string
+          before_cycle: Json
+          before_dependencies: Json
+          before_sha256: string
+          company_id: string
+          cycle_id: string
+          enrollment_id: string
+          id?: string
+          previous_cycle_id: string
+          repair_key: string
+          rolled_back_at?: string | null
+          scope: string
+          state?: string
+          student_id: string
+        }
+        Update: {
+          action?: string
+          after_cycle?: Json | null
+          after_sha256?: string | null
+          applied_at?: string
+          batch_sha256?: string
+          before_cycle?: Json
+          before_dependencies?: Json
+          before_sha256?: string
+          company_id?: string
+          cycle_id?: string
+          enrollment_id?: string
+          id?: string
+          previous_cycle_id?: string
+          repair_key?: string
+          rolled_back_at?: string | null
+          scope?: string
+          state?: string
+          student_id?: string
+        }
+        Relationships: []
+      }
       training_cycles: {
         Row: {
           anamnese_id: string | null
@@ -7468,6 +7919,11 @@ export type Database = {
           prescribed_offline_at: string | null
           prescribed_offline_by: string | null
           prescribed_offline_note: string | null
+          prescription_cleared_at: string | null
+          prescription_cleared_by: string | null
+          prescription_cleared_event_id: string | null
+          prescription_cleared_reason: string | null
+          prescription_cleared_signature: string | null
           start_date: string | null
           status: string | null
           student_id: string
@@ -7495,6 +7951,11 @@ export type Database = {
           prescribed_offline_at?: string | null
           prescribed_offline_by?: string | null
           prescribed_offline_note?: string | null
+          prescription_cleared_at?: string | null
+          prescription_cleared_by?: string | null
+          prescription_cleared_event_id?: string | null
+          prescription_cleared_reason?: string | null
+          prescription_cleared_signature?: string | null
           start_date?: string | null
           status?: string | null
           student_id: string
@@ -7522,6 +7983,11 @@ export type Database = {
           prescribed_offline_at?: string | null
           prescribed_offline_by?: string | null
           prescribed_offline_note?: string | null
+          prescription_cleared_at?: string | null
+          prescription_cleared_by?: string | null
+          prescription_cleared_event_id?: string | null
+          prescription_cleared_reason?: string | null
+          prescription_cleared_signature?: string | null
           start_date?: string | null
           status?: string | null
           student_id?: string
@@ -7559,6 +8025,13 @@ export type Database = {
             columns: ["enrollment_id"]
             isOneToOne: false
             referencedRelation: "enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_cycles_prescription_cleared_event_id_fkey"
+            columns: ["prescription_cleared_event_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_prescription_clear_events"
             referencedColumns: ["id"]
           },
           {
@@ -7819,108 +8292,6 @@ export type Database = {
             columns: ["partner_id"]
             isOneToOne: false
             referencedRelation: "partners"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      weekly_contact_consent_events: {
-        Row: {
-          actor_user_id: string
-          channel: string
-          company_id: string
-          created_at: string
-          event_type: string
-          id: string
-          occurred_at: string
-          policy_version: string
-          purpose: string
-          recipient_generation: number | null
-          recipient_key: string | null
-          sequence: number
-          source: string
-          student_id: string
-        }
-        Insert: {
-          actor_user_id: string
-          channel?: string
-          company_id: string
-          created_at?: string
-          event_type: string
-          id?: string
-          occurred_at?: string
-          policy_version: string
-          purpose?: string
-          recipient_generation?: number | null
-          recipient_key?: string | null
-          sequence?: number
-          source: string
-          student_id: string
-        }
-        Update: {
-          actor_user_id?: string
-          channel?: string
-          company_id?: string
-          created_at?: string
-          event_type?: string
-          id?: string
-          occurred_at?: string
-          policy_version?: string
-          purpose?: string
-          recipient_generation?: number | null
-          recipient_key?: string | null
-          sequence?: number
-          source?: string
-          student_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "weekly_contact_consent_events_company_id_fkey"
-            columns: ["company_id"]
-            isOneToOne: false
-            referencedRelation: "companies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "weekly_contact_consent_events_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      weekly_contact_legacy_opt_in_quarantine: {
-        Row: {
-          company_id: string
-          previous_enabled: boolean
-          quarantined_at: string
-          student_id: string
-        }
-        Insert: {
-          company_id: string
-          previous_enabled: boolean
-          quarantined_at?: string
-          student_id: string
-        }
-        Update: {
-          company_id?: string
-          previous_enabled?: boolean
-          quarantined_at?: string
-          student_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "weekly_contact_legacy_opt_in_quarantine_company_id_fkey"
-            columns: ["company_id"]
-            isOneToOne: false
-            referencedRelation: "companies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "weekly_contact_legacy_opt_in_quarantine_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: true
-            referencedRelation: "students"
             referencedColumns: ["id"]
           },
         ]
@@ -9731,6 +10102,16 @@ export type Database = {
           workouts_created: number
         }[]
       }
+      archive_student_cycle_prescription: {
+        Args: {
+          p_cycle_id: string
+          p_expected_content_signature: string
+          p_expected_workout_ids?: string[]
+          p_reason?: string
+          p_student_id: string
+        }
+        Returns: Json
+      }
       archive_student_workout: {
         Args: {
           p_cycle_id: string
@@ -9950,6 +10331,10 @@ export type Database = {
           p_revocation_succeeded: boolean
           p_student_id: string
         }
+        Returns: string
+      }
+      compute_cycle_prescription_content_signature: {
+        Args: { p_company_id: string; p_cycle_id: string; p_student_id: string }
         Returns: string
       }
       consume_wearable_oauth_state: { Args: { p_state: string }; Returns: Json }
@@ -10494,6 +10879,15 @@ export type Database = {
         Args: { _company_id: string; _user_id: string }
         Returns: boolean
       }
+      is_enrollment_carried_over_cycle_eligible: {
+        Args: {
+          _company_id: string
+          _cycle_id: string
+          _enrollment_id: string
+          _student_id: string
+        }
+        Returns: boolean
+      }
       is_student_company_staff: {
         Args: { _student_id: string; _user_id: string }
         Returns: boolean
@@ -10515,6 +10909,10 @@ export type Database = {
           reduce_volume: boolean
           wants_adjustment: boolean
         }[]
+      }
+      preview_student_cycle_prescription_archive: {
+        Args: { p_cycle_id: string; p_student_id: string }
+        Returns: Json
       }
       private_display_name: { Args: { _full_name: string }; Returns: string }
       process_automation_triggers: { Args: never; Returns: Json }
@@ -10573,22 +10971,6 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      record_weekly_contact_consent: {
-        Args: {
-          _event_type: string
-          _policy_version: string
-          _recipient_key: string | null
-          _source: string
-          _student_id: string
-        }
-        Returns: Database["public"]["Tables"]["weekly_contact_consent_events"]["Row"]
-        SetofOptions: {
-          from: "*"
-          to: "weekly_contact_consent_events"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
       record_payment_recovery_event: {
         Args: {
           _enrollment_id?: string
@@ -10609,22 +10991,6 @@ export type Database = {
         Args: { p_student_id: string; p_voucher_id: string }
         Returns: boolean
       }
-      replace_student_enrollment: {
-        Args: {
-          _company_id: string
-          _clear_carried_over_cycle?: boolean
-          _plan_id: string
-          _start_date: string
-          _student_id: string
-          _trainer_id: string | null
-        }
-        Returns: {
-          carried_over_cycle_id: string | null
-          enrollment_id: string
-          first_activation: boolean
-          previous_enrollment_id: string | null
-        }[]
-      }
       release_wearable_lease: {
         Args: { p_device_id: string; p_holder: string; p_purpose: string }
         Returns: undefined
@@ -10636,6 +11002,38 @@ export type Database = {
       replace_exercise_muscle_targets: {
         Args: { p_exercise_id: string; p_targets: Json }
         Returns: undefined
+      }
+      replace_paid_student_enrollment_internal: {
+        Args: {
+          _clear_carried_over_cycle: boolean
+          _company_id: string
+          _payment_date: string
+          _plan_id: string
+          _start_date: string
+          _student_id: string
+          _trainer_id: string
+        }
+        Returns: {
+          carried_over_cycle_id: string
+          enrollment_id: string
+          previous_enrollment_id: string
+        }[]
+      }
+      replace_student_enrollment: {
+        Args: {
+          _clear_carried_over_cycle?: boolean
+          _company_id: string
+          _plan_id: string
+          _start_date: string
+          _student_id: string
+          _trainer_id: string
+        }
+        Returns: {
+          carried_over_cycle_id: string
+          enrollment_id: string
+          first_activation: boolean
+          previous_enrollment_id: string
+        }[]
       }
       reply_to_workout_feedback: {
         Args: { _feedback_id: string; _trainer_reply: string }
@@ -10671,6 +11069,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      restore_student_cycle_prescription: {
+        Args: {
+          p_clear_event_id?: string
+          p_cycle_id: string
+          p_reason?: string
+          p_student_id: string
+        }
+        Returns: Json
+      }
       restore_student_workout: {
         Args: {
           p_cycle_id: string
@@ -10681,6 +11088,15 @@ export type Database = {
         Returns: Json
       }
       save_workout_logs_if_current: { Args: { _rows: Json }; Returns: Json }
+      select_enrollment_carryover_cycle: {
+        Args: {
+          _company_id: string
+          _new_enrollment_id: string
+          _previous_enrollment_id: string
+          _student_id: string
+        }
+        Returns: string
+      }
       set_staff_permission: {
         Args: {
           _company_id: string
@@ -10757,36 +11173,6 @@ export type Database = {
       user_purchased_template: {
         Args: { p_template_id: string; p_user_id: string }
         Returns: boolean
-      }
-      weekly_contact_current_recipient_key: {
-        Args: {
-          _country_code: string
-          _phone: string
-          _whatsapp: string
-        }
-        Returns: string
-      }
-      weekly_contact_consent_is_current: {
-        Args: {
-          _company_id: string
-          _recipient_candidate: string
-          _recipient_generation: number
-          _student_id: string
-        }
-        Returns: boolean
-      }
-      weekly_contact_consent_status: {
-        Args: { _recipient_key: string | null; _student_id: string }
-        Returns: Json
-      }
-      weekly_contact_policy_version: { Args: never; Returns: string }
-      weekly_contact_recipient_key: {
-        Args: { _candidate: string }
-        Returns: string
-      }
-      weekly_contact_stored_recipient_key: {
-        Args: { _country_code: string; _value: string }
-        Returns: string
       }
       weekly_consistency_source_id: {
         Args: { _student_id: string; _week_start: string }
@@ -10920,9 +11306,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: ["admin", "coordinator", "trainer", "master", "student"],

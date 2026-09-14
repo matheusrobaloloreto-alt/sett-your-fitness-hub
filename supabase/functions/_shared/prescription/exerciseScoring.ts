@@ -1,5 +1,6 @@
 import { normalizeText } from "./presets.ts";
 import type { ExerciseCatalogEntry, RestrictionRule } from "./types.ts";
+import { canonicalMuscleSlug, canonicalCategorySlug, normalizeExerciseCategories } from "../exerciseTaxonomy.ts";
 
 export interface ExercisePickRequest {
   catalog: ExerciseCatalogEntry[];
@@ -10,6 +11,7 @@ export interface ExercisePickRequest {
   equipment?: unknown;
   fitnessLevel?: unknown;
   preferredMuscleGroup?: string;
+  preferredCategory?: string;
   preferredPattern?: string;
   preferredExerciseIds?: Set<string>;
 }
@@ -20,6 +22,7 @@ type PreparedExercise = {
   metadata: string;
   equipment: string;
   muscleGroup: string;
+  categories: string[];
 };
 
 type PreparedRestriction = {
@@ -36,6 +39,7 @@ type PreparedRequest = {
   requestedEquipment: string;
   level: string;
   preferredMuscleGroup: string;
+  preferredCategory: string;
   preferredPattern: string;
   restrictions: PreparedRestriction[];
 };
@@ -49,6 +53,7 @@ function prepareExercise(exercise: ExerciseCatalogEntry): PreparedExercise {
       exercise.name,
       exercise.description,
       exercise.muscle_group,
+      exercise.categories?.join(" "),
       exercise.difficulty,
       exercise.equipment,
       exercise.targets?.map((target) => `${target.muscle_group} ${target.role ?? ""}`).join(" "),
@@ -60,7 +65,8 @@ function prepareExercise(exercise: ExerciseCatalogEntry): PreparedExercise {
       exercise.pain_limitation_tags,
     ]),
     equipment: normalizeText([exercise.name, exercise.equipment].join(" ")),
-    muscleGroup: normalizeText(exercise.muscle_group),
+    muscleGroup: canonicalMuscleSlug(exercise.muscle_group) || "",
+    categories: normalizeExerciseCategories(exercise),
   };
 }
 
@@ -78,7 +84,8 @@ function prepareRequest(request: ExercisePickRequest): PreparedRequest {
     equipment: normalizeText(request.equipment),
     requestedEquipment: normalizeRequestedEquipment(request.equipment),
     level: normalizeText(request.fitnessLevel),
-    preferredMuscleGroup: normalizeText(request.preferredMuscleGroup),
+    preferredMuscleGroup: canonicalMuscleSlug(request.preferredMuscleGroup) || "",
+    preferredCategory: canonicalCategorySlug(request.preferredCategory) || "",
     preferredPattern: normalizeText(request.preferredPattern),
     restrictions: (request.restrictions || []).map((rule) => ({
       active: rule.active,
@@ -144,7 +151,9 @@ function scorePreparedExercise(prepared: PreparedExercise, request: ExercisePick
     score += pieces.filter((piece) => text.includes(piece)).length;
   }
 
-  if (normalized.preferredMuscleGroup && prepared.muscleGroup.includes(normalized.preferredMuscleGroup)) score += 4;
+  if (normalized.preferredMuscleGroup && (prepared.muscleGroup === normalized.preferredMuscleGroup ||
+    exercise.targets?.some((target) => canonicalMuscleSlug(target.muscle_group) === normalized.preferredMuscleGroup))) score += 4;
+  if (normalized.preferredCategory && prepared.categories.includes(normalized.preferredCategory)) score += 4;
   if (normalized.preferredPattern && text.includes(normalized.preferredPattern)) score += 4;
   if (normalized.equipment && text.includes(normalized.equipment)) score += 2;
   if (normalized.level.includes("inic") && /avanc|complex|olimp|snatch|clean|salto/.test(text)) score -= 5;

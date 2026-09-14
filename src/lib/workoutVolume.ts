@@ -11,6 +11,7 @@ export interface WorkoutVolumeTarget {
   exercise_id: string;
   muscle_group_id: string;
   role?: string | null;
+  is_primary?: boolean | null;
   volume_percentage?: number | null;
 }
 
@@ -38,18 +39,15 @@ export function calculateWeeklyMuscleVolume(args: {
   for (const workout of args.workouts) {
     for (const exercise of workout.exercises) {
       const sets = Math.max(0, Number.parseFloat(String(exercise.sets)) || 0);
-      if (sets === 0) continue;
+      if (sets === 0 || !Number.isFinite(sets)) continue;
 
       const factors = new Map<string, number>();
       for (const target of targetsByExercise.get(exercise.exercise_id) || []) {
         const anatomicalGroup = canonicalAnatomicalMuscleGroup(muscleNameById.get(target.muscle_group_id));
         if (!anatomicalGroup) continue;
-        const rawPercentage = target.volume_percentage;
         const factor = normalizeTargetWeight({
           role: target.role,
-          volumePercentage: rawPercentage === null || rawPercentage === undefined
-            ? null
-            : Number(rawPercentage),
+          isPrimary: target.is_primary,
         });
         factors.set(anatomicalGroup, Math.max(factors.get(anatomicalGroup) || 0, factor));
       }

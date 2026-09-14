@@ -205,12 +205,12 @@ export function validateTrainingProgram(args: {
 
   const presentGroups = new Set(volume_review.filter((item) => item.weekly_sets > 0).map((item) => item.muscle_group));
   const missingImportant = IMPORTANT_GROUPS.filter((group) => !presentGroups.has(group));
-  if (args.catalog.length > 0 && missingImportant.includes("core")) {
+  if (args.catalog.length > 0 && missingImportant.includes("abdomen")) {
     add({
       severity: "warning",
-      code: "missing_core",
-      message: "Core não apareceu claramente no plano.",
-      recommendation: "Adicionar ativação/estabilidade de core em pelo menos 1-2 sessões.",
+      code: "missing_abdomen",
+      message: "Abdômen sem distribuição de séries no plano.",
+      recommendation: "Revisar os alvos musculares e a necessidade de trabalho abdominal no ciclo.",
       source: "metodologia_bn",
     });
   }

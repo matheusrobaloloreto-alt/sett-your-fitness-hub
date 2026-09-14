@@ -32,6 +32,7 @@ import { WeeklyBar } from "@/components/student/WeeklyBar";
 import { AnnouncementsBell } from "@/components/student/AnnouncementsBell";
 import { StudentHome } from "@/components/student/StudentHome";
 import { EditorialPageHeader } from "@/components/EditorialPageHeader";
+import { PersonalThemeIconToggle } from "@/components/PersonalThemeToggle";
 import { businessDateYmd } from "@/lib/businessDate";
 import { PlatformAdSlot } from "@/components/PlatformAdSlot";
 import { WorkoutHeader } from "@/components/student/WorkoutHeader";
@@ -1213,6 +1214,7 @@ export default function StudentPortal() {
         actions={
           <>
             {studentId && companyId && <AnnouncementsBell studentId={studentId} companyId={companyId} />}
+            <PersonalThemeIconToggle />
             <Button variant="ghost" size="icon" className="h-11 w-11" onClick={signOut} aria-label="Sair" title="Sair">
               <LogOut className="h-4 w-4" />
             </Button>
@@ -1564,7 +1566,7 @@ export default function StudentPortal() {
         {activeView === "stats" && (
           <div className="space-y-4">
             <VolumeInsights allLogs={allLogs} cycles={cycles} studentId={studentId} />
-            <StatsCharts allLogs={allLogs} cycles={cycles} todayStr={todayStr} />
+            <StatsCharts studentId={studentId ?? undefined} allLogs={allLogs} cycles={cycles} todayStr={todayStr} />
             {studentId && totalSessions > 0 && (
               <AchievementsPanel studentId={studentId} />
             )}

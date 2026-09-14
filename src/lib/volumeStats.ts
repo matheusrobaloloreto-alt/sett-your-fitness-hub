@@ -4,6 +4,7 @@
 import { differenceInCalendarDays, format, parseISO, startOfWeek, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
+import { fixedTargetWeight } from "../../supabase/functions/_shared/muscleVolumeWeight.ts";
 
 export interface VolumeLogLike {
   completed?: boolean | null;
@@ -116,24 +117,9 @@ export function volumeLoadByWeek(logs: VolumeLogLike[]): WeeklyVolumePoint[] {
     .sort((a, b) => (a.weekStart < b.weekStart ? -1 : 1));
 }
 
-/** Normaliza a escala histórica mista: 0..1 = fração; >1 = percentual. */
+/** Compatibility name; historical percentages no longer override target roles. */
 export function normalizeTargetWeight(target: Pick<ExerciseMuscleTarget, "role" | "isPrimary" | "volumePercentage">) {
-  if (target.role && target.isPrimary !== null && target.isPrimary !== undefined) {
-    const roleIsPrimary = target.role === "primary";
-    if (roleIsPrimary !== target.isPrimary) {
-      throw new TypeError("target role conflicts with isPrimary");
-    }
-  }
-  const raw = target.volumePercentage;
-  if (raw !== null && raw !== undefined) {
-    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || raw > 100) {
-      throw new RangeError("volumePercentage must be a finite number between 0 and 100");
-    }
-    return raw <= 1 ? raw : raw / 100;
-  }
-  if (target.role === "primary" || target.isPrimary === true) return 1;
-  if (target.role === "secondary" || target.isPrimary === false) return 0.5;
-  throw new TypeError("target role is required when volumePercentage is absent");
+  return fixedTargetWeight(target);
 }
 
 /**
@@ -157,16 +143,19 @@ export function fractionalSetsByMuscleGroup(
     const exercise = metaByLogKey.get(`${log.workout_id}:${log.exercise_index}`);
     if (!exercise) continue;
     const exerciseTargets = exercise.exerciseId ? targetsByExercise.get(exercise.exerciseId) : undefined;
+    const factors = new Map<string, number>();
     if (exerciseTargets?.length) {
       for (const target of exerciseTargets) {
         const group = canonicalAnatomicalMuscleGroup(target.muscleGroup);
         if (!group) continue;
-        sets[group] = (sets[group] || 0) + normalizeTargetWeight(target);
+        factors.set(group, Math.max(factors.get(group) || 0, normalizeTargetWeight(target)));
       }
-    } else {
-      const group = canonicalAnatomicalMuscleGroup(exercise.muscleGroup);
-      if (group) sets[group] = (sets[group] || 0) + 1;
     }
+    if (!factors.size) {
+      const group = canonicalAnatomicalMuscleGroup(exercise.muscleGroup);
+      if (group) factors.set(group, 1);
+    }
+    for (const [group, factor] of factors) sets[group] = (sets[group] || 0) + factor;
   }
   return Object.entries(sets)
     .map(([group, value]) => ({ group, sets: Math.round(value * 10) / 10 }))

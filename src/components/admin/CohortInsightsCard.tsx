@@ -2,19 +2,26 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users } from "lucide-react";
+import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 
 // G2/T6 — leitura de coorte: distribuição de NPS do feedback de fim de ciclo + % que pede ajuste.
-export function CohortInsightsCard({ companyId }: { companyId: string | null | undefined }) {
+export function CohortInsightsCard({ companyId, readOnly = false }: { companyId: string | null | undefined; readOnly?: boolean }) {
+  const snapshot = useDashboardSnapshot();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (readOnly) {
+      setRows(snapshot?.cohortFeedback || []);
+      setLoading(false);
+      return;
+    }
     if (!companyId) { setRows([]); setLoading(false); return; }
     let alive = true;
     (supabase as any).rpc("cohort_feedback_summary", { _company_id: companyId })
       .then(({ data }: any) => { if (alive) { setRows(data || []); setLoading(false); } });
     return () => { alive = false; };
-  }, [companyId]);
+  }, [companyId, readOnly, snapshot]);
 
   if (loading || !rows.length) return null;
   const total = rows.reduce((s, r) => s + (Number(r.alunos) || 0), 0);
