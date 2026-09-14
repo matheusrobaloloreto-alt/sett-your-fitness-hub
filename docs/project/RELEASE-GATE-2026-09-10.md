@@ -4,7 +4,7 @@
 
 **GO para staging e GO tecnico do rehearsal de producao; NO-GO para escrita em producao e para `main`.** A release tecnica `18d1b184` passou CI e QA, o rollout isolado de staging foi concluido e Dados/Integracoes aprovou independentemente o restore, a migration e o rollback no clone fiel. O pacote de producao e os backups foram preparados sem escrita remota. A promocao continua bloqueada porque GO tecnico nao substitui autorizacao explicita nem a janela operacional.
 
-O P3 do deploy imutavel contaminado de staging continua pendente de exclusao autorizada. Ele nao esta ativo e nao reduz o GO de staging, mas precisa ser removido antes do fechamento operacional.
+O P3 do deploy imutavel contaminado de staging foi encerrado em 11/09 com autorizacao explicita: a URL imutavel passou a retornar HTTP 404, a listagem ficou sem ocorrencias e o deploy limpo permaneceu ativo.
 
 ## Proveniencia
 
