@@ -8,13 +8,14 @@ import { useMaster } from "@/contexts/MasterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Briefcase, Loader2, Eye, Pencil, Trash2, CalendarDays, UserRoundCog } from "lucide-react";
+import { Briefcase, Loader2, Eye, Pencil, Trash2, CalendarDays, UserRoundCog, UsersRound, RotateCcw } from "lucide-react";
 import { format, parseISO, differenceInDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { cadenceTone, formatCadence } from "@/lib/contactCadence";
@@ -23,6 +24,13 @@ import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useToast } from "@/hooks/use-toast";
 import { formatCEP, formatCPF, formatPhoneForCountry } from "@/lib/masks";
 import { isBrazilianCountry } from "@/lib/fiscalRegistration";
+import {
+  bulkTrainerOriginLabel,
+  isBulkTrainerReassignmentEligible,
+  reassignStudentsWithLimit,
+  type TrainerReassignmentBatchResult,
+  type TrainerReassignmentScope,
+} from "@/lib/trainerReassignmentBatch";
 
 interface Collaborator { user_id: string; full_name: string; roles: string[] }
 interface PortfolioStudent {
@@ -80,6 +88,13 @@ export default function Portfolio() {
   const [transferTargetId, setTransferTargetId] = useState("");
   const [transferring, setTransferring] = useState(false);
   const [transferScope, setTransferScope] = useState<{ companyId: string | null; trainerId: string } | null>(null);
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([]);
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkSearch, setBulkSearch] = useState("");
+  const [bulkTargetId, setBulkTargetId] = useState("");
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkScope, setBulkScope] = useState<TrainerReassignmentScope | null>(null);
+  const [bulkResult, setBulkResult] = useState<(TrainerReassignmentBatchResult & { destinationName: string }) | null>(null);
   const loadSeqRef = useRef(0);
   const currentScopeRef = useRef<{ companyId: string | null; trainerId: string }>({ companyId: null, trainerId: "" });
 
@@ -120,6 +135,12 @@ export default function Portfolio() {
     setTransferSearch("");
     setTransferTargetId("");
     setTransferScope(null);
+    setBulkSelectedIds([]);
+    setBulkDialogOpen(false);
+    setBulkSearch("");
+    setBulkTargetId("");
+    setBulkScope(null);
+    setBulkResult(null);
   }, [effectiveCompanyId, selectedId]);
 
   // Seleção inicial: o próprio usuário.
@@ -271,6 +292,76 @@ export default function Portfolio() {
       .sort((a, b) => a.full_name.localeCompare(b.full_name));
   }, [collaborators, selectedId, transferSearch, transferStudent?.assigned_trainer_id]);
 
+  const bulkSelectedSet = useMemo(() => new Set(bulkSelectedIds), [bulkSelectedIds]);
+
+  const filtered = useMemo(() => students.filter((s) =>
+    (statusFilter === "todos" || s.status === statusFilter) &&
+    (!search.trim() || s.full_name.toLowerCase().includes(search.trim().toLowerCase()))
+  ), [students, search, statusFilter]);
+
+  const eligibleFilteredStudents = useMemo(
+    () => filtered.filter(isBulkTrainerReassignmentEligible),
+    [filtered],
+  );
+
+  const filteredInactiveCount = filtered.length - eligibleFilteredStudents.length;
+
+  const selectedBulkStudents = useMemo(
+    () => students.filter((student) => bulkSelectedSet.has(student.id) && isBulkTrainerReassignmentEligible(student)),
+    [students, bulkSelectedSet],
+  );
+
+  const selectedVisibleCount = useMemo(
+    () => eligibleFilteredStudents.filter((student) => bulkSelectedSet.has(student.id)).length,
+    [eligibleFilteredStudents, bulkSelectedSet],
+  );
+
+  const allVisibleSelected = eligibleFilteredStudents.length > 0 && selectedVisibleCount === eligibleFilteredStudents.length;
+
+  const bulkEligibleTransferTargets = useMemo(() => {
+    const query = bulkSearch.trim().toLowerCase();
+    return collaborators
+      .filter((collaborator) => collaborator.roles.includes("trainer"))
+      .filter((collaborator) => collaborator.user_id !== selectedId)
+      .filter((collaborator) => !query || collaborator.full_name.toLowerCase().includes(query))
+      .sort((a, b) => a.full_name.localeCompare(b.full_name));
+  }, [bulkSearch, collaborators, selectedId]);
+
+  const toggleBulkStudent = (student: PortfolioStudent, checked: boolean) => {
+    if (!isBulkTrainerReassignmentEligible(student)) return;
+    setBulkResult(null);
+    setBulkSelectedIds((current) => {
+      if (checked) return current.includes(student.id) ? current : [...current, student.id];
+      return current.filter((id) => id !== student.id);
+    });
+  };
+
+  const toggleAllFilteredStudents = (checked: boolean) => {
+    setBulkResult(null);
+    const visibleIds = new Set(eligibleFilteredStudents.map((student) => student.id));
+    setBulkSelectedIds((current) => {
+      if (checked) return Array.from(new Set([...current, ...visibleIds]));
+      return current.filter((id) => !visibleIds.has(id));
+    });
+  };
+
+  const openBulkTransferDialog = (studentsToTransfer = selectedBulkStudents) => {
+    if (studentsToTransfer.length === 0) {
+      toast({
+        title: "Nenhum aluno elegivel selecionado",
+        description: filteredInactiveCount > 0 ? "Alunos inativos foram ignorados na troca em massa." : "Selecione pelo menos um aluno.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setBulkSelectedIds(studentsToTransfer.map((student) => student.id));
+    setBulkDialogOpen(true);
+    setBulkSearch("");
+    setBulkTargetId("");
+    setBulkScope({ companyId: effectiveCompanyId, trainerId: selectedId });
+    setBulkResult(null);
+  };
+
   const openTransferDialog = (student: PortfolioStudent) => {
     setTransferStudent(student);
     setTransferSearch("");
@@ -328,10 +419,68 @@ export default function Portfolio() {
     await load();
   };
 
-  const filtered = useMemo(() => students.filter((s) =>
-    (statusFilter === "todos" || s.status === statusFilter) &&
-    (!search.trim() || s.full_name.toLowerCase().includes(search.trim().toLowerCase()))
-  ), [students, search, statusFilter]);
+  const confirmBulkTransfer = async () => {
+    const destination = collaborators.find((collaborator) => collaborator.user_id === bulkTargetId);
+    if (!destination || !destination.roles.includes("trainer") || selectedBulkStudents.length === 0) return;
+    if (!bulkScope || bulkScope.companyId !== effectiveCompanyId || bulkScope.trainerId !== selectedId) {
+      toast({ title: "Carteira alterada", description: "Reabra a troca em massa nesta carteira antes de confirmar.", variant: "destructive" });
+      setBulkDialogOpen(false);
+      setBulkResult(null);
+      return;
+    }
+    const scopeAtConfirm = bulkScope;
+    const proceed = window.confirm(
+      `Trocar professor de ${selectedBulkStudents.length} aluno(s)?\n\n` +
+      `Origem: ${bulkTrainerOriginLabel(selectedBulkStudents, trainerName)}\n` +
+      `Destino: ${destination.full_name}\n\n` +
+      "Histórico, ciclos, treinos, pagamentos e conversas serão preservados."
+    );
+    if (!proceed) return;
+
+    setBulkRunning(true);
+    const result = await reassignStudentsWithLimit({
+      students: selectedBulkStudents,
+      trainerId: bulkTargetId,
+      initialScope: scopeAtConfirm,
+      getCurrentScope: () => currentScopeRef.current,
+      rpc: (args) => (supabase as any).rpc("reassign_student_trainer", args),
+      concurrency: 3,
+    });
+    setBulkRunning(false);
+    setBulkResult({ ...result, destinationName: destination.full_name });
+
+    if (
+      currentScopeRef.current.companyId !== scopeAtConfirm.companyId ||
+      currentScopeRef.current.trainerId !== scopeAtConfirm.trainerId
+    ) {
+      toast({ title: "Carteira alterada", description: "A lista mudou durante a troca. Recarregue a carteira antes de continuar.", variant: "destructive" });
+      return;
+    }
+
+    const successIds = new Set(result.successes.map((student) => student.id));
+    if (successIds.size > 0) {
+      setStudents((current) => current.filter((student) => !successIds.has(student.id)));
+      setBulkSelectedIds((current) => current.filter((id) => !successIds.has(id)));
+    }
+    if (result.failures.length === 0) {
+      toast({ title: "Troca em massa concluida", description: `${result.successes.length} aluno(s) movidos para ${destination.full_name}.` });
+      await load();
+    } else {
+      toast({
+        title: `${result.successes.length} sucesso(s), ${result.failures.length} falha(s)`,
+        description: "Nenhum sucesso parcial foi escondido. Revise as falhas e tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const retryBulkFailures = () => {
+    if (!bulkResult?.failures.length) return;
+    const retryStudents = bulkResult.failures.map((failure) => failure.student);
+    setBulkResult(null);
+    setBulkSelectedIds(retryStudents.map((student) => student.id));
+    setBulkScope({ companyId: effectiveCompanyId, trainerId: selectedId });
+  };
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { todos: students.length };
@@ -379,6 +528,37 @@ export default function Portfolio() {
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar aluno..." className="ml-auto h-8 w-52" />
       </div>
 
+      {canReassignStudents && (
+        <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-muted-foreground">
+              <Checkbox
+                checked={allVisibleSelected ? true : selectedVisibleCount > 0 ? "indeterminate" : false}
+                onCheckedChange={(checked) => toggleAllFilteredStudents(checked === true)}
+                disabled={eligibleFilteredStudents.length === 0}
+                aria-label="Selecionar alunos filtrados"
+              />
+              Selecionar filtrados
+            </label>
+            <span className="text-muted-foreground">
+              {selectedBulkStudents.length} selecionado(s)
+              {filteredInactiveCount > 0 ? ` · ${filteredInactiveCount} inativo(s) ignorado(s)` : ""}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedBulkStudents.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={() => setBulkSelectedIds([])}>
+                Limpar seleção
+              </Button>
+            )}
+            <Button size="sm" onClick={() => openBulkTransferDialog()} disabled={selectedBulkStudents.length === 0}>
+              <UsersRound className="mr-2 h-4 w-4" />
+              Trocar professor
+            </Button>
+          </div>
+        </div>
+      )}
+
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm text-muted-foreground font-normal">
@@ -396,8 +576,18 @@ export default function Portfolio() {
             <div className="divide-y divide-border">
               {filtered.map((s) => {
                 const days = s.cycle_end ? differenceInDays(parseISO(s.cycle_end), new Date()) : null;
+                const bulkEligible = isBulkTrainerReassignmentEligible(s);
                 return (
                   <div key={s.id} className="flex flex-wrap items-center gap-2 py-2.5">
+                    {canReassignStudents && (
+                      <Checkbox
+                        checked={bulkSelectedSet.has(s.id)}
+                        onCheckedChange={(checked) => toggleBulkStudent(s, checked === true)}
+                        disabled={!bulkEligible || bulkRunning}
+                        aria-label={`Selecionar ${s.full_name}`}
+                        title={bulkEligible ? `Selecionar ${s.full_name}` : "Aluno inativo não entra na troca em massa"}
+                      />
+                    )}
                     <div className="min-w-0 flex-1">
                       <button
                         type="button"
@@ -513,6 +703,79 @@ export default function Portfolio() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingStudent(null)}>Cancelar</Button>
             <Button onClick={saveStudent} disabled={savingStudent}>{savingStudent ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkDialogOpen} onOpenChange={(open) => { if (!open && !bulkRunning) setBulkDialogOpen(false); }}>
+        <DialogContent className="rounded-2xl bg-card sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="text-primary">Trocar professor em massa</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+              <p className="font-medium text-foreground">{selectedBulkStudents.length} aluno(s) selecionado(s)</p>
+              <p className="text-muted-foreground">
+                Origem: <span className="text-foreground">{bulkTrainerOriginLabel(selectedBulkStudents, trainerName)}</span>
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Histórico, ciclos, treinos, pagamentos e conversas serão preservados.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Buscar professor ativo</Label>
+              <Input value={bulkSearch} onChange={(event) => setBulkSearch(event.target.value)} placeholder="Nome do professor..." disabled={bulkRunning} />
+            </div>
+            <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-border p-1">
+              {bulkEligibleTransferTargets.length === 0 ? (
+                <p className="px-3 py-6 text-center text-sm text-muted-foreground">Nenhum professor elegível encontrado.</p>
+              ) : bulkEligibleTransferTargets.map((trainer) => (
+                <button
+                  key={trainer.user_id}
+                  type="button"
+                  disabled={bulkRunning}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition hover:bg-muted disabled:opacity-60",
+                    bulkTargetId === trainer.user_id && "bg-primary/10 text-primary"
+                  )}
+                  onClick={() => setBulkTargetId(trainer.user_id)}
+                >
+                  <span className="truncate">{trainer.full_name}</span>
+                  <Badge variant="outline" className="ml-2 shrink-0 text-[10px]">Professor</Badge>
+                </button>
+              ))}
+            </div>
+            {bulkResult && (
+              <div className="rounded-lg border border-border p-3 text-sm">
+                <p className="font-medium">
+                  Resultado: {bulkResult.successes.length} sucesso(s), {bulkResult.failures.length} falha(s)
+                </p>
+                <p className="text-xs text-muted-foreground">Destino: {bulkResult.destinationName}</p>
+                {bulkResult.failures.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs font-medium text-destructive">Falhas para revisar</p>
+                    <div className="max-h-28 space-y-1 overflow-y-auto">
+                      {bulkResult.failures.map((failure) => (
+                        <p key={failure.student.id} className="text-xs text-muted-foreground">
+                          <span className="text-foreground">{failure.student.full_name}</span> ({failure.student.id}): {failure.message}
+                        </p>
+                      ))}
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={retryBulkFailures}>
+                      <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                      Tentar apenas falhas
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDialogOpen(false)} disabled={bulkRunning}>Cancelar</Button>
+            <Button onClick={confirmBulkTransfer} disabled={!bulkTargetId || selectedBulkStudents.length === 0 || bulkRunning}>
+              {bulkRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Confirmar troca
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

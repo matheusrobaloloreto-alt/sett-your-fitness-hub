@@ -68,4 +68,19 @@ describe("student trainer reassignment hotfix", () => {
     expect(portfolio).toContain("loadSeqRef.current !== requestId");
     expect(portfolio).toContain("await load()");
   });
+
+  it("wires bulk selection, confirmation, partial results and retry in carteira", () => {
+    expect(portfolio).toContain("bulkSelectedIds");
+    expect(portfolio).toContain("Selecionar filtrados");
+    expect(portfolio).toContain("Aluno inativo não entra na troca em massa");
+    expect(portfolio).toContain("Trocar professor em massa");
+    expect(portfolio).toContain("window.confirm");
+    expect(portfolio).toContain("Confirmar troca");
+    expect(portfolio).toContain("Cancelar");
+    expect(portfolio).toContain("reassignStudentsWithLimit");
+    expect(portfolio).toContain("Resultado:");
+    expect(portfolio).toContain("Tentar apenas falhas");
+    expect(portfolio).toContain("_expected_trainer_id");
+    expect(portfolio).toContain("currentScopeRef.current");
+  });
 });
