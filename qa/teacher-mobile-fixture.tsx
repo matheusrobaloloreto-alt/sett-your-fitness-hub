@@ -23,18 +23,28 @@ const companyId = "20000000-0000-4000-8000-000000000001";
 const otherCompanyId = "20000000-0000-4000-8000-000000000002";
 const userId = "10000000-0000-4000-8000-000000000001";
 const fixtureNow = "2026-09-14T12:00:00.000Z";
+const fixtureParams = new URLSearchParams(window.location.search);
+const fixtureTheme = fixtureParams.get("theme") === "dark" ? "dark" : "light";
+const requestedRole = fixtureParams.get("role");
+const fixtureRole = requestedRole === "admin" || requestedRole === "coordinator" || requestedRole === "master"
+  ? requestedRole
+  : "trainer";
+
+document.documentElement.classList.toggle("dark", fixtureTheme === "dark");
+document.documentElement.dataset.themeMode = fixtureTheme;
+window.localStorage.setItem(`sett-personal-theme-mode:user:${userId}`, fixtureTheme);
 
 const longName = "Ana Carolina de Albuquerque Montenegro Performance Mobile QA";
 const rows: Record<string, any[]> = {
   company_members: [{ company_id: companyId, user_id: userId, companies: { tier: "advanced" } }],
   companies: [{ id: companyId, name: "BN QA", tier: "standard", slug: "bn-qa" }],
-  user_roles: [{ user_id: userId, role: "trainer" }],
+  user_roles: [{ user_id: userId, role: fixtureRole }],
   role_permissions: [
-    { company_id: companyId, role: "trainer", module: "dashboard", enabled: true },
-    { company_id: companyId, role: "trainer", module: "registration", enabled: true },
-    { company_id: companyId, role: "trainer", module: "students", enabled: true },
-    { company_id: companyId, role: "trainer", module: "exercises", enabled: true },
-    { company_id: companyId, role: "trainer", module: "whatsapp", enabled: true },
+    { company_id: companyId, role: fixtureRole, module: "dashboard", enabled: true },
+    { company_id: companyId, role: fixtureRole, module: "registration", enabled: true },
+    { company_id: companyId, role: fixtureRole, module: "students", enabled: true },
+    { company_id: companyId, role: fixtureRole, module: "exercises", enabled: true },
+    { company_id: companyId, role: fixtureRole, module: "whatsapp", enabled: true },
   ],
   platform_settings: [
     {
@@ -311,7 +321,7 @@ Object.defineProperty(supabase, "from", { configurable: true, value: (table: str
 Object.defineProperty(supabase, "rpc", {
   configurable: true,
   value: (name: string, params?: Record<string, unknown>) => {
-    if (name === "get_user_role") return Promise.resolve({ data: "trainer", error: null });
+    if (name === "get_user_role") return Promise.resolve({ data: fixtureRole, error: null });
     if (name === "has_staff_permission") return Promise.resolve({ data: true, error: null });
     if (name === "replace_cycle_workout_revision") {
       log.writes.push(`${name}:rpc:${JSON.stringify(params ?? {})}`);
@@ -384,10 +394,13 @@ function ReadyRoutes() {
   const { companyId: readyCompanyId, loading } = useAuth();
   if (loading || readyCompanyId !== companyId) return <div>Carregando fixture...</div>;
   return (
-    <MemoryRouter initialEntries={[new URLSearchParams(window.location.search).get("route") || "/trainer/registration"]}>
+    <MemoryRouter initialEntries={[fixtureParams.get("route") || "/trainer/registration"]}>
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/trainer/registration" element={<RegistrationManager />} />
+          <Route path="/admin/registration" element={<RegistrationManager />} />
+          <Route path="/coordinator/registration" element={<RegistrationManager />} />
+          <Route path="/master/registration" element={<RegistrationManager />} />
           <Route path="/trainer/whatsapp-chat" element={<WhatsAppChat />} />
           <Route path="/trainer/aluno/:id" element={<StudentDetail />} />
           <Route path="/trainer/students/:id" element={<StudentHub />} />

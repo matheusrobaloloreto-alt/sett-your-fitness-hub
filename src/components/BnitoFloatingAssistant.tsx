@@ -264,7 +264,9 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const shouldShow = role === "admin" || role === "coordinator" || role === "trainer" || role === "master";
-  const shouldShowFloatingButton = shouldShow && !location.pathname.includes("/workout/");
+  const shouldShowFloatingButton = shouldShow
+    && !location.pathname.includes("/workout/")
+    && !location.pathname.endsWith("/whatsapp-chat");
   const cycleId = useMemo(() => getCycleId(location.pathname), [location.pathname]);
   const routeStudentId = useMemo(() => getStudentId(location.pathname), [location.pathname]);
   const pageLabel = useMemo(() => getPageLabel(location.pathname), [location.pathname]);

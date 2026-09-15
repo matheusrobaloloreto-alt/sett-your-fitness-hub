@@ -135,12 +135,19 @@ const trainerAllItems = [
   { title: "Dashboard", url: "/trainer", icon: LayoutDashboard },
   { title: "Carteira", url: "/trainer/carteira", icon: Briefcase },
   { title: "Interessados", url: "/trainer/registration", icon: UserPlus },
+  { title: "Anamnese", url: "/trainer/anamnesis", icon: FileText },
   { title: "Planos", url: "/trainer/plans", icon: ClipboardList },
   { title: "Alunos", url: "/trainer/students", icon: Users },
   { title: "Equipe", url: "/trainer/team", icon: Users },
   { title: "Agenda", url: "/trainer/agenda", icon: CalendarDays },
   { title: "Aparência", url: "/trainer/appearance", icon: Palette },
 ];
+
+const trainerAlwaysAvailableModules = new Set<PermissionModule>([
+  "registration",
+  "anamnesis",
+  "appearance",
+]);
 
 export function AppSidebar() {
   const { role, signOut, user } = useAuth();
@@ -183,6 +190,7 @@ export function AppSidebar() {
     return items.filter((item) => {
       const mod = moduleMap[item.title];
       if (!mod) return true; // If no mapping, show it
+      if (isTrainer && trainerAlwaysAvailableModules.has(mod)) return true;
       return canAccess(mod);
     });
   };

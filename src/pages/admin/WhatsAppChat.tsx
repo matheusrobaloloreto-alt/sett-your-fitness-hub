@@ -190,6 +190,22 @@ const STATUS_FILTER_LABELS: Partial<Record<ChatStatusFilter, string>> = {
   pending: "Pendentes",
   assessment: "Avaliação",
 };
+const whatsappDark = {
+  shell: "bg-white dark:bg-[#0b141a]",
+  list: "bg-white dark:bg-[#111b21]",
+  header: "bg-white dark:bg-[#202c33]",
+  composer: "bg-white dark:bg-[#202c33]",
+  rail: "bg-card dark:bg-[#111b21]",
+  mutedRail: "bg-muted/20 dark:bg-[#111b21]",
+  border: "border-border dark:border-[#2a3942]",
+  hover: "hover:bg-muted/50 dark:hover:bg-[#202c33]",
+  activeRow: "bg-primary/10 dark:bg-[#12382f]",
+  iconButton: "hover:bg-muted hover:text-foreground dark:hover:bg-[#2a3942] dark:hover:text-[#e9edef]",
+  incomingBubble: "rounded-bl-md border border-sky-200 bg-sky-50 text-slate-900 shadow-sm dark:border-[#2a3942] dark:bg-[#202c33] dark:text-[#e9edef]",
+  outgoingBubble: "rounded-br-md bg-[#203b78] text-white shadow-sm dark:bg-[#005c4b] dark:text-[#e9edef]",
+  subtleCard: "bg-background dark:bg-[#111b21]",
+  mediaPlaceholder: "border-sky-200 bg-white/65 dark:border-[#2a3942] dark:bg-[#111b21] dark:text-[#8696a0]",
+};
 const getErrorMessage = (error: unknown, fallback: string) => (
   error instanceof Error ? error.message : fallback
 );
@@ -2217,7 +2233,8 @@ export default function WhatsAppChat({
         </DialogContent>
       </Dialog>
       <div
-        className={cn("flex min-w-0 flex-col overflow-x-hidden", embedded ? "h-full min-h-0" : "h-[calc(100dvh-3.5rem)]")}
+        data-testid="whatsapp-chat-shell"
+        className={cn("flex min-w-0 flex-col overflow-x-hidden", whatsappDark.shell, embedded ? "h-full min-h-0" : "h-[calc(100dvh-3.5rem)]")}
         style={mobileViewportHeight ? { height: mobileViewportHeight } : undefined}
       >
         <div
@@ -2327,14 +2344,15 @@ export default function WhatsAppChat({
           </Dialog>
         </div>
 
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden border-y border-border bg-white md:rounded-2xl md:border">
+        <div className={cn("flex min-h-0 min-w-0 flex-1 overflow-hidden border-y md:rounded-2xl md:border", whatsappDark.border, whatsappDark.list)}>
           {/* Chat List */}
           <div className={cn(
-            "min-w-0 w-full shrink-0 flex-col border-r border-border md:w-72 xl:w-80",
+            "min-w-0 w-full shrink-0 flex-col border-r md:w-72 xl:w-80",
+            whatsappDark.border,
             selectedChat || draftRecipient ? "hidden md:flex" : "flex",
             isChatListCollapsed && "md:hidden",
           )}>
-            <div className="p-3 border-b border-border space-y-2">
+            <div className={cn("space-y-2 border-b p-3", whatsappDark.border, whatsappDark.header)}>
               <div className="flex items-center gap-2">
                 <div className="relative min-w-0 flex-1">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -2479,10 +2497,10 @@ export default function WhatsAppChat({
 	                      disabled={updatingUnreadChatId === chat.id}
 	                      data-read-state={isUnread ? "unread" : "read"}
 	                      className={cn(
-	                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-background shadow-sm transition-all disabled:cursor-wait disabled:opacity-40 md:h-9 md:w-9",
+	                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-background shadow-sm transition-all disabled:cursor-wait disabled:opacity-40 dark:bg-[#202c33] md:h-9 md:w-9",
 	                        isUnread
-	                          ? "border-blue-300 text-blue-600 shadow-blue-500/25 ring-2 ring-blue-500/15 drop-shadow-[0_0_5px_rgba(37,99,235,0.45)] hover:bg-blue-50"
-	                          : "border-slate-200 bg-slate-50/80 text-slate-400 hover:bg-slate-100 hover:text-slate-500",
+	                          ? "border-blue-300 text-blue-600 shadow-blue-500/25 ring-2 ring-blue-500/15 drop-shadow-[0_0_5px_rgba(37,99,235,0.45)] hover:bg-blue-50 dark:border-[#53bdeb] dark:text-[#53bdeb] dark:hover:bg-[#12382f]"
+	                          : "border-slate-200 bg-slate-50/80 text-slate-400 hover:bg-slate-100 hover:text-slate-500 dark:border-[#2a3942] dark:text-[#8696a0] dark:hover:bg-[#2a3942] dark:hover:text-[#e9edef]",
 	                      )}
 	                      style={{ color: isUnread ? "rgb(37, 99, 235)" : "rgb(148, 163, 184)" }}
 	                      title={isUnread ? "Não lida: clicar para marcar como lida" : "Lida: clicar para marcar como não lida"}
@@ -2508,7 +2526,7 @@ export default function WhatsAppChat({
                             setEditingName(false);
                           }
                         }}
-	                        className={cn("relative flex min-h-[4.75rem] w-full min-w-0 items-start gap-3 border-b border-border p-3 pr-14 text-left transition-colors hover:bg-muted/50 md:min-h-0", selectedChatId === chat.id && "bg-primary/10")}
+	                        className={cn("relative flex min-h-[4.75rem] w-full min-w-0 items-start gap-3 border-b p-3 pr-14 text-left transition-colors md:min-h-0", whatsappDark.border, whatsappDark.hover, selectedChatId === chat.id && whatsappDark.activeRow)}
 	                      >
 	                        <div className="absolute right-3 top-3 z-10">
 	                          {readToggle}
@@ -2577,7 +2595,7 @@ export default function WhatsAppChat({
           </div>
 
           {isChatListCollapsed && (
-            <div className="hidden w-12 shrink-0 flex-col items-center border-r border-border bg-muted/20 py-2 md:flex">
+            <div className={cn("hidden w-12 shrink-0 flex-col items-center border-r py-2 md:flex", whatsappDark.border, whatsappDark.mutedRail)}>
               <Button
                 variant="ghost"
                 size="icon"
@@ -2620,7 +2638,7 @@ export default function WhatsAppChat({
               </div>
             ) : draftRecipient ? (
               <div className="flex h-full min-h-0 min-w-0 flex-col">
-                <div className="flex items-center gap-3 border-b border-border bg-white p-3">
+                <div className={cn("flex items-center gap-3 border-b p-3", whatsappDark.border, whatsappDark.header)}>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -2630,7 +2648,7 @@ export default function WhatsAppChat({
                   >
                     <ArrowLeft className="h-4 w-4" />
                   </Button>
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted dark:bg-[#111b21]">
                     <UserPlus className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -2655,8 +2673,8 @@ export default function WhatsAppChat({
                     <p className="text-xs">A mensagem só será enviada quando você confirmar abaixo.</p>
                   </div>
                 </div>
-                <div className={cn("border-t border-border bg-white p-2 sm:p-3", !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
-                  <div className="flex min-w-0 items-end gap-2 rounded-lg border border-border bg-background p-1.5 shadow-sm">
+                <div className={cn("border-t p-2 sm:p-3", whatsappDark.border, whatsappDark.composer, !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
+                  <div className={cn("flex min-w-0 items-end gap-2 rounded-lg border p-1.5 shadow-sm", whatsappDark.border, whatsappDark.subtleCard)}>
                     <EmojiPickerButton onSelect={(emoji) => setNewMessage((value) => `${value}${emoji}`)} />
                     <Textarea
                       value={newMessage}
@@ -2679,7 +2697,7 @@ export default function WhatsAppChat({
               </div>
             ) : (
               <div className="flex h-full min-h-0 min-w-0 flex-col">
-                <div className="flex min-w-0 items-center gap-2 border-b border-border bg-white p-2.5 sm:gap-3 sm:p-3">
+                <div className={cn("flex min-w-0 items-center gap-2 border-b p-2.5 sm:gap-3 sm:p-3", whatsappDark.border, whatsappDark.header)}>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -2810,7 +2828,7 @@ export default function WhatsAppChat({
                                     <button
                                       key={s.id}
                                       onClick={() => handleLinkStudent(s.id)}
-                                      className="w-full flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 text-left transition-colors"
+                                      className={cn("flex w-full items-center gap-3 rounded-md p-2 text-left transition-colors", whatsappDark.hover)}
                                     >
                                       <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
                                         <User className="h-4 w-4 text-muted-foreground" />
@@ -2848,8 +2866,8 @@ export default function WhatsAppChat({
                           <PanelRightOpen className="h-4 w-4" />
                         </Button>
                       </SheetTrigger>
-                      <SheetContent className="flex h-dvh w-[min(92vw,22rem)] flex-col gap-0 p-0">
-                        <SheetHeader className="border-b border-border p-4 pr-12 text-left">
+                      <SheetContent className={cn("flex h-dvh w-[min(92vw,22rem)] flex-col gap-0 p-0", whatsappDark.list)}>
+                        <SheetHeader className={cn("border-b p-4 pr-12 text-left", whatsappDark.border, whatsappDark.header)}>
                           <SheetTitle className="flex items-center gap-2 text-base">
                             <User className="h-4 w-4" />
                             Contexto
@@ -2865,7 +2883,8 @@ export default function WhatsAppChat({
 
                 <ScrollArea
                   ref={messagesScrollAreaRef}
-                  className="min-h-0 flex-1 bg-white p-2.5 sm:p-3 md:p-4"
+                  data-testid="whatsapp-message-pane"
+                  className={cn("min-h-0 flex-1 p-2.5 sm:p-3 md:p-4", whatsappDark.shell)}
                   onScrollCapture={(event) => {
                     const viewport = event.target as HTMLElement;
                     if (viewport.matches?.("[data-radix-scroll-area-viewport]")) {
@@ -2940,7 +2959,7 @@ export default function WhatsAppChat({
                             {!editingMessage && editEligibility.ok && (
                               <button
                                 onClick={() => beginMessageEdit(msg)}
-	                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-100 transition-opacity hover:bg-muted hover:text-foreground md:h-auto md:w-auto md:p-1 md:opacity-0 md:group-hover:opacity-100"
+	                                className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-100 transition-opacity md:h-auto md:w-auto md:p-1 md:opacity-0 md:group-hover:opacity-100", whatsappDark.iconButton)}
                                 title="Editar mensagem"
                                 aria-label="Editar mensagem"
                               >
@@ -2960,7 +2979,7 @@ export default function WhatsAppChat({
                             {!editingMessage && msg.message_id_external && (
                               <button
                                 onClick={() => setReplyingTo(msg)}
-	                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-100 transition-opacity hover:bg-muted hover:text-foreground md:h-auto md:w-auto md:p-1 md:opacity-0 md:group-hover:opacity-100"
+	                                className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-100 transition-opacity md:h-auto md:w-auto md:p-1 md:opacity-0 md:group-hover:opacity-100", whatsappDark.iconButton)}
 	                                title="Responder"
                                   aria-label="Responder"
                               >
@@ -2970,22 +2989,24 @@ export default function WhatsAppChat({
                             <div className={cn(
 	                              "min-w-0 max-w-[calc(100%-6rem)] rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[78%]",
                               msg.source === "outgoing"
-                                ? "rounded-br-md bg-[#203b78] text-white shadow-sm"
-                                : "rounded-bl-md border border-sky-200 bg-sky-50 text-slate-900 shadow-sm",
-                            )}>
+                                ? whatsappDark.outgoingBubble
+                                : whatsappDark.incomingBubble,
+                            )}
+                            data-message-bubble={msg.source === "outgoing" ? "outgoing" : "incoming"}
+                            >
                             {msg.source === "outgoing" && msg.sender_id && senderNames[msg.sender_id] && (
-                              <p className="text-[10px] font-semibold mb-0.5 text-primary-foreground/80">{senderNames[msg.sender_id]}</p>
+                              <p className="text-[10px] font-semibold mb-0.5 text-primary-foreground/80 dark:text-[#cfe9e4]">{senderNames[msg.sender_id]}</p>
                             )}
                             {quotedPreview && (
                               <div className={cn(
                                 "mb-2 rounded-xl border-l-2 px-2.5 py-1.5 text-xs",
                                 msg.source === "outgoing"
-                                  ? "border-primary-foreground/50 bg-primary-foreground/10 text-primary-foreground/85"
+                                  ? "border-primary-foreground/50 bg-primary-foreground/10 text-primary-foreground/85 dark:border-[#cfe9e4]/50 dark:bg-[#0b141a]/25 dark:text-[#cfe9e4]"
                                   : "border-primary/60 bg-background/70 text-muted-foreground",
                               )}>
                                 <p className={cn(
                                   "mb-0.5 font-semibold",
-                                  msg.source === "outgoing" ? "text-primary-foreground/90" : "text-foreground",
+                                  msg.source === "outgoing" ? "text-primary-foreground/90 dark:text-[#e9edef]" : "text-foreground",
                                 )}>
                                   {quotedLabel}
                                 </p>
@@ -3039,12 +3060,15 @@ export default function WhatsAppChat({
                             ) : mediaSrc && isMedia ? (
                               <a href={mediaSrc} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs underline mb-1"><Download className="h-3 w-3" />Baixar arquivo</a>
                             ) : isMedia && !mediaSrc ? (
-                              <div className="mb-1 rounded-xl border border-dashed border-sky-200 bg-white/65 px-3 py-2 text-xs text-muted-foreground">
+                              <div className={cn("mb-1 rounded-xl border border-dashed px-3 py-2 text-xs text-muted-foreground", whatsappDark.mediaPlaceholder)}>
                                 {failedMediaFetches[msg.id] ? "Mídia indisponível no provedor" : "Carregando mídia..."}
                               </div>
                             ) : null}
                             <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</p>
-                            <p className={cn("mt-1.5 flex items-center justify-end gap-1 text-[10px] font-mono-data", msg.source === "outgoing" ? "text-primary-foreground/70" : "text-muted-foreground")}>
+                            <p
+                              data-testid={`whatsapp-message-meta-${msg.source === "outgoing" ? "outgoing" : "incoming"}`}
+                              className={cn("mt-1.5 flex items-center justify-end gap-1 text-[10px] font-mono-data", msg.source === "outgoing" ? "text-primary-foreground/70 dark:text-[#cfe9e4]" : "text-muted-foreground")}
+                            >
                               <span>{formatMessageTimestamp(messageDateValue)}</span>
                               {msg.edited_at && <span aria-label="Mensagem editada">• editada</span>}
                               {msg.source === "outgoing" && (
@@ -3069,11 +3093,11 @@ export default function WhatsAppChat({
                 </ScrollArea>
 
                 {editingMessage && (
-                  <div className="border-t border-border bg-white px-3 pt-2">
-                    <div className="flex items-center gap-2 rounded-2xl border-l-4 border-amber-500 bg-amber-50 p-2">
+                  <div className={cn("border-t px-3 pt-2", whatsappDark.border, whatsappDark.composer)}>
+                    <div className="flex items-center gap-2 rounded-2xl border-l-4 border-amber-500 bg-amber-50 p-2 dark:bg-amber-500/10">
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-semibold text-amber-800">Editando mensagem</p>
-                        <p className="truncate text-xs text-amber-700">Salve em até 15 minutos após o envio.</p>
+                        <p className="text-[10px] font-semibold text-amber-800 dark:text-amber-200">Editando mensagem</p>
+                        <p className="truncate text-xs text-amber-700 dark:text-amber-300">Salve em até 15 minutos após o envio.</p>
                       </div>
                       <button
                         onClick={cancelMessageEdit}
@@ -3088,8 +3112,8 @@ export default function WhatsAppChat({
                   </div>
                 )}
                 {replyingTo && !editingMessage && (
-                  <div className="border-t border-border bg-white px-3 pt-2">
-                    <div className="flex items-center gap-2 rounded-2xl border-l-4 border-primary bg-sky-50 p-2">
+                  <div className={cn("border-t px-3 pt-2", whatsappDark.border, whatsappDark.composer)}>
+                    <div className="flex items-center gap-2 rounded-2xl border-l-4 border-primary bg-sky-50 p-2 dark:bg-[#111b21]">
                       <div className="flex-1 min-w-0">
                         <p className="text-[10px] font-semibold text-primary">
                           {replyingTo.source === "outgoing" ? "Você" : getContactName(selectedChat!)}
@@ -3098,13 +3122,13 @@ export default function WhatsAppChat({
                           {replyingTo.content || (replyingTo.media_type ? "📎 Mídia" : "Mensagem")}
                         </p>
                       </div>
-                      <button onClick={() => setReplyingTo(null)} className="rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                      <button onClick={() => setReplyingTo(null)} className={cn("rounded-full p-0.5 text-muted-foreground transition-colors", whatsappDark.iconButton)}>
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   </div>
                 )}
-                <div className={cn("border-t border-border bg-white p-2 sm:p-3", !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
+                <div data-testid="whatsapp-composer" className={cn("border-t p-2 sm:p-3", whatsappDark.border, whatsappDark.composer, !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -3133,7 +3157,7 @@ export default function WhatsAppChat({
                       </Button>
                     </div>
                   ) : (
-	                    <div className="flex min-w-0 flex-col gap-1.5 rounded-2xl border border-border bg-background p-1.5 shadow-sm sm:flex-row sm:items-end sm:gap-2">
+	                    <div className={cn("flex min-w-0 flex-col gap-1.5 rounded-2xl border p-1.5 shadow-sm sm:flex-row sm:items-end sm:gap-2", whatsappDark.border, whatsappDark.subtleCard)}>
                         <div className="flex min-w-0 items-center gap-1.5 sm:contents">
 	                      <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 sm:h-9 sm:w-9" title="Enviar imagem ou arquivo" aria-label="Enviar imagem ou arquivo" onClick={() => fileInputRef.current?.click()} disabled={sendingAttachment || Boolean(editingMessage)}>
 	                        {sendingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Image className="h-4 w-4" />}
@@ -3245,7 +3269,7 @@ export default function WhatsAppChat({
           </div>
 
           {isConversationCollapsed && (
-            <div className="hidden w-12 shrink-0 flex-col items-center border-r border-border bg-card py-2 md:flex">
+            <div className={cn("hidden w-12 shrink-0 flex-col items-center border-r py-2 md:flex", whatsappDark.border, whatsappDark.rail)}>
               <Button
                 variant="ghost"
                 size="icon"
@@ -3261,8 +3285,8 @@ export default function WhatsAppChat({
 
           {/* Student Context Panel */}
           {selectedChat && !isContextCollapsed && (
-            <div className="hidden w-64 shrink-0 flex-col overflow-hidden border-l border-border bg-muted/20 min-[1780px]:flex">
-              <div className="flex items-center gap-2 border-b border-border p-3">
+            <div className={cn("hidden w-64 shrink-0 flex-col overflow-hidden border-l min-[1780px]:flex", whatsappDark.border, whatsappDark.mutedRail)}>
+              <div className={cn("flex items-center gap-2 border-b p-3", whatsappDark.border, whatsappDark.header)}>
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
                   <User className="h-4 w-4" />
                   Contexto
@@ -3284,7 +3308,7 @@ export default function WhatsAppChat({
             </div>
           )}
           {selectedChat && isContextCollapsed && (
-            <div className="hidden w-12 shrink-0 flex-col items-center border-l border-border bg-muted/20 py-2 min-[1780px]:flex">
+            <div className={cn("hidden w-12 shrink-0 flex-col items-center border-l py-2 min-[1780px]:flex", whatsappDark.border, whatsappDark.mutedRail)}>
               <Button
                 variant="ghost"
                 size="icon"

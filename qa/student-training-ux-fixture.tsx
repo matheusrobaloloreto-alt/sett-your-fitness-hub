@@ -5,6 +5,7 @@ import { EditorialPageHeader } from "../src/components/EditorialPageHeader";
 import { Button } from "../src/components/ui/button";
 import { WarmupGuide, type WarmupExercise } from "../src/components/student/WarmupGuide";
 import { StudentMethodGroup } from "../src/components/student/StudentMethodGroup";
+import { ExerciseCard } from "../src/components/student/ExerciseCard";
 import { BenitoSprite } from "../src/components/BenitoSprite";
 import { useBenitoDrag } from "../src/lib/useBenitoDrag";
 import "../src/index.css";
@@ -80,6 +81,35 @@ function Fixture() {
           <p className="text-sm font-medium text-foreground">Levantamento terra romeno</p>
           <p className="text-xs text-muted-foreground">Série normal · 3 × 8 · 90s</p>
         </div>
+        <ExerciseCard
+          exercise={{
+            exercise_id: "student-mobile-grid",
+            exercise_name: "Agachamento com carga",
+            muscle_group: "Quadríceps",
+            video_url: null,
+            video_path: null,
+            sets: "3",
+            reps: "10",
+            rest: "60s",
+            notes: "Registre a carga e conclua cada série.",
+          }}
+          index={0}
+          workoutId="workout-mobile-grid"
+          isExpanded
+          onToggle={() => undefined}
+          onVideoPlay={() => undefined}
+          logs={{}}
+          previousLogs={{}}
+          onUpdateLog={() => undefined}
+          exerciseHistory={[]}
+          isSessionActive={false}
+          activeRest={null}
+          onSetComplete={() => undefined}
+          onRestComplete={() => undefined}
+          totalSets={3}
+          onAddSet={() => undefined}
+          onRemoveSet={() => undefined}
+        />
         {selectedVideo && <p role="status" className="text-xs text-muted-foreground">Demonstração selecionada: {selectedVideo}</p>}
       </section>
 

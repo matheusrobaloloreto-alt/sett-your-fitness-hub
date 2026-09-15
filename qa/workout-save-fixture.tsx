@@ -7,6 +7,7 @@ import { TooltipProvider } from "../src/components/ui/tooltip";
 import { Toaster } from "../src/components/ui/toaster";
 import { AuthProvider } from "../src/hooks/useAuth";
 import { MasterProvider } from "../src/contexts/MasterContext";
+import { WhatsAppChatPanelContext } from "../src/components/WhatsAppChatPanelContext";
 import WorkoutBuilder from "../src/pages/admin/WorkoutBuilder";
 import { supabase } from "../src/integrations/supabase/client";
 import "../src/index.css";
@@ -556,10 +557,19 @@ function FixtureApp() {
           <AuthProvider>
             <MasterProvider>
               <MemoryRouter initialEntries={[route]}>
-                <Routes>
-                  <Route path="/admin/workout/:cycleId" element={<WorkoutBuilder />} />
-                  <Route path="/admin/students" element={<Navigate to={route} replace />} />
-                </Routes>
+                <WhatsAppChatPanelContext.Provider
+                  value={{
+                    isAvailable: false,
+                    openChatPanel: () => false,
+                    closeChatPanel: () => {},
+                    isChatPanelOpen: false,
+                  }}
+                >
+                  <Routes>
+                    <Route path="/admin/workout/:cycleId" element={<WorkoutBuilder />} />
+                    <Route path="/admin/students" element={<Navigate to={route} replace />} />
+                  </Routes>
+                </WhatsAppChatPanelContext.Provider>
               </MemoryRouter>
             </MasterProvider>
           </AuthProvider>

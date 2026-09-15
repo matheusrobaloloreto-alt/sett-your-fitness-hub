@@ -1,7 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
-import { SUPABASE_AUTH_STORAGE_KEY } from "../src/lib/supabaseAuthStorage";
+import { loadEnv } from "vite";
+import { supabaseAuthStorageKeyFromUrl } from "../src/lib/supabaseAuthStorage";
 
-const AUTH_STORAGE_KEY = SUPABASE_AUTH_STORAGE_KEY;
+const viteEnv = loadEnv("development", process.cwd(), "VITE_");
+const AUTH_STORAGE_KEY = supabaseAuthStorageKeyFromUrl(
+  viteEnv.VITE_SUPABASE_URL,
+  viteEnv.VITE_SUPABASE_PROJECT_ID,
+);
 const COMPANY_ID = "company-theme-real-route";
 
 type MockRole = "admin" | "student";

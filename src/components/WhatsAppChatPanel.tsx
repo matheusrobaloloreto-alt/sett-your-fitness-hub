@@ -33,6 +33,7 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
     && features.hasWhatsApp
     && (role === "admin" || role === "master" || canAccess("whatsapp"));
   const isWorkoutBuilder = /\/workout\/[^/]+/.test(location.pathname);
+  const isWhatsAppChatRoute = /\/whatsapp-chat$/.test(location.pathname);
 
   const openChatPanel = useCallback((nextRequest: WhatsAppChatPanelRequest = {}) => {
     if (!canUseWhatsApp) return false;
@@ -66,7 +67,7 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
       {children}
       {canUseWhatsApp && (
         <>
-          {!isWorkoutBuilder && (
+          {!isWorkoutBuilder && !isWhatsAppChatRoute && (
             <Button
               type="button"
               size="lg"
@@ -82,7 +83,7 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetContent
               side="right"
-              className="flex h-dvh !w-full !max-w-none flex-col gap-0 overflow-hidden border-l p-0 sm:!w-[min(96vw,1100px)] sm:!max-w-none"
+              className="flex h-dvh !w-full !max-w-none flex-col gap-0 overflow-hidden border-l bg-white p-0 dark:border-[#2a3942] dark:bg-[#0b141a] sm:!w-[min(96vw,1100px)] sm:!max-w-none"
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>Conversas do WhatsApp</SheetTitle>

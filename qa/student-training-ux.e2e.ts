@@ -39,6 +39,21 @@ test("student mobile training shell keeps compact actions, accordion state and l
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
+for (const width of [320, 360, 390]) {
+  test(`student exercise load grid stays inside the ${width}px viewport`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/qa/student-training-ux-fixture.html");
+    await expect(page.getByText("Agachamento com carga")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    expect(errors.filter((message) => !message.includes("Download the React DevTools"))).toEqual([]);
+  });
+}
+
 test("warmup video returns to the checked movement on mobile and desktop", async ({ page }) => {
   await page.route("https://example.test/**", route => route.fulfill({ status: 200, contentType: "video/mp4", body: "" }));
   for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {

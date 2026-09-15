@@ -207,7 +207,7 @@ export function ExerciseCard({
 
             <div className="space-y-1">
               {/* Header */}
-              <div className="grid grid-cols-[36px_1fr_1fr_1fr_40px_28px_24px] gap-1 text-[10px] text-muted-foreground font-sans font-medium uppercase tracking-wide px-0.5">
+              <div className="grid grid-cols-[36px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_40px_28px_24px] gap-1 px-0.5 font-sans text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 <span>Série</span>
                 <span>Anterior</span>
                 <span>Kg</span>
@@ -239,7 +239,7 @@ export function ExerciseCard({
 
                 return (
                   <div key={s} className="space-y-1">
-                    <div className={`grid grid-cols-[36px_1fr_1fr_1fr_40px_28px_24px] gap-1 items-center rounded-md px-0.5 py-0.5 ${isCompleted ? 'bg-green-500/5' : ''}`}>
+                    <div className={`grid grid-cols-[36px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_40px_28px_24px] gap-1 items-center rounded-md px-0.5 py-0.5 ${isCompleted ? 'bg-green-500/5' : ''}`}>
                       {/* Set type badge */}
                       {/* Tipo de série (definido pelo treinador) — só leitura; toque explica o que é */}
                       <button
@@ -277,7 +277,7 @@ export function ExerciseCard({
                       <Input
                         type="number"
                         inputMode="decimal"
-                        className="h-7 text-xs bg-card border-border px-1.5"
+                        className="h-7 min-w-0 border-border bg-card px-1.5 text-xs"
                         placeholder={prevWeight > 0 ? String(prevWeight) : "0"}
                         value={log?.weight ?? ""}
                         onChange={(e) => onUpdateLog(idx, s + 1, "weight", e.target.value === "" ? null : (parseFloat(e.target.value) || 0))}

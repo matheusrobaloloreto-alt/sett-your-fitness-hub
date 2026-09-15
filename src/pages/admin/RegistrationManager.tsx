@@ -463,6 +463,7 @@ export default function RegistrationManager() {
   const { companyId, role, user } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId ?? null;
+  const isTrainerView = role === "trainer";
   const navigate = useNavigate();
   const chatRoutePrefix = role === "master" ? "admin" : role || "admin";
   const currentTrainerName = useMemo(() => {
@@ -699,6 +700,24 @@ export default function RegistrationManager() {
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       });
   }, [students, budgetFilter, waitFilter]);
+
+  const responseStudents = useMemo<StudentWithStage[]>(() => (
+    students
+      .map((student) => {
+        const stage = normalizeSalesStage(student);
+        const nextAction = stageNextAction(student, {
+          hasAnamnesis: student.hasAnamnesis,
+          hasAssessment: student.hasAssessment,
+        });
+        return { ...student, stage, nextAction, progress: funnelStageProgress(stage) };
+      })
+      .filter((student) => (
+        student.entityType === "lead"
+        || Boolean(student.hasAnamnesis)
+        || leadAnswerEntries(student).length > 0
+      ))
+      .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime())
+  ), [students]);
 
   const stagedStudents = useMemo(
     () => stageFilteredStudents.filter((student) => activeStage === "all" || student.stage === activeStage),
@@ -1425,187 +1444,282 @@ export default function RegistrationManager() {
         </CardContent>
       </Card>
 
-      <Card className="rounded-2xl border-border bg-card">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Cadastro fiscal, escolha do plano e pagamento</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Esta é a segunda etapa. Use depois do pré-cadastro e do primeiro contato para coletar os dados do Asaas, liberar os planos e seguir para o pagamento.
-          </p>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Pessoa</Label>
-              <Select
-                value={fiscalStudentId}
-                onValueChange={(id) => {
-                  const selected = students.find((student) => student.entityType === "student" && student.id === id);
-                  setFiscalStudentId(id);
-                  setFiscalPhone(selected?.whatsapp || selected?.phone || "");
-                  setFiscalLink("");
-                  setFiscalCopied(false);
-                }}
-              >
-                <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione para gerar o link individual..." /></SelectTrigger>
-                <SelectContent>
-                  {students.filter((student) =>
-                    student.entityType === "student"
-                    && !["active", "awaiting_renewal"].includes(student.status),
-                  ).map((student) => {
-                    const stage = normalizeSalesStage(student);
-                    return (
-                      <SelectItem key={student.id} value={student.id}>
-                        {student.full_name} - {FUNNEL_STAGE_META[stage].label}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>WhatsApp</Label>
-              <Input value={fiscalPhone} onChange={(event) => setFiscalPhone(event.target.value)} placeholder="(DDD) 9 xxxx-xxxx" inputMode="tel" />
-            </div>
+      {isTrainerView && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="font-display text-2xl text-foreground">Respostas de pré-cadastro</h2>
+            <p className="text-sm text-muted-foreground">
+              Leitura das informações de anamnese e pré-cadastro para preparar atendimento, sem esteira comercial.
+            </p>
           </div>
 
-          {fiscalLink && (
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-secondary/35 p-3">
-              <Link2 className="h-4 w-4 shrink-0 text-primary" />
-              <span className="truncate font-mono-data text-xs text-muted-foreground">{fiscalLink}</span>
+          {loadError && (
+            <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">
+              {loadError}
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={sendFiscalRegistrationLink} disabled={!fiscalStudentId || creatingLink} className="bg-[#25D366] text-white hover:bg-[#25D366]/90">
-              {creatingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />}
-              Abrir conversa com cadastro
-            </Button>
-            <Button variant="outline" onClick={copyFiscalRegistrationLink} disabled={!fiscalStudentId || creatingLink}>
-              {creatingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : fiscalCopied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
-              Copiar link de cadastro
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card p-8 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Carregando respostas
+            </div>
+          ) : responseStudents.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-card p-6 text-sm text-muted-foreground">
+              Nenhuma resposta de pré-cadastro ou anamnese encontrada nesta empresa.
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {responseStudents.map((student) => {
+                const summary = leadSummaryRows(student);
+                return (
+                  <Card key={cardIdFor(student)} className="rounded-2xl border-border bg-card">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <CardTitle className="break-words text-base">{student.full_name}</CardTitle>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {student.entityType === "lead" ? "Interessado" : "Aluno"} · atualizado {relativeDate(student.updated_at || student.created_at)}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 whitespace-normal text-center">
+                          {student.entityType === "lead" ? "pré-cadastro" : student.hasAnamnesis ? "anamnese" : "cadastro"}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {summary.length > 0 ? (
+                        <div className="grid gap-2">
+                          {summary.slice(0, 4).map(([label, value]) => (
+                            <div key={label} className="rounded-xl border border-border bg-secondary/20 p-2">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+                              <p className="mt-1 break-words text-sm text-foreground">{value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="rounded-xl border border-dashed border-border p-3 text-sm text-muted-foreground">
+                          Respostas estruturadas disponíveis na visualização completa.
+                        </p>
+                      )}
 
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="font-display text-2xl text-foreground">Esteira de fechamento</h2>
+                      <div className="grid gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="min-h-8 h-auto w-full whitespace-normal px-2 py-1.5 text-xs leading-snug"
+                          onClick={() => void openPreRegistration(student)}
+                        >
+                          <Eye className="mr-1 h-3.5 w-3.5" />
+                          <span>Ver respostas completas</span>
+                        </Button>
+                        {student.entityType === "student" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="min-h-8 h-auto w-full whitespace-normal px-2 py-1.5 text-xs leading-snug"
+                            onClick={() => navigate(`/${chatRoutePrefix}/students/${student.id}`)}
+                          >
+                            Abrir perfil
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {!isTrainerView && (
+        <Card className="rounded-2xl border-border bg-card">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Cadastro fiscal, escolha do plano e pagamento</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Os cartoes mostram a etapa atual, a ultima acao registrada e o proximo movimento.
+              Esta é a segunda etapa. Use depois do pré-cadastro e do primeiro contato para coletar os dados do Asaas, liberar os planos e seguir para o pagamento.
             </p>
-          </div>
-          <div className="hidden flex-wrap items-center gap-1.5 md:flex">
-            <Button
-              variant={activeStage === "all" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setActiveStage("all")}
-            >
-              Todos ({stageFilteredStudents.length})
-            </Button>
-            {CLOSING_FUNNEL_STAGES.map((stage) => (
-              <Button
-                key={stage}
-                variant={activeStage === stage ? "default" : "outline"}
-                size="sm"
-                onClick={() => setActiveStage(stage)}
-              >
-                {FUNNEL_STAGE_META[stage].shortLabel} ({stageCounts.get(stage) || 0})
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Pessoa</Label>
+                <Select
+                  value={fiscalStudentId}
+                  onValueChange={(id) => {
+                    const selected = students.find((student) => student.entityType === "student" && student.id === id);
+                    setFiscalStudentId(id);
+                    setFiscalPhone(selected?.whatsapp || selected?.phone || "");
+                    setFiscalLink("");
+                    setFiscalCopied(false);
+                  }}
+                >
+                  <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione para gerar o link individual..." /></SelectTrigger>
+                  <SelectContent>
+                    {students.filter((student) =>
+                      student.entityType === "student"
+                      && !["active", "awaiting_renewal"].includes(student.status),
+                    ).map((student) => {
+                      const stage = normalizeSalesStage(student);
+                      return (
+                        <SelectItem key={student.id} value={student.id}>
+                          {student.full_name} - {FUNNEL_STAGE_META[stage].label}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>WhatsApp</Label>
+                <Input value={fiscalPhone} onChange={(event) => setFiscalPhone(event.target.value)} placeholder="(DDD) 9 xxxx-xxxx" inputMode="tel" />
+              </div>
+            </div>
+
+            {fiscalLink && (
+              <div className="flex items-center gap-2 rounded-xl border border-border bg-secondary/35 p-3">
+                <Link2 className="h-4 w-4 shrink-0 text-primary" />
+                <span className="truncate font-mono-data text-xs text-muted-foreground">{fiscalLink}</span>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={sendFiscalRegistrationLink} disabled={!fiscalStudentId || creatingLink} className="bg-[#25D366] text-white hover:bg-[#25D366]/90">
+                {creatingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />}
+                Abrir conversa com cadastro
               </Button>
-            ))}
-          </div>
-        </div>
+              <Button variant="outline" onClick={copyFiscalRegistrationLink} disabled={!fiscalStudentId || creatingLink}>
+                {creatingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : fiscalCopied ? <Check className="mr-2 h-4 w-4 text-green-600" /> : <Copy className="mr-2 h-4 w-4" />}
+                Copiar link de cadastro
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-        <div className="grid gap-2 rounded-2xl border border-border bg-card p-3 md:grid-cols-2">
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Faixa de investimento</Label>
-            <Select value={budgetFilter} onValueChange={setBudgetFilter}>
-              <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as faixas</SelectItem>
-                <SelectItem value="400_500">R$ 400-500 primeiro</SelectItem>
-                <SelectItem value="300_400">R$ 300-400</SelectItem>
-                <SelectItem value="200_300">R$ 200-300</SelectItem>
-              </SelectContent>
-            </Select>
+      {!isTrainerView && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-display text-2xl text-foreground">Esteira de fechamento</h2>
+              <p className="text-sm text-muted-foreground">
+                Os cartoes mostram a etapa atual, a ultima acao registrada e o proximo movimento.
+              </p>
+            </div>
+            <div className="hidden flex-wrap items-center gap-1.5 md:flex">
+              <Button
+                variant={activeStage === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setActiveStage("all")}
+              >
+                Todos ({stageFilteredStudents.length})
+              </Button>
+              {CLOSING_FUNNEL_STAGES.map((stage) => (
+                <Button
+                  key={stage}
+                  variant={activeStage === stage ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setActiveStage(stage)}
+                >
+                  {FUNNEL_STAGE_META[stage].shortLabel} ({stageCounts.get(stage) || 0})
+                </Button>
+              ))}
+            </div>
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Tempo de espera</Label>
-            <Select value={waitFilter} onValueChange={setWaitFilter}>
-              <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Qualquer tempo</SelectItem>
-                {Object.entries(WAIT_FILTERS).map(([value, item]) => (
-                  <SelectItem key={value} value={value}>{item.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
 
-        {loadError && (
-          <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">
-            {loadError}
-          </div>
-        )}
-
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card p-8 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Carregando esteira
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="md:hidden">
-              <Label className="text-xs text-muted-foreground">Etapa exibida</Label>
-              <Select value={mobileSelectedStage} onValueChange={(value) => setMobileStage(value as FunnelStageKey)}>
-                <SelectTrigger className="mt-1 rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
+          <div className="grid gap-2 rounded-2xl border border-border bg-card p-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Faixa de investimento</Label>
+              <Select value={budgetFilter} onValueChange={setBudgetFilter}>
+                <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {CLOSING_FUNNEL_STAGES.map((stage) => (
-                    <SelectItem key={stage} value={stage}>
-                      {FUNNEL_STAGE_META[stage].label} ({stageCounts.get(stage) || 0})
-                    </SelectItem>
+                  <SelectItem value="all">Todas as faixas</SelectItem>
+                  <SelectItem value="400_500">R$ 400-500 primeiro</SelectItem>
+                  <SelectItem value="300_400">R$ 300-400</SelectItem>
+                  <SelectItem value="200_300">R$ 200-300</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Tempo de espera</Label>
+              <Select value={waitFilter} onValueChange={setWaitFilter}>
+                <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Qualquer tempo</SelectItem>
+                  {Object.entries(WAIT_FILTERS).map(([value, item]) => (
+                    <SelectItem key={value} value={value}>{item.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+          </div>
 
-            <div className="md:hidden">
-              {renderFunnelStageColumn(mobileSelectedStage, "mobile")}
+          {loadError && (
+            <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">
+              {loadError}
             </div>
+          )}
 
-            <div
-              className="hidden max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-border bg-card p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:block"
-              role="region"
-              aria-label="Esteira de fechamento com rolagem horizontal"
-              tabIndex={0}
-            >
-              <div className={cn(
-                "flex min-w-full gap-3",
-                activeStage === "all" ? "w-max" : "w-full",
-              )}>
-                {desktopStages.map((stage) => renderFunnelStageColumn(stage, "desktop"))}
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card p-8 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Carregando esteira
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="md:hidden">
+                <Label className="text-xs text-muted-foreground">Etapa exibida</Label>
+                <Select value={mobileSelectedStage} onValueChange={(value) => setMobileStage(value as FunnelStageKey)}>
+                  <SelectTrigger className="mt-1 rounded-xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CLOSING_FUNNEL_STAGES.map((stage) => (
+                      <SelectItem key={stage} value={stage}>
+                        {FUNNEL_STAGE_META[stage].label} ({stageCounts.get(stage) || 0})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="md:hidden">
+                {renderFunnelStageColumn(mobileSelectedStage, "mobile")}
+              </div>
+
+              <div
+                className="hidden max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-border bg-card p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:block"
+                role="region"
+                aria-label="Esteira de fechamento com rolagem horizontal"
+                tabIndex={0}
+              >
+                <div className={cn(
+                  "flex min-w-full gap-3",
+                  activeStage === "all" ? "w-max" : "w-full",
+                )}>
+                  {desktopStages.map((stage) => renderFunnelStageColumn(stage, "desktop"))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </section>
+          )}
+        </section>
+      )}
 
-      <div className="rounded-lg border border-border bg-secondary/30 p-3">
-        <div className="flex items-start gap-2">
-          <UserRoundCheck className="mt-0.5 h-4 w-4 text-primary" />
-          <div>
-            <p className="text-sm font-medium text-foreground">Regra operacional</p>
-            <p className="text-xs text-muted-foreground">
-              O aluno so entra como ativo depois do pagamento Asaas. Antes disso, a esteira mostra se falta cadastro fiscal, checkout, Pix ou avaliacao.
-            </p>
+      {!isTrainerView && (
+        <div className="rounded-lg border border-border bg-secondary/30 p-3">
+          <div className="flex items-start gap-2">
+            <UserRoundCheck className="mt-0.5 h-4 w-4 text-primary" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Regra operacional</p>
+              <p className="text-xs text-muted-foreground">
+                O aluno so entra como ativo depois do pagamento Asaas. Antes disso, a esteira mostra se falta cadastro fiscal, checkout, Pix ou avaliacao.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <Dialog open={Boolean(selectedLead)} onOpenChange={(open) => !open && setSelectedLead(null)}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto rounded-3xl border-border bg-card">

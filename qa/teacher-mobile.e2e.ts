@@ -18,7 +18,14 @@ test("Athletic Club star follows current membership without editing a student na
   await expectClean(page, guard, 390);
 });
 
-async function openFixture(page: Page, route: string, width: number, height = 900) {
+async function openFixture(
+  page: Page,
+  route: string,
+  width: number,
+  height = 900,
+  theme: "light" | "dark" = "light",
+  role: "trainer" | "admin" | "coordinator" | "master" = "trainer",
+) {
   const blocked: string[] = [];
   const errors: string[] = [];
   await page.setViewportSize({ width, height });
@@ -42,7 +49,7 @@ async function openFixture(page: Page, route: string, width: number, height = 90
     blocked.push(routeRequest.request().url());
     return routeRequest.abort("blockedbyclient");
   });
-  await page.goto(`${fixturePath}?route=${encodeURIComponent(route)}`);
+  await page.goto(`${fixturePath}?route=${encodeURIComponent(route)}&theme=${theme}&role=${role}`);
   await expect(page.locator("body")).toBeVisible();
   return { blocked, errors };
 }
@@ -103,17 +110,29 @@ for (const width of [360, 390, 768, 1440]) {
   });
 }
 
-test("Registration mobile stage selector switches visible funnel stage", async ({ page }) => {
+test("trainer reads anamnesis responses without seeing the closing pipeline", async ({ page }) => {
   const guard = await openFixture(page, "/trainer/registration", 390, 900);
+  await expect(page.getByRole("heading", { name: "Respostas de pré-cadastro" })).toBeVisible();
   await expect(page.getByText("Lead Interessada Mobile Com Sobrenome Enorme").first()).toBeVisible();
-  const stageSelect = page.getByText("Etapa exibida").locator("..").getByRole("combobox");
-  await stageSelect.click();
-  await page.getByRole("option", { name: /Contato feito/ }).click();
-  await expect(page.getByRole("heading", { name: "Contato feito" })).toBeVisible();
-  await expect(page.getByText("Sem pessoas aqui.").first()).toBeVisible();
-  await page.screenshot({ path: `${artifactDir}/registration-stage-contacted-390.png`, fullPage: true });
+  await expect(page.getByRole("heading", { name: "Esteira de fechamento" })).toHaveCount(0);
+  await expect(page.getByText("Cadastro fiscal, escolha do plano e pagamento")).toHaveCount(0);
+  await expect(page.getByText("Etapa exibida")).toHaveCount(0);
   await expectClean(page, guard, 390);
 });
+
+for (const role of ["admin", "coordinator", "master"] as const) {
+  test(`${role} keeps the closing pipeline and mobile stage selector`, async ({ page }) => {
+    const guard = await openFixture(page, `/${role}/registration`, 390, 900, "light", role);
+    await expect(page.getByRole("heading", { name: "Esteira de fechamento" })).toBeVisible();
+    const stageSelect = page.getByText("Etapa exibida").locator("..").getByRole("combobox");
+    await stageSelect.click();
+    await page.getByRole("option", { name: /Contato feito/ }).click();
+    await expect(page.getByRole("heading", { name: "Contato feito" })).toBeVisible();
+    await expect(page.getByText("Sem pessoas aqui.").first()).toBeVisible();
+    await page.screenshot({ path: `${artifactDir}/registration-stage-contacted-${role}-390.png`, fullPage: true });
+    await expectClean(page, guard, 390);
+  });
+}
 
 test("WhatsApp mobile list opens thread, back returns to list, composer stays inside viewport", async ({ page }) => {
   const guard = await openFixture(page, "/trainer/whatsapp-chat", 390, 844);
@@ -121,10 +140,92 @@ test("WhatsApp mobile list opens thread, back returns to list, composer stays in
   await page.getByRole("button", { name: /Abrir conversa com Ana Carolina/ }).click();
   await expect(page.getByText("Claro, vou olhar sem enviar nada real.")).toBeVisible();
   await expect(page.getByPlaceholder("Digite / para templates...")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Abrir conversas do WhatsApp" })).toHaveCount(0);
+  await expect(page.locator('[data-benito-fab="professor"]')).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Enviar mensagem" })).toBeVisible();
   await page.screenshot({ path: `${artifactDir}/whatsapp-thread-390.png`, fullPage: true });
   await page.getByRole("button", { name: "Voltar para conversas" }).click();
   await expect(page.getByText("Lead Interessada Mobile Com Sobrenome Enorme").first()).toBeVisible();
   await page.screenshot({ path: `${artifactDir}/whatsapp-list-back-390.png`, fullPage: true });
+  await expectClean(page, guard, 390);
+});
+
+test("WhatsApp dark mode keeps conversation surfaces and controls readable", async ({ page }) => {
+  const guard = await openFixture(page, "/trainer/whatsapp-chat", 390, 844, "dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme-mode", "dark");
+  await page.getByRole("button", { name: /Abrir conversa com Ana Carolina/ }).click();
+  await expect(page.getByText("Claro, vou olhar sem enviar nada real.")).toBeVisible();
+  await expect(page.getByPlaceholder("Digite / para templates...")).toBeVisible();
+
+  const colors = await page.evaluate(() => {
+    const parseRgb = (value: string) => {
+      const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (!match) return null;
+      return [Number(match[1]), Number(match[2]), Number(match[3])];
+    };
+    const luminance = (rgb: number[]) => {
+      const [r, g, b] = rgb.map((channel) => {
+        const srgb = channel / 255;
+        return srgb <= 0.03928 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const contrast = (foregroundValue: string, backgroundValue: string) => {
+      const foreground = parseRgb(foregroundValue);
+      const background = parseRgb(backgroundValue);
+      if (!foreground || !background) return 0;
+      const lighter = Math.max(luminance(foreground), luminance(background));
+      const darker = Math.min(luminance(foreground), luminance(background));
+      return (lighter + 0.05) / (darker + 0.05);
+    };
+    const sample = (selector: string) => {
+      const node = document.querySelector(selector);
+      if (!node) return null;
+      const style = getComputedStyle(node);
+      return {
+        background: style.backgroundColor,
+        color: style.color,
+        contrast: contrast(style.color, style.backgroundColor),
+      };
+    };
+    const sampleTextOnSurface = (textSelector: string, surfaceSelector: string) => {
+      const textNode = document.querySelector(textSelector);
+      const surfaceNode = document.querySelector(surfaceSelector);
+      if (!textNode || !surfaceNode) return null;
+      const textStyle = getComputedStyle(textNode);
+      const surfaceStyle = getComputedStyle(surfaceNode);
+      return {
+        color: textStyle.color,
+        background: surfaceStyle.backgroundColor,
+        contrast: contrast(textStyle.color, surfaceStyle.backgroundColor),
+      };
+    };
+    return {
+      shell: sample("[data-testid='whatsapp-chat-shell']"),
+      row: sample("[data-testid='whatsapp-chat-row']"),
+      messagePane: sample("[data-testid='whatsapp-message-pane']"),
+      incoming: sample("[data-testid='whatsapp-message'] [data-message-bubble='incoming']"),
+      outgoing: sample("[data-testid='whatsapp-message'] [data-message-bubble='outgoing']"),
+      outgoingMeta: sampleTextOnSurface(
+        "[data-testid='whatsapp-message-meta-outgoing']",
+        "[data-testid='whatsapp-message'] [data-message-bubble='outgoing']",
+      ),
+      composer: sample("[data-testid='whatsapp-composer']"),
+    };
+  });
+
+  expect(colors.shell?.background).not.toBe("rgb(255, 255, 255)");
+  expect(colors.messagePane?.background).not.toBe("rgb(255, 255, 255)");
+  expect(colors.composer?.background).not.toBe("rgb(255, 255, 255)");
+  expect(colors.row?.contrast ?? 0).toBeGreaterThanOrEqual(4.5);
+  expect(colors.incoming?.contrast ?? 0).toBeGreaterThanOrEqual(4.5);
+  expect(colors.outgoing?.contrast ?? 0).toBeGreaterThanOrEqual(4.5);
+  expect(colors.outgoingMeta?.contrast ?? 0).toBeGreaterThanOrEqual(4.5);
+  const sendBox = await page.getByRole("button", { name: "Enviar mensagem" }).boundingBox();
+  expect(sendBox).not.toBeNull();
+  expect(sendBox!.x + sendBox!.width).toBeLessThanOrEqual(390);
+
+  await page.screenshot({ path: `${artifactDir}/whatsapp-dark-thread-390.png`, fullPage: true });
   await expectClean(page, guard, 390);
 });
 
