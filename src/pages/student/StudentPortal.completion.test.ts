@@ -42,4 +42,18 @@ describe("StudentPortal workout completion", () => {
     expect(finishSession).toHaveBeenCalledTimes(1);
     expect(onCompleted).toHaveBeenCalledWith(completedSession);
   });
+
+  it("retries a transient log RPC error before refusing to finish", async () => {
+    const finishSession = vi.fn().mockResolvedValue(completedSession);
+    const onCompleted = vi.fn();
+    const saveCurrentLogs = vi.fn()
+      .mockResolvedValueOnce({ ok: false, reason: "rpc_error" as const })
+      .mockResolvedValueOnce({ ok: true, reason: "saved" as const });
+
+    const result = await runStudentPortalWorkoutCompletion({ saveCurrentLogs, finishSession, onCompleted });
+
+    expect(result).toEqual({ status: "completed", session: completedSession });
+    expect(saveCurrentLogs).toHaveBeenCalledTimes(2);
+    expect(finishSession).toHaveBeenCalledTimes(1);
+  });
 });

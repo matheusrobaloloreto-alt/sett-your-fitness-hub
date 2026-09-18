@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { canAccessStudentWorkout } from "@/lib/studentAccess";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { MasterProvider } from "@/contexts/MasterContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -131,7 +132,7 @@ function StudentWorkoutAccessGuard({ children }: { children: ReactNode }) {
       setStatus("checking");
       const { data, error } = await supabase
         .from("students")
-        .select("id, user_id, company_id")
+        .select("id, user_id, company_id, status")
         .eq("id", studentId)
         .maybeSingle();
 
@@ -142,11 +143,14 @@ function StudentWorkoutAccessGuard({ children }: { children: ReactNode }) {
         return;
       }
 
-      const staffRoles = ["admin", "coordinator", "trainer"];
-      const canAccess =
-        role === "master" ||
-        (role === "student" && data.user_id === user.id) ||
-        (staffRoles.includes(role) && !!companyId && data.company_id === companyId);
+      const canAccess = canAccessStudentWorkout({
+        role,
+        userId: user.id,
+        companyId,
+        studentUserId: data.user_id,
+        studentCompanyId: data.company_id,
+        studentStatus: data.status,
+      });
 
       setStatus(canAccess ? "allowed" : "denied");
     }

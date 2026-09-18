@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Flame, Timer, Check, Play, Search, VideoOff } from "lucide-react";
+import { ArrowLeft, Flame, Timer, Check, Play, VideoOff } from "lucide-react";
 import { exerciseThumb } from "@/lib/exerciseCover";
 import { WARMUP_VIDEO_MATCHES } from "@/lib/warmupVideoMatches";
 import { warmupInstruction } from "@/lib/warmupInstructions";
@@ -167,10 +167,14 @@ export function WarmupGuide({ muscleGroups, libraryExercises = [], open, onOpenC
         <div className="space-y-1.5 max-h-[32vh] overflow-y-auto">
           {items.map((label, i) => {
             const isDone = done.has(i);
+            const linkedVideo = videoItems[i]?.exercise;
+            const thumbnail = linkedVideo ? exerciseThumb(linkedVideo) : null;
+            const hasLinkedVideo = Boolean(linkedVideo && (linkedVideo.video_path || linkedVideo.video_url || linkedVideo.youtube_video_id));
             return (
-              <button
+              <div
                 key={i}
-                type="button"
+                role="button"
+                tabIndex={0}
                 aria-pressed={isDone}
                 aria-label={label}
                 onClick={() => setDone((prev) => {
@@ -179,6 +183,18 @@ export function WarmupGuide({ muscleGroups, libraryExercises = [], open, onOpenC
                   else next.add(i);
                   return next;
                 })}
+                onKeyDown={(event) => {
+                  if (event.target instanceof HTMLElement && event.target.closest("button")) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setDone((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(i)) next.delete(i);
+                      else next.add(i);
+                      return next;
+                    });
+                  }
+                }}
                 className={`flex w-full items-center gap-2 rounded-md border p-2 text-left text-sm transition-colors ${
                   isDone ? "border-green-500/40 bg-green-500/10 text-muted-foreground" : "border-border bg-card hover:border-primary/40"
                 }`}
@@ -186,97 +202,43 @@ export function WarmupGuide({ muscleGroups, libraryExercises = [], open, onOpenC
                 <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${isDone ? "border-green-500 bg-green-500 text-white" : "border-border"}`}>
                   {isDone && <Check className="h-3 w-3" />}
                 </span>
-                <span className="min-w-0">
+                <span className="min-w-0 flex-1">
                   <span className={`block font-medium ${isDone ? "line-through" : ""}`}>{label}</span>
                   <span className="mt-1 block text-xs font-normal leading-relaxed text-muted-foreground">{warmupInstruction(label)}</span>
                 </span>
-              </button>
+                {linkedVideo ? (
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="relative h-12 w-16 overflow-hidden rounded-md border border-border bg-secondary">
+                      {thumbnail ? <img src={thumbnail} alt={`Prévia de ${linkedVideo.exercise_name}`} loading="lazy" className="h-full w-full object-cover" /> : <Play className="absolute inset-0 m-auto h-4 w-4 text-primary" />}
+                      {thumbnail && <span className="absolute inset-0 flex items-center justify-center bg-black/20"><Play className="h-4 w-4 text-white" /></span>}
+                    </span>
+                    <span className="sr-only">{hasLinkedVideo ? "Assistir demonstração" : "Buscar demonstração"}</span>
+                    <button
+                      type="button"
+                      aria-label={hasLinkedVideo ? `Assistir demonstração de ${linkedVideo.exercise_name}` : `Buscar demonstração de ${linkedVideo.exercise_name}`}
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/30 text-primary hover:bg-primary/10"
+                      onClick={(event) => { event.stopPropagation(); openExerciseVideo(linkedVideo); }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openExerciseVideo(linkedVideo);
+                        }
+                      }}
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                ) : (
+                  <span className="mr-1 inline-flex shrink-0 items-center text-muted-foreground/60">
+                    <VideoOff className="h-4 w-4" aria-hidden="true" />
+                    <span className="sr-only">Vídeo indisponível para este item</span>
+                  </span>
+                )}
+              </div>
             );
           })}
         </div>
-
-        {videoItems.length > 0 && (
-          <section aria-labelledby="warmup-exercises-title" className="space-y-2 border-t border-border pt-3">
-            <div>
-              <h3 id="warmup-exercises-title" className="font-sans text-sm font-semibold text-foreground">
-                Demonstrações do aquecimento
-              </h3>
-            </div>
-            <div className="grid max-h-[34vh] grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
-              {videoItems.map(({ label, exercise }, index) => {
-                if (!exercise) {
-                  return (
-                    <div
-                      key={`${label}-${index}`}
-                      className="flex min-h-16 w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-left"
-                      aria-label={`Demonstração indisponível para ${label}`}
-                    >
-                      <span className="relative flex h-auto w-24 shrink-0 items-center justify-center overflow-hidden bg-secondary">
-                        <VideoOff className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
-                      </span>
-                      <span className="flex min-w-0 flex-1 flex-col justify-center px-3 py-2">
-                        <span className="break-words text-xs font-medium leading-snug text-foreground">
-                          {label}
-                        </span>
-                        <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                          <VideoOff className="h-3 w-3" aria-hidden="true" /> Vídeo indisponível para este item
-                        </span>
-                      </span>
-                    </div>
-                  );
-                }
-                const thumbnail = exerciseThumb(exercise);
-                const hasLinkedVideo = Boolean(exercise.video_path || exercise.video_url || exercise.youtube_video_id);
-                const actionLabel = hasLinkedVideo
-                  ? `Assistir demonstração de ${exercise.exercise_name}`
-                  : `Buscar demonstração de ${exercise.exercise_name}`;
-                return (
-                  <button
-                    key={`${exercise.exercise_id || exercise.exercise_name}-${index}`}
-                    type="button"
-                    className="group flex min-h-16 w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    aria-label={actionLabel}
-                    title={actionLabel}
-                    onClick={() => openExerciseVideo(exercise)}
-                  >
-                    <span className="relative flex h-auto w-24 shrink-0 items-center justify-center overflow-hidden bg-secondary">
-                      {thumbnail ? (
-                        <img
-                          src={thumbnail}
-                          alt={`Prévia de ${exercise.exercise_name}`}
-                          loading="lazy"
-                          decoding="async"
-                          className="h-full w-full object-cover"
-                        />
-                      ) : hasLinkedVideo ? (
-                        <Play className="h-5 w-5 text-primary" aria-hidden="true" />
-                      ) : (
-                        <VideoOff className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
-                      )}
-                      {thumbnail && (
-                        <span className="absolute inset-0 flex items-center justify-center bg-black/20">
-                          <Play className="h-5 w-5 text-white drop-shadow" aria-hidden="true" />
-                        </span>
-                      )}
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col justify-center px-3 py-2">
-                      <span className="break-words text-xs font-medium leading-snug text-foreground">
-                        {exercise.exercise_name}
-                      </span>
-                      <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                        {hasLinkedVideo ? (
-                          <><Play className="h-3 w-3" aria-hidden="true" /> Assistir demonstração</>
-                        ) : (
-                          <><Search className="h-3 w-3" aria-hidden="true" /> Vídeo ainda não vinculado</>
-                        )}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        )}
 
         <Button onClick={() => onOpenChange(false)} className="w-full">
           {done.size >= items.length ? "Pronto, bora treinar! 💪" : "Pular aquecimento"}

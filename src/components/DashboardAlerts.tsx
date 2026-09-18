@@ -5,11 +5,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Cake, Dumbbell, UserCheck, CalendarDays, AlertTriangle, Bell, Check, MessageCircle, UserPlus } from "lucide-react";
+import { Cake, UserCheck, CalendarDays, AlertTriangle, Bell, Check, MessageCircle, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { buildStudentChatMap, openStudentChat, birthdayMessage } from "@/lib/studentChat";
-import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { FUNNEL_STAGE_META, normalizeSalesStage, stageNextAction } from "@/lib/salesFunnelView";
 import { fiscalRegistrationValidation } from "@/lib/fiscalRegistration";
 import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
@@ -60,6 +59,7 @@ interface Props {
   trainerId?: string;
   compact?: boolean;
   readOnly?: boolean;
+  showRecentStudents?: boolean;
 }
 
 async function fetchAlerts(
@@ -87,19 +87,12 @@ async function fetchAlerts(
       .in("status", ["active", "awaiting_training", "awaiting_renewal"]).is("trainer_id", null)));
     queries.push(addCompanyFilter(supabase.from("enrollments").select("id, student_id, trainer_id, created_at, students(full_name, selected_plan_id)")
       .in("status", ["active", "awaiting_training"]).is("training_start_date", null)));
-    queries.push(addCompanyFilter(supabase.from("students").select("id, full_name, selected_plan_id").eq("status", "active")));
     queries.push(addCompanyFilter(
       supabase.from("enrollments")
         .select("student_id, trainer_id, training_start_date")
         .in("status", ["active", "awaiting_training", "awaiting_renewal"]),
     ));
   }
-
-  let enrollQuery = supabase.from("enrollments").select("id, student_id, trainer_id, students(full_name)")
-    .eq("status", "active") as any;
-  if (trainerId) enrollQuery = enrollQuery.eq("trainer_id", trainerId);
-  if (effectiveCompanyId) enrollQuery = enrollQuery.eq("company_id", effectiveCompanyId);
-  queries.push(enrollQuery);
 
   const results = await Promise.all(queries);
 
@@ -108,7 +101,6 @@ async function fetchAlerts(
     data?.forEach((e: any) => { if (e.trainer_id) allTrainerIds.add(e.trainer_id); });
   };
   if (!trainerId) collectTrainerIds(results[2]?.data || []);
-  collectTrainerIds(results[trainerId ? 1 : 5]?.data || []);
 
   const trainerMap: Record<string, string> = {};
   if (allTrainerIds.size > 0) {
@@ -130,8 +122,7 @@ async function fetchAlerts(
 
   let awaitingTrainer: AwaitingTrainer[] = [];
   let awaitingTrainingDate: AwaitingTrainingDate[] = [];
-  let missingEnrollment: MissingEnrollment[] = [];
-  let nextIdx: number;
+  const missingEnrollment: MissingEnrollment[] = [];
 
   if (!trainerId) {
     awaitingTrainer = (results[1].data || [])
@@ -139,7 +130,7 @@ async function fetchAlerts(
       .map((e: any) => ({ student_name: e.students?.full_name || "—", student_id: e.student_id }));
     // Alunos que já têm alguma matrícula (ativa/aguardando) com data de treino definida — não devem aparecer como "sem data"
     const studentsWithTrainingDate = new Set(
-      (results[4].data || []).filter((e: any) => e.training_start_date).map((e: any) => e.student_id)
+      (results[3].data || []).filter((e: any) => e.training_start_date).map((e: any) => e.student_id)
     );
     const seenAwaitingDate = new Set<string>();
     awaitingTrainingDate = (results[2].data || [])
@@ -154,53 +145,11 @@ async function fetchAlerts(
         student_name: e.students?.full_name || "—", student_id: e.student_id, enrollment_id: e.id,
         trainer_name: e.trainer_id ? trainerMap[e.trainer_id] : undefined,
       }));
-    const activeStudents = results[3].data || [];
-    const enrolledIds = new Set((results[4].data || []).map((e: any) => e.student_id));
-    missingEnrollment = activeStudents
-      .filter((s: any) => !influencerPlanIds.has(s.selected_plan_id))
-      .filter((s: any) => !enrolledIds.has(s.id))
-      .map((s: any) => ({ student_name: s.full_name, student_id: s.id }));
-    nextIdx = 5;
-  } else {
-    nextIdx = 1;
   }
 
-  // Cycle alerts — flag apenas alunos SEM nenhum treino em nenhum ciclo (aluno realmente novo)
-  let missingWorkouts: MissingWorkout[] = [];
-  const enrollments = results[nextIdx].data;
-  if (enrollments && enrollments.length > 0) {
-    const enrollIds = enrollments.map((e: any) => e.id);
-    const enrollMap: Record<string, { name: string; student_id: string; trainer_name?: string }> = {};
-    enrollments.forEach((e: any) => {
-      enrollMap[e.id] = { name: e.students?.full_name || "—", student_id: e.student_id, trainer_name: e.trainer_id ? trainerMap[e.trainer_id] : undefined };
-    });
-
-    // Todos os ciclos (qualquer status) das matrículas vigentes
-    const { data: allCycles } = await supabase.from("training_cycles")
-      .select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at")
-      .in("enrollment_id", enrollIds);
-
-    if (allCycles && allCycles.length > 0) {
-      const allCycleIds = allCycles.map((c: any) => c.id);
-      const { data: workouts } = await supabase.from("workouts").select("cycle_id, exercises").is("superseded_at", null).in("cycle_id", allCycleIds);
-      const cyclesWithWorkout = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
-
-      // Ciclos ativos sem treino real nem marcação "fora do app" são pendência operacional.
-      allCycles.forEach((c: any) => {
-        const info = enrollMap[c.enrollment_id];
-        if (!info?.student_id) return;
-        if (c.status !== "active") return;
-        if (cyclesWithWorkout.has(c.id) || c.prescribed_offline_at) return;
-        missingWorkouts.push({
-          student_name: info.name || "—", student_id: info.student_id, cycle_number: c.cycle_number,
-          cycle_id: c.id, start_date: c.start_date, end_date: c.end_date, trainer_name: info.trainer_name,
-        });
-      });
-
-
-      missingWorkouts = missingWorkouts.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
-    }
-  }
+  // These queues now have one canonical owner: renewal and workout-change on
+  // AdminDashboard. Avoid querying and rebuilding their former duplicate cards.
+  const missingWorkouts: MissingWorkout[] = [];
 
 
   // Incomplete billing
@@ -245,7 +194,7 @@ async function fetchAlerts(
   return { birthdays, missingWorkouts, awaitingTrainer, awaitingTrainingDate, missingEnrollment, incompleteBilling, recentStudents };
 }
 
-export function DashboardAlerts({ trainerId, compact = false, readOnly = false }: Props) {
+export function DashboardAlerts({ trainerId, compact = false, readOnly = false, showRecentStudents = true }: Props) {
   const { role, companyId, user } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const navigate = useNavigate();
@@ -287,12 +236,14 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
   const alerts = readOnly ? snapshotAlerts : queriedAlerts;
   const pendingActions = readOnly ? (snapshotAlerts?.pendingActions ?? []) : queriedPendingActions;
   const birthdays = alerts?.birthdays ?? [];
-  const missingWorkouts = alerts?.missingWorkouts ?? [];
+  const missingWorkouts: MissingWorkout[] = [];
   const awaitingTrainer = alerts?.awaitingTrainer ?? [];
   const awaitingTrainingDate = alerts?.awaitingTrainingDate ?? [];
-  const missingEnrollment = alerts?.missingEnrollment ?? [];
+  // A student without an active enrollment belongs in the renewal/funnel
+  // queues; keeping a second dashboard card created duplicate operational work.
+  const missingEnrollment: MissingEnrollment[] = [];
   const incompleteBilling = alerts?.incompleteBilling ?? [];
-  const recentStudents = alerts?.recentStudents ?? [];
+  const recentStudents = showRecentStudents ? (alerts?.recentStudents ?? []) : [];
 
   const navigateWhenInteractive = (target: string) => {
     if (readOnly) return;
@@ -354,30 +305,12 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
         action: () => goToStudent(a.student_id),
         studentId: a.student_id,
       })),
-      ...missingEnrollment.map((a, i) => ({
-        key: `enrollment-${a.student_id}-${i}`,
-        tone: "danger",
-        label: "Matrícula",
-        title: a.student_name,
-        subtitle: "Aluno ativo sem matrícula ativa.",
-        action: () => goToStudent(a.student_id),
-        studentId: a.student_id,
-      })),
       ...incompleteBilling.map((a, i) => ({
         key: `billing-${a.student_id}-${i}`,
         tone: "danger",
         label: "Cobrança",
         title: a.student_name,
         subtitle: `Falta: ${a.missing.join(", ")}`,
-        action: () => goToStudent(a.student_id),
-        studentId: a.student_id,
-      })),
-      ...missingWorkouts.map((a, i) => ({
-        key: `workout-${a.cycle_id}-${i}`,
-        tone: "danger",
-        label: "Treino",
-        title: a.student_name,
-        subtitle: `Ciclo ${a.cycle_number} sem treino prescrito.`,
         action: () => goToStudent(a.student_id),
         studentId: a.student_id,
       })),
@@ -648,35 +581,6 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
         </Card>
       )}
 
-      {missingEnrollment.length > 0 && (
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-destructive text-lg flex items-center gap-2">
-              <Dumbbell className="h-5 w-5" />SEM MATRÍCULA ATIVA
-              <BnitoContextButton
-                label="alunos sem matricula ativa"
-                context={`Existem ${missingEnrollment.length} alunos ativos sem matricula ativa.`}
-                question="O que devo conferir antes de regularizar matricula destes alunos?"
-                className="ml-auto"
-              />
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2 max-h-[200px] overflow-auto">
-              {missingEnrollment.map((m, i) => (
-                <div key={i} className={`${itemClass} bg-destructive/5 border border-destructive/20`} onClick={() => goToStudent(m.student_id)}>
-                  <span className="inline-flex min-w-0 items-center gap-1.5">
-                    <span className="text-sm font-sans text-foreground truncate">{m.student_name}</span>
-                    <AthleticClubStar studentId={m.student_id} companyId={effectiveCompanyId} className="shrink-0" />
-                  </span>
-                  <span className="text-xs font-sans font-medium px-2 py-0.5 rounded bg-destructive/20 text-destructive">Pendente</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {incompleteBilling.length > 0 && (
         <Card className="bg-card border-border">
           <CardHeader className="pb-3">
@@ -746,38 +650,6 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false }
         </Card>
       )}
 
-      {missingWorkouts.length > 0 && (
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-primary text-lg flex items-center gap-2">
-              <Dumbbell className="h-5 w-5" />SEM TREINO NO CICLO
-              <BnitoContextButton
-                label="ciclos sem treino"
-                context={`Existem ${missingWorkouts.length} ciclos sem treino prescrito no dashboard.`}
-                question="Como devo priorizar e montar os treinos pendentes destes ciclos?"
-                className="ml-auto"
-              />
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2 max-h-[200px] overflow-auto">
-              {missingWorkouts.map((m, i) => (
-                <div key={i} className={`${itemClass} bg-destructive/5 border border-destructive/20`} onClick={() => goToStudent(m.student_id)}>
-                  <div>
-                    <span className="inline-flex min-w-0 items-center gap-1.5">
-                      <span className="text-sm font-sans text-foreground truncate">{m.student_name}</span>
-                      <AthleticClubStar studentId={m.student_id} companyId={effectiveCompanyId} className="shrink-0" />
-                    </span>
-                    <p className="text-xs text-muted-foreground font-sans">Ciclo {m.cycle_number} — {new Date(m.start_date).toLocaleDateString("pt-BR")} a {new Date(m.end_date).toLocaleDateString("pt-BR")}</p>
-                    {m.trainer_name && <p className="text-xs text-muted-foreground/70 font-sans">{m.trainer_name}</p>}
-                  </div>
-                  <span className="text-xs font-sans font-medium px-2 py-0.5 rounded bg-destructive/20 text-destructive">Sem treino</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

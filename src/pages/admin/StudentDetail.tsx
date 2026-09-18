@@ -14,8 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { StudentCycleFeedbackCard } from "@/components/admin/StudentCycleFeedbackCard";
-import { StudentWorkoutFeedbackCard } from "@/components/admin/StudentWorkoutFeedbackCard";
 import { PlanVersionsCard } from "@/components/admin/PlanVersionsCard";
 import { AssessmentCompareCard } from "@/components/admin/AssessmentCompareCard";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
@@ -380,7 +378,6 @@ export default function StudentDetail() {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const [activatingAccess, setActivatingAccess] = useState(false);
   const [loginCreds, setLoginCreds] = useState<{ email: string; password: string } | null>(null);
   const [loadingLogin, setLoadingLogin] = useState(false);
   const [copiedLogin, setCopiedLogin] = useState(false);
@@ -417,30 +414,6 @@ export default function StudentDetail() {
       setActivePrescriptionPanel(resolved.prescriptionPanel);
     }
   }, [id, location.search, location.state]);
-
-  const handleActivateStudentAccess = async () => {
-    if (!student?.email) {
-      toast({ title: "Erro", description: "Aluno precisa ter um email cadastrado", variant: "destructive" });
-      return;
-    }
-    setActivatingAccess(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("activate-student-access", {
-        body: { student_id: student.id },
-      });
-      if (error) {
-        const msg = (data as any)?.error || error.message || "Falha ao ativar acesso";
-        toast({ title: "Erro", description: msg, variant: "destructive" });
-      } else if ((data as any)?.error) {
-        toast({ title: "Erro", description: (data as any).error, variant: "destructive" });
-      } else {
-        toast({ title: "Acesso ativado!", description: `Senha temporária: ${(data as any)?.temp_password}. Compartilhe com o aluno.` });
-      }
-    } catch (err: any) {
-      toast({ title: "Erro ao ativar acesso", description: err?.message, variant: "destructive" });
-    }
-    setActivatingAccess(false);
-  };
 
   // ===== Acesso do app: gerar/copiar/enviar login do aluno =====
   const studentLoginUrl = `${window.location.origin}/auth?as=student`;
@@ -1792,16 +1765,6 @@ export default function StudentDetail() {
                 question="Me ajude a identificar os principais riscos e proximos passos deste aluno."
                 className="h-11 w-11"
               />
-              <Button
-                variant="outline"
-                size="sm"
-                className="min-h-11 min-w-0 flex-1 text-xs sm:flex-none"
-                onClick={handleActivateStudentAccess}
-                disabled={activatingAccess || !student.email}
-              >
-                <UserPlus className="h-3.5 w-3.5 mr-1" />
-                <span>{activatingAccess ? "Ativando..." : "Ativar Acesso"}</span>
-              </Button>
               <Button variant="ghost" size="icon" className="h-11 w-11" onClick={openEditStudent} aria-label="Editar aluno">
                 <Pencil className="h-4 w-4" />
               </Button>
@@ -1882,12 +1845,6 @@ export default function StudentDetail() {
                   </div>
                 </details>
                 <StudentFilesPanel studentId={id} companyId={student.company_id} />
-              </div>
-            )}
-            {id && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <StudentCycleFeedbackCard studentId={id} />
-                <StudentWorkoutFeedbackCard studentId={id} />
               </div>
             )}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

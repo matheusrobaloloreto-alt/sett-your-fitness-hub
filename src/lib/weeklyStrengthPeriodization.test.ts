@@ -6,6 +6,7 @@ import {
   resolveStudentHomeWorkoutTarget,
   resolveExerciseForWeek,
   resolveWorkoutForCycleWeek,
+  studentWeekBlockOptions,
   summarizeExerciseWeeklyProgression,
   STUDENT_EFFORT_HELP_TEXT,
   studentFacingEffortText,
@@ -48,6 +49,33 @@ describe("weekly strength periodization resolver", () => {
     expect(resolved?.title).toBe("Treino A");
     expect(resolved?.weekly_context).toMatchObject({ week: 5, block: "intensificacao", methods: ["biset"] });
     expect(resolved?.exercises[0].method).toBe("biset");
+  });
+
+  it("permite visualizar uma quinzena anterior sem liberar blocos futuros", () => {
+    const workout = { id: "workout-1", title: "Treino A", exercises: [exercise] };
+    const resolved = resolveWorkoutForCycleWeek(workout, "2026-07-06", 6, undefined, 1);
+
+    expect(resolved?.weekly_context).toMatchObject({ week: 1, block: "base" });
+    expect(resolved?.exercises[0]).toMatchObject({ sets: "2", rest: "90s", rir: "3-4" });
+
+    expect(studentWeekBlockOptions({ currentWeek: 3, durationWeeks: 6, selectedStartWeek: 3 })).toEqual([
+      expect.objectContaining({ label: "Semanas 1 e 2", available: true, hasNewContent: false }),
+      expect.objectContaining({ label: "Semanas 3 e 4", available: true, current: true, hasNewContent: true }),
+      expect.objectContaining({ label: "Semanas 5 e 6", available: false, hasNewContent: false }),
+    ]);
+  });
+
+  it("mantém blocos futuros bloqueados mesmo em ciclos legados sem prescrição semanal", () => {
+    expect(studentWeekBlockOptions({
+      currentWeek: 1,
+      durationWeeks: 6,
+      hasWeeklyPrescriptions: false,
+      selectedStartWeek: 1,
+    })).toEqual([
+      expect.objectContaining({ label: "Semanas 1 e 2", available: true, hasNewContent: false }),
+      expect.objectContaining({ label: "Semanas 3 e 4", available: false, hasNewContent: false }),
+      expect.objectContaining({ label: "Semanas 5 e 6", available: false, hasNewContent: false }),
+    ]);
   });
 
   it("mantém prescrições antigas intactas quando não há contrato semanal", () => {

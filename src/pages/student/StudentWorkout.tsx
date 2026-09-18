@@ -15,11 +15,14 @@ import { MethodBadge } from "@/components/workout/MethodBadge";
 import { StudentMethodGroup } from "@/components/student/StudentMethodGroup";
 import { ExerciseVideoPlayer } from "@/components/student/ExerciseVideoPlayer";
 import { buildYouTubeSearchUrl, type ExerciseVideoModalState } from "@/lib/exerciseVideoPlayer";
-import { formatBiweeklyProgressionForDisplay, STUDENT_EFFORT_HELP_TEXT, studentEffortLabel, studentFacingEffortText, resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
+import { STUDENT_EFFORT_HELP_TEXT, studentEffortLabel, studentFacingEffortText, resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
 import { sanitizeStudentWorkoutDescription } from "@/lib/studentWorkoutDescription";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
 import { selectPrescriptionEnrollment, selectStudentWorkoutCycleWindow } from "@/lib/prescriptionSchedule";
+import { currentWeekIndex } from "@/lib/periodization";
+import { StudentWeekSelector } from "@/components/student/StudentWeekSelector";
+import { toast } from "sonner";
 
 interface WorkoutExercise {
   exercise_id: string;
@@ -82,6 +85,7 @@ export default function StudentWorkout() {
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
+  const [selectedWeekStart, setSelectedWeekStart] = useState<number | null>(null);
   const [videoModal, setVideoModal] = useState<ExerciseVideoModalState | null>(null);
   const [loading, setLoading] = useState(true);
   const [workoutsLoading, setWorkoutsLoading] = useState(true);
@@ -93,9 +97,18 @@ export default function StudentWorkout() {
   const recordedPerformanceMetrics = useRef(new Set<"shell_ready" | "content_ready">());
 
   const selectedWorkoutBase = selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
+  const currentCycleWeek = selectedCycle
+    ? currentWeekIndex(selectedCycle.start_date, selectedCycle.duration_weeks || 6) + 1
+    : 1;
+  const currentWeekStart = Math.floor((Math.max(1, currentCycleWeek) - 1) / 2) * 2 + 1;
+  const effectiveWeekStart = selectedWeekStart && selectedWeekStart <= (selectedCycle?.duration_weeks || 6)
+    ? selectedWeekStart
+    : currentWeekStart;
+  const selectedWeek = effectiveWeekStart === currentWeekStart ? currentCycleWeek : effectiveWeekStart;
+  const hasWeeklyPrescriptions = Boolean(selectedWorkoutBase?.exercises.some((exercise) => (exercise.weekly_prescription || []).length > 0));
   const selectedWorkout = useMemo(
-    () => resolveWorkoutForCycleWeek(selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks),
-    [selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks],
+    () => resolveWorkoutForCycleWeek(selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks, undefined, selectedWeek),
+    [selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks, selectedWeek],
   );
   const selectedWorkoutDescription = useMemo(
     () => sanitizeStudentWorkoutDescription(selectedWorkout?.description),
@@ -136,6 +149,7 @@ export default function StudentWorkout() {
     setCycles([]);
     setSelectedCycle(null);
     setSelectedWorkoutId(null);
+    setSelectedWeekStart(null);
     setExpandedExercise(null);
     try {
     const studentRequest = supabase
@@ -548,6 +562,19 @@ export default function StudentWorkout() {
 
                 {selectedWorkout && (
                   <>
+                    <Card className="bg-card border-border">
+                      <CardContent className="flex min-w-0 items-center justify-between gap-3 p-3">
+                        <StudentWeekSelector
+                          currentWeek={currentCycleWeek}
+                          durationWeeks={selectedCycle.duration_weeks}
+                          selectedStartWeek={effectiveWeekStart}
+                          hasWeeklyPrescriptions={hasWeeklyPrescriptions}
+                          onChange={setSelectedWeekStart}
+                          onBlocked={(message) => toast.error(message)}
+                          className="w-full"
+                        />
+                      </CardContent>
+                    </Card>
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg text-foreground font-sans font-semibold">{selectedWorkout.title}</h3>
                       <Badge variant="secondary" className="font-sans">
@@ -566,7 +593,6 @@ export default function StudentWorkout() {
                         return workoutGroups.map((group) => {
                           const cards = group.items.map(({ ex, idx }) => {
                               const isExpanded = expandedExercise === idx;
-                              const biweeklyProgression = formatBiweeklyProgressionForDisplay(ex.weekly_prescription);
                               return (
                           <Card
                             key={idx}
@@ -650,17 +676,6 @@ export default function StudentWorkout() {
                                       </p>
                                       {ex.rir && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{STUDENT_EFFORT_HELP_TEXT}</p>}
                                       {ex.weekly_instruction && <p className="mt-1 text-xs text-foreground">{studentFacingEffortText(ex.weekly_instruction)}</p>}
-                                    </div>
-                                  )}
-
-                                  {biweeklyProgression.length > 0 && (
-                                    <div className="rounded-lg border border-border bg-card p-2">
-                                      <p className="font-mono-data text-[10px] font-semibold uppercase text-muted-foreground">Progressão quinzenal</p>
-                                      <div className="mt-1 space-y-1">
-                                        {biweeklyProgression.map((line) => (
-                                          <p key={line} className="text-[11px] leading-relaxed text-foreground">{line}</p>
-                                        ))}
-                                      </div>
                                     </div>
                                   )}
 

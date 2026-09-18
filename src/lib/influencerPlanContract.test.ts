@@ -45,7 +45,7 @@ describe("Influenciador(a) plan contract", () => {
 
   it("does not raise enrollment, billing, trainer or date alerts for influencer classifications", () => {
     expect(dashboardAlerts).toContain('.eq("plan_kind", "influencer")');
-    expect(dashboardAlerts.match(/!influencerPlanIds\.has\(s\.selected_plan_id\)/g)).toHaveLength(2);
+    expect(dashboardAlerts.match(/!influencerPlanIds\.has\(s\.selected_plan_id\)/g)).toHaveLength(1);
     expect(dashboardAlerts.match(/!influencerPlanIds\.has\(e\.students\?\.selected_plan_id\)/g)).toHaveLength(2);
     expect(dashboardAlerts.match(/students\(full_name, selected_plan_id\)/g)).toHaveLength(2);
   });

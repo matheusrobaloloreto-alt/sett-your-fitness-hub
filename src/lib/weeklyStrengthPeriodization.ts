@@ -65,6 +65,15 @@ export interface StudentHomeWorkoutTarget<TWorkout extends StudentHomeWorkoutLik
   workout: TWorkout | null;
 }
 
+export interface StudentWeekBlockOption {
+  startWeek: number;
+  endWeek: number;
+  label: string;
+  available: boolean;
+  current: boolean;
+  hasNewContent: boolean;
+}
+
 export type ActiveWorkoutInCycles<TCycle, TWorkout> =
   | { kind: "none" }
   | { kind: "resolved"; cycle: TCycle; workout: TWorkout }
@@ -120,6 +129,41 @@ function biweeklyEyebrow(week: number, durationWeeks?: number | null) {
   const start = Math.floor((Math.max(1, week) - 1) / 2) * 2 + 1;
   const end = Math.min(duration, start + 1);
   return `Semanas ${start}-${end}`;
+}
+
+export function weekBlockForWeek(week: number, durationWeeks?: number | null) {
+  const duration = Math.max(1, Math.round(Number(durationWeeks) || 6));
+  const startWeek = Math.floor((Math.max(1, week) - 1) / 2) * 2 + 1;
+  return { startWeek, endWeek: Math.min(duration, startWeek + 1) };
+}
+
+export function studentWeekBlockOptions({
+  currentWeek,
+  durationWeeks = 6,
+  hasWeeklyPrescriptions = true,
+  selectedStartWeek,
+}: {
+  currentWeek: number;
+  durationWeeks?: number | null;
+  hasWeeklyPrescriptions?: boolean;
+  selectedStartWeek?: number;
+}): StudentWeekBlockOption[] {
+  const duration = Math.max(1, Math.round(Number(durationWeeks) || 6));
+  const currentBlock = weekBlockForWeek(currentWeek, duration);
+  const options: StudentWeekBlockOption[] = [];
+  for (let startWeek = 1; startWeek <= duration; startWeek += 2) {
+    const endWeek = Math.min(duration, startWeek + 1);
+    const current = (selectedStartWeek ?? currentBlock.startWeek) === startWeek;
+    options.push({
+      startWeek,
+      endWeek,
+      label: `Semanas ${startWeek} e ${endWeek}`,
+      available: startWeek <= currentBlock.startWeek,
+      current,
+      hasNewContent: hasWeeklyPrescriptions && currentBlock.startWeek > 1 && startWeek === currentBlock.startWeek,
+    });
+  }
+  return options;
 }
 
 export const STUDENT_EFFORT_HELP_TEXT = "Quantas repetições você ainda conseguiria fazer mantendo a técnica.";
@@ -327,9 +371,13 @@ export function resolveWorkoutForCycleWeek<
   startDate?: string | null,
   durationWeeks?: number | null,
   today: Date = new Date(),
+  selectedWeek?: number | null,
 ): ResolvedWeeklyWorkout<TWorkout> | null {
   if (!workout) return null;
-  const week = currentWeekIndex(startDate, durationWeeks || 6, today) + 1;
+  const duration = durationWeeks || 6;
+  const week = selectedWeek && selectedWeek > 0
+    ? Math.min(Math.round(selectedWeek), duration)
+    : currentWeekIndex(startDate, duration, today) + 1;
   const exercises = workout.exercises.map((exercise) => resolveExerciseForWeek(exercise, week)) as TWorkout["exercises"];
   const active = exercises
     .map((exercise) => exercise.weekly_prescription?.find((item) => Number(item.week) === week))

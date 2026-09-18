@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
-import { Dumbbell, Play, Clock, CheckCircle2, Circle, Loader2, LogOut, Save, CalendarDays, History, BarChart3, ArrowLeft, Flame } from "lucide-react";
+import { Dumbbell, Play, Clock, CheckCircle2, Circle, Loader2, LogOut, Save, CalendarDays, History, BarChart3, ArrowLeft, Flame, LockKeyhole } from "lucide-react";
 import { format, parseISO, differenceInDays, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
@@ -40,6 +40,8 @@ import { PlatformAdSlot } from "@/components/PlatformAdSlot";
 import { WorkoutHeader } from "@/components/student/WorkoutHeader";
 import { WeeklyGoalEditor } from "@/components/student/WeeklyGoalEditor";
 import { resolveActiveWorkoutInCycles, resolveWorkoutForCycleWeek, type ResolvedWeekContext, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
+import { currentWeekIndex } from "@/lib/periodization";
+import { StudentWeekSelector } from "@/components/student/StudentWeekSelector";
 import { collectTrainedDaysForWeek, mergeTrainingLogsForDisplay, upsertCompletedWorkoutSession } from "@/lib/studentWeek";
 
 import { CycleFeedbackBanner } from "@/components/student/CycleFeedbackBanner";
@@ -98,7 +100,14 @@ export async function runStudentPortalWorkoutCompletion<TSession>({
   | { status: "finish_failed" }
   | { status: "completed"; session: TSession }
 > {
-  const saveResult = await saveCurrentLogs();
+  let saveResult = await saveCurrentLogs();
+  // Finalizar is the most sensitive moment of the flow. The log RPC is
+  // idempotent, so one extra attempt absorbs a transient 4G/Wi-Fi failure
+  // without duplicating series or moving the session forward prematurely.
+  if (saveResult.ok === false && saveResult.reason === "rpc_error") {
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    saveResult = await saveCurrentLogs();
+  }
   if (saveResult.ok === false) return { status: "save_failed", reason: saveResult.reason };
   const session = await finishSession();
   if (!session) return { status: "finish_failed" };
@@ -181,10 +190,12 @@ export default function StudentPortal() {
   const [studentId, setStudentId] = useState<string | null>(null);
   const [studentName, setStudentName] = useState("");
   const [companyId, setCompanyId] = useState<string | null>(null);
+  const [studentIsInactive, setStudentIsInactive] = useState(false);
   const [gender, setGender] = useState<Gender | null>(null);
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
+  const [selectedWeekStart, setSelectedWeekStart] = useState<number | null>(null);
   const { video: videoModal, openVideo: openVideoForExercise, closeVideo } = useExerciseVideo();
   // Feedback pós-treino — persiste no painel; WhatsApp é um canal adicional.
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -229,14 +240,29 @@ export default function StudentPortal() {
     : activeWorkoutResolution.kind === "resolved"
       ? activeWorkoutResolution.workout
       : selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
+  const currentCycleWeek = selectedWorkoutCycle
+    ? currentWeekIndex(selectedWorkoutCycle.start_date, selectedWorkoutCycle.duration_weeks || 6) + 1
+    : 1;
+  const currentWeekStart = Math.floor((Math.max(1, currentCycleWeek) - 1) / 2) * 2 + 1;
+  const effectiveWeekStart = selectedWeekStart && selectedWeekStart <= (selectedWorkoutCycle?.duration_weeks || 6)
+    ? selectedWeekStart
+    : currentWeekStart;
+  const selectedWeek = effectiveWeekStart === currentWeekStart ? currentCycleWeek : effectiveWeekStart;
   const selectedWorkout = useMemo(
     () => resolveWorkoutForCycleWeek(
       selectedWorkoutBase,
       selectedWorkoutCycle?.start_date,
       selectedWorkoutCycle?.duration_weeks,
+      undefined,
+      selectedWeek,
     ),
-    [selectedWorkoutBase, selectedWorkoutCycle?.start_date, selectedWorkoutCycle?.duration_weeks],
+    [selectedWorkoutBase, selectedWorkoutCycle?.start_date, selectedWorkoutCycle?.duration_weeks, selectedWeek],
   );
+
+  useEffect(() => {
+    if (!selectedCycle) return;
+    setSelectedWeekStart(null);
+  }, [selectedCycle?.id]);
   const startBlockedReason = hasUnresolvedActiveSession
     ? STALE_ACTIVE_SESSION_MESSAGE
     : session.activeSession?.workoutId && selectedWorkout && session.activeSession.workoutId !== selectedWorkout.id
@@ -364,7 +390,7 @@ export default function StudentPortal() {
     try {
     const { data: student } = await supabase
       .from("students")
-      .select("id, full_name, company_id, weekly_workout_goal, gender")
+      .select("id, full_name, company_id, weekly_workout_goal, gender, status")
       .eq("user_id", user!.id)
       .maybeSingle();
 
@@ -376,12 +402,25 @@ export default function StudentPortal() {
     setStudentId(student.id);
     setStudentName(student.full_name);
     setCompanyId(student.company_id);
+    const inactive = (student as any).status === "inactive";
+    setStudentIsInactive(inactive);
     setGender((student as any).gender === "male" || (student as any).gender === "female" ? (student as any).gender : null);
     setWeeklyGoal((student as any).weekly_workout_goal || 3);
     // O shell real do portal (cabeçalho + identidade) já pode ser exibido
     // enquanto as prescrições e o histórico terminam de carregar.
     setLoading(false);
     recordLoadPerformance("shell_ready");
+
+    if (inactive) {
+      setCycles([]);
+      setSelectedCycle(null);
+      setSelectedWorkoutId(null);
+      setEnrollmentInfo(null);
+      setActiveEnrollmentId(null);
+      setContentLoading(false);
+      recordLoadPerformance("content_ready");
+      return;
+    }
 
     // Detecta quais prescrições existem para mostrar as abas condicionais (nutrição/corrida/natação/ciclismo).
     // RLS já permite o aluno ler nutrition_plans e running_plans próprios.
@@ -1090,6 +1129,15 @@ export default function StudentPortal() {
 
 
   const handleNavigate = (view: ActiveView, workoutId?: string | null) => {
+    if (studentIsInactive && ["treino", "nutricao", "corrida", "natacao", "ciclismo"].includes(view)) {
+      toast({
+        title: "Acesso aos treinos pausado",
+        description: "Seu perfil continua disponível. Fale com sua equipe para reativar as prescrições.",
+        variant: "destructive",
+      });
+      setActiveView("home");
+      return;
+    }
     if (view === "treino" && workoutId) {
       setSelectedWorkoutId(workoutId);
       setExpandedExercise(null);
@@ -1185,8 +1233,19 @@ export default function StudentPortal() {
       />
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6">
+        {studentIsInactive && (
+          <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-100" role="status">
+            <div className="flex items-start gap-3">
+              <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+              <div>
+                <p className="font-semibold">Acesso aos treinos pausado</p>
+                <p className="mt-1 text-sm opacity-85">Seu perfil continua disponível. Fale com sua equipe para reativar as prescrições.</p>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Cycle renewal banner (above any view) */}
-        {studentId && companyId && enrollmentInfo && (
+        {!studentIsInactive && studentId && companyId && enrollmentInfo && (
           <div className="mb-4">
             <CycleFeedbackBanner
               studentId={studentId}
@@ -1232,9 +1291,9 @@ export default function StudentPortal() {
             studentName={studentName}
             enrollmentInfo={enrollmentInfo}
             overallProgress={getOverallProgress()}
-            selectedCycle={selectedCycle}
+            selectedCycle={studentIsInactive ? null : selectedCycle}
             cycleProgress={selectedCycle ? getCycleProgress(selectedCycle) : 0}
-            workoutCount={workoutCount}
+            workoutCount={studentIsInactive ? 0 : workoutCount}
             weeklySessionCount={weeklySessionCount}
             trainedDays={trainedDays}
             currentDayOfWeek={new Date().getDay()}
@@ -1244,10 +1303,10 @@ export default function StudentPortal() {
             activeWorkoutId={session.activeSession?.workoutId ?? null}
             goalEditor={studentId ? <WeeklyGoalEditor studentId={studentId} currentGoal={weeklyGoal} onSaved={setWeeklyGoal} /> : null}
             leaderboard={studentId ? <MonthlyLeaderboard companyId={companyId} /> : null}
-            hasNutrition={hasNutrition}
-            hasCorrida={hasCorrida}
-            hasNatacao={hasNatacao}
-            hasCiclismo={hasCiclismo}
+            hasNutrition={!studentIsInactive && hasNutrition}
+            hasCorrida={!studentIsInactive && hasCorrida}
+            hasNatacao={!studentIsInactive && hasNatacao}
+            hasCiclismo={!studentIsInactive && hasCiclismo}
             onNavigate={handleNavigate}
           />
           </>
@@ -1289,6 +1348,19 @@ export default function StudentPortal() {
                       )}
                     </div>
                     <Progress value={getCycleProgress(selectedCycle)} className="h-1.5" />
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-card border-border">
+                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3">
+                    <StudentWeekSelector
+                      currentWeek={currentCycleWeek}
+                      durationWeeks={selectedCycle.duration_weeks}
+                      selectedStartWeek={effectiveWeekStart}
+                      hasWeeklyPrescriptions={Boolean(selectedWorkoutBase?.exercises.some((exercise) => (exercise.weekly_prescription || []).length > 0))}
+                      onChange={(startWeek) => { setSelectedWeekStart(startWeek); setExpandedExercise(null); }}
+                      onBlocked={(message) => toast({ title: "Semana ainda não liberada", description: message, variant: "destructive" })}
+                    />
                   </CardContent>
                 </Card>
 

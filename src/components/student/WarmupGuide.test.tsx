@@ -67,7 +67,7 @@ describe("WarmupGuide exercise previews", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Demonstrações do aquecimento" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Demonstrações do aquecimento" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Assistir demonstração de Agachamento livre (air squat)" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Leg press 45/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Cadeira extensora/i })).not.toBeInTheDocument();
@@ -88,7 +88,7 @@ describe("WarmupGuide exercise previews", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Demonstrações do aquecimento" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Demonstrações do aquecimento" })).not.toBeInTheDocument();
     const thumbnail = screen.getByRole("img", { name: "Prévia de Agachamento livre (air squat)" });
     expect(thumbnail).toHaveAttribute("loading", "lazy");
     expect(document.querySelector("video, iframe")).toBeNull();
@@ -99,7 +99,7 @@ describe("WarmupGuide exercise previews", () => {
     expect(document.querySelector("video")).toHaveAttribute("src", exercises[0].video_url);
     fireEvent.click(screen.getByRole("button", { name: "Voltar ao aquecimento" }));
 
-    expect(screen.getByText("Vídeo ainda não vinculado")).toBeInTheDocument();
+    expect(screen.getAllByText("Vídeo indisponível para este item").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Buscar demonstração de Mobilidade de Tornozelo" }));
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(onVideoPlay).toHaveBeenCalledWith(exercises[1]);
@@ -111,14 +111,14 @@ describe("WarmupGuide exercise previews", () => {
     const { rerender } = render(<WarmupGuide {...props} open />);
     const label = "Agachamento livre — 2×10";
     fireEvent.click(screen.getByRole("button", { name: label }));
-    expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText(label)).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "Assistir demonstração de Agachamento livre (air squat)" }));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(props.onOpenChange).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText(label)).toHaveAttribute("aria-pressed", "true");
     rerender(<WarmupGuide {...props} open={false} />);
     rerender(<WarmupGuide {...props} open />);
-    expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText(label)).toHaveAttribute("aria-pressed", "true");
   });
 
   it("shows execution cues even without a linked video and avoids classifying deltoids as back/hamstrings", () => {

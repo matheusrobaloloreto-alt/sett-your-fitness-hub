@@ -479,6 +479,9 @@ export default function RegistrationManager() {
   const [fiscalStudentId, setFiscalStudentId] = useState("");
   const [fiscalPhone, setFiscalPhone] = useState("");
   const [fiscalLink, setFiscalLink] = useState("");
+  const [renewalStudentId, setRenewalStudentId] = useState("");
+  const [renewalLink, setRenewalLink] = useState("");
+  const [renewalLoading, setRenewalLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [fiscalCopied, setFiscalCopied] = useState(false);
   const [creatingLink, setCreatingLink] = useState(false);
@@ -880,6 +883,20 @@ export default function RegistrationManager() {
     setFiscalLink(personalized);
     await loadPipeline();
     return personalized;
+  };
+
+  const createRenewalLink = async () => {
+    if (!renewalStudentId) throw new Error("Selecione o aluno que receberá a renovação.");
+    setRenewalLoading(true);
+    try {
+      const link = await createPlansLink(renewalStudentId);
+      setRenewalLink(link);
+      await navigator.clipboard?.writeText(link);
+      toast.success("Link de renovação criado e copiado.");
+      return link;
+    } finally {
+      setRenewalLoading(false);
+    }
   };
 
   const openChatWithStudent = async (student: Student, message = "") => {
@@ -1595,6 +1612,33 @@ export default function RegistrationManager() {
                 Copiar link de cadastro
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isTrainerView && (
+        <Card className="rounded-2xl border-border bg-card">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base"><CreditCard className="h-4 w-4 text-primary" /> Link de renovação</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">Use este link para quem já tem matrícula. Ele abre somente a escolha do plano e o pagamento, sem repetir o cadastro fiscal.</p>
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+              <Select value={renewalStudentId} onValueChange={(value) => { setRenewalStudentId(value); setRenewalLink(""); }}>
+                <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione um aluno ativo ou em renovação..." /></SelectTrigger>
+                <SelectContent>
+                  {students.filter((student) => student.entityType === "student" && ["active", "awaiting_renewal"].includes(student.status || "")).map((student) => (
+                    <SelectItem key={student.id} value={student.id}>
+                      <span className="inline-flex min-w-0 items-center gap-1.5"><span className="truncate">{student.full_name}</span><AthleticClubStar studentId={student.id} companyId={effectiveCompanyId} className="shrink-0" /></span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" disabled={!renewalStudentId || renewalLoading} onClick={() => void createRenewalLink().catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível criar o link de renovação."))}>
+                {renewalLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Copy className="mr-2 h-4 w-4" />}Criar e copiar
+              </Button>
+            </div>
+            {renewalLink && <p className="break-all rounded-xl border border-border bg-secondary/35 p-3 font-mono-data text-xs text-muted-foreground">{renewalLink}</p>}
           </CardContent>
         </Card>
       )}

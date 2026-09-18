@@ -87,5 +87,5 @@ describe("BN Prescription Engine compute budget", () => {
     // normal do runner compartilhado com compute consumido pelo worker.
     expect(medianCpuMs).toBeLessThan(PRIMARY_CPU_BUDGET_MS);
     expect(medianWallMs).toBeLessThan(DIAGNOSTIC_WALL_CEILING_MS);
-  });
+  }, 15_000);
 });

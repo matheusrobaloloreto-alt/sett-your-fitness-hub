@@ -230,6 +230,22 @@ describe("prescriptionSchedule", () => {
     ]);
   });
 
+  it("mantém a ordem cronológica quando ciclos 5 e 6 duplicam as datas dos ciclos 1 e 2", () => {
+    const duplicated = [
+      cycle(1, "2026-04-28", "2026-06-08", { status: "completed", has_workouts: false }),
+      cycle(2, "2026-06-09", "2026-07-20", { status: "completed", has_workouts: false }),
+      cycle(3, "2026-08-04", "2026-09-14", { status: "active", has_workouts: true }),
+      cycle(5, "2026-04-30", "2026-06-10", { status: "completed", has_workouts: true }),
+      cycle(6, "2026-06-10", "2026-07-22", { status: "completed", has_workouts: true }),
+    ];
+
+    expect(collapseOverlappingCyclesForDisplay(duplicated)).toEqual([
+      expect.objectContaining({ id: "cycle-5", cycle_number: 1, start_date: "2026-04-28", end_date: "2026-06-08", has_workouts: true }),
+      expect.objectContaining({ id: "cycle-6", cycle_number: 2, start_date: "2026-06-09", end_date: "2026-07-20", has_workouts: true }),
+      expect.objectContaining({ id: "cycle-3", cycle_number: 3, start_date: "2026-08-04", end_date: "2026-09-14", has_workouts: true }),
+    ]);
+  });
+
   it("remove ciclos substituídos de todas as seleções sem apagar o registro", () => {
     const canonical = cycle(5, "2026-07-01", "2026-08-30", { status: "active", has_workouts: true });
     const superseded = cycle(11, "2026-07-01", "2026-08-31", {

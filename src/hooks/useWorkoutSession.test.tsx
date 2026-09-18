@@ -4,7 +4,9 @@ import { useWorkoutSession } from "./useWorkoutSession";
 
 const mocks = vi.hoisted(() => ({
   updateResult: { data: null, error: new Error("offline") } as { data: { id: string } | null; error: Error | null },
-  completionFilters: [] as Array<[string, string]>,
+  updateResults: [] as Array<{ data: { id: string } | null; error: Error | null }>,
+  confirmationResult: { data: null, error: null } as { data: { id: string } | null; error: Error | null },
+  updateFilters: [] as Array<[string, string]>,
   selectedColumns: null as string | null,
   rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
 }));
@@ -12,15 +14,19 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: () => {
-      const completionQuery = {
+      const updateQuery = {
         eq: (column: string, value: string) => {
-          mocks.completionFilters.push([column, value]);
-          return completionQuery;
+          mocks.updateFilters.push([column, value]);
+          return updateQuery;
         },
         select: (columns: string) => {
           mocks.selectedColumns = columns;
-          return { single: async () => mocks.updateResult };
+          return { maybeSingle: async () => mocks.updateResults.shift() ?? mocks.updateResult };
         },
+      };
+      const confirmationQuery = {
+        eq: () => confirmationQuery,
+        maybeSingle: async () => mocks.confirmationResult,
       };
       return {
         insert: () => ({
@@ -28,7 +34,8 @@ vi.mock("@/integrations/supabase/client", () => ({
             single: async () => ({ data: { id: "session-1" }, error: null }),
           }),
         }),
-        update: () => completionQuery,
+        update: () => updateQuery,
+        select: () => confirmationQuery,
       };
     },
     rpc: mocks.rpc,
@@ -45,7 +52,9 @@ describe("useWorkoutSession", () => {
       clear: () => values.clear(),
     });
     mocks.updateResult = { data: null, error: new Error("offline") };
-    mocks.completionFilters = [];
+    mocks.updateResults = [];
+    mocks.confirmationResult = { data: null, error: null };
+    mocks.updateFilters = [];
     mocks.selectedColumns = null;
     mocks.rpc.mockClear();
   });
@@ -111,7 +120,7 @@ describe("useWorkoutSession", () => {
     });
 
     expect(summary?.id).toBe("session-1");
-    expect(mocks.completionFilters).toEqual([
+    expect(mocks.updateFilters).toEqual([
       ["id", "session-1"],
       ["student_id", "student-1"],
       ["status", "in_progress"],
@@ -120,5 +129,27 @@ describe("useWorkoutSession", () => {
     expect(result.current.activeSession).toBeNull();
     expect(localStorage.getItem("sett_active_session_student-1")).toBeNull();
     expect(mocks.rpc).toHaveBeenCalled();
+  });
+
+  it("retries a transient completion failure and clears the timer after server confirmation", async () => {
+    mocks.updateResults = [
+      { data: null, error: new Error("timeout") },
+      { data: { id: "session-1" }, error: null },
+    ];
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1"));
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+
+    await act(async () => {
+      await result.current.startSession("workout-1");
+    });
+
+    let summary: Awaited<ReturnType<typeof result.current.finishSession>> = null;
+    await act(async () => {
+      summary = await result.current.finishSession({}, [], {});
+    });
+
+    expect(summary?.id).toBe("session-1");
+    expect(result.current.activeSession).toBeNull();
+    expect(localStorage.getItem("sett_active_session_student-1")).toBeNull();
   });
 });

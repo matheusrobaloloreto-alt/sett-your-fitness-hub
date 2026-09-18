@@ -19,7 +19,6 @@ import { buildStudentChatMap, createPlansLink, openStudentChat, renewalMessage }
 import { businessDateYmd } from "@/lib/businessDate";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
-import { selectCurrentCyclePerEnrollment } from "@/lib/prescriptionSchedule";
 import { RenewalsAndCyclesPanel } from "@/components/dashboard/RenewalsAndCyclesPanel";
 import { DashboardSnapshotContext, type CompanyDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 import { parseCompanyDashboardSnapshot } from "@/lib/companyDashboardSnapshot";
@@ -82,7 +81,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
   // Trainer count + cycle enrollments in parallel with the others
   let cycleEnrollQuery = supabase.from("enrollments")
     .select("id, student_id, training_start_date, trainer_id, students(full_name, assigned_trainer_id)")
-    .in("status", ["active", "awaiting_training"]) as any;
+    .in("status", ["active", "awaiting_training", "awaiting_renewal"]) as any;
   if (effectiveCompanyId) cycleEnrollQuery = cycleEnrollQuery.eq("company_id", effectiveCompanyId);
 
   const trainerCountPromise = (async () => {
@@ -167,7 +166,18 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
       .order("cycle_number");
     if (cycleRowsError) throw new Error(`Falha ao carregar trocas de treino: ${cycleRowsError.message}`);
     const allCycles = cycleRows || [];
-    const currentCycleCandidates = allCycles.filter((cycle: any) => cycle.start_date <= today && cycle.end_date >= today);
+    // Keep the last cycle in the renewal window even after it expires. The
+    // dashboard is an operational queue, not a snapshot that drops overdue work.
+    const currentCycleCandidates = Array.from(
+      allCycles
+        .filter((cycle: any) => cycle.start_date <= today && cycle.end_date <= sevenDaysFromNow)
+        .reduce((map: Map<string, any>, cycle: any) => {
+          const current = map.get(cycle.enrollment_id);
+          if (!current || Number(cycle.cycle_number) > Number(current.cycle_number)) map.set(cycle.enrollment_id, cycle);
+          return map;
+        }, new Map<string, any>())
+        .values(),
+    );
     const currentCycleIds = currentCycleCandidates.map((cycle: any) => cycle.id);
     const [{ data: currentWorkouts, error: currentWorkoutsError }, { data: currentBundles, error: currentBundlesError }] = currentCycleIds.length > 0
       ? await Promise.all([
@@ -182,14 +192,11 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
       ...(currentBundles || []).map((row: any) => row.training_cycle_id),
       ...currentCycleCandidates.filter((cycle: any) => cycle.prescribed_offline_at).map((cycle: any) => cycle.id),
     ]);
-    const activeCycles = selectCurrentCyclePerEnrollment(
-      currentCycleCandidates.map((cycle: any) => ({
-        ...cycle,
-        has_workouts: preparedCurrentCycles.has(cycle.id),
-        has_bundle: preparedCurrentCycles.has(cycle.id),
-      })),
-      businessToday,
-    );
+    const activeCycles = currentCycleCandidates.map((cycle: any) => ({
+      ...cycle,
+      has_workouts: preparedCurrentCycles.has(cycle.id),
+      has_bundle: preparedCurrentCycles.has(cycle.id),
+    }));
     const nextCycles = activeCycles.map((cycle: any) => allCycles.find((candidate: any) =>
       candidate.enrollment_id === cycle.enrollment_id && candidate.cycle_number === cycle.cycle_number + 1,
     )).filter(Boolean);
@@ -210,8 +217,10 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     activeCycles.forEach((c: any) => {
       const info = enrollInfoMap[c.enrollment_id];
       const daysLeft = differenceInCalendarDays(parseISO(c.end_date), businessToday);
-      if (daysLeft < 0 || daysLeft > 7) return;
+      if (daysLeft > 7) return;
       const nextCycle = nextCycles.find((candidate: any) => candidate.enrollment_id === c.enrollment_id);
+      const nextReady = Boolean(nextCycle && preparedNextCycles.has(nextCycle.id));
+      if (nextReady) return;
       countdowns.push({
         student_name: info?.name || "—",
         student_id: info?.student_id,
@@ -222,11 +231,11 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
         next_cycle_id: nextCycle?.id || null,
         next_cycle_number: nextCycle?.cycle_number || null,
         next_start_date: nextCycle?.start_date || null,
-        next_ready: Boolean(nextCycle && preparedNextCycles.has(nextCycle.id)),
+        next_ready: nextReady,
       });
     });
   }
-  countdowns.sort((a, b) => a.days_left - b.days_left);
+  countdowns.sort((a, b) => String(b.end_date).localeCompare(String(a.end_date)));
 
   // Resolve trainer names once
   const allTrainerIds = new Set<string>();
@@ -288,6 +297,8 @@ export default function AdminDashboard({
   const { viewingCompany, isViewingCompany } = useMaster();
   const navigate = useNavigate();
   const [insightsOpen, setInsightsOpen] = useState(false);
+  const [renewalFilter, setRenewalFilter] = useState<"all" | "pending" | "overdue">("all");
+  const [cycleFilter, setCycleFilter] = useState<"all" | "pending" | "overdue">("all");
   const routePrefix = routePrefixOverride ?? (role === "master" && isViewingCompany ? "admin" : role);
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
 
@@ -365,6 +376,13 @@ export default function AdminDashboard({
   const cycleCountdowns = data?.cycleCountdowns ?? [];
   const trainerMap = data?.trainerMap ?? {};
   const businessToday = parseISO(businessDateYmd());
+  const visibleRenewals = expiringContracts.filter((contract: any) => {
+    const daysLeft = differenceInCalendarDays(parseISO(contract.end_date), businessToday);
+    return renewalFilter === "pending" ? daysLeft >= 0 : renewalFilter === "overdue" ? daysLeft < 0 : true;
+  });
+  const visibleCycleCountdowns = cycleCountdowns.filter((cycle: any) => (
+    cycleFilter === "pending" ? Number(cycle.days_left) >= 0 : cycleFilter === "overdue" ? Number(cycle.days_left) < 0 : true
+  ));
 
   return (
     <>
@@ -448,7 +466,7 @@ export default function AdminDashboard({
           </Card>
         </div>
 
-        <DashboardAlerts readOnly={readOnly} />
+        <DashboardAlerts readOnly={readOnly} showRecentStudents={role !== "trainer"} />
 
         <ContactCadenceCard
           companyId={effectiveCompanyId}
@@ -476,14 +494,21 @@ export default function AdminDashboard({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle className="text-primary text-xl flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="text-primary text-xl flex items-center gap-2">
                 <RefreshCw className="h-5 w-5" />RENOVAÇÃO
-              </CardTitle>
+                </CardTitle>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar renovações">
+                  {([['all', 'Todas'], ['pending', 'Pendentes'], ['overdue', 'Atrasadas']] as const).map(([value, label]) => (
+                    <Button key={value} type="button" size="sm" variant={renewalFilter === value ? "default" : "outline"} className="h-7 px-2 text-xs" onClick={() => setRenewalFilter(value)}>{label}</Button>
+                  ))}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              {expiringContracts.length > 0 ? (
+              {visibleRenewals.length > 0 ? (
                 <div className="space-y-3 max-h-[250px] overflow-auto">
-                  {expiringContracts.map((contract: any) => {
+                  {visibleRenewals.map((contract: any) => {
                     const daysLeft = differenceInCalendarDays(parseISO(contract.end_date), businessToday);
                     return (
                       <div key={contract.id} className={`flex items-center justify-between p-3 rounded-lg bg-secondary/50 border border-border transition-all ${readOnly ? "" : "cursor-pointer hover:brightness-110"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students/${contract.student_id}`)}>
@@ -533,14 +558,21 @@ export default function AdminDashboard({
 
           <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle className="text-primary text-xl flex items-center gap-2">
-                <Timer className="h-5 w-5" />TROCA DE TREINO
-              </CardTitle>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="text-primary text-xl flex items-center gap-2">
+                  <Timer className="h-5 w-5" />TROCA DE TREINO
+                </CardTitle>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar trocas de treino">
+                  {([['all', 'Todas'], ['pending', 'Pendentes'], ['overdue', 'Atrasadas']] as const).map(([value, label]) => (
+                    <Button key={value} type="button" size="sm" variant={cycleFilter === value ? "default" : "outline"} className="h-7 px-2 text-xs" onClick={() => setCycleFilter(value)}>{label}</Button>
+                  ))}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              {cycleCountdowns.length > 0 ? (
+              {visibleCycleCountdowns.length > 0 ? (
                 <div className="space-y-3 max-h-[300px] overflow-auto">
-                  {cycleCountdowns.map((m: any, i: number) => (
+                  {visibleCycleCountdowns.map((m: any, i: number) => (
                     <div key={i} className={`flex flex-col gap-3 rounded-lg border border-border bg-secondary/50 p-3 sm:flex-row sm:items-center sm:justify-between ${readOnly ? "" : "cursor-pointer hover:brightness-110 transition-all"}`} onClick={() => m.student_id && navigateWhenInteractive(`/${routePrefix}/students/${m.student_id}`)}>
                       <div>
                         <button
@@ -568,7 +600,7 @@ export default function AdminDashboard({
                       </div>
                       <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
                         <span className={`rounded px-2 py-1 text-xs font-medium font-mono-data ${m.days_left <= 0 ? "bg-destructive/20 text-destructive" : "bg-warning/20 text-warning"}`}>
-                          {m.days_left <= 0 ? "Hoje" : `${m.days_left}d para troca`}
+                          {m.days_left < 0 ? `${Math.abs(m.days_left)}d em atraso` : m.days_left === 0 ? "Hoje" : `${m.days_left}d para troca`}
                         </span>
                         {!readOnly && (m.next_ready ? (
                           <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => handleCycleNotice(m)}>

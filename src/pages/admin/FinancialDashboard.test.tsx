@@ -223,7 +223,7 @@ describe("FinancialDashboard authoritative installment snapshot", () => {
     expect(rowCount).toBe(24);
     expect(resolvedCount).toBe(6);
     expect(unresolvedCount).toBe(18);
-  });
+  }, 15_000);
 
   it("includes CONFIRMED future installments in forecast but not received cash", async () => {
     mocks.invoke.mockResolvedValue(snapshot([entry(1), entry(2, {

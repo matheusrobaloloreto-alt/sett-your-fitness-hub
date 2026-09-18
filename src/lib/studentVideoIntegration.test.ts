@@ -27,9 +27,10 @@ describe("student workout video integration", () => {
     expect(helpers).toContain("playlist: videoId");
     expect(player).toContain("autoPlay");
     expect(player).toContain("playsInline");
-    expect(warmup).toContain("exerciseThumb(exercise)");
+    expect(warmup).toContain("exerciseThumb(linkedVideo)");
     expect(warmup).toContain('loading="lazy"');
-    expect(warmup).toContain("Demonstrações do aquecimento");
+    expect(warmup).not.toContain("Demonstrações do aquecimento");
+    expect(warmup).toContain("warmupInstruction(label)");
     expect(warmupMatches).toContain("WARMUP_VIDEO_MATCHES");
     expect(warmupMatches).toContain("Dead bug de ativação");
     expect(warmup).not.toMatch(/<video|<iframe/);

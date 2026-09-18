@@ -155,24 +155,51 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     const totalSetsCompleted = exercisesSummary.reduce((sum, ex) => sum + ex.sets.filter(s => s.weight > 0 || s.reps > 0).length, 0);
     const totalSetsPrescribed = exercises.reduce((sum, ex) => sum + (parseInt(ex.sets) || 3), 0);
 
-    const { data: completedRow, error: completionError } = await supabase
-      .from("workout_sessions")
-      .update({
-        completed_at: completedAt,
-        duration_seconds: durationSeconds,
-        total_volume: totalVolume,
-        total_sets_completed: totalSetsCompleted,
-        total_sets_prescribed: totalSetsPrescribed,
-        status: "completed",
-        exercises_summary: exercisesSummary as any,
-      })
-      .eq("id", activeSession.id)
-      .eq("student_id", studentId)
-      .eq("status", "in_progress")
-      .select("id")
-      .single();
+    const completionPayload = {
+      completed_at: completedAt,
+      duration_seconds: durationSeconds,
+      total_volume: totalVolume,
+      total_sets_completed: totalSetsCompleted,
+      total_sets_prescribed: totalSetsPrescribed,
+      status: "completed",
+      exercises_summary: exercisesSummary as any,
+    };
+    let completedRow: { id: string } | null = null;
+    let completionError: unknown = null;
+    for (let attempt = 0; attempt < 3 && !completedRow; attempt += 1) {
+      const response = await supabase
+        .from("workout_sessions")
+        .update(completionPayload)
+        .eq("id", activeSession.id)
+        .eq("student_id", studentId)
+        .eq("status", "in_progress")
+        .select("id")
+        .maybeSingle();
+      if (!response.error && response.data?.id === activeSession.id) {
+        completedRow = response.data;
+        break;
+      }
+      completionError = response.error || new Error("A sessão não retornou confirmação de conclusão.");
+      // A timeout can happen after Supabase committed the update. Confirm the
+      // final state before trying again, avoiding a false error to the student.
+      const confirmation = await supabase
+        .from("workout_sessions")
+        .select("id")
+        .eq("id", activeSession.id)
+        .eq("student_id", studentId)
+        .eq("status", "completed")
+        .maybeSingle();
+      if (!confirmation.error && confirmation.data?.id === activeSession.id) {
+        completedRow = confirmation.data;
+        break;
+      }
+      // Zero rows without a transport error is a real guarded-write conflict,
+      // not a flaky connection. Keep the local session open for the student.
+      if (!response.error) break;
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+    }
 
-    if (completionError || !completedRow || completedRow.id !== activeSession.id) {
+    if (completionError && (!completedRow || completedRow.id !== activeSession.id)) {
       finishingRef.current = false;
       return null;
     }

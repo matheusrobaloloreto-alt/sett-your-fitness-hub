@@ -33,6 +33,7 @@ import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { useMaster } from "@/contexts/MasterContext";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
+import type { StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import type { PreRegistrationData } from "@/lib/preRegistration";
 import { saveCycleWorkoutRevision, WorkoutRevisionConflictError } from "@/lib/workoutRevision";
 import { calculateWeeklyMuscleVolume } from "@/lib/workoutVolume";
@@ -82,6 +83,7 @@ interface WorkoutExercise {
   rest: string;
   notes: string;
   set_types?: string[];
+  weekly_prescription?: StoredWeeklyExercisePrescription[];
 }
 
 interface Workout {
@@ -191,11 +193,66 @@ const mapWorkoutRows = (rows: any[]): Workout[] => sanitizeWorkoutSetTypes(rows.
   exercises: (workout.exercises as WorkoutExercise[]) || [],
 })));
 
+const parseRestSeconds = (value: string | number | null | undefined) => {
+  const parsed = Number.parseInt(String(value || "").replace(/\D/g, ""), 10);
+  return Number.isFinite(parsed) ? parsed : 60;
+};
+
+const ensureWeeklyPrescription = (exercise: WorkoutExercise): StoredWeeklyExercisePrescription[] => {
+  const stored = Array.isArray(exercise.weekly_prescription) ? exercise.weekly_prescription : [];
+  return Array.from({ length: 6 }, (_, index) => {
+    const week = index + 1;
+    const current = stored.find((item) => Number(item.week) === week);
+    return {
+      week,
+      block: week <= 2 ? "base" : week <= 4 ? "acumulacao" : "intensificacao",
+      sets: Number(current?.sets) || Number.parseInt(exercise.sets, 10) || 3,
+      reps: String(current?.reps || exercise.reps || "12"),
+      rir: String(current?.rir || ""),
+      rest_seconds: Number(current?.rest_seconds) || parseRestSeconds(exercise.rest),
+      tempo: String(current?.tempo || ""),
+      method: current?.method ?? exercise.method ?? null,
+      group_id: current?.group_id ?? exercise.group_id ?? null,
+      method_seconds: current?.method_seconds ?? exercise.method_seconds ?? null,
+      method_reason: current?.method_reason ?? null,
+      set_types: sanitizeSetTypes(current?.set_types || exercise.set_types) || [],
+      instruction: String(current?.instruction || exercise.notes || "Siga a orientação do professor."),
+    };
+  });
+};
+
+const updateWeeklyBlock = (
+  exercise: WorkoutExercise,
+  startWeek: number,
+  field: "sets" | "reps" | "rest_seconds" | "instruction",
+  value: string,
+) => ensureWeeklyPrescription(exercise).map((item) => {
+  if (item.week < startWeek || item.week > startWeek + 1) return item;
+  if (field === "sets") return { ...item, sets: Math.max(1, Number.parseInt(value, 10) || 1) };
+  if (field === "rest_seconds") return { ...item, rest_seconds: Math.max(0, Number.parseInt(value, 10) || 0) };
+  return { ...item, [field]: value };
+});
+
+const updateWeeklyMethod = (exercise: WorkoutExercise, startWeek: number, method: MethodId | null) => (
+  ensureWeeklyPrescription(exercise).map((item) => {
+    if (item.week < startWeek || item.week > startWeek + 1) return item;
+    return {
+      ...item,
+      method,
+      group_id: method && isGroupingMethod(method) ? item.group_id : null,
+      method_seconds: method && methodNeedsSeconds(method) ? (item.method_seconds || 3) : null,
+    };
+  })
+);
+
 const workoutRevisionPayload = (draft: Workout[]) => sanitizeWorkoutSetTypes(draft).map((workout, workoutIndex) => ({
   title: workout.title || `Treino ${WORKOUT_LABELS[workoutIndex] || workoutIndex + 1}`,
   description: workout.description || null,
   day_of_week: workout.day_of_week ?? workoutIndex + 1,
-  exercises: workout.exercises as unknown[],
+  exercises: workout.exercises.map((exercise) => ({
+    ...exercise,
+    weekly_prescription: ensureWeeklyPrescription(exercise),
+  })) as unknown[],
 }));
 
 const workoutRevisionRows = (draft: Workout[]) => draft
@@ -267,6 +324,7 @@ export default function WorkoutBuilder() {
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [workoutRevisionSnapshot, setWorkoutRevisionSnapshot] = useState<Array<{ id: string; updated_at: string }>>([]);
   const [activeTab, setActiveTab] = useState("0");
+  const [editingWeekStart, setEditingWeekStart] = useState(1);
   const [saving, setSaving] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryExercises, setLibraryExercises] = useState<Exercise[]>([]);
@@ -706,6 +764,7 @@ export default function WorkoutBuilder() {
           reps: "12",
           rest: "60s",
           notes: "",
+          weekly_prescription: [],
         }],
       };
     }));
@@ -1376,6 +1435,22 @@ export default function WorkoutBuilder() {
         <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
           {/* Main content */}
           <div className="min-w-0 flex-1 space-y-4">
+            <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <Label className="text-sm font-medium text-foreground">Semanas da prescrição</Label>
+                <p className="text-xs text-muted-foreground">Edite os parâmetros do bloco quinzenal selecionado. O aluno só verá o bloco já liberado.</p>
+              </div>
+              <Select value={String(editingWeekStart)} onValueChange={(value) => setEditingWeekStart(Number(value))}>
+                <SelectTrigger className="h-9 w-full bg-background sm:w-[180px]" aria-label="Semanas da prescrição">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">Semanas 1 e 2</SelectItem>
+                  <SelectItem value="3">Semanas 3 e 4</SelectItem>
+                  <SelectItem value="5">Semanas 5 e 6</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {/* Workout Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <div className="flex items-center gap-2">
@@ -1691,6 +1766,64 @@ export default function WorkoutBuilder() {
                                           </Select>
                                         );
                                       })}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+
+                              {(() => {
+                                const block = ensureWeeklyPrescription(ex).find((item) => item.week === editingWeekStart)!;
+                                const updateBlock = (field: "sets" | "reps" | "rest_seconds" | "instruction", value: string) => {
+                                  updateExercise(wIdx, exIdx, "weekly_prescription", updateWeeklyBlock(ex, editingWeekStart, field, value));
+                                };
+                                return (
+                                  <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <Label className="text-xs font-semibold text-primary">Semanas {editingWeekStart} e {editingWeekStart + 1}</Label>
+                                      <span className="text-[11px] text-muted-foreground">Parâmetros exibidos ao aluno</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 lg:grid-cols-[0.7fr_1fr_0.8fr_1.2fr_2fr]">
+                                      <div className="space-y-1">
+                                        <Label className="text-[11px] text-muted-foreground">Séries</Label>
+                                        <Input type="number" min={1} value={block.sets} onChange={(event) => updateBlock("sets", event.target.value)} className="h-8 bg-background" disabled={saving} />
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-[11px] text-muted-foreground">Repetições</Label>
+                                        <Input value={block.reps} onChange={(event) => updateBlock("reps", event.target.value)} className="h-8 bg-background" disabled={saving} />
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-[11px] text-muted-foreground">Descanso (s)</Label>
+                                        <Input type="number" min={0} value={block.rest_seconds} onChange={(event) => updateBlock("rest_seconds", event.target.value)} className="h-8 bg-background" disabled={saving} />
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-[11px] text-muted-foreground">Sistema</Label>
+                                        {isGroupingMethod(block.method) ? (
+                                          <div className="flex h-8 items-center rounded-md border border-border bg-background px-2 text-xs text-muted-foreground">
+                                            {WORKOUT_METHODS[block.method as MethodId]?.label || block.method}
+                                          </div>
+                                        ) : (
+                                          <Select
+                                            value={block.method || "none"}
+                                            onValueChange={(value) => updateExercise(
+                                              wIdx,
+                                              exIdx,
+                                              "weekly_prescription",
+                                              updateWeeklyMethod(ex, editingWeekStart, value === "none" ? null : value as MethodId),
+                                            )}
+                                            disabled={saving}
+                                          >
+                                            <SelectTrigger className="h-8 bg-background"><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="none">Séries retas</SelectItem>
+                                              {SINGLE_METHODS.map((method) => <SelectItem key={method} value={method}>{WORKOUT_METHODS[method].label}</SelectItem>)}
+                                            </SelectContent>
+                                          </Select>
+                                        )}
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-[11px] text-muted-foreground">Observação</Label>
+                                        <Input value={block.instruction || ""} onChange={(event) => updateBlock("instruction", event.target.value)} className="h-8 bg-background" disabled={saving} />
+                                      </div>
                                     </div>
                                   </div>
                                 );
