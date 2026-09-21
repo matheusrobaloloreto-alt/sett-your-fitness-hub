@@ -7,7 +7,19 @@ describe("SETT-CYCLE-UPDATE-01 contracts", () => {
   const dispatcher = readFileSync(resolve(process.cwd(), "supabase/functions/process-automation-sessions/index.ts"), "utf8");
   const motor = readFileSync(resolve(process.cwd(), "supabase/functions/ai-prescribe-workout/index.ts"), "utf8");
   const intercycleEdge = readFileSync(resolve(process.cwd(), "supabase/functions/intercycle-anamnesis/index.ts"), "utf8");
+  const createLinkBlock = intercycleEdge.slice(
+    intercycleEdge.indexOf('action === "create-link"'),
+    intercycleEdge.indexOf('action === "opt-in"'),
+  );
+  const scheduleNowBlock = intercycleEdge.slice(
+    intercycleEdge.indexOf('action === "schedule-now"'),
+    intercycleEdge.indexOf('action === "cancel"'),
+  );
   const registrationManager = readFileSync(resolve(process.cwd(), "src/pages/admin/RegistrationManager.tsx"), "utf8");
+  const manualAnytimeMigration = readFileSync(
+    resolve(process.cwd(), "supabase/migrations/20260921133000_allow_manual_intercycle_anamnesis_anytime.sql"),
+    "utf8",
+  );
   const intercycleMigrations = readdirSync(resolve(process.cwd(), "supabase/migrations"))
     .filter((file) => file.includes("intercycle"))
     .map((file) => readFileSync(resolve(process.cwd(), "supabase/migrations", file), "utf8"))
@@ -74,7 +86,7 @@ describe("SETT-CYCLE-UPDATE-01 contracts", () => {
     expect(motor).toContain("typeof data.claims.exp === \"number\"");
     expect(edge).toContain("sensitive_consent");
   });
-  it("invalidates stale manual links when a cycle moves and rechecks the live cycle window", () => {
+  it("invalidates stale manual links when a cycle moves and keeps the live window for automatic invites", () => {
     expect(intercycleMigrations).toContain("cycle_rescheduled_manual_link_invalidated");
     expect(intercycleMigrations).toMatch(/status in \('ready','scheduled','failed'\)/);
     expect(intercycleMigrations).toMatch(/update public\.intercycle_anamnesis_invites[\s\S]*expires_at = least\(expires_at, now\(\)\)/);
@@ -105,5 +117,15 @@ describe("SETT-CYCLE-UPDATE-01 contracts", () => {
     expect(intercycleEdge).toContain('from("intercycle_anamnesis_invites").upsert');
     expect(intercycleMigrations).toContain("'ready'");
     expect(intercycleMigrations).toContain("old.status = 'ready'");
+  });
+
+  it("allows manual links at any point while preserving the automatic delivery window", () => {
+    expect(createLinkBlock).not.toContain("dia 29");
+    expect(createLinkBlock).not.toContain("A janela desta anamnese interciclos já encerrou.");
+    expect(scheduleNowBlock).toContain("dia 29");
+    expect(manualAnytimeMigration).toContain("v_delivery.last_error_code is distinct from 'intercycle_manual_link_ready'");
+    expect(manualAnytimeMigration).toContain("intercycle_submit_window_closed");
+    expect(manualAnytimeMigration).toMatch(/v_today < v_cycle\.start_date \+ 28/);
+    expect(manualAnytimeMigration).toMatch(/v_today > coalesce\(v_cycle\.end_date, v_cycle\.start_date \+ 41\)/);
   });
 });

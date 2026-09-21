@@ -155,12 +155,6 @@ Deno.serve(async (req) => {
         !["cancelled", "superseded"].includes(String(candidate.status || ""))
       ));
       if (!cycle?.start_date) throw new HttpError(409, "Este aluno não possui um ciclo vigente para a anamnese interciclos.");
-      if (today < datePlusDays(cycle.start_date, 28)) {
-        throw new HttpError(409, "O link interciclos fica disponível a partir do dia 29 do ciclo.");
-      }
-      if (today > (cycle.end_date || datePlusDays(cycle.start_date, 41))) {
-        throw new HttpError(409, "A janela desta anamnese interciclos já encerrou.");
-      }
 
       const enrollment = await admin.from("enrollments").select("id,status")
         .eq("id", cycle.enrollment_id).eq("company_id", tenant.companyId).eq("student_id", studentId).maybeSingle();
@@ -177,7 +171,10 @@ Deno.serve(async (req) => {
       const now = new Date().toISOString();
       const delivery = existing.data
         ? existing.data.status === "sent"
-          ? existing
+          ? await admin.from("intercycle_anamnesis_deliveries").update({
+            last_error_code: "intercycle_manual_link_ready",
+            updated_at: now,
+          }).eq("id", existing.data.id).eq("status", "sent").select("id,status").maybeSingle()
           : await admin.from("intercycle_anamnesis_deliveries").update({
             status: "ready",
             scheduled_for: now,
