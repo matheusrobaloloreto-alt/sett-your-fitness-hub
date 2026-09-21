@@ -2,13 +2,17 @@ export type PreRegistrationAnswerEntry = {
   key: string;
   label: string;
   value: string;
+  rawValue: unknown;
 };
 
 export type PreRegistrationData = {
+  recordId?: string;
+  canonicalRecordId?: string;
   answers: Record<string, unknown>;
   budgetRange: string | null;
   preferredContactPeriod: string | null;
   submittedAt: string | null;
+  manualNotes?: string;
   source: "lead" | "student_anamnesis";
 };
 
@@ -241,7 +245,7 @@ export function preRegistrationAnswerEntries(
       if (Array.isArray(raw) && raw.length === 0) return [];
       const formatted = formatPreRegistrationAnswerValue(fullKey, raw);
       return formatted
-        ? [{ key: fullKey, label: preRegistrationAnswerLabel(fullKey), value: formatted }]
+        ? [{ key: fullKey, label: preRegistrationAnswerLabel(fullKey), value: formatted, rawValue: raw }]
         : [];
     })
   );
@@ -252,6 +256,51 @@ export function preRegistrationAnswerEntries(
     seen.add(fingerprint);
     return true;
   });
+}
+
+export function preRegistrationAnswerValue(
+  answers: Record<string, unknown>,
+  path: string,
+): unknown {
+  return path.split(".").reduce<unknown>((current, segment) => {
+    if (!isPreRegistrationRecord(current)) return undefined;
+    return current[segment];
+  }, answers);
+}
+
+export function coerceEditedPreRegistrationValue(original: unknown, value: string): unknown {
+  const trimmed = value.trim();
+  if (typeof original === "number") {
+    if (!trimmed) return null;
+    const parsed = Number(trimmed.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : original;
+  }
+  if (typeof original === "boolean") {
+    return ["sim", "true", "1"].includes(trimmed.toLowerCase());
+  }
+  if (Array.isArray(original)) {
+    return value.split(/[,\n]/).map((item) => item.trim()).filter(Boolean);
+  }
+  return value;
+}
+
+export function updatePreRegistrationAnswer(
+  answers: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): Record<string, unknown> {
+  const next = structuredClone(answers);
+  const segments = path.split(".");
+  let target = next;
+  segments.forEach((segment, index) => {
+    if (index === segments.length - 1) {
+      target[segment] = value;
+      return;
+    }
+    if (!isPreRegistrationRecord(target[segment])) target[segment] = {};
+    target = target[segment] as Record<string, unknown>;
+  });
+  return next;
 }
 
 export function canonicalAnamnesisToPreRegistrationAnswers(
@@ -386,6 +435,7 @@ export function preRegistrationToStudioAnamnesis(
   ].filter(Boolean).join("\n");
   const notes = [
     "Fonte: pré-cadastro novo",
+    data.manualNotes && `Notas do professor: ${studioClean(data.manualNotes, 4000)}`,
     answers.goals && `Metas: ${studioClean(answers.goals)}`,
     answers.training_days && `Semana de treinos: ${studioClean(answers.training_days)}`,
     answers.profession && `Profissão/rotina: ${studioClean(answers.profession)}`,

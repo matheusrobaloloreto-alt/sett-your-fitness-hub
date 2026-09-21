@@ -34,7 +34,7 @@ import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { EditorialPageHeader } from "@/components/EditorialPageHeader";
 import { EditorialTabStrip } from "@/components/EditorialTabStrip";
 import { ProgressPhotosPanel } from "@/components/ProgressPhotosPanel";
-import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
+import { loadStudentPreRegistration, updateStudentPreRegistration } from "@/lib/preRegistrationData";
 import type { PreRegistrationData } from "@/lib/preRegistration";
 import { calculateWeeklyMuscleVolume } from "@/lib/workoutVolume";
 import { useExerciseVolumeTargets } from "@/hooks/useExerciseVolumeTargets";
@@ -1603,7 +1603,15 @@ export default function StudentDetail() {
           </p>
         </CardHeader>
         <CardContent>
-          <PreRegistrationDetails data={preRegistration} loading={preRegistrationLoading} />
+          <PreRegistrationDetails
+            data={preRegistration}
+            loading={preRegistrationLoading}
+            onSave={async (next) => {
+              const updated = await updateStudentPreRegistration(next);
+              setPreRegistration(updated);
+              return updated;
+            }}
+          />
           {id && student?.company_id && (
             <div className="mt-6 border-t pt-5">
               <div className="mb-3 flex items-center gap-2">

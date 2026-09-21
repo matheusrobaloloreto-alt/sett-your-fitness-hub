@@ -31,7 +31,7 @@ import { MethodBadge } from "@/components/workout/MethodBadge";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { useMaster } from "@/contexts/MasterContext";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
-import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
+import { loadStudentPreRegistration, updateStudentPreRegistration } from "@/lib/preRegistrationData";
 import {
   copyWeeklyPrescriptionMetrics,
   INDIVIDUAL_WEEKLY_UI_VERSION,
@@ -1449,20 +1449,26 @@ export default function WorkoutBuilder() {
                 <PopoverContent
                   align="end"
                   sideOffset={8}
-                  className="w-[min(92vw,34rem)] overflow-hidden rounded-3xl border-border bg-card p-0 shadow-xl"
+                  collisionPadding={8}
+                  className="flex h-[min(78dvh,46rem)] w-[min(94vw,44rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-3xl border-border bg-card p-0 shadow-xl"
                 >
-                  <div className="border-b border-border px-4 py-3">
+                  <div className="shrink-0 border-b border-border px-4 py-3">
                     <p className="font-display text-lg text-primary">Pré-cadastro de {cycleInfo.student_name}</p>
                     <p className="text-xs text-muted-foreground">Objetivos, rotina, dores e restrições usadas na prescrição.</p>
                   </div>
-                  <ScrollArea className="max-h-[70vh]">
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" tabIndex={0} aria-label="Anamnese completa do aluno">
                     <PreRegistrationDetails
                       data={preRegistration}
                       loading={preRegistrationLoading}
                       compact
                       className="p-4"
+                      onSave={async (next) => {
+                        const updated = await updateStudentPreRegistration(next);
+                        setPreRegistration(updated);
+                        return updated;
+                      }}
                     />
-                  </ScrollArea>
+                  </div>
                 </PopoverContent>
               </Popover>
             )}

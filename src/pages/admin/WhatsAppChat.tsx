@@ -34,7 +34,7 @@ import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { listStudentFiles } from "@/lib/studentFiles";
 import { type FunnelStageStudent } from "@/lib/salesFunnelView";
 import { businessDateYmd } from "@/lib/businessDate";
-import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
+import { loadStudentPreRegistration, updateStudentPreRegistration } from "@/lib/preRegistrationData";
 import type { PreRegistrationData } from "@/lib/preRegistration";
 import {
   matchesWhatsAppStatusFilter,
@@ -2824,18 +2824,25 @@ export default function WhatsAppChat({
                         align="end"
                         sideOffset={8}
                         collisionPadding={8}
-                        className="flex max-h-[min(var(--radix-popover-content-available-height,calc(100dvh-1rem)),calc(100dvh-1rem))] w-[min(94vw,48rem)] flex-col overflow-hidden rounded-3xl border-border bg-card p-0 shadow-xl"
+                        className="flex h-[min(78dvh,46rem)] max-h-[min(var(--radix-popover-content-available-height,calc(100dvh-1rem)),calc(100dvh-1rem))] w-[min(94vw,48rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-3xl border-border bg-card p-0 shadow-xl"
                       >
                         <div className="shrink-0 border-b border-border px-4 py-3">
                           <p className="font-display text-lg text-primary">Pré-cadastro completo</p>
                           <p className="text-xs text-muted-foreground">Informações usadas no atendimento, avaliação e prescrição.</p>
                         </div>
                         <ScrollArea className="min-h-0 flex-1">
+                          <div className="overscroll-contain" aria-label="Anamnese completa do aluno">
                           <PreRegistrationDetails
                             data={selectedPreRegistration}
                             loading={preRegistrationLoading}
                             className="p-4"
+                            onSave={async (next) => {
+                              const updated = await updateStudentPreRegistration(next);
+                              setSelectedPreRegistration(updated);
+                              return updated;
+                            }}
                           />
+                          </div>
                         </ScrollArea>
                       </PopoverContent>
                     </Popover>
