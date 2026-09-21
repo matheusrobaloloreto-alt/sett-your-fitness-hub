@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildWorkoutRows } from "@/lib/publishStrengthPlan";
 import { resolveWorkoutForCycleWeek } from "@/lib/weeklyStrengthPeriodization";
-import { groupWorkoutExercises } from "@/lib/workoutMethods";
 import { generateTrainingProgram } from "./engine";
 import { allocateDeloadSetCounts } from "./progressionRules";
 import { validateTrainingProgram } from "./validator";
@@ -32,6 +31,9 @@ const methodCoverageCatalog: ExerciseCatalogEntry[] = [
   { id: "pec-deck", name: "Voador Peitoral Máquina", muscle_group: "peitoral", equipment: "máquina", targets: [{ muscle_group: "peitoral" }] },
   { id: "cross-high", name: "Crossover Alto no Cabo", muscle_group: "peitoral", equipment: "cabo", targets: [{ muscle_group: "peitoral" }] },
   { id: "cross-low", name: "Crossover Baixo no Cabo", muscle_group: "peitoral", equipment: "cabo", targets: [{ muscle_group: "peitoral" }] },
+  { id: "serratus-push", name: "Flexão Serrátil Funcional", categories: ["funcionais"], muscle_group: "peitoral", equipment: "livre", targets: [{ muscle_group: "peitoral" }] },
+  { id: "curl", name: "Rosca Bíceps com Halteres", muscle_group: "biceps", equipment: "halteres", targets: [{ muscle_group: "biceps" }] },
+  { id: "triceps", name: "Tríceps Corda", muscle_group: "triceps", equipment: "cabo", targets: [{ muscle_group: "triceps" }] },
 ];
 
 function baseInput(overrides: Partial<PrescriptionInput> = {}): PrescriptionInput {
@@ -85,7 +87,7 @@ function numericRirBounds(rir: string) {
 }
 
 describe("BN Prescription Engine v1", () => {
-  it("ordena controle motor antes das ativações sem deslocar mobilidade e força", () => {
+  it("ordena mobilidade, core, funcional e forças global/específica", () => {
     const program = generateTrainingProgram(baseInput({
       fitnessLevel: "intermediario",
       daysPerWeek: 3,
@@ -94,14 +96,15 @@ describe("BN Prescription Engine v1", () => {
     const indexOf = (phase: string) => phases.indexOf(phase);
 
     expect(indexOf("mobilidade")).toBeGreaterThanOrEqual(0);
-    expect(indexOf("controle_motor")).toBeGreaterThan(indexOf("mobilidade"));
-    expect(indexOf("controle_motor")).toBeLessThan(indexOf("ativacao_core"));
-    expect(indexOf("controle_motor")).toBeLessThan(indexOf("ativacao_especifica"));
+    expect(indexOf("ativacao_core")).toBeGreaterThan(indexOf("mobilidade"));
+    expect(indexOf("controle_motor")).toBeGreaterThan(indexOf("ativacao_core"));
+    expect(indexOf("ativacao_especifica")).toBeGreaterThan(indexOf("ativacao_core"));
+    expect(indexOf("controle_motor")).toBeLessThan(indexOf("forca_global"));
     expect(indexOf("ativacao_especifica")).toBeLessThan(indexOf("forca_global"));
     expect(indexOf("forca_global")).toBeLessThan(indexOf("forca_especifica"));
   });
 
-  it("mantém controle motor antes das ativações e prioriza glúteo médio antes do padrão joelho em valgo", () => {
+  it("mantém core antes do funcional e protege o padrão de joelho em valgo", () => {
     const cleanProgram = generateTrainingProgram(baseInput({
       fitnessLevel: "intermediario",
       daysPerWeek: 3,
@@ -119,16 +122,12 @@ describe("BN Prescription Engine v1", () => {
       assessmentContext: { ohs_compensations: [{ key: "dynamic_valgus", presente: true, severidade: "moderada" }] },
     }));
     const valgusExercises = valgusProgram.workouts[0].exercises;
-    const gluteIndex = valgusExercises.findIndex((exercise) => /abdu|glut/i.test(exercise.exercise_name));
-    const kneeIndex = valgusExercises.findIndex((exercise) => /agachamento|leg press/i.test(exercise.exercise_name));
-
-    expect(cleanIndexOf("controle_motor")).toBeLessThan(cleanIndexOf("ativacao_core"));
-    expect(cleanIndexOf("controle_motor")).toBeLessThan(cleanIndexOf("ativacao_especifica"));
-    expect(gluteIndex).toBeGreaterThanOrEqual(0);
-    expect(kneeIndex).toBeGreaterThanOrEqual(0);
-    expect(gluteIndex).toBeLessThan(kneeIndex);
-    expect(valgusExercises[gluteIndex].phase).toBe("controle_motor");
-    expect(valgusExercises[kneeIndex].phase).toBe("controle_motor");
+    expect(cleanIndexOf("ativacao_core")).toBeLessThan(cleanIndexOf("controle_motor"));
+    expect(cleanIndexOf("ativacao_core")).toBeLessThan(cleanIndexOf("ativacao_especifica"));
+    expect(cleanIndexOf("controle_motor")).toBeLessThan(cleanIndexOf("forca_global"));
+    expect(valgusExercises.findIndex((exercise) => exercise.phase === "controle_motor"))
+      .toBeLessThan(valgusExercises.findIndex((exercise) => exercise.phase === "forca_global"));
+    expect(prescribedExerciseText(valgusProgram)).not.toMatch(/agachamento livre profundo|atg|pliometr|salto/);
   });
 
   it("nunca repete exercise_id dentro da mesma sessão e bloqueia gap quando o catálogo elegível acaba", () => {
@@ -223,7 +222,7 @@ describe("BN Prescription Engine v1", () => {
 
     expect(program.methodology_preset.key).toBe("hipertrofia_intermediario");
     expect(program.weekly_periodization[2].methods).toContain("Pico de contração");
-    expect(program.weekly_periodization[4].methods).toContain("Bi-set");
+    expect(program.weekly_periodization[4].methods.length).toBeGreaterThan(0);
     expect(program.validator.pre_save.blockers).toEqual([]);
     expect(program.validator.pre_save.corrections.some((item) => item.code === "removed_advanced_methods")).toBe(false);
   });
@@ -238,7 +237,7 @@ describe("BN Prescription Engine v1", () => {
     expect(program.progression_protocol.toLowerCase()).not.toContain("hold/regress");
   });
 
-  it("gera periodização semanal executável com cadência, rest-pause, drop-set e bi-set", () => {
+  it("gera periodização semanal executável com cadência, volume e métodos por semana", () => {
     const program = generateTrainingProgram(baseInput({
       fitnessLevel: "intermediario",
       objective: "hipertrofia",
@@ -261,11 +260,15 @@ describe("BN Prescription Engine v1", () => {
     expect(methods[1].every((method) => !intensityMethod.test(method))).toBe(true);
     expect(methods[2]).toContain("Rest-pause");
     expect(methods[3]).toContain("Drop-set");
-    expect(methods[4]).toContain("Bi-set");
-    expect(methods[5]).toContain("Drop-set");
+    expect(methods[4].length).toBeGreaterThan(0);
+    expect(methods[5].length).toBeGreaterThan(0);
     expect(exercises.every((exercise) => exercise.weekly_prescription?.length === 6)).toBe(true);
     expect(exercises.every((exercise) => exercise.weekly_prescription?.slice(0, 2)
       .every((week) => !week.method || !intensityMethod.test(week.method)))).toBe(true);
+    const weeklyTotals = program.weekly_periodization.map((week) => exercises.reduce((sum, exercise) =>
+      sum + (exercise.weekly_prescription?.find((entry) => entry.week === week.week)?.sets || 0), 0));
+    expect(weeklyTotals[0]).toBeLessThan(weeklyTotals[2]);
+    expect(weeklyTotals[1]).toBeLessThanOrEqual(weeklyTotals[2]);
   });
 
   it("preserva e ativa a periodização do motor até o contrato exibido ao aluno", () => {
@@ -297,10 +300,9 @@ describe("BN Prescription Engine v1", () => {
       6,
       new Date("2026-08-05T12:00:00-03:00"),
     ));
-    const visibleGroups = week5Rows.flatMap((row) => groupWorkoutExercises(row?.exercises || []));
-    expect(visibleGroups.some((group) =>
-      group.grouping && group.items.length >= 2 && ["biset", "triset", "circuito"].includes(group.method || "")
-    )).toBe(true);
+    const visibleExercises = week5Rows.flatMap((row) => row?.exercises || []);
+    expect(visibleExercises.some((exercise) => Boolean(exercise.method))).toBe(true);
+    expect(visibleExercises.some((exercise) => exercise.set_types?.includes("failure"))).toBe(true);
   });
 
   it("reserva cluster-set para avançado sem dor na semana final", () => {
@@ -323,7 +325,7 @@ describe("BN Prescription Engine v1", () => {
     )).toBe(true);
   });
 
-  it("bloqueia todos os métodos avançados quando há dor ou aluno iniciante", () => {
+  it("mantém métodos e tipos W/Normal/F para iniciantes e dor, excluindo o exercício doloroso", () => {
     const beginner = generateTrainingProgram(baseInput({ fitnessLevel: "iniciante" }));
     const pain = generateTrainingProgram(baseInput({
       fitnessLevel: "intermediario",
@@ -331,15 +333,17 @@ describe("BN Prescription Engine v1", () => {
       restrictions: "dor no joelho EVA 4",
     }));
 
-    const intensityMethod = /rest-pause|drop-set|cluster-set|pir[aâ]mide|up-set/i;
     for (const program of [beginner, pain]) {
-      expect(program.weekly_periodization.every((week) => week.methods.every((method) => !intensityMethod.test(method)))).toBe(true);
-      expect(program.workouts.flatMap((workout) => workout.exercises)
-        .every((exercise) => exercise.weekly_prescription?.every((week) => !week.method || !intensityMethod.test(week.method)))).toBe(true);
-      expect(program.workouts.flatMap((workout) => workout.exercises)
-        .every((exercise) => exercise.weekly_prescription?.every((week) =>
-          !week.set_types?.some((setType) => String(setType) === "failure" || String(setType) === "drop")))).toBe(true);
+      const exercises = program.workouts.flatMap((workout) => workout.exercises);
+      expect(program.weekly_periodization.every((week) => week.methods.length > 0)).toBe(true);
+      expect(exercises.some((exercise) => exercise.weekly_prescription?.some((week) => Boolean(week.method)))).toBe(true);
+      expect(exercises.some((exercise) => exercise.weekly_prescription?.some((week) => week.set_types?.includes("failure")))).toBe(true);
+      expect(exercises.flatMap((exercise) => exercise.weekly_prescription || [])
+        .every((week) => !week.set_types?.includes("drop"))).toBe(true);
     }
+    expect(pain.workouts.flatMap((workout) => workout.exercises)
+      .filter((exercise) => /agachamento|leg press|step up/i.test(exercise.exercise_name))
+      .every((exercise) => exercise.weekly_prescription?.every((week) => !week.method))).toBe(true);
   });
 
   it("emite somente W, Normal e F; Drop-set nunca vira tipo D/drop", () => {
@@ -358,6 +362,45 @@ describe("BN Prescription Engine v1", () => {
     expect(weekly.some((week) => week.method === "dropset")).toBe(true);
     expect(weekly.filter((week) => week.method === "dropset")
       .every((week) => week.set_types?.every((setType) => String(setType) !== "drop"))).toBe(true);
+  });
+
+  it("sinaliza aquecimento, normal e falha em toda sessão e semana", () => {
+    const program = generateTrainingProgram(baseInput({
+      catalog: methodCoverageCatalog,
+      equipment: "academia_completa",
+      fitnessLevel: "avancado",
+      daysPerWeek: 6,
+    }));
+
+    for (const workout of program.workouts) {
+      for (let week = 1; week <= 6; week += 1) {
+        const setTypes = workout.exercises.flatMap((exercise) =>
+          exercise.weekly_prescription?.find((entry) => entry.week === week)?.set_types || []);
+        expect(new Set(setTypes), `${workout.name}, semana ${week}`).toEqual(
+          new Set(["warmup", "normal", "failure"]),
+        );
+      }
+    }
+  });
+
+  it("monta PPL verdadeiro antes de Upper, Lower e Extra em seis dias", () => {
+    const program = generateTrainingProgram(baseInput({
+      catalog: methodCoverageCatalog,
+      equipment: "academia_completa",
+      fitnessLevel: "avancado",
+      daysPerWeek: 6,
+    }));
+
+    expect(program.engineMeta.split).toContain("PPL");
+    const names = program.workouts.map((workout) => workout.name);
+    expect(names.slice(0, 3)).toEqual([
+      expect.stringContaining("Push"),
+      expect.stringContaining("Pull"),
+      expect.stringContaining("Lower"),
+    ]);
+    expect(names[3]).toMatch(/Upper|Especialização/);
+    expect(names[4]).toContain("Lower");
+    expect(names[5]).toContain("Extra");
   });
 
   it("deriva a rotação do número real do ciclo e mantém a sessão como eixo separado", () => {
@@ -386,7 +429,7 @@ describe("BN Prescription Engine v1", () => {
     expect(firstSessionMethod(cycle2)).toBe("pico_alongamento");
   });
 
-  it("limita F à última série elegível e nunca usa F em aquecimento, controle motor ou composto de alto risco", () => {
+  it("limita F às duas últimas séries de um exercício elegível por sessão", () => {
     const program = generateTrainingProgram(baseInput({
       fitnessLevel: "avancado",
       experienceMonths: 36,
@@ -397,15 +440,15 @@ describe("BN Prescription Engine v1", () => {
       for (const week of exercise.weekly_prescription || []) {
         const failureIndexes = (week.set_types || []).flatMap((type, index) => type === "failure" ? [index] : []);
         if (failureIndexes.length) {
-          expect(failureIndexes).toEqual([Math.max(0, week.sets - 1)]);
-          expect(exercise.phase).toBe("forca_especifica");
-          expect(exercise.exercise_name).not.toMatch(/agachamento|terra|levantamento|good morning|desenvolvimento/i);
+          expect(failureIndexes).toEqual([Math.max(0, week.sets - 2), Math.max(0, week.sets - 1)]);
+          expect(exercise.phase).not.toMatch(/mobilidade|autoliberacao|alongamento|fisioterapia/);
+          expect(exercise.exercise_name).not.toMatch(/agachamento livre|terra|levantamento|good morning|clean|snatch|thruster/i);
         }
       }
     }
   });
 
-  it("não presume experiência para F quando meses de musculação estão ausentes", () => {
+  it("sinaliza F sem depender de meses de musculação informados", () => {
     const program = generateTrainingProgram(baseInput({
       fitnessLevel: "intermediario",
       experienceMonths: null,
@@ -414,7 +457,7 @@ describe("BN Prescription Engine v1", () => {
     }));
     expect(program.workouts.flatMap((workout) => workout.exercises)
       .flatMap((exercise) => exercise.weekly_prescription || [])
-      .every((week) => !week.set_types?.includes("failure"))).toBe(true);
+      .some((week) => week.set_types?.includes("failure"))).toBe(true);
   });
 
   it("mantém métodos em acessórios seguros quando a dor é leve e localizada", () => {
@@ -500,12 +543,14 @@ describe("BN Prescription Engine v1", () => {
     expect(program.weekly_structure).toContain("sessões/semana");
   });
 
-  it("rebaixa iniciante com 6 dias para 3-4 dias estruturados e explica a decisão", () => {
+  it("monta seis sessões e reserva a sexta para mobilidade e core", () => {
     const program = generateTrainingProgram(baseInput({ fitnessLevel: "iniciante", daysPerWeek: 6 }));
 
-    expect(program.workouts.length).toBeLessThanOrEqual(4);
-    expect(program.weekly_structure).toContain("3-4 dias estruturados");
-    expect(program.explanations.some((e) => e.rule_id === "rebaixei_frequencia_iniciante_6_dias")).toBe(true);
+    expect(program.workouts).toHaveLength(6);
+    expect(program.workouts[5].name.toLowerCase()).toContain("extra");
+    expect(program.workouts[5].exercises.every((exercise) =>
+      ["mobilidade", "autoliberacao", "ativacao_core"].includes(exercise.phase))).toBe(true);
+    expect(program.explanations.some((e) => e.rule_id === "rebaixei_frequencia_iniciante_6_dias")).toBe(false);
   });
 
   it("não inventa exercícios quando a biblioteca está vazia", () => {
@@ -531,9 +576,9 @@ describe("BN Prescription Engine v1", () => {
     const largeGroups = program.validator.pre_save.volume_review.filter((item) => ["quadriceps", "posterior_de_coxa", "gluteos", "dorsal", "peitoral"].includes(item.muscle_group));
     const smallGroups = program.validator.pre_save.volume_review.filter((item) => ["core", "ombros", "panturrilhas"].includes(item.muscle_group));
 
-    expect(highVolume.every((item) => item.weekly_sets <= 16)).toBe(true);
-    expect(largeGroups.every((item) => item.weekly_sets <= 12)).toBe(true);
-    expect(smallGroups.every((item) => item.weekly_sets <= 8)).toBe(true);
+    expect(highVolume.every((item) => item.weekly_sets <= 21)).toBe(true);
+    expect(largeGroups.every((item) => item.weekly_sets <= 21)).toBe(true);
+    expect(smallGroups.every((item) => item.weekly_sets <= 21)).toBe(true);
     expect(program.progression_protocol.toLowerCase()).toContain("reps");
   });
 
@@ -541,15 +586,15 @@ describe("BN Prescription Engine v1", () => {
     const program = generateTrainingProgram(baseInput({ techniqueBreakdown: true, restrictions: "dor EVA 4 no joelho" }));
     const blocks = JSON.stringify(program.periodization_blocks).toLowerCase();
 
-    expect(blocks).toContain("1-2");
+    expect(program.periodization_blocks.map((block) => block.weeks)).toEqual(["1", "2", "3", "4", "5", "6"]);
     expect(blocks).toContain("rir 3-4");
-    expect(blocks).toContain("2-3");
+    expect(blocks).toContain("50% do volume");
     expect(blocks).toContain("rir 2");
     expect(program.progression_protocol.toLowerCase()).toContain("hold/regress");
-    expect(blocks).toContain("sem metodos avancados");
+    expect(program.weekly_periodization.every((week) => week.methods.length > 0)).toBe(true);
   });
 
-  it("aplica deload reduzindo volume, usando RIR 4 e removendo métodos avançados", () => {
+  it("aplica deload com 50%, RIR 4, métodos técnicos e W/Normal/F", () => {
     const normal = generateTrainingProgram(baseInput());
     const deload = generateTrainingProgram(baseInput({ deload: true }));
     const normalSets = normal.workouts.flatMap((w) => w.exercises).reduce((sum, e) => sum + e.sets, 0);
@@ -576,12 +621,12 @@ describe("BN Prescription Engine v1", () => {
     expect(deloadExercises.every((exercise) => exercise.method === null)).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.rir === "4"))).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.sets === exercise.sets))).toBe(true);
-    expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) => week.method === null))).toBe(true);
+    expect(deloadExercises.some((exercise) => exercise.weekly_prescription?.some((week) => Boolean(week.method)))).toBe(true);
     expect(deloadExercises.every((exercise) => exercise.weekly_prescription?.every((week) =>
-      week.set_types?.every((setType) => String(setType) !== "failure" && String(setType) !== "drop")
+      week.set_types?.every((setType) => String(setType) !== "drop")
     ))).toBe(true);
     expect(deload.weekly_periodization.every((week) =>
-      week.block === "deload" && week.rir === "4" && week.volume_percent === 50 && week.methods.length === 0
+      week.block === "deload" && week.rir === "4" && week.volume_percent === 50 && week.methods.length > 0
     )).toBe(true);
     expect(JSON.stringify(deload.weekly_periodization).toLowerCase()).not.toMatch(/alcan[cç]ar|aument|progred|acumulacao|intensificacao/);
     expect(deload.workouts.every((workout) =>
@@ -592,7 +637,7 @@ describe("BN Prescription Engine v1", () => {
     expect(deloadContract).not.toContain("RIR 4-5");
     expect(deload.progression_protocol.toLowerCase()).toContain("deload");
     expect(deload.explanations.some((e) => e.category === "deload")).toBe(true);
-    expect(deload.explanations.some((e) => e.rule_id === "metodo_avancado_controlado")).toBe(false);
+    expect(deload.explanations.some((e) => e.rule_id === "metodos_para_adesao_com_volume_controlado")).toBe(true);
     expect(deload.validator.pre_save.warnings.some((warning) => warning.code === "deload_with_advanced_method")).toBe(false);
   });
 
@@ -613,7 +658,7 @@ describe("BN Prescription Engine v1", () => {
     expect(deload.methodology_preset.rules.rir).toBe("4");
     expect(deload.methodology_preset.rules.target_weekly_sets).toContain("50%");
     expect(deload.methodology_preset.rules.methods_by_block).toEqual({
-      deload: ["sem falha", "sem método avançado", "manter padrões técnicos"],
+      deload: ["isometria técnica", "pico de contração controlado", "manter séries W/Normal/F sinalizadas"],
     });
     expect(deload.explanations.some((explanation) => explanation.rule_id === "BN_LONGITUDINAL_DELOAD")).toBe(true);
   });
@@ -659,10 +704,10 @@ describe("BN Prescription Engine v1", () => {
     expect(empty).toMatchObject({ sets: [], originalTotal: 0, allocatedTotal: 0, constrainedByMinimum: false });
   });
 
-  it("valida métodos de deload pelo contrato estruturado, não por frases negadas", () => {
+  it("aceita métodos em deload e mantém o contrato livre do tipo legado drop", () => {
     const input = baseInput({ deload: true });
     const clean = generateTrainingProgram(input);
-    expect(clean.progression_protocol.toLowerCase()).toContain("sem falha");
+    expect(clean.progression_protocol.toLowerCase()).toContain("baixa fadiga");
     expect(clean.validator.pre_save.warnings.some((warning) => warning.code === "deload_with_advanced_method")).toBe(false);
 
     const contaminated = structuredClone(clean);
@@ -676,7 +721,8 @@ describe("BN Prescription Engine v1", () => {
       catalog,
     });
 
-    expect(validation.warnings.some((warning) => warning.code === "deload_with_advanced_method")).toBe(true);
+    expect(validation.warnings.some((warning) => warning.code === "deload_with_advanced_method")).toBe(false);
+    expect(validation.blockers.some((blocker) => blocker.code === "unsupported_drop_set_type")).toBe(false);
   });
 
   it("bloqueia payload legado contaminado com drop como tipo de série", () => {
@@ -782,7 +828,7 @@ describe("BN Prescription Engine v1", () => {
     expect(programs[1].methodology_preset.rules.rir).toContain("nunca falha sistematica");
   });
 
-  it("mantém method/group_id/method_seconds nulos para iniciante, dor, base e deload", () => {
+  it("mantém métodos no contrato semanal, sem contaminar os campos raiz", () => {
     const cases = [
       {
         label: "iniciante",
@@ -794,7 +840,6 @@ describe("BN Prescription Engine v1", () => {
           equipment: "academia_completa",
           blockNumber: 3,
         }),
-        inspectWeek: (_block: string) => true,
       },
       {
         label: "dor",
@@ -810,7 +855,6 @@ describe("BN Prescription Engine v1", () => {
           painEva: 4,
           painReports: [{ region: "ombro", eva: 4 }],
         }),
-        inspectWeek: (_block: string) => true,
       },
       {
         label: "base",
@@ -823,7 +867,6 @@ describe("BN Prescription Engine v1", () => {
           equipment: "academia_completa",
           blockNumber: 3,
         }),
-        inspectWeek: (block: string) => block === "base",
       },
       {
         label: "deload",
@@ -837,30 +880,22 @@ describe("BN Prescription Engine v1", () => {
           deload: true,
           programSequence: { sequence_number: 3, total_cycles: 4, phase: "intensificacao" },
         }),
-        inspectWeek: (_block: string) => true,
       },
     ];
 
     for (const testCase of cases) {
       const program = generateTrainingProgram(testCase.input);
-      let inspectedWeeklyRows = 0;
+      let weeklyMethods = 0;
 
       for (const exercise of program.workouts.flatMap((workout) => workout.exercises)) {
         expect(exercise.method, `${testCase.label}: root method`).toBeNull();
         expect(exercise.group_id, `${testCase.label}: root group_id`).toBeNull();
         expect(exercise.method_seconds, `${testCase.label}: root method_seconds`).toBeNull();
 
-        for (const [index, week] of (exercise.weekly_prescription || []).entries()) {
-          const block = program.weekly_periodization[index]?.block || "";
-          if (!testCase.inspectWeek(block)) continue;
-          inspectedWeeklyRows += 1;
-          expect(week.method, `${testCase.label}: week ${week.week} method`).toBeNull();
-          expect(week.group_id, `${testCase.label}: week ${week.week} group_id`).toBeNull();
-          expect(week.method_seconds, `${testCase.label}: week ${week.week} method_seconds`).toBeNull();
-        }
+        for (const week of exercise.weekly_prescription || []) if (week.method) weeklyMethods += 1;
       }
 
-      expect(inspectedWeeklyRows, `${testCase.label}: nenhuma semana inspecionada`).toBeGreaterThan(0);
+      expect(weeklyMethods, `${testCase.label}: nenhum método semanal`).toBeGreaterThan(0);
     }
   });
 
@@ -906,7 +941,7 @@ describe("BN Prescription Engine v1", () => {
             exerciseIndex,
             prescription: exercise.weekly_prescription?.[weekIndex],
           }));
-          expect(new Set(emitted.map((row) => row.prescription?.method).filter(Boolean)).size).toBeLessThanOrEqual(1);
+          expect(new Set(emitted.map((row) => row.prescription?.method).filter(Boolean)).size).toBeLessThanOrEqual(2);
           for (const method of Object.keys(expectedArity)) {
             const methodRows = emitted.filter((row) => row.prescription?.method === method);
             if (!methodRows.length) continue;
@@ -926,17 +961,18 @@ describe("BN Prescription Engine v1", () => {
       }
       const largeGroupReview = program.validator.pre_save.volume_review
         .filter((item) => ["quadriceps", "posterior_de_coxa", "gluteos", "dorsal", "peitoral"].includes(item.muscle_group));
-      expect(largeGroupReview.every((item) => item.weekly_sets <= 16), JSON.stringify(largeGroupReview)).toBe(true);
+      expect(largeGroupReview.every((item) => item.weekly_sets <= 21), JSON.stringify(largeGroupReview)).toBe(true);
       const volumeByGroup = new Map(largeGroupReview.map((item) => [item.muscle_group, item.weekly_sets]));
       expect((volumeByGroup.get("quadriceps") || 0) + (volumeByGroup.get("posterior_de_coxa") || 0) + (volumeByGroup.get("gluteos") || 0)).toBeGreaterThan(0);
       expect(volumeByGroup.get("dorsal") || 0).toBeGreaterThan(0);
       expect(volumeByGroup.get("peitoral") || 0).toBeGreaterThan(0);
     }
 
-    expect([...methods].sort()).toEqual([
-      "biset", "triset", "superset", "giantset", "circuito",
-      "dropset", "restpause", "cluster", "isometria", "pico_contracao", "pico_alongamento",
-    ].sort());
+    expect(methods.size).toBeGreaterThanOrEqual(10);
+    expect([...methods]).toEqual(expect.arrayContaining([
+      "biset", "triset", "giantset", "circuito", "dropset", "restpause",
+      "cluster", "isometria", "pico_contracao", "pico_alongamento",
+    ]));
   });
 
   it("não força sessão especializada sem catálogo/equipamento e registra o motivo", () => {
@@ -1008,21 +1044,21 @@ describe("BN Prescription Engine v1", () => {
     expect(program.library_policy.gaps).toContain("WARNING:advanced_method_unavailable:triset_giantset:catalog_or_equipment");
   });
 
-  it("seleciona preset de emagrecimento para iniciante sem subir volume agressivo", () => {
+  it("seleciona preset de emagrecimento com método e teto de 21 séries", () => {
     const program = generateTrainingProgram(baseInput({ objective: "emagrecimento", fitnessLevel: "iniciante", daysPerWeek: 3 }));
 
     expect(program.methodology_preset.key).toBe("emagrecimento");
-    expect(program.periodization_blocks.flatMap((block) => block.methods).join(" ").toLowerCase()).not.toMatch(/drop|cluster|rest-pause/);
-    expect(program.validator.pre_save.volume_review.filter((item) => ["quadriceps", "posterior_de_coxa", "gluteos", "dorsal", "peitoral"].includes(item.muscle_group)).every((item) => item.weekly_sets <= 12)).toBe(true);
+    expect(program.periodization_blocks.flatMap((block) => block.methods).length).toBeGreaterThan(0);
+    expect(program.validator.pre_save.volume_review.filter((item) => ["quadriceps", "posterior_de_coxa", "gluteos", "dorsal", "peitoral"].includes(item.muscle_group)).every((item) => item.weekly_sets <= 21)).toBe(true);
   });
 
-  it("limita avançado em hipertrofia ao teto duro v1 de 16 séries por grupo grande", () => {
+  it("limita avançado em hipertrofia ao teto de 21 séries por grupo grande", () => {
     const program = generateTrainingProgram(baseInput({ fitnessLevel: "avancado", objective: "hipertrofia", daysPerWeek: 5 }));
 
     expect(program.methodology_preset.key).toBe("hipertrofia_intermediario");
     expect(program.validator.pre_save.volume_review
       .filter((item) => ["quadriceps", "posterior_de_coxa", "gluteos", "dorsal", "peitoral"].includes(item.muscle_group))
-      .every((item) => item.weekly_sets <= 16)).toBe(true);
+      .every((item) => item.weekly_sets <= 21)).toBe(true);
   });
 
   it("usa retorno gradual com rampa conservadora quando objetivo pede retorno", () => {
@@ -1034,7 +1070,7 @@ describe("BN Prescription Engine v1", () => {
 
     expect(program.methodology_preset.key).toBe("retorno_lesao");
     expect(program.progression_protocol.toLowerCase()).toContain("progressao por tolerancia");
-    expect(JSON.stringify(program.periodization_blocks).toLowerCase()).toContain("sem metodos avancados");
+    expect(program.weekly_periodization.some((week) => week.methods.length > 0)).toBe(true);
   });
 
   it("respeita equipamento limitado quando há alternativas reais na biblioteca", () => {
@@ -1085,15 +1121,16 @@ describe("BN Prescription Engine v1", () => {
     expect(allExerciseIds(program)).not.toContain("unsafe-squat");
   });
 
-  it("bloqueia EVA maior que 5 e registra handoff obrigatório ao professor", () => {
+  it("reduz EVA maior que 5 a 50% e registra handoff sem bloquear publicação", () => {
     const program = generateTrainingProgram(baseInput({
       restrictions: "dor no joelho forte",
       painEva: 7,
       painReports: [{ region: "joelho", eva: 7 }],
     }));
 
-    expect(program.validator.pre_save.status).toBe("blocked");
-    expect(program.validator.pre_save.blockers.some((blocker) => blocker.code === "high_pain_requires_professional_review")).toBe(true);
+    expect(program.validator.pre_save.status).toBe("warnings");
+    expect(hasBlocker(program, "high_pain_requires_professional_review")).toBe(false);
+    expect(hasWarning(program, "high_pain_volume_reduced")).toBe(true);
     expect(program.validator.pre_save.corrections.some((correction) => correction.code.includes("teacher_alert"))).toBe(true);
   });
 
@@ -1126,7 +1163,7 @@ describe("BN Prescription Engine v1", () => {
     expect(program.methodology_preset.key).toBe("hipertrofia_intermediario");
     expect(program.workouts.length).toBe(4);
     expect(program.validator.pre_save.blockers).toEqual([]);
-    expect(program.periodization_blocks).toHaveLength(3);
+    expect(program.periodization_blocks).toHaveLength(6);
   });
 
   it("mantém 100% das explicações BNITO rastreáveis por rule_id", () => {
@@ -1164,17 +1201,17 @@ describe("BN Prescription Engine v1 — Golden Test Cases GC-01..GC-12", () => {
       restrictions: "dor no joelho e valgo dinâmico",
       assessmentContext: { ohs_compensations: [{ key: "dynamic_valgus", presente: true, severidade: "moderada" }] },
     }));
-    const firstLower = program.workouts[0].exercises.map((exercise) => exercise.exercise_name.toLowerCase());
-    const gluteIndex = firstLower.findIndex((name) => /abdu|glut/.test(name));
-    const kneeIndex = firstLower.findIndex((name) => /agachamento|leg press/.test(name));
+    const firstLower = program.workouts[0].exercises;
+    const controlIndex = firstLower.findIndex((exercise) => exercise.phase === "controle_motor");
+    const forceIndex = firstLower.findIndex((exercise) => exercise.phase === "forca_global");
 
     expect(program.workouts.length).toBe(3);
     expect(weeklySets(program, "quadriceps")).toBeLessThanOrEqual(10);
-    expect(gluteIndex).toBeGreaterThanOrEqual(0);
-    expect(kneeIndex === -1 || gluteIndex < kneeIndex).toBe(true);
+    expect(controlIndex).toBeGreaterThanOrEqual(0);
+    expect(forceIndex === -1 || controlIndex < forceIndex).toBe(true);
     expect(prescribedExerciseText(program)).not.toMatch(/agachamento livre profundo|atg|afundo alto|pliometr|salto/);
     expect(JSON.stringify(program.periodization_blocks).toLowerCase()).toContain("rir 3-4");
-    expect(explanationIds(program)).toEqual(expect.arrayContaining(["reduzi_quadriceps_por_dor_joelho", "priorizei_gluteo_medio_por_valgo", "evitei_metodo_avancado_por_dor_ou_nivel"]));
+    expect(explanationIds(program)).toEqual(expect.arrayContaining(["reduzi_quadriceps_por_dor_joelho", "priorizei_gluteo_medio_por_valgo", "metodos_para_adesao_com_volume_controlado"]));
     expect(hasWarning(program, "pain_or_injury_requires_conservative_progression")).toBe(true);
     expect(program.validator.pre_save.blockers).toEqual([]);
     expect(allExerciseIds(program).every((id) => catalog.some((exercise) => exercise.id === id))).toBe(true);
@@ -1223,15 +1260,15 @@ describe("BN Prescription Engine v1 — Golden Test Cases GC-01..GC-12", () => {
     expect(program.validator.pre_save.blockers).toEqual([]);
   });
 
-  it("GC-04 PASS — iniciante pedindo 6x/semana é rebaixado com flag", () => {
+  it("GC-04 PASS — seis dias vira PPL real com sessão extra de mobilidade e core", () => {
     const program = generateTrainingProgram(baseInput({ fitnessLevel: "iniciante", daysPerWeek: 6 }));
 
-    expect(program.workouts.length).toBeLessThanOrEqual(4);
-    expect(program.weekly_structure).toContain("3-4 dias estruturados");
-    expect(weeklySets(program, "quadriceps")).toBeLessThanOrEqual(12);
-    expect(weeklySets(program, "costas")).toBeLessThanOrEqual(12);
-    expect(JSON.stringify(program.periodization_blocks).toLowerCase()).not.toMatch(/drop|cluster|rest-pause/);
-    expect(explanationIds(program)).toContain("rebaixei_frequencia_iniciante_6_dias");
+    expect(program.workouts).toHaveLength(6);
+    expect(program.workouts[5].name.toLowerCase()).toContain("extra");
+    expect(program.workouts[5].exercises.every((exercise) =>
+      ["mobilidade", "autoliberacao", "ativacao_core"].includes(exercise.phase))).toBe(true);
+    expect(weeklySets(program, "quadriceps")).toBeLessThanOrEqual(21);
+    expect(weeklySets(program, "costas")).toBeLessThanOrEqual(21);
     expect(program.validator.pre_save.blockers).toEqual([]);
   });
 
@@ -1252,30 +1289,31 @@ describe("BN Prescription Engine v1 — Golden Test Cases GC-01..GC-12", () => {
     expect(program.validator.pre_save.blockers).toEqual([]);
   });
 
-  it("GC-06 PASS — emagrecimento iniciante preserva força sem método avançado", () => {
+  it("GC-06 PASS — emagrecimento iniciante preserva força com método controlado", () => {
     const program = generateTrainingProgram(baseInput({ fitnessLevel: "iniciante", objective: "emagrecimento", daysPerWeek: 3 }));
 
     expect(program.methodology_preset.key).toBe("emagrecimento");
     expect(program.workouts.length).toBe(3);
-    expect(weeklySets(program, "quadriceps")).toBeLessThanOrEqual(12);
-    expect(weeklySets(program, "costas")).toBeLessThanOrEqual(12);
+    expect(weeklySets(program, "quadriceps")).toBeLessThanOrEqual(21);
+    expect(weeklySets(program, "costas")).toBeLessThanOrEqual(21);
     expect(prescribedExerciseText(program)).toMatch(/agachamento|leg press|remada|supino|puxada/);
-    expect(JSON.stringify(program.periodization_blocks).toLowerCase()).not.toMatch(/drop|cluster|rest-pause/);
+    expect(program.weekly_periodization.some((week) => week.methods.length > 0)).toBe(true);
     expect(program.validator.pre_save.blockers).toEqual([]);
   });
 
-  it("GC-07 PASS — avançado sem dor hipertrofia permite intensificação só no bloco final", () => {
-    const program = generateTrainingProgram(baseInput({ fitnessLevel: "avancado", objective: "hipertrofia", daysPerWeek: 5 }));
+  it("GC-07 PASS — avançado sem dor progride volume e métodos por semana", () => {
+    const program = generateTrainingProgram(baseInput({ catalog: methodCoverageCatalog, equipment: "academia_completa", fitnessLevel: "avancado", objective: "hipertrofia", daysPerWeek: 5 }));
     const blockOne = JSON.stringify(program.periodization_blocks[0]).toLowerCase();
-    const finalBlock = JSON.stringify(program.periodization_blocks[2]).toLowerCase();
+    const finalBlock = JSON.stringify(program.periodization_blocks[5]).toLowerCase();
 
     expect(program.workouts.length).toBe(5);
     expect(program.validator.pre_save.volume_review
       .filter((item) => ["quadriceps", "posterior_de_coxa", "gluteos", "dorsal", "peitoral"].includes(item.muscle_group))
-      .every((item) => item.weekly_sets <= 16)).toBe(true);
+      .every((item) => item.weekly_sets <= 21)).toBe(true);
     expect(blockOne).not.toMatch(/up-set|piramide|drop|cluster/);
-    expect(finalBlock).toMatch(/up-set|piramide|método avançado|metodo avancado/);
-    expect(explanationIds(program)).toContain("metodo_avancado_controlado");
+    expect(finalBlock).toContain("variação final de método");
+    expect(program.weekly_periodization[5].methods.length).toBeGreaterThan(0);
+    expect(explanationIds(program)).toContain("metodos_para_adesao_com_volume_controlado");
     expect(program.validator.pre_save.blockers).toEqual([]);
   });
 
@@ -1292,7 +1330,7 @@ describe("BN Prescription Engine v1 — Golden Test Cases GC-01..GC-12", () => {
     expect(weeklySets(program, "quadriceps")).toBeLessThanOrEqual(8);
     expect(program.workouts.flatMap((w) => w.exercises).every((exercise) => /3|4|5/.test(exercise.rir))).toBe(true);
     expect(program.progression_protocol.toLowerCase()).toContain("progressao por tolerancia");
-    expect(JSON.stringify(program.periodization_blocks).toLowerCase()).toContain("sem metodos avancados");
+    expect(program.weekly_periodization.some((week) => week.methods.length > 0)).toBe(true);
     expect(hasWarning(program, "pain_or_injury_requires_conservative_progression")).toBe(true);
     expect(program.validator.pre_save.blockers).toEqual([]);
   });
@@ -1303,11 +1341,14 @@ describe("BN Prescription Engine v1 — Golden Test Cases GC-01..GC-12", () => {
       { id: "dead-bug-livre", name: "Dead Bug Livre", muscle_group: "abdomen", equipment: "livre" },
       { id: "glute-band-livre", name: "Abdução de Quadril com Mini Band", muscle_group: "glúteos", equipment: "mini band" },
       { id: "goblet", name: "Agachamento Goblet com Halteres", muscle_group: "quadríceps", equipment: "halteres" },
+      { id: "bulgarian", name: "Agachamento Búlgaro com Halteres", muscle_group: "quadríceps", equipment: "halteres" },
+      { id: "reverse-lunge", name: "Afundo Reverso com Halteres", muscle_group: "quadríceps", equipment: "halteres" },
       { id: "rdl-halteres", name: "Terra Romeno com Halteres", muscle_group: "posterior", equipment: "halteres" },
       { id: "thoracic", name: "Mobilidade Torácica Livre", muscle_group: "deltoide_posterior", equipment: "livre" },
       { id: "face-band", name: "Face Pull com Elástico", muscle_group: "deltoide_posterior", equipment: "elástico" },
       { id: "row-db", name: "Remada Unilateral com Halteres", muscle_group: "costas", equipment: "halteres" },
       { id: "pushup", name: "Flexão de Braços", muscle_group: "peitoral", equipment: "livre" },
+      { id: "serratus", name: "Flexão Serrátil Funcional", categories: ["funcionais"], muscle_group: "peitoral", equipment: "livre" },
       { id: "db-press", name: "Supino com Halteres Pegada Neutra", muscle_group: "peitoral", equipment: "halteres" },
       { id: "floor-press", name: "Floor Press com Halteres", muscle_group: "peitoral", equipment: "halteres" },
       { id: "band-pulldown", name: "Puxada com Elástico", muscle_group: "costas", equipment: "elástico" },
@@ -1351,7 +1392,7 @@ describe("BN Prescription Engine v1 — Golden Test Cases GC-01..GC-12", () => {
     expect(program.library_policy.validation).toMatchObject({ valid: false });
   });
 
-  it("GC-11 PASS — EVA > 5 gera blocker, handoff e remove padrão afetado", () => {
+  it("GC-11 PASS — EVA > 5 reduz volume, gera handoff e remove padrão afetado", () => {
     const program = generateTrainingProgram(baseInput({
       restrictions: "dor severa no joelho",
       painEva: 7,
@@ -1359,7 +1400,8 @@ describe("BN Prescription Engine v1 — Golden Test Cases GC-01..GC-12", () => {
     }));
     const text = prescribedExerciseText(program);
 
-    expect(hasBlocker(program, "high_pain_requires_professional_review")).toBe(true);
+    expect(hasBlocker(program, "high_pain_requires_professional_review")).toBe(false);
+    expect(hasWarning(program, "high_pain_volume_reduced")).toBe(true);
     expect(program.validator.pre_save.corrections.some((correction) => correction.code.includes("teacher_alert"))).toBe(true);
     expect(text).not.toMatch(/agachamento|leg press|quadríceps|quadriceps/);
     expect(program.progression_protocol.toLowerCase()).toContain("hold/regress");
@@ -1376,11 +1418,9 @@ describe("BN Prescription Engine v1 — Golden Test Cases GC-01..GC-12", () => {
     expect(program.validator.pre_save.warnings.filter((warning) => warning.code !== "cross_session_reuse")).toEqual([]);
     expect(program.validator.pre_save.blockers).toEqual([]);
     expect(weeklySets(program, "costas")).toBeGreaterThanOrEqual(10);
-    expect(weeklySets(program, "costas")).toBeLessThanOrEqual(16);
+    expect(weeklySets(program, "costas")).toBeLessThanOrEqual(21);
     expect(weeklySets(program, "core")).toBeLessThanOrEqual(10);
-    expect(blocks).toContain("1-2");
-    expect(blocks).toContain("3-4");
-    expect(blocks).toContain("5-6");
+    expect(program.periodization_blocks.map((block) => block.weeks)).toEqual(["1", "2", "3", "4", "5", "6"]);
     expect(blocks).toContain("rir 3-4");
     expect(blocks).toContain("rir 2");
   });
@@ -1394,12 +1434,13 @@ describe("BN Prescription Engine v1 — regras inegociáveis", () => {
     const validIds = new Set(catalog.map((exercise) => exercise.id));
 
     expect(painProgram.progression_protocol.toLowerCase()).toContain("hold/regress");
-    expect(hasBlocker(severeProgram, "high_pain_requires_professional_review")).toBe(true);
+    expect(hasBlocker(severeProgram, "high_pain_requires_professional_review")).toBe(false);
+    expect(hasWarning(severeProgram, "high_pain_volume_reduced")).toBe(true);
     expect(severeProgram.validator.pre_save.corrections.some((correction) => correction.code.includes("teacher_alert"))).toBe(true);
     expect(JSON.stringify(severeProgram).toLowerCase()).not.toMatch(/diagn[oó]stico|tratamento cl[ií]nico/);
     expect(allExerciseIds(baseline).every((id) => validIds.has(id))).toBe(true);
-    expect(JSON.stringify(generateTrainingProgram(baseInput({ fitnessLevel: "iniciante" })).periodization_blocks).toLowerCase()).not.toMatch(/drop|cluster|rest-pause|piramide/);
-    expect(JSON.stringify(painProgram.periodization_blocks).toLowerCase()).not.toMatch(/drop|cluster|rest-pause|piramide/);
+    expect(generateTrainingProgram(baseInput({ fitnessLevel: "iniciante" })).weekly_periodization.every((week) => week.methods.length > 0)).toBe(true);
+    expect(painProgram.weekly_periodization.every((week) => week.methods.length > 0)).toBe(true);
     expect(prescribedExerciseText(baseline)).not.toMatch(/pliometr|salto/);
     expect(baseline.validator.pre_save.volume_review.filter((item) => ["core", "ombros", "panturrilhas"].includes(item.muscle_group)).every((item) => item.weekly_sets <= 10)).toBe(true);
     expect(generateTrainingProgram(baseInput({
@@ -1411,8 +1452,8 @@ describe("BN Prescription Engine v1 — regras inegociáveis", () => {
 });
 
 describe("BN Prescription Engine v1 — hotfix F1..F4", () => {
-  // F1 — dor estruturada (painReports/painEva) sem texto deve travar progressão e bloquear avançado.
-  it("F1 — painReports EVA>3 sem texto trava progressão e bloqueia método avançado (falharia antes do fix)", () => {
+  // F1 — dor estruturada trava progressão, mas preserva métodos em exercícios seguros.
+  it("F1 — painReports EVA>3 sem texto trava progressão e preserva métodos seguros", () => {
     const program = generateTrainingProgram(baseInput({
       fitnessLevel: "avancado",
       objective: "hipertrofia",
@@ -1420,10 +1461,11 @@ describe("BN Prescription Engine v1 — hotfix F1..F4", () => {
       restrictions: "",
       painReports: [{ region: "joelho", eva: 4 }],
     }));
-    const blocks = JSON.stringify(program.periodization_blocks).toLowerCase();
     expect(program.progression_protocol.toLowerCase()).toContain("hold/regress");
-    expect(blocks).not.toMatch(/up-set|piramide|drop|cluster|rest-pause/);
-    expect(blocks).toContain("sem metodos avancados");
+    expect(program.weekly_periodization.every((week) => week.methods.length > 0)).toBe(true);
+    expect(program.workouts.flatMap((workout) => workout.exercises)
+      .filter((exercise) => /agachamento|leg press|step up/i.test(exercise.exercise_name))
+      .every((exercise) => exercise.weekly_prescription?.every((week) => !week.method))).toBe(true);
     expect(hasWarning(program, "pain_or_injury_requires_conservative_progression")).toBe(true);
   });
 
@@ -1432,13 +1474,13 @@ describe("BN Prescription Engine v1 — hotfix F1..F4", () => {
       fitnessLevel: "intermediario", objective: "hipertrofia", daysPerWeek: 4, restrictions: "", painEva: 5,
     }));
     expect(program.progression_protocol.toLowerCase()).toMatch(/hold\/regress|tolerancia/);
-    expect(JSON.stringify(program.periodization_blocks).toLowerCase()).not.toMatch(/up-set|piramide|drop|cluster/);
+    expect(program.weekly_periodization.every((week) => week.methods.length > 0)).toBe(true);
   });
 
   it("F1 — sem dor (clean) NÃO trava nem bloqueia avançado (sem falso positivo)", () => {
     const program = generateTrainingProgram(baseInput({ fitnessLevel: "avancado", objective: "hipertrofia", daysPerWeek: 5 }));
     expect(program.progression_protocol.toLowerCase()).not.toContain("hold/regress");
-    expect(JSON.stringify(program.periodization_blocks).toLowerCase()).toMatch(/bi-set|super-set|tri-set|serie gigante|drop-set|rest-pause|cluster-set/);
+    expect(program.weekly_periodization.some((week) => week.methods.some((method) => /Bi-set|Tri-set|Série gigante|Drop-set|Rest-pause|Cluster-set/.test(method)))).toBe(true);
   });
 
   // F2 — endurance só reduz com freq >=3x e só em MMII; superiores preservados.
@@ -1450,7 +1492,7 @@ describe("BN Prescription Engine v1 — hotfix F1..F4", () => {
     const chestEnd = getVolumeRangeForGroup("peitoral", "intermediario", end).mrv;
     const chestNo = getVolumeRangeForGroup("peitoral", "intermediario", noEnd).mrv;
     expect(quadEnd).toBeLessThan(quadNo);
-    expect(quadEnd).toBeLessThanOrEqual(Math.round(quadNo * 0.8));
+    expect(quadEnd).toBe(Math.round(quadNo * 0.8));
     expect(chestEnd).toBe(chestNo);
   });
 
@@ -1466,7 +1508,7 @@ describe("BN Prescription Engine v1 — hotfix F1..F4", () => {
     expect(hasWarning(program, "endurance_agenda_missing")).toBe(true);
   });
 
-  // F4 — teto duro no OUTPUT final: iniciante <=12 (grupo grande), interm/avançado <=16 (qualquer grupo).
+  // F4 — teto duro no OUTPUT final: 21 séries para todos os perfis.
   it("F4 — teto de volume garantido no output por perfil", () => {
     const large = ["quadriceps", "posterior_de_coxa", "gluteos", "dorsal", "peitoral"];
     const iniProfiles = [
@@ -1479,11 +1521,11 @@ describe("BN Prescription Engine v1 — hotfix F1..F4", () => {
     ];
     for (const input of iniProfiles) {
       const sets = weeklySetsByGroup(generateTrainingProgram(input));
-      for (const g of large) expect(sets.get(g) || 0).toBeLessThanOrEqual(12);
+      for (const g of large) expect(sets.get(g) || 0).toBeLessThanOrEqual(21);
     }
     for (const input of advProfiles) {
       const sets = weeklySetsByGroup(generateTrainingProgram(input));
-      for (const [, n] of sets) expect(n).toBeLessThanOrEqual(16);
+      for (const [, n] of sets) expect(n).toBeLessThanOrEqual(21);
     }
   });
 });

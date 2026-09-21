@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
-import { Dumbbell, Play, Clock, CheckCircle2, Circle, Loader2, LogOut, Save, CalendarDays, History, BarChart3, ArrowLeft, Flame, LockKeyhole } from "lucide-react";
+import { Dumbbell, Play, Clock, CheckCircle2, Circle, Loader2, LogOut, Save, CalendarDays, History, BarChart3, ArrowLeft, LockKeyhole } from "lucide-react";
 import { format, parseISO, differenceInDays, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
@@ -20,14 +20,11 @@ import { ExerciseCard } from "@/components/student/ExerciseCard";
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
 import { StudentMethodGroup } from "@/components/student/StudentMethodGroup";
 import { PeriodizationBanner } from "@/components/student/PeriodizationBanner";
-import { WhySafetyCard } from "@/components/student/WhySafetyCard";
 import { CheckinCard } from "@/components/student/CheckinCard";
 import { PushBanner } from "@/components/student/PushBanner";
 import { ExerciseVideoPlayer } from "@/components/student/ExerciseVideoPlayer";
 import { useExerciseVideo } from "@/hooks/useExerciseVideo";
 import { loadStudentTrainingHistory } from "@/lib/studentTrainingHistory";
-import { WarmupGuide, type WarmupExercise } from "@/components/student/WarmupGuide";
-import { WARMUP_VIDEO_LIBRARY_NAMES } from "@/lib/warmupVideoMatches";
 import { useRestTimer } from "@/components/student/RestTimer";
 import { useWakeLock } from "@/hooks/useWakeLock";
 import { WeeklyBar } from "@/components/student/WeeklyBar";
@@ -37,9 +34,8 @@ import { EditorialPageHeader } from "@/components/EditorialPageHeader";
 import { PersonalThemeIconToggle } from "@/components/PersonalThemeToggle";
 import { businessDateYmd } from "@/lib/businessDate";
 import { PlatformAdSlot } from "@/components/PlatformAdSlot";
-import { WorkoutHeader } from "@/components/student/WorkoutHeader";
 import { WeeklyGoalEditor } from "@/components/student/WeeklyGoalEditor";
-import { resolveActiveWorkoutInCycles, resolveWorkoutForCycleWeek, type ResolvedWeekContext, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
+import { hasIndividualWeeklyPrescription, resolveActiveWorkoutInCycles, resolveWorkoutForCycleWeek, type ResolvedWeekContext, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import { currentWeekIndex } from "@/lib/periodization";
 import { StudentWeekSelector } from "@/components/student/StudentWeekSelector";
 import { collectTrainedDaysForWeek, mergeTrainingLogsForDisplay, upsertCompletedWorkoutSession } from "@/lib/studentWeek";
@@ -207,7 +203,6 @@ export default function StudentPortal() {
   const [loading, setLoading] = useState(true);
   const [contentLoading, setContentLoading] = useState(true);
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
-  const [warmupOpen, setWarmupOpen] = useState(false);
   const [logs, setLogs] = useState<Record<string, WorkoutLog>>({});
   const [previousLogs, setPreviousLogs] = useState<Record<string, WorkoutLog>>({});
   const [savingLogs, setSavingLogs] = useState(false);
@@ -219,7 +214,6 @@ export default function StudentPortal() {
   const [workoutFeedbacks, setWorkoutFeedbacks] = useState<any[]>([]);
   const [weeklyGoal, setWeeklyGoal] = useState<number>(3);
   const [activeEnrollmentId, setActiveEnrollmentId] = useState<string | null>(null);
-  const [warmupVideoExercises, setWarmupVideoExercises] = useState<WarmupExercise[]>([]);
   // Prescrições por modalidade (abas condicionais): nutrição + esportes de cardio existentes.
   const [hasNutrition, setHasNutrition] = useState(false);
   const [runningSports, setRunningSports] = useState<Set<string>>(new Set());
@@ -243,11 +237,10 @@ export default function StudentPortal() {
   const currentCycleWeek = selectedWorkoutCycle
     ? currentWeekIndex(selectedWorkoutCycle.start_date, selectedWorkoutCycle.duration_weeks || 6) + 1
     : 1;
-  const currentWeekStart = Math.floor((Math.max(1, currentCycleWeek) - 1) / 2) * 2 + 1;
   const effectiveWeekStart = selectedWeekStart && selectedWeekStart <= (selectedWorkoutCycle?.duration_weeks || 6)
     ? selectedWeekStart
-    : currentWeekStart;
-  const selectedWeek = effectiveWeekStart === currentWeekStart ? currentCycleWeek : effectiveWeekStart;
+    : currentCycleWeek;
+  const selectedWeek = effectiveWeekStart;
   const selectedWorkout = useMemo(
     () => resolveWorkoutForCycleWeek(
       selectedWorkoutBase,
@@ -258,6 +251,7 @@ export default function StudentPortal() {
     ),
     [selectedWorkoutBase, selectedWorkoutCycle?.start_date, selectedWorkoutCycle?.duration_weeks, selectedWeek],
   );
+  const hasWeeklyPrescriptions = hasIndividualWeeklyPrescription(selectedWorkoutBase?.exercises);
 
   useEffect(() => {
     if (!selectedCycle) return;
@@ -475,22 +469,6 @@ export default function StudentPortal() {
         start_date: enrollment.start_date,
         end_date: enrollment.end_date,
       });
-    }
-
-    {
-      const { data: warmupLibraryData } = await (supabase as any)
-        .from("exercise_library")
-        .select("id, name, muscle_group, video_url, video_path, youtube_video_id, thumbnail_url")
-        .in("name", WARMUP_VIDEO_LIBRARY_NAMES);
-      setWarmupVideoExercises((warmupLibraryData || []).map((lib: any) => ({
-        exercise_id: lib.id,
-        exercise_name: lib.name,
-        muscle_group: lib.muscle_group || "",
-        video_url: lib.video_url || null,
-        video_path: lib.video_path || null,
-        youtube_video_id: lib.youtube_video_id ?? null,
-        thumbnail_url: lib.thumbnail_url ?? null,
-      })));
     }
 
     // O portal nunca mistura ciclos de matrículas históricas. Se não existir
@@ -1351,33 +1329,12 @@ export default function StudentPortal() {
                   </CardContent>
                 </Card>
 
-                <Card className="bg-card border-border">
-                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3">
-                    <StudentWeekSelector
-                      currentWeek={currentCycleWeek}
-                      durationWeeks={selectedCycle.duration_weeks}
-                      selectedStartWeek={effectiveWeekStart}
-                      hasWeeklyPrescriptions={Boolean(selectedWorkoutBase?.exercises.some((exercise) => (exercise.weekly_prescription || []).length > 0))}
-                      onChange={(startWeek) => { setSelectedWeekStart(startWeek); setExpandedExercise(null); }}
-                      onBlocked={(message) => toast({ title: "Semana ainda não liberada", description: message, variant: "destructive" })}
-                    />
-                  </CardContent>
-                </Card>
-
                 <PeriodizationBanner
                   objective={selectedCycle.objective}
                   durationWeeks={selectedCycle.duration_weeks}
                   startDate={selectedCycle.start_date}
                   endDate={selectedCycle.end_date}
                   prescribedWeek={selectedWorkout?.weekly_context}
-                />
-
-                <WhySafetyCard
-                  objective={selectedCycle.objective}
-                  startDate={selectedCycle.start_date}
-                  studentId={studentId}
-                  companyId={companyId}
-                  studentName={studentName}
                 />
 
                 {hasUnresolvedActiveSession && (
@@ -1399,15 +1356,6 @@ export default function StudentPortal() {
 
                 {!hasUnresolvedActiveSession && (selectedCycle.workouts.length > 0 ? (
                   <div className="space-y-3">
-                    {selectedWorkout && (
-                      <WorkoutHeader
-                        cycleNumber={selectedCycle.cycle_number}
-                        cycleStartDate={selectedCycle.start_date}
-                        cycleEndDate={selectedCycle.end_date}
-                        workoutTitle={selectedWorkout.title}
-                        workoutDescription={selectedWorkout.description}
-                      />
-                    )}
                     {trainedDays.size > 0 && (
                       <WeeklyBar
                         trainedDays={trainedDays}
@@ -1451,14 +1399,6 @@ export default function StudentPortal() {
                           onResolveBlockedStart={() => setActiveView("treino")}
                         />
 
-                        <WarmupGuide
-                          key={`${studentId}:${selectedWorkout.id}:${todayStr}`}
-                          muscleGroups={selectedWorkout.exercises.map((e) => e.muscle_group)}
-                          libraryExercises={warmupVideoExercises}
-                          open={warmupOpen}
-                          onOpenChange={setWarmupOpen}
-                        />
-
                         {/* A4 — resumo inline do treino em andamento (volume / séries / tempo) */}
                         {isSessionForCurrentWorkout && (() => {
                           const wId = selectedWorkout.id;
@@ -1482,13 +1422,20 @@ export default function StudentPortal() {
                           );
                         })()}
 
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <h3 className="min-w-0 break-words text-lg font-semibold leading-snug text-foreground font-sans">{selectedWorkout.title}</h3>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <Button size="sm" variant="outline" onClick={() => setWarmupOpen(true)}>
-                              <Flame className="h-3.5 w-3.5 mr-1" />
-                              Aquecer
-                            </Button>
+                          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:shrink-0">
+                            {hasWeeklyPrescriptions && (
+                              <StudentWeekSelector
+                                currentWeek={currentCycleWeek}
+                                durationWeeks={selectedCycle.duration_weeks}
+                                selectedStartWeek={effectiveWeekStart}
+                                hasWeeklyPrescriptions={hasWeeklyPrescriptions}
+                                onChange={(week) => { setSelectedWeekStart(week); setExpandedExercise(null); }}
+                                onBlocked={(message) => toast({ title: "Semana ainda não liberada", description: message, variant: "destructive" })}
+                                className="min-w-[12rem] flex-1"
+                              />
+                            )}
                             <Button size="sm" onClick={() => saveCurrentLogs()} disabled={savingLogs}>
                               <Save className="h-3.5 w-3.5 mr-1" />
                               {savingLogs ? "Salvando..." : "Salvar"}

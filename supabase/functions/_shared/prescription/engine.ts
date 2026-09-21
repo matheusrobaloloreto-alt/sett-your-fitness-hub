@@ -15,7 +15,6 @@ import type {
   TrainingExercise,
   TrainingProgram,
   TrainingWorkout,
-  ValidationCorrection,
 } from "./types.ts";
 import { prescriptionRiskText } from "./clinicalContext.ts";
 import { isPrescriptionCatalogEligible } from "./catalogEligibility.ts";
@@ -40,15 +39,15 @@ type ExerciseSpec = {
 
 const PHASE_ORDER: Record<string, number> = {
   mobilidade: 10,
-  autoliberacao: 20,
-  alongamento: 30,
-  fisioterapia: 40,
+  autoliberacao: 10,
+  alongamento: 20,
+  fisioterapia: 30,
+  ativacao_core: 40,
   controle_motor: 50,
-  ativacao_core: 60,
-  ativacao_especifica: 70,
-  pliometria: 80,
-  forca_global: 90,
-  forca_especifica: 100,
+  ativacao_especifica: 50,
+  pliometria: 60,
+  forca_global: 70,
+  forca_especifica: 80,
 };
 
 function isHypertrophyObjective(input: PrescriptionInput) {
@@ -210,8 +209,14 @@ function hasSessionExcludedEligibleAlternative(args: {
     preferredMuscleGroup: args.spec.preferredMuscleGroup,
     preferredCategory: args.spec.preferredCategory,
     preferredPattern: args.spec.preferredPattern,
-    preferredExerciseIds: previousExerciseIds(args.input, args.spec.phase, args.spec.preferredMuscleGroup),
+    preferredExerciseIds: preferredPreviousExercises(args.input, args.spec),
+    rotationSeed: resolveSequenceNumber(args.input) + args.programUsedIds.size,
   }));
+}
+
+function preferredPreviousExercises(input: PrescriptionInput, spec: ExerciseSpec) {
+  if (!['forca_global', 'controle_motor'].includes(spec.phase)) return undefined;
+  return previousExerciseIds(input, spec.phase, spec.preferredMuscleGroup);
 }
 
 function selectExercises(
@@ -243,7 +248,8 @@ function selectExercises(
       preferredMuscleGroup: spec.preferredMuscleGroup,
       preferredCategory: spec.preferredCategory,
       preferredPattern: spec.preferredPattern,
-      preferredExerciseIds: previousExerciseIds(input, spec.phase, spec.preferredMuscleGroup),
+      preferredExerciseIds: preferredPreviousExercises(input, spec),
+      rotationSeed: resolveSequenceNumber(input) * 31 + programUsedIds.size + index,
     });
     if (!exercise) {
       if (spec.reportGap !== false) {
@@ -340,6 +346,39 @@ function fullBodySpecs(input: PrescriptionInput): ExerciseSpec[] {
   return applyObjectiveProportions(input, specs);
 }
 
+function pushWorkoutSpecs(input: PrescriptionInput): ExerciseSpec[] {
+  const specs: ExerciseSpec[] = [
+    { phase: "mobilidade", keywords: ["mobilidade toracica", "mobilidade ombro"], preferredCategory: "mobilidades", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Amplitude confortável.", note: "Mobilidade antes do empurrar." },
+    { phase: "ativacao_core", keywords: ["pallof", "dead bug", "prancha", "core"], preferredCategory: "core", preferredPattern: "core", sets: 2, reps: "20-30s", rest: 45, rir: "3-4", cue: "Tronco firme.", note: "Core antes do bloco funcional." },
+    { phase: "controle_motor", keywords: ["flexao", "landmine", "empurrar", "serratil"], preferredCategory: "funcionais", preferredPattern: "empurrar_horizontal", sets: 2, reps: "8-12", rest: 60, rir: "3", cue: "Controle escápulas e tronco.", note: "Funcional de empurrar." },
+    { phase: "forca_global", keywords: ["supino", "chest press", "press convergente"], preferredMuscleGroup: "peitoral", preferredCategory: "base", preferredPattern: "empurrar_horizontal", sets: 3, reps: "6-12", rest: 90, rir: "2-3", cue: "Escápulas firmes.", note: "Base global de empurrar." },
+    { phase: "forca_especifica", keywords: ["crucifixo", "crossover", "voador", "peitoral"], preferredMuscleGroup: "peitoral", preferredPattern: "isolado_acessorio", sets: 3, reps: "10-15", rest: 60, rir: "2-3", cue: "Tensão contínua.", note: "Máquina, cabo ou peso livre específico." },
+    { phase: "forca_especifica", keywords: ["triceps", "corda", "testa"], preferredMuscleGroup: "triceps", preferredPattern: "isolado_acessorio", required: false, sets: 3, reps: "10-15", rest: 60, rir: "2-3", cue: "Cotovelos estáveis.", note: "Complemento específico de tríceps." },
+  ];
+  if (canUsePlyometrics(input)) specs.push({ phase: "pliometria", keywords: ["med ball chest throw", "arremesso medicine ball", "pliometria"], preferredCategory: "pliometria", preferredPattern: "pliometria", required: false, reportGap: false, sets: 2, reps: "3-5", rest: 75, rir: "4", cue: "Máxima qualidade.", note: "Pliometria antes da força global." });
+  return applyObjectiveProportions(input, specs);
+}
+
+function pullWorkoutSpecs(input: PrescriptionInput): ExerciseSpec[] {
+  return applyObjectiveProportions(input, [
+    { phase: "mobilidade", keywords: ["mobilidade toracica", "mobilidade ombro"], preferredCategory: "mobilidades", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Amplitude confortável.", note: "Mobilidade antes do puxar." },
+    { phase: "autoliberacao", keywords: ["liberacao miofascial", "foam roller", "toracica"], preferredCategory: "mobilidades", preferredPattern: "isolado_acessorio", required: false, reportGap: false, sets: 1, reps: "30-45s", rest: 15, rir: "4", cue: "Pressão tolerável.", note: "Liberação agrupada à mobilidade." },
+    { phase: "ativacao_core", keywords: ["pallof", "dead bug", "prancha", "core"], preferredCategory: "core", preferredPattern: "core", sets: 2, reps: "20-30s", rest: 45, rir: "3-4", cue: "Tronco firme.", note: "Core antes do bloco funcional." },
+    { phase: "controle_motor", keywords: ["face pull", "rotacao externa", "escapula"], preferredCategory: "funcionais", preferredPattern: "isolado_acessorio", sets: 2, reps: "12-15", rest: 45, rir: "3", cue: "Controle escapular.", note: "Funcional de puxar." },
+    { phase: "forca_global", keywords: ["remada", "row", "remada apoiada"], preferredMuscleGroup: "dorsal", preferredCategory: "base", preferredPattern: "puxar_horizontal", sets: 3, reps: "6-12", rest: 90, rir: "2-3", cue: "Sem balançar o tronco.", note: "Base global de puxar." },
+    { phase: "forca_especifica", keywords: ["puxada", "pulldown", "barra fixa"], preferredMuscleGroup: "dorsal", preferredPattern: "puxar_vertical", sets: 3, reps: "8-12", rest: 75, rir: "2-3", cue: "Controle a volta.", note: "Puxada específica." },
+    { phase: "forca_especifica", keywords: ["biceps", "rosca", "cabo"], preferredMuscleGroup: "biceps", preferredPattern: "isolado_acessorio", required: false, sets: 3, reps: "10-15", rest: 60, rir: "2-3", cue: "Evite embalo.", note: "Complemento específico de bíceps." },
+  ]);
+}
+
+function extraMobilityCoreSpecs(input: PrescriptionInput): ExerciseSpec[] {
+  return applyObjectiveProportions(input, [
+    { phase: "mobilidade", keywords: ["mobilidade quadril", "mobilidade tornozelo", "mobilidade toracica"], preferredCategory: "mobilidades", preferredPattern: "isolado_acessorio", sets: 2, reps: "8-10", rest: 30, rir: "4", cue: "Amplitude confortável.", note: "Sessão extra de mobilidade." },
+    { phase: "autoliberacao", keywords: ["liberacao miofascial", "foam roller", "rolo"], preferredCategory: "mobilidades", preferredPattern: "isolado_acessorio", required: false, sets: 2, reps: "30-45s", rest: 20, rir: "4", cue: "Pressão tolerável.", note: "Liberação sem fadiga excessiva." },
+    { phase: "ativacao_core", keywords: ["pallof", "dead bug", "prancha", "bird dog", "core"], preferredCategory: "core", preferredPattern: "core", sets: 3, reps: "10-15", rest: 45, rir: "2-3", cue: "Controle tronco e pelve.", note: "Core com séries W/Normal/F sinalizadas." },
+  ]);
+}
+
 function upperSpecializationSpecs(): ExerciseSpec[] {
   const stablePeitoralKeywords = ["peitoral", "chest press", "supino maquina", "voador", "pec deck", "crossover", "cabo"];
   return [
@@ -367,13 +406,16 @@ function splitTemplates(input: PrescriptionInput): Array<{ name: string; focus: 
   const split = resolveSplit(input);
   const beginner = normalizeText(input.fitnessLevel).includes("inic");
   const extraCap = beginner ? 1 : 2;
-  const base = [
-    { name: "Treino A - Base tecnica de membros inferiores", focus: "mobilidade, core, controle de quadril e força global leve", specs: lowerWorkoutSpecs(input) },
-    { name: "Treino B - Postura, puxar e empurrar", focus: "mobilidade torácica, escápula, puxar e empurrar técnico", specs: upperWorkoutSpecs(input) },
-    { name: "Treino C - Corpo inteiro e unilateral leve", focus: "integração full body, unilateral e acessórios", specs: fullBodySpecs(input) },
-    { name: "Treino D - Superior e core complementar", focus: "costas, peitoral técnico, ombro saudável e core", specs: upperWorkoutSpecs(input).map((spec) => ({ ...spec, sets: Math.min(spec.sets, extraCap) })) },
-    { name: "Treino E - Inferior posterior leve", focus: "cadeia posterior, glúteos e estabilidade", specs: fullBodySpecs(input).map((spec) => ({ ...spec, sets: Math.min(spec.sets, extraCap) })) },
-  ];
+  const letter = (index: number) => String.fromCharCode(65 + index);
+  const base = split.days.map((day, index) => {
+    const normalized = normalizeText(day);
+    if (normalized.includes("extra") || normalized.includes("mobilidade")) return { name: `Treino ${letter(index)} - Extra mobilidade e core`, focus: "mobilidade, liberação e core", specs: extraMobilityCoreSpecs(input) };
+    if (normalized.startsWith("push")) return { name: `Treino ${letter(index)} - Push`, focus: "empurrar, peitoral, ombros e tríceps", specs: pushWorkoutSpecs(input) };
+    if (normalized.startsWith("pull")) return { name: `Treino ${letter(index)} - Pull`, focus: "puxar, dorsal, escápulas e bíceps", specs: pullWorkoutSpecs(input) };
+    if (normalized.startsWith("legs") || normalized.startsWith("lower")) return { name: `Treino ${letter(index)} - Lower`, focus: "membros inferiores e cadeia posterior", specs: lowerWorkoutSpecs(input) };
+    if (normalized.startsWith("upper")) return { name: `Treino ${letter(index)} - Upper`, focus: "membros superiores, core, puxar e empurrar", specs: upperWorkoutSpecs(input).map((spec) => normalized.includes("tecnico") ? { ...spec, sets: Math.min(spec.sets, extraCap) } : spec) };
+    return { name: `Treino ${letter(index)} - Full Body`, focus: "corpo inteiro, unilateral e acessórios", specs: fullBodySpecs(input) };
+  });
   const advancedTemplateEligible = canUseAdvancedMethodTemplates(input);
   if (advancedTemplateEligible && isAdvancedLevel(input) && isHypertrophyObjective(input) && split.structuredDays >= 4
     && hasFullMethodEquipment(input) && hasSpecializationCatalog(input)) {
@@ -451,27 +493,6 @@ function applyDeloadVolumeBudget(workouts: TrainingWorkout[], input: Prescriptio
   };
 }
 
-function applySimpleCorrections(program: TrainingProgram, input: PrescriptionInput) {
-  const corrections: ValidationCorrection[] = [];
-  const level = normalizeText(input.fitnessLevel);
-  if (shouldHoldProgression(input) || level.includes("inic")) {
-    const before = JSON.stringify(program.periodization_blocks);
-    program.periodization_blocks = program.periodization_blocks.map((block) => ({
-      ...block,
-      methods: block.methods.filter((method) => !/(drop|cluster|piramide|up-set|rest)/.test(normalizeText(method))).concat(block.methods.some((method) => /avancado|piramide|up-set|drop|cluster/.test(normalizeText(method))) ? ["sem metodos avancados"] : []),
-    }));
-    if (before !== JSON.stringify(program.periodization_blocks)) {
-      corrections.push({
-        code: "removed_advanced_methods",
-        message: "Removi métodos avançados por nível iniciante ou contexto de dor/restrição.",
-        applied: true,
-        source: "nivel",
-      });
-    }
-  }
-  return corrections;
-}
-
 export function generateTrainingProgram(input: PrescriptionInput): TrainingProgram {
   const normalizedInput: PrescriptionInput = {
     ...input,
@@ -502,13 +523,12 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
   const weekly = buildWeeklyPeriodization(workouts, normalizedInput);
   const periodization = buildPeriodizationBlocks(normalizedInput);
   const split = resolveSplit(normalizedInput);
-  const advancedAllowed = !normalizedInput.deload && !shouldHoldProgression(normalizedInput) && !normalizeText(normalizedInput.fitnessLevel).includes("inic");
   const explanations = [
     ...explanationsFromRestrictions(restrictions),
     ...enduranceExplanation(Boolean(normalizedInput.isEnduranceAthlete || normalizedInput.runningDaysContext)),
     ...frequencyDowngradeExplanation(split.downgraded, split.requestedDays, split.structuredDays),
     ...deloadExplanation(Boolean(normalizedInput.deload)),
-    ...(!normalizedInput.deload ? [progressionExplanation(advancedAllowed)] : []),
+    progressionExplanation(),
     longitudinal.explanation,
     {
       rule_id: "BN_WEEKLY_PERIODIZATION_EXECUTABLE",
@@ -516,7 +536,7 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
       source: "objetivo" as const,
       target: "ciclo_semanal",
       action: "Aplicar automaticamente séries, repetições, RIR, cadência e método correspondentes à semana vigente.",
-      reason: "O ciclo precisa evoluir em blocos de duas semanas sem reiniciar o treino nem depender de texto interpretativo.",
+      reason: "Cada semana precisa materializar sua própria dose e permitir séries diferentes sem depender de texto interpretativo.",
       severity: "leve" as const,
     },
     {
@@ -524,8 +544,8 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
       category: "priorizacao" as const,
       source: "objetivo" as const,
       target: "ordem_da_sessao",
-      action: "Ordenar a sessão em preparação, controle motor, ativações, potência elegível, força global e força específica.",
-      reason: "A sequência reduz interferência da fadiga na aprendizagem motora e mantém os exercícios isolados depois dos padrões globais.",
+      action: "Ordenar mobilidade e liberação, core, funcionais, pliometria elegível, força global (Base) e força específica (peso corporal, pesos livres e máquinas).",
+      reason: "A sequência prepara mobilidade e estabilidade antes da potência e mantém a força específica depois da base global.",
       severity: "leve" as const,
     },
     ...(isHypertrophyObjective(normalizedInput)
@@ -593,12 +613,14 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
       structured_days: split.structuredDays,
       split: split.label,
       library_only: true,
+      catalog_scope: "company_and_global",
       method_policy_version: "sett-strength-methods-v1",
       set_type_policy_version: "sett-set-types-WNF-v1",
       sequence_number: longitudinal.sequenceNumber,
       total_cycles: normalizedInput.programSequence?.total_cycles ? Number(normalizedInput.programSequence.total_cycles) : null,
       sequence_phase: longitudinal.phase,
       previous_plan_used: Boolean(normalizedInput.previousPlanContext),
+      previous_metrics_reused: longitudinal.reusedMetrics,
     },
     cycle_name: `Plano BN Engine - ${clean(normalizedInput.studentName || "Aluno")} - Ciclo ${longitudinal.sequenceNumber}`,
     objective: clean(normalizedInput.objective || "base tecnica e consistencia"),
@@ -621,10 +643,11 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
     generated_by: "bn_prescription_engine_v1",
     biomechanical_notes: restrictions.length
       ? restrictions.map((rule) => rule.recommendation).join(" ")
-      : "Plano técnico conservador com mobilidade, ativação, controle motor e força antes de métodos avançados.",
+      : "Plano com mobilidade e liberação, core, funcionais, potência elegível, força global e força específica; métodos variados respeitam o teto de volume.",
     workouts: weekly.workouts,
     library_policy: {
       only_library_exercises: true,
+      catalog_scope: "company_and_global",
       catalog_count: normalizedInput.catalog.length,
       gaps,
     },
@@ -662,10 +685,7 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
     },
   };
 
-  const corrections = [
-    ...applyRestrictionRules(program, restrictions),
-    ...applySimpleCorrections(program, normalizedInput),
-  ];
+  const corrections = applyRestrictionRules(program, restrictions);
   program.explanations.push(...correctionsToExplanations(corrections));
   program.validator.pre_save = validateTrainingProgram({
     program,

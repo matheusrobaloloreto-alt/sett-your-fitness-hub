@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildStudentProgressionHighlight,
+  copyWeeklyPrescriptionMetrics,
   formatBiweeklyProgressionForDisplay,
+  hasIndividualWeeklyPrescription,
+  INDIVIDUAL_WEEKLY_UI_VERSION,
   resolveActiveWorkoutInCycles,
   resolveStudentHomeWorkoutTarget,
   resolveExerciseForWeek,
@@ -12,6 +15,7 @@ import {
   studentFacingEffortText,
   studentEffortLabel,
   weeklyMethodLabel,
+  weeklyPrescriptionModeForLoadedWorkouts,
 } from "./weeklyStrengthPeriodization";
 
 const exercise = {
@@ -27,6 +31,28 @@ const exercise = {
 };
 
 describe("weekly strength periodization resolver", () => {
+  it("mantém prescrições existentes sem contrato semanal no modo legado", () => {
+    expect(weeklyPrescriptionModeForLoadedWorkouts([
+      { exercises: [{ weekly_prescription: [] }] },
+    ])).toBe("legacy");
+    expect(weeklyPrescriptionModeForLoadedWorkouts([
+      { exercises: [{ sets: "3" } as never] },
+    ])).toBe("legacy");
+    expect(weeklyPrescriptionModeForLoadedWorkouts([
+      { exercises: [{ weekly_prescription: [{ week: 1 }] }] },
+    ])).toBe("legacy");
+  });
+
+  it("habilita o novo modelo apenas para prescrições novas ou já semanais", () => {
+    expect(weeklyPrescriptionModeForLoadedWorkouts([{ exercises: [] }])).toBe("weekly");
+    expect(weeklyPrescriptionModeForLoadedWorkouts([
+      { exercises: [{ weekly_prescription: [{ week: 1 }], weekly_ui_version: INDIVIDUAL_WEEKLY_UI_VERSION }] },
+    ])).toBe("weekly");
+    expect(hasIndividualWeeklyPrescription([
+      { weekly_prescription: [{ week: 1 }], weekly_ui_version: INDIVIDUAL_WEEKLY_UI_VERSION },
+    ])).toBe(true);
+  });
+
   it("aplica os parâmetros da semana sem alterar a ordem ou o contrato base", () => {
     expect(resolveExerciseForWeek(exercise, 5)).toMatchObject({
       exercise_name: "Remada baixa",
@@ -51,7 +77,7 @@ describe("weekly strength periodization resolver", () => {
     expect(resolved?.exercises[0].method).toBe("biset");
   });
 
-  it("permite visualizar uma quinzena anterior sem liberar blocos futuros", () => {
+  it("permite visualizar uma semana anterior sem liberar semanas futuras", () => {
     const workout = { id: "workout-1", title: "Treino A", exercises: [exercise] };
     const resolved = resolveWorkoutForCycleWeek(workout, "2026-07-06", 6, undefined, 1);
 
@@ -59,9 +85,12 @@ describe("weekly strength periodization resolver", () => {
     expect(resolved?.exercises[0]).toMatchObject({ sets: "2", rest: "90s", rir: "3-4" });
 
     expect(studentWeekBlockOptions({ currentWeek: 3, durationWeeks: 6, selectedStartWeek: 3 })).toEqual([
-      expect.objectContaining({ label: "Semanas 1 e 2", available: true, hasNewContent: false }),
-      expect.objectContaining({ label: "Semanas 3 e 4", available: true, current: true, hasNewContent: true }),
-      expect.objectContaining({ label: "Semanas 5 e 6", available: false, hasNewContent: false }),
+      expect.objectContaining({ label: "Semana 1", available: true, hasNewContent: false }),
+      expect.objectContaining({ label: "Semana 2", available: true, hasNewContent: false }),
+      expect.objectContaining({ label: "Semana 3", available: true, current: true, hasNewContent: true }),
+      expect.objectContaining({ label: "Semana 4", available: false, hasNewContent: false }),
+      expect.objectContaining({ label: "Semana 5", available: false, hasNewContent: false }),
+      expect.objectContaining({ label: "Semana 6", available: false, hasNewContent: false }),
     ]);
   });
 
@@ -72,10 +101,44 @@ describe("weekly strength periodization resolver", () => {
       hasWeeklyPrescriptions: false,
       selectedStartWeek: 1,
     })).toEqual([
-      expect.objectContaining({ label: "Semanas 1 e 2", available: true, hasNewContent: false }),
-      expect.objectContaining({ label: "Semanas 3 e 4", available: false, hasNewContent: false }),
-      expect.objectContaining({ label: "Semanas 5 e 6", available: false, hasNewContent: false }),
+      expect.objectContaining({ label: "Semana 1", available: true, hasNewContent: false }),
+      expect.objectContaining({ label: "Semana 2", available: false, hasNewContent: false }),
+      expect.objectContaining({ label: "Semana 3", available: false, hasNewContent: false }),
+      expect.objectContaining({ label: "Semana 4", available: false, hasNewContent: false }),
+      expect.objectContaining({ label: "Semana 5", available: false, hasNewContent: false }),
+      expect.objectContaining({ label: "Semana 6", available: false, hasNewContent: false }),
     ]);
+  });
+
+  it("copia as métricas de um exercício somente para as semanas selecionadas", () => {
+    const weekly = Array.from({ length: 6 }, (_, index) => ({
+      week: index + 1,
+      block: index < 2 ? "base" : index < 4 ? "acumulacao" : "intensificacao",
+      sets: index + 1,
+      reps: `${8 + index}`,
+      rir: `${4 - Math.min(index, 3)}`,
+      rest_seconds: 90 - index * 5,
+      tempo: `30${index}0`,
+      instruction: `Semana ${index + 1}`,
+    }));
+
+    const copied = copyWeeklyPrescriptionMetrics(weekly, 2, [3, 6]);
+
+    expect(copied.find((item) => item.week === 1)?.sets).toBe(1);
+    expect(copied.find((item) => item.week === 3)).toMatchObject({
+      week: 3,
+      block: "acumulacao",
+      sets: 2,
+      reps: "9",
+      instruction: "Semana 2",
+    });
+    expect(copied.find((item) => item.week === 6)).toMatchObject({
+      week: 6,
+      block: "intensificacao",
+      sets: 2,
+      reps: "9",
+      instruction: "Semana 2",
+    });
   });
 
   it("mantém prescrições antigas intactas quando não há contrato semanal", () => {
@@ -157,9 +220,9 @@ describe("weekly strength periodization resolver", () => {
 
     expect(highlight).toEqual({
       source: "prescribed_week",
-      eyebrow: "Semanas 5-6",
+      eyebrow: "Semana 5",
       title: "O que muda agora",
-      body: "Esta quinzena fica mais intensa com Bi-set. Termine as séries com cerca de 2 repetições ainda possíveis mantendo a técnica. Execute o par em sequência, sem correr a técnica.",
+      body: "Esta semana fica mais intensa com Bi-set. Termine as séries com cerca de 2 repetições ainda possíveis mantendo a técnica. Execute o par em sequência, sem correr a técnica.",
     });
     expect(highlight?.body).not.toContain("RIR");
     expect(highlight?.body).not.toContain("weekly_context");
@@ -175,9 +238,9 @@ describe("weekly strength periodization resolver", () => {
 
     expect(highlight).toEqual({
       source: "periodization_fallback",
-      eyebrow: "Semanas 5-6",
+      eyebrow: "Semana 5",
       title: "O que muda agora",
-      body: "Esta quinzena entra em intensificação: mais intensidade e proximidade da falha, mantendo a execução controlada. Sem técnica especial publicada para esta semana; siga as séries do treino.",
+      body: "Esta semana entra em intensificação: mais intensidade e proximidade da falha, mantendo a execução controlada. Sem técnica especial publicada para esta semana; siga as séries do treino.",
     });
     expect(highlight?.body).not.toMatch(/Bi-set|Drop-set|Cluster|Rest-pause/);
   });
@@ -209,7 +272,7 @@ describe("weekly strength periodization resolver", () => {
         instruction: "Mantenha controle em todas as séries.",
       },
       durationWeeks: 6,
-    }).body).toBe("Esta quinzena fica mais intensa com séries retas. Termine as séries com cerca de 2 repetições ainda possíveis mantendo a técnica. Mantenha controle em todas as séries.");
+    }).body).toBe("Esta semana fica mais intensa com séries retas. Termine as séries com cerca de 2 repetições ainda possíveis mantendo a técnica. Mantenha controle em todas as séries.");
 
     expect(buildStudentProgressionHighlight({
       prescribedWeek: {
@@ -221,7 +284,7 @@ describe("weekly strength periodization resolver", () => {
         instruction: "Aumente volume sem acelerar a execução.",
       },
       durationWeeks: 6,
-    }).body).toBe("Esta quinzena aumenta o volume com séries retas. Mantenha esforço controlado conforme as séries do treino. Aumente volume sem acelerar a execução.");
+    }).body).toBe("Esta semana aumenta o volume com séries retas. Mantenha esforço controlado conforme as séries do treino. Aumente volume sem acelerar a execução.");
   });
 
   it("falha fechado quando existe sessão ativa para treino que não está mais na lista", () => {

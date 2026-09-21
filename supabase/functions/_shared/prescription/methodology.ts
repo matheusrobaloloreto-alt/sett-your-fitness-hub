@@ -36,9 +36,9 @@ export const SPLIT_TABLE = {
     avancado: { label: "PPL + Upper/Lower", days: ["Push", "Pull", "Legs", "Upper", "Lower"], maxStructuredDays: 5 },
   },
   6: {
-    iniciante: { label: "3-4 dias estruturados + extras opcionais leves", days: ["Upper A", "Lower A", "Full Body", "Mobilidade"], maxStructuredDays: 4, downgrade: true },
-    intermediario: { label: "PPL x2", days: ["Push A", "Pull A", "Legs A", "Push B", "Pull B", "Legs B"], maxStructuredDays: 6 },
-    avancado: { label: "PPL x2", days: ["Push A", "Pull A", "Legs A", "Push B", "Pull B", "Legs B"], maxStructuredDays: 6 },
+    iniciante: { label: "Upper/Lower/Full + tecnicos + Extra", days: ["Upper A", "Lower A", "Full Body", "Upper tecnico", "Lower tecnico", "Extra mobilidade + core"], maxStructuredDays: 6 },
+    intermediario: { label: "PPL + Upper/Lower + Extra", days: ["Push", "Pull", "Legs", "Upper", "Lower", "Extra mobilidade + core"], maxStructuredDays: 6 },
+    avancado: { label: "PPL + Upper/Lower + Extra", days: ["Push", "Pull", "Legs", "Upper", "Lower", "Extra mobilidade + core"], maxStructuredDays: 6 },
   },
 } as const;
 
@@ -81,27 +81,27 @@ export const OBJECTIVE_MODIFIERS = {
     mainReps: "10-15",
     accessoryReps: "12-15",
     restSeconds: 75,
-    notes: ["full-body 2-3x", "volume MEV", "RIR 3-4", "sem método avançado", "rampa de 6 semanas"],
+    notes: ["full-body 2-3x", "volume MEV", "RIR 3-4", "métodos técnicos de baixa fadiga", "rampa de 6 semanas"],
   },
 } as const;
 
 export const VOLUME_RULES = {
   largeGroups: {
-    iniciante: { mev: 8, mavMin: 10, mavMax: 12, mrv: 12 },
-    intermediario: { mev: 10, mavMin: 14, mavMax: 16, mrv: 16 },
-    avancado: { mev: 12, mavMin: 16, mavMax: 16, mrv: 16 },
+    iniciante: { mev: 8, mavMin: 12, mavMax: 18, mrv: 21 },
+    intermediario: { mev: 10, mavMin: 14, mavMax: 18, mrv: 21 },
+    avancado: { mev: 12, mavMin: 16, mavMax: 21, mrv: 21 },
   },
   smallGroupFactor: 0.6,
-  hardCapWithoutJustification: 16,
+  hardCapWithoutJustification: 21,
   hardCapsByLevel: {
-    iniciante: 12,
-    intermediario: 16,
-    avancado: 16,
+    iniciante: 21,
+    intermediario: 21,
+    avancado: 21,
   },
   painVolumeMultiplier: {
     leve: 1,
     moderada: 0.67,
-    severa: 0,
+    severa: 0.5,
   },
 } as const;
 
@@ -117,38 +117,26 @@ export const PAIN_AND_SAFETY_RULES = {
     alertTeacher: false,
   },
   severa: {
-    action: "remover padrão problemático, adicionar bloco corretivo e alertar professor",
-    volumeMultiplier: 0,
+    action: "remover o padrão problemático, manter 50% do volume seguro e alertar o professor",
+    volumeMultiplier: 0.5,
     alertTeacher: true,
   },
 } as const;
 
 export const PROGRESSION_BLOCKS = {
-  base: {
-    weeks: "1-2",
-    stimulus: "base técnica + MEV",
-    rir: "3-4",
-    methods: ["dupla progressão dentro da faixa", "sem pliometria", "sem método avançado"],
-  },
-  accumulation: {
-    weeks: "3-4",
-    stimulus: "acúmulo até MAV",
-    rir: "2-3",
-    methods: ["adicionar reps antes de carga", "+1 série apenas em exercício estável e sem dor"],
-  },
-  intensification: {
-    weeks: "5-6",
-    stimulus: "consolidação/intensificação controlada",
-    rir: "2",
-    methods: ["método avançado só para intermediário/avançado", "apenas em exercício estável e sem dor"],
-  },
+  week1: { weeks: "1", stimulus: "base técnica a 80%", rir: "3-4", methods: ["isometria técnica", "W/Normal/F sinalizadas"] },
+  week2: { weeks: "2", stimulus: "base técnica a 90%", rir: "3-4", methods: ["pico de contração", "progressão de repetições"] },
+  week3: { weeks: "3", stimulus: "acúmulo a 100%", rir: "2-3", methods: ["tensão controlada", "agrupamento"] },
+  week4: { weeks: "4", stimulus: "acúmulo a 105%", rir: "2-3", methods: ["agrupamento", "intensidade seletiva"] },
+  week5: { weeks: "5", stimulus: "intensificação a 105%", rir: "2", methods: ["métodos variados", "falha apenas sinalizada"] },
+  week6: { weeks: "6", stimulus: "consolidação a 100%", rir: "2", methods: ["variação final", "registro para renovação"] },
 } as const;
 
 export const DELOAD_RULES = {
   triggers: ["fim de bloco 4-6 semanas", "fadiga acumulada", "queda de performance", "dor subindo", "antes de reavaliação"],
   volumeReduction: 0.5,
   rir: "4",
-  methods: ["sem falha", "sem método avançado", "manter padrões técnicos"],
+  methods: ["isometria técnica", "pico de contração controlado", "manter séries W/Normal/F sinalizadas"],
 } as const;
 
 export const EXPLANATION_CATEGORIES = ["seguranca", "priorizacao", "nivel", "volume", "substituicao", "progressao", "deload"] as const;

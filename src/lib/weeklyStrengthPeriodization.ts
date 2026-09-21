@@ -74,6 +74,29 @@ export interface StudentWeekBlockOption {
   hasNewContent: boolean;
 }
 
+export type WeeklyPrescriptionMode = "legacy" | "weekly";
+export const INDIVIDUAL_WEEKLY_UI_VERSION = "individual-weeks-v1" as const;
+
+export function hasIndividualWeeklyPrescription(
+  exercises: Array<{ weekly_prescription?: unknown[]; weekly_ui_version?: string | null }> = [],
+) {
+  return exercises.some((exercise) => (
+    exercise.weekly_ui_version === INDIVIDUAL_WEEKLY_UI_VERSION
+    && Array.isArray(exercise.weekly_prescription)
+    && exercise.weekly_prescription.length > 0
+  ));
+}
+
+export function weeklyPrescriptionModeForLoadedWorkouts(
+  workouts: Array<{ exercises?: Array<{ weekly_prescription?: unknown[]; weekly_ui_version?: string | null }> }>,
+): WeeklyPrescriptionMode {
+  const exercises = workouts.flatMap((workout) => workout.exercises || []);
+  const hasPrescribedContent = exercises.length > 0;
+  const hasVersionedWeeklyContent = hasIndividualWeeklyPrescription(exercises);
+
+  return hasPrescribedContent && !hasVersionedWeeklyContent ? "legacy" : "weekly";
+}
+
 export type ActiveWorkoutInCycles<TCycle, TWorkout> =
   | { kind: "none" }
   | { kind: "resolved"; cycle: TCycle; workout: TWorkout }
@@ -126,9 +149,7 @@ function blockLabel(block: string) {
 
 function biweeklyEyebrow(week: number, durationWeeks?: number | null) {
   const duration = Math.max(1, Math.round(Number(durationWeeks) || 6));
-  const start = Math.floor((Math.max(1, week) - 1) / 2) * 2 + 1;
-  const end = Math.min(duration, start + 1);
-  return `Semanas ${start}-${end}`;
+  return `Semana ${Math.min(duration, Math.max(1, week))}`;
 }
 
 export function weekBlockForWeek(week: number, durationWeeks?: number | null) {
@@ -149,21 +170,36 @@ export function studentWeekBlockOptions({
   selectedStartWeek?: number;
 }): StudentWeekBlockOption[] {
   const duration = Math.max(1, Math.round(Number(durationWeeks) || 6));
-  const currentBlock = weekBlockForWeek(currentWeek, duration);
   const options: StudentWeekBlockOption[] = [];
-  for (let startWeek = 1; startWeek <= duration; startWeek += 2) {
-    const endWeek = Math.min(duration, startWeek + 1);
-    const current = (selectedStartWeek ?? currentBlock.startWeek) === startWeek;
+  const safeCurrentWeek = Math.min(duration, Math.max(1, Math.round(Number(currentWeek) || 1)));
+  for (let startWeek = 1; startWeek <= duration; startWeek += 1) {
+    const current = (selectedStartWeek ?? safeCurrentWeek) === startWeek;
     options.push({
       startWeek,
-      endWeek,
-      label: `Semanas ${startWeek} e ${endWeek}`,
-      available: startWeek <= currentBlock.startWeek,
+      endWeek: startWeek,
+      label: `Semana ${startWeek}`,
+      available: startWeek <= safeCurrentWeek,
       current,
-      hasNewContent: hasWeeklyPrescriptions && currentBlock.startWeek > 1 && startWeek === currentBlock.startWeek,
+      hasNewContent: hasWeeklyPrescriptions && safeCurrentWeek > 1 && startWeek === safeCurrentWeek,
     });
   }
   return options;
+}
+
+export function copyWeeklyPrescriptionMetrics(
+  items: StoredWeeklyExercisePrescription[],
+  sourceWeek: number,
+  targetWeeks: number[],
+): StoredWeeklyExercisePrescription[] {
+  const source = items.find((item) => Number(item.week) === sourceWeek);
+  if (!source) return items;
+  const targets = new Set(targetWeeks.filter((week) => week !== sourceWeek));
+  return items.map((item) => targets.has(Number(item.week)) ? {
+    ...source,
+    week: item.week,
+    block: item.block,
+    set_types: source.set_types ? [...source.set_types] : source.set_types,
+  } : item);
 }
 
 export const STUDENT_EFFORT_HELP_TEXT = "Quantas repetições você ainda conseguiria fazer mantendo a técnica.";
@@ -210,10 +246,10 @@ function studentRirText(rir?: string | null) {
 }
 
 function prescribedWeekOpening(block: string, hasMethods: boolean) {
-  if (block === "intensificacao") return hasMethods ? "Esta quinzena fica mais intensa" : "Esta quinzena fica mais intensa com séries retas";
-  if (block === "acumulacao") return hasMethods ? "Esta quinzena aumenta o volume" : "Esta quinzena aumenta o volume com séries retas";
-  if (block === "base") return hasMethods ? "Esta quinzena constrói base técnica" : "Esta quinzena constrói base técnica com séries retas";
-  return `Esta quinzena entra em ${blockLabel(block)}`;
+  if (block === "intensificacao") return hasMethods ? "Esta semana fica mais intensa" : "Esta semana fica mais intensa com séries retas";
+  if (block === "acumulacao") return hasMethods ? "Esta semana aumenta o volume" : "Esta semana aumenta o volume com séries retas";
+  if (block === "base") return hasMethods ? "Esta semana constrói base técnica" : "Esta semana constrói base técnica com séries retas";
+  return `Esta semana entra em ${blockLabel(block)}`;
 }
 
 function compactPair(values: string[]) {
@@ -314,7 +350,7 @@ export function buildStudentProgressionHighlight({
     source: "periodization_fallback",
     eyebrow: biweeklyEyebrow((week?.week ?? 1), plan.durationWeeks),
     title: "O que muda agora",
-    body: `Esta quinzena entra em ${mesoLabel}: ${mesoDescription.charAt(0).toLowerCase()}${mesoDescription.slice(1).replace(/\.$/, "")}. Sem técnica especial publicada para esta semana; siga as séries do treino.`,
+    body: `Esta semana entra em ${mesoLabel}: ${mesoDescription.charAt(0).toLowerCase()}${mesoDescription.slice(1).replace(/\.$/, "")}. Sem técnica especial publicada para esta semana; siga as séries do treino.`,
   };
 }
 

@@ -218,12 +218,14 @@ export interface TrainingProgram {
     structured_days: number;
     split: string;
     library_only: true;
+    catalog_scope: "company_and_global";
     method_policy_version: "sett-strength-methods-v1";
     set_type_policy_version: "sett-set-types-WNF-v1";
     sequence_number?: number;
     total_cycles?: number | null;
     sequence_phase?: string;
     previous_plan_used?: boolean;
+    previous_metrics_reused?: number;
   };
   cycle_name: string;
   objective: string;
@@ -248,6 +250,7 @@ export interface TrainingProgram {
   workouts: TrainingWorkout[];
   library_policy: {
     only_library_exercises: true;
+    catalog_scope: "company_and_global";
     catalog_count: number;
     gaps: string[];
     validation?: unknown;

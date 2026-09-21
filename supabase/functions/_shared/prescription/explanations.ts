@@ -38,25 +38,15 @@ export function frequencyDowngradeExplanation(enabled: boolean, requested: numbe
   }];
 }
 
-export function progressionExplanation(advancedAllowed: boolean): PrescriptionExplanation {
-  return advancedAllowed
-    ? {
-        rule_id: "metodo_avancado_controlado",
-        category: "progressao",
-        source: "nivel",
-        target: "semanas 5-6",
-        action: "Permitir método avançado apenas em exercício estável e sem dor.",
-        reason: "Aluno não é iniciante e não há contexto ativo de dor.",
-      }
-    : {
-        rule_id: "evitei_metodo_avancado_por_dor_ou_nivel",
-        category: "nivel",
-        source: "nivel",
-        target: "progressão",
-        action: "Bloqueei métodos avançados e mantive progressão dupla/técnica.",
-        reason: "Iniciante ou contexto com dor/restrição.",
-        severity: "moderada",
-      };
+export function progressionExplanation(): PrescriptionExplanation {
+  return {
+    rule_id: "metodos_para_adesao_com_volume_controlado",
+    category: "progressao",
+    source: "nivel",
+    target: "todas_as_semanas",
+    action: "Usar métodos variados em todos os níveis, sempre dentro do teto de volume e fora do exercício doloroso.",
+    reason: "A variação melhora a adesão sem exigir aumento excessivo de volume.",
+  };
 }
 
 export function deloadExplanation(enabled: boolean): PrescriptionExplanation[] {
@@ -66,7 +56,7 @@ export function deloadExplanation(enabled: boolean): PrescriptionExplanation[] {
     category: "deload",
     source: "feedback_aluno",
     target: "semana de deload",
-    action: "Reduzi volume em 40-50%, usei RIR 4 e removi falha/método avançado.",
+    action: "Reduzi volume em 50%, usei RIR 4 e preservei métodos técnicos de baixa fadiga com séries W/Normal/F sinalizadas.",
     reason: "Deload solicitado ou gatilho de fadiga/dor antes de reavaliação.",
     severity: "leve",
   }];

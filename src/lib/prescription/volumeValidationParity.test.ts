@@ -39,7 +39,7 @@ const normalizeExerciseCategories = new Function("exports", "canonicalCategorySl
 
 describe("volume classification parity across engine and both endpoints", () => {
   const cases = [
-    { label: "beginner lateral deltoid", group: "Deltoide Lateral", sets: 10, fitness_level: "iniciante", objective: "hipertrofia" },
+    { label: "beginner lateral deltoid", group: "Deltoide Lateral", sets: 14, fitness_level: "iniciante", objective: "hipertrofia" },
     { label: "small group below range", group: "Biceps", sets: 2, fitness_level: "iniciante", objective: "hipertrofia" },
     { label: "intermediate chest cap", group: "Peitoral", sets: 17, fitness_level: "intermediario", objective: "hipertrofia" },
     { label: "strength objective", group: "Peitoral", sets: 10, fitness_level: "iniciante", objective: "forca" },

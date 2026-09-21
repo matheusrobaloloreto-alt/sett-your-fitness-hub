@@ -1,14 +1,13 @@
-import { normalizeText } from "./presets.ts";
 import type { PeriodizationBlock, PrescriptionInput } from "./types.ts";
-import { DELOAD_RULES, PROGRESSION_BLOCKS } from "./methodology.ts";
+import { DELOAD_RULES } from "./methodology.ts";
 import { classifyPainSeverity } from "./restrictionRules.ts";
 import { clinicalRiskText } from "./clinicalContext.ts";
 
 export function hasPainContext(input: PrescriptionInput) {
   const textual = /(dor|lesao|joelho|lombar|ombro|tornozelo|quadril|eva|retorno|reabilit)/.test(clinicalRiskText(input));
-  // F1: dor estruturada (painReports[].eva / painEva) também conta como contexto de dor,
-  // mesmo sem texto em restrictions/assessment/anamnese. classifyPainSeverity lê esses campos
-  // e retorna >= "moderada" quando EVA > 3 → trava progressão e bloqueia método avançado.
+  // Dor estruturada (painReports[].eva / painEva) também conta como contexto de dor,
+  // mesmo sem texto em restrictions/assessment/anamnese. Ela segura a progressão do
+  // padrão afetado; métodos continuam disponíveis nos exercícios seguros da sessão.
   return textual || classifyPainSeverity(input) !== "leve";
 }
 
@@ -26,42 +25,34 @@ export function resolveDurationWeeks(input: PrescriptionInput) {
 
 export function buildPeriodizationBlocks(input: PrescriptionInput): PeriodizationBlock[] {
   const duration = resolveDurationWeeks(input);
-  const level = normalizeText(input.fitnessLevel);
-  const objective = normalizeText(input.objective);
   const hold = shouldHoldProgression(input);
-  const advancedAllowed = !input.deload && !hold && !level.includes("inic");
-  const technicalPlyometricsAllowed = advancedAllowed && !input.deload && /(performance|potencia|velocidade|esporte)/.test(objective);
 
   if (input.deload) {
-    const blocks = duration === 4 ? ["1-2", "3-4"] : ["1-2", "3-4", "5-6"];
-    return blocks.map((weeks) => ({
-      weeks,
+    return Array.from({ length: duration }, (_, index) => ({
+      weeks: String(index + 1),
       stimulus: "deload/regeneracao tecnica",
-      methods: [...DELOAD_RULES.methods],
-      progression_rule: `RIR ${DELOAD_RULES.rir}. Manter carga e padrões técnicos durante todo o deload.`,
+      methods: [index % 2 === 0 ? "isometria técnica" : "pico de contração controlado"],
+      progression_rule: `Semana ${index + 1}: RIR ${DELOAD_RULES.rir}, 50% do volume seguro e método técnico de baixa fadiga.`,
     }));
   }
 
-  if (duration === 4) {
-    return [
-      { weeks: "1-2", stimulus: "adaptacao/base tecnica", methods: ["tempo controlado", "progressao dupla leve"], progression_rule: "Aumentar reps mantendo RIR 3 e técnica limpa." },
-      { weeks: "3-4", stimulus: "progressao conservadora", methods: advancedAllowed ? ["pico de contracao ou isometria em acessorio estavel"] : ["sem metodos avancados"], progression_rule: "Subir carga 2-5% apenas se sem dor e sem compensação." },
-    ];
-  }
-
-  return [
-    { weeks: PROGRESSION_BLOCKS.base.weeks, stimulus: PROGRESSION_BLOCKS.base.stimulus, methods: [...PROGRESSION_BLOCKS.base.methods], progression_rule: technicalPlyometricsAllowed ? "RIR 3-4. Pliometria técnica de baixo volume, sempre antes da força e sem fadiga. Se a técnica cair, remover." : "RIR 3-4. Se RIR acima do alvo: subir reps; se bateu topo com RIR alvo: subir carga e voltar ao piso. Sem pliometria." },
-    { weeks: PROGRESSION_BLOCKS.accumulation.weeks, stimulus: PROGRESSION_BLOCKS.accumulation.stimulus, methods: hold ? ["hold/regress por dor ou técnica"] : [...PROGRESSION_BLOCKS.accumulation.methods], progression_rule: hold ? "RIR 2-3. Dor > 3 ou técnica quebrou: manter/regredir." : "RIR 2-3. Adicionar reps antes de carga; +1 série apenas em exercício estável e sem dor." },
-    { weeks: PROGRESSION_BLOCKS.intensification.weeks, stimulus: PROGRESSION_BLOCKS.intensification.stimulus, methods: advancedAllowed && !hold ? ["bi-set, super-set, tri-set, serie gigante, drop-set, rest-pause ou cluster-set conforme politica"] : ["sem metodos avancados"], progression_rule: hold ? "RIR 2. Manter ou regredir até dor <= 3 e técnica estável." : "RIR 2; método avançado só em exercício estável e sem dor." },
+  const weeks: PeriodizationBlock[] = [
+    { weeks: "1", stimulus: "base tecnica com 80% do volume", methods: ["isometria técnica"], progression_rule: "RIR 3-4; reduzir volume sem deixar todos os exercícios com uma série." },
+    { weeks: "2", stimulus: "base tecnica com 90% do volume", methods: ["pico de contração"], progression_rule: "RIR 3-4; aumentar repetições mantendo técnica." },
+    { weeks: "3", stimulus: "acumulação com 100% do volume", methods: ["tensão controlada e agrupamento"], progression_rule: hold ? "RIR 2-3; manter/regredir o padrão afetado." : "RIR 2-3; progredir repetições antes de carga." },
+    { weeks: "4", stimulus: "acumulação com 105% do volume", methods: ["agrupamento e intensidade seletiva"], progression_rule: hold ? "Manter 50% do volume no padrão severamente afetado." : "Distribuir o acréscimo entre exercícios estáveis." },
+    { weeks: "5", stimulus: "intensificação com 105% do volume", methods: ["agrupamento e intensidade controlada"], progression_rule: "Sinalizar aquecimento, séries normais e as duas séries finais até a falha em um exercício elegível." },
+    { weeks: "6", stimulus: "consolidação com 100% do volume", methods: ["variação final de método"], progression_rule: "Registrar resultado para orientar a progressão da renovação seguinte." },
   ];
+  return weeks.slice(0, duration);
 }
 
 export function progressionProtocol(input: PrescriptionInput) {
-  if (input.deload) return `Deload: reduzir volume 40-50%, RIR ${DELOAD_RULES.rir}, sem falha e sem método avançado.`;
-  if (shouldHoldProgression(input)) return "Progressao por tolerancia: dor > 3 ou técnica quebrou: hold/regress. Sem método avançado, sem pliometria e sem falha.";
+  if (input.deload) return `Deload: reduzir volume 50%, RIR ${DELOAD_RULES.rir}, mantendo métodos técnicos de baixa fadiga e a sinalização W/Normal/F.`;
+  if (shouldHoldProgression(input)) return "Progressao por tolerancia: dor > 3 ou técnica quebrou: hold/regress no padrão afetado; métodos permanecem apenas em exercícios seguros.";
   return hasPainContext(input)
-    ? "Progressao por tolerancia: progredir reps antes de carga; regredir amplitude/carga se dor > 3 ou perda técnica. Métodos avançados somente em acessórios estáveis e fora da região dolorosa."
-    : "Progredir reps antes de carga; usar métodos avançados apenas no bloco final e em padrões estáveis.";
+    ? "Progressao por tolerancia: progredir reps antes de carga; regredir amplitude/carga se dor > 3 ou perda técnica. Métodos somente fora da região dolorosa."
+    : "Progredir reps, volume e técnica semanalmente; usar métodos variados sem ultrapassar o teto de volume.";
 }
 
 export interface DeloadSetAllocation {

@@ -52,8 +52,8 @@ describe("set type W/N/F contract", () => {
     expect(source).toContain("workouts: sanitizeWorkoutSetTypes(workouts) as any");
     expect(source).toContain("const mapWorkoutRows = (rows: any[]): Workout[] => sanitizeWorkoutSetTypes(rows.map");
     expect(source).toContain("data?.length ? mapWorkoutRows(data)");
-    expect(source).toContain("const workoutRevisionPayload = (draft: Workout[]) => sanitizeWorkoutSetTypes(draft).map");
-    expect(source).toContain("workouts: workoutRevisionPayload(draftWorkouts)");
+    expect(source).toMatch(/const workoutRevisionPayload = \([\s\S]*?\) => sanitizeWorkoutSetTypes\(draft\)\.map/);
+    expect(source).toContain("workouts: workoutRevisionPayload(draftWorkouts, weeklyPrescriptionMode)");
     expect(source).not.toContain("exercises: workout.exercises as any");
   });
 });

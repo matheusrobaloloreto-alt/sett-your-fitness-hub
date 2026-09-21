@@ -8,18 +8,15 @@ describe("student workout video integration", () => {
     expect(source).not.toContain("youtube_video_id: null,");
   });
 
-  it("routes warmup previews through the canonical portal viewer and fallback", () => {
+  it("keeps the dormant warmup component ready for canonical videos without rendering it in the portal", () => {
     const portal = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");
     const warmup = readFileSync("src/components/student/WarmupGuide.tsx", "utf8");
     const player = readFileSync("src/components/student/ExerciseVideoPlayer.tsx", "utf8");
     const helpers = readFileSync("src/lib/exerciseVideoPlayer.ts", "utf8");
     const hook = readFileSync("src/hooks/useExerciseVideo.ts", "utf8");
     const warmupMatches = readFileSync("src/lib/warmupVideoMatches.ts", "utf8");
-    expect(portal).toContain("onVideoPlay={() => openVideoForExercise(ex)}");
-    expect(portal).toContain("libraryExercises={warmupVideoExercises}");
+    expect(portal).not.toContain("<WarmupGuide");
     expect(portal).not.toContain("exercises={selectedWorkout.exercises}");
-    expect(portal).toContain(".from(\"exercise_library\")");
-    expect(portal).toContain(".in(\"name\", WARMUP_VIDEO_LIBRARY_NAMES)");
     expect(hook.indexOf("if (exercise.video_path)")).toBeLessThan(hook.indexOf("if (exercise.video_url || exercise.youtube_video_id)"));
     expect(hook).toContain('supabase.functions.invoke("youtube-exercise-video"');
     expect(hook).toContain('type: "unavailable"');

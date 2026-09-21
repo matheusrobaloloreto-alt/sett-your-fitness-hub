@@ -15,7 +15,7 @@ import { MethodBadge } from "@/components/workout/MethodBadge";
 import { StudentMethodGroup } from "@/components/student/StudentMethodGroup";
 import { ExerciseVideoPlayer } from "@/components/student/ExerciseVideoPlayer";
 import { buildYouTubeSearchUrl, type ExerciseVideoModalState } from "@/lib/exerciseVideoPlayer";
-import { STUDENT_EFFORT_HELP_TEXT, studentEffortLabel, studentFacingEffortText, resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
+import { STUDENT_EFFORT_HELP_TEXT, hasIndividualWeeklyPrescription, studentEffortLabel, studentFacingEffortText, resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
 import { sanitizeStudentWorkoutDescription } from "@/lib/studentWorkoutDescription";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
@@ -100,12 +100,11 @@ export default function StudentWorkout() {
   const currentCycleWeek = selectedCycle
     ? currentWeekIndex(selectedCycle.start_date, selectedCycle.duration_weeks || 6) + 1
     : 1;
-  const currentWeekStart = Math.floor((Math.max(1, currentCycleWeek) - 1) / 2) * 2 + 1;
   const effectiveWeekStart = selectedWeekStart && selectedWeekStart <= (selectedCycle?.duration_weeks || 6)
     ? selectedWeekStart
-    : currentWeekStart;
-  const selectedWeek = effectiveWeekStart === currentWeekStart ? currentCycleWeek : effectiveWeekStart;
-  const hasWeeklyPrescriptions = Boolean(selectedWorkoutBase?.exercises.some((exercise) => (exercise.weekly_prescription || []).length > 0));
+    : currentCycleWeek;
+  const selectedWeek = effectiveWeekStart;
+  const hasWeeklyPrescriptions = hasIndividualWeeklyPrescription(selectedWorkoutBase?.exercises);
   const selectedWorkout = useMemo(
     () => resolveWorkoutForCycleWeek(selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks, undefined, selectedWeek),
     [selectedWorkoutBase, selectedCycle?.start_date, selectedCycle?.duration_weeks, selectedWeek],
@@ -562,19 +561,21 @@ export default function StudentWorkout() {
 
                 {selectedWorkout && (
                   <>
-                    <Card className="bg-card border-border">
-                      <CardContent className="flex min-w-0 items-center justify-between gap-3 p-3">
-                        <StudentWeekSelector
-                          currentWeek={currentCycleWeek}
-                          durationWeeks={selectedCycle.duration_weeks}
-                          selectedStartWeek={effectiveWeekStart}
-                          hasWeeklyPrescriptions={hasWeeklyPrescriptions}
-                          onChange={setSelectedWeekStart}
-                          onBlocked={(message) => toast.error(message)}
-                          className="w-full"
-                        />
-                      </CardContent>
-                    </Card>
+                    {hasWeeklyPrescriptions && (
+                      <Card className="bg-card border-border">
+                        <CardContent className="flex min-w-0 items-center justify-between gap-3 p-3">
+                          <StudentWeekSelector
+                            currentWeek={currentCycleWeek}
+                            durationWeeks={selectedCycle.duration_weeks}
+                            selectedStartWeek={effectiveWeekStart}
+                            hasWeeklyPrescriptions={hasWeeklyPrescriptions}
+                            onChange={setSelectedWeekStart}
+                            onBlocked={(message) => toast.error(message)}
+                            className="w-full"
+                          />
+                        </CardContent>
+                      </Card>
+                    )}
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg text-foreground font-sans font-semibold">{selectedWorkout.title}</h3>
                       <Badge variant="secondary" className="font-sans">

@@ -49,32 +49,82 @@ function cloneWorkouts(workouts: TrainingWorkout[]): TrainingWorkout[] {
   }));
 }
 
+type PreviousExerciseMetrics = {
+  sets: number;
+  reps: string;
+  rir: string;
+  rest_seconds: number;
+  tempo: string;
+};
+
+function previousExerciseMetrics(input: PrescriptionInput) {
+  const previous = input.previousPlanContext as { workouts?: Array<{ exercises?: Array<Record<string, unknown>> }> } | null;
+  const metrics = new Map<string, PreviousExerciseMetrics>();
+  for (const workout of previous?.workouts || []) {
+    for (const exercise of workout.exercises || []) {
+      const id = typeof exercise.exercise_id === "string" ? exercise.exercise_id : "";
+      if (!id) continue;
+      const weekly = Array.isArray(exercise.weekly_prescription)
+        ? exercise.weekly_prescription.filter((week): week is Record<string, unknown> => Boolean(week) && typeof week === "object")
+        : [];
+      const latest = weekly.length ? weekly[weekly.length - 1] : exercise;
+      metrics.set(id, {
+        sets: Math.max(1, Math.round(numeric(latest.sets ?? exercise.sets, 1))),
+        reps: String(latest.reps ?? exercise.reps ?? "8-12"),
+        rir: String(latest.rir ?? exercise.rir ?? "3"),
+        rest_seconds: Math.max(15, Math.round(numeric(latest.rest_seconds ?? exercise.rest_seconds, 60))),
+        tempo: String(latest.tempo ?? exercise.tempo ?? "3010"),
+      });
+    }
+  }
+  return metrics;
+}
+
 export function applyLongitudinalProgression(workouts: TrainingWorkout[], input: PrescriptionInput) {
   const sequenceNumber = resolveSequenceNumber(input);
   const plannedPhase = resolveLongitudinalPhase(input);
   const hold = performanceRequiresHold(input);
   const phase: LongitudinalPhase = input.deload || hold ? "consolidacao" : plannedPhase;
   const nextWorkouts = cloneWorkouts(workouts);
+  const previousMetrics = previousExerciseMetrics(input);
+  let reusedMetrics = 0;
 
   for (const workout of nextWorkouts) {
     for (const exercise of workout.exercises) {
       const main = exercise.phase === "forca_global" || exercise.phase === "forca_especifica";
+      const previous = previousMetrics.get(exercise.exercise_id);
+      if (previous && !input.deload) {
+        exercise.sets = previous.sets;
+        exercise.reps = previous.reps;
+        exercise.rir = previous.rir;
+        exercise.rest_seconds = previous.rest_seconds;
+        exercise.tempo = previous.tempo;
+        reusedMetrics += 1;
+      }
       if (input.deload) {
         exercise.rir = DELOAD_RULES.rir;
+        exercise.tempo = "3110";
         exercise.biomechanical_note = `${exercise.biomechanical_note} Deload: manter o orçamento reduzido e a execução técnica.`;
       } else if (phase === "acumulacao" && main) {
         exercise.sets += 1;
         exercise.rir = "2-3";
+        exercise.tempo = "3010";
         exercise.biomechanical_note = `${exercise.biomechanical_note} Progressão longitudinal: mais uma série, preservando técnica e EVA <= 3.`;
       } else if (phase === "intensificacao" && main) {
         exercise.reps = exercise.phase === "forca_global" ? "6-8" : "8-10";
         exercise.rir = "2";
+        exercise.tempo = "2110";
         exercise.rest_seconds = Math.max(exercise.rest_seconds, exercise.phase === "forca_global" ? 120 : 90);
-        exercise.biomechanical_note = `${exercise.biomechanical_note} Progressão longitudinal: maior intensidade sem falha concêntrica.`;
+        exercise.biomechanical_note = `${exercise.biomechanical_note} Progressão longitudinal: maior intensidade, técnica controlada e falha somente onde estiver sinalizada.`;
       } else if (phase === "consolidacao") {
         exercise.sets = Math.max(1, Math.ceil(exercise.sets * 0.75));
         exercise.rir = "3-4";
+        exercise.tempo = "3110";
         exercise.biomechanical_note = `${exercise.biomechanical_note} Consolidação: reduzir fadiga e colher feedback antes do próximo bloco.`;
+      } else if (phase === "base" && previous) {
+        exercise.rir = "3-4";
+        exercise.tempo = "3110";
+        exercise.biomechanical_note = `${exercise.biomechanical_note} Novo ciclo: preservar a referência anterior e recalibrar a técnica antes de aumentar volume.`;
       }
     }
   }
@@ -102,11 +152,13 @@ export function applyLongitudinalProgression(workouts: TrainingWorkout[], input:
       ? "O deload solicitado prevalece sobre a fase longitudinal para reduzir fadiga sem elevar volume ou intensidade."
       : hold
       ? "Dor, baixa aderência ou quebra técnica no ciclo anterior impedem progressão automática."
-      : `O ciclo ${sequenceNumber} segue a onda longitudinal BN base -> acúmulo -> intensificação -> consolidação.`,
+      : reusedMetrics > 0
+        ? `O ciclo ${sequenceNumber} parte das métricas de ${reusedMetrics} exercício(s) do treino anterior e segue a onda BN base -> acúmulo -> intensificação -> consolidação.`
+        : `O ciclo ${sequenceNumber} segue a onda longitudinal BN base -> acúmulo -> intensificação -> consolidação.`,
     severity: hold ? "moderada" : "leve",
   };
 
-  return { sequenceNumber, phase, plannedPhase, hold, explanation, workouts: nextWorkouts };
+  return { sequenceNumber, phase, plannedPhase, hold, reusedMetrics, explanation, workouts: nextWorkouts };
 }
 
 export function previousExerciseIds(input: PrescriptionInput, phase?: string, muscleGroup?: string): Set<string> {

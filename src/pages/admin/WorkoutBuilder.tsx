@@ -15,9 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, Trash2, Search, Save, Play, ChevronUp, ChevronDown, BarChart3, Sparkles, MessageCircle, MessageSquare, Loader2, AlertCircle, Dumbbell, PersonStanding, Clock, ClipboardList, GripVertical, Library } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Search, Save, Play, ChevronUp, ChevronDown, BarChart3, Sparkles, MessageCircle, Loader2, AlertCircle, Dumbbell, PersonStanding, Clock, ClipboardList, GripVertical, Library, Copy } from "lucide-react";
 import { BnitoContextButton, useBnitoAssistant } from "@/components/BnitoFloatingAssistant";
-import { useWhatsAppChatPanel } from "@/components/WhatsAppChatPanelContext";
 import { BenitoSprite } from "@/components/BenitoSprite";
 import { useAssistantName } from "@/hooks/useAssistantName";
 import { BodyMap } from "@/components/body/BodyMap";
@@ -33,7 +32,13 @@ import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { useMaster } from "@/contexts/MasterContext";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
-import type { StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
+import {
+  copyWeeklyPrescriptionMetrics,
+  INDIVIDUAL_WEEKLY_UI_VERSION,
+  weeklyPrescriptionModeForLoadedWorkouts,
+  type StoredWeeklyExercisePrescription,
+  type WeeklyPrescriptionMode,
+} from "@/lib/weeklyStrengthPeriodization";
 import type { PreRegistrationData } from "@/lib/preRegistration";
 import { saveCycleWorkoutRevision, WorkoutRevisionConflictError } from "@/lib/workoutRevision";
 import { calculateWeeklyMuscleVolume } from "@/lib/workoutVolume";
@@ -84,6 +89,7 @@ interface WorkoutExercise {
   notes: string;
   set_types?: string[];
   weekly_prescription?: StoredWeeklyExercisePrescription[];
+  weekly_ui_version?: string;
 }
 
 interface Workout {
@@ -227,7 +233,7 @@ const updateWeeklyBlock = (
   field: "sets" | "reps" | "rest_seconds" | "instruction",
   value: string,
 ) => ensureWeeklyPrescription(exercise).map((item) => {
-  if (item.week < startWeek || item.week > startWeek + 1) return item;
+  if (item.week !== startWeek) return item;
   if (field === "sets") return { ...item, sets: Math.max(1, Number.parseInt(value, 10) || 1) };
   if (field === "rest_seconds") return { ...item, rest_seconds: Math.max(0, Number.parseInt(value, 10) || 0) };
   return { ...item, [field]: value };
@@ -235,7 +241,7 @@ const updateWeeklyBlock = (
 
 const updateWeeklyMethod = (exercise: WorkoutExercise, startWeek: number, method: MethodId | null) => (
   ensureWeeklyPrescription(exercise).map((item) => {
-    if (item.week < startWeek || item.week > startWeek + 1) return item;
+    if (item.week !== startWeek) return item;
     return {
       ...item,
       method,
@@ -245,14 +251,81 @@ const updateWeeklyMethod = (exercise: WorkoutExercise, startWeek: number, method
   })
 );
 
-const workoutRevisionPayload = (draft: Workout[]) => sanitizeWorkoutSetTypes(draft).map((workout, workoutIndex) => ({
+function WeeklyPrescriptionCopyMenu({
+  sourceWeek,
+  disabled,
+  onCopy,
+}: {
+  sourceWeek: number;
+  disabled?: boolean;
+  onCopy: (targetWeeks: number[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
+  const availableWeeks = [1, 2, 3, 4, 5, 6].filter((week) => week !== sourceWeek);
+  const selectedLabel = selectedWeeks.length > 0 ? selectedWeeks.join(" e ") : "outra semana";
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-8 text-xs" disabled={disabled}>
+          <Copy className="mr-1.5 h-3.5 w-3.5" />Copiar para {selectedLabel}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 space-y-3 p-3">
+        <div>
+          <p className="text-sm font-medium text-foreground">Copiar métricas da semana {sourceWeek}</p>
+          <p className="text-xs text-muted-foreground">Selecione uma ou mais semanas de destino.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {availableWeeks.map((week) => (
+            <label key={week} className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-2 py-2 text-xs">
+              <Checkbox
+                checked={selectedWeeks.includes(week)}
+                onCheckedChange={(checked) => setSelectedWeeks((current) => checked
+                  ? [...current, week].sort((a, b) => a - b)
+                  : current.filter((item) => item !== week))}
+              />
+              Semana {week}
+            </label>
+          ))}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          className="w-full"
+          disabled={selectedWeeks.length === 0}
+          onClick={() => {
+            onCopy(selectedWeeks);
+            setSelectedWeeks([]);
+            setOpen(false);
+          }}
+        >
+          Aplicar cópia
+        </Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+const workoutRevisionPayload = (
+  draft: Workout[],
+  weeklyPrescriptionMode: WeeklyPrescriptionMode,
+) => sanitizeWorkoutSetTypes(draft).map((workout, workoutIndex) => ({
   title: workout.title || `Treino ${WORKOUT_LABELS[workoutIndex] || workoutIndex + 1}`,
   description: workout.description || null,
   day_of_week: workout.day_of_week ?? workoutIndex + 1,
-  exercises: workout.exercises.map((exercise) => ({
-    ...exercise,
-    weekly_prescription: ensureWeeklyPrescription(exercise),
-  })) as unknown[],
+  exercises: workout.exercises.map((exercise) => {
+    if (weeklyPrescriptionMode === "weekly") {
+      return {
+        ...exercise,
+        weekly_prescription: ensureWeeklyPrescription(exercise),
+        weekly_ui_version: INDIVIDUAL_WEEKLY_UI_VERSION,
+      };
+    }
+
+    return exercise;
+  }) as unknown[],
 }));
 
 const workoutRevisionRows = (draft: Workout[]) => draft
@@ -310,7 +383,6 @@ export default function WorkoutBuilder() {
   const { user, companyId: authCompanyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const { toast } = useToast();
-  const { isAvailable: isWhatsAppAvailable, openChatPanel } = useWhatsAppChatPanel();
   const assistantName = useAssistantName();
   const { setPageContext: setBnitoPageContext } = useBnitoAssistant();
   const muscleGroupsList = useMuscleGroups();
@@ -323,6 +395,7 @@ export default function WorkoutBuilder() {
 
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [workoutRevisionSnapshot, setWorkoutRevisionSnapshot] = useState<Array<{ id: string; updated_at: string }>>([]);
+  const [weeklyPrescriptionMode, setWeeklyPrescriptionMode] = useState<WeeklyPrescriptionMode>("weekly");
   const [activeTab, setActiveTab] = useState("0");
   const [editingWeekStart, setEditingWeekStart] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -455,6 +528,7 @@ export default function WorkoutBuilder() {
   useEffect(() => {
     if (isTemplate) {
       setWorkoutRevisionSnapshot([]);
+      setWeeklyPrescriptionMode("weekly");
       if (tplId && tplId !== "new") loadTemplate(tplId);
       else setWorkouts([{ title: "Treino A", description: "", exercises: [] }]);
     } else if (cycleId) {
@@ -580,6 +654,7 @@ export default function WorkoutBuilder() {
   const loadExisting = async () => {
     try {
       const loaded = await fetchExistingWorkouts();
+      setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(loaded));
       setWorkouts(loaded);
       setWorkoutRevisionSnapshot(workoutRevisionRows(loaded));
     } catch (error) {
@@ -929,7 +1004,7 @@ export default function WorkoutBuilder() {
       const saved = await saveCycleWorkoutRevision(supabase as any, {
         cycleId: cycleId!,
         expectedRows: workoutRevisionSnapshot,
-        workouts: workoutRevisionPayload(draftWorkouts),
+        workouts: workoutRevisionPayload(draftWorkouts, weeklyPrescriptionMode),
       });
       let confirmedWorkouts: Workout[] | null = null;
       try {
@@ -976,6 +1051,7 @@ export default function WorkoutBuilder() {
     if (!revisionConflict || !cycleId) return;
     if (!keepDraft) {
       setWorkouts(revisionConflict.latest);
+      setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(revisionConflict.latest));
       setWorkoutRevisionSnapshot(workoutRevisionRows(revisionConflict.latest));
       setActiveTab("0");
       setRevisionConflict(null);
@@ -988,7 +1064,7 @@ export default function WorkoutBuilder() {
       const saved = await saveCycleWorkoutRevision(supabase as any, {
         cycleId,
         expectedRows: workoutRevisionRows(revisionConflict.latest),
-        workouts: workoutRevisionPayload(revisionConflict.draft),
+        workouts: workoutRevisionPayload(revisionConflict.draft, weeklyPrescriptionMode),
       });
       let confirmedWorkouts: Workout[] | null = null;
       try {
@@ -1393,17 +1469,6 @@ export default function WorkoutBuilder() {
             <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => setShowVolume(!showVolume)}>
               <BarChart3 className="h-4 w-4 mr-2" />Volume
             </Button>
-            {isWhatsAppAvailable && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-full sm:w-auto"
-                onClick={() => openChatPanel()}
-              >
-                <MessageSquare className="mr-2 h-4 w-4" />Conversas
-              </Button>
-            )}
             {!isTemplate && (
               <Button
                 variant="outline"
@@ -1435,22 +1500,22 @@ export default function WorkoutBuilder() {
         <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
           {/* Main content */}
           <div className="min-w-0 flex-1 space-y-4">
-            <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <Label className="text-sm font-medium text-foreground">Semanas da prescrição</Label>
-                <p className="text-xs text-muted-foreground">Edite os parâmetros do bloco quinzenal selecionado. O aluno só verá o bloco já liberado.</p>
+            {weeklyPrescriptionMode === "weekly" && (
+              <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <Label className="text-sm font-medium text-foreground">Semana da prescrição</Label>
+                  <p className="text-xs text-muted-foreground">Edite cada semana separadamente. Você pode copiar as métricas de um exercício para várias semanas.</p>
+                </div>
+                <Select value={String(editingWeekStart)} onValueChange={(value) => setEditingWeekStart(Number(value))}>
+                  <SelectTrigger className="h-9 w-full bg-background sm:w-[180px]" aria-label="Semana da prescrição">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[1, 2, 3, 4, 5, 6].map((week) => <SelectItem key={week} value={String(week)}>Semana {week}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-              <Select value={String(editingWeekStart)} onValueChange={(value) => setEditingWeekStart(Number(value))}>
-                <SelectTrigger className="h-9 w-full bg-background sm:w-[180px]" aria-label="Semanas da prescrição">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">Semanas 1 e 2</SelectItem>
-                  <SelectItem value="3">Semanas 3 e 4</SelectItem>
-                  <SelectItem value="5">Semanas 5 e 6</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            )}
             {/* Workout Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <div className="flex items-center gap-2">
@@ -1771,7 +1836,7 @@ export default function WorkoutBuilder() {
                                 );
                               })()}
 
-                              {(() => {
+                              {weeklyPrescriptionMode === "weekly" && (() => {
                                 const block = ensureWeeklyPrescription(ex).find((item) => item.week === editingWeekStart)!;
                                 const updateBlock = (field: "sets" | "reps" | "rest_seconds" | "instruction", value: string) => {
                                   updateExercise(wIdx, exIdx, "weekly_prescription", updateWeeklyBlock(ex, editingWeekStart, field, value));
@@ -1779,8 +1844,17 @@ export default function WorkoutBuilder() {
                                 return (
                                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
                                     <div className="flex items-center justify-between gap-2">
-                                      <Label className="text-xs font-semibold text-primary">Semanas {editingWeekStart} e {editingWeekStart + 1}</Label>
-                                      <span className="text-[11px] text-muted-foreground">Parâmetros exibidos ao aluno</span>
+                                      <Label className="text-xs font-semibold text-primary">Semana {editingWeekStart}</Label>
+                                      <WeeklyPrescriptionCopyMenu
+                                        sourceWeek={editingWeekStart}
+                                        disabled={saving}
+                                        onCopy={(targetWeeks) => updateExercise(
+                                          wIdx,
+                                          exIdx,
+                                          "weekly_prescription",
+                                          copyWeeklyPrescriptionMetrics(ensureWeeklyPrescription(ex), editingWeekStart, targetWeeks),
+                                        )}
+                                      />
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 lg:grid-cols-[0.7fr_1fr_0.8fr_1.2fr_2fr]">
                                       <div className="space-y-1">
@@ -2077,12 +2151,14 @@ export default function WorkoutBuilder() {
             <Card className="overflow-hidden border-navy/15 bg-gradient-to-b from-navy/5 to-card">
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-3">
-                  <BenitoSprite
-                    state={bnitoLoading === "review" ? "processing" : "review"}
-                    size={48}
-                    alt={`${assistantName} revisando o treino`}
-                    className="benito-sprite-prominent shrink-0"
-                  />
+                  <span data-testid="bnito-audit-sprite-clip" className="inline-flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md">
+                    <BenitoSprite
+                      state={bnitoLoading === "review" ? "processing" : "review"}
+                      size={48}
+                      alt={`${assistantName} revisando o treino`}
+                      className="benito-sprite-prominent shrink-0"
+                    />
+                  </span>
                   <div className="min-w-0">
                     <CardTitle className="text-sm text-primary">{assistantName}</CardTitle>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground font-sans">

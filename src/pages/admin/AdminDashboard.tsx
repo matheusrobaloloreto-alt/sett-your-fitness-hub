@@ -466,12 +466,16 @@ export default function AdminDashboard({
           </Card>
         </div>
 
-        <DashboardAlerts readOnly={readOnly} showRecentStudents={role !== "trainer"} />
-
-        <ContactCadenceCard
-          companyId={effectiveCompanyId}
-          routePrefix={(routePrefix as string) || "admin"}
+        <DashboardAlerts
           readOnly={readOnly}
+          showRecentStudents
+          birthdayCompanion={(
+            <ContactCadenceCard
+              companyId={effectiveCompanyId}
+              routePrefix={(routePrefix as string) || "admin"}
+              readOnly={readOnly}
+            />
+          )}
         />
 
         {includeCoordinatorPanels && (

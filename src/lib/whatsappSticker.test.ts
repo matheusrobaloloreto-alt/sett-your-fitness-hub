@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containStickerImage } from "@/lib/whatsappSticker";
+import { containStickerImage, QUICK_STICKER_EMOJIS } from "@/lib/whatsappSticker";
 
 describe("containStickerImage", () => {
   it("centers a landscape image inside the square sticker", () => {
@@ -12,5 +12,10 @@ describe("containStickerImage", () => {
 
   it("rejects invalid dimensions", () => {
     expect(() => containStickerImage(0, 100)).toThrow("Dimensões inválidas");
+  });
+
+  it("offers a built-in sticker tray before custom upload", () => {
+    expect(QUICK_STICKER_EMOJIS.length).toBeGreaterThanOrEqual(12);
+    expect(QUICK_STICKER_EMOJIS).toContain("💪");
   });
 });

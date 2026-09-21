@@ -56,27 +56,12 @@ describe("trainer registration and appearance access contract", () => {
     expect(sidebarSource).toContain('"appearance"');
   });
 
-  it("hides only the closing pipeline for trainers and keeps response reading available", () => {
-    expect(registrationManagerSource).toContain('const isTrainerView = role === "trainer";');
-    expect(registrationManagerSource).toContain("responseStudents");
-    expect(registrationManagerSource).toContain("Respostas de pré-cadastro");
-    expect(registrationManagerSource).toContain("Ver respostas completas");
-
-    const trainerResponseSurface = sourceBetween(
-      registrationManagerSource,
-      "{isTrainerView && (",
-      "{!isTrainerView && (",
-    );
-    expect(trainerResponseSurface).not.toContain("Cadastro fiscal, escolha do plano e pagamento");
-    expect(trainerResponseSurface).not.toContain("Esteira de fechamento");
-
-    const nonTrainerSalesSurface = sourceBetween(
-      registrationManagerSource,
-      "{!isTrainerView && (",
-      "<Dialog open={Boolean(selectedLead)}",
-    );
-    expect(nonTrainerSalesSurface).toContain("Cadastro fiscal, escolha do plano e pagamento");
-    expect(nonTrainerSalesSurface).toContain("Esteira de fechamento");
-    expect(nonTrainerSalesSurface).toContain("Regra operacional");
+  it("exposes the complete interested and closing workflow to trainers", () => {
+    expect(registrationManagerSource).not.toContain('const isTrainerView = role === "trainer";');
+    expect(registrationManagerSource).toContain("Cadastro fiscal, escolha do plano e pagamento");
+    expect(registrationManagerSource).toContain("Link de renovação");
+    expect(registrationManagerSource).toContain("Esteira de fechamento");
+    expect(registrationManagerSource).toContain("Regra operacional");
+    expect(registrationManagerSource).not.toContain("{!isTrainerView && (");
   });
 });

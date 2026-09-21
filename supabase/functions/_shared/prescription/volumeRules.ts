@@ -57,7 +57,7 @@ function enduranceDaysPerWeek(input?: PrescriptionInput) {
 
 function enduranceFactorForGroup(group: unknown, input?: PrescriptionInput) {
   if (enduranceDaysPerWeek(input) < 3) return 1;
-  return MMII_GROUPS.includes(normalizeMuscleGroup(group) || "") ? 0.75 : 1; // -25% (faixa 20-30%) só em MMII
+  return MMII_GROUPS.includes(normalizeMuscleGroup(group) || "") ? 0.8 : 1; // -20% só em MMII
 }
 
 function objectiveMultiplier(input: PrescriptionInput) {
@@ -79,9 +79,12 @@ export function getVolumeRangeForGroup(group: unknown, level: unknown, input?: P
   const safetyRegion = slug?.startsWith("deltoide_") ? "ombro" : slug || "";
   const painSeverity = input ? classifyPainSeverity(input, safetyRegion) : "leve";
   const painFactor = painSeverity === "severa" ? 0.5 : painSeverity === "moderada" ? 0.67 : 1;
-  const rawMev = base.mev * smallFactor * objectiveFactor * enduranceFactor * painFactor;
-  const rawMav = base.mavMax * smallFactor * objectiveFactor * enduranceFactor * painFactor;
-  const rawMrv = base.mrv * smallFactor * objectiveFactor * enduranceFactor * painFactor;
+  // Return-to-training and pain are alternative conservative gates. Multiplying
+  // both would turn the requested 50% severe-pain rule into an unintended 25%.
+  const safetyFactor = Math.min(objectiveFactor, painFactor);
+  const rawMev = base.mev * smallFactor * safetyFactor * enduranceFactor;
+  const rawMav = base.mavMax * smallFactor * safetyFactor * enduranceFactor;
+  const rawMrv = base.mrv * smallFactor * safetyFactor * enduranceFactor;
   const technicalMinimum = objectiveFactor <= 0.5 ? (isSmallGroup(group) ? 3 : 4) : (isSmallGroup(group) ? 4 : 6);
   const levelCap = VOLUME_RULES.hardCapsByLevel[normalizedLevel(level)];
   const hardCap = Math.min(
@@ -90,7 +93,7 @@ export function getVolumeRangeForGroup(group: unknown, level: unknown, input?: P
   );
   return {
     mev: Math.max(technicalMinimum, Math.round(rawMev)),
-    mavMin: Math.max(technicalMinimum, Math.round(base.mavMin * smallFactor * objectiveFactor * enduranceFactor * painFactor)),
+    mavMin: Math.max(technicalMinimum, Math.round(base.mavMin * smallFactor * safetyFactor * enduranceFactor)),
     mavMax: Math.max(technicalMinimum, Math.round(rawMav)),
     mrv: Math.max(technicalMinimum, Math.min(hardCap, Math.round(rawMrv))),
     isSmall: isSmallGroup(group),
@@ -102,7 +105,10 @@ export function targetVolumeRange(input: PrescriptionInput, preset: MethodologyP
   const days = Math.min(6, Math.max(1, Number(input.daysPerWeek) || 3));
   const enduranceFactor = input.isEnduranceAthlete || input.runningDaysContext ? 0.8 : 1;
   const dayFactor = days <= 2 ? 0.85 : days >= 5 ? 1.1 : 1;
-  const max = Math.round((level.includes("inic") ? preset.weeklySetRange.beginnerMax || preset.weeklySetRange.max : preset.weeklySetRange.max) * enduranceFactor * dayFactor);
+  const max = Math.min(
+    VOLUME_RULES.hardCapWithoutJustification,
+    Math.round((level.includes("inic") ? preset.weeklySetRange.beginnerMax || preset.weeklySetRange.max : preset.weeklySetRange.max) * enduranceFactor * dayFactor),
+  );
   const min = Math.max(4, Math.round(preset.weeklySetRange.min * enduranceFactor * (days <= 2 ? 0.85 : 1)));
   return { min, max: Math.max(min, max) };
 }

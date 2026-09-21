@@ -20,6 +20,8 @@ export function StudentWeekSelector({
   onBlocked?: (label: string) => void;
   className?: string;
 }) {
+  if (!hasWeeklyPrescriptions) return null;
+
   const options = studentWeekBlockOptions({ currentWeek, durationWeeks, hasWeeklyPrescriptions, selectedStartWeek });
   const current = options.find((option) => option.startWeek === selectedStartWeek) || options[0];
   if (!current) return null;
@@ -27,12 +29,12 @@ export function StudentWeekSelector({
   return (
     <div className={cn("flex min-w-0 items-center gap-2", className)}>
       <CalendarDays className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-      <span className="shrink-0 text-xs font-medium text-muted-foreground">Semanas</span>
+      <span className="shrink-0 text-xs font-medium text-muted-foreground">Semana</span>
       <Select value={String(current.startWeek)} onValueChange={(value) => {
         const option = options.find((item) => item.startWeek === Number(value));
         if (!option) return;
         if (!option.available) {
-          onBlocked?.(`${option.label} estão disponíveis após a conclusão da sua semana atual`);
+          onBlocked?.(`${option.label} estará disponível após a conclusão da sua semana atual`);
           return;
         }
         onChange(option.startWeek);

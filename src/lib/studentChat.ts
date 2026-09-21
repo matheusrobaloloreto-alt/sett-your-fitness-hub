@@ -92,6 +92,7 @@ export async function openStudentChat(opts: {
     phone: digits,
     contactName,
     prefillMessage: message,
+    mode: "draft" as const,
   };
 
   // The app shell consumes this request and keeps the current page behind the

@@ -7,6 +7,7 @@ const portalSource = readFileSync("src/pages/student/StudentPortal.tsx", "utf8")
 const announcementsBellSource = readFileSync("src/components/student/AnnouncementsBell.tsx", "utf8");
 const bnitoSource = readFileSync("src/components/StudentBnitoAssistant.tsx", "utf8");
 const workoutSessionSource = readFileSync("src/hooks/useWorkoutSession.ts", "utf8");
+const weekSelectorSource = readFileSync("src/components/student/StudentWeekSelector.tsx", "utf8");
 
 describe("student-first experience contract", () => {
   it("makes the active workout the dominant resumable action and explains its purpose", () => {
@@ -53,5 +54,17 @@ describe("student-first experience contract", () => {
     expect(bnitoSource).toContain("pointer-events-auto rounded-full");
     expect(bnitoSource).toContain('sessionStorage.setItem(missionDismissedKey, "1")');
     expect(bnitoSource).toContain('sessionStorage.getItem(missionDismissedKey) === "1"');
+  });
+
+  it("keeps the workout screen focused by removing warmup and duplicated guidance", () => {
+    expect(portalSource).not.toContain("<WarmupGuide");
+    expect(portalSource).not.toContain("<WhySafetyCard");
+    expect(portalSource).not.toContain(">Aquecer<");
+    expect(portalSource).not.toContain("setWarmupOpen(true)");
+    expect(portalSource).toContain("<StudentWeekSelector");
+    expect(portalSource).toContain("{hasWeeklyPrescriptions && (");
+    expect(weekSelectorSource).toContain("if (!hasWeeklyPrescriptions) return null;");
+    expect(portalSource).toContain("Salvar");
+    expect(portalSource).not.toContain("<WorkoutHeader");
   });
 });

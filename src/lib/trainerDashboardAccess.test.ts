@@ -35,7 +35,8 @@ describe("trainer dashboard access contract", () => {
     expect(adminDashboardSource).toContain('rpc("get_company_dashboard_snapshot"');
     expect(adminDashboardSource).toContain("parseCompanyDashboardSnapshot");
     expect(adminDashboardSource).toContain("DashboardSnapshotContext.Provider");
-    expect(adminDashboardSource).toContain('<DashboardAlerts readOnly={readOnly} showRecentStudents={role !== "trainer"} />');
+    expect(adminDashboardSource).toContain('showRecentStudents');
+    expect(adminDashboardSource).not.toContain('showRecentStudents={role !== "trainer"}');
     expect(dashboardAlertsSource).toContain("showRecentStudents?: boolean");
     expect(adminDashboardSource).toContain("enabled: !readOnly");
     expect(adminDashboardSource).not.toContain("useStaffPermission");

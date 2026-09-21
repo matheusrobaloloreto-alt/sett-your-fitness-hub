@@ -32,6 +32,13 @@ function emittedMethod(
   return planAdvancedMethods(exercises, ctx).find((exercise) => exercise.method)?.method || undefined;
 }
 
+function emittedMethods(
+  ctx: Parameters<typeof planAdvancedMethods>[1],
+  exercises: MethodAwareExercise[] = SAFE_ACCESSORIES,
+): Set<MethodId> {
+  return new Set(planAdvancedMethods(exercises, ctx).flatMap((exercise) => exercise.method ? [exercise.method] : []));
+}
+
 describe("advanced training methods", () => {
   it("emits a real antagonist superset, distinct from a biset", () => {
     const planned = planAdvancedMethods([
@@ -79,11 +86,11 @@ describe("advanced training methods", () => {
     ["circuito", { mesocycle: "intensificacao", level: "intermediario", week: 5, sequenceNumber: 1, objective: "emagrecimento" }, SAFE_ACCESSORIES],
     ["cluster", { mesocycle: "intensificacao", level: "avancado", week: 6, sequenceNumber: 1, objective: "forca" }, STABLE_CLUSTER_EXERCISES],
   ] as const)("emits %s from deterministic level/objective/week/sequence policy", (expected, ctx, exercises) => {
-    expect(emittedMethod(ctx, exercises)).toBe(expected);
+    expect(emittedMethods(ctx, exercises)).toContain(expected);
   });
 
   it("emits a bi-set fallback for a safe non-antagonist pair", () => {
-    expect(emittedMethod({
+    expect(emittedMethods({
       mesocycle: "intensificacao",
       level: "intermediario",
       week: 5,
@@ -92,7 +99,7 @@ describe("advanced training methods", () => {
     }, [
       { exercise_name: "Elevação Lateral Máquina", muscle_group: "ombros", phase: "forca_especifica", equipment: "máquina", is_isolation: true },
       { exercise_name: "Panturrilha Sentada", muscle_group: "panturrilhas", phase: "forca_especifica", equipment: "máquina", is_isolation: true },
-    ])).toBe("biset");
+    ])).toContain("biset");
   });
 
   it("keeps all eleven declared methods actually reachable", () => {
@@ -118,7 +125,7 @@ describe("advanced training methods", () => {
     expect(new Set(selected.map((exercise) => exercise.group_id)).size).toBe(1);
   });
 
-  it("covers all methods across eligible plan cycles/sessions with valid arity and one method per session", () => {
+  it("covers all methods across eligible plan cycles/sessions with valid arity and at most two methods per session", () => {
     const emitted = new Set<MethodId>();
     const sessions = [SAFE_ACCESSORIES, SAME_GROUP_ACCESSORIES, STABLE_CLUSTER_EXERCISES];
     for (const sequenceNumber of [1, 2, 3, 4]) {
@@ -137,7 +144,7 @@ describe("advanced training methods", () => {
                 sessionIndex,
               });
               const methods = new Set(planned.flatMap((exercise) => exercise.method ? [exercise.method] : []));
-              expect(methods.size).toBeLessThanOrEqual(1);
+              expect(methods.size).toBeLessThanOrEqual(2);
               for (const method of methods) {
                 emitted.add(method);
                 const selected = planned.filter((exercise) => exercise.method === method);
@@ -154,7 +161,7 @@ describe("advanced training methods", () => {
   });
 
   it("does not compensate limited unstable equipment with an advanced method", () => {
-    expect(emittedMethod({
+    expect(emittedMethods({
       mesocycle: "intensificacao",
       level: "avancado",
       week: 6,
@@ -163,7 +170,7 @@ describe("advanced training methods", () => {
       equipment: "peso corporal",
     }, [
       { exercise_name: "Agachamento no BOSU", muscle_group: "quadriceps", phase: "forca_especifica", equipment: "bosu" },
-    ])).toBeUndefined();
+    ])).toEqual(new Set());
   });
 
   it("applies cluster only to a stable machine strength pattern, never to an accessory isolation", () => {
@@ -183,10 +190,10 @@ describe("advanced training methods", () => {
       week: 6,
       sequenceNumber: 1,
       objective: "forca",
-    }, SAFE_ACCESSORIES)).toBeUndefined();
+    }, SAFE_ACCESSORIES)).not.toContain("cluster");
   });
 
-  it("blocks beginner, pain, red flags, fatigue and unstable/high-risk candidates", () => {
+  it("keeps methods available by level/readiness while excluding unstable and painful candidates", () => {
     const unsafe = [
       { exercise_name: "Agachamento Livre", muscle_group: "quadriceps", phase: "forca_global", equipment: "barra" },
       { exercise_name: "Levantamento Terra", muscle_group: "posterior", phase: "forca_global", equipment: "barra" },
@@ -197,7 +204,9 @@ describe("advanced training methods", () => {
       { mesocycle: "intensificacao", level: "avancado", week: 5, objective: "hipertrofia", hasRedFlags: true },
       { mesocycle: "intensificacao", level: "avancado", week: 5, objective: "hipertrofia", fatigueHigh: true },
     ] as const;
-    for (const ctx of contexts) expect(emittedMethod(ctx, SAFE_ACCESSORIES)).toBeUndefined();
+    for (const ctx of contexts) expect(emittedMethods(ctx, SAFE_ACCESSORIES).size).toBeGreaterThan(0);
+    const painful = SAFE_ACCESSORIES.map((exercise) => ({ ...exercise, painful: true }));
+    expect(emittedMethods(contexts[0], painful).size).toBe(0);
     expect(emittedMethod({ mesocycle: "intensificacao", level: "avancado", week: 5, objective: "hipertrofia" }, unsafe)).toBeUndefined();
   });
 });

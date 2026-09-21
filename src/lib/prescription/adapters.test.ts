@@ -99,7 +99,7 @@ describe("B2 — input adapter", () => {
     expect(program.progression_protocol.toLowerCase()).toContain("hold/regress");
   });
 
-  it("2) preserva EVA > 5 e o engine classifica como severa (blocker + handoff)", () => {
+  it("2) preserva EVA > 5 e o engine reduz para 50% sem bloquear publicação", () => {
     const catalog = buildCatalog();
     const { input } = buildPrescriptionInputFromEdgePayload({
       payload: { objective: "hipertrofia", fitness_level: "intermediario", days_per_week: 4, restrictions: "", painReports: [{ region: "joelho", eva: 7 }] },
@@ -107,8 +107,9 @@ describe("B2 — input adapter", () => {
     });
     expect(input.painReports?.[0]?.eva).toBe(7);
     const out = adaptTrainingProgramForAiStrengthPlan({ program: generateTrainingProgram(input) });
-    expect(out.blocked).toBe(true);
+    expect(out.blocked).toBe(false);
     expect(out.handoff).toBe(true);
+    expect(out.record.plan.validation.warnings.some((warning) => warning.code === "high_pain_volume_reduced")).toBe(true);
   });
 
   it("3) preserva endurance/corrida >= 3x", () => {
@@ -195,15 +196,15 @@ describe("B4 — output adapter", () => {
     }
   });
 
-  it("11) preserva blockers/handoff e não remove warnings", () => {
+  it("11) preserva handoff e warning severo sem fabricar blocker", () => {
     const program = generateTrainingProgram(buildPrescriptionInputFromEdgePayload({
       payload: { objective: "hipertrofia", fitness_level: "iniciante", days_per_week: 3, restrictions: "", painReports: [{ region: "joelho", eva: 7 }] },
       catalog: buildCatalog(),
     }).input);
     const out = adaptTrainingProgramForAiStrengthPlan({ program });
-    expect(out.blocked).toBe(true);
+    expect(out.blocked).toBe(false);
     expect(out.handoff).toBe(true);
-    expect(out.blockers.length).toBeGreaterThan(0);
+    expect(out.blockers).toEqual([]);
     expect(Array.isArray(out.warnings)).toBe(true);
   });
 

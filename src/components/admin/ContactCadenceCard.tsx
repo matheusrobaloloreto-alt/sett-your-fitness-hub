@@ -56,7 +56,7 @@ export function ContactCadenceCard({ companyId, routePrefix, readOnly = false }:
     toast.success(`${cadenceDisplayName(row)} saiu da cadência de contatos.`);
   };
 
-  if (!loaded || rows.length === 0) return null;
+  if (!loaded) return null;
   const filteredRows = filterCadenceByWindow(rows, windowDays);
   const leads = filteredRows.filter((r) => r.kind === "lead").length;
 

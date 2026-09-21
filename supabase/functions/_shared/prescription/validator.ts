@@ -168,10 +168,10 @@ export function validateTrainingProgram(args: {
 
   if (hasExplicitSeverePain) {
     add({
-      severity: "blocker",
-      code: "high_pain_requires_professional_review",
-      message: "Dor relatada com EVA acima de 5 ou descrita como forte/severa; a prescrição automática precisa de revisão do professor.",
-      recommendation: "Remover padrão doloroso, manter apenas estímulos seguros e revisar com profissional antes de liberar ao aluno.",
+      severity: "warning",
+      code: "high_pain_volume_reduced",
+      message: "Dor relatada como forte/severa; o motor manteve 50% do volume seguro e removeu o padrão conflitante.",
+      recommendation: "Professor deve acompanhar a resposta do aluno e ajustar o padrão afetado sem bloquear automaticamente a publicação.",
       source: "anamnese",
     });
   }
@@ -277,26 +277,7 @@ export function validateTrainingProgram(args: {
     });
   }
 
-  if (shouldHoldProgression(args.input) && hasAdvancedMethod(args.program)) {
-    add({
-      severity: "warning",
-      code: "advanced_method_with_pain",
-      message: "Método avançado apareceu em contexto com dor/restrição.",
-      recommendation: "Remover método avançado até estabilizar dor e técnica.",
-      source: "nivel",
-    });
-  }
-
   const level = normalizeText(args.input.fitnessLevel);
-  if (level.includes("inic") && hasAdvancedMethod(args.program)) {
-    add({
-      severity: "warning",
-      code: "advanced_method_for_beginner",
-      message: "Método avançado apareceu para aluno iniciante.",
-      recommendation: "Usar progressão dupla, técnica e RIR 3-4 antes de métodos avançados.",
-      source: "nivel",
-    });
-  }
 
   const performanceObjective = /(performance|potencia|velocidade|esporte)/.test(normalizeText(args.input.objective));
   const technicalPlyometricsAllowed = !level.includes("inic") && !shouldHoldProgression(args.input) && !args.input.deload && performanceObjective;
@@ -306,16 +287,6 @@ export function validateTrainingProgram(args: {
       code: "plyometrics_in_block_1",
       message: "Pliometria apareceu no primeiro bloco.",
       recommendation: "Remover pliometria nas semanas 1-2 e priorizar base técnica.",
-      source: "periodizacao",
-    });
-  }
-
-  if (args.input.deload && hasStructuredDeloadMethod(args.program)) {
-    add({
-      severity: "warning",
-      code: "deload_with_advanced_method",
-      message: "Deload não deve conter falha ou método avançado.",
-      recommendation: "Reduzir volume 40-50%, usar RIR 4 e manter técnica.",
       source: "periodizacao",
     });
   }

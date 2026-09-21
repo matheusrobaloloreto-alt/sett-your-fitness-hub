@@ -65,7 +65,7 @@ import {
 } from "@/lib/whatsappMessageEdit";
 import type { WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
 import { resolveWhatsAppChatRequest } from "@/lib/whatsappChatRequest";
-import { prepareWhatsAppSticker } from "@/lib/whatsappSticker";
+import { prepareEmojiWhatsAppSticker, prepareWhatsAppSticker, QUICK_STICKER_EMOJIS } from "@/lib/whatsappSticker";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 type Chat = {
@@ -268,6 +268,45 @@ function EmojiPickerButton({ disabled, onSelect }: { disabled?: boolean; onSelec
             </button>
           ))}
         </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function StickerPickerButton({
+  disabled,
+  onSelect,
+  onUpload,
+}: {
+  disabled?: boolean;
+  onSelect: (emoji: string) => void;
+  onUpload: () => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 sm:h-9 sm:w-9" disabled={disabled} title="Enviar figurinha" aria-label="Abrir figurinhas">
+          <Sticker className="h-4 w-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" side="top" className="w-72 p-2">
+        <p className="px-1 pb-2 text-xs font-medium text-muted-foreground">Figurinhas</p>
+        <div className="grid grid-cols-4 gap-1.5" aria-label="Figurinhas rápidas">
+          {QUICK_STICKER_EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              className="flex aspect-square items-center justify-center rounded-lg border border-border bg-background text-3xl transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onSelect(emoji)}
+              aria-label={`Enviar figurinha ${emoji}`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+        <Button type="button" variant="outline" size="sm" className="mt-2 w-full" onClick={onUpload}>
+          <Image className="mr-2 h-4 w-4" />Criar figurinha com imagem
+        </Button>
       </PopoverContent>
     </Popover>
   );
@@ -1633,6 +1672,19 @@ export default function WhatsAppChat({
     }
     try {
       const sticker = await prepareWhatsAppSticker(source);
+      await sendFileAttachment(sticker, { asSticker: true });
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Não foi possível preparar a figurinha."));
+    }
+  };
+
+  const handleQuickSticker = async (emoji: string) => {
+    if (editingMessage) {
+      toast.error("Cancele a edição antes de enviar uma figurinha.");
+      return;
+    }
+    try {
+      const sticker = await prepareEmojiWhatsAppSticker(emoji);
       await sendFileAttachment(sticker, { asSticker: true });
     } catch (error) {
       toast.error(getErrorMessage(error, "Não foi possível preparar a figurinha."));
@@ -3166,9 +3218,11 @@ export default function WhatsAppChat({
 	                        <Mic className="h-4 w-4" />
 	                      </Button>
 	                      <EmojiPickerButton disabled={sendingAttachment} onSelect={(emoji) => setNewMessage((value) => `${value}${emoji}`)} />
-	                      <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 sm:h-9 sm:w-9" title="Enviar figurinha" aria-label="Enviar figurinha" onClick={() => stickerInputRef.current?.click()} disabled={sendingAttachment || Boolean(editingMessage)}>
-	                        <Sticker className="h-4 w-4" />
-	                      </Button>
+	                      <StickerPickerButton
+	                        disabled={sendingAttachment || Boolean(editingMessage)}
+	                        onSelect={(emoji) => void handleQuickSticker(emoji)}
+	                        onUpload={() => stickerInputRef.current?.click()}
+	                      />
 	                      {selectedChat.student_id && (
                         <Button variant="ghost" size="icon" className="hidden h-9 w-9 shrink-0 sm:inline-flex" title="Anexar último treino/avaliação" onClick={handleAttachLastEvaluation} disabled={sendingAttachment || Boolean(editingMessage)}>
                           <Paperclip className="h-4 w-4" />

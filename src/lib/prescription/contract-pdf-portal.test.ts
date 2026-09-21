@@ -10,24 +10,24 @@ import { buildWorkoutRows, mapStrengthExercise } from "@/lib/publishStrengthPlan
 import { generateStrengthPDF, generateAllPDFs } from "@/lib/generatePDFs";
 
 const ROWS: EdgeExerciseRow[] = [
-  { id: "mob", name: "Mobilidade de Quadril", muscle_group: "mobilidade", equipment: "livre" },
-  { id: "plank", name: "Prancha", muscle_group: "core", equipment: "livre" },
-  { id: "glute", name: "Abdução Mini Band", muscle_group: "glúteos", equipment: "mini band" },
-  { id: "box-squat", name: "Agachamento na Caixa", muscle_group: "quadríceps", equipment: "livre" },
-  { id: "leg-press", name: "Leg Press", muscle_group: "quadríceps", equipment: "máquina" },
-  { id: "leg-curl", name: "Mesa Flexora", muscle_group: "posterior", equipment: "máquina" },
-  { id: "face-pull", name: "Face Pull", muscle_group: "ombros", equipment: "cabo" },
-  { id: "row", name: "Remada Baixa", muscle_group: "costas", equipment: "máquina" },
-  { id: "press", name: "Supino Máquina", muscle_group: "peitoral", equipment: "máquina" },
-  { id: "pulldown", name: "Puxada", muscle_group: "costas", equipment: "máquina" },
-  { id: "hip-thrust", name: "Hip Thrust", muscle_group: "glúteos", equipment: "máquina" },
-  { id: "calf", name: "Panturrilha + Core", muscle_group: "core", equipment: "livre" },
+  { id: "mob", name: "Mobilidade de Quadril", muscle_group: "mobilidade", categories: ["Mobilidades"], equipment: "livre" },
+  { id: "plank", name: "Prancha", muscle_group: "abdomen", categories: ["Core"], equipment: "livre" },
+  { id: "glute", name: "Abdução Mini Band", muscle_group: "glúteos", categories: ["Funcionais"], equipment: "mini band" },
+  { id: "box-squat", name: "Agachamento na Caixa", muscle_group: "quadríceps", categories: ["Base"], equipment: "livre" },
+  { id: "leg-press", name: "Leg Press", muscle_group: "quadríceps", categories: ["Maquinas"], equipment: "máquina" },
+  { id: "leg-curl", name: "Mesa Flexora", muscle_group: "posterior de coxa", categories: ["Maquinas"], equipment: "máquina" },
+  { id: "face-pull", name: "Face Pull", muscle_group: "deltoide posterior", categories: ["Funcionais"], equipment: "cabo" },
+  { id: "row", name: "Remada Baixa", muscle_group: "dorsal", categories: ["Base"], equipment: "máquina" },
+  { id: "press", name: "Supino Máquina", muscle_group: "peitoral", categories: ["Base"], equipment: "máquina" },
+  { id: "pulldown", name: "Puxada", muscle_group: "dorsal", categories: ["Maquinas"], equipment: "máquina" },
+  { id: "hip-thrust", name: "Hip Thrust", muscle_group: "glúteos", categories: ["Base"], equipment: "máquina" },
+  { id: "calf", name: "Panturrilha + Core", muscle_group: "abdomen", categories: ["Core"], equipment: "livre" },
 ];
 const CATALOG = buildExerciseCatalogFromEdgeRows({ exercises: ROWS }).catalog;
 const CATALOG_IDS = new Set(CATALOG.map((e) => e.id));
 
 function enginePlan() {
-  const program = generateTrainingProgram({ studentName: "Aluno Teste", objective: "hipertrofia", fitnessLevel: "intermediario", daysPerWeek: 4, catalog: CATALOG });
+  const program = generateTrainingProgram({ studentName: "Aluno Teste", objective: "hipertrofia", fitnessLevel: "intermediario", daysPerWeek: 4, equipment: "academia completa", catalog: CATALOG });
   return adaptTrainingProgramForAiStrengthPlan({ program }).record.plan;
 }
 

@@ -53,8 +53,8 @@ describe("StudentHome progression highlight", () => {
     renderHome({ activeWorkoutId: "workout-a" });
 
     expect(screen.getByText("O que muda agora")).toBeInTheDocument();
-    expect(screen.getByText("Semanas 5-6")).toBeInTheDocument();
-    expect(screen.getByText(/Esta quinzena fica mais intensa com Bi-set/)).toBeInTheDocument();
+    expect(screen.getByText("Semana 5")).toBeInTheDocument();
+    expect(screen.getByText(/Esta semana fica mais intensa com Bi-set/)).toBeInTheDocument();
   });
 
   it("keeps the progression visible on rest days without offering to start a workout", () => {
@@ -62,7 +62,7 @@ describe("StudentHome progression highlight", () => {
 
     expect(screen.getByText("Dia de descanso")).toBeInTheDocument();
     expect(screen.getByText("O que muda agora")).toBeInTheDocument();
-    expect(screen.getByText("Semanas 5-6")).toBeInTheDocument();
+    expect(screen.getByText("Semana 6")).toBeInTheDocument();
     expect(screen.queryByText("Iniciar treino")).not.toBeInTheDocument();
   });
 
@@ -162,7 +162,7 @@ describe("PeriodizationBanner progression highlight", () => {
     );
 
     expect(screen.getByText("O que muda agora")).toBeInTheDocument();
-    expect(screen.getByText(/Esta quinzena fica mais intensa com Bi-set/)).toBeInTheDocument();
+    expect(screen.getByText(/Esta semana fica mais intensa com Bi-set/)).toBeInTheDocument();
   });
 
   it("explains effort without exposing the RIR acronym in expanded student details", () => {

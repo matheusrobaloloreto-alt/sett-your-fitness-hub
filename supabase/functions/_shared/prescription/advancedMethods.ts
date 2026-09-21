@@ -3,17 +3,13 @@
 // (MethodBadge + groupWorkoutExercises) sem mudança no front. O fallback determinístico de força
 // chama planAdvancedMethods() por semana e os exercícios saem com method/group_id/method_seconds.
 //
-// DOUTRINA (não usar sempre — só quando faz sentido):
-//   - iniciante                         → NUNCA método avançado (técnica + progressão simples).
-//   - microciclo regenerativo (deload)  → NUNCA (semana de recuperação).
-//   - mesociclo BASE                    → NUNCA (adaptação/técnica).
-//   - dor / exercício instável          → NUNCA naquele exercício.
+// DOUTRINA: os métodos aumentam variedade e adesão e podem aparecer em qualquer nível/fase,
+// desde que não elevem o volume além do teto. Dor/restrição exclui o exercício afetado, não a
+// sessão inteira. Base, deload e baixa prontidão recebem apenas métodos técnicos de baixa fadiga.
 //   - acumulação (ordinário)            → leve: 1 técnica de intensidade (rest-pause/drop-set) na
 //                                         última série de 1 isolador estável.
-//   - intensificação / choque           → pode agrupar (bi-set; tri-set/giant só avançado) e/ou
-//                                         drop-set/cluster; aplica a no MÁXIMO 1–2 exercícios da sessão.
-//   - troca de estímulo a cada 2 semanas → o método rotaciona por bloco (semanas 1-2 / 3-4 / 5-6),
-//                                         pra variar o estímulo dentro da fase.
+//   - intensificação / choque           → pode combinar agrupamento e técnica de intensidade.
+//   - troca de estímulo semanal          → o método pode variar em cada semana.
 // Os compostos pesados (agachamento/terra/supino) ficam RETOS; os métodos vão nos acessórios/isoladores.
 
 export type MethodId =
@@ -47,7 +43,7 @@ export interface AdvancedMethodCtx {
   // OPCIONAIS para compatibilidade com chamadas antigas. O BN Engine passa todos estes campos.
   microcycle?: "ordinario" | "choque" | "regenerativo"; // default "ordinario"
   week?: number;                                         // 1-based; default 1 (bloco 0)
-  hasPain?: boolean;                                     // dor relevante → conservador (nenhum método)
+  hasPain?: boolean;                                     // dor relevante exclui o exercício afetado, não a sessão
   hasRedFlags?: boolean;
   fatigueHigh?: boolean;
   isEnduranceAthlete?: boolean;
@@ -177,6 +173,10 @@ function selectMethod(ctx: AdvancedMethodCtx): MethodId | null {
   const fatLoss = /emagrec|perda|condicion/.test(objective);
   const strength = /forca|força|performance|potencia/.test(objective);
 
+  if (ctx.mesocycle === "base" || ctx.microcycle === "regenerativo" || ctx.hasRedFlags || ctx.fatigueHigh) {
+    return week % 2 === 1 ? "isometria" : "pico_contracao";
+  }
+
   if (ctx.mesocycle === "acumulacao") {
     if (!hypertrophy && !strength) return null;
     if (ctx.isEnduranceAthlete) return week % 2 === 1 ? "isometria" : "pico_contracao";
@@ -200,23 +200,32 @@ function selectMethod(ctx: AdvancedMethodCtx): MethodId | null {
     if (session && week >= 6) {
       const pool: MethodId[] = ctx.level === "avancado"
         ? ["cluster", "restpause", "dropset", "pico_contracao"]
-        : ["dropset", "restpause"];
+        : ["dropset", "restpause", "pico_contracao"];
       return rotate(pool, sequence - 1)[(session - 1) % pool.length];
     }
     if (hypertrophy && ctx.level === "avancado" && week >= 6 && sequence === 1) return "cluster";
     if (hypertrophy && week >= 6) return ctx.level === "avancado" ? "restpause" : "dropset";
     if (session && hypertrophy) {
-      const pool: MethodId[] = ctx.level === "avancado"
-        ? ["triset", "giantset", "superset", "biset"]
-        : ["superset", "biset"];
+      const pool: MethodId[] = ["triset", "giantset", "superset", "biset"];
       return rotate(pool, sequence - 1)[(session - 1) % pool.length];
     }
-    if (hypertrophy && ctx.level === "avancado" && sequence === 1) return "triset";
-    if (hypertrophy && ctx.level === "avancado" && sequence === 2) return "giantset";
+    if (hypertrophy && sequence === 1) return "triset";
+    if (hypertrophy && sequence === 2) return "giantset";
     if (hypertrophy && sequence === 3) return "superset";
     return "biset";
   }
 
+  return null;
+}
+
+function secondaryMethod(ctx: AdvancedMethodCtx, primary: MethodId | null): MethodId | null {
+  if (!primary || ctx.mesocycle === "base" || ctx.microcycle === "regenerativo" || ctx.hasRedFlags || ctx.fatigueHigh) return null;
+  if (ctx.mesocycle === "acumulacao") return primary === "biset" ? "pico_contracao" : "biset";
+  if (ctx.mesocycle === "intensificacao") {
+    return GROUPING_METHODS.includes(primary)
+      ? ((ctx.week || 1) % 2 === 0 ? "restpause" : "dropset")
+      : "biset";
+  }
   return null;
 }
 
@@ -301,11 +310,6 @@ export function planAdvancedMethods<T extends MethodAwareExercise>(
   // sessionKey (ex.: workout_id) evita colisão se o motor combinar sessões da mesma semana.
   const gid = ctx.groupIdFor || ((i: number) => `m${ctx.sessionKey ? ctx.sessionKey + "_" : ""}${week}_${i}`);
 
-  // Bloqueios duros: nada de método avançado.
-  if (ctx.level === "iniciante" || micro === "regenerativo" || ctx.mesocycle === "base" || ctx.hasPain || ctx.hasRedFlags || ctx.fatigueHigh) {
-    return out;
-  }
-
   // Técnicas de intensidade ficam em acessórios estáveis. Agrupamentos também aceitam
   // controle motor/compostos leves, mas nunca os padrões axiais pesados.
   const singleIdxs = out
@@ -322,31 +326,36 @@ export function planAdvancedMethods<T extends MethodAwareExercise>(
     .map(({ i }) => i);
   if (singleIdxs.length === 0 && groupingIdxs.length < 2 && clusterIdxs.length === 0) return out;
 
-  const method = selectMethod(ctx);
-  if (!method) return out;
+  const applySelected = (method: MethodId | null) => {
+    if (!method) return false;
+    const availableSingles = singleIdxs.filter((index) => !out[index].method);
+    const availableGroups = groupingIdxs.filter((index) => !out[index].method);
+    const availableClusters = clusterIdxs.filter((index) => !out[index].method);
+    if (method === "cluster") {
+      return availableClusters.length
+        ? applyMethod(out, [availableClusters[availableClusters.length - 1]], method, gid)
+        : false;
+    }
+    if (method === "superset") {
+      const pair = lastConsecutiveAntagonistPair(availableGroups, out);
+      return pair.length === 2 ? applyMethod(out, pair, method, gid) : false;
+    }
+    if (GROUPING_METHODS.includes(method)) {
+      const count = requiredGroupSize(method);
+      const group = method === "triset" || method === "giantset"
+        ? lastConsecutiveSameFamily(availableGroups, out, count)
+        : lastConsecutiveIndexes(availableGroups, count);
+      const fallbackPair = method === "biset" ? lastConsecutivePair(availableGroups) : [];
+      return applyMethod(out, group.length ? group : fallbackPair, method, gid);
+    }
+    return availableSingles.length
+      ? applyMethod(out, [availableSingles[availableSingles.length - 1]], method, gid)
+      : false;
+  };
 
-  if (method === "cluster") {
-    if (clusterIdxs.length) applyMethod(out, [clusterIdxs[clusterIdxs.length - 1]], method, gid);
-    return out;
-  }
-
-  if (method === "superset") {
-    const pair = lastConsecutiveAntagonistPair(groupingIdxs, out);
-    if (pair.length === 2) applyMethod(out, pair, method, gid);
-    return out;
-  }
-
-  if (GROUPING_METHODS.includes(method)) {
-    const count = requiredGroupSize(method);
-    const group = method === "triset" || method === "giantset"
-      ? lastConsecutiveSameFamily(groupingIdxs, out, count)
-      : lastConsecutiveIndexes(groupingIdxs, count);
-    const fallbackPair = method === "biset" ? lastConsecutivePair(groupingIdxs) : [];
-    applyMethod(out, group.length ? group : fallbackPair, method, gid);
-    return out;
-  }
-
-  if (singleIdxs.length) applyMethod(out, [singleIdxs[singleIdxs.length - 1]], method, gid);
+  const primary = selectMethod(ctx);
+  applySelected(primary);
+  applySelected(secondaryMethod(ctx, primary));
 
   return out;
 }

@@ -83,7 +83,7 @@ describe("progressão longitudinal determinística", () => {
     });
   });
 
-  it("usa o resultado longitudinal para preservar +1 série abaixo do cap e reduzir acima dele", () => {
+  it("usa o resultado longitudinal para preservar +1 série até o teto de 21", () => {
     const accumulationInput = input(2, {
       fitnessLevel: "avancado",
       objective: "hipertrofia",
@@ -96,7 +96,29 @@ describe("progressão longitudinal determinística", () => {
 
     expect(belowCapped.workouts[0].exercises[0].sets).toBe(3);
     expect(aboveCap.workouts[0].exercises[0].sets).toBe(17);
-    expect(aboveCapped.workouts[0].exercises[0].sets).toBe(16);
+    expect(aboveCapped.workouts[0].exercises[0].sets).toBe(17);
+  });
+
+  it("parte das métricas finais do ciclo anterior antes de progredir volume e técnica", () => {
+    const result = applyLongitudinalProgression([workout(2)], input(2, {
+      previousPlanContext: {
+        workouts: [{
+          exercises: [{
+            exercise_id: "exercise-1",
+            sets: 3,
+            reps: "10-12",
+            rir: "3",
+            rest_seconds: 75,
+            tempo: "3010",
+            weekly_prescription: [{ week: 6, sets: 4, reps: "8-10", rir: "2", rest_seconds: 90, tempo: "2110" }],
+          }],
+        }],
+      },
+    }));
+
+    expect(result.reusedMetrics).toBe(1);
+    expect(result.workouts[0].exercises[0]).toMatchObject({ sets: 5, reps: "8-10", rir: "2-3", tempo: "3010" });
+    expect(result.explanation.reason).toContain("treino anterior");
   });
 
   it("não progride automaticamente quando dor, baixa aderência ou técnica pedem manutenção", () => {

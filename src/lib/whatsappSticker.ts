@@ -1,6 +1,10 @@
 export const WHATSAPP_STICKER_SIZE = 512;
 export const MAX_WHATSAPP_STICKER_BYTES = 1024 * 1024;
 export const MAX_WHATSAPP_STICKER_SOURCE_BYTES = 20 * 1024 * 1024;
+export const QUICK_STICKER_EMOJIS = [
+  "💪", "🔥", "👏", "🙌", "✅", "🎯", "🏋️", "🏃",
+  "🚴", "🏊", "🥇", "🚀", "🎉", "❤️", "😂", "😍",
+];
 
 export function containStickerImage(width: number, height: number, size = WHATSAPP_STICKER_SIZE) {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -58,4 +62,22 @@ export async function prepareWhatsAppSticker(file: File): Promise<File> {
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
+}
+
+export async function prepareEmojiWhatsAppSticker(emoji: string): Promise<File> {
+  const canvas = document.createElement("canvas");
+  canvas.width = WHATSAPP_STICKER_SIZE;
+  canvas.height = WHATSAPP_STICKER_SIZE;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Seu navegador não conseguiu preparar a figurinha.");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.font = '340px "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+  context.fillText(emoji, canvas.width / 2, canvas.height / 2 + 8);
+  const blob = await canvasBlob(canvas, 0.9);
+  if (!blob || blob.size > MAX_WHATSAPP_STICKER_BYTES) {
+    throw new Error("Não foi possível preparar esta figurinha.");
+  }
+  return new File([blob], `figurinha-emoji-${Date.now()}.webp`, { type: "image/webp" });
 }

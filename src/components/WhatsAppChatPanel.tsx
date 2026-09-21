@@ -32,7 +32,6 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
     && isPermittedRole
     && features.hasWhatsApp
     && (role === "admin" || role === "master" || canAccess("whatsapp"));
-  const isWorkoutBuilder = /\/workout\/[^/]+/.test(location.pathname);
   const isWhatsAppChatRoute = /\/whatsapp-chat$/.test(location.pathname);
 
   const openChatPanel = useCallback((nextRequest: WhatsAppChatPanelRequest = {}) => {
@@ -67,7 +66,7 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
       {children}
       {canUseWhatsApp && (
         <>
-          {!isWorkoutBuilder && !isWhatsAppChatRoute && (
+          {!isWhatsAppChatRoute && (
             <Button
               type="button"
               size="lg"

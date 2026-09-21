@@ -14,6 +14,8 @@ export interface ExercisePickRequest {
   preferredCategory?: string;
   preferredPattern?: string;
   preferredExerciseIds?: Set<string>;
+  /** Deterministic rotation across similarly scored catalog options. */
+  rotationSeed?: number;
 }
 
 type PreparedExercise = {
@@ -42,6 +44,12 @@ type PreparedRequest = {
   preferredCategory: string;
   preferredPattern: string;
   restrictions: PreparedRestriction[];
+};
+
+type CompetitivePool = {
+  bestScore: number;
+  best: ExerciseCatalogEntry[];
+  runnerUp: ExerciseCatalogEntry[];
 };
 
 const catalogIndexCache = new WeakMap<ExerciseCatalogEntry[], PreparedExercise[]>();
@@ -186,6 +194,7 @@ export function pickCatalogExercise(request: ExercisePickRequest): ExerciseCatal
       for (const equivalentId of prepared.exercise.equivalent_substitutes || []) equivalentIds.add(equivalentId);
     }
   }
+  const equivalentCandidates: ExerciseCatalogEntry[] = [];
   for (const prepared of catalog) {
     const exercise = prepared.exercise;
     if (
@@ -194,23 +203,42 @@ export function pickCatalogExercise(request: ExercisePickRequest): ExerciseCatal
       !isHardExcluded(exercise) &&
       !request.usedIds?.has(exercise.id) &&
       scorePreparedExercise(prepared, request, normalized) > 0
-    ) return exercise;
+    ) equivalentCandidates.push(exercise);
   }
+  const rotationSeed = Math.max(0, Math.floor(Number(request.rotationSeed) || 0));
+  if (equivalentCandidates.length) return equivalentCandidates[rotationSeed % equivalentCandidates.length];
 
-  let bestNotUsed: { exercise: ExerciseCatalogEntry; score: number } | null = null;
-  let bestAcceptable: { exercise: ExerciseCatalogEntry; score: number } | null = null;
+  const createPool = (): CompetitivePool => ({ bestScore: Number.NEGATIVE_INFINITY, best: [], runnerUp: [] });
+  const addCompetitive = (pool: CompetitivePool, exercise: ExerciseCatalogEntry, score: number) => {
+    if (score > pool.bestScore) {
+      pool.runnerUp = score === pool.bestScore + 1 ? pool.best : [];
+      pool.best = [exercise];
+      pool.bestScore = score;
+    } else if (score === pool.bestScore) {
+      pool.best.push(exercise);
+    } else if (score === pool.bestScore - 1) {
+      pool.runnerUp.push(exercise);
+    }
+  };
+  const notUsed = createPool();
+  const acceptable = createPool();
   for (const prepared of catalog) {
     const exercise = prepared.exercise;
     if (isHardExcluded(exercise) || !isPreparedEquipmentCompatible(prepared.equipment, normalized.requestedEquipment)) continue;
     const score = scorePreparedExercise(prepared, request, normalized);
     if (score <= 0) continue;
-    if (!bestAcceptable || score > bestAcceptable.score) bestAcceptable = { exercise, score };
-    if (!request.usedIds?.has(exercise.id) && (!bestNotUsed || score > bestNotUsed.score)) {
-      bestNotUsed = { exercise, score };
-    }
+    addCompetitive(acceptable, exercise, score);
+    if (!request.usedIds?.has(exercise.id)) addCompetitive(notUsed, exercise, score);
   }
 
-  return bestNotUsed?.exercise || bestAcceptable?.exercise || null;
+  const chooseCompetitive = (pool: CompetitivePool) => {
+    const length = pool.best.length + pool.runnerUp.length;
+    if (!length) return null;
+    const index = rotationSeed % length;
+    return index < pool.best.length ? pool.best[index] : pool.runnerUp[index - pool.best.length];
+  };
+
+  return chooseCompetitive(notUsed) || chooseCompetitive(acceptable);
 }
 
 export function safeExerciseName(exercise: ExerciseCatalogEntry | null) {

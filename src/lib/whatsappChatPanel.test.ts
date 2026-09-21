@@ -25,6 +25,12 @@ describe("persistent WhatsApp panel requests", () => {
     expect(requestWhatsAppChatPanel({ chatId: "chat-1" })).toBe(false);
   });
 
+  it("keeps renewal and operational messages in editable draft mode", () => {
+    const studentChatSource = readFileSync("src/lib/studentChat.ts", "utf8");
+    expect(studentChatSource).toContain('mode: "draft" as const');
+    expect(studentChatSource).not.toContain("handleSend");
+  });
+
   it("keeps compatibility routes behind the WhatsApp module and consumes repeated requests", () => {
     const routesSource = readFileSync("src/App.tsx", "utf8");
     const chatSource = readFileSync("src/pages/admin/WhatsAppChat.tsx", "utf8");

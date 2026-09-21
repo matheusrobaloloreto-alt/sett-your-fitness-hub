@@ -5,6 +5,7 @@ export type WhatsAppChatPanelRequest = {
   phone?: string | null;
   contactName?: string | null;
   prefillMessage?: string | null;
+  mode?: "draft";
 };
 
 export const WHATSAPP_CHAT_PANEL_EVENT = "sett:open-whatsapp-chat";

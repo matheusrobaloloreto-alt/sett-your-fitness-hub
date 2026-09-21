@@ -463,7 +463,6 @@ export default function RegistrationManager() {
   const { companyId, role, user } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId ?? null;
-  const isTrainerView = role === "trainer";
   const navigate = useNavigate();
   const chatRoutePrefix = role === "master" ? "admin" : role || "admin";
   const currentTrainerName = useMemo(() => {
@@ -703,24 +702,6 @@ export default function RegistrationManager() {
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       });
   }, [students, budgetFilter, waitFilter]);
-
-  const responseStudents = useMemo<StudentWithStage[]>(() => (
-    students
-      .map((student) => {
-        const stage = normalizeSalesStage(student);
-        const nextAction = stageNextAction(student, {
-          hasAnamnesis: student.hasAnamnesis,
-          hasAssessment: student.hasAssessment,
-        });
-        return { ...student, stage, nextAction, progress: funnelStageProgress(stage) };
-      })
-      .filter((student) => (
-        student.entityType === "lead"
-        || Boolean(student.hasAnamnesis)
-        || leadAnswerEntries(student).length > 0
-      ))
-      .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime())
-  ), [students]);
 
   const stagedStudents = useMemo(
     () => stageFilteredStudents.filter((student) => activeStage === "all" || student.stage === activeStage),
@@ -1461,96 +1442,7 @@ export default function RegistrationManager() {
         </CardContent>
       </Card>
 
-      {isTrainerView && (
-        <section className="space-y-3">
-          <div>
-            <h2 className="font-display text-2xl text-foreground">Respostas de pré-cadastro</h2>
-            <p className="text-sm text-muted-foreground">
-              Leitura das informações de anamnese e pré-cadastro para preparar atendimento, sem esteira comercial.
-            </p>
-          </div>
-
-          {loadError && (
-            <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">
-              {loadError}
-            </div>
-          )}
-
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card p-8 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Carregando respostas
-            </div>
-          ) : responseStudents.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border bg-card p-6 text-sm text-muted-foreground">
-              Nenhuma resposta de pré-cadastro ou anamnese encontrada nesta empresa.
-            </div>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {responseStudents.map((student) => {
-                const summary = leadSummaryRows(student);
-                return (
-                  <Card key={cardIdFor(student)} className="rounded-2xl border-border bg-card">
-                    <CardHeader className="pb-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <CardTitle className="break-words text-base">{student.full_name}</CardTitle>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {student.entityType === "lead" ? "Interessado" : "Aluno"} · atualizado {relativeDate(student.updated_at || student.created_at)}
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="shrink-0 whitespace-normal text-center">
-                          {student.entityType === "lead" ? "pré-cadastro" : student.hasAnamnesis ? "anamnese" : "cadastro"}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {summary.length > 0 ? (
-                        <div className="grid gap-2">
-                          {summary.slice(0, 4).map(([label, value]) => (
-                            <div key={label} className="rounded-xl border border-border bg-secondary/20 p-2">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-                              <p className="mt-1 break-words text-sm text-foreground">{value}</p>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="rounded-xl border border-dashed border-border p-3 text-sm text-muted-foreground">
-                          Respostas estruturadas disponíveis na visualização completa.
-                        </p>
-                      )}
-
-                      <div className="grid gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="min-h-8 h-auto w-full whitespace-normal px-2 py-1.5 text-xs leading-snug"
-                          onClick={() => void openPreRegistration(student)}
-                        >
-                          <Eye className="mr-1 h-3.5 w-3.5" />
-                          <span>Ver respostas completas</span>
-                        </Button>
-                        {student.entityType === "student" && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="min-h-8 h-auto w-full whitespace-normal px-2 py-1.5 text-xs leading-snug"
-                            onClick={() => navigate(`/${chatRoutePrefix}/students/${student.id}`)}
-                          >
-                            Abrir perfil
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      )}
-
-      {!isTrainerView && (
+      {(
         <Card className="rounded-2xl border-border bg-card">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Cadastro fiscal, escolha do plano e pagamento</CardTitle>
@@ -1616,7 +1508,7 @@ export default function RegistrationManager() {
         </Card>
       )}
 
-      {!isTrainerView && (
+      {(
         <Card className="rounded-2xl border-border bg-card">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base"><CreditCard className="h-4 w-4 text-primary" /> Link de renovação</CardTitle>
@@ -1643,7 +1535,7 @@ export default function RegistrationManager() {
         </Card>
       )}
 
-      {!isTrainerView && (
+      {(
         <section className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -1751,7 +1643,7 @@ export default function RegistrationManager() {
         </section>
       )}
 
-      {!isTrainerView && (
+      {(
         <div className="rounded-lg border border-border bg-secondary/30 p-3">
           <div className="flex items-start gap-2">
             <UserRoundCheck className="mt-0.5 h-4 w-4 text-primary" />

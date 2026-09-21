@@ -4,6 +4,7 @@ import { normalizeText } from "./presets.ts";
 import { resolveDurationWeeks, shouldHoldProgression } from "./progressionRules.ts";
 import { resolveSequenceNumber } from "./longitudinalRules.ts";
 import { deriveRestrictionRules, exerciseConflictsWithRestrictions } from "./restrictionRules.ts";
+import { exerciseGroupFactors, getVolumeRangeForGroup } from "./volumeRules.ts";
 import type {
   PrescriptionInput,
   TrainingExercise,
@@ -69,33 +70,57 @@ function weekRules(input: PrescriptionInput): WeekRule[] {
       rir: DELOAD_RULES.rir,
       volume_percent: 50,
       tempo_focus,
-      method_focus: "Séries retas, sem método avançado",
-      instruction: `Mantenha execução confortável, encerre cada série com RIR ${DELOAD_RULES.rir} e não altere carga ou volume nesta semana.`,
+      method_focus: index % 2 === 0 ? "Isometria técnica de baixa fadiga" : "Pico de contração controlado",
+      instruction: `Mantenha execução confortável, RIR ${DELOAD_RULES.rir} e o volume reduzido; siga a sinalização W/Normal/F sem ampliar o número de séries.`,
     }));
   }
 
-  const safeOnly = shouldHoldProgression(input) || resolveLevel(input) === "iniciante";
-  const finalMethod = safeOnly
-    ? "Sem método avançado; evoluir somente com execução estável."
-    : "Bi-set e técnica de intensidade em acessórios estáveis; nunca em padrão doloroso.";
   const rules: WeekRule[] = [
-    { week: 1, block: "base", stimulus: "Aprender o treino e calibrar cargas", rir: "3-4", volume_percent: 80, tempo_focus: "3-1-1-0", method_focus: "Séries retas", instruction: "Controle três segundos na descida, faça uma pausa curta e termine cada série com técnica limpa." },
-    { week: 2, block: "base", stimulus: "Consolidar técnica e alcançar o topo das repetições", rir: "3-4", volume_percent: 90, tempo_focus: "3-0-1-1", method_focus: "Séries retas", instruction: "Mantenha a carga e tente avançar dentro da faixa de repetições sem perder a cadência." },
-    { week: 3, block: "acumulacao", stimulus: "Aumentar volume útil com controle", rir: safeOnly ? "3" : "2-3", volume_percent: 100, tempo_focus: "3-0-1-0", method_focus: safeOnly ? "Séries retas" : "Rest-pause em um acessório", instruction: safeOnly ? "Progrida repetições apenas se não houver dor ou quebra técnica." : "Nos acessórios marcados, use rest-pause somente na última série." },
-    { week: 4, block: "acumulacao", stimulus: "Acumular repetições de qualidade", rir: safeOnly ? "3" : "2-3", volume_percent: 105, tempo_focus: "2-1-1-0", method_focus: safeOnly ? "Séries retas" : "Drop-set em um acessório", instruction: safeOnly ? "Mantenha o volume e refine a execução antes de subir carga." : "Nos acessórios marcados, faça um único drop apenas na última série." },
-    { week: 5, block: "intensificacao", stimulus: "Elevar densidade sem sacrificar execução", rir: safeOnly ? "3" : "2", volume_percent: 105, tempo_focus: "2-0-1-0", method_focus: safeOnly ? "Séries retas" : "Bi-set seguro", instruction: safeOnly ? "Sem falha e sem técnicas avançadas; respeite o limite técnico do dia." : "Faça os exercícios com a mesma marcação de bi-set em sequência e descanse ao terminar o par." },
-    { week: 6, block: "intensificacao", stimulus: "Consolidar o bloco com intensidade controlada", rir: safeOnly ? "3-4" : "2", volume_percent: 100, tempo_focus: "2-0-1-0", method_focus: finalMethod, instruction: safeOnly ? "Consolide o treino sem forçar progressão; o feedback desta semana orienta o próximo ciclo." : "A técnica marcada vale somente para o acessório indicado e para na primeira perda de execução." },
+    { week: 1, block: "base", stimulus: "Aprender o treino e calibrar cargas", rir: "3-4", volume_percent: 80, tempo_focus: "3-1-1-0", method_focus: "Método técnico de baixa fadiga", instruction: "Controle três segundos na descida, faça uma pausa curta e termine cada série com técnica limpa." },
+    { week: 2, block: "base", stimulus: "Consolidar técnica e alcançar o topo das repetições", rir: "3-4", volume_percent: 90, tempo_focus: "3-0-1-1", method_focus: "Método técnico de baixa fadiga", instruction: "Mantenha a carga e tente avançar dentro da faixa de repetições sem perder a cadência." },
+    { week: 3, block: "acumulacao", stimulus: "Aumentar volume útil com controle", rir: "2-3", volume_percent: 100, tempo_focus: "3-0-1-0", method_focus: "Métodos de tensão e agrupamento", instruction: "Progrida repetições e use o método sinalizado sem ultrapassar o volume planejado." },
+    { week: 4, block: "acumulacao", stimulus: "Acumular repetições de qualidade", rir: "2-3", volume_percent: 105, tempo_focus: "2-1-1-0", method_focus: "Métodos de tensão e agrupamento", instruction: "Aplique o método sinalizado somente com execução estável." },
+    { week: 5, block: "intensificacao", stimulus: "Elevar densidade sem sacrificar execução", rir: "2", volume_percent: 105, tempo_focus: "2-0-1-0", method_focus: "Agrupamento e intensidade controlada", instruction: "Execute os métodos sinalizados e preserve a técnica nas duas séries finais." },
+    { week: 6, block: "intensificacao", stimulus: "Consolidar o bloco com intensidade controlada", rir: "2", volume_percent: 100, tempo_focus: "2-0-1-0", method_focus: "Variação final de método", instruction: "Consolide o bloco e registre o desempenho para orientar a renovação." },
   ];
   return rules.slice(0, duration);
 }
 
-function adjustedSets(exercise: TrainingExercise, rule: WeekRule, input: PrescriptionInput): number {
-  const base = Math.max(1, Number(exercise.sets) || 1);
-  // O volume de deload já foi reduzido quando o exercício-base foi criado.
-  // Reduzir novamente aqui faria o treino publicado cair para ~25% do volume normal.
+const LOW_VOLUME_PHASES = new Set(["mobilidade", "autoliberacao", "alongamento", "fisioterapia"]);
+
+function allocateWeeklySets(exercises: TrainingExercise[], rule: WeekRule, input: PrescriptionInput): number[] {
+  const base = exercises.map((exercise) => Math.max(1, Number(exercise.sets) || 1));
   if (input.deload) return base;
-  if (rule.week === 1 && /forca_/.test(exercise.phase)) return Math.max(1, base - 1);
-  return base;
+  const minimums = exercises.map((exercise) => {
+    if (LOW_VOLUME_PHASES.has(exercise.phase)) return 1;
+    if (exercise.phase === "ativacao_core") return Math.min(3, Math.max(1, Number(exercise.sets) || 1));
+    return Math.min(2, Math.max(1, Number(exercise.sets) || 1));
+  });
+  const baseTotal = base.reduce((sum, sets) => sum + sets, 0);
+  const minimumTotal = minimums.reduce((sum, sets) => sum + sets, 0);
+  const targetTotal = Math.max(minimumTotal, Math.round(baseTotal * rule.volume_percent / 100));
+  const sets = [...base];
+
+  const reductionOrder = exercises.map((exercise, index) => ({ exercise, index }))
+    .sort((left, right) => {
+      const priority = (phase: string) => phase === "forca_especifica" ? 3 : phase === "forca_global" ? 2 : LOW_VOLUME_PHASES.has(phase) ? 1 : 0;
+      return priority(right.exercise.phase) - priority(left.exercise.phase) || right.index - left.index;
+    });
+  while (sets.reduce((sum, value) => sum + value, 0) > targetTotal) {
+    const candidate = reductionOrder.find(({ index }) => sets[index] > minimums[index]);
+    if (!candidate) break;
+    sets[candidate.index] -= 1;
+  }
+
+  const growthOrder = exercises.map((exercise, index) => ({ exercise, index }))
+    .filter(({ exercise }) => exercise.phase === "forca_global" || exercise.phase === "forca_especifica")
+    .map(({ index }) => index);
+  let cursor = 0;
+  while (growthOrder.length && sets.reduce((sum, value) => sum + value, 0) < targetTotal) {
+    sets[growthOrder[cursor % growthOrder.length]] += 1;
+    cursor += 1;
+  }
+  return sets;
 }
 
 function methodInstruction(method: MethodId | null | undefined, base: string): string {
@@ -126,28 +151,11 @@ function hasHighFatigue(input: PrescriptionInput) {
       .map((value) => typeof value === "string" ? value : JSON.stringify(value || {})).join(" "));
 }
 
-function isExperiencedForFailure(input: PrescriptionInput) {
-  const months = Number(input.experienceMonths);
-  return Number.isFinite(months) && months >= 12;
-}
-
 function isFailureEligible(exercise: PlannedExercise, input: PrescriptionInput) {
-  const objective = normalizeText(input.objective);
-  const equipment = normalizeText(exercise.equipment || exercise.exercise_name);
   const name = normalizeText(exercise.exercise_name);
-  const objectiveEligible = /hipertrof|massa|forca|performance|recompos/.test(objective) || !objective;
-  return objectiveEligible
-    && isExperiencedForFailure(input)
-    && !input.deload
-    && !shouldHoldProgression(input)
-    && !hasRedFlags(input)
-    && !hasHighFatigue(input)
-    && !input.isEnduranceAthlete
-    && !input.runningDaysContext
-    && !exercise.painful
-    && exercise.phase === "forca_especifica"
-    && /(maquina|máquina|cabo|polia|cadeira|mesa|flexora|extensora|voador|crucifixo)/.test(equipment)
-    && !/(agachamento|terra|levantamento|good morning|desenvolvimento|clean|snatch|thruster)/.test(name);
+  return !exercise.painful
+    && !LOW_VOLUME_PHASES.has(exercise.phase)
+    && !/(agachamento livre|terra|levantamento|good morning|clean|snatch|thruster)/.test(name);
 }
 
 function buildSetTypes(
@@ -162,22 +170,40 @@ function buildSetTypes(
   );
   if (PREPARATION_PHASES.has(exercise.phase)) return types;
 
-  const safeOnly = shouldHoldProgression(input) || Boolean(input.deload) || resolveLevel(input) === "iniciante";
   if (exercise.phase === "forca_global" && types.length > 1) types[0] = "warmup";
-  if (safeOnly) return types;
-
-  if ((exercise.method === "dropset" || exercise.method === "restpause") && isFailureEligible(exercise, input)) {
-    types[types.length - 1] = "failure";
-  }
   return types;
+}
+
+function applySessionSetTypePolicy(exercises: PlannedExercise[], week: number, input: PrescriptionInput) {
+  const prescriptions = exercises.map((exercise) => exercise.weekly_prescription?.find((item) => item.week === week));
+  prescriptions.forEach((prescription) => {
+    if (prescription) prescription.set_types = Array.from({ length: prescription.sets }, () => "normal");
+  });
+  const warmupIndex = exercises.findIndex((exercise) => exercise.phase === "forca_global") >= 0
+    ? exercises.findIndex((exercise) => exercise.phase === "forca_global")
+    : exercises.findIndex((exercise) => !LOW_VOLUME_PHASES.has(exercise.phase));
+  if (warmupIndex >= 0 && prescriptions[warmupIndex]?.set_types?.length) {
+    prescriptions[warmupIndex]!.set_types![0] = "warmup";
+  }
+
+  const failureCandidates = exercises.map((exercise, index) => ({ exercise, index }))
+    .filter(({ exercise, index }) => isFailureEligible(exercise, input) && (prescriptions[index]?.sets || 0) >= 2);
+  const failure = [...failureCandidates].reverse().find(({ index }) => index !== warmupIndex)
+    || [...failureCandidates].reverse().find(({ index }) => index === warmupIndex && (prescriptions[index]?.sets || 0) >= 3);
+  if (failure) {
+    const types = prescriptions[failure.index]?.set_types;
+    if (types) {
+      for (let index = Math.max(0, types.length - 2); index < types.length; index += 1) types[index] = "failure";
+    }
+  }
 }
 
 function prescriptionForWeek(
   exercise: PlannedExercise,
   rule: WeekRule,
   input: PrescriptionInput,
+  sets: number,
 ): WeeklyExercisePrescription {
-  const sets = adjustedSets(exercise, rule, input);
   return {
     week: rule.week,
     block: rule.block,
@@ -193,6 +219,59 @@ function prescriptionForWeek(
     set_types: buildSetTypes(exercise, sets, rule, input),
     instruction: methodInstruction(exercise.method, rule.instruction),
   };
+}
+
+function enforceWeeklyPeriodizationCaps(
+  workouts: Array<TrainingWorkout & { exercises: PlannedExercise[] }>,
+  rules: WeekRule[],
+  input: PrescriptionInput,
+) {
+  const reductionPriority = (phase: string) => phase === "forca_especifica" ? 3 : phase === "forca_global" ? 2 : 1;
+  const exercises = workouts.flatMap((workout) => workout.exercises).map((exercise) => ({
+    exercise,
+    factors: exerciseGroupFactors(exercise),
+  }));
+  for (const rule of rules) {
+    const candidates = exercises.map(({ exercise, factors }) => ({
+      exercise,
+      factors,
+      prescription: exercise.weekly_prescription?.find((week) => week.week === rule.week),
+    }));
+    const counts = new Map<string, number>();
+    let totalSets = 0;
+    for (const candidate of candidates) {
+      const sets = candidate.prescription?.sets || 0;
+      totalSets += sets;
+      for (const [group, factor] of candidate.factors) {
+        counts.set(group, (counts.get(group) || 0) + sets * factor);
+      }
+    }
+
+    for (let iteration = 0; iteration < totalSets; iteration += 1) {
+      let over: { group: string; excess: number } | null = null;
+      for (const [group, sets] of counts) {
+        const excess = sets - getVolumeRangeForGroup(group, input.fitnessLevel, input).mrv;
+        if (excess > 1e-9 && (!over || excess > over.excess)) over = { group, excess };
+      }
+      if (!over) break;
+
+      let candidate: typeof candidates[number] | null = null;
+      for (const current of candidates) {
+        if ((current.factors.get(over.group) || 0) <= 0 || (current.prescription?.sets || 0) <= 1) continue;
+        if (!candidate || reductionPriority(current.exercise.phase) > reductionPriority(candidate.exercise.phase) ||
+          (reductionPriority(current.exercise.phase) === reductionPriority(candidate.exercise.phase) &&
+            (current.prescription?.sets || 0) > (candidate.prescription?.sets || 0))) {
+          candidate = current;
+        }
+      }
+      if (!candidate?.prescription) break;
+      candidate.prescription.sets -= 1;
+      candidate.prescription.set_types = Array.from({ length: candidate.prescription.sets }, () => "normal");
+      for (const [group, factor] of candidate.factors) {
+        counts.set(group, Math.max(0, (counts.get(group) || 0) - factor));
+      }
+    }
+  }
 }
 
 export function buildWeeklyPeriodization(
@@ -215,17 +294,10 @@ export function buildWeeklyPeriodization(
     }));
     const prescriptions = new Map<number, PlannedExercise[]>();
     for (const rule of rules) {
-      const planned = input.deload
-        ? methodReadyExercises.map((exercise) => ({
-            ...exercise,
-            method: null,
-            group_id: null,
-            method_seconds: null,
-          }))
-        : planAdvancedMethods(methodReadyExercises, {
+      const planned = planAdvancedMethods(methodReadyExercises, {
             mesocycle: rule.block === "deload" ? "base" : rule.block,
             level,
-            microcycle: rule.block === "intensificacao" ? "choque" : "ordinario",
+            microcycle: rule.block === "deload" ? "regenerativo" : rule.block === "intensificacao" ? "choque" : "ordinario",
             week: rule.week,
             hasPain: blocked,
             hasRedFlags: hasRedFlags(input),
@@ -243,25 +315,35 @@ export function buildWeeklyPeriodization(
       );
     }
 
+    const setsByWeek = new Map(rules.map((rule) => [rule.week, allocateWeeklySets(methodReadyExercises, rule, input)]));
+    const exercisesWithWeeks = workout.exercises.map((exercise, exerciseIndex) => {
+      const weeklyPrescription = rules.map((rule) => {
+        const planned = prescriptions.get(rule.week)?.[exerciseIndex] || methodReadyExercises[exerciseIndex];
+        if (planned.method) methodSets.get(rule.week)?.add(planned.method);
+        return prescriptionForWeek(planned, rule, input, setsByWeek.get(rule.week)?.[exerciseIndex] || 1);
+      });
+      return {
+        ...exercise,
+        method: null,
+        group_id: null,
+        method_seconds: null,
+        set_types: weeklyPrescription[0]?.set_types || exercise.set_types,
+        weekly_prescription: weeklyPrescription,
+      } as PlannedExercise;
+    });
     return {
       ...workout,
-      exercises: workout.exercises.map((exercise, exerciseIndex) => {
-        const weeklyPrescription = rules.map((rule) => {
-          const planned = prescriptions.get(rule.week)?.[exerciseIndex] || methodReadyExercises[exerciseIndex];
-          if (planned.method) methodSets.get(rule.week)?.add(planned.method);
-          return prescriptionForWeek(planned, rule, input);
-        });
-        return {
-          ...exercise,
-          method: null,
-          group_id: null,
-          method_seconds: null,
-          set_types: weeklyPrescription[0]?.set_types || exercise.set_types,
-          weekly_prescription: weeklyPrescription,
-        };
-      }),
+      exercises: exercisesWithWeeks,
     };
   });
+
+  enforceWeeklyPeriodizationCaps(nextWorkouts, rules, input);
+  for (const workout of nextWorkouts) {
+    for (const rule of rules) applySessionSetTypePolicy(workout.exercises, rule.week, input);
+    for (const exercise of workout.exercises) {
+      exercise.set_types = exercise.weekly_prescription?.[0]?.set_types || exercise.set_types;
+    }
+  }
 
   const weeks = rules.map((rule) => ({
     ...rule,

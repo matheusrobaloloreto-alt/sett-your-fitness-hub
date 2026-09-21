@@ -13,6 +13,7 @@ import { FUNNEL_STAGE_META, normalizeSalesStage, stageNextAction } from "@/lib/s
 import { fiscalRegistrationValidation } from "@/lib/fiscalRegistration";
 import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
+import type { ReactNode } from "react";
 
 interface Birthday { full_name: string; birth_date: string; student_id: string; isToday: boolean; day: number; }
 interface MissingWorkout { student_name: string; student_id: string; cycle_number: number; cycle_id: string; start_date: string; end_date: string; trainer_name?: string; }
@@ -60,6 +61,7 @@ interface Props {
   compact?: boolean;
   readOnly?: boolean;
   showRecentStudents?: boolean;
+  birthdayCompanion?: ReactNode;
 }
 
 async function fetchAlerts(
@@ -194,7 +196,7 @@ async function fetchAlerts(
   return { birthdays, missingWorkouts, awaitingTrainer, awaitingTrainingDate, missingEnrollment, incompleteBilling, recentStudents };
 }
 
-export function DashboardAlerts({ trainerId, compact = false, readOnly = false, showRecentStudents = true }: Props) {
+export function DashboardAlerts({ trainerId, compact = false, readOnly = false, showRecentStudents = true, birthdayCompanion }: Props) {
   const { role, companyId, user } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const navigate = useNavigate();
@@ -613,8 +615,10 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
         </Card>
       )}
 
-      {birthdays.length > 0 && (
-        <Card className="bg-card border-border">
+      {(birthdays.length > 0 || birthdayCompanion) && (
+        <div className="grid grid-cols-1 gap-4 lg:col-span-3 lg:grid-cols-2">
+          {birthdayCompanion && <div className={birthdays.length > 0 ? "" : "lg:col-span-2"}>{birthdayCompanion}</div>}
+          {birthdays.length > 0 && <Card className="bg-card border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-primary text-lg flex items-center gap-2">
               <Cake className="h-5 w-5" />ANIVERSÁRIOS DO MÊS
@@ -647,7 +651,8 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
               ))}
             </div>
           </CardContent>
-        </Card>
+          </Card>}
+        </div>
       )}
 
     </div>
