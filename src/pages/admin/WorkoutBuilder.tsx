@@ -34,8 +34,12 @@ import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetail
 import { loadStudentPreRegistration, updateStudentPreRegistration } from "@/lib/preRegistrationData";
 import {
   copyWeeklyPrescriptionMetrics,
+  defaultWeeklyTempoForUiVersion,
+  individualWeeklyUiVersionForLoadedWorkouts,
   INDIVIDUAL_WEEKLY_UI_VERSION,
+  weeklySetTypesForSets,
   weeklyPrescriptionModeForLoadedWorkouts,
+  type IndividualWeeklyUiVersion,
   type StoredWeeklyExercisePrescription,
   type WeeklyPrescriptionMode,
 } from "@/lib/weeklyStrengthPeriodization";
@@ -90,6 +94,7 @@ interface WorkoutExercise {
   set_types?: string[];
   weekly_prescription?: StoredWeeklyExercisePrescription[];
   weekly_ui_version?: string;
+  tempo?: string | null;
 }
 
 interface Workout {
@@ -204,24 +209,34 @@ const parseRestSeconds = (value: string | number | null | undefined) => {
   return Number.isFinite(parsed) ? parsed : 60;
 };
 
-const ensureWeeklyPrescription = (exercise: WorkoutExercise): StoredWeeklyExercisePrescription[] => {
+const ensureWeeklyPrescription = (
+  exercise: WorkoutExercise,
+  uiVersion: IndividualWeeklyUiVersion,
+): StoredWeeklyExercisePrescription[] => {
   const stored = Array.isArray(exercise.weekly_prescription) ? exercise.weekly_prescription : [];
+  const defaultTempo = defaultWeeklyTempoForUiVersion(uiVersion);
   return Array.from({ length: 6 }, (_, index) => {
     const week = index + 1;
     const current = stored.find((item) => Number(item.week) === week);
+    const sets = Number(current?.sets) || Number.parseInt(exercise.sets, 10) || 3;
+    const inheritedSetTypes = uiVersion === INDIVIDUAL_WEEKLY_UI_VERSION
+      ? (current?.set_types?.length ? current.set_types : exercise.set_types)
+      : (current?.set_types || exercise.set_types);
     return {
       week,
       block: week <= 2 ? "base" : week <= 4 ? "acumulacao" : "intensificacao",
-      sets: Number(current?.sets) || Number.parseInt(exercise.sets, 10) || 3,
+      sets,
       reps: String(current?.reps || exercise.reps || "12"),
       rir: String(current?.rir || ""),
       rest_seconds: Number(current?.rest_seconds) || parseRestSeconds(exercise.rest),
-      tempo: String(current?.tempo || ""),
+      tempo: String(current?.tempo || defaultTempo),
       method: current?.method ?? exercise.method ?? null,
       group_id: current?.group_id ?? exercise.group_id ?? null,
       method_seconds: current?.method_seconds ?? exercise.method_seconds ?? null,
       method_reason: current?.method_reason ?? null,
-      set_types: sanitizeSetTypes(current?.set_types || exercise.set_types) || [],
+      set_types: uiVersion === INDIVIDUAL_WEEKLY_UI_VERSION
+        ? weeklySetTypesForSets(inheritedSetTypes, sets)
+        : sanitizeSetTypes(inheritedSetTypes) || [],
       instruction: String(current?.instruction || exercise.notes || "Siga a orientação do professor."),
     };
   });
@@ -230,17 +245,33 @@ const ensureWeeklyPrescription = (exercise: WorkoutExercise): StoredWeeklyExerci
 const updateWeeklyBlock = (
   exercise: WorkoutExercise,
   startWeek: number,
-  field: "sets" | "reps" | "rest_seconds" | "instruction",
+  field: "sets" | "reps" | "rest_seconds" | "tempo" | "instruction",
   value: string,
-) => ensureWeeklyPrescription(exercise).map((item) => {
+  uiVersion: IndividualWeeklyUiVersion,
+) => ensureWeeklyPrescription(exercise, uiVersion).map((item) => {
   if (item.week !== startWeek) return item;
-  if (field === "sets") return { ...item, sets: Math.max(1, Number.parseInt(value, 10) || 1) };
+  if (field === "sets") {
+    const sets = Math.max(1, Number.parseInt(value, 10) || 1);
+    return {
+      ...item,
+      sets,
+      set_types: uiVersion === INDIVIDUAL_WEEKLY_UI_VERSION
+        ? weeklySetTypesForSets(item.set_types, sets)
+        : item.set_types,
+    };
+  }
   if (field === "rest_seconds") return { ...item, rest_seconds: Math.max(0, Number.parseInt(value, 10) || 0) };
+  if (field === "tempo") return { ...item, tempo: value.trim() || defaultWeeklyTempoForUiVersion(uiVersion) };
   return { ...item, [field]: value };
 });
 
-const updateWeeklyMethod = (exercise: WorkoutExercise, startWeek: number, method: MethodId | null) => (
-  ensureWeeklyPrescription(exercise).map((item) => {
+const updateWeeklyMethod = (
+  exercise: WorkoutExercise,
+  startWeek: number,
+  method: MethodId | null,
+  uiVersion: IndividualWeeklyUiVersion,
+) => (
+  ensureWeeklyPrescription(exercise, uiVersion).map((item) => {
     if (item.week !== startWeek) return item;
     return {
       ...item,
@@ -250,6 +281,68 @@ const updateWeeklyMethod = (exercise: WorkoutExercise, startWeek: number, method
     };
   })
 );
+
+const updateWeeklySetTypes = (
+  exercise: WorkoutExercise,
+  startWeek: number,
+  setTypes: string[],
+  uiVersion: IndividualWeeklyUiVersion,
+) => ensureWeeklyPrescription(exercise, uiVersion).map((item) => item.week === startWeek
+  ? { ...item, set_types: weeklySetTypesForSets(setTypes, item.sets) }
+  : item);
+
+function SetTypesEditor({
+  sets,
+  currentTypes,
+  disabled,
+  label = "Tipos de séries",
+  onChange,
+}: {
+  sets: number;
+  currentTypes?: string[];
+  disabled?: boolean;
+  label?: string;
+  onChange: (setTypes: string[]) => void;
+}) {
+  const normalizedTypes = weeklySetTypesForSets(currentTypes, sets);
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground font-sans">{label}</Label>
+      <div className="flex flex-wrap gap-1.5">
+        {normalizedTypes.map((type, index) => {
+          const normalizedType = normalizeSetType(type);
+          const config: Record<string, { label: string; color: string }> = {
+            warmup: { label: "W", color: "bg-yellow-400/20 text-yellow-400 border-yellow-400/40" },
+            normal: { label: `${index + 1}`, color: "bg-muted text-foreground border-border" },
+            failure: { label: "F", color: "bg-red-400/20 text-red-400 border-red-400/40" },
+          };
+          const appearance = config[normalizedType] || config.normal;
+          return (
+            <Select
+              key={index}
+              value={normalizedType}
+              disabled={disabled}
+              onValueChange={(value) => {
+                const nextTypes = [...normalizedTypes];
+                nextTypes[index] = value;
+                onChange(nextTypes);
+              }}
+            >
+              <SelectTrigger className={`h-7 w-10 justify-center border px-0 text-xs font-bold ${appearance.color}`}>
+                <span>{appearance.label}</span>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="warmup">W — Aquecimento</SelectItem>
+                <SelectItem value="normal">Normal</SelectItem>
+                <SelectItem value="failure">F — Falha</SelectItem>
+              </SelectContent>
+            </Select>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function WeeklyPrescriptionCopyMenu({
   sourceWeek,
@@ -311,16 +404,27 @@ function WeeklyPrescriptionCopyMenu({
 const workoutRevisionPayload = (
   draft: Workout[],
   weeklyPrescriptionMode: WeeklyPrescriptionMode,
+  weeklyUiVersion: IndividualWeeklyUiVersion,
 ) => sanitizeWorkoutSetTypes(draft).map((workout, workoutIndex) => ({
   title: workout.title || `Treino ${WORKOUT_LABELS[workoutIndex] || workoutIndex + 1}`,
   description: workout.description || null,
   day_of_week: workout.day_of_week ?? workoutIndex + 1,
   exercises: workout.exercises.map((exercise) => {
     if (weeklyPrescriptionMode === "weekly") {
+      const weeklyPrescription = ensureWeeklyPrescription(exercise, weeklyUiVersion);
+      const firstWeek = weeklyPrescription[0];
       return {
         ...exercise,
-        weekly_prescription: ensureWeeklyPrescription(exercise),
-        weekly_ui_version: INDIVIDUAL_WEEKLY_UI_VERSION,
+        ...(weeklyUiVersion === INDIVIDUAL_WEEKLY_UI_VERSION ? {
+          sets: String(firstWeek.sets),
+          reps: firstWeek.reps,
+          rest: `${firstWeek.rest_seconds}s`,
+          notes: firstWeek.instruction || exercise.notes,
+          set_types: firstWeek.set_types,
+          tempo: firstWeek.tempo,
+        } : {}),
+        weekly_prescription: weeklyPrescription,
+        weekly_ui_version: weeklyUiVersion,
       };
     }
 
@@ -396,6 +500,9 @@ export default function WorkoutBuilder() {
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [workoutRevisionSnapshot, setWorkoutRevisionSnapshot] = useState<Array<{ id: string; updated_at: string }>>([]);
   const [weeklyPrescriptionMode, setWeeklyPrescriptionMode] = useState<WeeklyPrescriptionMode>("weekly");
+  const [weeklyUiVersion, setWeeklyUiVersion] = useState<IndividualWeeklyUiVersion>(INDIVIDUAL_WEEKLY_UI_VERSION);
+  const usesLatestWeeklyLayout = weeklyPrescriptionMode === "weekly"
+    && weeklyUiVersion === INDIVIDUAL_WEEKLY_UI_VERSION;
   const [activeTab, setActiveTab] = useState("0");
   const [editingWeekStart, setEditingWeekStart] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -528,9 +635,12 @@ export default function WorkoutBuilder() {
   useEffect(() => {
     if (isTemplate) {
       setWorkoutRevisionSnapshot([]);
-      setWeeklyPrescriptionMode("weekly");
       if (tplId && tplId !== "new") loadTemplate(tplId);
-      else setWorkouts([{ title: "Treino A", description: "", exercises: [] }]);
+      else {
+        setWeeklyPrescriptionMode("weekly");
+        setWeeklyUiVersion(INDIVIDUAL_WEEKLY_UI_VERSION);
+        setWorkouts([{ title: "Treino A", description: "", exercises: [] }]);
+      }
     } else if (cycleId) {
       loadExisting();
       loadCycleInfo();
@@ -550,8 +660,11 @@ export default function WorkoutBuilder() {
     if (data) {
       setTemplateName(data.name || "");
       const ws = Array.isArray(data.workouts) ? data.workouts : [];
+      const normalized = ws.length ? sanitizeWorkoutSetTypes(ws) : [{ title: "Treino A", description: "", exercises: [] }];
       setWorkoutRevisionSnapshot([]);
-      setWorkouts(ws.length ? sanitizeWorkoutSetTypes(ws) : [{ title: "Treino A", description: "", exercises: [] }]);
+      setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(normalized));
+      setWeeklyUiVersion(individualWeeklyUiVersionForLoadedWorkouts(normalized) || INDIVIDUAL_WEEKLY_UI_VERSION);
+      setWorkouts(normalized);
     }
   };
 
@@ -560,8 +673,9 @@ export default function WorkoutBuilder() {
     if (!name) { toast({ title: "Dê um nome ao treino da biblioteca", variant: "destructive" }); return; }
     if (workouts.some((w) => !w.title)) { toast({ title: "Preencha o título de todos os treinos", variant: "destructive" }); return; }
     setSaving(true);
+    const templateWorkouts = workoutRevisionPayload(workouts, weeklyPrescriptionMode, weeklyUiVersion);
     const { error } = await (supabase as any).from("workout_templates")
-      .update({ name, workouts: sanitizeWorkoutSetTypes(workouts) as any, updated_at: new Date().toISOString() }).eq("id", tplId);
+      .update({ name, workouts: templateWorkouts as any, updated_at: new Date().toISOString() }).eq("id", tplId);
     setSaving(false);
     if (error) { toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" }); return; }
     toast({ title: "Treino salvo na biblioteca!" });
@@ -573,8 +687,9 @@ export default function WorkoutBuilder() {
     const name = window.prompt("Salvar na biblioteca de treinos como:", templateName || (cycleInfo ? `Treino — ${cycleInfo.student_name}` : "Novo treino"));
     if (!name || !name.trim()) return;
     if (!effectiveCompanyId) { toast({ title: "Sem empresa em foco para salvar o template", variant: "destructive" }); return; }
+    const templateWorkouts = workoutRevisionPayload(workouts, weeklyPrescriptionMode, weeklyUiVersion);
     const { error } = await (supabase as any).from("workout_templates").insert({
-      company_id: effectiveCompanyId, name: name.trim(), workouts: sanitizeWorkoutSetTypes(workouts) as any, created_by: user?.id || null,
+      company_id: effectiveCompanyId, name: name.trim(), workouts: templateWorkouts as any, created_by: user?.id || null,
     });
     if (error) { toast({ title: "Erro", description: error.message, variant: "destructive" }); return; }
     toast({ title: "Salvo na biblioteca de treinos!" });
@@ -655,6 +770,7 @@ export default function WorkoutBuilder() {
     try {
       const loaded = await fetchExistingWorkouts();
       setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(loaded));
+      setWeeklyUiVersion(individualWeeklyUiVersionForLoadedWorkouts(loaded) || INDIVIDUAL_WEEKLY_UI_VERSION);
       setWorkouts(loaded);
       setWorkoutRevisionSnapshot(workoutRevisionRows(loaded));
     } catch (error) {
@@ -1004,7 +1120,7 @@ export default function WorkoutBuilder() {
       const saved = await saveCycleWorkoutRevision(supabase as any, {
         cycleId: cycleId!,
         expectedRows: workoutRevisionSnapshot,
-        workouts: workoutRevisionPayload(draftWorkouts, weeklyPrescriptionMode),
+        workouts: workoutRevisionPayload(draftWorkouts, weeklyPrescriptionMode, weeklyUiVersion),
       });
       let confirmedWorkouts: Workout[] | null = null;
       try {
@@ -1052,6 +1168,7 @@ export default function WorkoutBuilder() {
     if (!keepDraft) {
       setWorkouts(revisionConflict.latest);
       setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(revisionConflict.latest));
+      setWeeklyUiVersion(individualWeeklyUiVersionForLoadedWorkouts(revisionConflict.latest) || INDIVIDUAL_WEEKLY_UI_VERSION);
       setWorkoutRevisionSnapshot(workoutRevisionRows(revisionConflict.latest));
       setActiveTab("0");
       setRevisionConflict(null);
@@ -1064,7 +1181,7 @@ export default function WorkoutBuilder() {
       const saved = await saveCycleWorkoutRevision(supabase as any, {
         cycleId,
         expectedRows: workoutRevisionRows(revisionConflict.latest),
-        workouts: workoutRevisionPayload(revisionConflict.draft, weeklyPrescriptionMode),
+        workouts: workoutRevisionPayload(revisionConflict.draft, weeklyPrescriptionMode, weeklyUiVersion),
       });
       let confirmedWorkouts: Workout[] | null = null;
       try {
@@ -1153,18 +1270,26 @@ export default function WorkoutBuilder() {
           name: workout.title,
           description: workout.description,
           day_of_week: workout.day_of_week ?? workoutIndex + 1,
-          exercises: workout.exercises.map((exercise, exerciseIndex) => ({
-            phase: "forca_global",
-            exercise_id: exercise.exercise_id,
-            exercise_name: exercise.exercise_name,
-            muscle_group: exercise.muscle_group,
-            sets: Number.parseInt(exercise.sets, 10) || 0,
-            reps: exercise.reps,
-            rest_seconds: Number.parseInt(exercise.rest, 10) || 0,
-            exercise_order: exerciseIndex + 1,
-            notes: exercise.notes,
-            set_types: sanitizeSetTypes(exercise.set_types) || [],
-          })),
+          exercises: workout.exercises.map((exercise, exerciseIndex) => {
+            const weeklyPrescription = usesLatestWeeklyLayout
+              ? ensureWeeklyPrescription(exercise, weeklyUiVersion)
+              : undefined;
+            const firstWeek = weeklyPrescription?.[0];
+            return {
+              phase: "forca_global",
+              exercise_id: exercise.exercise_id,
+              exercise_name: exercise.exercise_name,
+              muscle_group: exercise.muscle_group,
+              sets: firstWeek?.sets ?? (Number.parseInt(exercise.sets, 10) || 0),
+              reps: firstWeek?.reps ?? exercise.reps,
+              rest_seconds: firstWeek?.rest_seconds ?? (Number.parseInt(exercise.rest, 10) || 0),
+              tempo: firstWeek?.tempo || exercise.tempo || "",
+              exercise_order: exerciseIndex + 1,
+              notes: firstWeek?.instruction ?? exercise.notes,
+              set_types: firstWeek?.set_types || sanitizeSetTypes(exercise.set_types) || [],
+              weekly_prescription: weeklyPrescription,
+            };
+          }),
         })),
       };
       const { data, error } = await supabase.functions.invoke<{ result?: PrescriptionValidationResult; error?: string }>("ai-validate-prescription", {
@@ -1200,11 +1325,21 @@ export default function WorkoutBuilder() {
   };
 
   // Volume calculation
+  const volumeWorkouts = useMemo(() => usesLatestWeeklyLayout
+    ? workouts.map((workout) => ({
+      ...workout,
+      exercises: workout.exercises.map((exercise) => {
+        const selectedWeek = ensureWeeklyPrescription(exercise, weeklyUiVersion)
+          .find((item) => item.week === editingWeekStart);
+        return selectedWeek ? { ...exercise, sets: String(selectedWeek.sets) } : exercise;
+      }),
+    }))
+    : workouts, [editingWeekStart, usesLatestWeeklyLayout, weeklyUiVersion, workouts]);
   const weeklyVolumeResult = useMemo(() => calculateWeeklyMuscleVolume({
-    workouts,
+    workouts: volumeWorkouts,
     targets: muscleTargets,
     muscleGroups: muscleGroupsList,
-  }), [workouts, muscleTargets, muscleGroupsList]);
+  }), [volumeWorkouts, muscleTargets, muscleGroupsList]);
   const weeklyVolume = weeklyVolumeResult.volume;
   const uncoveredVolumeExercises = weeklyVolumeResult.uncoveredExerciseIds.length;
 
@@ -1754,98 +1889,65 @@ export default function WorkoutBuilder() {
                                   <Trash2 className="h-4 w-4 text-destructive" />
                                 </Button>
                               </div>
-                              <div className="grid grid-cols-2 gap-3 md:grid-cols-[minmax(4.5rem,0.7fr)_minmax(5.5rem,1fr)_minmax(5rem,0.8fr)_minmax(10rem,2fr)]">
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground font-sans">Séries</Label>
-                                  <Input
-                                    value={ex.sets}
-                                    onChange={(e) => updateExercise(wIdx, exIdx, "sets", e.target.value)}
-                                    className="bg-secondary border-border h-8 text-sm"
-                                    placeholder="3"
-                                    disabled={saving}
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground font-sans">Repetições</Label>
-                                  <Input
-                                    value={ex.reps}
-                                    onChange={(e) => updateExercise(wIdx, exIdx, "reps", e.target.value)}
-                                    className="bg-secondary border-border h-8 text-sm"
-                                    placeholder="12"
-                                    disabled={saving}
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground font-sans">Descanso</Label>
-                                  <Input
-                                    value={ex.rest}
-                                    onChange={(e) => updateExercise(wIdx, exIdx, "rest", e.target.value)}
-                                    className="bg-secondary border-border h-8 text-sm"
-                                    placeholder="60s"
-                                    disabled={saving}
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground font-sans">Observação</Label>
-                                  <Textarea
-                                    value={ex.notes}
-                                    onChange={(e) => updateExercise(wIdx, exIdx, "notes", e.target.value)}
-                                    className="bg-secondary border-border text-sm min-h-[60px]"
-                                    rows={2}
-                                    placeholder="Cadência 3-1-2"
-                                    disabled={saving}
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Set Types Config */}
-                              {(() => {
-                                const numSets = parseInt(ex.sets) || 3;
-                                const currentTypes: string[] = (ex as any).set_types || [];
-                                return (
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs text-muted-foreground font-sans">Tipos de Série</Label>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {Array.from({ length: numSets }, (_, s) => {
-                                        const type = normalizeSetType(currentTypes[s]);
-                                        const config: Record<string, { label: string; color: string }> = {
-                                          warmup: { label: 'W', color: 'bg-yellow-400/20 text-yellow-400 border-yellow-400/40' },
-                                          normal: { label: `${s + 1}`, color: 'bg-muted text-foreground border-border' },
-                                          failure: { label: 'F', color: 'bg-red-400/20 text-red-400 border-red-400/40' },
-                                        };
-                                        const c = config[type] || config.normal;
-                                        return (
-                                          <Select
-                                            key={s}
-                                            value={type}
-                                            disabled={saving}
-                                            onValueChange={(val) => {
-                                              const newTypes = [...currentTypes];
-                                              while (newTypes.length < numSets) newTypes.push('normal');
-                                              newTypes[s] = val;
-                                              updateExercise(wIdx, exIdx, "set_types" as any, newTypes as any);
-                                            }}
-                                          >
-                                            <SelectTrigger className={`h-7 w-10 text-xs font-bold border ${c.color} px-0 justify-center`}>
-                                              <span>{c.label}</span>
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                              <SelectItem value="warmup">W — Aquecimento</SelectItem>
-                                              <SelectItem value="normal">Normal</SelectItem>
-                                              <SelectItem value="failure">F — Falha</SelectItem>
-                                            </SelectContent>
-                                          </Select>
-                                        );
-                                      })}
+                              {!usesLatestWeeklyLayout && (
+                                <>
+                                  <div className="grid grid-cols-2 gap-3 md:grid-cols-[minmax(4.5rem,0.7fr)_minmax(5.5rem,1fr)_minmax(5rem,0.8fr)_minmax(10rem,2fr)]">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-muted-foreground font-sans">Séries</Label>
+                                      <Input
+                                        value={ex.sets}
+                                        onChange={(e) => updateExercise(wIdx, exIdx, "sets", e.target.value)}
+                                        className="bg-secondary border-border h-8 text-sm"
+                                        placeholder="3"
+                                        disabled={saving}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-muted-foreground font-sans">Repetições</Label>
+                                      <Input
+                                        value={ex.reps}
+                                        onChange={(e) => updateExercise(wIdx, exIdx, "reps", e.target.value)}
+                                        className="bg-secondary border-border h-8 text-sm"
+                                        placeholder="12"
+                                        disabled={saving}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-muted-foreground font-sans">Descanso</Label>
+                                      <Input
+                                        value={ex.rest}
+                                        onChange={(e) => updateExercise(wIdx, exIdx, "rest", e.target.value)}
+                                        className="bg-secondary border-border h-8 text-sm"
+                                        placeholder="60s"
+                                        disabled={saving}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-muted-foreground font-sans">Observação</Label>
+                                      <Textarea
+                                        value={ex.notes}
+                                        onChange={(e) => updateExercise(wIdx, exIdx, "notes", e.target.value)}
+                                        className="bg-secondary border-border text-sm min-h-[60px]"
+                                        rows={2}
+                                        placeholder="Cadência 3-1-2"
+                                        disabled={saving}
+                                      />
                                     </div>
                                   </div>
-                                );
-                              })()}
+                                  <SetTypesEditor
+                                    sets={Number.parseInt(ex.sets, 10) || 3}
+                                    currentTypes={ex.set_types}
+                                    disabled={saving}
+                                    label="Tipos de Série"
+                                    onChange={(setTypes) => updateExercise(wIdx, exIdx, "set_types", setTypes)}
+                                  />
+                                </>
+                              )}
 
                               {weeklyPrescriptionMode === "weekly" && (() => {
-                                const block = ensureWeeklyPrescription(ex).find((item) => item.week === editingWeekStart)!;
-                                const updateBlock = (field: "sets" | "reps" | "rest_seconds" | "instruction", value: string) => {
-                                  updateExercise(wIdx, exIdx, "weekly_prescription", updateWeeklyBlock(ex, editingWeekStart, field, value));
+                                const block = ensureWeeklyPrescription(ex, weeklyUiVersion).find((item) => item.week === editingWeekStart)!;
+                                const updateBlock = (field: "sets" | "reps" | "rest_seconds" | "tempo" | "instruction", value: string) => {
+                                  updateExercise(wIdx, exIdx, "weekly_prescription", updateWeeklyBlock(ex, editingWeekStart, field, value, weeklyUiVersion));
                                 };
                                 return (
                                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
@@ -1858,11 +1960,14 @@ export default function WorkoutBuilder() {
                                           wIdx,
                                           exIdx,
                                           "weekly_prescription",
-                                          copyWeeklyPrescriptionMetrics(ensureWeeklyPrescription(ex), editingWeekStart, targetWeeks),
+                                          copyWeeklyPrescriptionMetrics(ensureWeeklyPrescription(ex, weeklyUiVersion), editingWeekStart, targetWeeks),
                                         )}
                                       />
                                     </div>
-                                    <div className="grid grid-cols-2 gap-2 lg:grid-cols-[0.7fr_1fr_0.8fr_1.2fr_2fr]">
+                                    <div className={usesLatestWeeklyLayout
+                                      ? "grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-7"
+                                      : "grid grid-cols-2 gap-2 lg:grid-cols-[0.7fr_1fr_0.8fr_1.2fr_2fr]"}
+                                    >
                                       <div className="space-y-1">
                                         <Label className="text-[11px] text-muted-foreground">Séries</Label>
                                         <Input type="number" min={1} value={block.sets} onChange={(event) => updateBlock("sets", event.target.value)} className="h-8 bg-background" disabled={saving} />
@@ -1888,7 +1993,7 @@ export default function WorkoutBuilder() {
                                               wIdx,
                                               exIdx,
                                               "weekly_prescription",
-                                              updateWeeklyMethod(ex, editingWeekStart, value === "none" ? null : value as MethodId),
+                                              updateWeeklyMethod(ex, editingWeekStart, value === "none" ? null : value as MethodId, weeklyUiVersion),
                                             )}
                                             disabled={saving}
                                           >
@@ -1900,11 +2005,36 @@ export default function WorkoutBuilder() {
                                           </Select>
                                         )}
                                       </div>
-                                      <div className="space-y-1">
+                                      {usesLatestWeeklyLayout && (
+                                        <div className="space-y-1">
+                                          <Label className="text-[11px] text-muted-foreground">Cadência</Label>
+                                          <Input
+                                            value={block.tempo || defaultWeeklyTempoForUiVersion(weeklyUiVersion)}
+                                            onChange={(event) => updateBlock("tempo", event.target.value)}
+                                            className="h-8 bg-background"
+                                            placeholder="2020"
+                                            disabled={saving}
+                                          />
+                                        </div>
+                                      )}
+                                      <div className={usesLatestWeeklyLayout ? "col-span-2 space-y-1 xl:col-span-2" : "space-y-1"}>
                                         <Label className="text-[11px] text-muted-foreground">Observação</Label>
                                         <Input value={block.instruction || ""} onChange={(event) => updateBlock("instruction", event.target.value)} className="h-8 bg-background" disabled={saving} />
                                       </div>
                                     </div>
+                                    {usesLatestWeeklyLayout && (
+                                      <SetTypesEditor
+                                        sets={block.sets}
+                                        currentTypes={block.set_types}
+                                        disabled={saving}
+                                        onChange={(setTypes) => updateExercise(
+                                          wIdx,
+                                          exIdx,
+                                          "weekly_prescription",
+                                          updateWeeklySetTypes(ex, editingWeekStart, setTypes, weeklyUiVersion),
+                                        )}
+                                      />
+                                    )}
                                   </div>
                                 );
                               })()}

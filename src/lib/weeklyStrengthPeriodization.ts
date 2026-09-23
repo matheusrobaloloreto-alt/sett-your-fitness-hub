@@ -75,13 +75,52 @@ export interface StudentWeekBlockOption {
 }
 
 export type WeeklyPrescriptionMode = "legacy" | "weekly";
-export const INDIVIDUAL_WEEKLY_UI_VERSION = "individual-weeks-v1" as const;
+export const LEGACY_INDIVIDUAL_WEEKLY_UI_VERSION = "individual-weeks-v1" as const;
+export const INDIVIDUAL_WEEKLY_UI_VERSION = "individual-weeks-v2" as const;
+export const DEFAULT_INDIVIDUAL_WEEKLY_TEMPO = "2020" as const;
+export type IndividualWeeklyUiVersion =
+  | typeof LEGACY_INDIVIDUAL_WEEKLY_UI_VERSION
+  | typeof INDIVIDUAL_WEEKLY_UI_VERSION;
+
+const INDIVIDUAL_WEEKLY_UI_VERSIONS = new Set<string>([
+  LEGACY_INDIVIDUAL_WEEKLY_UI_VERSION,
+  INDIVIDUAL_WEEKLY_UI_VERSION,
+]);
+
+export function individualWeeklyUiVersionForLoadedWorkouts(
+  workouts: Array<{ exercises?: Array<{ weekly_prescription?: unknown[]; weekly_ui_version?: string | null }> }>,
+): IndividualWeeklyUiVersion | null {
+  const exercises = workouts.flatMap((workout) => workout.exercises || []);
+  const versioned = exercises.filter((exercise) => (
+    Array.isArray(exercise.weekly_prescription)
+    && exercise.weekly_prescription.length > 0
+  ));
+
+  // A v1 sempre prevalece em cargas mistas para nunca atualizar uma prescrição ativa por acidente.
+  if (versioned.some((exercise) => exercise.weekly_ui_version === LEGACY_INDIVIDUAL_WEEKLY_UI_VERSION)) {
+    return LEGACY_INDIVIDUAL_WEEKLY_UI_VERSION;
+  }
+  if (versioned.some((exercise) => exercise.weekly_ui_version === INDIVIDUAL_WEEKLY_UI_VERSION)) {
+    return INDIVIDUAL_WEEKLY_UI_VERSION;
+  }
+  return exercises.length === 0 ? INDIVIDUAL_WEEKLY_UI_VERSION : null;
+}
+
+export function defaultWeeklyTempoForUiVersion(version: IndividualWeeklyUiVersion | null) {
+  return version === INDIVIDUAL_WEEKLY_UI_VERSION ? DEFAULT_INDIVIDUAL_WEEKLY_TEMPO : "";
+}
+
+export function weeklySetTypesForSets(value: unknown, sets: number) {
+  const count = Math.max(1, Math.round(Number(sets) || 1));
+  const current = sanitizeSetTypes(value) || [];
+  return Array.from({ length: count }, (_, index) => current[index] || "normal");
+}
 
 export function hasIndividualWeeklyPrescription(
   exercises: Array<{ weekly_prescription?: unknown[]; weekly_ui_version?: string | null }> = [],
 ) {
   return exercises.some((exercise) => (
-    exercise.weekly_ui_version === INDIVIDUAL_WEEKLY_UI_VERSION
+    INDIVIDUAL_WEEKLY_UI_VERSIONS.has(String(exercise.weekly_ui_version || ""))
     && Array.isArray(exercise.weekly_prescription)
     && exercise.weekly_prescription.length > 0
   ));

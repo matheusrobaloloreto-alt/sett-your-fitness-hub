@@ -50,7 +50,7 @@ describe("WorkoutBuilder assistant and header UX contract", () => {
   });
 
   it("keeps the workout editor locked during the async save window", () => {
-    expect(workoutBuilder).toContain("workoutRevisionPayload(draftWorkouts, weeklyPrescriptionMode)");
+    expect(workoutBuilder).toContain("workoutRevisionPayload(draftWorkouts, weeklyPrescriptionMode, weeklyUiVersion)");
     expect(workoutBuilder).toContain("workoutsWithSavedRows(draftWorkouts, saved)");
     expect(workoutBuilder).not.toContain("setWorkouts(draftWorkouts.map");
     expect(workoutBuilder).toContain("disabled={saving || workouts.length === 0}");
@@ -62,8 +62,17 @@ describe("WorkoutBuilder assistant and header UX contract", () => {
 
   it("does not migrate already prescribed legacy workouts to weekly data", () => {
     expect(workoutBuilder).toContain("weeklyPrescriptionModeForLoadedWorkouts(loaded)");
+    expect(workoutBuilder).toContain("individualWeeklyUiVersionForLoadedWorkouts(loaded)");
     expect(workoutBuilder).toContain('weeklyPrescriptionMode === "weekly"');
-    expect(workoutBuilder).toContain("weekly_ui_version: INDIVIDUAL_WEEKLY_UI_VERSION");
+    expect(workoutBuilder).toContain("weekly_ui_version: weeklyUiVersion");
     expect(workoutBuilder).toContain("return exercise;");
+  });
+
+  it("shows a single complete metric editor only for new weekly prescriptions", () => {
+    expect(workoutBuilder).toContain("!usesLatestWeeklyLayout");
+    expect(workoutBuilder).toContain("Tipos de séries");
+    expect(workoutBuilder).toContain("Cadência");
+    expect(workoutBuilder).toContain('placeholder="2020"');
+    expect(workoutBuilder).toContain("updateWeeklySetTypes");
   });
 });

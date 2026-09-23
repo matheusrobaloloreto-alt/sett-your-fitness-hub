@@ -48,12 +48,12 @@ describe("set type W/N/F contract", () => {
 
   it("wires the sanitizer into every WorkoutBuilder persistence boundary", () => {
     const source = readFileSync(`${process.cwd()}/src/pages/admin/WorkoutBuilder.tsx`, "utf8");
-    expect(source).toContain("setWorkouts(ws.length ? sanitizeWorkoutSetTypes(ws)");
-    expect(source).toContain("workouts: sanitizeWorkoutSetTypes(workouts) as any");
+    expect(source).toContain("const normalized = ws.length ? sanitizeWorkoutSetTypes(ws)");
+    expect(source).toContain("const templateWorkouts = workoutRevisionPayload(workouts, weeklyPrescriptionMode, weeklyUiVersion)");
     expect(source).toContain("const mapWorkoutRows = (rows: any[]): Workout[] => sanitizeWorkoutSetTypes(rows.map");
     expect(source).toContain("data?.length ? mapWorkoutRows(data)");
     expect(source).toMatch(/const workoutRevisionPayload = \([\s\S]*?\) => sanitizeWorkoutSetTypes\(draft\)\.map/);
-    expect(source).toContain("workouts: workoutRevisionPayload(draftWorkouts, weeklyPrescriptionMode)");
+    expect(source).toContain("workouts: workoutRevisionPayload(draftWorkouts, weeklyPrescriptionMode, weeklyUiVersion)");
     expect(source).not.toContain("exercises: workout.exercises as any");
   });
 });

@@ -5,6 +5,7 @@ import {
   buildTrainingCycleMetadata,
   buildWorkoutRows,
 } from "./publishStrengthPlan";
+import { INDIVIDUAL_WEEKLY_UI_VERSION } from "./weeklyStrengthPeriodization";
 
 describe("buildPublishDecisionLog", () => {
   it("uses the existing prescricao source and classifies publish in the payload", () => {
@@ -123,6 +124,32 @@ describe("mapStrengthExercise", () => {
         set_types: ["normal", "normal", "normal"],
       }),
     ]);
+    expect(out.weekly_ui_version).toBe(INDIVIDUAL_WEEKLY_UI_VERSION);
+  });
+
+  it("publica novas semanas com cadência padrão e tipos alinhados às séries", () => {
+    const out = mapStrengthExercise({
+      exercise_id: "abc",
+      exercise_name: "Supino",
+      sets: 3,
+      reps: "8-10",
+      set_types: ["warmup"],
+      weekly_prescription: [{
+        week: 1,
+        block: "base",
+        sets: 3,
+        reps: "8-10",
+        rir: "3",
+        rest_seconds: 60,
+        tempo: "",
+        instruction: "Controle o movimento.",
+      }],
+    });
+
+    expect(out.weekly_prescription?.[0]).toMatchObject({
+      tempo: "2020",
+      set_types: ["warmup", "normal", "normal"],
+    });
   });
 
   it("normaliza payload legado e nunca publica drop como tipo de série", () => {

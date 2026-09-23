@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   buildStudentProgressionHighlight,
   copyWeeklyPrescriptionMetrics,
+  DEFAULT_INDIVIDUAL_WEEKLY_TEMPO,
+  defaultWeeklyTempoForUiVersion,
   formatBiweeklyProgressionForDisplay,
   hasIndividualWeeklyPrescription,
+  individualWeeklyUiVersionForLoadedWorkouts,
   INDIVIDUAL_WEEKLY_UI_VERSION,
+  LEGACY_INDIVIDUAL_WEEKLY_UI_VERSION,
   resolveActiveWorkoutInCycles,
   resolveStudentHomeWorkoutTarget,
   resolveExerciseForWeek,
@@ -16,6 +20,7 @@ import {
   studentEffortLabel,
   weeklyMethodLabel,
   weeklyPrescriptionModeForLoadedWorkouts,
+  weeklySetTypesForSets,
 } from "./weeklyStrengthPeriodization";
 
 const exercise = {
@@ -51,6 +56,38 @@ describe("weekly strength periodization resolver", () => {
     expect(hasIndividualWeeklyPrescription([
       { weekly_prescription: [{ week: 1 }], weekly_ui_version: INDIVIDUAL_WEEKLY_UI_VERSION },
     ])).toBe(true);
+  });
+
+  it("preserva a versão semanal antiga e reserva a v2 para novas prescrições", () => {
+    const legacyWeekly = [{
+      exercises: [{
+        weekly_prescription: [{ week: 1 }],
+        weekly_ui_version: LEGACY_INDIVIDUAL_WEEKLY_UI_VERSION,
+      }],
+    }];
+    const currentWeekly = [{
+      exercises: [{
+        weekly_prescription: [{ week: 1 }],
+        weekly_ui_version: INDIVIDUAL_WEEKLY_UI_VERSION,
+      }],
+    }];
+
+    expect(individualWeeklyUiVersionForLoadedWorkouts(legacyWeekly)).toBe(LEGACY_INDIVIDUAL_WEEKLY_UI_VERSION);
+    expect(weeklyPrescriptionModeForLoadedWorkouts(legacyWeekly)).toBe("weekly");
+    expect(individualWeeklyUiVersionForLoadedWorkouts(currentWeekly)).toBe(INDIVIDUAL_WEEKLY_UI_VERSION);
+    expect(individualWeeklyUiVersionForLoadedWorkouts([{ exercises: [] }])).toBe(INDIVIDUAL_WEEKLY_UI_VERSION);
+    expect(defaultWeeklyTempoForUiVersion(LEGACY_INDIVIDUAL_WEEKLY_UI_VERSION)).toBe("");
+    expect(defaultWeeklyTempoForUiVersion(INDIVIDUAL_WEEKLY_UI_VERSION)).toBe(DEFAULT_INDIVIDUAL_WEEKLY_TEMPO);
+  });
+
+  it("alinha os tipos de série à quantidade prescrita na semana", () => {
+    expect(weeklySetTypesForSets(["warmup", "failure"], 4)).toEqual([
+      "warmup",
+      "failure",
+      "normal",
+      "normal",
+    ]);
+    expect(weeklySetTypesForSets(["warmup", "normal", "failure"], 2)).toEqual(["warmup", "normal"]);
   });
 
   it("aplica os parâmetros da semana sem alterar a ordem ou o contrato base", () => {
@@ -119,6 +156,7 @@ describe("weekly strength periodization resolver", () => {
       rir: `${4 - Math.min(index, 3)}`,
       rest_seconds: 90 - index * 5,
       tempo: `30${index}0`,
+      set_types: index === 1 ? ["warmup", "failure"] : ["normal"],
       instruction: `Semana ${index + 1}`,
     }));
 
@@ -130,6 +168,8 @@ describe("weekly strength periodization resolver", () => {
       block: "acumulacao",
       sets: 2,
       reps: "9",
+      tempo: "3010",
+      set_types: ["warmup", "failure"],
       instruction: "Semana 2",
     });
     expect(copied.find((item) => item.week === 6)).toMatchObject({
@@ -137,6 +177,8 @@ describe("weekly strength periodization resolver", () => {
       block: "intensificacao",
       sets: 2,
       reps: "9",
+      tempo: "3010",
+      set_types: ["warmup", "failure"],
       instruction: "Semana 2",
     });
   });

@@ -9,6 +9,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { sanitizeSetTypes } from "@/lib/setTypes";
+import {
+  DEFAULT_INDIVIDUAL_WEEKLY_TEMPO,
+  INDIVIDUAL_WEEKLY_UI_VERSION,
+  weeklySetTypesForSets,
+} from "@/lib/weeklyStrengthPeriodization";
 import { saveCycleWorkoutRevision } from "@/lib/workoutRevision";
 
 // Formato que o app do aluno (StudentPortal/StudentWorkout) consome em workouts.exercises[].
@@ -25,6 +30,7 @@ export interface StudentWorkoutExercise {
   group_id?: string | null;
   method_seconds?: number | null;
   method_reason?: string | null;
+  weekly_ui_version?: string;
   weekly_prescription?: Array<{
     week: number;
     block: string;
@@ -89,23 +95,27 @@ export function mapStrengthExercise(e: any): StudentWorkoutExercise {
   if (setTypes) mapped.set_types = setTypes;
   if (e?.method_reason != null) mapped.method_reason = e.method_reason;
   if (Array.isArray(e?.weekly_prescription)) {
+    mapped.weekly_ui_version = INDIVIDUAL_WEEKLY_UI_VERSION;
     mapped.weekly_prescription = e.weekly_prescription
       .filter((week: any) => Number(week?.week) > 0)
-      .map((week: any) => ({
-        week: Number(week.week),
-        block: String(week.block || "base"),
-        sets: Math.max(1, Number(week.sets) || Number(e?.sets) || 1),
-        reps: String(week.reps ?? e?.reps ?? ""),
-        rir: String(week.rir ?? e?.rir ?? ""),
-        rest_seconds: Math.max(0, Number(week.rest_seconds) || Number(restSeconds) || 0),
-        tempo: String(week.tempo ?? e?.tempo ?? ""),
-        method: week.method ?? null,
-        group_id: week.group_id ?? null,
-        method_seconds: week.method_seconds ?? null,
-        method_reason: week.method_reason ?? null,
-        set_types: sanitizeSetTypes(week.set_types),
-        instruction: String(week.instruction || ""),
-      }));
+      .map((week: any) => {
+        const sets = Math.max(1, Number(week.sets) || Number(e?.sets) || 1);
+        return {
+          week: Number(week.week),
+          block: String(week.block || "base"),
+          sets,
+          reps: String(week.reps ?? e?.reps ?? ""),
+          rir: String(week.rir ?? e?.rir ?? ""),
+          rest_seconds: Math.max(0, Number(week.rest_seconds) || Number(restSeconds) || 0),
+          tempo: String(week.tempo || e?.tempo || DEFAULT_INDIVIDUAL_WEEKLY_TEMPO),
+          method: week.method ?? null,
+          group_id: week.group_id ?? null,
+          method_seconds: week.method_seconds ?? null,
+          method_reason: week.method_reason ?? null,
+          set_types: weeklySetTypesForSets(week.set_types || e?.set_types, sets),
+          instruction: String(week.instruction || ""),
+        };
+      });
   }
   return mapped;
 }
