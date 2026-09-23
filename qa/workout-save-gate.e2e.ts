@@ -24,6 +24,7 @@ test("workout save gate allows non-critical warnings and surfaces critical fixes
   await page.getByRole("button", { name: "Salvar Tudo" }).click();
   await expect(page.getByTestId("workout-save-gate-panel")).toBeVisible();
   await expect(page.getByText("não está vinculado a um exercício da biblioteca")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Biblioteca de exercícios" })).toHaveCount(0);
   await page.getByRole("button", { name: "Corrigir" }).click();
   await expect(page.getByRole("dialog", { name: "Biblioteca de exercícios" })).toBeVisible();
   await expect(page.getByLabel("Buscar exercício")).toHaveValue("Exercício importado sem vínculo");
@@ -32,7 +33,8 @@ test("workout save gate allows non-critical warnings and surfaces critical fixes
   await page.getByRole("button", { name: "Salvar Tudo" }).click();
   await expect(page.getByTestId("workout-save-gate-panel")).toBeVisible();
   await expect(page.getByText("Não foi possível validar o treino agora.")).toBeVisible();
-  await expect(page.getByText("Tente salvar novamente")).toBeVisible();
+  await expect(page.getByText("O salvamento continuará com as verificações locais de integridade.")).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText("Treino salvo com aviso não crítico.");
   await expect(page.getByText("password=secret")).toHaveCount(0);
   await expect(page.getByText("training_cycles")).toHaveCount(0);
   await expect(page.getByText("student_id")).toHaveCount(0);

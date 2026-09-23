@@ -52,6 +52,7 @@ function Fixture() {
 
     if (mode === "remote") {
       setIssues([issueFromPrescriptionValidationFailure("postgres password=secret table=training_cycles payload={student_id:123}")]);
+      setSaved(true);
       setSaving(false);
       return;
     }
@@ -107,7 +108,9 @@ function Fixture() {
           {repairs.map((repair) => <p key={repair.toExerciseId} className="text-sm">{repair.message}</p>)}
           {issues.map((issue) => (
             <div key={issue.code} className="mt-2 rounded border bg-background p-3">
-              <span className="text-xs font-semibold text-destructive">Crítico</span>
+              <span className={issue.severity === "blocker" ? "text-xs font-semibold text-destructive" : "text-xs font-semibold text-primary"}>
+                {issue.severity === "blocker" ? "Crítico" : "Aviso"}
+              </span>
               <p>{issue.message}</p>
               {issue.recommendation && <p className="text-sm text-muted-foreground">{issue.recommendation}</p>}
               <button className="mt-2 rounded border px-2 py-1 text-sm" onClick={() => focusIssue(issue)}>Corrigir</button>

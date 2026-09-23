@@ -49,6 +49,11 @@ describe("WorkoutBuilder assistant and header UX contract", () => {
     expect(workoutBuilder.indexOf("resolveWorkoutSaveDraft")).toBeLessThan(workoutBuilder.indexOf("saveCycleWorkoutRevision(supabase as any"));
   });
 
+  it("lets the server prove persisted legacy exercises instead of trusting the client", () => {
+    expect(workoutBuilder).toContain("cycle_id: cycleId");
+    expect(workoutBuilder).not.toContain("legacy_exercise_ids:");
+  });
+
   it("keeps the workout editor locked during the async save window", () => {
     expect(workoutBuilder).toContain("workoutRevisionPayload(draftWorkouts, weeklyPrescriptionMode, weeklyUiVersion)");
     expect(workoutBuilder).toContain("workoutsWithSavedRows(draftWorkouts, saved)");

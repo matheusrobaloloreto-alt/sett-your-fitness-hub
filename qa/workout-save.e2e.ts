@@ -87,6 +87,13 @@ test("desktop save keeps returned ids/timestamps current for a second save in th
   expect(saveCalls[0].workoutTitles).toEqual(["Treino A - Superior"]);
   expect(saveCalls[1].expectedRows[0].id).not.toBe(saveCalls[0].expectedRows[0].id);
   expect(saveCalls[1].expectedRows[0].updated_at).not.toBe(saveCalls[0].expectedRows[0].updated_at);
+  const currentWorkouts = await page.evaluate<any[]>(() => (window as any).__workoutSaveFixture.getCurrentWorkouts());
+  expect(currentWorkouts[0].exercises).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      exercise_id: "947b6da5-7e97-4d27-badf-300ee1d5069a",
+      exercise_name: "Elevação de Quadril Solo",
+    }),
+  ]));
 
   await expectNoFixtureLeak(guard);
 });

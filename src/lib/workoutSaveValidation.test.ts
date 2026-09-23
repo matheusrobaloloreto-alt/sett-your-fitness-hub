@@ -98,21 +98,68 @@ describe("workout save validation", () => {
     expect(hasBlockingSaveIssue(issues)).toBe(false);
   });
 
-  it("turns a remote validation failure into a persistent safe save blocker", () => {
+  it("keeps a remote validation outage from blocking a locally valid save", () => {
     const rawProviderMessage = "postgres password=secret table=training_cycles payload={student_id:123}";
     const issue = issueFromPrescriptionValidationFailure(rawProviderMessage);
 
     expect(issue).toMatchObject({
-      severity: "blocker",
+      severity: "warning",
       code: "remote_validation_unavailable",
       source: "validador",
       message: "Não foi possível validar o treino agora.",
-      recommendation: "Tente salvar novamente. Se continuar, confira a conexão e acione o suporte.",
+      recommendation: "O salvamento continuará com as verificações locais de integridade.",
     });
     expect(JSON.stringify(issue)).not.toContain("password=secret");
     expect(JSON.stringify(issue)).not.toContain("training_cycles");
     expect(JSON.stringify(issue)).not.toContain("student_id");
-    expect(hasBlockingSaveIssue([issue])).toBe(true);
+    expect(hasBlockingSaveIssue([issue])).toBe(false);
+  });
+
+  it("preserves an orphan reference that was already stored in the cycle", () => {
+    const result = resolveWorkoutSaveDraft({
+      libraryExercises: library,
+      trustedLegacyExerciseIds: new Set(["legacy-hip-bridge"]),
+      workouts: [{
+        title: "Treino A",
+        exercises: [{
+          exercise_id: "legacy-hip-bridge",
+          exercise_name: "Elevação de Quadril Solo",
+          muscle_group: "Glúteo",
+          sets: "3",
+        }],
+      }],
+    });
+
+    expect(result.repairs).toEqual([]);
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      severity: "warning",
+      code: "legacy_exercise_preserved",
+      exerciseName: "Elevação de Quadril Solo",
+    }));
+    expect(hasBlockingSaveIssue(result.issues)).toBe(false);
+    expect(result.workouts[0].exercises?.[0]?.exercise_id).toBe("legacy-hip-bridge");
+  });
+
+  it("still blocks an unknown reference introduced in the current draft", () => {
+    const result = resolveWorkoutSaveDraft({
+      libraryExercises: library,
+      trustedLegacyExerciseIds: new Set(),
+      workouts: [{
+        title: "Treino A",
+        exercises: [{
+          exercise_id: "invented-now",
+          exercise_name: "Exercício inventado",
+          muscle_group: "Glúteo",
+          sets: "3",
+        }],
+      }],
+    });
+
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      severity: "blocker",
+      code: "exercise_not_visible",
+    }));
+    expect(hasBlockingSaveIssue(result.issues)).toBe(true);
   });
 
   it("maps remote library blockers back to the affected workout exercise", () => {

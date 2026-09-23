@@ -67,6 +67,7 @@ export interface PrescriptionValidationLike {
   library?: {
     missing?: string[];
     invalid?: string[];
+    legacy?: string[];
   };
 }
 
@@ -109,6 +110,7 @@ function selectExactLibraryMatch(
 export function resolveWorkoutSaveDraft<TWorkout extends WorkoutSaveDraftWorkout>(args: {
   workouts: TWorkout[];
   libraryExercises: WorkoutSaveLibraryExercise[];
+  trustedLegacyExerciseIds?: ReadonlySet<string>;
 }) {
   const issues: WorkoutSaveIssue[] = [];
   const repairs: WorkoutSaveRepair[] = [];
@@ -168,6 +170,21 @@ export function resolveWorkoutSaveDraft<TWorkout extends WorkoutSaveDraftWorkout
           thumbnail_url: exercise.thumbnail_url ?? match.thumbnail_url ?? null,
           youtube_video_id: exercise.youtube_video_id ?? match.youtube_video_id ?? null,
         };
+      }
+
+      if (exerciseId && args.trustedLegacyExerciseIds?.has(exerciseId)) {
+        issues.push({
+          severity: "warning",
+          code: "legacy_exercise_preserved",
+          source: "biblioteca",
+          message: `${workoutTitle}: ${exerciseDisplayName(exercise, exerciseIndex)} usa uma referência legada já salva no ciclo.`,
+          recommendation: "O treino pode ser salvo. Substitua pela biblioteca apenas quando quiser atualizar este exercício.",
+          workoutIndex,
+          exerciseIndex,
+          workoutTitle,
+          exerciseName: exerciseDisplayName(exercise, exerciseIndex),
+        });
+        return exercise;
       }
 
       const exerciseName = exerciseDisplayName(exercise, exerciseIndex);
@@ -264,11 +281,11 @@ export function hasBlockingSaveIssue(issues: WorkoutSaveIssue[]) {
 
 export function issueFromPrescriptionValidationFailure(_message?: string): WorkoutSaveIssue {
   return {
-    severity: "blocker",
+    severity: "warning",
     code: "remote_validation_unavailable",
     source: "validador",
     message: "Não foi possível validar o treino agora.",
-    recommendation: "Tente salvar novamente. Se continuar, confira a conexão e acione o suporte.",
+    recommendation: "O salvamento continuará com as verificações locais de integridade.",
   };
 }
 

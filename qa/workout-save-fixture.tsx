@@ -82,6 +82,18 @@ class WorkoutSaveFixtureState {
           notes: "Controle total",
           set_types: ["normal", "normal", "failure"],
         },
+        {
+          exercise_id: "947b6da5-7e97-4d27-badf-300ee1d5069a",
+          exercise_name: "Elevação de Quadril Solo",
+          muscle_group: "Glúteos",
+          video_url: null,
+          video_path: null,
+          sets: "3",
+          reps: "12",
+          rest: "60s",
+          notes: "Referência legada já salva no ciclo",
+          set_types: ["warmup", "normal", "failure"],
+        },
       ],
     }),
   ];

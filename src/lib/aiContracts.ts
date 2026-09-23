@@ -126,10 +126,15 @@ export function resolveCompanyAiContractConfig(config?: Partial<CompanyAiContrac
   };
 }
 
-export function validateLibraryUsage(plan: unknown, validExerciseIds: Set<string>) {
+export function validateLibraryUsage(
+  plan: unknown,
+  validExerciseIds: Set<string>,
+  trustedLegacyExerciseIds: ReadonlySet<string> = new Set(),
+) {
   const missing: string[] = [];
   const invalid: string[] = [];
-  if (!isRecord(plan) || !Array.isArray(plan.workouts)) return { valid: true, missing, invalid };
+  const legacy: string[] = [];
+  if (!isRecord(plan) || !Array.isArray(plan.workouts)) return { valid: true, missing, invalid, legacy };
 
   plan.workouts.forEach((workout, workoutIndex) => {
     if (!isRecord(workout) || !Array.isArray(workout.exercises)) return;
@@ -141,7 +146,12 @@ export function validateLibraryUsage(plan: unknown, validExerciseIds: Set<string
         missing.push(label);
         return;
       }
-      if (!validExerciseIds.has(exerciseId)) invalid.push(`${label}:${exerciseId}`);
+      if (validExerciseIds.has(exerciseId)) return;
+      if (trustedLegacyExerciseIds.has(exerciseId)) {
+        legacy.push(`${label}:${exerciseId}`);
+        return;
+      }
+      invalid.push(`${label}:${exerciseId}`);
     });
   });
 
@@ -149,6 +159,7 @@ export function validateLibraryUsage(plan: unknown, validExerciseIds: Set<string
     valid: missing.length === 0 && invalid.length === 0,
     missing,
     invalid,
+    legacy,
   };
 }
 
@@ -175,6 +186,7 @@ function hasPainMetadataRisk(exercise: ExerciseContractEntry | undefined, contex
 export function validatePrescriptionContract(args: {
   plan: unknown;
   catalog: ExerciseContractEntry[];
+  trustedLegacyExerciseIds?: ReadonlySet<string>;
   objective?: unknown;
   fitnessLevel?: unknown;
   anamneseContext?: unknown;
@@ -187,13 +199,26 @@ export function validatePrescriptionContract(args: {
     else warnings.push(warning);
   };
 
-  const library = validateLibraryUsage(args.plan, new Set(args.catalog.map((exercise) => exercise.id)));
+  const library = validateLibraryUsage(
+    args.plan,
+    new Set(args.catalog.map((exercise) => exercise.id)),
+    args.trustedLegacyExerciseIds,
+  );
   if (!library.valid) {
     add({
       severity: "blocker",
       code: "library_contract_failed",
       message: "Ha exercicios sem exercise_id ou fora da biblioteca do app.",
       recommendation: "Salvar somente depois de trocar por exercicios cadastrados ou registrar lacuna para cadastro.",
+      source: "biblioteca",
+    });
+  }
+  if (library.legacy.length > 0) {
+    add({
+      severity: "warning",
+      code: "legacy_library_reference_preserved",
+      message: "O plano mantém exercícios legados que já estavam salvos no ciclo.",
+      recommendation: "Substitua-os pela biblioteca atual quando houver uma equivalência confirmada.",
       source: "biblioteca",
     });
   }

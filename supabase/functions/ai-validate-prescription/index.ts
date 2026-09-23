@@ -182,10 +182,34 @@ async function loadExerciseCatalog(supabase: any, companyId: string | null) {
   }));
 }
 
-function validateLibraryUsage(plan: unknown, validExerciseIds: Set<string>) {
+async function loadTrustedLegacyExerciseIds(supabase: any, cycleId: unknown, companyId: string | null) {
+  if (typeof cycleId !== "string" || !cycleId.trim() || !companyId) return new Set<string>();
+
+  const { data, error } = await supabase
+    .from("workouts")
+    .select("exercises")
+    .eq("cycle_id", cycleId)
+    .eq("company_id", companyId)
+    .is("superseded_at", null);
+  if (error) throw new Error(`Falha ao confirmar exercicios legados do ciclo: ${error.message}`);
+
+  const exerciseIds: unknown[] = ((data ?? []) as any[]).flatMap((workout: any) => (
+    Array.isArray(workout?.exercises)
+      ? workout.exercises.map((exercise: any) => exercise?.exercise_id)
+      : []
+  ));
+  return new Set<string>(exerciseIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim())));
+}
+
+function validateLibraryUsage(
+  plan: unknown,
+  validExerciseIds: Set<string>,
+  trustedLegacyExerciseIds: ReadonlySet<string> = new Set(),
+) {
   const missing: string[] = [];
   const invalid: string[] = [];
-  if (!isRecord(plan) || !Array.isArray(plan.workouts)) return { valid: true, missing, invalid };
+  const legacy: string[] = [];
+  if (!isRecord(plan) || !Array.isArray(plan.workouts)) return { valid: true, missing, invalid, legacy };
 
   plan.workouts.forEach((workout, workoutIndex) => {
     if (!isRecord(workout) || !Array.isArray(workout.exercises)) return;
@@ -197,11 +221,16 @@ function validateLibraryUsage(plan: unknown, validExerciseIds: Set<string>) {
         missing.push(label);
         return;
       }
-      if (!validExerciseIds.has(exerciseId)) invalid.push(`${label}:${exerciseId}`);
+      if (validExerciseIds.has(exerciseId)) return;
+      if (trustedLegacyExerciseIds.has(exerciseId)) {
+        legacy.push(`${label}:${exerciseId}`);
+        return;
+      }
+      invalid.push(`${label}:${exerciseId}`);
     });
   });
 
-  return { valid: missing.length === 0 && invalid.length === 0, missing, invalid };
+  return { valid: missing.length === 0 && invalid.length === 0, missing, invalid, legacy };
 }
 
 function buildVolumeSummary(plan: unknown, catalog: ExerciseCatalogEntry[]) {
@@ -236,6 +265,7 @@ function validatePrescription(args: {
   volumeInput: PrescriptionInput;
   plan: unknown;
   catalog: ExerciseCatalogEntry[];
+  trustedLegacyExerciseIds?: ReadonlySet<string>;
   objective: unknown;
   fitness_level: unknown;
   anamnese_context: unknown;
@@ -274,7 +304,11 @@ function validatePrescription(args: {
     }
   });
 
-  const library = validateLibraryUsage(args.plan, new Set(args.catalog.map((exercise) => exercise.id)));
+  const library = validateLibraryUsage(
+    args.plan,
+    new Set(args.catalog.map((exercise) => exercise.id)),
+    args.trustedLegacyExerciseIds,
+  );
   if (!library.valid) {
     add({
       severity: "blocker",
@@ -284,8 +318,17 @@ function validatePrescription(args: {
       source: "biblioteca",
     });
   }
+  if (library.legacy.length > 0) {
+    add({
+      severity: "warning",
+      code: "legacy_library_reference_preserved",
+      message: "O plano mantém exercícios legados que já estavam salvos no ciclo.",
+      recommendation: "Substitua-os pela biblioteca atual quando houver uma equivalência confirmada.",
+      source: "biblioteca",
+    });
+  }
 
-  const plan = isRecord(args.plan) ? args.plan : {};
+  const plan = planRecord || {};
   const duration = Number(plan.duration_weeks || 0);
   if (duration && duration !== 6) {
     add({
@@ -428,11 +471,15 @@ serve(async (req) => {
     const body = await req.json();
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     const companyId = await resolveValidationCompanyId(supabase, claims, body);
-    const catalog = await loadExerciseCatalog(supabase, companyId);
+    const [catalog, trustedLegacyExerciseIds] = await Promise.all([
+      loadExerciseCatalog(supabase, companyId),
+      loadTrustedLegacyExerciseIds(supabase, body.cycle_id, companyId),
+    ]);
     const result = validatePrescription({
       volumeInput: buildPrescriptionInputFromEdgePayload({ payload: body, catalog: [] }).input,
       plan: body.plan ?? { workouts: body.workouts ?? [] },
       catalog,
+      trustedLegacyExerciseIds,
       objective: body.objective,
       fitness_level: body.fitness_level,
       anamnese_context: body.anamnese_context,

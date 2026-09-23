@@ -74,6 +74,50 @@ describe("AI contracts", () => {
     expect(library.invalid).toEqual(["workouts[0].exercises[0]:unknown-exercise"]);
   });
 
+  it("accepts only explicitly trusted legacy ids and reports them separately", () => {
+    const library = validateLibraryUsage({
+      workouts: [
+        { exercises: [{ exercise_id: "legacy-exercise", exercise_name: "Exercício legado" }] },
+      ],
+    }, new Set(["exercise-1"]), new Set(["legacy-exercise"]));
+
+    expect(library.valid).toBe(true);
+    expect(library.invalid).toEqual([]);
+    expect(library.legacy).toEqual(["workouts[0].exercises[0]:legacy-exercise"]);
+  });
+
+  it("keeps trusted legacy references as warnings in the full contract", () => {
+    const result = validatePrescriptionContract({
+      plan: {
+        duration_weeks: 6,
+        workouts: [{ exercises: [{ exercise_id: "legacy-exercise", exercise_name: "Exercício legado" }] }],
+      },
+      catalog: [{ id: "exercise-1", name: "Exercício atual" }],
+      trustedLegacyExerciseIds: new Set(["legacy-exercise"]),
+    });
+
+    expect(result.status).toBe("warnings");
+    expect(result.blockers).toEqual([]);
+    expect(result.warnings).toContainEqual(expect.objectContaining({
+      code: "legacy_library_reference_preserved",
+      source: "biblioteca",
+    }));
+  });
+
+  it("does not trust legacy ids declared inside the client plan", () => {
+    const result = validatePrescriptionContract({
+      plan: {
+        duration_weeks: 6,
+        legacy_exercise_ids: ["spoofed-id"],
+        workouts: [{ exercises: [{ exercise_id: "spoofed-id", exercise_name: "Exercício não cadastrado" }] }],
+      },
+      catalog: [],
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.blockers).toContainEqual(expect.objectContaining({ code: "library_contract_failed" }));
+  });
+
   it("uses exercise metadata to warn about pain-sensitive selections", () => {
     const result = validatePrescriptionContract({
       plan: {
