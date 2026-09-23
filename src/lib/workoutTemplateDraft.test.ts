@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildWorkoutTemplateDraft,
   hasEditableWorkoutContent,
+  visibleWorkoutLibraryExercises,
   validateWorkoutTemplateForDraft,
 } from "./workoutTemplateDraft";
 
@@ -57,6 +58,19 @@ const template = {
 };
 
 describe("workout template draft import", () => {
+  it("exposes only global exercises and exercises owned by the current company", () => {
+    const exercises = [
+      { id: "global", name: "Global", is_global: true, company_id: null },
+      { id: "owned", name: "Da empresa", is_global: false, company_id: "company-1" },
+      { id: "other", name: "Outra empresa", is_global: false, company_id: "company-2" },
+    ];
+
+    expect(visibleWorkoutLibraryExercises(exercises, "company-1").map((exercise) => exercise.id))
+      .toEqual(["global", "owned"]);
+    expect(visibleWorkoutLibraryExercises(exercises, null).map((exercise) => exercise.id))
+      .toEqual(["global"]);
+  });
+
   it("relinks an obsolete id by a unique exact visible name without changing the template", () => {
     const old = { ...template, workouts: [{ title: "A", exercises: [{ exercise_id: "old", exercise_name: "Agachamento", sets: "4", notes: "Manter" }] }] };
     const before = JSON.stringify(old);

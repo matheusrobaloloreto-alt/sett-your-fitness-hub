@@ -162,6 +162,25 @@ describe("workout save validation", () => {
     expect(hasBlockingSaveIssue(result.issues)).toBe(true);
   });
 
+  it("blocks referenced exercises when the visible library failed to load", () => {
+    const result = resolveWorkoutSaveDraft({
+      libraryExercises: [],
+      workouts: [{
+        title: "Treino A",
+        exercises: [{
+          exercise_id: "unknown-while-library-is-empty",
+          exercise_name: "Remada Baixa Neutra",
+        }],
+      }],
+    });
+
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      severity: "blocker",
+      code: "exercise_not_visible",
+    }));
+    expect(hasBlockingSaveIssue(result.issues)).toBe(true);
+  });
+
   it("maps remote library blockers back to the affected workout exercise", () => {
     const issues = issuesFromPrescriptionValidation({
       status: "blocked",

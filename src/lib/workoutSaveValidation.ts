@@ -147,7 +147,7 @@ export function resolveWorkoutSaveDraft<TWorkout extends WorkoutSaveDraftWorkout
 
     clonedWorkout.exercises = exercises.map((exercise, exerciseIndex) => {
       const exerciseId = typeof exercise.exercise_id === "string" ? exercise.exercise_id.trim() : "";
-      if (exerciseId && (args.libraryExercises.length === 0 || libraryById.has(exerciseId))) return exercise;
+      if (exerciseId && libraryById.has(exerciseId)) return exercise;
 
       const { match, ambiguous } = selectExactLibraryMatch(exercise, candidatesByName);
       if (match) {

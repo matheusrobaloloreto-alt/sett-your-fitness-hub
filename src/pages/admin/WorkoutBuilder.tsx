@@ -49,6 +49,7 @@ import { calculateWeeklyMuscleVolume } from "@/lib/workoutVolume";
 import {
   buildWorkoutTemplateDraft,
   hasEditableWorkoutContent,
+  visibleWorkoutLibraryExercises,
   validateWorkoutTemplateForDraft,
   type WorkoutTemplateDraftMode,
   type WorkoutTemplateDraftWorkout,
@@ -497,6 +498,7 @@ export default function WorkoutBuilder() {
   const isTemplate = !!tplId;
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : authCompanyId ?? null;
   const [templateName, setTemplateName] = useState("");
+  const [loadedTemplateCompanyId, setLoadedTemplateCompanyId] = useState<string | null>(null);
 
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [workoutRevisionSnapshot, setWorkoutRevisionSnapshot] = useState<Array<{ id: string; updated_at: string }>>([]);
@@ -601,11 +603,9 @@ export default function WorkoutBuilder() {
     () => workoutTemplates.find((template) => template.id === selectedTemplateId) || null,
     [selectedTemplateId, workoutTemplates],
   );
-  const templateCompanyId = cycleInfo?.company_id || effectiveCompanyId || null;
+  const templateCompanyId = cycleInfo?.company_id || loadedTemplateCompanyId || effectiveCompanyId || null;
   const visibleTemplateLibraryExercises = useMemo(
-    () => libraryExercises.filter((exercise) => (
-      exercise.is_global || Boolean(templateCompanyId && exercise.company_id === templateCompanyId)
-    )),
+    () => visibleWorkoutLibraryExercises(libraryExercises, templateCompanyId),
     [libraryExercises, templateCompanyId],
   );
   const visibleExerciseIds = useMemo(
@@ -639,6 +639,7 @@ export default function WorkoutBuilder() {
       setWorkoutRevisionSnapshot([]);
       if (tplId && tplId !== "new") loadTemplate(tplId);
       else {
+        setLoadedTemplateCompanyId(null);
         setWeeklyPrescriptionMode("weekly");
         setWeeklyUiVersion(INDIVIDUAL_WEEKLY_UI_VERSION);
         setWorkouts([{ title: "Treino A", description: "", exercises: [] }]);
@@ -658,9 +659,10 @@ export default function WorkoutBuilder() {
   }, [templatePickerOpen, templateCompanyId]);
 
   const loadTemplate = async (id: string) => {
-    const { data } = await (supabase as any).from("workout_templates").select("name, workouts").eq("id", id).maybeSingle();
+    const { data } = await (supabase as any).from("workout_templates").select("name, company_id, workouts").eq("id", id).maybeSingle();
     if (data) {
       setTemplateName(data.name || "");
+      setLoadedTemplateCompanyId(data.company_id || null);
       const ws = Array.isArray(data.workouts) ? data.workouts : [];
       const normalized = ws.length ? sanitizeWorkoutSetTypes(ws) : [{ title: "Treino A", description: "", exercises: [] }];
       setWorkoutRevisionSnapshot([]);
@@ -674,8 +676,22 @@ export default function WorkoutBuilder() {
     const name = (templateName || "").trim();
     if (!name) { toast({ title: "Dê um nome ao treino da biblioteca", variant: "destructive" }); return; }
     if (workouts.some((w) => !w.title)) { toast({ title: "Preencha o título de todos os treinos", variant: "destructive" }); return; }
+    const resolvedDraft = resolveWorkoutSaveDraft({
+      workouts,
+      libraryExercises: visibleTemplateLibraryExercises,
+    });
+    if (hasBlockingSaveIssue(resolvedDraft.issues)) {
+      setSaveIssues(resolvedDraft.issues);
+      toast({
+        title: "Treino da biblioteca não salvo",
+        description: resolvedDraft.issues.find((issue) => issue.severity === "blocker")?.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (resolvedDraft.repairs.length > 0) setWorkouts(resolvedDraft.workouts as Workout[]);
     setSaving(true);
-    const templateWorkouts = workoutRevisionPayload(workouts, weeklyPrescriptionMode, weeklyUiVersion);
+    const templateWorkouts = workoutRevisionPayload(resolvedDraft.workouts as Workout[], weeklyPrescriptionMode, weeklyUiVersion);
     const { error } = await (supabase as any).from("workout_templates")
       .update({ name, workouts: templateWorkouts as any, updated_at: new Date().toISOString() }).eq("id", tplId);
     setSaving(false);
@@ -688,10 +704,23 @@ export default function WorkoutBuilder() {
   const saveAsTemplate = async () => {
     const name = window.prompt("Salvar na biblioteca de treinos como:", templateName || (cycleInfo ? `Treino — ${cycleInfo.student_name}` : "Novo treino"));
     if (!name || !name.trim()) return;
-    if (!effectiveCompanyId) { toast({ title: "Sem empresa em foco para salvar o template", variant: "destructive" }); return; }
-    const templateWorkouts = workoutRevisionPayload(workouts, weeklyPrescriptionMode, weeklyUiVersion);
+    const companyId = templateCompanyId || effectiveCompanyId;
+    if (!companyId) { toast({ title: "Sem empresa em foco para salvar o template", variant: "destructive" }); return; }
+    const scopedLibrary = visibleWorkoutLibraryExercises(libraryExercises, companyId);
+    const resolvedDraft = resolveWorkoutSaveDraft({ workouts, libraryExercises: scopedLibrary });
+    if (hasBlockingSaveIssue(resolvedDraft.issues)) {
+      setSaveIssues(resolvedDraft.issues);
+      toast({
+        title: "Treino da biblioteca não salvo",
+        description: resolvedDraft.issues.find((issue) => issue.severity === "blocker")?.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (resolvedDraft.repairs.length > 0) setWorkouts(resolvedDraft.workouts as Workout[]);
+    const templateWorkouts = workoutRevisionPayload(resolvedDraft.workouts as Workout[], weeklyPrescriptionMode, weeklyUiVersion);
     const { error } = await (supabase as any).from("workout_templates").insert({
-      company_id: effectiveCompanyId, name: name.trim(), workouts: templateWorkouts as any, created_by: user?.id || null,
+      company_id: companyId, name: name.trim(), workouts: templateWorkouts as any, created_by: user?.id || null,
     });
     if (error) { toast({ title: "Erro", description: error.message, variant: "destructive" }); return; }
     toast({ title: "Salvo na biblioteca de treinos!" });
@@ -1093,7 +1122,7 @@ export default function WorkoutBuilder() {
 
     const resolvedDraft = resolveWorkoutSaveDraft({
       workouts,
-      libraryExercises,
+      libraryExercises: visibleWorkoutLibraryExercises(libraryExercises, saveContext.company_id),
       trustedLegacyExerciseIds: trustedLegacyExerciseIdsRef.current,
     });
     setSaveIssues(resolvedDraft.issues);
@@ -1379,7 +1408,7 @@ export default function WorkoutBuilder() {
     return "bg-red-500";
   };
 
-  const filteredLib = useMemo(() => libraryExercises.filter((ex) => {
+  const filteredLib = useMemo(() => visibleTemplateLibraryExercises.filter((ex) => {
     const matchSearch = ex.name.toLowerCase().includes(libSearch.toLowerCase());
     const exCats = normalizedExerciseCategories(ex);
     const matchCategory = libCats.length === 0 || exCats.some((c) => libCats.includes(c));
@@ -1390,7 +1419,7 @@ export default function WorkoutBuilder() {
       || exRegions.some((r) => bodyRegions.includes(r as BodyRegionId))
       || (legacyRegion ? bodyRegions.includes(legacyRegion) : false);
     return matchSearch && matchCategory && matchGroup && matchRegion;
-  }), [libraryExercises, libSearch, libCats, libGroup, bodyRegions]);
+  }), [visibleTemplateLibraryExercises, libSearch, libCats, libGroup, bodyRegions]);
 
   // Capa do exercício: thumbnail do YouTube (direto, ou resolvida sob demanda).
   const coverFor = (ex: Exercise): string | null => {

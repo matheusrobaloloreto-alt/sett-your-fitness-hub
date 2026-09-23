@@ -40,6 +40,21 @@ export interface WorkoutTemplateForDraft {
   workouts?: unknown;
 }
 
+export interface ScopedWorkoutLibraryExercise extends WorkoutSaveLibraryExercise {
+  company_id?: string | null;
+  is_global?: boolean | null;
+}
+
+export function visibleWorkoutLibraryExercises<TExercise extends ScopedWorkoutLibraryExercise>(
+  exercises: TExercise[],
+  currentCompanyId: string | null | undefined,
+): TExercise[] {
+  return exercises.filter((exercise) => (
+    exercise.is_global === true
+    || Boolean(currentCompanyId && exercise.company_id === currentCompanyId)
+  ));
+}
+
 export type WorkoutTemplateDraftMode = "replace" | "append";
 
 export type WorkoutTemplateDraftValidationCode =
