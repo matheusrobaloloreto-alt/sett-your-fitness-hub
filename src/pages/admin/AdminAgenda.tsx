@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { useToast } from "@/hooks/use-toast";
+import { agendaEventBelongsToTrainer, uniqueAgendaTrainerIds } from "@/lib/agendaOwnership";
 
 interface AgendaEvent {
   id: string;
@@ -22,6 +23,7 @@ interface AgendaEvent {
   studentId?: string;
   cycleId?: string;
   trainerName?: string;
+  trainerIds?: string[];
   meta?: string;
 }
 
@@ -52,6 +54,7 @@ export default function AdminAgenda() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [markingCycleId, setMarkingCycleId] = useState<string | null>(null);
+  const [agendaScope, setAgendaScope] = useState<"all" | "mine">("all");
 
   const loadEvents = useCallback(async () => {
     setLoading(true);
@@ -64,7 +67,7 @@ export default function AdminAgenda() {
     // Contract renewals (enrollment end dates)
     let enrollQuery = supabase
       .from("enrollments")
-      .select("id, end_date, status, student_id, students(full_name), plans(name)")
+      .select("id, end_date, status, student_id, trainer_id, students(full_name, assigned_trainer_id), plans(name)")
       .eq("status", "active")
       .gte("end_date", monthStart)
       .lte("end_date", monthEnd);
@@ -80,13 +83,14 @@ export default function AdminAgenda() {
         label: e.plans?.name || "Plano",
         studentName: e.students?.full_name || "—",
         studentId: e.student_id,
+        trainerIds: uniqueAgendaTrainerIds(e.trainer_id, e.students?.assigned_trainer_id),
       });
     });
 
     // Training cycles — filter by start_date in month, include completed status
     let cyclesQuery = supabase
       .from("training_cycles")
-      .select("id, start_date, end_date, cycle_number, enrollment_id, status, prescribed_offline_at, enrollments!training_cycles_enrollment_id_fkey(student_id, students(full_name, assigned_trainer_id))")
+      .select("id, start_date, end_date, cycle_number, enrollment_id, status, prescribed_offline_at, enrollments!training_cycles_enrollment_id_fkey(student_id, trainer_id, students(full_name, assigned_trainer_id))")
       .in("status", ["active", "pending", "completed"])
       .gte("start_date", monthStart)
       .lte("start_date", monthEnd);
@@ -134,6 +138,7 @@ export default function AdminAgenda() {
           studentId: (c as any).enrollments?.student_id,
           cycleId: c.id,
           trainerName: trainerId ? trainerMap[trainerId] : undefined,
+          trainerIds: uniqueAgendaTrainerIds(trainerId, (c as any).enrollments?.trainer_id),
         });
       });
     }
@@ -141,7 +146,7 @@ export default function AdminAgenda() {
     // Provas / metas alvo do aluno (target_date no mês)
     let goalsQuery = (supabase as any)
       .from("student_goals")
-      .select("id, target_date, title, kind, metric, student_id, students(full_name)")
+      .select("id, target_date, title, kind, metric, student_id, students(full_name, assigned_trainer_id)")
       .gte("target_date", monthStart)
       .lte("target_date", monthEnd);
     if (effectiveCompanyId) goalsQuery = goalsQuery.eq("company_id", effectiveCompanyId);
@@ -155,10 +160,35 @@ export default function AdminAgenda() {
         label: `${g.kind === "meta" ? "Meta" : "Prova"}: ${g.title}${g.metric ? ` (${g.metric})` : ""}`,
         studentName: g.students?.full_name || "—",
         studentId: g.student_id,
+        trainerIds: uniqueAgendaTrainerIds(g.students?.assigned_trainer_id),
       });
     });
 
-    setEvents(collected);
+    const studentIds = [...new Set(collected.map((event) => event.studentId).filter((id): id is string => Boolean(id)))];
+    const enrollmentTrainerIds = new Map<string, string[]>();
+    if (studentIds.length > 0) {
+      const { data: ownershipEnrollments, error: ownershipError } = await supabase
+        .from("enrollments")
+        .select("student_id, trainer_id, status")
+        .in("student_id", studentIds)
+        .in("status", ["active", "awaiting_training", "awaiting_renewal"]);
+      if (ownershipError) failedSources.push("vínculos da carteira");
+      (ownershipEnrollments || []).forEach((enrollment) => {
+        if (!enrollment.trainer_id) return;
+        enrollmentTrainerIds.set(
+          enrollment.student_id,
+          uniqueAgendaTrainerIds(...(enrollmentTrainerIds.get(enrollment.student_id) || []), enrollment.trainer_id),
+        );
+      });
+    }
+
+    setEvents(collected.map((event) => ({
+      ...event,
+      trainerIds: uniqueAgendaTrainerIds(
+        ...(event.trainerIds || []),
+        ...(event.studentId ? enrollmentTrainerIds.get(event.studentId) || [] : []),
+      ),
+    })));
     if (failedSources.length > 0) {
       setLoadError(`Não foi possível carregar: ${[...new Set(failedSources)].join(", ")}.`);
     }
@@ -167,13 +197,16 @@ export default function AdminAgenda() {
 
   useEffect(() => { void loadEvents(); }, [loadEvents]);
 
+  const visibleEvents = agendaScope === "mine"
+    ? events.filter((event) => agendaEventBelongsToTrainer(event.trainerIds, session?.user?.id))
+    : events;
   const days = eachDayOfInterval({ start: startOfMonth(currentMonth), end: endOfMonth(currentMonth) });
   const firstDayOfWeek = startOfMonth(currentMonth).getDay();
-  const getEventsForDay = (day: Date) => events.filter((e) => isSameDay(new Date(e.date + "T12:00:00"), day));
+  const getEventsForDay = (day: Date) => visibleEvents.filter((e) => isSameDay(new Date(e.date + "T12:00:00"), day));
   const selectedEvents = selectedDate ? getEventsForDay(selectedDate) : [];
   // Sort: renewals first, then overdue, pending, done
   const typePriority: Record<string, number> = { goal: 0, contract_renewal: 1, prescription_pending: 2, prescription_done: 3 };
-  const sortedEvents = [...events].sort((a, b) => {
+  const sortedEvents = [...visibleEvents].sort((a, b) => {
     const pa = typePriority[a.type] ?? 9;
     const pb = typePriority[b.type] ?? 9;
     if (pa !== pb) return pa - pb;
@@ -215,16 +248,26 @@ export default function AdminAgenda() {
   return (
     <>
       <div className="space-y-6">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-4xl text-primary">AGENDA</h1>
-            <BnitoContextButton
-              label="agenda operacional"
-              context="Agenda consolidada com renovacoes, ciclos para prescrever e ciclos entregues."
-              question="Como devo priorizar os eventos da agenda deste mes?"
-            />
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-4xl text-primary">AGENDA</h1>
+              <BnitoContextButton
+                label="agenda operacional"
+                context="Agenda consolidada com renovacoes, ciclos para prescrever e ciclos entregues."
+                question="Como devo priorizar os eventos da agenda deste mes?"
+              />
+            </div>
+            <p className="text-muted-foreground font-sans">
+              {agendaScope === "mine" ? "Datas importantes dos alunos da sua carteira" : "Visão consolidada de datas importantes de todos os alunos"}
+            </p>
           </div>
-          <p className="text-muted-foreground font-sans">Visão consolidada de datas importantes de todos os alunos</p>
+          {role === "trainer" && (
+            <div className="inline-flex rounded-md border border-border bg-muted/40 p-1" role="group" aria-label="Filtrar agenda por carteira">
+              <Button type="button" size="sm" variant={agendaScope === "all" ? "default" : "ghost"} className="h-8 rounded" onClick={() => setAgendaScope("all")}>Todos</Button>
+              <Button type="button" size="sm" variant={agendaScope === "mine" ? "default" : "ghost"} className="h-8 rounded" onClick={() => setAgendaScope("mine")}>Meus</Button>
+            </div>
+          )}
         </div>
 
         {/* Legend */}
@@ -309,7 +352,7 @@ export default function AdminAgenda() {
                 {selectedDate ? format(selectedDate, "dd 'de' MMMM", { locale: ptBR }) : "Próximos Eventos"}
                 <BnitoContextButton
                   label="eventos da agenda"
-                  context={`Agenda com ${events.length} eventos no mes e ${selectedEvents.length} eventos no dia selecionado.`}
+                  context={`Agenda com ${visibleEvents.length} eventos no mes e ${selectedEvents.length} eventos no dia selecionado.`}
                   question="Quais eventos exigem acao primeiro e por que?"
                   className="ml-auto"
                 />
@@ -366,7 +409,7 @@ export default function AdminAgenda() {
                               </p>
                             )}
                           </div>
-                          {ev.type === "prescription_pending" && ev.cycleId && (
+                          {ev.type === "prescription_pending" && ev.cycleId && (role !== "trainer" || agendaEventBelongsToTrainer(ev.trainerIds, session?.user?.id)) && (
                             <Button
                               type="button"
                               size="sm"
