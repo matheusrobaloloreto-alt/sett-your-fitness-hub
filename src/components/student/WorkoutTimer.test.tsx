@@ -28,4 +28,28 @@ describe("WorkoutTimer start guard", () => {
     expect(onStart).not.toHaveBeenCalled();
     expect(onResolveBlockedStart).toHaveBeenCalledTimes(1);
   });
+
+  it("disables session actions while completion is persisting", () => {
+    const onFinish = vi.fn();
+    const onAbandon = vi.fn();
+
+    render(
+      <WorkoutTimer
+        isActive
+        isFinishing
+        elapsed={120}
+        formatTime={(seconds) => `${seconds}s`}
+        onStart={vi.fn()}
+        onFinish={onFinish}
+        onAbandon={onAbandon}
+        workoutTitle="Treino B"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Finalizando/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Abandonar/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /Finalizando/i }));
+    expect(onFinish).not.toHaveBeenCalled();
+    expect(onAbandon).not.toHaveBeenCalled();
+  });
 });

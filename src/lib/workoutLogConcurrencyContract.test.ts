@@ -90,6 +90,17 @@ describe("workout log optimistic concurrency", () => {
     expect(migration).toContain("to authenticated, service_role");
   });
 
+  it("serializes same-device saves and normalizes legacy set types before the guarded RPC", () => {
+    const portal = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");
+
+    expect(portal).toContain("createWorkoutLogSaveQueue");
+    expect(portal).toContain("workoutLogSaveQueueRef.current.run");
+    expect(portal).toContain("Object.values(logsRef.current)");
+    expect(portal).toContain("session.finishSession(logsRef.current");
+    expect(portal).toContain("set_type: normalizeSetType(");
+    expect(portal).not.toContain("set_type: log.set_type || 'normal'");
+  });
+
   it("keeps the valid path bounded to real exercise JSON and five UI extras", () => {
     const portal = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");
     const migration = readFileSync(

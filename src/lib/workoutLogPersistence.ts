@@ -4,6 +4,27 @@ export type WorkoutLogSaveResult =
 
 type RpcResult<TData> = { data: TData | null; error: unknown | null };
 
+export interface WorkoutLogSaveQueue {
+  run<TResult>(task: () => Promise<TResult>): Promise<TResult>;
+}
+
+/**
+ * Autosave, manual save and session completion share the same revision-checked
+ * RPC. Keep them ordered so two requests from this device never race using the
+ * same base revision.
+ */
+export function createWorkoutLogSaveQueue(): WorkoutLogSaveQueue {
+  let tail: Promise<void> = Promise.resolve();
+
+  return {
+    run<TResult>(task: () => Promise<TResult>) {
+      const result = tail.catch(() => undefined).then(task);
+      tail = result.then(() => undefined, () => undefined);
+      return result;
+    },
+  };
+}
+
 export async function saveWorkoutLogBatchIfCurrent<TRow, TData extends { conflicts?: unknown[] }>({
   rows,
   save,

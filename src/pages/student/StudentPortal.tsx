@@ -62,7 +62,8 @@ import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
 import { selectPreferredVisibleCycle, selectPrescriptionEnrollment, selectStudentWorkoutCycleWindow } from "@/lib/prescriptionSchedule";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
-import { saveWorkoutLogBatchIfCurrent, type WorkoutLogSaveResult } from "@/lib/workoutLogPersistence";
+import { createWorkoutLogSaveQueue, saveWorkoutLogBatchIfCurrent, type WorkoutLogSaveResult } from "@/lib/workoutLogPersistence";
+import { normalizeSetType } from "@/lib/setTypes";
 
 const StatsCharts = lazy(() => import("@/components/student/StatsCharts").then((module) => ({ default: module.StatsCharts })));
 const VolumeInsights = lazy(() => import("@/components/student/VolumeInsights").then((module) => ({ default: module.VolumeInsights })));
@@ -129,6 +130,7 @@ interface WorkoutExercise {
   rir?: string | null;
   weekly_instruction?: string | null;
   weekly_prescription?: StoredWeeklyExercisePrescription[];
+  set_types?: string[];
   youtube_video_id?: string | null;
   thumbnail_url?: string | null;
 }
@@ -204,8 +206,12 @@ export default function StudentPortal() {
   const [contentLoading, setContentLoading] = useState(true);
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
   const [logs, setLogs] = useState<Record<string, WorkoutLog>>({});
+  const logsRef = useRef<Record<string, WorkoutLog>>({});
+  const workoutLogSaveQueueRef = useRef(createWorkoutLogSaveQueue());
   const [previousLogs, setPreviousLogs] = useState<Record<string, WorkoutLog>>({});
   const [savingLogs, setSavingLogs] = useState(false);
+  const [finishingWorkout, setFinishingWorkout] = useState(false);
+  const finishingWorkoutRef = useRef(false);
   const [enrollmentInfo, setEnrollmentInfo] = useState<{ plan_name: string; start_date: string; end_date: string } | null>(null);
   const [allLogs, setAllLogs] = useState<any[]>([]);
   const [studentGoals, setStudentGoals] = useState<any[]>([]);
@@ -218,6 +224,13 @@ export default function StudentPortal() {
   const [hasNutrition, setHasNutrition] = useState(false);
   const [runningSports, setRunningSports] = useState<Set<string>>(new Set());
   const [preferredCyclePrescriptionCleared, setPreferredCyclePrescriptionCleared] = useState(false);
+
+  const commitLogs = useCallback((updater: (current: Record<string, WorkoutLog>) => Record<string, WorkoutLog>) => {
+    const next = updater(logsRef.current);
+    logsRef.current = next;
+    setLogs(next);
+    return next;
+  }, []);
   
 
   const todayStr = businessDateYmd();
@@ -633,7 +646,7 @@ export default function StudentPortal() {
     });
 
     // Keep pending local changes when reloading server revisions.
-    setLogs((current) => mergeWorkoutDraftLogs(todayLogMap, current));
+    commitLogs((current) => mergeWorkoutDraftLogs(todayLogMap, current));
     setPreviousLogs(prevLogMap);
     setContentLoading(false);
     recordLoadPerformance("content_ready");
@@ -653,7 +666,7 @@ export default function StudentPortal() {
     if (!selectedWorkout) return;
     const workoutId = selectedWorkout.id;
     const key = getLogKey(workoutId, exIdx, setNum);
-    setLogs(prev => {
+    commitLogs(prev => {
       const next = {
         ...prev,
         [key]: {
@@ -663,6 +676,9 @@ export default function StudentPortal() {
           set_number: setNum,
           weight: prev[key]?.weight ?? null,
           reps_done: prev[key]?.reps_done ?? null,
+          set_type: normalizeSetType(
+            prev[key]?.set_type || selectedWorkout.exercises[exIdx]?.set_types?.[setNum - 1],
+          ),
           [field]: value,
           client_updated_at: new Date().toISOString(),
           dirty: true,
@@ -709,7 +725,7 @@ export default function StudentPortal() {
     const currentExtra = extraSets[exIdx] || 0;
     if (total <= 1 || currentExtra <= 0 || setNum <= baseSets) return;
 
-    setLogs(prev => removeAndRenumberWorkoutSet(
+    commitLogs(prev => removeAndRenumberWorkoutSet(
       prev, workoutId, exIdx, setNum, total, new Date().toISOString(),
     ));
 
@@ -726,8 +742,15 @@ export default function StudentPortal() {
     const silent = opts?.silent === true;
     if (!silent) setSavingLogs(true);
     const workoutId = selectedWorkout.id;
+    const requestedStudentId = studentId;
+    const requestedDate = todayStr;
+    const requestedExercises = selectedWorkout.exercises;
+
+    return workoutLogSaveQueueRef.current.run(async (): Promise<WorkoutLogSaveResult> => {
     // Inclui séries marcadas como concluídas mesmo sem carga/reps (ex.: peso corporal, abdominal).
-    const logsToSave = Object.values(logs).filter(l =>
+    // A leitura acontece somente quando chega a vez desta gravação, depois que
+    // qualquer autosave anterior já atualizou as revisões em logsRef.
+    const logsToSave = Object.values(logsRef.current).filter(l =>
       l.workout_id === workoutId
       && (l.deleted === true || l.weight > 0 || l.reps_done > 0 || l.completed)
       && (l.dirty === true || !l.id)
@@ -737,14 +760,16 @@ export default function StudentPortal() {
     // O índice identifica a série; base_revision impede que um autosave antigo
     // atualize essa série depois de outro aparelho já ter salvo uma revisão nova.
     const rows = logsToSave.map(log => ({
-      student_id: studentId,
+      student_id: requestedStudentId,
       workout_id: log.workout_id,
       exercise_index: log.exercise_index,
       set_number: log.set_number,
-      session_date: todayStr,
+      session_date: requestedDate,
       weight: log.weight ?? 0,
       reps_done: log.reps_done ?? 0,
-      set_type: log.set_type || 'normal',
+      set_type: normalizeSetType(
+        log.set_type || requestedExercises[log.exercise_index]?.set_types?.[log.set_number - 1],
+      ),
       rpe: log.rpe || null,
       completed: log.completed || false,
       base_revision: log.revision ?? null,
@@ -796,7 +821,7 @@ export default function StudentPortal() {
           if (logsBackupKey) localStorage.removeItem(logsBackupKey);
           await loadStudentData();
         } else {
-          setLogs(prev => {
+          commitLogs(prev => {
             const next = { ...prev };
             for (const deletedRow of deletedRows) {
               const key = getLogKey(deletedRow.workout_id, deletedRow.exercise_index, deletedRow.set_number);
@@ -837,6 +862,7 @@ export default function StudentPortal() {
       toast({ title: "Cargas salvas!" });
     }
     return outcome;
+    });
   };
 
   // ---- Autosave + backup local dos logs do dia (resiliência a wifi ruim / reload) ----
@@ -860,9 +886,9 @@ export default function StudentPortal() {
       const raw = localStorage.getItem(logsBackupKey);
       if (!raw) return;
       const local = JSON.parse(raw) as Record<string, WorkoutLog>;
-      setLogs(prev => mergeWorkoutDraftLogs(prev, local));
+      commitLogs(prev => mergeWorkoutDraftLogs(prev, local));
     } catch { /* ignore */ }
-  }, [loading, logsBackupKey]);
+  }, [commitLogs, loading, logsBackupKey]);
 
   // Autosave com debounce (silencioso) — o atleta não depende mais de lembrar de salvar.
   useEffect(() => {
@@ -944,7 +970,11 @@ export default function StudentPortal() {
   };
 
   const handleFinishSession = async () => {
-    if (!selectedWorkout) return;
+    if (!selectedWorkout || finishingWorkoutRef.current) return;
+    finishingWorkoutRef.current = true;
+    setFinishingWorkout(true);
+
+    try {
 
     const previousBestWeights: Record<string, number> = {};
     selectedWorkout.exercises.forEach((ex, idx) => {
@@ -955,16 +985,21 @@ export default function StudentPortal() {
 
     const completion = await runStudentPortalWorkoutCompletion<SessionSummary>({
       saveCurrentLogs: () => saveCurrentLogs({ silent: true, notifyConflict: false }),
-      finishSession: () => session.finishSession(logs, selectedWorkout.exercises, previousBestWeights),
+      finishSession: () => session.finishSession(logsRef.current, selectedWorkout.exercises, previousBestWeights),
       onCompleted: (finishedSession) => {
         setWorkoutSessions((current) => upsertCompletedWorkoutSession(current, finishedSession, todayStr));
       },
     });
     if (completion.status === "save_failed") {
       emitBenitoProductEvent({ source: "student_workout", action: "complete_failed" });
+      const failureDescription = completion.reason === "conflict"
+        ? "As séries foram atualizadas em outro dispositivo. Recarregue o treino antes de finalizar."
+        : completion.reason === "validation_error"
+          ? "Encontramos dados antigos nesta ficha. Recarregue o treino e tente novamente."
+          : "A sessão continua aberta. Confira a conexão e tente novamente.";
       toast({
         title: "Não foi possível salvar as séries",
-        description: "A sessão continua aberta. Resolva o conflito ou a conexão e tente novamente.",
+        description: failureDescription,
         variant: "destructive",
       });
       return;
@@ -988,6 +1023,10 @@ export default function StudentPortal() {
     setFeedbackRating(null);
     setFeedbackSessionId(finishedSession.id);
     setFeedbackOpen(true);
+    } finally {
+      finishingWorkoutRef.current = false;
+      setFinishingWorkout(false);
+    }
   };
 
   const sendWorkoutFeedback = async () => {
@@ -1395,6 +1434,7 @@ export default function StudentPortal() {
                           onFinish={handleFinishSession}
                           onAbandon={handleAbandonSession}
                           workoutTitle={selectedWorkout.title}
+                          isFinishing={finishingWorkout}
                           startBlockedReason={startBlockedReason}
                           onResolveBlockedStart={() => setActiveView("treino")}
                         />
@@ -1436,7 +1476,7 @@ export default function StudentPortal() {
                                 className="min-w-[12rem] flex-1"
                               />
                             )}
-                            <Button size="sm" onClick={() => saveCurrentLogs()} disabled={savingLogs}>
+                            <Button size="sm" onClick={() => saveCurrentLogs()} disabled={savingLogs || finishingWorkout}>
                               <Save className="h-3.5 w-3.5 mr-1" />
                               {savingLogs ? "Salvando..." : "Salvar"}
                             </Button>
@@ -1524,7 +1564,7 @@ export default function StudentPortal() {
                           })()}
                         </div>
 
-                        <Button className="w-full" onClick={() => saveCurrentLogs()} disabled={savingLogs}>
+                        <Button className="w-full" onClick={() => saveCurrentLogs()} disabled={savingLogs || finishingWorkout}>
                           <Save className="h-4 w-4 mr-2" />
                           {savingLogs ? "Salvando..." : "Salvar Todas as Cargas"}
                         </Button>

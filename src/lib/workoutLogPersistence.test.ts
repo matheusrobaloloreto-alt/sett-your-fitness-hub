@@ -1,9 +1,41 @@
 import { describe, expect, it, vi } from "vitest";
-import { saveWorkoutLogBatchIfCurrent } from "./workoutLogPersistence";
+import { createWorkoutLogSaveQueue, saveWorkoutLogBatchIfCurrent } from "./workoutLogPersistence";
 
 const rows = [{ workout_id: "workout-1", exercise_index: 0, set_number: 1 }];
 
 describe("workout log persistence boundary", () => {
+  it("serializes autosave and finish-save so they cannot race on the same revision", async () => {
+    const queue = createWorkoutLogSaveQueue();
+    const order: string[] = [];
+    let releaseAutosave!: () => void;
+    const autosaveGate = new Promise<void>((resolve) => { releaseAutosave = resolve; });
+
+    const autosave = queue.run(async () => {
+      order.push("autosave:start");
+      await autosaveGate;
+      order.push("autosave:end");
+      return "autosave";
+    });
+    const finishSave = queue.run(async () => {
+      order.push("finish:start");
+      order.push("finish:end");
+      return "finish";
+    });
+
+    await vi.waitFor(() => expect(order).toEqual(["autosave:start"]));
+
+    releaseAutosave();
+    await expect(Promise.all([autosave, finishSave])).resolves.toEqual(["autosave", "finish"]);
+    expect(order).toEqual(["autosave:start", "autosave:end", "finish:start", "finish:end"]);
+  });
+
+  it("continues the queue after a failed save", async () => {
+    const queue = createWorkoutLogSaveQueue();
+
+    await expect(queue.run(async () => { throw new Error("offline"); })).rejects.toThrow("offline");
+    await expect(queue.run(async () => "recovered")).resolves.toBe("recovered");
+  });
+
   it("settles rejected network requests so the save button can leave its pending state", async () => {
     const save = vi.fn().mockRejectedValue(new Error("network disconnected"));
     await expect(saveWorkoutLogBatchIfCurrent({ rows, save, wait: async () => undefined }))

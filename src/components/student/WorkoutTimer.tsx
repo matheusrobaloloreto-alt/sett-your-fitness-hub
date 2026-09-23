@@ -1,4 +1,4 @@
-import { Timer, Square, Play } from "lucide-react";
+import { Loader2, Timer, Square, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface WorkoutTimerProps {
@@ -9,6 +9,7 @@ interface WorkoutTimerProps {
   onFinish: () => void;
   onAbandon: () => void;
   workoutTitle: string;
+  isFinishing?: boolean;
   startBlockedReason?: string | null;
   onResolveBlockedStart?: () => void;
 }
@@ -21,6 +22,7 @@ export function WorkoutTimer({
   onFinish,
   onAbandon,
   workoutTitle,
+  isFinishing = false,
   startBlockedReason,
   onResolveBlockedStart,
 }: WorkoutTimerProps) {
@@ -58,12 +60,13 @@ export function WorkoutTimer({
         </span>
       </div>
       <div className="flex gap-2">
-        <Button variant="destructive" size="sm" className="flex-1 font-sans" onClick={onAbandon}>
+        <Button variant="destructive" size="sm" className="flex-1 font-sans" onClick={onAbandon} disabled={isFinishing}>
           <Square className="h-3.5 w-3.5 mr-1" />
           Abandonar
         </Button>
-        <Button size="sm" className="flex-1 font-sans" onClick={onFinish}>
-          Finalizar Treino
+        <Button size="sm" className="flex-1 font-sans" onClick={onFinish} disabled={isFinishing}>
+          {isFinishing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {isFinishing ? "Finalizando..." : "Finalizar Treino"}
         </Button>
       </div>
     </div>
