@@ -206,12 +206,14 @@ test("student portal uses the authenticated user's personal theme key on the rea
   await expect(page.getByRole("button", { name: /^Avisos$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Alternar para tema claro" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-theme-mode", "dark");
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: test.info().outputPath("student-dark.png"), fullPage: true });
 
   await page.getByRole("button", { name: "Alternar para tema claro" }).click();
 
   await expect(page.locator("html")).toHaveAttribute("data-theme-mode", "light");
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "light only");
   expect(await page.evaluate(() => localStorage.getItem("sett-personal-theme-mode:user:student-real-theme-user"))).toBe("light");
   expect(await page.evaluate(() => localStorage.getItem("sett-personal-theme-mode"))).toBeNull();
   await page.screenshot({ path: test.info().outputPath("student-light.png"), fullPage: true });

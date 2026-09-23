@@ -144,6 +144,9 @@ function applyThemeModeClass(mode: PersonalThemeMode) {
   const root = document.documentElement;
   root.classList.toggle("dark", mode === "dark");
   root.dataset.themeMode = mode;
+  // Android browsers may auto-darken a light page unless the app explicitly
+  // declares that the selected light palette must be preserved.
+  root.style.setProperty("color-scheme", mode === "dark" ? "dark" : "only light");
   const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (themeColor) themeColor.content = mode === "dark" ? "#101318" : "#1D2D5C";
 }

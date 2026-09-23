@@ -127,6 +127,7 @@ describe("personal theme", () => {
 
     expect(document.documentElement).toHaveClass("dark");
     expect(document.documentElement.dataset.themeMode).toBe("dark");
+    expect(document.documentElement.style.colorScheme).toBe("dark");
     expect(document.documentElement.style.getPropertyValue("--background")).toMatch(/\b8%$/);
     expect(document.documentElement.style.getPropertyValue("--foreground")).toMatch(/\b94%$/);
     expect(document.documentElement.style.getPropertyValue("--primary")).not.toBe("");
@@ -138,6 +139,7 @@ describe("personal theme", () => {
 
     expect(document.documentElement).not.toHaveClass("dark");
     expect(document.documentElement.dataset.themeMode).toBe("light");
+    expect(document.documentElement.style.colorScheme).toBe("only light");
     expect(document.documentElement.style.getPropertyValue("--background")).toMatch(/\b9[0-9]%$/);
   });
 });

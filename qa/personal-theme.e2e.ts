@@ -13,6 +13,7 @@ test("personal theme starts from the device scheme and toggles without mobile ov
 
   await expect(page.locator("html")).toHaveAttribute("data-theme-mode", "dark");
   await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
   await expect(page.getByRole("button", { name: "Alternar para tema claro" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Escuro" })).toHaveAttribute("aria-pressed", "true");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
@@ -21,6 +22,7 @@ test("personal theme starts from the device scheme and toggles without mobile ov
 
   await expect(page.locator("html")).toHaveAttribute("data-theme-mode", "light");
   await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "light only");
   await expect(page.getByRole("button", { name: "Alternar para tema escuro" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Claro" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("meta[name='theme-color']")).toHaveAttribute("content", "#1D2D5C");

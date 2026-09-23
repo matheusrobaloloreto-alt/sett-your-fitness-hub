@@ -34,6 +34,7 @@
             : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
           document.documentElement.classList.toggle("dark", mode === "dark");
           document.documentElement.dataset.themeMode = mode;
+          document.documentElement.style.setProperty("color-scheme", mode === "dark" ? "dark" : "only light");
         } catch (_) {}
       })();
     </script>
