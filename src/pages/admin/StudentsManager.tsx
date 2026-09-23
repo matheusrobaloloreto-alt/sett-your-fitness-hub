@@ -44,6 +44,7 @@ interface Student {
   user_id: string | null;
   selected_plan_id: string | null;
   assigned_trainer_id: string | null;
+  enrollment_trainer_id?: string | null;
   created_at: string;
   plan_name?: string;
 }
@@ -189,21 +190,24 @@ export default function StudentsManager() {
     if (studentsData) {
       const studentIds = studentsData.map(s => s.id);
       const { data: enrollments } = await supabase
-        .from("enrollments").select("student_id, plan_id, status")
+        .from("enrollments").select("student_id, plan_id, trainer_id, status")
         .in("student_id", studentIds).in("status", ["active", "awaiting_training", "awaiting_renewal"]);
 
       const planMap = new Map((plansData || []).map(p => [p.id, p.name]));
       const studentPlanMap = new Map<string, string>();
       const studentEnrollPlanIdMap = new Map<string, string>();
+      const studentEnrollmentTrainerMap = new Map<string, string>();
       (enrollments || []).forEach(e => {
         if (!studentPlanMap.has(e.student_id)) {
           studentPlanMap.set(e.student_id, planMap.get(e.plan_id) || "");
           studentEnrollPlanIdMap.set(e.student_id, e.plan_id);
+          if (e.trainer_id) studentEnrollmentTrainerMap.set(e.student_id, e.trainer_id);
         }
       });
       setStudents(studentsData.map(s => ({
         ...s,
         selected_plan_id: s.selected_plan_id || studentEnrollPlanIdMap.get(s.id) || null,
+        enrollment_trainer_id: studentEnrollmentTrainerMap.get(s.id) || null,
         plan_name: studentPlanMap.get(s.id) || (s.selected_plan_id ? planMap.get(s.selected_plan_id) : undefined)
       })));
     }
@@ -217,7 +221,12 @@ export default function StudentsManager() {
     }
     return true;
   });
-  const activeWithoutAccess = students.filter(s => s.status === "active" && !s.user_id);
+  const canManageStudent = (student: Student) => (
+    role !== "trainer"
+    || student.assigned_trainer_id === session?.user?.id
+    || student.enrollment_trainer_id === session?.user?.id
+  );
+  const activeWithoutAccess = students.filter(s => canManageStudent(s) && s.status === "active" && !s.user_id);
   const activeWithoutAccessWithEmail = activeWithoutAccess.filter(s => !!s.email);
   const activeWithoutAccessNoEmail = activeWithoutAccess.length - activeWithoutAccessWithEmail.length;
 
@@ -612,7 +621,7 @@ export default function StudentsManager() {
                       question="Qual o proximo passo operacional e tecnico para este aluno?"
                     />
                     <StudentChatButton studentId={s.id} studentName={s.full_name} phone={s.whatsapp || s.phone} />
-                    {s.status === "active" && !s.user_id && (
+                    {canManageStudent(s) && s.status === "active" && !s.user_id && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -625,13 +634,17 @@ export default function StudentsManager() {
                       </Button>
                     )}
                     <Button variant="ghost" size="icon" aria-label={`Ver perfil de ${s.full_name}`} title={`Ver perfil de ${s.full_name}`} onClick={() => navigate(`${rolePrefix}/students/${s.id}`)}><Eye className="h-4 w-4" /></Button>
-                    <Button variant="ghost" size="icon" aria-label={`Editar ${s.full_name}`} title={`Editar ${s.full_name}`} onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
-                    <Button variant="ghost" size="icon" aria-label={`Excluir ${s.full_name}`} title={`Excluir ${s.full_name}`} onClick={() => handleDelete(s.id)} className="text-destructive hover:text-destructive"><Trash2 className="h-4 w-4" /></Button>
+                    {canManageStudent(s) && (
+                      <>
+                        <Button variant="ghost" size="icon" aria-label={`Editar ${s.full_name}`} title={`Editar ${s.full_name}`} onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" aria-label={`Excluir ${s.full_name}`} title={`Excluir ${s.full_name}`} onClick={() => handleDelete(s.id)} className="text-destructive hover:text-destructive"><Trash2 className="h-4 w-4" /></Button>
+                      </>
+                    )}
                   </div>
                 </div>
 
                 {/* Trainer & Plan assignment */}
-                <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border">
+                {canManageStudent(s) && <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border">
                   <div className="flex-1 space-y-1">
                     <Label className="text-xs font-sans text-muted-foreground">Treinador{influencer ? " (opcional)" : ""}</Label>
                     <Select value={s.assigned_trainer_id || ""} onValueChange={v => handleAssignTrainer(s.id, v)} disabled={influencer}>
@@ -646,7 +659,7 @@ export default function StudentsManager() {
                       <SelectContent>{plans.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
-                </div>
+                </div>}
                   </>;
                 })()}
               </CardContent>

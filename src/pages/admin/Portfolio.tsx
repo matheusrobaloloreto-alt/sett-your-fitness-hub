@@ -1,5 +1,4 @@
-// Carteira — os alunos atribuídos a um colaborador + mini-CRM da carteira.
-// Trainer/coordinator veem a PRÓPRIA carteira; admin/master escolhem o colaborador.
+// Carteira — visão da empresa com filtro opcional por colaborador.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -43,6 +42,7 @@ interface PortfolioStudent {
   address: string | null; address_number: string | null; neighborhood: string | null;
   city: string | null; state: string | null; notes: string | null;
   assigned_trainer_id: string | null;
+  enrollment_trainer_id?: string | null;
   country_code: string | null;
   cycle_end?: string | null; chat_id?: string | null; hours_since_contact?: number | null;
 }
@@ -67,6 +67,8 @@ const CAD_CLASS: Record<string, string> = {
   late: "bg-destructive/15 text-destructive",
 };
 
+const ALL_STUDENTS = "all";
+
 export default function Portfolio() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -79,7 +81,7 @@ export default function Portfolio() {
   const canReassignStudents = role === "admin" || role === "coordinator" || role === "master";
 
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
-  const [selectedId, setSelectedId] = useState<string>("");
+  const [selectedId, setSelectedId] = useState<string>(ALL_STUDENTS);
   const [students, setStudents] = useState<PortfolioStudent[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -153,9 +155,6 @@ export default function Portfolio() {
     setBulkResult(null);
   }, [effectiveCompanyId, selectedId]);
 
-  // Seleção inicial: o próprio usuário.
-  useEffect(() => { if (user?.id && !selectedId) setSelectedId(user.id); }, [user?.id, selectedId]);
-
   const load = useCallback(async () => {
     const requestId = loadSeqRef.current + 1;
     loadSeqRef.current = requestId;
@@ -167,18 +166,22 @@ export default function Portfolio() {
       currentScopeRef.current.trainerId !== selectedIdAtRequest
     ) return;
     setLoading(true);
-    const { data: studs } = await supabase
+    let studentsQuery = supabase
       .from("students")
       .select("id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, country_code, notes, assigned_trainer_id")
       .eq("company_id", companyIdAtRequest)
-      .eq("assigned_trainer_id", selectedIdAtRequest)
       .order("full_name");
+    if (selectedIdAtRequest !== ALL_STUDENTS) {
+      studentsQuery = studentsQuery.eq("assigned_trainer_id", selectedIdAtRequest);
+    }
+    const { data: studs } = await studentsQuery;
     const list: PortfolioStudent[] = (studs || []) as any[];
     const ids = list.map((s) => s.id);
     if (ids.length) {
-      const [{ data: cycles }, { data: chats }, cad] = await Promise.all([
+      const [{ data: cycles }, { data: chats }, { data: enrollments }, cad] = await Promise.all([
         (supabase as any).from("training_cycles").select("student_id, end_date").in("student_id", ids).eq("status", "active"),
         (supabase as any).from("whatsapp_chats").select("id, student_id").in("student_id", ids),
+        (supabase as any).from("enrollments").select("student_id, trainer_id, status").in("student_id", ids).in("status", ["active", "awaiting_training", "awaiting_renewal"]),
         (supabase as any).rpc("contact_cadence", { _company_id: companyIdAtRequest }).then((r: any) => r, () => ({ data: null })),
       ]);
       const cycleMap = new Map<string, string>();
@@ -190,10 +193,17 @@ export default function Portfolio() {
       (chats || []).forEach((c: any) => { if (c.student_id) chatMap.set(c.student_id, c.id); });
       const cadMap = new Map<string, number>();
       ((cad?.data || []) as any[]).forEach((r: any) => { if (r.student_id) cadMap.set(r.student_id, Number(r.hours_since)); });
+      const enrollmentTrainerMap = new Map<string, string>();
+      (enrollments || []).forEach((enrollment: any) => {
+        if (enrollment.student_id && enrollment.trainer_id && !enrollmentTrainerMap.has(enrollment.student_id)) {
+          enrollmentTrainerMap.set(enrollment.student_id, enrollment.trainer_id);
+        }
+      });
       list.forEach((s) => {
         s.cycle_end = cycleMap.get(s.id) || null;
         s.chat_id = chatMap.get(s.id) || null;
         s.hours_since_contact = cadMap.has(s.id) ? cadMap.get(s.id)! : null;
+        s.enrollment_trainer_id = enrollmentTrainerMap.get(s.id) || null;
       });
     }
     if (
@@ -513,9 +523,15 @@ export default function Portfolio() {
     return c;
   }, [students]);
 
-  const selectedName = canPickOthers
-    ? (collaborators.find((c) => c.user_id === selectedId)?.full_name || "você")
-    : "sua";
+  const canManageStudent = useCallback((student: PortfolioStudent) => (
+    role !== "trainer"
+    || student.assigned_trainer_id === user?.id
+    || student.enrollment_trainer_id === user?.id
+  ), [role, user?.id]);
+
+  const selectedName = selectedId === ALL_STUDENTS
+    ? "todos os alunos"
+    : (collaborators.find((c) => c.user_id === selectedId)?.full_name || "colaborador selecionado");
 
   return (
     <div className="space-y-4 p-4 md:p-6">
@@ -528,6 +544,7 @@ export default function Portfolio() {
           <Select value={selectedId} onValueChange={handleSelectedTrainerChange} disabled={bulkInteractionLocked}>
             <SelectTrigger className="ml-auto h-9 w-[240px]"><SelectValue placeholder="Escolher colaborador" /></SelectTrigger>
             <SelectContent>
+              <SelectItem value={ALL_STUDENTS}>Todos os alunos</SelectItem>
               {user?.id && !collaborators.some((c) => c.user_id === user.id) && (
                 <SelectItem value={user.id}>Minha carteira</SelectItem>
               )}
@@ -588,7 +605,7 @@ export default function Portfolio() {
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm text-muted-foreground font-normal">
-            Carteira de <span className="text-foreground font-medium">{selectedName}</span> — último contato via WhatsApp, ciclo e ações rápidas.
+            Visão de <span className="text-foreground font-medium">{selectedName}</span> — último contato via WhatsApp, ciclo e ações rápidas.
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -596,7 +613,7 @@ export default function Portfolio() {
             <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
           ) : filtered.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              {students.length === 0 ? "Nenhum aluno atribuído a este colaborador ainda." : "Nenhum aluno com esse filtro."}
+              {students.length === 0 ? "Nenhum aluno disponível nesta empresa." : "Nenhum aluno com esse filtro."}
             </p>
           ) : (
             <div className="divide-y divide-border">
@@ -680,12 +697,16 @@ export default function Portfolio() {
                       <Button variant="ghost" size="icon" aria-label={`Ver perfil de ${s.full_name}`} title={`Ver perfil de ${s.full_name}`} onClick={() => navigate(`/${routePrefix}/students/${s.id}`)} disabled={bulkInteractionLocked}>
                         <Eye className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" aria-label={`Editar ${s.full_name}`} title={`Editar ${s.full_name}`} onClick={() => openEditStudent(s)} disabled={bulkInteractionLocked}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" aria-label={`Excluir ${s.full_name}`} title={`Excluir ${s.full_name}`} className="text-destructive hover:text-destructive" onClick={() => deleteStudent(s)} disabled={bulkInteractionLocked}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {canManageStudent(s) && (
+                        <>
+                          <Button variant="ghost" size="icon" aria-label={`Editar ${s.full_name}`} title={`Editar ${s.full_name}`} onClick={() => openEditStudent(s)} disabled={bulkInteractionLocked}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" aria-label={`Excluir ${s.full_name}`} title={`Excluir ${s.full_name}`} className="text-destructive hover:text-destructive" onClick={() => deleteStudent(s)} disabled={bulkInteractionLocked}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 );
