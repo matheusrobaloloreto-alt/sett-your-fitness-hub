@@ -51,6 +51,37 @@ describe("workout log persistence boundary", () => {
     expect(save).toHaveBeenCalledTimes(3);
   });
 
+  it.each(["22P02", "42501", "P0001", "PGRST301"])("does not retry permanent %s failures", async (code) => {
+    const error = { code, message: "invalid payload or denied" };
+    const save = vi.fn().mockResolvedValue({ data: null, error });
+    const wait = vi.fn();
+    await expect(saveWorkoutLogBatchIfCurrent({ rows, save, wait }))
+      .resolves.toEqual({ ok: false, reason: "rpc_error", error });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it.each(["40001", "40P01", "55P03", "57014"])("retries transient %s failures", async (code) => {
+    const data = { saved: [{ ...rows[0], revision: 2 }], conflicts: [] };
+    const save = vi.fn()
+      .mockResolvedValueOnce({ data: null, error: { code } })
+      .mockResolvedValueOnce({ data, error: null });
+    await expect(saveWorkoutLogBatchIfCurrent({ rows, save, wait: async () => undefined }))
+      .resolves.toEqual({ ok: true, reason: "saved", data });
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it("confirms an idempotent replay after the commit response is lost", async () => {
+    const savedRow = { ...rows[0], weight: 8, reps_done: 8, rpe: 9.5, revision: 5 };
+    const data = { saved: [savedRow], conflicts: [] };
+    const save = vi.fn()
+      .mockRejectedValueOnce(new TypeError("response lost after commit"))
+      .mockResolvedValueOnce({ data, error: null });
+    await expect(saveWorkoutLogBatchIfCurrent({ rows, save, wait: async () => undefined }))
+      .resolves.toEqual({ ok: true, reason: "saved", data });
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
   it("returns conflict when compare-and-swap rejects any row", async () => {
     const data = { saved: [], conflicts: [{ workout_id: "workout-1", revision: 2 }] };
 

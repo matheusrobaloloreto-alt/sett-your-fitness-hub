@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef, Fragment, Suspense, lazy } from "react";
+import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AthleticClubProvider, AthleticClubStar } from "@/components/AthleticClubStar";
 import { useAuth } from "@/hooks/useAuth";
@@ -51,12 +52,16 @@ import {
   inferExtraSetsFromPersistedLogs,
   mergeWorkoutDraftLogs,
   readWorkoutUiDraft,
-  reconcileWorkoutLogResponse,
+  reconcileWorkoutLogBatchResponse,
+  discardConflictedWorkoutLogDeletions,
   removeAndRenumberWorkoutSet,
   resolveWorkoutResumeTarget,
   workoutUiDraftKey,
-  writeWorkoutUiDraft,
   workoutLogTombstoneKey,
+  writeWorkoutUiDraft,
+  type MutableWorkoutSetLog,
+  type PersistedWorkoutSetIdentity,
+  type WorkoutExerciseSetDefinition,
 } from "@/lib/workoutDraft";
 import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
@@ -64,6 +69,7 @@ import { selectPreferredVisibleCycle, selectPrescriptionEnrollment, selectStuden
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
 import { createWorkoutLogSaveQueue, saveWorkoutLogBatchIfCurrent, type WorkoutLogSaveResult } from "@/lib/workoutLogPersistence";
 import { normalizeSetType } from "@/lib/setTypes";
+import { isWorkoutLogAwaitingConfirmation, shouldSaveWorkoutLog, workoutLogForDate } from "@/lib/workoutLogRequest";
 
 const StatsCharts = lazy(() => import("@/components/student/StatsCharts").then((module) => ({ default: module.StatsCharts })));
 const VolumeInsights = lazy(() => import("@/components/student/VolumeInsights").then((module) => ({ default: module.VolumeInsights })));
@@ -179,6 +185,68 @@ interface WorkoutLog {
   client_updated_at?: string;
   dirty?: boolean;
   deleted?: boolean;
+  deleted_from_client_updated_at?: string | null;
+  renumbered_at?: string;
+}
+
+// Shared with the React integration test for in-flight deletion and reopening.
+// eslint-disable-next-line react-refresh/only-export-components
+export function useStudentPortalExtraSetReconciliation({
+  selectedWorkout,
+  persistedLogs,
+  draftLogs,
+  draftReady,
+  todayStr,
+  setExtraSets,
+  extraSetsWorkoutRef,
+  extraSetsByWorkoutRef,
+}: {
+  selectedWorkout: { id: string; exercises: WorkoutExerciseSetDefinition[] } | null;
+  persistedLogs: PersistedWorkoutSetIdentity[];
+  draftLogs: Record<string, MutableWorkoutSetLog>;
+  draftReady: boolean;
+  todayStr: string;
+  setExtraSets: Dispatch<SetStateAction<Record<number, number>>>;
+  extraSetsWorkoutRef: MutableRefObject<string | null>;
+  extraSetsByWorkoutRef: MutableRefObject<Record<string, Record<number, number>>>;
+}) {
+  useEffect(() => {
+    if (!selectedWorkout || !draftReady) return;
+    const workoutId = selectedWorkout.id;
+    // Pending tombstones hide old ACKs only in the UI projection. Keep the
+    // authoritative rows intact so a rejected deletion can restore its count.
+    const allLogs = mergeTrainingLogsForDisplay<MutableWorkoutSetLog & PersistedWorkoutSetIdentity>(
+      persistedLogs,
+      Object.entries(draftLogs).filter(([key, log]) => {
+        const tombstone = draftLogs[workoutLogTombstoneKey(key)];
+        // Reload may retain a server copy beside its pending tombstone. It is
+        // not the shifted insert, and must not undo that tombstone in the view.
+        return !(tombstone?.deleted === true && log.id && log.id === tombstone.id);
+      }).map(([, log]) => ({ ...log, session_date: log.session_date ?? todayStr })),
+      todayStr,
+    );
+    const inferred = inferExtraSetsFromPersistedLogs(allLogs, workoutId, selectedWorkout.exercises, todayStr);
+    setExtraSets(current => {
+      const previousWorkoutId = extraSetsWorkoutRef.current;
+      if (previousWorkoutId && previousWorkoutId !== workoutId) {
+        extraSetsByWorkoutRef.current[previousWorkoutId] = current;
+      }
+      const cached = extraSetsByWorkoutRef.current[workoutId]
+        ?? (previousWorkoutId === workoutId ? current : {});
+      const merged = { ...inferred };
+      for (const [index, count] of Object.entries(cached)) {
+        const exerciseIndex = Number(index);
+        merged[exerciseIndex] = Math.min(MAX_EXTRA_SETS, Math.max(merged[exerciseIndex] || 0, count));
+      }
+      extraSetsWorkoutRef.current = workoutId;
+      extraSetsByWorkoutRef.current[workoutId] = merged;
+      const currentKeys = Object.keys(current);
+      const mergedKeys = Object.keys(merged);
+      if (currentKeys.length === mergedKeys.length
+        && mergedKeys.every(key => current[Number(key)] === merged[Number(key)])) return current;
+      return merged;
+    });
+  }, [persistedLogs, draftLogs, draftReady, selectedWorkout, todayStr, setExtraSets, extraSetsWorkoutRef, extraSetsByWorkoutRef]);
 }
 
 export default function StudentPortal() {
@@ -206,6 +274,7 @@ export default function StudentPortal() {
   const [contentLoading, setContentLoading] = useState(true);
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
   const [logs, setLogs] = useState<Record<string, WorkoutLog>>({});
+  const [logsRestoredKey, setLogsRestoredKey] = useState<string | null>(null);
   const logsRef = useRef<Record<string, WorkoutLog>>({});
   const workoutLogSaveQueueRef = useRef(createWorkoutLogSaveQueue());
   const [previousLogs, setPreviousLogs] = useState<Record<string, WorkoutLog>>({});
@@ -234,6 +303,7 @@ export default function StudentPortal() {
   
 
   const todayStr = businessDateYmd();
+  const logsBackupKey = studentId ? `sett_logs_${studentId}_${todayStr}` : null;
 
   const session = useWorkoutSession(studentId, companyId);
   const activeWorkoutResolution = useMemo(
@@ -331,33 +401,16 @@ export default function StudentPortal() {
     } catch { /* quota/private mode */ }
   }, [activeView, expandedExercise, extraSets, selectedCycle?.id, selectedWorkoutId, session.isHydrated, workoutUiDraftStorageKey]);
 
-  // Em um aparelho novo não há rascunho de UI. O maior set_number persistido
-  // hoje reconstrói as séries extras de cada exercício, sempre limitado a 5.
-  useEffect(() => {
-    if (!selectedWorkout) return;
-    const workoutId = selectedWorkout.id;
-    const inferred = inferExtraSetsFromPersistedLogs(allLogs, workoutId, selectedWorkout.exercises, todayStr);
-    setExtraSets(current => {
-      const previousWorkoutId = extraSetsWorkoutRef.current;
-      if (previousWorkoutId && previousWorkoutId !== workoutId) {
-        extraSetsByWorkoutRef.current[previousWorkoutId] = current;
-      }
-      const cached = extraSetsByWorkoutRef.current[workoutId]
-        ?? (previousWorkoutId === workoutId ? current : {});
-      const merged = { ...inferred };
-      for (const [index, count] of Object.entries(cached)) {
-        const exerciseIndex = Number(index);
-        merged[exerciseIndex] = Math.min(MAX_EXTRA_SETS, Math.max(merged[exerciseIndex] || 0, count));
-      }
-      extraSetsWorkoutRef.current = workoutId;
-      extraSetsByWorkoutRef.current[workoutId] = merged;
-      const currentKeys = Object.keys(current);
-      const mergedKeys = Object.keys(merged);
-      if (currentKeys.length === mergedKeys.length
-        && mergedKeys.every(key => current[Number(key)] === merged[Number(key)])) return current;
-      return merged;
-    });
-  }, [allLogs, selectedWorkout, todayStr]);
+  useStudentPortalExtraSetReconciliation({
+    selectedWorkout,
+    persistedLogs: allLogs,
+    draftLogs: logs,
+    draftReady: !!logsBackupKey && logsRestoredKey === logsBackupKey,
+    todayStr,
+    setExtraSets,
+    extraSetsWorkoutRef,
+    extraSetsByWorkoutRef,
+  });
 
   const { activeRest, startRest, clearRest } = useRestTimer();
 
@@ -666,18 +719,20 @@ export default function StudentPortal() {
     if (!selectedWorkout) return;
     const workoutId = selectedWorkout.id;
     const key = getLogKey(workoutId, exIdx, setNum);
+    const editDate = businessDateYmd();
     commitLogs(prev => {
+      const current = workoutLogForDate(prev[key] || {} as WorkoutLog, editDate);
       const next = {
         ...prev,
         [key]: {
-          ...prev[key],
+          ...current,
           workout_id: workoutId,
           exercise_index: exIdx,
           set_number: setNum,
-          weight: prev[key]?.weight ?? null,
-          reps_done: prev[key]?.reps_done ?? null,
+          weight: current.weight ?? null,
+          reps_done: current.reps_done ?? null,
           set_type: normalizeSetType(
-            prev[key]?.set_type || selectedWorkout.exercises[exIdx]?.set_types?.[setNum - 1],
+            current.set_type || selectedWorkout.exercises[exIdx]?.set_types?.[setNum - 1],
           ),
           [field]: value,
           client_updated_at: new Date().toISOString(),
@@ -687,7 +742,7 @@ export default function StudentPortal() {
       // iOS pode suspender a PWA antes de React executar um effect ou pagehide.
       // Grave cada edição imediatamente; o autosave remoto continua em paralelo.
       if (studentId) {
-        try { localStorage.setItem(`sett_logs_${studentId}_${todayStr}`, JSON.stringify(next)); } catch { /* quota/private mode */ }
+        try { localStorage.setItem(`sett_logs_${studentId}_${editDate}`, JSON.stringify(next)); } catch { /* quota/private mode */ }
       }
       return next;
     });
@@ -743,18 +798,20 @@ export default function StudentPortal() {
     if (!silent) setSavingLogs(true);
     const workoutId = selectedWorkout.id;
     const requestedStudentId = studentId;
-    const requestedDate = todayStr;
+    const requestedDate = businessDateYmd();
     const requestedExercises = selectedWorkout.exercises;
 
     return workoutLogSaveQueueRef.current.run(async (): Promise<WorkoutLogSaveResult> => {
+    try {
+    if (silent && Object.values(logsRef.current).some(log => isWorkoutLogAwaitingConfirmation(log, workoutId, requestedDate))) {
+      return { ok: false, reason: "conflict" };
+    }
     // Inclui séries marcadas como concluídas mesmo sem carga/reps (ex.: peso corporal, abdominal).
     // A leitura acontece somente quando chega a vez desta gravação, depois que
     // qualquer autosave anterior já atualizou as revisões em logsRef.
-    const logsToSave = Object.values(logsRef.current).filter(l =>
-      l.workout_id === workoutId
-      && (l.deleted === true || l.weight > 0 || l.reps_done > 0 || l.completed)
-      && (l.dirty === true || !l.id)
-    );
+    const logsToSave = Object.values(logsRef.current)
+      .filter(log => shouldSaveWorkoutLog(log, workoutId, requestedDate, !silent))
+      .map(log => ({ ...log, session_date: log.session_date ?? requestedDate }));
 
     let hadError = false;
     // O índice identifica a série; base_revision impede que um autosave antigo
@@ -764,7 +821,7 @@ export default function StudentPortal() {
       workout_id: log.workout_id,
       exercise_index: log.exercise_index,
       set_number: log.set_number,
-      session_date: requestedDate,
+      session_date: log.session_date,
       weight: log.weight ?? 0,
       reps_done: log.reps_done ?? 0,
       set_type: normalizeSetType(
@@ -780,7 +837,6 @@ export default function StudentPortal() {
     if (canonicalBatch.error) {
       console.error("Lote de séries rejeitado antes do envio:", canonicalBatch.error);
       if (!silent) {
-        setSavingLogs(false);
         toast({ title: "As séries não foram salvas", description: "Recarregue o treino e tente novamente.", variant: "destructive" });
       }
       return { ok: false, reason: "validation_error" } as const;
@@ -788,7 +844,6 @@ export default function StudentPortal() {
     const canonicalRows = canonicalBatch.rows;
     let failureReason: Extract<WorkoutLogSaveResult, { ok: false }>["reason"] | null = null;
     if (canonicalRows.length > 0) {
-      const sentByKey = new Map(canonicalRows.filter(row => !row.deleted).map(row => [getLogKey(row.workout_id, row.exercise_index, row.set_number), row]));
       // RPC com compare-and-swap por revisão: outro dispositivo não pode ser
       // sobrescrito por um autosave baseado numa versão antiga.
       const persistence = await saveWorkoutLogBatchIfCurrent({
@@ -801,7 +856,7 @@ export default function StudentPortal() {
       if (persistence.reason === "rpc_error") {
         hadError = true;
         failureReason = "rpc_error";
-        console.error("Erro ao salvar carga:", persistence.error);
+        console.error("Erro ao salvar carga.");
       }
       else {
         const result = persistence.data;
@@ -818,23 +873,13 @@ export default function StudentPortal() {
         if (deletionConflict) {
           // Não permita que um reload imediato reaplique a transação local que
           // acabou de perder o CAS para uma edição mais nova de outro aparelho.
-          if (logsBackupKey) localStorage.removeItem(logsBackupKey);
+          const recovered = commitLogs(prev => discardConflictedWorkoutLogDeletions(prev, logsToSave, conflictRows));
+          try {
+            localStorage.setItem(`sett_logs_${requestedStudentId}_${requestedDate}`, JSON.stringify(recovered));
+          } catch { /* quota/private mode */ }
           await loadStudentData();
         } else {
-          commitLogs(prev => {
-            const next = { ...prev };
-            for (const deletedRow of deletedRows) {
-              const key = getLogKey(deletedRow.workout_id, deletedRow.exercise_index, deletedRow.set_number);
-              delete next[workoutLogTombstoneKey(key)];
-            }
-            for (const serverRow of authoritativeRows) {
-              const key = getLogKey(serverRow.workout_id, serverRow.exercise_index, serverRow.set_number);
-              const current = next[key];
-              const sent = sentByKey.get(key);
-              next[key] = reconcileWorkoutLogResponse(current, sent, serverRow);
-            }
-            return next;
-          });
+          commitLogs(prev => reconcileWorkoutLogBatchResponse(prev, logsToSave, allSavedRows, conflictRows));
           setAllLogs((prev) => {
             const keyOf = (r: any) => `${r.workout_id}|${r.exercise_index}|${r.set_number}|${r.session_date}`;
             const map = new Map((prev || []).map((r: any) => [keyOf(r), r]));
@@ -851,22 +896,30 @@ export default function StudentPortal() {
         }
       }
     }
-    if (!silent) setSavingLogs(false);
     const outcome: WorkoutLogSaveResult = failureReason
       ? { ok: false, reason: failureReason }
       : { ok: true, reason: canonicalRows.length > 0 ? "saved" : "no_changes" };
     if (silent) return outcome; // autosave: sem toast para não poluir
-    if (hadError) {
+    if (failureReason === "conflict") {
+      toast({ title: "Treino atualizado em outro dispositivo", description: "Revise as séries atualizadas antes de salvar novamente.", variant: "destructive" });
+    } else if (hadError) {
       toast({ title: "Algumas cargas não foram salvas", description: "Verifique sua conexão e tente novamente.", variant: "destructive" });
     } else {
       toast({ title: "Cargas salvas!" });
     }
     return outcome;
+    } catch {
+      if (!silent) {
+        toast({ title: "Não foi possível confirmar as cargas", description: "Tente salvar novamente.", variant: "destructive" });
+      }
+      return { ok: false, reason: "rpc_error" };
+    } finally {
+      if (!silent) setSavingLogs(false);
+    }
     });
   };
 
   // ---- Autosave + backup local dos logs do dia (resiliência a wifi ruim / reload) ----
-  const logsBackupKey = studentId ? `sett_logs_${studentId}_${todayStr}` : null;
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logsRestoredKeyRef = useRef<string | null>(null);
 
@@ -888,6 +941,7 @@ export default function StudentPortal() {
       const local = JSON.parse(raw) as Record<string, WorkoutLog>;
       commitLogs(prev => mergeWorkoutDraftLogs(prev, local));
     } catch { /* ignore */ }
+    finally { setLogsRestoredKey(logsBackupKey); }
   }, [commitLogs, loading, logsBackupKey]);
 
   // Autosave com debounce (silencioso) — o atleta não depende mais de lembrar de salvar.

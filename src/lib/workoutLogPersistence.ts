@@ -4,6 +4,19 @@ export type WorkoutLogSaveResult =
 
 type RpcResult<TData> = { data: TData | null; error: unknown | null };
 
+function isRetryableSaveError(error: unknown) {
+  if (!error || typeof error !== "object") return true;
+  const { code, status } = error as { code?: string; status?: number };
+  if (status === 401 || status === 403) return false;
+  if (!code) return true;
+  // Validation and authorization errors cannot be fixed by resending the same
+  // payload. Retry only transient PostgreSQL failures, or transport errors.
+  if (/^[0-9A-Z]{5}$/.test(code)) {
+    return code.startsWith("08") || ["40001", "40P01", "55P03", "57014", "53300", "57P01"].includes(code);
+  }
+  return !code.startsWith("PGRST");
+}
+
 export interface WorkoutLogSaveQueue {
   run<TResult>(task: () => Promise<TResult>): Promise<TResult>;
 }
@@ -55,6 +68,7 @@ export async function saveWorkoutLogBatchIfCurrent<TRow, TData extends { conflic
       return { ok: true, reason: "saved", data: result.data };
     }
     lastError = result.error || new Error("Resposta vazia ao salvar séries.");
+    if (!isRetryableSaveError(lastError)) break;
     if (attempt < 2) await wait(500 * (attempt + 1));
   }
 

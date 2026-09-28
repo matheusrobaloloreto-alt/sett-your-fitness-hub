@@ -82,6 +82,10 @@ export interface VersionedWorkoutLog {
   client_updated_at?: string | null;
   dirty?: boolean;
   deleted?: boolean;
+  session_date?: string;
+  deleted_from_client_updated_at?: string | null;
+  renumbered_at?: string;
+  server_missing?: boolean;
 }
 
 export interface MutableWorkoutSetLog extends VersionedWorkoutLog {
@@ -150,6 +154,7 @@ export function removeAndRenumberWorkoutSet<T extends MutableWorkoutSetLog>(
       deleted: true,
       dirty: true,
       client_updated_at: clientUpdatedAt,
+      deleted_from_client_updated_at: current.client_updated_at ?? null,
     };
     delete next[oldKey];
     if (setNumber > removedSetNumber) {
@@ -163,6 +168,7 @@ export function removeAndRenumberWorkoutSet<T extends MutableWorkoutSetLog>(
         deleted: false,
         dirty: true,
         client_updated_at: clientUpdatedAt,
+        renumbered_at: clientUpdatedAt,
       } as T;
     }
   }
@@ -241,8 +247,116 @@ export function reconcileWorkoutLogResponse<
   return {
     ...server,
     ...current,
+    id: server.id,
     revision: server.revision,
     updated_at: server.updated_at,
     dirty: true,
   };
+}
+
+export function reconcileWorkoutLogBatchResponse<T extends MutableWorkoutSetLog>(
+  logs: Record<string, T>,
+  sentLogs: T[],
+  savedRows: T[],
+  conflictRows: T[],
+) {
+  const next = { ...logs };
+  const keyOf = (log: MutableWorkoutSetLog) => `${log.workout_id}-${log.exercise_index}-${log.set_number}`;
+  const sentByKey = new Map(sentLogs.filter(log => !log.deleted).map(log => [keyOf(log), log]));
+  const sentDeletions = new Map(sentLogs.filter(log => log.deleted).map(log => [keyOf(log), log]));
+  for (const [rows, saved] of [[savedRows, true], [conflictRows, false]] as const) {
+    for (const server of rows) {
+      const key = keyOf(server);
+      const sent = sentByKey.get(key);
+      const tombstoneKey = workoutLogTombstoneKey(key);
+      const tombstone = next[tombstoneKey];
+      if (saved && server.deleted === true) {
+        const deletion = sentDeletions.get(key);
+        if (tombstone && deletion && tombstone.client_updated_at === deletion.client_updated_at
+          && (tombstone.session_date ?? deletion.session_date) === deletion.session_date
+          && tombstone.id === deletion.id && tombstone.revision === deletion.revision) delete next[tombstoneKey];
+        continue;
+      }
+      if (tombstone?.deleted === true) {
+        // Only an acknowledged save of the exact predecessor can advance a
+        // deletion created in flight. The visible replacement stays an insert.
+        if (saved && sent
+          && Object.prototype.hasOwnProperty.call(tombstone, "deleted_from_client_updated_at")
+          && (tombstone.deleted_from_client_updated_at ?? null) === (sent.client_updated_at ?? null)
+          && tombstone.id === sent.id && tombstone.revision === sent.revision
+          && (tombstone.session_date ?? sent.session_date) === sent.session_date) {
+          const rebased = {
+            ...tombstone,
+            id: server.id,
+            revision: server.revision,
+            updated_at: server.updated_at,
+          };
+          delete rebased.server_missing;
+          next[tombstoneKey] = rebased;
+          // A shifted insert inherits the predecessor's missing-row marker.
+          // Clear it only after that exact predecessor has been acknowledged.
+          const shiftedKey = `${sent.workout_id}-${sent.exercise_index}-${sent.set_number - 1}`;
+          const shifted = next[shiftedKey];
+          if (tombstone.server_missing === true && shifted && !shifted.id
+            && shifted.renumbered_at === tombstone.client_updated_at
+            && (shifted.session_date ?? sent.session_date) === sent.session_date) {
+            const confirmedShift = { ...shifted };
+            delete confirmedShift.server_missing;
+            next[shiftedKey] = confirmedShift;
+          }
+        }
+        continue;
+      }
+      const current = next[key];
+      if (current?.session_date && server.session_date && current.session_date !== server.session_date) continue;
+      if (server.server_missing === true) {
+        if (current) {
+          const pending = { ...current, dirty: true, server_missing: true };
+          delete pending.id;
+          delete pending.revision;
+          delete pending.updated_at;
+          delete pending.created_at;
+          next[key] = pending;
+        }
+        continue;
+      }
+      const reconciled = reconcileWorkoutLogResponse(current, sent, server) as T;
+      if (saved) delete reconciled.server_missing;
+      next[key] = reconciled;
+    }
+  }
+  return next;
+}
+
+export function discardConflictedWorkoutLogDeletions<T extends MutableWorkoutSetLog>(
+  logs: Record<string, T>,
+  sentLogs: T[],
+  conflicts: (MutableWorkoutSetLog & { requested_deleted?: boolean })[],
+) {
+  const keyOf = (log: MutableWorkoutSetLog) => `${log.workout_id}-${log.exercise_index}-${log.set_number}`;
+  const transactionOf = (log: MutableWorkoutSetLog, fallbackDate?: string) =>
+    JSON.stringify([log.workout_id, log.exercise_index, log.session_date ?? fallbackDate,
+      log.deleted ? log.client_updated_at : log.renumbered_at ?? log.client_updated_at]);
+  const conflictedKeys = new Set(conflicts.filter(row => row.requested_deleted === true)
+    .map(row => JSON.stringify([keyOf(row), row.session_date])));
+  const transactions = new Set(sentLogs.filter(log => log.deleted === true
+    && conflictedKeys.has(JSON.stringify([keyOf(log), log.session_date]))).map(log => transactionOf(log)));
+  const next = { ...logs };
+  for (const sent of sentLogs) {
+    if (!transactions.has(transactionOf(sent))) continue;
+    const key = keyOf(sent);
+    if (sent.deleted === true) {
+      const tombstoneKey = workoutLogTombstoneKey(key);
+      const current = next[tombstoneKey];
+      if (!current || transactionOf(current, sent.session_date) !== transactionOf(sent)) continue;
+      delete next[tombstoneKey];
+      // Later field edits on this replacement still belong to the rejected
+      // renumbering. Do not replay them onto the predecessor's server identity.
+      if (next[key] && (next[key].session_date ?? sent.session_date) === sent.session_date && !next[key].id) delete next[key];
+    } else {
+      const current = next[key];
+      if (current && !current.id && transactionOf(current, sent.session_date) === transactionOf(sent)) delete next[key];
+    }
+  }
+  return next;
 }

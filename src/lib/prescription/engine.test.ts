@@ -339,7 +339,7 @@ describe("BN Prescription Engine v1", () => {
       expect(exercises.some((exercise) => exercise.weekly_prescription?.some((week) => Boolean(week.method)))).toBe(true);
       expect(exercises.some((exercise) => exercise.weekly_prescription?.some((week) => week.set_types?.includes("failure")))).toBe(true);
       expect(exercises.flatMap((exercise) => exercise.weekly_prescription || [])
-        .every((week) => !week.set_types?.includes("drop"))).toBe(true);
+        .every((week) => !(week.set_types || []).some((setType) => String(setType) === "drop"))).toBe(true);
     }
     expect(pain.workouts.flatMap((workout) => workout.exercises)
       .filter((exercise) => /agachamento|leg press|step up/i.test(exercise.exercise_name))

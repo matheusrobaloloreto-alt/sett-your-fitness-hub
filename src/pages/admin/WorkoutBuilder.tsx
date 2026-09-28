@@ -326,7 +326,7 @@ function SetTypesEditor({
               disabled={disabled}
               onValueChange={(value) => {
                 const nextTypes = [...normalizedTypes];
-                nextTypes[index] = value;
+                nextTypes[index] = normalizeSetType(value);
                 onChange(nextTypes);
               }}
             >
@@ -663,7 +663,7 @@ export default function WorkoutBuilder() {
     if (data) {
       setTemplateName(data.name || "");
       setLoadedTemplateCompanyId(data.company_id || null);
-      const ws = Array.isArray(data.workouts) ? data.workouts : [];
+      const ws: Workout[] = Array.isArray(data.workouts) ? data.workouts : [];
       const normalized = ws.length ? sanitizeWorkoutSetTypes(ws) : [{ title: "Treino A", description: "", exercises: [] }];
       setWorkoutRevisionSnapshot([]);
       setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(normalized));
