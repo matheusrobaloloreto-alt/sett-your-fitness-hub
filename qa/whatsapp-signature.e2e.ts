@@ -78,12 +78,32 @@ async function openFixture(page: Page, width: number, draft = false) {
 
 async function checkLayout(page: Page, width: number) {
   const toggle = page.getByRole("switch", { name: "Assinar mensagens" });
-  const box = await toggle.boundingBox();
-  expect(box).not.toBeNull();
-  expect(box!.x).toBeGreaterThanOrEqual(0);
-  expect(box!.x + box!.width).toBeLessThanOrEqual(width);
-  expect(box!.y + box!.height).toBeLessThanOrEqual(await page.evaluate(() => innerHeight));
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  // A visible Sheet can still be sliding in from outside the viewport.
+  await expect.poll(async () => {
+    const visible = await toggle.isVisible();
+    const box = await toggle.boundingBox();
+    const viewport = await page.evaluate(() => ({
+      width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth,
+    }));
+    const sheetSettled = await toggle.evaluate((element) => {
+      const sheet = element.closest('[role="dialog"]');
+      return !sheet?.getAnimations().some((animation) => animation.pending || animation.playState === "running");
+    });
+    return {
+      visible,
+      boxPresent: box !== null,
+      leftInside: box !== null && box.x >= 0,
+      topInside: box !== null && box.y >= 0,
+      rightInside: box !== null && box.x + box.width <= width,
+      bottomInside: box !== null && box.y + box.height <= viewport.height,
+      noOverflow: viewport.scrollWidth <= width,
+      viewportUnchanged: viewport.width === width,
+      sheetSettled,
+    };
+  }).toEqual({
+    visible: true, boxPresent: true, leftInside: true, topInside: true,
+    rightInside: true, bottomInside: true, noOverflow: true, viewportUnchanged: true, sheetSettled: true,
+  });
 }
 
 async function reopenComposer(page: Page, draft: boolean) {
@@ -95,6 +115,12 @@ async function reopenComposer(page: Page, draft: boolean) {
     } })));
   } else await page.getByRole("button", { name: /Abrir conversa com Ana Carolina/ }).click();
   await expect(page.getByRole("switch", { name: "Assinar mensagens" })).toBeVisible();
+}
+
+async function waitForToasts(page: Page) {
+  // Hover pauses Sonner's real dismissal timer and can cover composer actions.
+  await page.mouse.move(0, 0);
+  await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, { timeout: 10_000 });
 }
 
 for (const width of [320, 390, 1440]) {
@@ -133,31 +159,34 @@ for (const width of [320, 390, 1440]) {
   }
 }
 
-test("arquivo, avaliação, áudio, figurinha e bulk enviam a flag e exibem respostas da edge", async ({ page }) => {
-  const guard = await openFixture(page, 1440);
-  // Extend the existing in-memory fixture only for the evaluation-file branch.
-  await page.evaluate(async () => {
-    // @ts-expect-error Vite serves this existing local module to the QA browser.
-    const { supabase } = await import("/src/integrations/supabase/client.ts");
-    const original = supabase.from.bind(supabase);
-    Object.defineProperty(supabase, "from", { configurable: true, value: (table: string) => table === "student_files" ? {
-      select() { return this; }, eq() { return this; },
-      order: async () => ({ data: [{ kind: "assessment_report", file_name: "avaliacao-qa.pdf", file_path: "qa/avaliacao-qa.pdf" }], error: null }),
-    } : original(table) });
-  });
-  const toggle = page.getByRole("switch", { name: "Assinar mensagens" });
-  for (const enabled of [true, false]) {
+for (const enabled of [true, false]) {
+  test(`arquivo, avaliação, áudio, figurinha e bulk enviam a flag ${enabled ? "ON" : "OFF"} e exibem respostas da edge`, async ({ page }) => {
+    const guard = await openFixture(page, 1440);
+    // Extend the existing in-memory fixture only for the evaluation-file branch.
+    await page.evaluate(async () => {
+      // @ts-expect-error Vite serves this existing local module to the QA browser.
+      const { supabase } = await import("/src/integrations/supabase/client.ts");
+      const original = supabase.from.bind(supabase);
+      Object.defineProperty(supabase, "from", { configurable: true, value: (table: string) => table === "student_files" ? {
+        select() { return this; }, eq() { return this; },
+        order: async () => ({ data: [{ kind: "assessment_report", file_name: "avaliacao-qa.pdf", file_path: "qa/avaliacao-qa.pdf" }], error: null }),
+      } : original(table) });
+    });
+    const toggle = page.getByRole("switch", { name: "Assinar mensagens" });
     if ((await toggle.getAttribute("aria-checked")) !== String(enabled)) await toggle.click();
     const start = guard.sends.length;
     const composer = page.getByTestId("whatsapp-composer");
     await composer.locator('input[type="file"]').first().setInputFiles({ name: "arquivo-qa.pdf", mimeType: "application/pdf", buffer: Buffer.from("QA synthetic PDF") });
     await expect.poll(() => guard.sends.length).toBe(start + 1);
     await expect(toggle).toBeEnabled();
+    await waitForToasts(page);
     await page.getByRole("button", { name: "Anexar último treino/avaliação" }).click();
     await expect.poll(() => guard.sends.length).toBe(start + 2);
     await expect(toggle).toBeEnabled();
+    await waitForToasts(page);
     await page.getByRole("button", { name: "Gravar áudio" }).click();
     await expect(toggle).toBeDisabled();
+    await waitForToasts(page);
     await page.getByRole("button", { name: "Parar e enviar" }).click();
     await expect.poll(() => guard.sends.length).toBe(start + 3);
     await expect(toggle).toBeEnabled();
@@ -166,6 +195,7 @@ test("arquivo, avaliação, áudio, figurinha e bulk enviam a flag e exibem resp
       await expect(page.locator(`[data-message-id="signature-qa-${start + 3}"]`)).toBeVisible();
       await page.screenshot({ path: `${artifactDir}/audio-signature-on.png`, fullPage: true });
     }
+    await waitForToasts(page);
     await page.getByRole("button", { name: "Abrir figurinhas" }).click();
     await page.getByRole("button", { name: /Enviar figurinha / }).first().click();
     await expect.poll(() => guard.sends.length).toBe(start + 4);
@@ -176,9 +206,11 @@ test("arquivo, avaliação, áudio, figurinha e bulk enviam a flag e exibem resp
       await page.screenshot({ path: `${artifactDir}/sticker-warning-on.png`, fullPage: true });
     }
     await page.keyboard.press("Escape");
+    await waitForToasts(page);
     await page.getByRole("button", { name: "Enviar para vários" }).click();
     const dialog = page.getByRole("dialog", { name: "Mensagem em massa" });
     await dialog.locator("textarea").fill("Bulk QA");
+    await waitForToasts(page);
     await dialog.getByRole("button", { name: /Enviar/ }).click();
     await expect(dialog).not.toBeVisible();
     const sent = guard.sends.slice(start);
@@ -190,11 +222,12 @@ test("arquivo, avaliação, áudio, figurinha e bulk enviam a flag e exibem resp
     expect(sent[3]).toMatchObject({ mediatype: "sticker" });
     expect(sent.slice(4).every((request) => request.action === "send-message")).toBe(true);
     if (enabled) await expect(page.getByTestId("whatsapp-message").filter({ hasText: "Bulk QA" }).filter({ hasText: "Nome do Backend QA" })).toBeVisible();
-  }
-  expect(guard.blocked).toEqual([]);
-  expect(guard.errors).toEqual([]);
-  await test.info().attach("synthetic-signature-send-requests", { body: JSON.stringify(guard.sends, null, 2), contentType: "application/json" });
-});
+    await waitForToasts(page);
+    expect(guard.blocked).toEqual([]);
+    expect(guard.errors).toEqual([]);
+    await test.info().attach("synthetic-signature-send-requests", { body: JSON.stringify(guard.sends, null, 2), contentType: "application/json" });
+  });
+}
 
 test("erro de perfil vem da edge e preserva o texto para tentar novamente", async ({ page }) => {
   const guard = await openFixture(page, 390);
