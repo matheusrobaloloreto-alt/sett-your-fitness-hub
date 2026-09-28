@@ -1,5 +1,10 @@
 # Assinatura de mensagens WhatsApp - 2026-09-28
 
+Conferencia posterior dos demais ajustes e ressalvas do editor semanal:
+CONFERENCIA-AJUSTES-RECENTES-2026-09-28.md. Ha falhas P2 reproduzidas no editor
+semanal e mapper da anamnese, alem de uma ressalva de carga mista legado/v2;
+nao se declara o backlog inteiro concluido.
+
 ## Causa confirmada
 
 O deploy anterior 6aba24b3dac3130087edcc22 corrigiu o salvamento de cargas,
