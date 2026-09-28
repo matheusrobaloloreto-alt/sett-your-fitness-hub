@@ -4,6 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { useWhatsAppSignature } from "@/hooks/useWhatsAppSignature";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -322,6 +324,7 @@ export default function WhatsAppChat({
   const { user, role: userRole, companyId } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = userRole === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
+  const [signMessages, setSignMessages] = useWhatsAppSignature(user?.id, effectiveCompanyId);
   const [chats, setChats] = useState<Chat[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
@@ -1292,6 +1295,7 @@ export default function WhatsAppChat({
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
         body: JSON.stringify({
           action: "send-message",
+          signMessages,
           companyId: effectiveCompanyId,
           remoteJid: chat?.remote_jid || (draftRecipient?.remoteJid
             ? `${draftRecipient.remoteJid}@s.whatsapp.net`
@@ -1329,6 +1333,7 @@ export default function WhatsAppChat({
       if (payload?.persistenceWarning) {
         toast.warning("Mensagem enviada, mas o histórico pode demorar para sincronizar");
       }
+      appendSignatureResponse(payload, selectedChatId);
       if (selectedChatId) {
         return;
       } else if (payload?.chatId) {
@@ -1485,11 +1490,24 @@ export default function WhatsAppChat({
     }
   };
 
+  const appendSignatureResponse = (payload: any, chatId: string | null) => {
+    if (payload?.signatureMessage && chatId === selectedChatIdRef.current && chatId) {
+      setMessages((prev) => upsertWhatsAppMessage(prev, payload.signatureMessage as Message));
+    }
+    if (payload?.signatureWarning) {
+      toast.warning("Mídia enviada, mas a assinatura não chegou. Envie seu nome em uma mensagem de texto.");
+    }
+  };
+
   const appendConfirmedOutgoingMessage = (payload: any) => {
     if (payload?.message) {
       setMessages((prev) => (
         prev.some((msg) => msg.id === payload.message.id) ? prev : [...prev, payload.message as Message]
       ));
+    }
+    appendSignatureResponse(payload, selectedChatId);
+    if (payload?.persistenceWarning) {
+      toast.warning("Mensagem enviada, mas o histórico pode demorar para sincronizar");
     }
     scheduleChatsRefresh();
   };
@@ -1556,6 +1574,7 @@ export default function WhatsAppChat({
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
         body: JSON.stringify({
           action: "send-media",
+          signMessages,
           companyId: effectiveCompanyId,
           remoteJid: chat.remote_jid,
           caption: "Último treino/avaliação",
@@ -1623,6 +1642,7 @@ export default function WhatsAppChat({
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
         body: JSON.stringify({
           action: "send-media",
+          signMessages,
           companyId: effectiveCompanyId,
           remoteJid: chat.remote_jid,
           chatId: selectedChatId,
@@ -1786,7 +1806,7 @@ export default function WhatsAppChat({
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
-        body: JSON.stringify({ action: "send-media", companyId: effectiveCompanyId, remoteJid: chat.remote_jid, chatId: selectedChatId, studentId: chat.student_id, mediatype: "audio", mimeType: "audio/webm", fileName: `audio-${Date.now()}.webm`, caption: "", mediaSource: "chat-upload", mediaStorageBucket: "whatsapp-media", mediaStoragePath: filePath }),
+        body: JSON.stringify({ action: "send-media", signMessages, companyId: effectiveCompanyId, remoteJid: chat.remote_jid, chatId: selectedChatId, studentId: chat.student_id, mediatype: "audio", mimeType: "audio/webm", fileName: `audio-${Date.now()}.webm`, caption: "", mediaSource: "chat-upload", mediaStorageBucket: "whatsapp-media", mediaStoragePath: filePath }),
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -2052,6 +2072,7 @@ export default function WhatsAppChat({
           headers,
           body: JSON.stringify({
             action: "send-message",
+            signMessages,
             companyId: effectiveCompanyId,
             remoteJid: chat.remote_jid,
             content,
@@ -2061,9 +2082,10 @@ export default function WhatsAppChat({
           }),
         });
         if (res.ok) {
+          const payload = await res.json().catch(() => ({}));
           ok += 1;
           if (chat.id === selectedChatIdRef.current) {
-            setMessages((prev) => [...prev, {
+            setMessages((prev) => upsertWhatsAppMessage(prev, payload?.message || {
               id: `bulk-${Date.now()}-${index}`,
               content,
               source: "outgoing",
@@ -2074,8 +2096,10 @@ export default function WhatsAppChat({
               media_url: null,
               media_type: null,
               message_id_external: null,
-            }]);
+            }));
           }
+          appendSignatureResponse(payload, chat.id);
+          if (payload?.persistenceWarning) toast.warning("Mensagem enviada, mas o histórico pode demorar para sincronizar");
         } else {
           failed += 1;
         }
@@ -2726,6 +2750,10 @@ export default function WhatsAppChat({
                   </div>
                 </div>
                 <div className={cn("border-t p-2 sm:p-3", whatsappDark.border, whatsappDark.composer, !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
+                  <label className="mb-2 flex w-fit min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                    <Switch checked={signMessages} onCheckedChange={setSignMessages} disabled={sending || bulkSending || !user?.id || !effectiveCompanyId} aria-label="Assinar mensagens" />
+                    <span>Assinar mensagens</span>
+                  </label>
                   <div className={cn("flex min-w-0 items-end gap-2 rounded-lg border p-1.5 shadow-sm", whatsappDark.border, whatsappDark.subtleCard)}>
                     <EmojiPickerButton onSelect={(emoji) => setNewMessage((value) => `${value}${emoji}`)} />
                     <Textarea
@@ -3188,6 +3216,10 @@ export default function WhatsAppChat({
                   </div>
                 )}
                 <div data-testid="whatsapp-composer" className={cn("border-t p-2 sm:p-3", whatsappDark.border, whatsappDark.composer, !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
+                  <label className="mb-2 flex w-fit min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                    <Switch checked={signMessages} onCheckedChange={setSignMessages} disabled={sending || sendingAttachment || isRecording || bulkSending || Boolean(editingMessage) || !user?.id || !effectiveCompanyId} aria-label="Assinar mensagens" />
+                    <span>Assinar mensagens</span>
+                  </label>
                   <input
                     ref={fileInputRef}
                     type="file"

@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { formatSignedWhatsAppMessage, normalizeWhatsAppSignatureName } from "../_shared/whatsappSignature.ts";
 import {
   directWhatsAppJidVariants,
   evolutionTextRecipient,
@@ -458,6 +459,18 @@ Deno.serve(async (req) => {
       "send-media",
       "edit-message",
     ]);
+    let signatureName: string | null = null;
+    if ((action === "send-message" || action === "send-media") && body.signMessages === true) {
+      const { data: profile, error: profileError } = await adminClient.from("profiles")
+        .select("full_name").eq("user_id", userId).maybeSingle();
+      signatureName = normalizeWhatsAppSignatureName(profile?.full_name || "") || null;
+      if (profileError || !signatureName) {
+        return json({
+          error: "Preencha seu nome no perfil antes de assinar mensagens.",
+          code: "whatsapp_signature_name_missing",
+        }, 400);
+      }
+    }
     if (
       outboundActions.has(action) && boundChat && !boundChat.instance_id
     ) {
@@ -1057,7 +1070,7 @@ Deno.serve(async (req) => {
     if (action === "send-message") {
       const {
         remoteJid,
-        content,
+        content: rawContent,
         chatId,
         quotedMessageDbId,
         quotedMessageId,
@@ -1067,9 +1080,12 @@ Deno.serve(async (req) => {
         studentId,
         contactName,
       } = body;
-      if (!remoteJid || !String(content).trim()) {
+      if (!remoteJid || !String(rawContent || "").trim()) {
         return json({ error: "remoteJid and content required" }, 400);
       }
+      const content = signatureName
+        ? formatSignedWhatsAppMessage(String(rawContent), signatureName)
+        : rawContent;
 
       const liveInstance = await verifyLiveOutboundInstance();
       if (!liveInstance.ok) {
@@ -1302,7 +1318,7 @@ Deno.serve(async (req) => {
       const {
         remoteJid,
         mediaUrl: clientMediaUrl,
-        caption,
+        caption: rawCaption,
         chatId,
         studentId,
         fileName,
@@ -1310,6 +1326,9 @@ Deno.serve(async (req) => {
         mimeType: claimedMimeType,
       } = body;
       if (!remoteJid) return json({ error: "remoteJid required" }, 400);
+      const caption = signatureName
+        ? formatSignedWhatsAppMessage(String(rawCaption || ""), signatureName)
+        : rawCaption;
 
       const liveInstance = await verifyLiveOutboundInstance();
       if (!liveInstance.ok) {
@@ -1530,12 +1549,16 @@ Deno.serve(async (req) => {
         ? "🎤 Áudio"
         : `📎 ${fileName || "arquivo.pdf"}`;
       let insertedMediaMessage: Record<string, unknown> | null = null;
+      // Only the separate text is evidence of a delivered audio/sticker signature.
+      const storedMediaContent = evoMediaType === "audio" || evoMediaType === "sticker"
+        ? defaultContent
+        : caption || defaultContent;
       if (chatId) {
         const { data: insertedMediaRow, error: messageInsertError } =
           await adminClient.from("whatsapp_messages").insert({
             chat_id: chatId,
             company_id: resolvedCompanyId,
-            content: caption || defaultContent,
+            content: storedMediaContent,
             source: "outgoing",
             type: dbType,
             is_from_me: true,
@@ -1572,7 +1595,7 @@ Deno.serve(async (req) => {
         const { error: chatUpdateError } = await adminClient.from(
           "whatsapp_chats",
         ).update({
-          last_message: caption || defaultContent,
+          last_message: storedMediaContent,
           last_message_at: new Date().toISOString(),
           unread_count: 0,
           last_sender_id: userId,
@@ -1586,11 +1609,48 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Audio and stickers have no WhatsApp caption. Never turn a failed
+      // accompanying signature into a retry of media already delivered.
+      let signatureWarning = false;
+      let signatureMessage: Record<string, unknown> | null = null;
+      if (signatureName && (evoMediaType === "audio" || evoMediaType === "sticker")) {
+        try {
+          const signatureResponse = await fetch(`${evoUrl}/message/sendText/${instanceName}`, {
+            method: "POST",
+            headers: evoHeaders,
+            body: JSON.stringify({ number: effectiveMediaRecipient, text: caption }),
+          });
+          if (!signatureResponse.ok) {
+            signatureWarning = true;
+          } else if (chatId) {
+            const signatureData = await signatureResponse.json();
+            const { data: signatureRow, error: signatureInsertError } = await adminClient
+              .from("whatsapp_messages").insert({
+                company_id: resolvedCompanyId,
+                chat_id: chatId,
+                content: caption,
+                source: "outgoing",
+                type: "text",
+                is_from_me: true,
+                sender_id: userId,
+                message_id_external: extractExternalMessageId(signatureData),
+                origin: "panel_manual",
+                timestamp: new Date().toISOString(),
+              }).select("*").maybeSingle();
+            signatureMessage = signatureRow;
+            if (signatureInsertError) persistenceWarning = true;
+          }
+        } catch {
+          signatureWarning = true;
+        }
+      }
       return json({
         success: true,
         messageId: externalMessageId,
         message: insertedMediaMessage,
         persistenceWarning,
+        signatureWarning,
+        signatureMessage,
       });
     }
 
