@@ -55,14 +55,62 @@ type SaveCall = {
   workoutsLength: number;
 };
 
+type FixtureLibraryExercise = {
+  id: string;
+  name: string;
+  company_id: string;
+  is_global: boolean;
+  muscle_group: string | null;
+  equipment?: string | null;
+  category: string | null;
+  categories: string[];
+  body_regions: string[];
+  thumbnail_url: string | null;
+  youtube_video_id: string | null;
+  video_url: string | null;
+  video_path: string | null;
+  description: string | null;
+  created_by?: string;
+  difficulty?: string;
+};
+
+type RecoveryMetadata = {
+  name: string;
+  muscle_group?: string | null;
+  equipment?: string | null;
+  category?: string | null;
+  categories?: string[] | null;
+};
+
+const exerciseKey = (name: string) => name.toLowerCase().normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+const recoveryCategories = new Set(["core", "mobilidades", "funcionais", "base", "pesos_livre", "peso_corporal", "maquinas", "pliometria"]);
+
 const deepClone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
 class WorkoutSaveFixtureState {
   private revision = 1;
   private workoutSequence = 1;
   private delayedSaves: number[] = [];
+  private librarySequence = 1;
 
   saveCalls: SaveCall[] = [];
+  recoveryCalls: Array<{ params: unknown; response: unknown }> = [];
+  libraryExercises: FixtureLibraryExercise[] = [{
+    id: "exercise-bench",
+    name: "Supino reto",
+    muscle_group: "Peitoral",
+    company_id: companyId,
+    is_global: false,
+    category: "strength",
+    categories: ["força"],
+    body_regions: ["chest"],
+    thumbnail_url: null,
+    youtube_video_id: null,
+    video_url: null,
+    video_path: null,
+    description: "Exercício sintético de QA",
+  }];
   workouts: FixtureWorkout[] = [
     this.buildWorkout({
       title: "Treino A - Superior",
@@ -141,6 +189,87 @@ class WorkoutSaveFixtureState {
 
   delayNextSave(milliseconds: number) {
     this.delayedSaves.push(milliseconds);
+  }
+
+  ensureWorkoutLibraryReferences(params: any, actorId: string | undefined) {
+    const respond = (response: any) => {
+      this.recoveryCalls.push({ params: deepClone(params ?? null), response: deepClone(response) });
+      return response;
+    };
+    const reject = (code: string, message: string) => respond({ data: null, error: { code, message } });
+    if (actorId !== userId || params?.p_company_id !== companyId) {
+      return reject("42501", "workout_library_recovery_forbidden");
+    }
+    const items = params.p_exercises;
+    if (Object.keys(params).some((key) => !["p_company_id", "p_exercises"].includes(key))
+      || !Array.isArray(items) || !items.length || items.length > 500
+      || new TextEncoder().encode(JSON.stringify(items)).length > 524288) {
+      return reject("22023", "workout_library_recovery_invalid_payload");
+    }
+    for (const item of items) {
+      if (!item || typeof item !== "object" || Array.isArray(item)
+        || Object.keys(item).some((key) => !["name", "muscle_group", "equipment", "category", "categories"].includes(key))) {
+        return reject("22023", "workout_library_recovery_invalid_payload");
+      }
+      for (const field of ["name", "muscle_group", "equipment", "category"]) {
+        if (field in item && item[field] !== null
+          && (typeof item[field] !== "string" || item[field].length > 240)) {
+          return reject("22023", "workout_library_recovery_invalid_text");
+        }
+      }
+      if (typeof item.name !== "string" || !exerciseKey(item.name)) {
+        return reject("22023", "workout_library_recovery_missing_name");
+      }
+      if ((item.category && !recoveryCategories.has(item.category))
+        || (item.categories != null && (!Array.isArray(item.categories) || item.categories.length > 8
+          || item.categories.some((category: unknown) => typeof category !== "string" || !recoveryCategories.has(category))))) {
+        return reject("22023", "workout_library_recovery_invalid_category");
+      }
+    }
+
+    // Stage the whole batch so invalid/ambiguous requests cannot partially write.
+    const catalog = deepClone(this.libraryExercises);
+    let sequence = this.librarySequence;
+    const mappings: Array<{ input_index: number; exercise_id: string }> = [];
+    for (const [index, item] of (items as RecoveryMetadata[]).entries()) {
+      let matches = catalog.filter((exercise) => (exercise.company_id === companyId || exercise.is_global)
+        && exerciseKey(exercise.name) === exerciseKey(item.name));
+      if (matches.length > 1) {
+        matches = matches.filter((exercise) => item.muscle_group?.trim()
+          && exerciseKey(exercise.muscle_group || "") === exerciseKey(item.muscle_group));
+        if (matches.length !== 1) return reject("23514", "workout_library_recovery_ambiguous");
+      }
+      let exercise = matches[0];
+      if (!exercise) {
+        exercise = {
+          id: `60000000-0000-4000-8000-${String(sequence++).padStart(12, "0")}`,
+          company_id: companyId,
+          name: item.name.trim(),
+          muscle_group: item.muscle_group?.trim() || null,
+          equipment: item.equipment?.trim() || null,
+          category: item.category || null,
+          categories: item.categories ? [...item.categories] : [],
+          is_global: false,
+          created_by: actorId,
+          difficulty: "intermediate",
+          description: null,
+          body_regions: [],
+          video_url: null,
+          video_path: null,
+          thumbnail_url: null,
+          youtube_video_id: null,
+        };
+        catalog.push(exercise);
+      }
+      mappings.push({ input_index: index, exercise_id: exercise.id });
+    }
+    const createdCount = sequence - this.librarySequence;
+    this.librarySequence = sequence;
+    this.libraryExercises = catalog;
+    return respond({
+      data: { ok: true, company_id: companyId, actor_id: actorId, created_count: createdCount, mappings },
+      error: null,
+    });
   }
 
   externalSave(title: string, description = "Edição externa confirmada") {
@@ -403,21 +532,7 @@ class SupabaseQueryBuilder {
       case "workouts":
         return fixtureState.currentWorkouts();
       case "exercise_library":
-        return [{
-          id: "exercise-bench",
-          name: "Supino reto",
-          muscle_group: "Peitoral",
-          company_id: companyId,
-          is_global: false,
-          category: "strength",
-          categories: ["força"],
-          body_regions: ["chest"],
-          thumbnail_url: null,
-          youtube_video_id: null,
-          video_url: null,
-          video_path: null,
-          description: "Exercício sintético de QA",
-        }];
+        return fixtureState.libraryExercises;
       case "exercise_muscle_targets":
         return [];
       case "workout_templates":
@@ -515,10 +630,15 @@ Object.defineProperty(supabase, "rpc", {
   value: (name: string, params?: any) => {
     if (name === "get_user_role") return Promise.resolve({ data: "admin", error: null });
     if (name === "replace_cycle_workout_revision") return fixtureState.replaceCycleWorkoutRevision(params);
+    if (name === "ensure_workout_library_references") {
+      return supabase.auth.getSession().then(({ data, error }) => fixtureState.ensureWorkoutLibraryReferences(
+        params, error ? undefined : data.session?.user.id,
+      ));
+    }
     if (name === "get_company_ai_identity") {
       return { maybeSingle: async () => ({ data: { assistant_name: "Setty QA" }, error: null }) };
     }
-    return Promise.resolve({ data: null, error: null });
+    return Promise.resolve({ data: null, error: { code: "QA_UNEXPECTED_RPC", message: `Unexpected synthetic RPC: ${name}` } });
   },
 });
 Object.defineProperty(supabase, "functions", {
@@ -549,6 +669,8 @@ Object.defineProperty(supabase, "storage", {
   getCurrentRows: () => fixtureState.currentRows(),
   getCurrentWorkouts: () => fixtureState.currentWorkouts(),
   getSaveCalls: () => deepClone(fixtureState.saveCalls),
+  getLibraryExercises: () => deepClone(fixtureState.libraryExercises),
+  getRecoveryCalls: () => deepClone(fixtureState.recoveryCalls),
   delayNextSave: (milliseconds: number) => fixtureState.delayNextSave(milliseconds),
   externalSave: (title: string, description?: string) => fixtureState.externalSave(title, description),
 };

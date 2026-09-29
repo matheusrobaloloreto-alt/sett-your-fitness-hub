@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkoutBuilder from "./WorkoutBuilder";
@@ -60,6 +60,7 @@ const sourceRows = (cycle: string): Row[] => [{
 let catalog: Row[];
 let rows: Map<string, Row[]>;
 let events: string[];
+let templates: Row[];
 
 function queryFor(table: string) {
   const filters = new Map<string, unknown>();
@@ -67,6 +68,7 @@ function queryFor(table: string) {
     switch (table) {
       case "muscle_groups": case "exercise_muscle_targets": return { data: [], error: null };
       case "exercise_library": return { data: clone(catalog), error: null };
+      case "workout_templates": return { data: clone(templates), error: null };
       case "workouts": return { data: clone(rows.get(String(filters.get("cycle_id"))) || []), error: null };
       case "training_cycles": return { data: { cycle_number: 1, enrollment_id: `enrollment-${filters.get("id")}`, company_id: companyId, status: "active" }, error: null };
       case "enrollments": return { data: { student_id: "student-synthetic-qa", company_id: companyId }, error: null };
@@ -109,6 +111,7 @@ beforeEach(() => {
   catalog = [];
   rows = new Map(["cycle-a", "cycle-b"].map((cycle) => [cycle, sourceRows(cycle)]));
   events = [];
+  templates = [];
   mocks.from.mockImplementation(queryFor);
   mocks.getSession.mockResolvedValue({ data: { session: { user: { id: actorId } } }, error: null });
   mocks.register.mockImplementation(async (args: Row) => {
@@ -129,11 +132,12 @@ beforeEach(() => {
     if (name !== "replace_cycle_workout_revision") throw new Error(`Unexpected RPC ${name}`);
     events.push("replace");
     const cycle = String(args.p_cycle_id);
-    rows.set(cycle, (args.p_workouts as Row[]).map((workout) => ({
-      ...clone(workout), id: `saved-${cycle}`, updated_at: "2026-09-29T01:00:00Z", cycle_id: cycle,
-    })));
-    return { data: { cycle_id: cycle, revision_id: "revision-qa", workouts_created: 1,
-      workout_rows: [{ id: `saved-${cycle}`, updated_at: "2026-09-29T01:00:00Z" }] }, error: null };
+    const saved = (args.p_workouts as Row[]).map((workout, index) => ({
+      ...clone(workout), id: `saved-${cycle}-${index}`, updated_at: "2026-09-29T01:00:00Z", cycle_id: cycle,
+    }));
+    rows.set(cycle, saved);
+    return { data: { cycle_id: cycle, revision_id: "revision-qa", workouts_created: saved.length,
+      workout_rows: saved.map(({ id, updated_at }) => ({ id, updated_at })) }, error: null };
   });
 });
 afterEach(() => {
@@ -142,6 +146,65 @@ afterEach(() => {
 });
 
 describe("mounted WorkoutBuilder recovery integration", () => {
+  const prepareTemplate = () => {
+    catalog.push({ id: recoveredId, name: "Exercicio cycle-a QA", company_id: companyId, is_global: false });
+    templates.push({ id: "template-qa", company_id: companyId, name: "Plano extra QA", workouts: [
+      { title: "Sessao extra QA", description: "Somar sem apagar", exercises: [{
+        exercise_id: recoveredId, exercise_name: "Exercicio cycle-a QA", muscle_group: "Dorsal",
+        sets: "4", reps: "12", rest: "60s", notes: "Nota da biblioteca QA",
+      }] },
+    ] });
+  };
+
+  it("direct Add appends library sessions and saves the combined draft while preserving legacy metrics", async () => {
+    prepareTemplate();
+    const originalRows = clone(rows.get("cycle-a"));
+    const originalTemplates = clone(templates);
+    mountBuilder();
+    await waitForDraft();
+    fireEvent.click(screen.getByRole("button", { name: /Usar treino da biblioteca/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Usar treino da biblioteca" });
+    await within(dialog).findByRole("heading", { name: "Plano extra QA" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Adicionar$/ }));
+    expect(screen.queryByRole("dialog", { name: "Usar treino da biblioteca" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Treino cycle-a QA" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Sessao extra QA" })).toBeInTheDocument();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(rows.get("cycle-a")).toEqual(originalRows);
+    expect(templates).toEqual(originalTemplates);
+    fireEvent.click(saveButton());
+    expect(await screen.findByText("Save confirmado QA")).toBeInTheDocument();
+    const call = mocks.rpc.mock.calls.find(([name]) => name === "replace_cycle_workout_revision")![1];
+    expect(call.p_workouts.map((workout: Row) => workout.title)).toEqual(["Treino cycle-a QA", "Sessao extra QA"]);
+    expect(call.p_expected_rows).toEqual([{ id: "row-cycle-a", updated_at: "2026-09-29T00:00:00Z" }]);
+    expect(call.p_workouts[0].exercises[0]).toMatchObject({
+      sets: "3", reps: "8,6,4", rest: "0s", tempo: "3010", notes: "Legado intacto QA",
+      mfit_protocol: { sequence: [1, 2] },
+    });
+    expect(call.p_workouts[0].exercises[0]).not.toHaveProperty("weekly_ui_version");
+    expect(call.p_workouts[1].exercises[0].weekly_prescription).toHaveLength(6);
+    expect(templates).toEqual(originalTemplates);
+  }, 20000);
+
+  it("replacement still requires confirmation and cancel preserves the current draft", async () => {
+    prepareTemplate();
+    mountBuilder();
+    await waitForDraft();
+    fireEvent.click(screen.getByRole("button", { name: /Usar treino da biblioteca/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Usar treino da biblioteca" });
+    await within(dialog).findByRole("heading", { name: "Plano extra QA" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Usar este treino" }));
+    expect(within(dialog).getByRole("button", { name: "Substituir treino atual" })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(within(dialog).getByRole("button", { name: /^Adicionar$/ })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Treino cycle-a QA")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Usar este treino" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Substituir treino atual" }));
+    expect(screen.queryByRole("tab", { name: "Treino cycle-a QA" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Sessao extra QA" })).toBeInTheDocument();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  }, 20000);
+
   it("registers missing references before validation and revision RPC; blocks a second pending save", async () => {
     const pending = deferred<Reply>();
     mocks.register.mockReturnValue(pending.promise);

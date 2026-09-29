@@ -54,6 +54,12 @@ function toastTitle(page: import("@playwright/test").Page, text: string) {
   return page.getByText(text, { exact: true }).first();
 }
 
+async function closeFixtureToast(page: import("@playwright/test").Page, text: string) {
+  const toast = page.getByRole("status").filter({ hasText: text }).first();
+  if (await toast.isVisible()) await toast.getByRole("button").click();
+  await expect(toast).not.toBeVisible();
+}
+
 async function saveAll(page: import("@playwright/test").Page) {
   await page.getByRole("button", { name: /Salvar Tudo/i }).click();
 }
@@ -69,8 +75,195 @@ async function expectNoFixtureLeak({
   expect(consoleErrors.filter((message) => !message.includes("Download the React DevTools"))).toEqual([]);
 }
 
+async function observeTemplateSaveBoundaries(page: import("@playwright/test").Page) {
+  await page.evaluate(async () => {
+    const modulePath = "/src/integrations/supabase/client.ts";
+    const { supabase } = await import(modulePath);
+    const observation = {
+      writes: [] as Array<{ table: string; method: string }>,
+      rpcs: [] as Array<{ name: string; params: any }>,
+      templates: [] as Array<{ before: any; source: any }>,
+    };
+    (window as any).__workoutTemplateAddObservation = observation;
+    const from = supabase.from.bind(supabase);
+    Object.defineProperty(supabase, "from", {
+      configurable: true,
+      value: (table: string) => {
+        const query = from(table);
+        for (const method of ["insert", "update", "upsert", "delete"]) {
+          const original = query[method].bind(query);
+          query[method] = (...args: any[]) => {
+            observation.writes.push({ table, method });
+            return original(...args);
+          };
+        }
+        if (table === "workout_templates") {
+          const then = query.then.bind(query);
+          query.then = (fulfilled: any, rejected: any) => then((response: any) => {
+            for (const source of response.data || []) {
+              observation.templates.push({ before: structuredClone(source), source });
+            }
+            return fulfilled ? fulfilled(response) : response;
+          }, rejected);
+        }
+        return query;
+      },
+    });
+    const rpc = supabase.rpc.bind(supabase);
+    Object.defineProperty(supabase, "rpc", {
+      configurable: true,
+      value: (name: string, params: any) => {
+        observation.rpcs.push({ name, params: structuredClone(params) });
+        return rpc(name, params);
+      },
+    });
+  });
+}
+
+async function templateSaveObservation(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const observation = (window as any).__workoutTemplateAddObservation;
+    return {
+      writes: observation.writes as Array<{ table: string; method: string }>,
+      rpcs: observation.rpcs as Array<{ name: string; params: any }>,
+      templates: observation.templates.map(({ before, source }: any) => ({ before, source })),
+    };
+  });
+}
+
+async function expectTemplatePickerLayout(
+  page: import("@playwright/test").Page,
+  dialog: import("@playwright/test").Locator,
+  width: number,
+) {
+  const add = dialog.getByRole("button", { name: "Adicionar", exact: true });
+  await expect(add).toBeVisible();
+  await expect(add).toBeEnabled();
+  await expect(add).toBeInViewport({ ratio: 1 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  await expect.poll(async () => {
+    const box = await dialog.boundingBox();
+    const viewport = page.viewportSize()!;
+    return Boolean(box && box.x >= 0 && box.y >= 0
+      && box.x + box.width <= viewport.width && box.y + box.height <= viewport.height);
+  }).toBe(true);
+  await expect.poll(() => dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+}
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 844 }]) {
+  test(`direct template Add retains sessions and saves the combined immutable draft at ${viewport.width}px`, async ({ page }, testInfo) => {
+    const guard = await openFixture(page, viewport);
+    const reloads: string[] = [];
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) reloads.push(frame.url());
+    });
+    const currentRows = await page.evaluate<Array<{ id: string; updated_at: string }>>(
+      () => (window as any).__workoutSaveFixture.getCurrentRows(),
+    );
+    const persistedBefore = await page.evaluate<any[]>(() => (window as any).__workoutSaveFixture.getCurrentWorkouts());
+    await observeTemplateSaveBoundaries(page);
+
+    await page.locator("[role='tablist']").locator("xpath=..").getByRole("button").click();
+    await titleInput(page).fill("Treino B - Local mantido");
+    await descriptionInput(page).fill("Segunda sessão já no rascunho");
+    await activeWorkoutPanel(page).getByRole("button", { name: "Adicionar", exact: true }).click();
+    const exerciseDialog = page.getByRole("dialog", { name: "Biblioteca de exercícios" });
+    await exerciseDialog.getByTitle("Supino reto").click();
+    await exerciseDialog.getByRole("button", { name: "Ver treino completo" }).click();
+    await closeFixtureToast(page, "Adicionado ao treino");
+
+    await page.getByRole("button", { name: /^(Usar treino da biblioteca|Biblioteca de treinos)$/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Usar treino da biblioteca" });
+    await expect(dialog.getByRole("heading", { name: "Template substitui rascunho" })).toBeVisible();
+    const beforeAdd = await templateSaveObservation(page);
+    expect(beforeAdd.templates).toHaveLength(1);
+    const template = beforeAdd.templates[0].before;
+    expect(template.workouts).toHaveLength(1);
+    expect(beforeAdd.writes).toEqual([]);
+    expect(beforeAdd.rpcs).toEqual([]);
+    try {
+      await expectTemplatePickerLayout(page, dialog, viewport.width);
+    } finally {
+      await testInfo.attach("template-add-layout", {
+        body: JSON.stringify({
+          reloads,
+          dialog: await dialog.boundingBox(),
+          add: await dialog.getByRole("button", { name: "Adicionar", exact: true }).boundingBox(),
+          scrollWidth: await page.evaluate(() => document.documentElement.scrollWidth),
+          viewport,
+        }),
+        contentType: "application/json",
+      });
+    }
+    expect(reloads).toEqual([]);
+    await expect.poll(() => dialog.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+    const pickerScreenshot = testInfo.outputPath(`template-add-picker-${viewport.width}.png`);
+    await page.screenshot({ path: pickerScreenshot, fullPage: true });
+    await testInfo.attach("template-add-picker", { path: pickerScreenshot, contentType: "image/png" });
+
+    await dialog.getByRole("button", { name: "Adicionar", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Substituir treino atual" })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Treino A - Superior" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Treino B - Local mantido" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Template C - Full Body" })).toBeVisible();
+    await expect(titleInput(page)).toHaveValue(template.workouts[0].title);
+    await descriptionInput(page).fill("Personalização somente da cópia");
+
+    await page.getByRole("tab", { name: "Treino A - Superior" }).click();
+    await expect(descriptionInput(page)).toHaveValue(persistedBefore[0].description);
+    await page.getByRole("tab", { name: "Treino B - Local mantido" }).click();
+    await expect(descriptionInput(page)).toHaveValue("Segunda sessão já no rascunho");
+
+    const draftOnly = await templateSaveObservation(page);
+    expect(draftOnly.writes).toEqual([]);
+    expect(draftOnly.rpcs).toEqual([]);
+    expect(draftOnly.templates[0].source).toEqual(template);
+    expect(await page.evaluate(() => (window as any).__workoutSaveFixture.getSaveCalls())).toEqual([]);
+    expect(await page.evaluate(() => (window as any).__workoutSaveFixture.getCurrentRows())).toEqual(currentRows);
+    expect(await page.evaluate(() => (window as any).__workoutSaveFixture.getCurrentWorkouts())).toEqual(persistedBefore);
+
+    await saveAll(page);
+    await expect(toastTitle(page, "Todos os treinos salvos!")).toBeVisible();
+    const afterSave = await templateSaveObservation(page);
+    const atomicSaves = afterSave.rpcs.filter(({ name }) => name === "replace_cycle_workout_revision");
+    expect(atomicSaves).toHaveLength(1);
+    expect(atomicSaves[0].params.p_expected_rows).toEqual(currentRows);
+    const payload = atomicSaves[0].params.p_workouts;
+    expect(payload.map((workout: any) => workout.title)).toEqual([
+      "Treino A - Superior", "Treino B - Local mantido", ...template.workouts.map((workout: any) => workout.title),
+    ]);
+    expect(payload[0].description).toBe(persistedBefore[0].description);
+    expect(payload[0].exercises).toEqual(
+      persistedBefore[0].exercises.map((exercise: any) => {
+        const prescription = { ...exercise };
+        delete prescription.exercise_id;
+        return expect.objectContaining(prescription);
+      }),
+    );
+    expect(payload[1]).toMatchObject({ description: "Segunda sessão já no rascunho", exercises: [expect.objectContaining({ exercise_name: "Supino reto" })] });
+    expect(payload[2]).toMatchObject({
+      description: "Personalização somente da cópia",
+      exercises: [expect.objectContaining({ exercise_name: "Supino reto", sets: "4", reps: "8", rest: "75s", notes: "Template" })],
+    });
+    expect(afterSave.templates[0].source).toEqual(template);
+    const saved = await page.evaluate<any[]>(() => (window as any).__workoutSaveFixture.getCurrentWorkouts());
+    expect(saved.map((workout) => workout.title)).toEqual(payload.map((workout: any) => workout.title));
+    expect(saved.map((workout) => workout.exercises)).toEqual(payload.map((workout: any) => workout.exercises));
+    await expect(page.getByRole("heading", { name: "Escolha qual versão deve permanecer" })).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    await closeFixtureToast(page, "Todos os treinos salvos!");
+    const screenshot = testInfo.outputPath(`template-add-saved-${viewport.width}.png`);
+    await page.screenshot({ path: screenshot, fullPage: true });
+    await testInfo.attach("template-add-saved", { path: screenshot, contentType: "image/png" });
+    await expectNoFixtureLeak(guard);
+  });
+}
+
 test("desktop save keeps returned ids/timestamps current for a second save in the same editor", async ({ page }) => {
   const guard = await openFixture(page, { width: 1440, height: 900 });
+  const originalWorkouts = await page.evaluate<any[]>(() => (window as any).__workoutSaveFixture.getCurrentWorkouts());
+  const originalLegacy = originalWorkouts[0].exercises[1];
 
   await descriptionInput(page).fill("Primeira gravação via QA");
   await saveAll(page);
@@ -88,12 +281,25 @@ test("desktop save keeps returned ids/timestamps current for a second save in th
   expect(saveCalls[1].expectedRows[0].id).not.toBe(saveCalls[0].expectedRows[0].id);
   expect(saveCalls[1].expectedRows[0].updated_at).not.toBe(saveCalls[0].expectedRows[0].updated_at);
   const currentWorkouts = await page.evaluate<any[]>(() => (window as any).__workoutSaveFixture.getCurrentWorkouts());
-  expect(currentWorkouts[0].exercises).toEqual(expect.arrayContaining([
-    expect.objectContaining({
-      exercise_id: "947b6da5-7e97-4d27-badf-300ee1d5069a",
-      exercise_name: "Elevação de Quadril Solo",
-    }),
-  ]));
+  const recoveryCalls = await page.evaluate<any[]>(() => (window as any).__workoutSaveFixture.getRecoveryCalls());
+  expect(recoveryCalls).toHaveLength(1);
+  expect(recoveryCalls[0].params).toEqual({
+    p_company_id: "20000000-0000-4000-8000-000000000001",
+    p_exercises: [{ name: originalLegacy.exercise_name, muscle_group: originalLegacy.muscle_group }],
+  });
+  expect(recoveryCalls[0].response).toMatchObject({ error: null, data: {
+    ok: true, created_count: 1, actor_id: "10000000-0000-4000-8000-000000000001",
+    company_id: "20000000-0000-4000-8000-000000000001",
+  } });
+  const canonicalId = recoveryCalls[0].response.data.mappings[0].exercise_id;
+  expect(canonicalId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  expect(canonicalId).not.toBe(originalLegacy.exercise_id);
+  expect(currentWorkouts[0].exercises[1]).toMatchObject({ ...originalLegacy, exercise_id: canonicalId });
+  const catalog = await page.evaluate<any[]>(() => (window as any).__workoutSaveFixture.getLibraryExercises());
+  expect(catalog.filter((exercise) => exercise.name === originalLegacy.exercise_name)).toEqual([
+    expect.objectContaining({ id: canonicalId, is_global: false, description: null,
+      company_id: "20000000-0000-4000-8000-000000000001" }),
+  ]);
 
   await expectNoFixtureLeak(guard);
 });

@@ -866,7 +866,7 @@ export default function WorkoutBuilder() {
       : 0;
 
   const applyWorkoutTemplateDraft = (template: WorkoutTemplatePickerItem, mode: WorkoutTemplateDraftMode) => {
-    if (templateApplyInFlightRef.current === template.id) return;
+    if (saving || templateApplyInFlightRef.current === template.id) return;
     templateApplyInFlightRef.current = template.id;
     setApplyingTemplateId(template.id);
     try {
@@ -898,7 +898,7 @@ export default function WorkoutBuilder() {
       setPendingTemplate(null);
       setTemplatePickerOpen(false);
       toast({
-        title: "Treino carregado como rascunho",
+        title: mode === "append" ? "Treino adicionado ao rascunho" : "Treino carregado como rascunho",
         description: "Revise e personalize. Nada foi persistido; só salva ao clicar em Salvar Tudo.",
       });
     } finally {
@@ -909,8 +909,8 @@ export default function WorkoutBuilder() {
     }
   };
 
-  const requestWorkoutTemplateDraft = () => {
-    if (!selectedTemplate) return;
+  const requestWorkoutTemplateDraft = (mode: WorkoutTemplateDraftMode = "replace") => {
+    if (saving || !selectedTemplate) return;
     if (selectedTemplateIssues.length > 0) {
       const issue = selectedTemplateIssues[0];
       toast({
@@ -920,11 +920,11 @@ export default function WorkoutBuilder() {
       });
       return;
     }
-    if (hasEditableWorkoutContent(workouts as unknown as WorkoutTemplateDraftWorkout[])) {
+    if (mode === "replace" && hasEditableWorkoutContent(workouts as unknown as WorkoutTemplateDraftWorkout[])) {
       setPendingTemplate(selectedTemplate);
       return;
     }
-    applyWorkoutTemplateDraft(selectedTemplate, "replace");
+    applyWorkoutTemplateDraft(selectedTemplate, mode);
   };
 
   const getStoragePublicUrl = (path: string) => {
@@ -2554,8 +2554,8 @@ export default function WorkoutBuilder() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 overflow-hidden lg:grid-cols-[minmax(15rem,22rem)_1fr]">
-            <div className="space-y-3 overflow-hidden">
+          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(15rem,22rem)_1fr] lg:overflow-hidden">
+            <div className="min-w-0 space-y-3 overflow-hidden">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -2565,7 +2565,7 @@ export default function WorkoutBuilder() {
                   className="pl-9"
                 />
               </div>
-              <ScrollArea className="h-[48vh] rounded-xl border border-border">
+              <ScrollArea className="h-[24vh] rounded-xl border border-border lg:h-[48vh]">
                 {templatePickerLoading ? (
                   <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />Carregando treinos...
@@ -2610,7 +2610,7 @@ export default function WorkoutBuilder() {
               </ScrollArea>
             </div>
 
-            <div className="min-h-0 space-y-3 overflow-hidden">
+            <div className="min-h-0 min-w-0 space-y-3 overflow-hidden">
               {!selectedTemplate ? (
                 <div className="flex h-full min-h-[18rem] items-center justify-center rounded-xl border border-dashed border-border text-sm text-muted-foreground">
                   Selecione um treino para ver o preview.
@@ -2680,49 +2680,60 @@ export default function WorkoutBuilder() {
                     </div>
                   </ScrollArea>
 
-                  {pendingTemplate ? (
-                    <div className="rounded-xl border border-warning/40 bg-warning/10 p-3">
-                      <p className="text-sm font-medium text-foreground">Este rascunho já tem conteúdo. Escolha explicitamente:</p>
-                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          onClick={() => applyWorkoutTemplateDraft(pendingTemplate, "replace")}
-                          disabled={applyingTemplateId === pendingTemplate.id}
-                        >
-                          Substituir treino atual
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={() => applyWorkoutTemplateDraft(pendingTemplate, "append")}
-                          disabled={applyingTemplateId === pendingTemplate.id}
-                        >
-                          Adicionar como novo treino
-                        </Button>
-                        <Button type="button" variant="outline" onClick={() => setPendingTemplate(null)}>
-                          Cancelar
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <Button type="button" variant="outline" onClick={() => setTemplatePickerOpen(false)}>
-                        Cancelar
-                      </Button>
-                      <Button
-                        type="button"
-                        onClick={requestWorkoutTemplateDraft}
-                        disabled={saving || selectedTemplateIssues.length > 0 || applyingTemplateId === selectedTemplate.id}
-                      >
-                        {applyingTemplateId === selectedTemplate.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Usar este treino
-                      </Button>
-                    </div>
-                  )}
                 </>
               )}
             </div>
           </div>
+
+          {selectedTemplate && (pendingTemplate ? (
+            <div className="shrink-0 rounded-xl border border-warning/40 bg-warning/10 p-3">
+              <p className="text-sm font-medium text-foreground">Este rascunho já tem conteúdo. Escolha explicitamente:</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => applyWorkoutTemplateDraft(pendingTemplate, "replace")}
+                  disabled={saving || applyingTemplateId === pendingTemplate.id}
+                >
+                  Substituir treino atual
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => applyWorkoutTemplateDraft(pendingTemplate, "append")}
+                  disabled={saving || applyingTemplateId === pendingTemplate.id}
+                >
+                  Adicionar como novo treino
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setPendingTemplate(null)}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex shrink-0 flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setTemplatePickerOpen(false)}>
+                Cancelar
+              </Button>
+              {hasEditableWorkoutContent(workouts as unknown as WorkoutTemplateDraftWorkout[]) && (
+                <Button
+                  type="button"
+                  onClick={() => requestWorkoutTemplateDraft("append")}
+                  disabled={saving || selectedTemplateIssues.length > 0 || applyingTemplateId === selectedTemplate.id}
+                >
+                  <Plus className="mr-2 h-4 w-4" />Adicionar
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => requestWorkoutTemplateDraft()}
+                disabled={saving || selectedTemplateIssues.length > 0 || applyingTemplateId === selectedTemplate.id}
+              >
+                {applyingTemplateId === selectedTemplate.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Usar este treino
+              </Button>
+            </div>
+          ))}
         </DialogContent>
       </Dialog>
 
