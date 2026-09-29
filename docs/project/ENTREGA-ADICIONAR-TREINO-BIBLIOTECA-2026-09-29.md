@@ -53,15 +53,18 @@ Os testes usam fixtures sinteticas e nao salvam prescricoes reais.
 
 - [x] Implementacao integrada neste checkout e servidor local preservado em
   http://localhost:8096. HTTP 200 confirmado.
-- [x] Commit local desta entrega; sem push, preview remoto ou deploy novo.
-- [ ] Publicacao deste novo botao (aguardando): ainda local, sem deploy ou push
-  nesta demanda; proxima acao e publicar apos os gates e autorizacao especifica.
+- [x] Commit local de codigo `3d86ab0`; integrado e publicado nesta entrega,
+  sem push ou merge em `origin/main`.
+- [x] Publicacao deste novo botao: autorizada pelo usuario em 29/09/2026 e
+  concluida. Fonte publicada `3d86ab0`; novo build production e TypeScript
+  aprovados, revisao independente, 10/10 testes montados e lint aprovados.
+  Preview e producao conferidos; sem push ou merge em `origin/main` nesta demanda.
 - [x] Recuperacao automatica de exercicios, historico e copia individual:
   publicados na entrega anterior, deploy `6abbb556098af04ac0d431e1`.
 - [x] Ajustes anteriores e itens dispensados: continuam registrados nos
   relatorios abaixo, sem reabrir trabalho removido pelo usuario.
-- [ ] Confirmacao visual da assinatura no celular (aguardando): falta a
-  conferencia do destinatario; nenhum novo envio nesta demanda.
+- [x] Confirmacao visual da assinatura no celular: confirmada pelo usuario em
+  29/09/2026. Nenhum novo envio nesta demanda.
 
 Relatorios acumulados:
 
@@ -69,4 +72,27 @@ Relatorios acumulados:
 - [Versoes antigas e copia individual](ENTREGA-HISTORICO-BIBLIOTECA-2026-09-29.md).
 - [Demais ajustes e pendencias anteriores](ENTREGA-AJUSTES-2026-09-29.md).
 
-Rollback: revert do commit desta entrega; nenhum rollback de banco necessario.
+## Publicacao de 29/09/2026
+
+- Preview `6abbbd2fd721d900d38570d3`, estado `ready` confirmado.
+- Producao `6abbbdd0a5843c00de1c7687`, estado `ready` e site correto confirmados
+  pelo CLI em https://www.settapp.com.br.
+- Nove arquivos criticos (HTML, service worker e sete chunks) conferidos por
+  SHA256 e HTTP 200 na previa e no dominio principal, identicos ao build local.
+- Reexecucao HTTP independente de Erdos em producao: 9/9 identicos, todos
+  HTTP 200, service worker com `no-cache`; sessao encerrada sem escrita remota.
+- Service worker permanece network-first para HTML e cache-first para assets
+  com hash; nenhuma mudanca estrutural nesta entrega. `/sw.js` com `no-cache`.
+- Browser production: tela de acesso renderizada em 390 e 1440 pixels, sem
+  pageerror ou overflow horizontal. Nenhum login/submissao ou salvamento real.
+- Evidencias preservadas em `output/additive-release-20260929/`.
+- Primeiro comando de upload foi encerrado sem confirmar um deploy; segunda
+  tentativa concluiu a previa. Envio production feito de copia isolada do build.
+- Nenhuma migration, backfill, escrita de aluno ou envio de mensagem.
+
+Os testes funcionais de Adicionar/Substituir foram locais e sinteticos; os
+arquivos publicados sao os mesmos validados. Nao houve alteracao de uma
+prescricao real para testar producao. Assinatura confirmada pelo usuario.
+
+Rollback: republicar `6abbb556098af04ac0d431e1`; nenhum rollback de banco
+necessario. Localmente, revert do commit `3d86ab0`.
