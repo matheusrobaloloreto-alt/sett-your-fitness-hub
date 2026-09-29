@@ -31,6 +31,7 @@ import { MethodBadge } from "@/components/workout/MethodBadge";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { useMaster } from "@/contexts/MasterContext";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
+import { SaveWorkoutToLibraryDialog } from "@/components/admin/SaveWorkoutToLibraryDialog";
 import { loadStudentPreRegistration, updateStudentPreRegistration } from "@/lib/preRegistrationData";
 import {
   copyWeeklyPrescriptionMetrics,
@@ -379,7 +380,7 @@ const workoutRevisionPayload = (
   day_of_week: workout.day_of_week ?? workoutIndex + 1,
   exercises: workout.exercises.map((exercise) => serializeWeeklyExercise(
     exercise, weeklyPrescriptionMode, weeklyUiVersion,
-  )) as unknown[],
+  )),
 }));
 
 const workoutRevisionRows = (draft: Workout[]) => draft
@@ -447,6 +448,9 @@ export default function WorkoutBuilder() {
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : authCompanyId ?? null;
   const [templateName, setTemplateName] = useState("");
   const [loadedTemplateCompanyId, setLoadedTemplateCompanyId] = useState<string | null>(null);
+  const [librarySaveOpen, setLibrarySaveOpen] = useState(false);
+  const [librarySaveIndex, setLibrarySaveIndex] = useState<number | undefined>();
+  useEffect(() => { setLibrarySaveOpen(false); }, [cycleId, tplId, effectiveCompanyId]);
 
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [workoutRevisionSnapshot, setWorkoutRevisionSnapshot] = useState<Array<{ id: string; updated_at: string }>>([]);
@@ -550,6 +554,13 @@ export default function WorkoutBuilder() {
     [selectedTemplateId, workoutTemplates],
   );
   const templateCompanyId = cycleInfo?.company_id || loadedTemplateCompanyId || effectiveCompanyId || null;
+  const libraryExportWorkouts = useMemo(() => {
+    const newWeeklyDraft = weeklyPrescriptionMode === "weekly" && workoutRevisionSnapshot.length === 0
+      && (!isTemplate || tplId === "new");
+    if (!newWeeklyDraft) return workouts;
+    return workoutRevisionPayload(workouts, weeklyPrescriptionMode, weeklyUiVersion)
+      .map((payload, index) => ({ ...workouts[index], ...payload }));
+  }, [workouts, weeklyPrescriptionMode, weeklyUiVersion, workoutRevisionSnapshot, isTemplate, tplId]);
   const visibleTemplateLibraryExercises = useMemo(
     () => visibleWorkoutLibraryExercises(libraryExercises, templateCompanyId),
     [libraryExercises, templateCompanyId],
@@ -647,29 +658,9 @@ export default function WorkoutBuilder() {
     navigate(`/${prefix}/biblioteca?tab=treinos`);
   };
 
-  const saveAsTemplate = async () => {
-    const name = window.prompt("Salvar na biblioteca de treinos como:", templateName || (cycleInfo ? `Treino — ${cycleInfo.student_name}` : "Novo treino"));
-    if (!name || !name.trim()) return;
-    const companyId = templateCompanyId || effectiveCompanyId;
-    if (!companyId) { toast({ title: "Sem empresa em foco para salvar o template", variant: "destructive" }); return; }
-    const scopedLibrary = visibleWorkoutLibraryExercises(libraryExercises, companyId);
-    const resolvedDraft = resolveWorkoutSaveDraft({ workouts, libraryExercises: scopedLibrary });
-    if (hasBlockingSaveIssue(resolvedDraft.issues)) {
-      setSaveIssues(resolvedDraft.issues);
-      toast({
-        title: "Treino da biblioteca não salvo",
-        description: resolvedDraft.issues.find((issue) => issue.severity === "blocker")?.message,
-        variant: "destructive",
-      });
-      return;
-    }
-    if (resolvedDraft.repairs.length > 0) setWorkouts(resolvedDraft.workouts as Workout[]);
-    const templateWorkouts = workoutRevisionPayload(resolvedDraft.workouts as Workout[], weeklyPrescriptionMode, weeklyUiVersion);
-    const { error } = await (supabase as any).from("workout_templates").insert({
-      company_id: companyId, name: name.trim(), workouts: templateWorkouts as any, created_by: user?.id || null,
-    });
-    if (error) { toast({ title: "Erro", description: error.message, variant: "destructive" }); return; }
-    toast({ title: "Salvo na biblioteca de treinos!" });
+  const saveAsTemplate = (workoutIndex?: number) => {
+    setLibrarySaveIndex(workoutIndex);
+    setLibrarySaveOpen(true);
   };
 
   const resolveCycleInfo = async (): Promise<CycleInfo> => {
@@ -1547,6 +1538,16 @@ export default function WorkoutBuilder() {
 
   return (
     <>
+      <SaveWorkoutToLibraryDialog
+        key={`${cycleId || ""}:${tplId || ""}`}
+        open={librarySaveOpen}
+        onOpenChange={setLibrarySaveOpen}
+        workouts={libraryExportWorkouts}
+        companyId={templateCompanyId === effectiveCompanyId ? templateCompanyId : null}
+        defaultName={templateName || (cycleInfo ? `Plano — ${cycleInfo.student_name}` : "Novo plano")}
+        createdBy={user?.id || null}
+        initialWorkoutIndex={librarySaveIndex}
+      />
       <div className="min-w-0 space-y-5 sm:space-y-6">
         {/* Header */}
         <div
@@ -1634,7 +1635,7 @@ export default function WorkoutBuilder() {
               </Button>
             )}
             {!isTemplate && (
-              <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={saveAsTemplate} disabled={saving || workouts.length === 0}>
+              <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => saveAsTemplate()} disabled={saving || workouts.length === 0}>
                 <Save className="h-4 w-4 mr-2" />Salvar na biblioteca
               </Button>
             )}
@@ -1708,11 +1709,16 @@ export default function WorkoutBuilder() {
                           />
                         </div>
                       </div>
+                      <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" onClick={() => saveAsTemplate(wIdx)} disabled={saving || workout.exercises.length === 0}>
+                        <Library className="h-4 w-4 mr-1" />Salvar este treino na biblioteca
+                      </Button>
                       {workouts.length > 1 && (
                         <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeWorkout(wIdx)} disabled={saving}>
                           <Trash2 className="h-4 w-4 mr-1" />Remover este treino
                         </Button>
                       )}
+                      </div>
                     </CardContent>
                   </Card>
 

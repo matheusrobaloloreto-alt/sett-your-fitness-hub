@@ -1977,7 +1977,7 @@ export default function StudentDetail() {
               {renderAnamnesisSection()}
             </CollapsibleCard>
             {id && <AssessmentCompareCard studentId={id} />}
-            {id && <PlanVersionsCard studentId={id} />}
+        {id && <PlanVersionsCard studentId={id} companyId={student.company_id} studentName={student.full_name} createdBy={session?.user?.id || null} />}
 
             <Card className="bg-card border-border">
               <CardHeader>
