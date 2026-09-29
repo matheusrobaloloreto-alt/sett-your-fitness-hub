@@ -2,7 +2,7 @@ export const MAX_OUTBOUND_WHATSAPP_MEDIA_BYTES = 512 * 1024 * 1024;
 export const INLINE_OUTBOUND_VIDEO_MAX_BYTES = 64 * 1024 * 1024;
 export const MAX_OUTBOUND_WHATSAPP_STICKER_BYTES = 1024 * 1024;
 
-export type OutboundWhatsAppMediaSource = "chat-upload" | "student-upload";
+export type OutboundWhatsAppMediaSource = "chat-upload" | "student-upload" | "template-upload";
 export type OutboundWhatsAppMediaType = "image" | "video" | "audio" | "document" | "sticker";
 
 type OutboundWhatsAppMediaInput = {
@@ -12,6 +12,8 @@ type OutboundWhatsAppMediaInput = {
   companyId: string;
   chatId: string | null;
   studentId: string | null;
+  templateId?: string | null;
+  templateAttachmentPaths?: string[];
   claimedMimeType: string | null;
   objectMimeType: string | null;
   objectSize: number | null;
@@ -79,6 +81,14 @@ export function validateOutboundWhatsAppMedia(
       return { ok: false, code: "whatsapp_media_invalid_reference" };
     }
     expectedPrefix = `${input.companyId}/${input.studentId}/`;
+  } else if (input.source === "template-upload") {
+    if (input.bucket !== "whatsapp-media" || !input.templateId || !input.chatId) {
+      return { ok: false, code: "whatsapp_media_invalid_reference" };
+    }
+    expectedPrefix = `${input.companyId}/templates/${input.templateId}/`;
+    if (!input.templateAttachmentPaths?.includes(input.path)) {
+      return { ok: false, code: "whatsapp_media_scope_mismatch" };
+    }
   } else {
     return { ok: false, code: "whatsapp_media_invalid_reference" };
   }

@@ -23,6 +23,7 @@ export interface StoredWeeklyExercisePrescription {
 }
 
 export interface WeeklyAwareExercise {
+  weekly_ui_version?: string;
   sets: string;
   reps: string;
   rest: string;
@@ -114,6 +115,91 @@ export function weeklySetTypesForSets(value: unknown, sets: number) {
   const count = Math.max(1, Math.round(Number(sets) || 1));
   const current = sanitizeSetTypes(value) || [];
   return Array.from({ length: count }, (_, index) => current[index] || "normal");
+}
+
+export function individualWeeklyUiVersionForExercise(
+  exercise: WeeklyAwareExercise,
+  mode: WeeklyPrescriptionMode,
+): IndividualWeeklyUiVersion | null {
+  if (mode !== "weekly") return null;
+  return exercise.weekly_ui_version === INDIVIDUAL_WEEKLY_UI_VERSION
+    || exercise.weekly_ui_version === LEGACY_INDIVIDUAL_WEEKLY_UI_VERSION
+    ? exercise.weekly_ui_version : null;
+}
+
+export function initializeNewWeeklyWorkoutDraft<T extends { exercises: WeeklyAwareExercise[] }>(
+  workouts: T[],
+  startIndex = 0,
+): T[] {
+  return workouts.map((workout, index) => index < startIndex ? workout : {
+    ...workout,
+    exercises: workout.exercises.map((exercise) => serializeWeeklyExercise({
+      ...exercise,
+      weekly_ui_version: individualWeeklyUiVersionForExercise(exercise, "weekly") || INDIVIDUAL_WEEKLY_UI_VERSION,
+    }, "weekly", INDIVIDUAL_WEEKLY_UI_VERSION)),
+  });
+}
+
+// Shared by the editor and save payload so tests exercise the persisted contract.
+export function ensureWeeklyPrescription(
+  exercise: WeeklyAwareExercise,
+  uiVersion: IndividualWeeklyUiVersion,
+): StoredWeeklyExercisePrescription[] {
+  const stored = Array.isArray(exercise.weekly_prescription) ? exercise.weekly_prescription : [];
+  const defaultTempo = defaultWeeklyTempoForUiVersion(uiVersion);
+  const parsedRest = Number.parseInt(String(exercise.rest || "").replace(/\D/g, ""), 10);
+  const baseRest = Number.isFinite(parsedRest) ? parsedRest : 60;
+  return Array.from({ length: 6 }, (_, index) => {
+    const week = index + 1;
+    const current = stored.find((item) => Number(item.week) === week);
+    const sets = Number(current?.sets) || Number.parseInt(exercise.sets, 10) || 3;
+    const inheritedSetTypes = uiVersion === INDIVIDUAL_WEEKLY_UI_VERSION
+      ? (current?.set_types?.length ? current.set_types : exercise.set_types)
+      : (current?.set_types || exercise.set_types);
+    return {
+      week,
+      block: week <= 2 ? "base" : week <= 4 ? "acumulacao" : "intensificacao",
+      sets,
+      reps: String(current?.reps || exercise.reps || "12"),
+      rir: String(current?.rir || ""),
+      rest_seconds: current?.rest_seconds != null && Number.isFinite(Number(current.rest_seconds))
+        ? Number(current.rest_seconds) : baseRest,
+      tempo: String(current?.tempo || defaultTempo),
+      method: current?.method !== undefined ? current.method : exercise.method ?? null,
+      group_id: current?.group_id !== undefined ? current.group_id : exercise.group_id ?? null,
+      method_seconds: current?.method_seconds !== undefined ? current.method_seconds : exercise.method_seconds ?? null,
+      method_reason: current?.method_reason ?? null,
+      set_types: uiVersion === INDIVIDUAL_WEEKLY_UI_VERSION
+        ? weeklySetTypesForSets(inheritedSetTypes, sets)
+        : sanitizeSetTypes(inheritedSetTypes) || [],
+      instruction: String(current?.instruction || exercise.notes || "Siga a orientação do professor."),
+    };
+  });
+}
+
+export function serializeWeeklyExercise<T extends WeeklyAwareExercise>(
+  exercise: T,
+  mode: WeeklyPrescriptionMode,
+  _globalUiVersion: IndividualWeeklyUiVersion,
+): T {
+  // Global layout selection is not permission to migrate sibling prescriptions.
+  const uiVersion = individualWeeklyUiVersionForExercise(exercise, mode);
+  if (!uiVersion) return exercise;
+  const weeklyPrescription = ensureWeeklyPrescription(exercise, uiVersion);
+  const firstWeek = weeklyPrescription[0];
+  return {
+    ...exercise,
+    ...(uiVersion === INDIVIDUAL_WEEKLY_UI_VERSION ? {
+      sets: String(firstWeek.sets),
+      reps: firstWeek.reps,
+      rest: `${firstWeek.rest_seconds}s`,
+      notes: firstWeek.instruction || exercise.notes,
+      set_types: firstWeek.set_types,
+      tempo: firstWeek.tempo,
+    } : {}),
+    weekly_prescription: weeklyPrescription,
+    weekly_ui_version: uiVersion,
+  };
 }
 
 export function hasIndividualWeeklyPrescription(

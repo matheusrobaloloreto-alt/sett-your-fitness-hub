@@ -204,20 +204,6 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
       return null;
     }
 
-    // Gamification: award XP and check achievements (best-effort, non-blocking failures)
-    try {
-      await supabase.rpc("award_xp", {
-        _student_id: studentId,
-        _event_type: "workout",
-        _xp_amount: 50,
-        _source_id: activeSession.id,
-        _notes: null,
-      });
-      await supabase.rpc("check_and_unlock_achievements", { _student_id: studentId });
-    } catch (e) {
-      console.warn("XP/achievements grant failed", e);
-    }
-
     const result: SessionSummary = {
       id: activeSession.id,
       workoutId: activeSession.workoutId,
@@ -235,6 +221,21 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     localStorage.removeItem(STORAGE_KEY(studentId));
 
     finishingRef.current = false;
+    // Completion is already confirmed; gamification must not keep its timer open.
+    void (async () => {
+      try {
+        await supabase.rpc("award_xp", {
+          _student_id: studentId,
+          _event_type: "workout",
+          _xp_amount: 50,
+          _source_id: result.id,
+          _notes: null,
+        });
+        await supabase.rpc("check_and_unlock_achievements", { _student_id: studentId });
+      } catch (e) {
+        console.warn("XP/achievements grant failed", e);
+      }
+    })();
     return result;
   }, [activeSession, studentId]);
 

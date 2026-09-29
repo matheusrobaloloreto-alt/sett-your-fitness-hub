@@ -1382,6 +1382,30 @@ Deno.serve(async (req) => {
         );
       }
 
+      let templateAttachmentPaths: string[] = [];
+      const templateId = typeof body.templateId === "string" ? body.templateId : null;
+      if (mediaSource === "template-upload") {
+        if (!templateId || !boundChat?.id) {
+          return json(outboundMediaError("whatsapp_media_invalid_reference"), 400);
+        }
+        const { data: template, error: templateError } = await adminClient
+          .from("message_templates")
+          .select("attachments")
+          .eq("id", templateId)
+          .eq("company_id", resolvedCompanyId)
+          .maybeSingle();
+        if (templateError || !template) {
+          return json(outboundMediaError("whatsapp_media_scope_mismatch"), 403);
+        }
+        templateAttachmentPaths = Array.isArray(template.attachments)
+          ? template.attachments.map((item: { path?: unknown } | null) => item?.path)
+            .filter((path: unknown): path is string => typeof path === "string")
+          : [];
+        if (!templateAttachmentPaths.includes(mediaStoragePath)) {
+          return json(outboundMediaError("whatsapp_media_scope_mismatch"), 403);
+        }
+      }
+
       const separatorIndex = mediaStoragePath.lastIndexOf("/");
       const directory = separatorIndex >= 0
         ? mediaStoragePath.slice(0, separatorIndex)
@@ -1415,6 +1439,8 @@ Deno.serve(async (req) => {
         companyId: resolvedCompanyId,
         chatId: boundChat?.id || null,
         studentId: mediaStudentId,
+        templateId,
+        templateAttachmentPaths,
         claimedMimeType,
         objectMimeType: storedObject?.metadata?.mimetype || null,
         objectSize: Number(storedObject?.metadata?.size || 0),

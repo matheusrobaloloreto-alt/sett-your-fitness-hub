@@ -35,7 +35,11 @@ import { loadStudentPreRegistration, updateStudentPreRegistration } from "@/lib/
 import {
   copyWeeklyPrescriptionMetrics,
   defaultWeeklyTempoForUiVersion,
+  ensureWeeklyPrescription,
+  serializeWeeklyExercise,
   individualWeeklyUiVersionForLoadedWorkouts,
+  individualWeeklyUiVersionForExercise,
+  initializeNewWeeklyWorkoutDraft,
   INDIVIDUAL_WEEKLY_UI_VERSION,
   weeklySetTypesForSets,
   weeklyPrescriptionModeForLoadedWorkouts,
@@ -206,44 +210,6 @@ const mapWorkoutRows = (rows: any[]): Workout[] => sanitizeWorkoutSetTypes(rows.
   exercises: (workout.exercises as WorkoutExercise[]) || [],
 })));
 
-const parseRestSeconds = (value: string | number | null | undefined) => {
-  const parsed = Number.parseInt(String(value || "").replace(/\D/g, ""), 10);
-  return Number.isFinite(parsed) ? parsed : 60;
-};
-
-const ensureWeeklyPrescription = (
-  exercise: WorkoutExercise,
-  uiVersion: IndividualWeeklyUiVersion,
-): StoredWeeklyExercisePrescription[] => {
-  const stored = Array.isArray(exercise.weekly_prescription) ? exercise.weekly_prescription : [];
-  const defaultTempo = defaultWeeklyTempoForUiVersion(uiVersion);
-  return Array.from({ length: 6 }, (_, index) => {
-    const week = index + 1;
-    const current = stored.find((item) => Number(item.week) === week);
-    const sets = Number(current?.sets) || Number.parseInt(exercise.sets, 10) || 3;
-    const inheritedSetTypes = uiVersion === INDIVIDUAL_WEEKLY_UI_VERSION
-      ? (current?.set_types?.length ? current.set_types : exercise.set_types)
-      : (current?.set_types || exercise.set_types);
-    return {
-      week,
-      block: week <= 2 ? "base" : week <= 4 ? "acumulacao" : "intensificacao",
-      sets,
-      reps: String(current?.reps || exercise.reps || "12"),
-      rir: String(current?.rir || ""),
-      rest_seconds: Number(current?.rest_seconds) || parseRestSeconds(exercise.rest),
-      tempo: String(current?.tempo || defaultTempo),
-      method: current?.method ?? exercise.method ?? null,
-      group_id: current?.group_id ?? exercise.group_id ?? null,
-      method_seconds: current?.method_seconds ?? exercise.method_seconds ?? null,
-      method_reason: current?.method_reason ?? null,
-      set_types: uiVersion === INDIVIDUAL_WEEKLY_UI_VERSION
-        ? weeklySetTypesForSets(inheritedSetTypes, sets)
-        : sanitizeSetTypes(inheritedSetTypes) || [],
-      instruction: String(current?.instruction || exercise.notes || "Siga a orientação do professor."),
-    };
-  });
-};
-
 const updateWeeklyBlock = (
   exercise: WorkoutExercise,
   startWeek: number,
@@ -411,27 +377,9 @@ const workoutRevisionPayload = (
   title: workout.title || `Treino ${WORKOUT_LABELS[workoutIndex] || workoutIndex + 1}`,
   description: workout.description || null,
   day_of_week: workout.day_of_week ?? workoutIndex + 1,
-  exercises: workout.exercises.map((exercise) => {
-    if (weeklyPrescriptionMode === "weekly") {
-      const weeklyPrescription = ensureWeeklyPrescription(exercise, weeklyUiVersion);
-      const firstWeek = weeklyPrescription[0];
-      return {
-        ...exercise,
-        ...(weeklyUiVersion === INDIVIDUAL_WEEKLY_UI_VERSION ? {
-          sets: String(firstWeek.sets),
-          reps: firstWeek.reps,
-          rest: `${firstWeek.rest_seconds}s`,
-          notes: firstWeek.instruction || exercise.notes,
-          set_types: firstWeek.set_types,
-          tempo: firstWeek.tempo,
-        } : {}),
-        weekly_prescription: weeklyPrescription,
-        weekly_ui_version: weeklyUiVersion,
-      };
-    }
-
-    return exercise;
-  }) as unknown[],
+  exercises: workout.exercises.map((exercise) => serializeWeeklyExercise(
+    exercise, weeklyPrescriptionMode, weeklyUiVersion,
+  )) as unknown[],
 }));
 
 const workoutRevisionRows = (draft: Workout[]) => draft
@@ -505,8 +453,6 @@ export default function WorkoutBuilder() {
   const trustedLegacyExerciseIdsRef = useRef<Set<string>>(new Set());
   const [weeklyPrescriptionMode, setWeeklyPrescriptionMode] = useState<WeeklyPrescriptionMode>("weekly");
   const [weeklyUiVersion, setWeeklyUiVersion] = useState<IndividualWeeklyUiVersion>(INDIVIDUAL_WEEKLY_UI_VERSION);
-  const usesLatestWeeklyLayout = weeklyPrescriptionMode === "weekly"
-    && weeklyUiVersion === INDIVIDUAL_WEEKLY_UI_VERSION;
   const [activeTab, setActiveTab] = useState("0");
   const [editingWeekStart, setEditingWeekStart] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -916,7 +862,10 @@ export default function WorkoutBuilder() {
       }
 
       const insertedStart = mode === "replace" ? 0 : workouts.length;
-      setWorkouts(result.workouts as unknown as Workout[]);
+      const nextWorkouts = initializeNewWeeklyWorkoutDraft(result.workouts as unknown as Workout[], insertedStart);
+      setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(nextWorkouts));
+      setWeeklyUiVersion(individualWeeklyUiVersionForLoadedWorkouts(nextWorkouts) || INDIVIDUAL_WEEKLY_UI_VERSION);
+      setWorkouts(nextWorkouts);
       setActiveTab(String(insertedStart));
       setPendingTemplate(null);
       setTemplatePickerOpen(false);
@@ -996,6 +945,7 @@ export default function WorkoutBuilder() {
           rest: "60s",
           notes: "",
           weekly_prescription: [],
+          ...(weeklyPrescriptionMode === "weekly" ? { weekly_ui_version: weeklyUiVersion } : {}),
         }],
       };
     }));
@@ -1324,8 +1274,9 @@ export default function WorkoutBuilder() {
           description: workout.description,
           day_of_week: workout.day_of_week ?? workoutIndex + 1,
           exercises: workout.exercises.map((exercise, exerciseIndex) => {
-            const weeklyPrescription = usesLatestWeeklyLayout
-              ? ensureWeeklyPrescription(exercise, weeklyUiVersion)
+            const exerciseVersion = individualWeeklyUiVersionForExercise(exercise, weeklyPrescriptionMode);
+            const weeklyPrescription = exerciseVersion === INDIVIDUAL_WEEKLY_UI_VERSION
+              ? ensureWeeklyPrescription(exercise, exerciseVersion)
               : undefined;
             const firstWeek = weeklyPrescription?.[0];
             return {
@@ -1382,16 +1333,15 @@ export default function WorkoutBuilder() {
   };
 
   // Volume calculation
-  const volumeWorkouts = useMemo(() => usesLatestWeeklyLayout
-    ? workouts.map((workout) => ({
+  const volumeWorkouts = useMemo(() => workouts.map((workout) => ({
       ...workout,
       exercises: workout.exercises.map((exercise) => {
-        const selectedWeek = ensureWeeklyPrescription(exercise, weeklyUiVersion)
+        if (individualWeeklyUiVersionForExercise(exercise, weeklyPrescriptionMode) !== INDIVIDUAL_WEEKLY_UI_VERSION) return exercise;
+        const selectedWeek = ensureWeeklyPrescription(exercise, INDIVIDUAL_WEEKLY_UI_VERSION)
           .find((item) => item.week === editingWeekStart);
         return selectedWeek ? { ...exercise, sets: String(selectedWeek.sets) } : exercise;
       }),
-    }))
-    : workouts, [editingWeekStart, usesLatestWeeklyLayout, weeklyUiVersion, workouts]);
+    })), [editingWeekStart, weeklyPrescriptionMode, workouts]);
   const weeklyVolumeResult = useMemo(() => calculateWeeklyMuscleVolume({
     workouts: volumeWorkouts,
     targets: muscleTargets,
@@ -1851,7 +1801,10 @@ export default function WorkoutBuilder() {
                         <>
                           {dropZone(0)}
                           {groupedExercises.map((grp, unitIndex) => {
-                      const cards = grp.items.map(({ ex, idx: exIdx }) => (
+                      const cards = grp.items.map(({ ex, idx: exIdx }) => {
+                      const exerciseVersion = individualWeeklyUiVersionForExercise(ex, weeklyPrescriptionMode);
+                      const usesLatestWeeklyLayout = exerciseVersion === INDIVIDUAL_WEEKLY_UI_VERSION;
+                      return (
                       <Card key={exIdx} className="bg-card border-border" data-workout-exercise-anchor={`${wIdx}-${exIdx}`}>
                         <CardContent className="p-3 sm:p-4">
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
@@ -2001,10 +1954,10 @@ export default function WorkoutBuilder() {
                                 </>
                               )}
 
-                              {weeklyPrescriptionMode === "weekly" && (() => {
-                                const block = ensureWeeklyPrescription(ex, weeklyUiVersion).find((item) => item.week === editingWeekStart)!;
+                              {exerciseVersion && (() => {
+                                const block = ensureWeeklyPrescription(ex, exerciseVersion).find((item) => item.week === editingWeekStart)!;
                                 const updateBlock = (field: "sets" | "reps" | "rest_seconds" | "tempo" | "instruction", value: string) => {
-                                  updateExercise(wIdx, exIdx, "weekly_prescription", updateWeeklyBlock(ex, editingWeekStart, field, value, weeklyUiVersion));
+                                  updateExercise(wIdx, exIdx, "weekly_prescription", updateWeeklyBlock(ex, editingWeekStart, field, value, exerciseVersion));
                                 };
                                 return (
                                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
@@ -2017,7 +1970,7 @@ export default function WorkoutBuilder() {
                                           wIdx,
                                           exIdx,
                                           "weekly_prescription",
-                                          copyWeeklyPrescriptionMetrics(ensureWeeklyPrescription(ex, weeklyUiVersion), editingWeekStart, targetWeeks),
+                                          copyWeeklyPrescriptionMetrics(ensureWeeklyPrescription(ex, exerciseVersion), editingWeekStart, targetWeeks),
                                         )}
                                       />
                                     </div>
@@ -2050,7 +2003,7 @@ export default function WorkoutBuilder() {
                                               wIdx,
                                               exIdx,
                                               "weekly_prescription",
-                                              updateWeeklyMethod(ex, editingWeekStart, value === "none" ? null : value as MethodId, weeklyUiVersion),
+                                              updateWeeklyMethod(ex, editingWeekStart, value === "none" ? null : value as MethodId, exerciseVersion),
                                             )}
                                             disabled={saving}
                                           >
@@ -2066,7 +2019,7 @@ export default function WorkoutBuilder() {
                                         <div className="space-y-1">
                                           <Label className="text-[11px] text-muted-foreground">Cadência</Label>
                                           <Input
-                                            value={block.tempo || defaultWeeklyTempoForUiVersion(weeklyUiVersion)}
+                                            value={block.tempo || defaultWeeklyTempoForUiVersion(exerciseVersion)}
                                             onChange={(event) => updateBlock("tempo", event.target.value)}
                                             className="h-8 bg-background"
                                             placeholder="2020"
@@ -2088,7 +2041,7 @@ export default function WorkoutBuilder() {
                                           wIdx,
                                           exIdx,
                                           "weekly_prescription",
-                                          updateWeeklySetTypes(ex, editingWeekStart, setTypes, weeklyUiVersion),
+                                          updateWeeklySetTypes(ex, editingWeekStart, setTypes, exerciseVersion),
                                         )}
                                       />
                                     )}
@@ -2099,7 +2052,8 @@ export default function WorkoutBuilder() {
                           </div>
                         </CardContent>
                       </Card>
-                      ));
+                      );
+                      });
                       if (grp.grouping) {
                         const meta = WORKOUT_METHODS[grp.method as MethodId];
                         const rounds = parseInt(String(grp.items[0]?.ex.sets ?? "")) || null;

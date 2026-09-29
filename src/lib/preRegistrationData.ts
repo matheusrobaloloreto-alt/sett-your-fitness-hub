@@ -33,14 +33,25 @@ function optionalText(value: unknown) {
   return text || null;
 }
 
-export function canonicalAnamnesisUpdateFromPreRegistration(data: PreRegistrationData) {
+function optionalBoolean(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "boolean") return value;
+  throw new Error("Resposta booleana inválida na anamnese.");
+}
+
+export function canonicalAnamnesisUpdateFromPreRegistration(
+  data: PreRegistrationData,
+  existingCustomAnswers: unknown = {},
+) {
   const answers = data.answers;
   const update: Record<string, unknown> = {
     notes: optionalText(data.manualNotes),
     updated_at: new Date().toISOString(),
   };
   const has = (...keys: string[]) => keys.some((key) => Object.prototype.hasOwnProperty.call(answers, key));
+  const mappedKeys = new Set(["notes", "custom_answers"]);
   const assign = (column: string, value: unknown, ...keys: string[]) => {
+    keys.forEach((key) => mappedKeys.add(key));
     if (has(...keys)) update[column] = value;
   };
 
@@ -62,12 +73,58 @@ export function canonicalAnamnesisUpdateFromPreRegistration(data: PreRegistratio
   assign("cardio_goal", optionalText(answers.cardio_goal), "cardio_goal");
   assign("stress_score", optionalNumber(answers.stress_score), "stress_score");
   assign("sleep_quality", optionalNumber(answers.sleep_quality), "sleep_quality");
-  assign("injuries", optionalText(answers.injuries ?? answers.current_pain), "injuries", "current_pain");
+  assign("injuries", optionalText(has("current_pain") ? answers.current_pain : answers.injuries), "injuries", "current_pain");
   assign("food_restrictions", optionalText(answers.food_restrictions), "food_restrictions");
   assign("nutrition_context", optionalText(answers.nutrition_context ?? answers.nutrition), "nutrition_context", "nutrition");
   assign("budget_food", optionalText(answers.budget_food), "budget_food");
   assign("meals_per_day", optionalNumber(answers.meals_per_day), "meals_per_day");
+  assign("endurance_session_duration_min", optionalNumber(answers.endurance_session_duration_min), "endurance_session_duration_min");
+  assign("has_kitchen", optionalBoolean(answers.has_kitchen), "has_kitchen");
+
+  const custom = isPreRegistrationRecord(existingCustomAnswers) ? existingCustomAnswers : {};
+  const incomingCustom = isPreRegistrationRecord(answers.custom_answers) ? answers.custom_answers : {};
+  const previous = isPreRegistrationRecord(custom.staff_pre_registration) ? custom.staff_pre_registration : {};
+  const previousAnswers = isPreRegistrationRecord(previous.answers) ? previous.answers : {};
+  // Keep the displayed modalities array authoritative even when an old alias column exists.
+  const extraAnswers = Object.fromEntries(Object.entries(answers).filter(([key]) => !mappedKeys.has(key) || key === "modalities"));
+  update.custom_answers = {
+    ...custom,
+    ...incomingCustom,
+    staff_pre_registration: {
+      ...previous,
+      answers: { ...previousAnswers, ...extraAnswers },
+      budgetRange: data.budgetRange,
+      preferredContactPeriod: data.preferredContactPeriod,
+    },
+  };
   return update;
+}
+
+export function canonicalPreRegistrationData(row: Record<string, unknown> | null): PreRegistrationData | null {
+  if (!row) return null;
+  const custom = isPreRegistrationRecord(row.custom_answers) ? row.custom_answers : {};
+  const extension = isPreRegistrationRecord(custom.staff_pre_registration) ? custom.staff_pre_registration : {};
+  const extensionAnswers = isPreRegistrationRecord(extension.answers) ? extension.answers : {};
+  const visibleCustom = { ...custom };
+  delete visibleCustom.staff_pre_registration;
+  const answers: Record<string, unknown> = {
+    ...canonicalAnamnesisToPreRegistrationAnswers(row),
+    ...(row.endurance_session_duration_min != null ? { endurance_session_duration_min: row.endurance_session_duration_min } : {}),
+    ...(Object.keys(visibleCustom).length ? { custom_answers: visibleCustom } : {}),
+    ...extensionAnswers,
+  };
+  // Notes have a dedicated editor; a duplicate answer editor would be ignored on save.
+  delete answers.notes;
+  if (Object.keys(answers).length === 0 && !row.notes) return null;
+  return {
+    recordId: row.id as string,
+    source: "student_anamnesis",
+    answers,
+    budgetRange: typeof extension.budgetRange === "string" ? extension.budgetRange : null,
+    preferredContactPeriod: typeof extension.preferredContactPeriod === "string" ? extension.preferredContactPeriod : null,
+    submittedAt: typeof row.updated_at === "string" ? row.updated_at : null,
+    manualNotes: String(row.notes || ""),
+  };
 }
 
 export async function updateStudentPreRegistration(data: PreRegistrationData): Promise<PreRegistrationData> {
@@ -75,13 +132,25 @@ export async function updateStudentPreRegistration(data: PreRegistrationData): P
   const db = supabase as any;
   const updatedAt = new Date().toISOString();
   const manualNotes = data.manualNotes?.trim() || "";
+  const canonicalId = data.source === "student_anamnesis" ? data.recordId : data.canonicalRecordId;
+  let canonicalUpdate: Record<string, unknown> | undefined;
+  if (canonicalId) {
+    const { data: existing, error } = await db.from("student_anamneses")
+      .select("custom_answers").eq("id", canonicalId).maybeSingle();
+    if (error) throw new Error(error.message || "Falha ao carregar respostas existentes.");
+    if (!existing) throw new Error("Anamnese não encontrada para atualização.");
+    canonicalUpdate = canonicalAnamnesisUpdateFromPreRegistration(data, existing.custom_answers);
+  }
 
   if (data.source === "lead") {
-    const answers = {
+    const answers: Record<string, unknown> = {
       ...data.answers,
       ...(manualNotes ? { notes: manualNotes } : {}),
     };
     if (!manualNotes) delete answers.notes;
+    if (Object.prototype.hasOwnProperty.call(answers, "current_pain") && Object.prototype.hasOwnProperty.call(answers, "injuries")) {
+      answers.injuries = answers.current_pain;
+    }
     const writes = [
       db.from("leads").update({
         pre_registration_answers: answers,
@@ -94,7 +163,7 @@ export async function updateStudentPreRegistration(data: PreRegistrationData): P
     if (data.canonicalRecordId) {
       writes.push(
         db.from("student_anamneses")
-          .update(canonicalAnamnesisUpdateFromPreRegistration({ ...data, answers, manualNotes }))
+          .update(canonicalUpdate)
           .eq("id", data.canonicalRecordId),
       );
     }
@@ -105,7 +174,7 @@ export async function updateStudentPreRegistration(data: PreRegistrationData): P
   }
 
   const { error } = await db.from("student_anamneses")
-    .update(canonicalAnamnesisUpdateFromPreRegistration(data))
+    .update(canonicalUpdate)
     .eq("id", data.recordId);
   if (error) throw new Error(error.message || "Falha ao atualizar a anamnese.");
   return { ...data, manualNotes };
@@ -222,15 +291,5 @@ export async function loadStudentPreRegistration({
     };
   }
 
-  const canonicalAnswers = canonicalAnamnesisToPreRegistrationAnswers(anamnesisResult.data);
-  if (Object.keys(canonicalAnswers).length === 0) return null;
-  return {
-    recordId: (anamnesisResult.data as Record<string, unknown>).id as string,
-    answers: canonicalAnswers,
-    budgetRange: null,
-    preferredContactPeriod: null,
-    submittedAt: (anamnesisResult.data as Record<string, unknown>)?.updated_at as string || null,
-    manualNotes: String((anamnesisResult.data as Record<string, unknown>)?.notes || ""),
-    source: "student_anamnesis",
-  };
+  return canonicalPreRegistrationData(anamnesisResult.data);
 }

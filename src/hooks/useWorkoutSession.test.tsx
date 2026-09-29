@@ -56,7 +56,7 @@ describe("useWorkoutSession", () => {
     mocks.confirmationResult = { data: null, error: null };
     mocks.updateFilters = [];
     mocks.selectedColumns = null;
-    mocks.rpc.mockClear();
+    mocks.rpc.mockReset().mockResolvedValue({ data: null, error: null });
   });
 
   afterEach(() => {
@@ -151,5 +151,35 @@ describe("useWorkoutSession", () => {
     expect(summary?.id).toBe("session-1");
     expect(result.current.activeSession).toBeNull();
     expect(localStorage.getItem("sett_active_session_student-1")).toBeNull();
+  });
+
+  it("stops a confirmed session without waiting for a stalled XP request", async () => {
+    mocks.updateResult = { data: { id: "session-1" }, error: null };
+    let releaseXp!: () => void;
+    mocks.rpc.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseXp = () => resolve({ data: null, error: null });
+    }));
+    const { result, unmount } = renderHook(() => useWorkoutSession("student-1", "company-1"));
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+    await act(async () => { await result.current.startSession("workout-1"); });
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await act(async () => {
+        await Promise.race([
+          result.current.finishSession({}, [], {}),
+          new Promise((_, reject) => {
+            timeout = setTimeout(() => reject(new Error("Completion waited for XP")), 1000);
+          }),
+        ]);
+      });
+      expect(result.current.activeSession).toBeNull();
+      expect(result.current.elapsed).toBe(0);
+      expect(localStorage.getItem("sett_active_session_student-1")).toBeNull();
+      expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    } finally {
+      clearTimeout(timeout);
+      await act(async () => { releaseXp(); });
+      unmount();
+    }
   });
 });

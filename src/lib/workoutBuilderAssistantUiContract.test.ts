@@ -69,7 +69,8 @@ describe("WorkoutBuilder assistant and header UX contract", () => {
     expect(workoutBuilder).toContain("weeklyPrescriptionModeForLoadedWorkouts(loaded)");
     expect(workoutBuilder).toContain("individualWeeklyUiVersionForLoadedWorkouts(loaded)");
     expect(workoutBuilder).toContain('weeklyPrescriptionMode === "weekly"');
-    expect(workoutBuilder).toContain("weekly_ui_version: weeklyUiVersion");
+    expect(workoutBuilder).toContain("serializeWeeklyExercise(");
+    expect(workoutBuilder).toContain("individualWeeklyUiVersionForExercise(ex, weeklyPrescriptionMode)");
     expect(workoutBuilder).toContain("return exercise;");
   });
 

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useWhatsAppSignature } from "@/hooks/useWhatsAppSignature";
+import { isMessageTemplateSendAcknowledged, parseMessageTemplateAttachments, scopedMessageTemplateAttachments, type MessageTemplateAttachment } from "@/lib/messageTemplateMedia";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -55,6 +56,7 @@ import {
 import {
   describeWhatsAppMediaDelivery,
   resumableWhatsAppUpload,
+  selectWhatsAppUploadMode,
   uploadWhatsAppMediaWith,
 } from "@/lib/whatsappMediaUpload";
 import { shouldOfferWhatsAppRecipientReview } from "@/lib/whatsappRecipientReview";
@@ -72,6 +74,7 @@ import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 type Chat = {
   id: string;
+  company_id: string;
   remote_jid: string;
   unread_count: number;
   last_message_at: string | null;
@@ -155,6 +158,7 @@ type TemplateItem = {
   title: string;
   content: string;
   shortcut: string | null;
+  attachments?: unknown;
 };
 
 type CategoryItem = {
@@ -452,6 +456,38 @@ export default function WhatsAppChat({
 
   // Templates state
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [templateAttachments, setTemplateAttachments] = useState<Array<MessageTemplateAttachment & { templateId: string }>>([]);
+  const templateDraftsRef = useRef(new Map<string, { text: string; attachments: Array<MessageTemplateAttachment & { templateId: string }>; reply: Message | null }>());
+  const visibleTemplateDraftKeyRef = useRef("");
+  const templateScopeRef = useRef("");
+  const templateScopeVersionRef = useRef(0);
+  const templateActiveRef = useRef(true);
+  const nextTemplateScope = `${effectiveCompanyId}:${selectedChatId}`;
+  if (templateScopeRef.current !== nextTemplateScope) {
+    templateScopeRef.current = nextTemplateScope;
+    templateScopeVersionRef.current++;
+  }
+  const templateSendingRef = useRef(false);
+  const templateLoadVersionRef = useRef(0);
+  useEffect(() => {
+    const scopeVersion = templateScopeVersionRef;
+    const loadVersion = templateLoadVersionRef;
+    templateActiveRef.current = true;
+    return () => {
+      templateActiveRef.current = false;
+      scopeVersion.current++;
+      loadVersion.current++;
+    };
+  }, []);
+  useEffect(() => {
+    const key = `${effectiveCompanyId}:${selectedChatId}`;
+    if (sending || editingMessage || visibleTemplateDraftKeyRef.current !== key || !templateDraftsRef.current.has(key)) return;
+    if (!newMessage.trim() && templateAttachments.length === 0) {
+      templateDraftsRef.current.delete(key);
+    } else {
+      templateDraftsRef.current.set(key, { text: newMessage, attachments: templateAttachments, reply: replyingTo });
+    }
+  }, [effectiveCompanyId, selectedChatId, sending, editingMessage, newMessage, templateAttachments, replyingTo]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateFilter, setTemplateFilter] = useState("");
   const templatePopoverRef = useRef<HTMLDivElement>(null);
@@ -726,10 +762,13 @@ export default function WhatsAppChat({
       .eq("id", chatId);
     if (effectiveCompanyId) markReadQuery = markReadQuery.eq("company_id", effectiveCompanyId);
     const { error: unreadError } = await markReadQuery;
-    if (!unreadError) {
-      setChats((prev) => prev.map((chat) => (
-        chat.id === chatId ? { ...chat, unread_count: 0 } : chat
-      )));
+    if (!unreadError && requestId === messageRequestRef.current && selectedChatIdRef.current === chatId) {
+      setChats((prev) => {
+        if (!prev.some((chat) => chat.id === chatId && chat.company_id === effectiveCompanyId && chat.unread_count !== 0)) return prev;
+        return prev.map((chat) => (
+          chat.id === chatId && chat.company_id === effectiveCompanyId ? { ...chat, unread_count: 0 } : chat
+        ));
+      });
     }
 
     const { data, error } = await supabase
@@ -1025,10 +1064,14 @@ export default function WhatsAppChat({
 
   // Load templates & categories
   const loadTemplates = useCallback(async () => {
-    let query = supabase.from("message_templates").select("*").order("title");
-    if (effectiveCompanyId) query = query.eq("company_id", effectiveCompanyId);
-    const { data } = await query;
-    if (data) setTemplates(data as TemplateItem[]);
+    const version = ++templateLoadVersionRef.current;
+    setTemplates([]);
+    if (!effectiveCompanyId) return;
+    const { data, error } = await supabase.from("message_templates").select("*")
+      .eq("company_id", effectiveCompanyId).order("title");
+    if (version !== templateLoadVersionRef.current) return;
+    if (error) { toast.error("Não foi possível carregar as mensagens rápidas"); return; }
+    setTemplates((data || []).map((row) => ({ ...row, title: row.title || row.name })));
   }, [effectiveCompanyId]);
 
   const loadCategories = useCallback(async () => {
@@ -1175,7 +1218,19 @@ export default function WhatsAppChat({
   useEffect(() => {
     setMediaFallbacks({});
     setFailedMediaFetches({});
-    if (selectedChatId) {
+    const key = `${effectiveCompanyId}:${selectedChatId}`;
+    const previousKey = visibleTemplateDraftKeyRef.current;
+    visibleTemplateDraftKeyRef.current = key;
+    const draft = templateDraftsRef.current.get(key);
+    setTemplateAttachments(draft?.attachments || []);
+    if (draft) {
+      setNewMessage(draft.text);
+      setReplyingTo(draft.reply);
+    } else if (templateDraftsRef.current.has(previousKey)) {
+      setNewMessage("");
+      setReplyingTo(null);
+    }
+    if (selectedChatId && chatsRef.current.some((chat) => chat.id === selectedChatId && chat.company_id === effectiveCompanyId)) {
       void loadMessages(selectedChatId);
     } else {
       messageRequestRef.current += 1;
@@ -1183,7 +1238,7 @@ export default function WhatsAppChat({
       setMessagesError(null);
       setHasOlderMessages(false);
     }
-  }, [selectedChatId, loadMessages]);
+  }, [selectedChatId, effectiveCompanyId, loadMessages]);
   useEffect(() => {
     if (!editingMessage || editingMessage.chatId === selectedChatId) return;
     setEditingMessage(null);
@@ -1253,6 +1308,11 @@ export default function WhatsAppChat({
   }, [effectiveCompanyId, scheduleChatsRefresh]);
 
   const handleSend = async () => {
+    if (sending || sendingAttachment || templateSendingRef.current) return;
+    if (templateAttachments.length > 0) {
+      await handleSendTemplateDraft();
+      return;
+    }
     if (!newMessage.trim()) return;
     const chat = chats.find((c) => c.id === selectedChatId);
     if (!chat && !draftRecipient) return;
@@ -1512,7 +1572,72 @@ export default function WhatsAppChat({
     scheduleChatsRefresh();
   };
 
+  const handleSendTemplateDraft = async () => {
+    const chat = chats.find((item) => item.id === selectedChatId);
+    if (!chat || !effectiveCompanyId || sending || sendingAttachment || bulkSending || isRecording || templateSendingRef.current || editingMessage) return;
+    const draftKey = `${effectiveCompanyId}:${chat.id}`;
+    if (visibleTemplateDraftKeyRef.current !== draftKey) return;
+    const scopeVersion = templateScopeVersionRef.current;
+    const draft = { text: newMessage.trim(), attachments: [...templateAttachments], reply: replyingTo };
+    templateDraftsRef.current.set(draftKey, draft);
+    templateSendingRef.current = true;
+    setSending(true);
+    try {
+      for (const attachment of draft.attachments) {
+        scopedMessageTemplateAttachments([attachment], effectiveCompanyId, attachment.templateId);
+        selectWhatsAppUploadMode(attachment.size);
+      }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Sessão expirada");
+      const send = async (body: Record<string, unknown>) => {
+        if (!templateActiveRef.current || templateScopeRef.current !== draftKey || templateScopeVersionRef.current !== scopeVersion) {
+          throw new Error("Envio interrompido ao trocar de conversa ou empresa. As partes pendentes continuam no rascunho original.");
+        }
+        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
+          body: JSON.stringify({ companyId: effectiveCompanyId, remoteJid: chat.remote_jid, chatId: chat.id, studentId: chat.student_id, signMessages, ...body }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !isMessageTemplateSendAcknowledged(payload)) throw new Error(payload?.error || "Envio não confirmado. O rascunho continua pendente; confira o histórico antes de tentar novamente.");
+        if (templateActiveRef.current && templateScopeRef.current === draftKey) appendConfirmedOutgoingMessage(payload);
+        else {
+          appendSignatureResponse({ ...payload, signatureMessage: null }, null);
+          if (payload.persistenceWarning) toast.warning("Mensagem enviada, mas o histórico pode demorar para sincronizar");
+          if (templateActiveRef.current) scheduleChatsRefresh();
+        }
+      };
+      if (draft.text) {
+        await send({ action: "send-message", content: draft.text, ...(draft.reply?.message_id_external ? {
+          quotedMessageDbId: draft.reply.id,
+          quotedMessageId: draft.reply.message_id_external,
+          quotedFromMe: draft.reply.source === "outgoing",
+          quotedMessageContent: getMessagePreview(draft.reply),
+          quotedMessageType: draft.reply.type || "text",
+        } : {}) });
+        draft.text = "";
+        draft.reply = null;
+        if (templateActiveRef.current && templateScopeRef.current === draftKey) { setNewMessage(""); setReplyingTo(null); }
+      }
+      for (const attachment of [...draft.attachments]) {
+        const delivery = describeWhatsAppMediaDelivery({ type: attachment.mimeType, size: attachment.size });
+        if (delivery.notice) toast.info(delivery.notice);
+        await send({ action: "send-media", templateId: attachment.templateId, mediaSource: "template-upload", mediaStorageBucket: "whatsapp-media", mediaStoragePath: attachment.path, mediatype: delivery.mediatype, mimeType: attachment.mimeType, fileName: attachment.name, caption: "" });
+        // Acknowledged parts are removed from the original draft even if its chat is no longer visible.
+        draft.attachments = draft.attachments.filter((item) => item.path !== attachment.path);
+        if (templateActiveRef.current && templateScopeRef.current === draftKey) {
+          setTemplateAttachments((pending) => pending.filter((item) => item.path !== attachment.path));
+        }
+      }
+      if (templateDraftsRef.current.get(draftKey) === draft) templateDraftsRef.current.delete(draftKey);
+      toast.success("Mensagem rápida enviada.");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Erro ao enviar mensagem rápida. Os anexos pendentes continuam no rascunho."));
+    } finally { templateSendingRef.current = false; if (templateActiveRef.current) setSending(false); }
+  };
+
   const handleAttachLastEvaluation = async () => {
+    if (sending || sendingAttachment || templateSendingRef.current) return;
     if (editingMessage) {
       toast.error("Cancele a edição antes de anexar um arquivo.");
       return;
@@ -1598,6 +1723,7 @@ export default function WhatsAppChat({
   };
 
   const sendFileAttachment = async (file: File, options?: { asSticker?: boolean }) => {
+    if (sending || sendingAttachment || templateSendingRef.current) return;
     if (editingMessage) {
       toast.error("Cancele a edição antes de anexar um arquivo.");
       return;
@@ -1699,6 +1825,7 @@ export default function WhatsAppChat({
   };
 
   const handleQuickSticker = async (emoji: string) => {
+    if (sending || sendingAttachment || templateSendingRef.current) return;
     if (editingMessage) {
       toast.error("Cancele a edição antes de enviar uma figurinha.");
       return;
@@ -1758,6 +1885,7 @@ export default function WhatsAppChat({
 
   // ─── Audio Recording ───
   const startRecording = async () => {
+    if (sending || sendingAttachment || templateSendingRef.current) return;
     if (editingMessage) {
       toast.error("Cancele a edição antes de gravar um áudio.");
       return;
@@ -2049,6 +2177,7 @@ export default function WhatsAppChat({
   };
 
   const handleBulkSend = async () => {
+    if (sending || sendingAttachment || templateSendingRef.current) return;
     const text = bulkMessage.trim();
     if (!text) { toast.error("Digite uma mensagem para enviar"); return; }
     if (bulkRecipients.length === 0) { toast.error("Nenhum destinatário encontrado com estes filtros"); return; }
@@ -2325,7 +2454,7 @@ export default function WhatsAppChat({
           </div>
           <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="shrink-0 gap-2">
+              <Button variant="outline" size="sm" className="shrink-0 gap-2" disabled={sending || sendingAttachment}>
                 <Users className="h-4 w-4" />
                 <span className="hidden min-[380px]:inline">Enviar para vários</span>
                 <span className="min-[380px]:hidden">Vários</span>
@@ -3220,6 +3349,19 @@ export default function WhatsAppChat({
                     <Switch checked={signMessages} onCheckedChange={setSignMessages} disabled={sending || sendingAttachment || isRecording || bulkSending || Boolean(editingMessage) || !user?.id || !effectiveCompanyId} aria-label="Assinar mensagens" />
                     <span>Assinar mensagens</span>
                   </label>
+                  {!editingMessage && templateAttachments.length > 0 && (
+                    <div className="mb-2 flex max-h-28 flex-col gap-1 overflow-y-auto" aria-label="Anexos da mensagem rápida">
+                      {templateAttachments.map((attachment) => (
+                        <div key={attachment.path} className="flex min-w-0 items-center gap-2 rounded-md border border-border px-2 py-1 text-xs">
+                          <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" title="Remover anexo" aria-label={`Remover ${attachment.name}`} disabled={sending} onClick={() => setTemplateAttachments((items) => items.filter((item) => item.path !== attachment.path))}>
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -3250,20 +3392,20 @@ export default function WhatsAppChat({
                   ) : (
 	                    <div className={cn("flex min-w-0 flex-col gap-1.5 rounded-2xl border p-1.5 shadow-sm sm:flex-row sm:items-end sm:gap-2", whatsappDark.border, whatsappDark.subtleCard)}>
                         <div className="flex min-w-0 items-center gap-1.5 sm:contents">
-	                      <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 sm:h-9 sm:w-9" title="Enviar imagem ou arquivo" aria-label="Enviar imagem ou arquivo" onClick={() => fileInputRef.current?.click()} disabled={sendingAttachment || Boolean(editingMessage)}>
+	                      <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 sm:h-9 sm:w-9" title="Enviar imagem ou arquivo" aria-label="Enviar imagem ou arquivo" onClick={() => fileInputRef.current?.click()} disabled={sending || sendingAttachment || Boolean(editingMessage)}>
 	                        {sendingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Image className="h-4 w-4" />}
 	                      </Button>
-	                      <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 sm:h-9 sm:w-9" title="Gravar áudio" aria-label="Gravar áudio" onClick={startRecording} disabled={sendingAttachment || Boolean(editingMessage)}>
+	                      <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 sm:h-9 sm:w-9" title="Gravar áudio" aria-label="Gravar áudio" onClick={startRecording} disabled={sending || sendingAttachment || Boolean(editingMessage)}>
 	                        <Mic className="h-4 w-4" />
 	                      </Button>
-	                      <EmojiPickerButton disabled={sendingAttachment} onSelect={(emoji) => setNewMessage((value) => `${value}${emoji}`)} />
+	                      <EmojiPickerButton disabled={sending || sendingAttachment} onSelect={(emoji) => { if (!templateSendingRef.current) setNewMessage((value) => `${value}${emoji}`); }} />
 	                      <StickerPickerButton
-	                        disabled={sendingAttachment || Boolean(editingMessage)}
+	                        disabled={sending || sendingAttachment || Boolean(editingMessage)}
 	                        onSelect={(emoji) => void handleQuickSticker(emoji)}
 	                        onUpload={() => stickerInputRef.current?.click()}
 	                      />
 	                      {selectedChat.student_id && (
-                        <Button variant="ghost" size="icon" className="hidden h-9 w-9 shrink-0 sm:inline-flex" title="Anexar último treino/avaliação" onClick={handleAttachLastEvaluation} disabled={sendingAttachment || Boolean(editingMessage)}>
+                        <Button variant="ghost" size="icon" className="hidden h-9 w-9 shrink-0 sm:inline-flex" title="Anexar último treino/avaliação" onClick={handleAttachLastEvaluation} disabled={sending || sendingAttachment || Boolean(editingMessage)}>
                           <Paperclip className="h-4 w-4" />
                         </Button>
                       )}
@@ -3315,8 +3457,12 @@ export default function WhatsAppChat({
                                 return (
                                   <button
                                     key={t.id}
+                                    disabled={sending || sendingAttachment}
                                     className="w-full text-left px-3 py-2 hover:bg-muted/50 transition-colors border-b border-border last:border-b-0"
                                     onClick={() => {
+                                      let attachments: MessageTemplateAttachment[];
+                                      try { attachments = scopedMessageTemplateAttachments(t.attachments, effectiveCompanyId, t.id); }
+                                      catch (error) { toast.error(getErrorMessage(error, "Anexos inválidos")); return; }
                                       const ctx = selectedChat ? studentContexts[selectedChat.id] : null;
                                       const content = interpolateTemplate(t.content, {
                                         nome: studentName,
@@ -3327,6 +3473,9 @@ export default function WhatsAppChat({
                                         dias_restantes: ctx?.daysRemaining ?? "",
                                       });
                                       setNewMessage(content);
+                                      const pending = attachments.map((attachment) => ({ ...attachment, templateId: t.id }));
+                                      setTemplateAttachments(pending);
+                                      templateDraftsRef.current.set(`${effectiveCompanyId}:${selectedChatId}`, { text: content, attachments: pending, reply: replyingTo });
                                       setShowTemplates(false);
                                     }}
                                   >
@@ -3335,6 +3484,9 @@ export default function WhatsAppChat({
                                       {t.shortcut && <Badge variant="secondary" className="text-[10px]">/{t.shortcut}</Badge>}
                                     </div>
                                     <p className="text-xs text-muted-foreground truncate mt-0.5">{t.content}</p>
+                                    {parseMessageTemplateAttachments(t.attachments).length > 0 && (
+                                      <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground"><Paperclip className="h-3 w-3" />{parseMessageTemplateAttachments(t.attachments).length} anexo(s)</p>
+                                    )}
                                   </button>
                                 );
                               })}
@@ -3346,7 +3498,7 @@ export default function WhatsAppChat({
                       </div>
 	                      <Button
                         onClick={editingMessage ? handleSaveMessageEdit : handleSend}
-                        disabled={sending || editingSaving || !newMessage.trim()}
+                        disabled={sending || sendingAttachment || editingSaving || (!newMessage.trim() && (Boolean(editingMessage) || templateAttachments.length === 0))}
                         size="icon"
 	                        className="h-10 w-10 shrink-0 self-end sm:h-9 sm:w-9"
 	                        title={editingMessage ? "Salvar edição" : "Enviar mensagem"}

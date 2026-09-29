@@ -7,6 +7,53 @@ function source(relativePath: string) {
 }
 
 describe("pre-registration editing contract", () => {
+  it("honors cleared pain and notes instead of falling back to stale injuries", () => {
+    const update = canonicalAnamnesisUpdateFromPreRegistration({
+      source: "student_anamnesis", submittedAt: null, budgetRange: null, preferredContactPeriod: null,
+      manualNotes: "", answers: { injuries: "Old pain", current_pain: "" },
+    });
+    expect(update.injuries).toBeNull();
+    expect(update.notes).toBeNull();
+  });
+  it.each([true, false, null])("persists kitchen availability %s without changing absent preferences", (hasKitchen) => {
+    const update = canonicalAnamnesisUpdateFromPreRegistration({
+      source: "student_anamnesis", budgetRange: null, preferredContactPeriod: null,
+      submittedAt: null, answers: { has_kitchen: hasKitchen },
+    });
+    expect(update).toHaveProperty("has_kitchen", hasKitchen);
+    expect(update).not.toHaveProperty("wants_nutrition");
+    expect(update).not.toHaveProperty("has_endurance_coach");
+  });
+
+  it("preserves non-column editable answers in the canonical extension", () => {
+    const update = canonicalAnamnesisUpdateFromPreRegistration({
+      source: "student_anamnesis", budgetRange: "300_400", preferredContactPeriod: "afternoon",
+      submittedAt: null, answers: { goals: "Keep moving", training_days: ["monday"], current_pain: "None" },
+    });
+    expect(update).toMatchObject({
+      injuries: "None",
+      custom_answers: { staff_pre_registration: {
+        answers: { goals: "Keep moving", training_days: ["monday"] },
+        budgetRange: "300_400", preferredContactPeriod: "afternoon",
+      } },
+    });
+    expect(update).not.toHaveProperty("goals");
+    expect(update).not.toHaveProperty("wants_strength");
+  });
+
+  it("does not reinterpret intake integration preferences as canonical staff edits", () => {
+    const update = canonicalAnamnesisUpdateFromPreRegistration({
+      source: "lead", budgetRange: null, preferredContactPeriod: null, submittedAt: null,
+      answers: { wants_running: false, has_nutritionist: false, shown_blocks: ["strength"] },
+    });
+    expect(update).not.toHaveProperty("wants_running");
+    expect(update).not.toHaveProperty("has_nutritionist");
+    expect(update).not.toHaveProperty("shown_blocks");
+    expect(update).toMatchObject({ custom_answers: { staff_pre_registration: { answers: {
+      wants_running: false, has_nutritionist: false, shown_blocks: ["strength"],
+    } } } });
+  });
+
   it("maps editable staff fields back to canonical anamnesis columns", () => {
     const update = canonicalAnamnesisUpdateFromPreRegistration({
       recordId: "anamnesis-1",

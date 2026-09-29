@@ -200,6 +200,12 @@ class Query implements PromiseLike<DbResult> {
           : null,
       );
     }
+    if (this.table === "message_templates") {
+      return result(this.filters.id === "template-qa" &&
+          this.filters.company_id === COMPANY && !f.templateMissing
+        ? { attachments: [{ path: `${COMPANY}/templates/template-qa/synthetic-object` }] }
+        : null);
+    }
     throw new Error(`Unexpected database read: ${this.table}`);
   }
 }
@@ -214,6 +220,8 @@ class Fixture {
   audioFallback = false;
   primaryFails = false;
   mimeType = "image/png";
+  templateMissing = false;
+  signedUrls: string[] = [];
   calls: Call[] = [];
   writes: Row[] = [];
   queries: { table: string; operation: string; filters: Row }[] = [];
@@ -253,8 +261,10 @@ class Fixture {
               }],
               error: null,
             }),
-          createSignedUrl: (_path: string, _duration: number) =>
-            Promise.resolve({ data: { signedUrl: SIGNED_URL }, error: null }),
+          createSignedUrl: (path: string, _duration: number) => {
+            this.signedUrls.push(path);
+            return Promise.resolve({ data: { signedUrl: SIGNED_URL }, error: null });
+          },
         };
       },
     },
@@ -371,6 +381,43 @@ const MIME: Record<string, string> = {
   audio: "audio/ogg",
   sticker: "image/webp",
 };
+
+for (const type of ["image", "video", "audio", "document"]) {
+  for (const signMessages of [true, false]) {
+    Deno.test(`handler template ${type} honors signature ${signMessages}`, async () => {
+      const f = new Fixture();
+      f.mimeType = MIME[type];
+      const response = await f.request({
+        ...media(type), signMessages,
+        templateId: "template-qa", mediaSource: "template-upload",
+        mediaStoragePath: `${COMPANY}/templates/template-qa/synthetic-object`,
+      });
+      equal(response.status, 200);
+      equal(response.body.success, true);
+      equal(f.signedUrls.length, 1);
+      equal(f.sends.length, type === "audio" && signMessages ? 2 : 1);
+      equal(f.profileReads.length, signMessages ? 1 : 0);
+      const lookup = f.queries.find((q) => q.table === "message_templates");
+      equal(lookup?.filters, { id: "template-qa", company_id: COMPANY });
+    });
+  }
+}
+for (const scenario of ["missing", "foreign-template", "foreign-company", "removed-path", "missing-id"]) {
+  Deno.test(`handler rejects ${scenario} template media before signing/sending`, async () => {
+    const f = new Fixture();
+    f.templateMissing = scenario === "missing";
+    const response = await f.request({
+      ...media("image"), mediaSource: "template-upload",
+      templateId: scenario === "missing-id" ? null : scenario === "foreign-template" ? "foreign" : "template-qa",
+      mediaStoragePath: scenario === "foreign-company"
+        ? "other-company/templates/template-qa/synthetic-object"
+        : `${COMPANY}/templates/template-qa/${scenario === "removed-path" ? "removed" : "synthetic-object"}`,
+    });
+    equal(response.status, scenario === "missing-id" ? 400 : 403);
+    equal(f.signedUrls.length, 0);
+    equal(f.sends.length, 0);
+  });
+}
 
 for (
   const [type, expected] of [["audio", "\u{1f3a4} \u00c1udio"], [
