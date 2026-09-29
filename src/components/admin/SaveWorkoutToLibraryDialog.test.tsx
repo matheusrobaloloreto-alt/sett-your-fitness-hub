@@ -2,28 +2,30 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SaveWorkoutToLibraryDialog, type SaveWorkoutToLibraryDialogProps } from "./SaveWorkoutToLibraryDialog";
 
-const mocks = vi.hoisted(() => ({ from: vi.fn(), range: vi.fn(), insert: vi.fn(), maybeSingle: vi.fn(), getSession: vi.fn(), toast: vi.fn(), or: vi.fn() }));
-vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: mocks.from, auth: { getSession: mocks.getSession } } }));
+const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn(), range: vi.fn(), insert: vi.fn(), maybeSingle: vi.fn(), getSession: vi.fn(), toast: vi.fn(), or: vi.fn() }));
+vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: mocks.from, rpc: mocks.rpc, auth: { getSession: mocks.getSession } } }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 
 const workouts = [
   { id: "row-a", updated_at: "old-a", title: "Treino A", exercises: [{ exercise_id: "exercise-a", exercise_name: "Agachamento", sets: "3", mfit_protocol: { sequence: [1, 2] } }] },
   { id: "row-b", updated_at: "old-b", title: "Treino B", exercises: [{ exercise_id: "exercise-b", exercise_name: "Remada", sets: "4" }] },
 ];
-const props = (): SaveWorkoutToLibraryDialogProps => ({ open: true, onOpenChange: vi.fn(), workouts: structuredClone(workouts), companyId: "company-a", createdBy: "user-a", defaultName: "Plano sintético" });
+const companyId = "20000000-0000-4000-8000-000000000001";
+const recoveredId = "40000000-0000-4000-8000-000000000001";
+const props = (): SaveWorkoutToLibraryDialogProps => ({ open: true, onOpenChange: vi.fn(), workouts: structuredClone(workouts), companyId, createdBy: "user-a", defaultName: "Plano sintético" });
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; };
 const clickSave = () => fireEvent.click(screen.getByRole("button", { name: "Salvar na biblioteca" }));
 
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
-  mocks.range.mockResolvedValue({ data: [{ id: "exercise-a", name: "Agachamento", company_id: "company-a" }, { id: "exercise-b", name: "Remada", is_global: true }], error: null });
+  mocks.range.mockResolvedValue({ data: [{ id: "exercise-a", name: "Agachamento", company_id: companyId }, { id: "exercise-b", name: "Remada", is_global: true }], error: null });
   mocks.getSession.mockResolvedValue({ data: { session: { user: { id: "user-a" } } }, error: null });
   const catalog = { select: vi.fn(), order: vi.fn(), or: mocks.or, range: mocks.range };
   catalog.select.mockReturnValue(catalog); catalog.order.mockReturnValue(catalog); mocks.or.mockReturnValue(catalog);
   const template = { insert: mocks.insert, select: vi.fn(), maybeSingle: mocks.maybeSingle };
   mocks.insert.mockReturnValue(template); template.select.mockReturnValue(template);
-  mocks.maybeSingle.mockImplementation(async () => ({ data: { id: mocks.insert.mock.calls[0][0].id, company_id: "company-a" }, error: null }));
+  mocks.maybeSingle.mockImplementation(async () => ({ data: { id: mocks.insert.mock.calls[0][0].id, company_id: companyId }, error: null }));
   mocks.from.mockImplementation((table) => {
     if (table === "exercise_library") return catalog;
     if (table === "workout_templates") return template;
@@ -33,6 +35,33 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("SaveWorkoutToLibraryDialog", () => {
+  it("cadastra o exercício ausente antes de salvar, preservando origem e métricas", async () => {
+    mocks.range.mockResolvedValueOnce({ data: [], error: null }).mockResolvedValue({
+      data: [{ id: recoveredId, name: "Agachamento", company_id: companyId, is_global: false }], error: null,
+    });
+    mocks.rpc.mockResolvedValue({ data: { ok: true, company_id: companyId, actor_id: "user-a", created_count: 1,
+      mappings: [{ input_index: 0, exercise_id: recoveredId }] }, error: null });
+    const original = { ...props(), initialWorkoutIndex: 0 };
+    const before = structuredClone(original.workouts);
+    render(<SaveWorkoutToLibraryDialog {...original} />);
+    clickSave();
+    await waitFor(() => expect(original.onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.rpc).toHaveBeenCalledWith("ensure_workout_library_references", { p_company_id: companyId, p_exercises: [{ name: "Agachamento" }] });
+    expect(mocks.insert.mock.calls[0][0].workouts[0].exercises[0]).toMatchObject({ exercise_id: recoveredId, sets: "3", mfit_protocol: { sequence: [1, 2] } });
+    expect(original.workouts).toEqual(before);
+  });
+
+  it("não grava template nem anuncia sucesso se o cadastro automático falhar", async () => {
+    mocks.range.mockResolvedValue({ data: [], error: null });
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "42501" } });
+    render(<SaveWorkoutToLibraryDialog {...props()} initialWorkoutIndex={0} />);
+    clickSave();
+    expect(await screen.findByRole("alert")).toHaveTextContent("não permite cadastrar");
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Salvar na biblioteca" })).toBeEnabled();
+  });
+
   it("salva plano completo nomeado com ACK positivo sem alterar o rascunho", async () => {
     const original = props();
     const before = structuredClone(original.workouts);
@@ -43,7 +72,7 @@ describe("SaveWorkoutToLibraryDialog", () => {
     await waitFor(() => expect(original.onOpenChange).toHaveBeenCalledWith(false));
     expect(mocks.insert).toHaveBeenCalledTimes(1);
     const payload = mocks.insert.mock.calls[0][0];
-    expect(payload).toMatchObject({ company_id: "company-a", created_by: "user-a", name: "Plano completo", is_public: false, is_official: false });
+    expect(payload).toMatchObject({ company_id: companyId, created_by: "user-a", name: "Plano completo", is_public: false, is_official: false });
     expect(payload.workouts.map((item) => item.title)).toEqual(["Treino A", "Treino B"]);
     expect(payload.workouts[0]).not.toHaveProperty("id");
     expect(payload.workouts[0]).not.toHaveProperty("updated_at");
@@ -99,7 +128,7 @@ describe("SaveWorkoutToLibraryDialog", () => {
 
   it.each(["null", "wrong-id", "wrong-company", "error"])("não anuncia sucesso com ACK %s", async (kind) => {
     mocks.maybeSingle.mockImplementation(async () => ({
-      data: kind === "null" ? null : { id: kind === "wrong-id" ? "wrong" : mocks.insert.mock.calls[0][0].id, company_id: kind === "wrong-company" ? "other" : "company-a" },
+      data: kind === "null" ? null : { id: kind === "wrong-id" ? "wrong" : mocks.insert.mock.calls[0][0].id, company_id: kind === "wrong-company" ? "other" : companyId },
       error: kind === "error" ? { message: "db error" } : null,
     }));
     const original = props();
@@ -117,8 +146,8 @@ describe("SaveWorkoutToLibraryDialog", () => {
     render(<SaveWorkoutToLibraryDialog {...props()} />);
     const button = screen.getByRole("button", { name: "Salvar na biblioteca" });
     fireEvent.click(button); fireEvent.click(button);
-    expect(mocks.range).toHaveBeenCalledTimes(1);
-    await act(async () => pending.resolve({ data: [{ id: "exercise-a", name: "Agachamento", company_id: "company-a" }, { id: "exercise-b", name: "Remada", is_global: true }], error: null }));
+    await waitFor(() => expect(mocks.range).toHaveBeenCalledTimes(1));
+    await act(async () => pending.resolve({ data: [{ id: "exercise-a", name: "Agachamento", company_id: companyId }, { id: "exercise-b", name: "Remada", is_global: true }], error: null }));
     await waitFor(() => expect(mocks.insert).toHaveBeenCalledTimes(1));
   });
 
@@ -148,7 +177,7 @@ describe("SaveWorkoutToLibraryDialog", () => {
     };
     view.rerender(<SaveWorkoutToLibraryDialog {...next} />);
     if (change === "aba") view.rerender(<SaveWorkoutToLibraryDialog {...original} />);
-    await act(async () => pending.resolve({ data: [{ id: "exercise-a", name: "Agachamento", company_id: "company-a" }] }));
+    await act(async () => pending.resolve({ data: [{ id: "exercise-a", name: "Agachamento", company_id: companyId }] }));
     expect(mocks.insert).not.toHaveBeenCalled();
     expect(mocks.toast).not.toHaveBeenCalled();
   });
@@ -167,8 +196,8 @@ describe("SaveWorkoutToLibraryDialog", () => {
     clickSave(); await waitFor(() => expect(mocks.insert).toHaveBeenCalledTimes(1));
     const payload = mocks.insert.mock.calls[0][0];
     view.rerender(<SaveWorkoutToLibraryDialog {...original} companyId="company-b" defaultName="Novo escopo" />);
-    await act(async () => pending.resolve({ data: { id: payload.id, company_id: "company-a" }, error: null }));
-    expect(payload.company_id).toBe("company-a");
+    await act(async () => pending.resolve({ data: { id: payload.id, company_id: companyId }, error: null }));
+    expect(payload.company_id).toBe(companyId);
     expect(original.onOpenChange).not.toHaveBeenCalled(); expect(mocks.toast).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Nome na biblioteca")).toHaveValue("Novo escopo");
   });

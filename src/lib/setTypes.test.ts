@@ -56,8 +56,9 @@ describe("set type W/N/F contract", () => {
       .toHaveLength(1);
     expect(source).toContain("<SaveWorkoutToLibraryDialog");
     expect(source).toContain("workouts={libraryExportWorkouts}");
-    expect(dialog).toContain("const prepared = prepareWorkoutLibraryExport({ workouts: snapshot, workoutIndex: selectedIndex, libraryExercises: exercises, companyId });");
-    expect(dialog).toContain("JSON.parse(JSON.stringify(prepared.workouts))");
+    expect(dialog).toContain("const prepared = prepareWorkoutLibraryExport(");
+    expect(dialog).toContain("workouts: prepared.workouts, companyId, expectedUserId: createdBy, isCurrent");
+    expect(dialog).toContain("JSON.parse(JSON.stringify(recovered.workouts))");
     expect(dialog).toContain("name: savedName, workouts: templateWorkouts, is_public: false, is_official: false");
     expect(exporter).toContain("sanitizeWorkoutSetTypes<TWorkout>(JSON.parse(JSON.stringify(selection)))");
     expect(source).toContain("const mapWorkoutRows = (rows: any[]): Workout[] => sanitizeWorkoutSetTypes(rows.map");

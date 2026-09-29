@@ -41,12 +41,12 @@ describe("WorkoutBuilder assistant and header UX contract", () => {
   });
 
   it("surfaces save blockers in the page before the atomic workout revision RPC", () => {
-    expect(workoutBuilder).toContain("resolveWorkoutSaveDraft");
+    expect(workoutBuilder).toContain("ensureWorkoutLibraryReferences");
     expect(workoutBuilder).toContain("issuesFromPrescriptionValidation");
     expect(workoutBuilder).toContain('data-testid="workout-save-gate-panel"');
     expect(workoutBuilder).toContain("focusSaveIssue");
     expect(workoutBuilder).toContain("saveCycleWorkoutRevision(supabase as any");
-    expect(workoutBuilder.indexOf("resolveWorkoutSaveDraft")).toBeLessThan(workoutBuilder.indexOf("saveCycleWorkoutRevision(supabase as any"));
+    expect(workoutBuilder.indexOf("ensureWorkoutLibraryReferences")).toBeLessThan(workoutBuilder.indexOf("saveCycleWorkoutRevision(supabase as any"));
   });
 
   it("lets the server prove persisted legacy exercises instead of trusting the client", () => {

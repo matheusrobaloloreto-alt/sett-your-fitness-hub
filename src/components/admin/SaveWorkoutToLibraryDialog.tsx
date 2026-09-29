@@ -3,7 +3,8 @@ import { Library, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import type { WorkoutTemplateDraftWorkout } from "@/lib/workoutTemplateDraft";
-import { fetchLibraryExercises, prepareWorkoutLibraryExport } from "@/lib/workoutLibraryExport";
+import { prepareWorkoutLibraryExport } from "@/lib/workoutLibraryExport";
+import { ensureWorkoutLibraryReferences } from "@/lib/workoutLibraryRecovery";
 import { hasBlockingSaveIssue } from "@/lib/workoutSaveValidation";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -62,18 +63,25 @@ export function SaveWorkoutToLibraryDialog({ open, onOpenChange, workouts, compa
       const snapshot: WorkoutTemplateDraftWorkout[] = JSON.parse(JSON.stringify(workouts));
       const selectedIndex = mode === "workout" ? workoutIndex : undefined;
       const savedName = name.trim();
-      const exercises = await fetchLibraryExercises(supabase, companyId);
-      if (!isCurrent()) return;
-      const prepared = prepareWorkoutLibraryExport({ workouts: snapshot, workoutIndex: selectedIndex, libraryExercises: exercises, companyId });
-      if (hasBlockingSaveIssue(prepared.issues)) {
-        setError(prepared.issues.filter((issue) => issue.severity === "blocker").map((issue) => issue.message).join(" "));
+      const prepared = prepareWorkoutLibraryExport({ workouts: snapshot, workoutIndex: selectedIndex, libraryExercises: [], companyId });
+      const structuralIssues = prepared.issues.filter((issue) => !["exercise_not_visible", "missing_exercise_id", "ambiguous_exercise_match"].includes(issue.code));
+      if (hasBlockingSaveIssue(structuralIssues)) {
+        setError(structuralIssues.filter((issue) => issue.severity === "blocker").map((issue) => issue.message).join(" "));
         return;
       }
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (!isCurrent()) return;
       if (sessionError || session?.user.id !== createdBy) throw new Error("A sessão mudou. Reabra o salvamento na biblioteca.");
+      const recovered = await ensureWorkoutLibraryReferences(supabase, {
+        workouts: prepared.workouts, companyId, expectedUserId: createdBy, isCurrent,
+      });
+      if (!isCurrent()) return;
+      if (hasBlockingSaveIssue(recovered.issues)) {
+        setError(recovered.issues.filter((issue) => issue.severity === "blocker").map((issue) => issue.message).join(" "));
+        return;
+      }
       const templateId = crypto.randomUUID();
-      const templateWorkouts: Json = JSON.parse(JSON.stringify(prepared.workouts));
+      const templateWorkouts: Json = JSON.parse(JSON.stringify(recovered.workouts));
       const { data, error: insertError } = await supabase.from("workout_templates").insert({
         id: templateId, company_id: companyId, created_by: createdBy,
         name: savedName, workouts: templateWorkouts, is_public: false, is_official: false,

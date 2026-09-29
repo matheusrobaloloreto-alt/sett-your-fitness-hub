@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const artifactDir = "output/playwright/plan-version-library";
 const companyId = "20000000-0000-4000-8000-000000000001";
+const foreignId = "40000000-0000-4000-8000-000000000002";
 
 async function openFixture(page: Page, width: number, variant = "mixed") {
   const externalRequests: string[] = [];
@@ -43,6 +44,7 @@ async function bounds(page: Page) {
 async function sourceUnchanged(page: Page) {
   expect(await page.evaluate(() => window.__planLibraryQA.source() === window.__planLibraryQA.originalSource)).toBe(true);
   expect((await page.evaluate(() => window.__planLibraryQA.log())).errors).toEqual([]);
+  expect(await page.evaluate(() => window.__planLibraryQA.hiddenUnchanged())).toBe(true);
 }
 
 for (const width of [320, 390, 1440]) {
@@ -59,6 +61,7 @@ for (const width of [320, 390, 1440]) {
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await expect(dialog).not.toBeVisible();
     expect((await page.evaluate(() => window.__planLibraryQA.log())).writes).toEqual([]);
+    expect((await page.evaluate(() => window.__planLibraryQA.log())).rpcs).toEqual([]);
     await sourceUnchanged(page);
     expect(guard.externalRequests).toEqual([]); expect(guard.pageErrors).toEqual([]);
   });
@@ -153,19 +156,106 @@ test("texto historico objeto usa fallback seguro sem mutar o snapshot", async ({
   expect(guard.externalRequests).toEqual([]); expect(guard.pageErrors).toEqual([]);
 });
 
-test("A valido salva sozinho sem liberar B de outra empresa", async ({ page }) => {
+test("A ignora B ausente e plano completo cadastra snapshot privado sem consultar linha oculta", async ({ page }) => {
   const guard = await openFixture(page, 390, "invalid-b");
   const dialog = await viewer(page);
+  await dialog.getByRole("button", { name: "Salvar somente Treino A QA na biblioteca", exact: true }).click();
+  const save = page.getByRole("dialog", { name: "Salvar na biblioteca", exact: true });
+  await save.getByRole("button", { name: "Salvar na biblioteca", exact: true }).click();
+  await expect(save).not.toBeVisible();
+  expect((await page.evaluate(() => window.__planLibraryQA.log())).rpcs).toEqual([]);
+  expect((await page.evaluate(() => window.__planLibraryQA.templates()))[0].workouts).toMatchObject([{ title: "Treino A QA" }]);
+  await dialog.getByRole("button", { name: "Salvar plano na biblioteca", exact: true }).click();
+  await save.getByRole("button", { name: "Salvar na biblioteca", exact: true }).click();
+  await expect(save).not.toBeVisible();
+  const rows = await page.evaluate(() => window.__planLibraryQA.library());
+  const registered = rows.filter((row) => row.name === "Snapshot fornecido QA");
+  expect(registered).toHaveLength(1);
+  expect(registered[0]).toMatchObject({ company_id: companyId, is_global: false, muscle_group: "Dorsal", equipment: "Halteres snapshot QA" });
+  expect(registered[0].id).not.toBe(foreignId);
+  expect(registered[0]).not.toHaveProperty("video_path");
+  const source = await page.evaluate(() => JSON.parse(window.__planLibraryQA.originalSource));
+  const expected = source.workouts.map((workout: Record<string, unknown>) => {
+    const copy = structuredClone(workout); delete copy.id; delete copy.updated_at; return copy;
+  });
+  expected[1].exercises[0].exercise_id = registered[0].id;
+  expect((await page.evaluate(() => window.__planLibraryQA.templates()))[1].workouts).toEqual(expected);
+  const log = await page.evaluate(() => window.__planLibraryQA.log());
+  expect(log.rpcs).toEqual([{ name: "ensure_workout_library_references", args: { p_company_id: companyId,
+    p_exercises: [{ name: "Snapshot fornecido QA", muscle_group: "Dorsal", equipment: "Halteres snapshot QA", category: "pesos_livre", categories: ["pesos_livre"] }] } }]);
+  expect(log.reads.filter((read) => read.table === "exercise_library").every((read) => read.catalogCompany === companyId && JSON.stringify(read.filters) === "[]")).toBe(true);
+  expect(log.writes.map((write) => write.table)).toEqual(["workout_templates", "exercise_library", "workout_templates"]);
+  await sourceUnchanged(page);
+  expect(guard.externalRequests).toEqual([]); expect(guard.pageErrors).toEqual([]);
+});
+
+test("cadastro confirmado com ACK perdido permite retry sem duplicar exercicio", async ({ page }) => {
+  const guard = await openFixture(page, 390, "missing");
+  const dialog = await viewer(page);
+  await page.evaluate(() => window.__planLibraryQA.setRecoveryMode("lost-ack-once"));
+  await dialog.getByRole("button", { name: "Salvar plano na biblioteca", exact: true }).click();
+  const save = page.getByRole("dialog", { name: "Salvar na biblioteca", exact: true });
+  await save.getByRole("button", { name: "Salvar na biblioteca", exact: true }).click();
+  await expect(save.getByRole("alert")).toBeVisible();
+  expect(await page.evaluate(() => window.__planLibraryQA.templates())).toEqual([]);
+  expect((await page.evaluate(() => window.__planLibraryQA.library())).filter((row) => row.name === "Exercicio ausente QA")).toHaveLength(1);
+  await save.getByRole("button", { name: "Salvar na biblioteca", exact: true }).click();
+  await expect(save).not.toBeVisible();
+  const log = await page.evaluate(() => window.__planLibraryQA.log());
+  expect(log.rpcs).toHaveLength(1);
+  expect(log.writes.map((write) => write.table)).toEqual(["exercise_library", "workout_templates"]);
+  expect((await page.evaluate(() => window.__planLibraryQA.templates()))[0].workouts).toMatchObject([{ exercises: [{
+    video_url: "https://example.test/draft-qa.mp4", video_path: `${companyId}/draft-qa.mp4`, weekly_ui_version: "individual-weeks-v1",
+  }] }]);
+  await sourceUnchanged(page);
+  expect(guard.externalRequests).toEqual([]); expect(guard.pageErrors).toEqual([]);
+});
+
+test("falha de recuperacao nao grava plano e retry cadastra somente uma vez", async ({ page }) => {
+  const guard = await openFixture(page, 320, "missing");
+  const dialog = await viewer(page);
+  await page.evaluate(() => window.__planLibraryQA.setRecoveryMode("reject-once"));
   await dialog.getByRole("button", { name: "Salvar plano na biblioteca", exact: true }).click();
   const save = page.getByRole("dialog", { name: "Salvar na biblioteca", exact: true });
   await save.getByRole("button", { name: "Salvar na biblioteca", exact: true }).click();
   await expect(save.getByRole("alert")).toBeVisible();
   expect((await page.evaluate(() => window.__planLibraryQA.log())).writes).toEqual([]);
-  await save.getByRole("button", { name: "Cancelar", exact: true }).click();
-  await dialog.getByRole("button", { name: "Salvar somente Treino A QA na biblioteca", exact: true }).click();
+  await bounds(page);
   await save.getByRole("button", { name: "Salvar na biblioteca", exact: true }).click();
   await expect(save).not.toBeVisible();
-  expect((await page.evaluate(() => window.__planLibraryQA.templates()))[0].workouts).toMatchObject([{ title: "Treino A QA" }]);
+  const log = await page.evaluate(() => window.__planLibraryQA.log());
+  expect(log.rpcs).toHaveLength(2);
+  expect(log.writes.map((write) => write.table)).toEqual(["exercise_library", "workout_templates"]);
+  await sourceUnchanged(page);
+  expect(guard.externalRequests).toEqual([]); expect(guard.pageErrors).toEqual([]);
+});
+
+test("ACK de outra empresa nunca confirma nem grava template", async ({ page }) => {
+  const guard = await openFixture(page, 390, "missing");
+  const dialog = await viewer(page);
+  await page.evaluate(() => window.__planLibraryQA.setRecoveryMode("wrong-company-once"));
+  await dialog.getByRole("button", { name: "Salvar plano na biblioteca", exact: true }).click();
+  const save = page.getByRole("dialog", { name: "Salvar na biblioteca", exact: true });
+  await save.getByRole("button", { name: "Salvar na biblioteca", exact: true }).click();
+  await expect(save.getByRole("alert")).toBeVisible();
+  expect(await page.evaluate(() => window.__planLibraryQA.templates())).toEqual([]);
+  expect((await page.evaluate(() => window.__planLibraryQA.log())).rpcs).toHaveLength(1);
+  await sourceUnchanged(page);
+  expect(guard.externalRequests).toEqual([]); expect(guard.pageErrors).toEqual([]);
+});
+
+test("dois helpers concorrentes compartilham cadastro sem mudar origem ou publicar global", async ({ page }) => {
+  const guard = await openFixture(page, 1440, "missing");
+  const ids = await page.evaluate(() => window.__planLibraryQA.recoverCopies(2));
+  expect(ids).toHaveLength(2);
+  expect(ids[0]).toBe(ids[1]);
+  const log = await page.evaluate(() => window.__planLibraryQA.log());
+  expect(log.rpcs).toHaveLength(2);
+  expect(log.writes).toHaveLength(1);
+  expect(log.writes[0]).toMatchObject({ table: "exercise_library", payload: { id: ids[0], company_id: companyId, is_global: false } });
+  expect(log.writes[0].payload).not.toHaveProperty("video_path");
+  expect(log.writes[0].payload).not.toHaveProperty("weekly_prescription");
+  expect(await page.evaluate(() => window.__planLibraryQA.templates())).toEqual([]);
   await sourceUnchanged(page);
   expect(guard.externalRequests).toEqual([]); expect(guard.pageErrors).toEqual([]);
 });

@@ -50,6 +50,7 @@ import {
 } from "@/lib/weeklyStrengthPeriodization";
 import type { PreRegistrationData } from "@/lib/preRegistration";
 import { saveCycleWorkoutRevision, WorkoutRevisionConflictError } from "@/lib/workoutRevision";
+import { ensureWorkoutLibraryReferences } from "@/lib/workoutLibraryRecovery";
 import { calculateWeeklyMuscleVolume } from "@/lib/workoutVolume";
 import {
   buildWorkoutTemplateDraft,
@@ -63,7 +64,6 @@ import {
   hasBlockingSaveIssue,
   issueFromPrescriptionValidationFailure,
   issuesFromPrescriptionValidation,
-  resolveWorkoutSaveDraft,
   type WorkoutSaveIssue,
   type WorkoutSaveRepair,
 } from "@/lib/workoutSaveValidation";
@@ -446,6 +446,21 @@ export default function WorkoutBuilder() {
   const tplId = searchParams.get("tpl");
   const isTemplate = !!tplId;
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : authCompanyId ?? null;
+  const saveScopeKey = JSON.stringify([cycleId, tplId, effectiveCompanyId, user?.id]);
+  const saveScopeRef = useRef({ key: saveScopeKey, version: 0, mounted: true });
+  const saveInFlightRef = useRef<symbol | null>(null);
+  if (saveScopeRef.current.key !== saveScopeKey) {
+    saveScopeRef.current = { key: saveScopeKey, version: saveScopeRef.current.version + 1, mounted: true };
+    saveInFlightRef.current = null;
+  }
+  useEffect(() => {
+    saveScopeRef.current.mounted = true;
+    return () => { saveScopeRef.current.mounted = false; saveScopeRef.current.version++; };
+  }, []);
+  const captureSaveScope = () => {
+    const { key, version } = saveScopeRef.current;
+    return () => saveScopeRef.current.mounted && saveScopeRef.current.key === key && saveScopeRef.current.version === version;
+  };
   const [templateName, setTemplateName] = useState("");
   const [loadedTemplateCompanyId, setLoadedTemplateCompanyId] = useState<string | null>(null);
   const [librarySaveOpen, setLibrarySaveOpen] = useState(false);
@@ -546,6 +561,13 @@ export default function WorkoutBuilder() {
   const [saveRepairs, setSaveRepairs] = useState<WorkoutSaveRepair[]>([]);
   const [notifyingStudent, setNotifyingStudent] = useState(false);
   const [revisionConflict, setRevisionConflict] = useState<{ draft: Workout[]; latest: Workout[] } | null>(null);
+  useEffect(() => {
+    setSaving(false);
+    setValidationResult(null);
+    setSaveIssues([]);
+    setSaveRepairs([]);
+    setRevisionConflict(null);
+  }, [saveScopeKey]);
 
   // Muscle targets for all exercises in library (cached)
   const [muscleTargets, setMuscleTargets] = useState<MuscleTarget[]>([]);
@@ -576,6 +598,7 @@ export default function WorkoutBuilder() {
         currentCompanyId: templateCompanyId,
         visibleExerciseIds,
         libraryExercises: visibleTemplateLibraryExercises,
+        allowUnregisteredExercises: true,
       })
       : [],
     [selectedTemplate, templateCompanyId, visibleExerciseIds, visibleTemplateLibraryExercises],
@@ -630,32 +653,45 @@ export default function WorkoutBuilder() {
   };
 
   const saveTemplate = async () => {
+    const isCurrent = captureSaveScope();
     const name = (templateName || "").trim();
     if (!name) { toast({ title: "Dê um nome ao treino da biblioteca", variant: "destructive" }); return; }
     if (workouts.some((w) => !w.title)) { toast({ title: "Preencha o título de todos os treinos", variant: "destructive" }); return; }
-    const resolvedDraft = resolveWorkoutSaveDraft({
-      workouts,
-      libraryExercises: visibleTemplateLibraryExercises,
-    });
-    if (hasBlockingSaveIssue(resolvedDraft.issues)) {
-      setSaveIssues(resolvedDraft.issues);
-      toast({
-        title: "Treino da biblioteca não salvo",
-        description: resolvedDraft.issues.find((issue) => issue.severity === "blocker")?.message,
-        variant: "destructive",
-      });
+    if (!templateCompanyId || !user?.id || tplId === "new") {
+      toast({ title: "Selecione uma empresa e use Salvar na biblioteca", variant: "destructive" });
       return;
     }
-    if (resolvedDraft.repairs.length > 0) setWorkouts(resolvedDraft.workouts as Workout[]);
     setSaving(true);
-    const templateWorkouts = workoutRevisionPayload(resolvedDraft.workouts as Workout[], weeklyPrescriptionMode, weeklyUiVersion);
-    const { error } = await (supabase as any).from("workout_templates")
-      .update({ name, workouts: templateWorkouts as any, updated_at: new Date().toISOString() }).eq("id", tplId);
-    setSaving(false);
-    if (error) { toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" }); return; }
-    toast({ title: "Treino salvo na biblioteca!" });
-    const prefix = window.location.pathname.split("/").filter(Boolean)[0] || "admin";
-    navigate(`/${prefix}/biblioteca?tab=treinos`);
+    try {
+      const resolvedDraft = await ensureWorkoutLibraryReferences(supabase, {
+        workouts, companyId: templateCompanyId, expectedUserId: user.id, isCurrent,
+      });
+      if (!isCurrent()) return;
+      if (hasBlockingSaveIssue(resolvedDraft.issues)) {
+        setSaveIssues(resolvedDraft.issues);
+        toast({
+          title: "Treino da biblioteca não salvo",
+          description: resolvedDraft.issues.find((issue) => issue.severity === "blocker")?.message,
+          variant: "destructive",
+        });
+        return;
+      }
+      if (resolvedDraft.repairs.length > 0 || resolvedDraft.createdCount > 0) setWorkouts(resolvedDraft.workouts as Workout[]);
+      const templateWorkouts = workoutRevisionPayload(resolvedDraft.workouts as Workout[], weeklyPrescriptionMode, weeklyUiVersion);
+      const { data, error } = await (supabase as any).from("workout_templates")
+        .update({ name, workouts: templateWorkouts as any, updated_at: new Date().toISOString() })
+        .eq("id", tplId).eq("company_id", templateCompanyId).select("id, company_id").maybeSingle();
+      if (!isCurrent()) return;
+      if (error) { toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" }); return; }
+      if (data?.id !== tplId || data?.company_id !== templateCompanyId) throw new Error("Não foi possível confirmar o salvamento na biblioteca.");
+      toast({ title: "Treino salvo na biblioteca!" });
+      const prefix = window.location.pathname.split("/").filter(Boolean)[0] || "admin";
+      navigate(`/${prefix}/biblioteca?tab=treinos`);
+    } catch (error) {
+      if (isCurrent()) toast({ title: "Treino da biblioteca não salvo", description: error instanceof Error ? error.message : "Tente novamente.", variant: "destructive" });
+    } finally {
+      if (isCurrent()) setSaving(false);
+    }
   };
 
   const saveAsTemplate = (workoutIndex?: number) => {
@@ -841,6 +877,7 @@ export default function WorkoutBuilder() {
         currentCompanyId: templateCompanyId,
         visibleExerciseIds,
         libraryExercises: visibleTemplateLibraryExercises,
+        allowUnregisteredExercises: true,
       });
       if (!result.ok) {
         const issue = result.issues[0];
@@ -1040,6 +1077,16 @@ export default function WorkoutBuilder() {
   };
 
   const handleSaveAll = async () => {
+    if (saveInFlightRef.current) return;
+    const token = Symbol("workout-save");
+    saveInFlightRef.current = token;
+    try { await saveAllDraft(); } finally {
+      if (saveInFlightRef.current === token) saveInFlightRef.current = null;
+    }
+  };
+
+  const saveAllDraft = async () => {
+    const isCurrent = captureSaveScope();
     if (isTemplate) { await saveTemplate(); return; }
     const hasEmpty = workouts.some(w => !w.title);
     if (hasEmpty) {
@@ -1054,25 +1101,37 @@ export default function WorkoutBuilder() {
     let saveContext: CycleInfo;
     try {
       saveContext = await resolveCycleInfo();
+      if (!isCurrent()) return;
     } catch (error) {
+      if (!isCurrent()) return;
       const message = error instanceof Error ? error.message : "Nao foi possivel carregar o contexto do ciclo.";
       toast({ title: "Erro ao preparar salvamento", description: message, variant: "destructive" });
       setSaving(false);
       return;
     }
 
-    const resolvedDraft = resolveWorkoutSaveDraft({
-      workouts,
-      libraryExercises: visibleWorkoutLibraryExercises(libraryExercises, saveContext.company_id),
-      trustedLegacyExerciseIds: trustedLegacyExerciseIdsRef.current,
-    });
+    let resolvedDraft;
+    try {
+      resolvedDraft = await ensureWorkoutLibraryReferences(supabase, {
+        workouts, companyId: saveContext.company_id, expectedUserId: user?.id, isCurrent,
+      });
+      if (!isCurrent()) return;
+    } catch (error) {
+      if (isCurrent()) {
+        toast({ title: "Não foi possível preparar os exercícios", description: error instanceof Error ? error.message : "Seu rascunho continua aberto. Tente novamente.", variant: "destructive" });
+        setSaving(false);
+      }
+      return;
+    }
     setSaveIssues(resolvedDraft.issues);
-    if (resolvedDraft.repairs.length > 0) {
+    if (resolvedDraft.repairs.length > 0 || resolvedDraft.createdCount > 0) {
       setWorkouts(resolvedDraft.workouts as Workout[]);
       setSaveRepairs(resolvedDraft.repairs);
       toast({
-        title: "Referências antigas corrigidas",
-        description: `${resolvedDraft.repairs.length} exercício(s) foram religados à biblioteca antes de validar.`,
+        title: resolvedDraft.createdCount > 0 ? "Exercícios cadastrados automaticamente" : "Referências antigas corrigidas",
+        description: resolvedDraft.createdCount > 0
+          ? `${resolvedDraft.createdCount} exercício(s) foram incluídos na biblioteca da empresa.`
+          : `${resolvedDraft.repairs.length} exercício(s) foram religados à biblioteca antes de validar.`,
       });
     }
     if (hasBlockingSaveIssue(resolvedDraft.issues)) {
@@ -1090,6 +1149,7 @@ export default function WorkoutBuilder() {
 
     const draftWorkouts = resolvedDraft.workouts as Workout[];
     const validation = await validateBeforeSave(saveContext, draftWorkouts);
+    if (!isCurrent()) return;
     if (!validation) {
       setSaving(false);
       return;
@@ -1113,6 +1173,7 @@ export default function WorkoutBuilder() {
         expectedRows: workoutRevisionSnapshot,
         workouts: workoutRevisionPayload(draftWorkouts, weeklyPrescriptionMode, weeklyUiVersion),
       });
+      if (!isCurrent()) return;
       let confirmedWorkouts: Workout[] | null = null;
       try {
         confirmedWorkouts = await fetchExistingWorkouts();
@@ -1120,6 +1181,7 @@ export default function WorkoutBuilder() {
         console.warn("Treino salvo, mas a versão confirmada não foi recarregada", loadError);
       }
       const nextWorkouts = confirmedWorkouts || workoutsWithSavedRows(draftWorkouts, saved);
+      if (!isCurrent()) return;
       rememberPersistedExerciseIds(nextWorkouts);
       setSaveIssues([]);
       setSaveRepairs([]);
@@ -1131,9 +1193,11 @@ export default function WorkoutBuilder() {
       });
       navigate(returnTo);
     } catch (error) {
+      if (!isCurrent()) return;
       if (error instanceof WorkoutRevisionConflictError) {
         try {
           const latest = await fetchExistingWorkouts();
+          if (!isCurrent()) return;
           setRevisionConflict({ draft: draftWorkouts, latest });
           return;
         } catch (loadError) {
@@ -1151,12 +1215,13 @@ export default function WorkoutBuilder() {
         variant: "destructive",
       });
     } finally {
-      setSaving(false);
+      if (isCurrent()) setSaving(false);
     }
   };
 
   const handleResolveRevisionConflict = async (keepDraft: boolean) => {
-    if (!revisionConflict || !cycleId) return;
+    if (!revisionConflict || !cycleId || saveInFlightRef.current) return;
+    const isCurrent = captureSaveScope();
     if (!keepDraft) {
       setWorkouts(revisionConflict.latest);
       rememberPersistedExerciseIds(revisionConflict.latest);
@@ -1169,20 +1234,32 @@ export default function WorkoutBuilder() {
       return;
     }
 
+    const token = Symbol("workout-conflict-save");
+    saveInFlightRef.current = token;
     setSaving(true);
     try {
+      const context = await resolveCycleInfo();
+      if (!isCurrent()) return;
+      const recovered = await ensureWorkoutLibraryReferences(supabase, {
+        workouts: revisionConflict.draft, companyId: context.company_id, expectedUserId: user?.id, isCurrent,
+      });
+      if (!isCurrent()) return;
+      if (hasBlockingSaveIssue(recovered.issues)) throw new Error(recovered.issues.find((issue) => issue.severity === "blocker")?.message);
+      const draft = recovered.workouts as Workout[];
       const saved = await saveCycleWorkoutRevision(supabase as any, {
         cycleId,
         expectedRows: workoutRevisionRows(revisionConflict.latest),
-        workouts: workoutRevisionPayload(revisionConflict.draft, weeklyPrescriptionMode, weeklyUiVersion),
+        workouts: workoutRevisionPayload(draft, weeklyPrescriptionMode, weeklyUiVersion),
       });
+      if (!isCurrent()) return;
       let confirmedWorkouts: Workout[] | null = null;
       try {
         confirmedWorkouts = await fetchExistingWorkouts();
       } catch (loadError) {
         console.warn("Rascunho salvo, mas a versão confirmada não foi recarregada", loadError);
       }
-      const nextWorkouts = confirmedWorkouts || workoutsWithSavedRows(revisionConflict.draft, saved);
+      if (!isCurrent()) return;
+      const nextWorkouts = confirmedWorkouts || workoutsWithSavedRows(draft, saved);
       rememberPersistedExerciseIds(nextWorkouts);
       setWorkouts(nextWorkouts);
       setWorkoutRevisionSnapshot(workoutRevisionRows(nextWorkouts));
@@ -1193,9 +1270,11 @@ export default function WorkoutBuilder() {
       });
       navigate(returnTo);
     } catch (error) {
+      if (!isCurrent()) return;
       if (error instanceof WorkoutRevisionConflictError) {
         try {
           const latest = await fetchExistingWorkouts();
+          if (!isCurrent()) return;
           setRevisionConflict((current) => current ? { ...current, latest } : null);
         } catch (loadError) {
           toast({
@@ -1218,7 +1297,8 @@ export default function WorkoutBuilder() {
         variant: "destructive",
       });
     } finally {
-      setSaving(false);
+      if (saveInFlightRef.current === token) saveInFlightRef.current = null;
+      if (isCurrent()) setSaving(false);
     }
   };
 
@@ -1226,6 +1306,7 @@ export default function WorkoutBuilder() {
     context: CycleInfo | null = cycleInfo,
     draftWorkouts: Workout[] = workouts,
   ): Promise<PrescriptionValidationResult | null> => {
+    const isCurrent = captureSaveScope();
     try {
       let objective = "manual";
       let fitnessLevel = "intermediario";
@@ -1247,6 +1328,7 @@ export default function WorkoutBuilder() {
             .limit(1)
             .maybeSingle(),
         ]);
+        if (!isCurrent()) return null;
         anamneseContext = anamnese ?? null;
         assessmentContext = assessment?.assessment_json
           ? { assessment_json: assessment.assessment_json, report_text: assessment.report_text, nivel: assessment.nivel }
@@ -1300,6 +1382,7 @@ export default function WorkoutBuilder() {
           plan,
         },
       });
+      if (!isCurrent()) return null;
       if (error || data?.error) throw new Error(data?.error || error?.message);
       const result = data?.result || { status: "ok", warnings: [], blockers: [] };
       setValidationResult(result);
@@ -1312,6 +1395,7 @@ export default function WorkoutBuilder() {
       }
       return result;
     } catch (error) {
+      if (!isCurrent()) return null;
       const message = error instanceof Error ? error.message : "Erro inesperado";
       const issue = issueFromPrescriptionValidationFailure(message);
       setSaveIssues((current) => [...current.filter((item) => item.code !== issue.code), issue]);

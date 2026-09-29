@@ -97,7 +97,32 @@ describe("workout template draft import", () => {
 
   it("reports malformed exercise entries instead of crashing the picker", () => {
     const result = validateWorkoutTemplateForDraft({ template: { ...template, workouts: [{ title: "A", exercises: [null] }] }, currentCompanyId: "company-1", visibleExerciseIds: visible, libraryExercises: [{ id: "ex-1", name: "Agachamento" }] });
-    expect(result[0].code).toBe("missing_exercise_id");
+    expect(result[0].code).toBe("malformed_workout");
+  });
+
+  it("allows named unavailable snapshots only in the deferred registration flow", () => {
+    const draft = { ...template, workouts: [{ title: "A", exercises: [
+      { exercise_id: "old-missing", exercise_name: "Remada rara", sets: "4", notes: "Manter" },
+      { exercise_name: "Mobilidade nova", sets: "2" },
+    ] }] };
+    const before = JSON.stringify(draft);
+    const args = { template: draft, currentCompanyId: "company-1", visibleExerciseIds: visible,
+      existingWorkouts: [], mode: "replace" as const };
+    expect(buildWorkoutTemplateDraft(args).ok).toBe(false);
+    const result = buildWorkoutTemplateDraft({ ...args, allowUnregisteredExercises: true });
+    expect(result.ok).toBe(true);
+    expect(result.workouts[0].exercises?.[0]).toMatchObject({ exercise_id: "old-missing", sets: "4", notes: "Manter" });
+    expect(JSON.stringify(draft)).toBe(before);
+    expect(buildWorkoutTemplateDraft({ ...args, allowUnregisteredExercises: true,
+      template: { ...draft, company_id: "other-company" } }).ok).toBe(false);
+  });
+
+  it("keeps nameless or malformed snapshots blocked even with deferred registration", () => {
+    for (const exercise of [null, [], {}, { exercise_id: "old", exercise_name: "  " }, { exercise_name: { bad: true } }]) {
+      const issues = validateWorkoutTemplateForDraft({ template: { ...template, workouts: [{ title: "A", exercises: [exercise] }] },
+        currentCompanyId: "company-1", visibleExerciseIds: visible, allowUnregisteredExercises: true });
+      expect(issues.length).toBeGreaterThan(0);
+    }
   });
 
   it("detects whether the current draft already has editable content", () => {

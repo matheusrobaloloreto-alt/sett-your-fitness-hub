@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanVersionsCard } from "./PlanVersionsCard";
 
@@ -93,12 +93,36 @@ describe("PlanVersionsCard", () => {
 
   it("loads older pages without losing the first page", async () => {
     query.range.mockResolvedValueOnce({ data: Array.from({ length: 20 }, (_, index) => ({ id: `v-${index}`, created_at: "2026-09-01", plan: { workouts: [] } })) });
-    query.range.mockResolvedValueOnce({ data: [{ id: "old-version", created_at: "2025-01-01", plan: { workouts: [] } }] });
-    render(<PlanVersionsCard {...props} studentId="student-1" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Versões do plano 20" }));
-    fireEvent.click(screen.getByRole("button", { name: "Carregar mais versões" }));
-    expect(await screen.findByRole("button", { name: "Versões do plano 21" })).toBeInTheDocument();
-    expect(query.range).toHaveBeenCalledWith(20, 39);
-    expect(screen.getAllByRole("button", { name: "Abrir versão" })).toHaveLength(21);
+    let finishPage: (value: unknown) => void = () => {};
+    query.range.mockReturnValueOnce(new Promise(resolve => { finishPage = resolve; }));
+    await act(async () => { render(<PlanVersionsCard {...props} studentId="student-1" />); });
+    const trigger = screen.getByRole("button", { name: "Versões do plano 20" });
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const content = document.getElementById(trigger.getAttribute("aria-controls")!);
+    expect(content).not.toBeNull();
+    const history = within(content!);
+    const loadMore = history.getByText("Carregar mais versões", { selector: "button" });
+    try {
+      await act(async () => { fireEvent.click(loadMore); });
+      expect(loadMore).toBeDisabled();
+      expect(loadMore).toHaveAccessibleName("Carregando...");
+      expect(trigger).toHaveAccessibleName("Versões do plano 20");
+      expect(history.getAllByText("Abrir versão", { selector: "button" })).toHaveLength(20);
+      expect(query.range.mock.calls).toEqual([[0, 19], [20, 39]]);
+    } finally {
+      await act(async () => { finishPage({ data: [{ id: "old-version", created_at: "2025-01-01", plan: { workouts: [] } }] }); });
+    }
+    expect(trigger).toHaveAccessibleName("Versões do plano 21");
+    // The open content is established above; avoid per-row visibility scans in JSDOM.
+    const versionButtons = history.getAllByRole("button", { hidden: true });
+    expect(versionButtons).toHaveLength(21);
+    for (const button of versionButtons) {
+      expect(button.tagName).toBe("BUTTON");
+      expect(button).toHaveTextContent(/^Abrir versão$/);
+    }
+    expect(history.getAllByText("01/09/26 00:00")).toHaveLength(20);
+    expect(history.getByText("01/01/25 00:00")).toBeInTheDocument();
+    expect(loadMore).not.toBeInTheDocument();
   });
 });

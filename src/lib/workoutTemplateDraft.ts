@@ -113,6 +113,7 @@ export function validateWorkoutTemplateForDraft(args: {
   currentCompanyId: string | null | undefined;
   visibleExerciseIds: ReadonlySet<string>;
   libraryExercises?: WorkoutSaveLibraryExercise[];
+  allowUnregisteredExercises?: boolean;
 }): WorkoutTemplateDraftValidationIssue[] {
   const { template, currentCompanyId, visibleExerciseIds } = args;
   const issues: WorkoutTemplateDraftValidationIssue[] = [];
@@ -158,9 +159,17 @@ export function validateWorkoutTemplateForDraft(args: {
     }
 
     exercises.forEach((exercise, exerciseIndex) => {
+      if (!exercise || typeof exercise !== "object" || Array.isArray(exercise)) {
+        issues.push({ code: "malformed_workout", message: "Um exercício do template está malformado.", workoutIndex, exerciseIndex });
+        return;
+      }
       const exerciseId = typeof exercise?.exercise_id === "string" ? exercise.exercise_id.trim() : null;
       const exerciseName = exercise?.exercise_name || `Exercício ${exerciseIndex + 1}`;
       const workoutName = (rawWorkout as WorkoutTemplateDraftWorkout).title || `Treino ${workoutIndex + 1}`;
+      // A named snapshot can be registered by the authenticated save path later.
+      const canRegisterOnSave = args.allowUnregisteredExercises
+        && typeof exercise.exercise_name === "string" && Boolean(exercise.exercise_name.trim());
+      if (canRegisterOnSave && (!exerciseId || !visibleExerciseIds.has(exerciseId))) return;
       if (!exerciseId) {
         issues.push({
           code: "missing_exercise_id",
@@ -193,12 +202,14 @@ export function buildWorkoutTemplateDraft(args: {
   currentCompanyId: string | null | undefined;
   visibleExerciseIds: ReadonlySet<string>;
   libraryExercises?: WorkoutSaveLibraryExercise[];
+  allowUnregisteredExercises?: boolean;
 }): WorkoutTemplateDraftResult {
   const issues = validateWorkoutTemplateForDraft({
     template: args.template,
     currentCompanyId: args.currentCompanyId,
     visibleExerciseIds: args.visibleExerciseIds,
     libraryExercises: args.libraryExercises,
+    allowUnregisteredExercises: args.allowUnregisteredExercises,
   });
   if (issues.length > 0) {
     return { ok: false, workouts: cloneJson(args.existingWorkouts), issues };
