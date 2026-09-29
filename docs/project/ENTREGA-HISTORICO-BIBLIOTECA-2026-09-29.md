@@ -48,3 +48,16 @@ Nao houve mudanca de schema nem escrita em prescricoes. A consulta recupera apen
 Rollback do frontend: voltar ao baseline `18e33b0` por revert dos commits desta entrega. Nao requer migracao de banco. Templates criados posteriormente pelo usuario sao registros independentes e nao devem ser apagados automaticamente.
 
 Execucao: Mill e root; revisao independente: Erdos. Skill aplicada: 121, Debugger Sistematico (Causa Raiz).
+
+## Atualizacao de publicacao
+
+O estado local descrito acima registra a primeira etapa da entrega. Apos a
+autorizacao mais recente do usuario, historico e copia individual foram
+publicados junto com a recuperacao automatica de exercicios ausentes na empresa.
+Producao: `6abbb556098af04ac0d431e1`, estado `ready`, em
+https://www.settapp.com.br. Os nove arquivos criticos foram conferidos contra o
+build aprovado. Nenhum treino ativo foi restaurado ou sobrescrito pelo deploy.
+O fluxo novo reutiliza exercicios globais/da empresa e cadastra referencias
+nomeadas ausentes apenas na biblioteca privada da empresa, mantendo permissoes.
+Validacao acumulada e limites em
+[recuperacao/publicacao](ENTREGA-RECUPERACAO-BIBLIOTECA-2026-09-29.md).
