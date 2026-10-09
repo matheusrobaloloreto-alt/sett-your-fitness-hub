@@ -354,6 +354,11 @@ export default function StudentDetail() {
   const [selectedTrainerId, setSelectedTrainerId] = useState("");
   const [startDate, setStartDate] = useState<Date>(new Date());
   const [saving, setSaving] = useState(false);
+  const [enrollmentAction, setEnrollmentAction] = useState<{
+    enrollment: Enrollment;
+    type: "activate" | "deactivate" | "delete";
+  } | null>(null);
+  const [enrollmentActionSaving, setEnrollmentActionSaving] = useState(false);
 
   // Edit student dialog state
   const [editStudentOpen, setEditStudentOpen] = useState(false);
@@ -933,6 +938,26 @@ export default function StudentDetail() {
     loadData(id);
   };
 
+  const confirmEnrollmentAction = async () => {
+    if (!enrollmentAction || !id) return;
+    const { enrollment, type } = enrollmentAction;
+    setEnrollmentActionSaving(true);
+    const { error } = type === "delete"
+      ? await (supabase as any).rpc("delete_empty_student_enrollment", { _enrollment_id: enrollment.id })
+      : await (supabase as any).rpc("set_student_enrollment_status", {
+        _enrollment_id: enrollment.id,
+        _status: type === "activate" ? "active" : "inactive",
+      });
+    setEnrollmentActionSaving(false);
+    if (error) {
+      toast({ title: "Não foi possível alterar a matrícula", description: error.message, variant: "destructive" });
+      return;
+    }
+    setEnrollmentAction(null);
+    toast({ title: type === "delete" ? "Matrícula excluída" : "Status da matrícula atualizado" });
+    await loadData(id);
+  };
+
   const handleRescheduleCycle = async (
     enrollmentId: string,
     cycle: TrainingCycle,
@@ -1178,6 +1203,23 @@ export default function StudentDetail() {
     enrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal")
     || enrollments[0]
     || null;
+
+  const canManageEnrollment = (enrollment: Enrollment) =>
+    role === "master" || role === "admin" || role === "coordinator"
+    || (role === "trainer" && Boolean(session?.user?.id)
+      && (enrollment.trainer_id === session.user.id || student?.assigned_trainer_id === session.user.id));
+
+  const inactiveCurrentPrescription = enrollments.find((enrollment) =>
+    enrollment.status === "inactive"
+    && rawCycles.some((cycle) =>
+      cycle.enrollment_id === enrollment.id
+      && cycle.status !== "superseded"
+      && cycle.start_date <= businessDateYmd()
+      && cycle.end_date >= businessDateYmd()
+      && cycle.has_workout
+      && !cycle.prescription_cleared_at,
+    ),
+  );
 
   const manualPrescriptionCycles = manualPrescriptionEnrollment
     ? currentEnrollmentCycles(manualPrescriptionEnrollment)
@@ -2064,6 +2106,16 @@ export default function StudentDetail() {
                 </div>
               </CardHeader>
               <CardContent>
+                {inactiveCurrentPrescription && (
+                  <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+                    <span>Há um treino vigente em uma matrícula inativa. O aluno não consegue vê-lo até essa matrícula ser ativada.</span>
+                    {canManageEnrollment(inactiveCurrentPrescription) && (
+                      <Button size="sm" variant="outline" onClick={() => setEnrollmentAction({ enrollment: inactiveCurrentPrescription, type: "activate" })}>
+                        Ativar matrícula com treino
+                      </Button>
+                    )}
+                  </div>
+                )}
                 {enrollments.length === 0 ? (
                   <p className="text-muted-foreground font-sans text-sm">Nenhuma matrícula encontrada.</p>
                 ) : (
@@ -2072,9 +2124,28 @@ export default function StudentDetail() {
                       <div key={e.id} className="p-3 rounded-2xl bg-secondary/50 border border-border space-y-2">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <span className="min-w-0 break-words font-sans font-medium text-foreground">{e.plan_name}</span>
-                          <Badge variant="outline" className={`text-xs ${statusColors[e.status]}`}>
-                            {statusLabels[e.status] || e.status}
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {canManageEnrollment(e) && (e.status === "active" || e.status === "inactive") ? (
+                              <Select value={e.status} onValueChange={(value) => setEnrollmentAction({ enrollment: e, type: value === "active" ? "activate" : "deactivate" })}>
+                                <SelectTrigger aria-label={`Status da matrícula ${e.plan_name}`} className="h-8 w-[112px] text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="active">Ativo</SelectItem>
+                                  <SelectItem value="inactive">Inativo</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Badge variant="outline" className={`text-xs ${statusColors[e.status]}`}>
+                                {statusLabels[e.status] || e.status}
+                              </Badge>
+                            )}
+                            {canManageEnrollment(e) && (
+                              <Button type="button" size="icon" variant="ghost" aria-label={`Excluir matrícula ${e.plan_name}`} title="Excluir matrícula" onClick={() => setEnrollmentAction({ enrollment: e, type: "delete" })}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground font-sans">
                           <TrainerInlineSelect enrollmentId={e.id} trainerId={e.trainer_id} trainerName={e.trainer_name} />
@@ -2139,7 +2210,7 @@ export default function StudentDetail() {
                                     <Badge variant="outline" className={`text-[10px] ${statusColors[c.status]}`}>
                                       {statusLabels[c.status] || c.status}
                                     </Badge>
-                                    {studentVisibleCycleForEnrollment(e)?.id === c.id && (
+                                    {manualPrescriptionEnrollment?.id === e.id && studentVisibleCycleForEnrollment(e)?.id === c.id && (
                                       <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/25">
                                         Exibido ao aluno
                                       </Badge>
@@ -2485,6 +2556,42 @@ export default function StudentDetail() {
 	            </DialogFooter>
 	          </DialogContent>
 	        </Dialog>
+
+	        <Dialog open={Boolean(enrollmentAction)} onOpenChange={(open) => !open && !enrollmentActionSaving && setEnrollmentAction(null)}>
+          <DialogContent className="bg-card border-border">
+            <DialogHeader>
+              <DialogTitle>{enrollmentAction?.type === "delete" ? "Excluir matrícula" : "Alterar status da matrícula"}</DialogTitle>
+            </DialogHeader>
+            {enrollmentAction && (
+              <div className="space-y-3 text-sm">
+                <p><strong>{enrollmentAction.enrollment.plan_name}</strong> · {safeFormatDate(enrollmentAction.enrollment.start_date, "dd/MM/yyyy")} a {safeFormatDate(enrollmentAction.enrollment.end_date, "dd/MM/yyyy")}</p>
+                {enrollmentAction.type === "activate" && (
+                  <p>Esta matrícula passará a ser a vigente. Outra matrícula ativa com datas sobrepostas será concluída, sem apagar treinos ou pagamentos.</p>
+                )}
+                {enrollmentAction.type === "deactivate" && (
+                  <p>O aluno deixará de visualizar os treinos desta matrícula até que ela seja reativada.</p>
+                )}
+                {enrollmentAction.type === "delete" && (
+                  <p>Somente matrículas sem ciclos, pagamento ou qualquer histórico vinculado podem ser excluídas. Caso haja histórico, inative a matrícula para preservá-lo.</p>
+                )}
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" disabled={enrollmentActionSaving} onClick={() => setEnrollmentAction(null)}>Cancelar</Button>
+              <Button
+                variant={enrollmentAction?.type === "delete" ? "destructive" : "default"}
+                disabled={enrollmentActionSaving || (enrollmentAction?.type === "delete" && (
+                  enrollmentAction.enrollment.payment_status === "paid"
+                  || Boolean(enrollmentAction.enrollment.payment_date)
+                  || rawCycles.some((cycle) => cycle.enrollment_id === enrollmentAction.enrollment.id)
+                ))}
+                onClick={confirmEnrollmentAction}
+              >
+                {enrollmentActionSaving ? "Confirmando..." : enrollmentAction?.type === "delete" ? "Excluir matrícula" : enrollmentAction?.type === "activate" ? "Ativar matrícula" : "Inativar matrícula"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
 	        {/* Enrollment Dialog */}
         <Dialog open={enrollOpen} onOpenChange={setEnrollOpen}>
