@@ -63,6 +63,15 @@ Metodo: ATENA; Skill 121, Debugger Sistematico (Causa Raiz).
 - Reexecucao focada pela raiz com timeouts padrao: `WorkoutBuilderRecovery`,
   `registrationLeads` e `salesFunnelView`, 42/42 aprovados. O caso de adicionar
   e salvar treino foi repetido mais uma vez isoladamente e passou novamente.
+- Reexecucao integral autorizada pelo usuario: 198/198 arquivos aprovados,
+  1445 testes aprovados, 7 ignorados e zero falhas, em 409,50 segundos.
+  Comando: `npm run test -- --maxWorkers=1 --reporter=dot --reporter=json
+  --outputFile=output/validation-20261009-serial.json`. Tempos padrao, sem
+  outro teste ou build deste trabalho em paralelo; codigo e assercoes intactos.
+  `WorkoutBuilderRecovery` passou nos dez casos, incluindo adicionar e salvar
+  o conjunto preservando metricas legadas. O JSON local confirma `success=true`.
+  A falha anterior nao se reproduziu; sua causa continua nao comprovada.
+  Os sete testes ignorados nao foram executados e nao contam como aprovados.
 
 ## Publicacao
 
@@ -85,9 +94,9 @@ Metodo: ATENA; Skill 121, Debugger Sistematico (Causa Raiz).
   e controles manuais. Acesso aos treinos verificado como acima.
 - [x] Producao: nova aba Leads, acao Transformar em lead, retomada de contato
   e preservacao de dados; testes focados e revisao independente aprovados.
-- [ ] Validacao integral 100% verde (aguardando): uma falha de espera nao se
-  reproduziu nas duas reexecucoes; confirmar na proxima rodada integral sem
-  concorrencia pesada. Nao ha correcao de produto comprovadamente necessaria.
+- [x] Validacao integral encerrada: todos os 1445 testes executados passaram
+  na rodada serial com tempos padrao; sete permanecem ignorados pela suite.
+  Nenhuma correcao de produto ou nova publicacao foi necessaria nesta rodada.
 - Historico de biblioteca, versoes antigas, copia individual, importacao aditiva,
   assinatura e demais ajustes: ver os relatorios de entrega de 29/09/2026:
   [ajustes e checklist anterior](ENTREGA-AJUSTES-2026-09-29.md),
