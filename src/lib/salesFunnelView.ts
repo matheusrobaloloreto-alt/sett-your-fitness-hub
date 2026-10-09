@@ -42,8 +42,8 @@ export const FUNNEL_STAGE_META: Record<FunnelStageKey, {
   description: string;
 }> = {
   interested: {
-    label: "Interessado",
-    shortLabel: "Lead",
+    label: "Novos cadastros",
+    shortLabel: "Novos",
     description: "Pré-cadastro recebido; precisa do primeiro contato humano.",
   },
   contacted: {
@@ -72,9 +72,9 @@ export const FUNNEL_STAGE_META: Record<FunnelStageKey, {
     description: "Fechamento concluido.",
   },
   lost: {
-    label: "Pausado ou perdido",
-    shortLabel: "Pausado",
-    description: "Sem avanco operacional no funil.",
+    label: "Leads",
+    shortLabel: "Leads",
+    description: "Perfis preservados para retomar o contato.",
   },
 };
 
@@ -86,8 +86,14 @@ export function canMoveOperationalStudentToStage(
   status: string | null | undefined,
   targetStage: FunnelStageKey,
 ): boolean {
-  if (!canReconcileActiveStage(status)) return true;
+  if (!canReconcileActiveStage(status) && status !== "awaiting_training" && status !== "trial") return true;
   return targetStage === "active" || targetStage === "active_onboarding";
+}
+
+export function canTransformRegistrationToLead(student: FunnelStageStudent): boolean {
+  return canMoveOperationalStudentToStage(student.status, "lost")
+    && student.sales_stage !== "active"
+    && student.sales_stage !== "active_onboarding";
 }
 
 export function normalizeSalesStage(student: FunnelStageStudent): FunnelStageKey {
@@ -104,6 +110,7 @@ export function normalizeSalesStage(student: FunnelStageStudent): FunnelStageKey
 }
 
 export function normalizeLeadSalesStage(stage?: string | null): FunnelStageKey {
+  if (stage === "lost") return "lost";
   if (stage === "contacted") return "contacted";
   if (stage === "fiscal_registration" || stage === "fiscal_registration_pending") {
     return "fiscal_registration_pending";
@@ -136,7 +143,7 @@ export function stageNextAction(
     return "Liberar primeira prescricao";
   }
   if (stage === "active") return "Acompanhar execucao";
-  return "Reativar ou arquivar";
+  return "Retomar contato";
 }
 
 export function stageActionLabel(stage: FunnelStageKey): string {
@@ -146,7 +153,7 @@ export function stageActionLabel(stage: FunnelStageKey): string {
   if (stage === "payment_pending") return "Enviar checkout";
   if (stage === "active_onboarding") return "Enviar instruções";
   if (stage === "active") return "Abrir aluno";
-  return "Revisar";
+  return "Retomar contato";
 }
 
 export function isOpenFunnelStage(stage: FunnelStageKey): boolean {

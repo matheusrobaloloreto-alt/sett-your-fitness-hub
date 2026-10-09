@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   canMoveOperationalStudentToStage,
   canReconcileActiveStage,
+  canTransformRegistrationToLead,
+  FUNNEL_STAGE_META,
+  FUNNEL_STAGE_ORDER,
   funnelStageProgress,
   normalizeLeadSalesStage,
   normalizeSalesStage,
   stageActionLabel,
   stageNextAction,
+  isOpenFunnelStage,
 } from "./salesFunnelView";
 
 describe("salesFunnelView", () => {
@@ -45,6 +49,35 @@ describe("salesFunnelView", () => {
     expect(normalizeLeadSalesStage("contacted")).toBe("contacted");
     expect(normalizeLeadSalesStage("fiscal_registration_pending")).toBe("fiscal_registration_pending");
     expect(normalizeLeadSalesStage("fiscal_registration")).toBe("fiscal_registration_pending");
+  });
+
+  it("separa novos cadastros dos leads preservados sem reabrir a venda", () => {
+    expect(FUNNEL_STAGE_META.interested.shortLabel).toBe("Novos");
+    expect(FUNNEL_STAGE_META.lost.shortLabel).toBe("Leads");
+    expect(FUNNEL_STAGE_ORDER).toContain("lost");
+    expect(normalizeLeadSalesStage("lost")).toBe("lost");
+    expect(normalizeSalesStage({ status: "pending", sales_stage: "lost" })).toBe("lost");
+    expect(normalizeSalesStage({ status: "inactive", sales_stage: "lost" })).toBe("lost");
+    expect(isOpenFunnelStage("lost")).toBe(false);
+    expect(stageNextAction({ sales_stage: "lost" })).toBe("Retomar contato");
+    expect(stageActionLabel("lost")).toBe("Retomar contato");
+  });
+
+  it.each(["active", "awaiting_training", "awaiting_renewal", "trial"])(
+    "protege perfis operacionais %s contra transformação em lead",
+    (status) => {
+      expect(canTransformRegistrationToLead({ status, sales_stage: "interested" })).toBe(false);
+      expect(canMoveOperationalStudentToStage(status, "lost")).toBe(false);
+    },
+  );
+
+  it("protege onboarding pago mesmo com status desatualizado", () => {
+    expect(canTransformRegistrationToLead({ status: "pending", sales_stage: "active_onboarding" })).toBe(false);
+    expect(canTransformRegistrationToLead({ status: "pending", sales_stage: "active" })).toBe(false);
+  });
+
+  it.each(["interested", "pending", "inactive"])("permite preservar cadastro %s", (status) => {
+    expect(canTransformRegistrationToLead({ status, sales_stage: "contacted" })).toBe(true);
   });
 
   it("returns operational next actions for each registration phase", () => {

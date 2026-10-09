@@ -24,7 +24,7 @@ import {
   Link2,
   Loader2,
   MessageCircle,
-  Trash2,
+  UsersRound,
   UserPlus,
   UserRoundCheck,
 } from "lucide-react";
@@ -44,6 +44,7 @@ import {
   type FunnelStageKey,
   canMoveOperationalStudentToStage,
   canReconcileActiveStage,
+  canTransformRegistrationToLead,
   funnelStageProgress,
   isOpenFunnelStage,
   normalizeLeadSalesStage,
@@ -248,7 +249,7 @@ const ANSWER_LABELS: Record<string, string> = {
   preferred_contact_period: "Melhor horário para contato",
 };
 
-const CLOSING_FUNNEL_STAGES = FUNNEL_STAGE_ORDER.filter((stage) => stage !== "lost");
+const CLOSING_FUNNEL_STAGES = FUNNEL_STAGE_ORDER;
 
 function waDigits(phone?: string | null): string | null {
   if (!phone) return null;
@@ -515,8 +516,19 @@ export default function RegistrationManager() {
       const companyLink = preRegistrationUrl(window.location.origin, companyResult.data.slug);
       setGeneralLink(companyLink);
 
+      const loadRows = async (query: () => any) => {
+        const rows = [];
+        const pageSize = 160;
+        for (let offset = 0; ; offset += pageSize) {
+          const { data, error } = await query().range(offset, offset + pageSize - 1);
+          if (error) throw new Error(error.message || "Não foi possível carregar os cadastros.");
+          rows.push(...(data || []));
+          if (!data || data.length < pageSize) return rows;
+        }
+      };
+
       const [studentResult, leadResult] = await Promise.all([
-        (supabase as any)
+        loadRows(() => (supabase as any)
           .from("students")
           .select([
             "id",
@@ -538,24 +550,22 @@ export default function RegistrationManager() {
           ].join(", "))
           .eq("company_id", effectiveCompanyId)
           .order("created_at", { ascending: false })
-          .limit(160),
-        (supabase as any)
+          .order("id", { ascending: false })),
+        loadRows(() => (supabase as any)
           .from("leads")
           .select("id, full_name, phone, stage, budget_range, preferred_contact_period, contact_outcome, pre_registration_answers, created_at, updated_at")
           .eq("company_id", effectiveCompanyId)
           .is("converted_to_student_id", null)
-          .in("stage", ["interested", "contacted", "fiscal_registration", "fiscal_registration_pending"])
+          .in("stage", ["interested", "contacted", "fiscal_registration", "fiscal_registration_pending", "lost"])
           .order("created_at", { ascending: false })
-          .limit(160),
+          .order("id", { ascending: false })),
       ]);
-      if (studentResult.error) throw studentResult.error;
-      if (leadResult.error) throw leadResult.error;
 
-      const baseStudents = ((studentResult.data || []) as Omit<Student, "entityType">[]).map((student) => ({
+      const baseStudents = (studentResult as Omit<Student, "entityType">[]).map((student) => ({
         ...student,
         entityType: "student" as const,
       }));
-      const leads = ((leadResult.data || []) as LeadRow[]).map((lead): Student => ({
+      const leads = (leadResult as LeadRow[]).map((lead): Student => ({
         entityType: "lead",
         leadId: lead.id,
         id: lead.id,
@@ -587,35 +597,43 @@ export default function RegistrationManager() {
         return;
       }
 
+      const loadStudentRows = async (query: (studentIds: string[]) => any) => {
+        const rows = [];
+        for (let offset = 0; offset < ids.length; offset += 100) {
+          const studentIds = ids.slice(offset, offset + 100);
+          rows.push(...await loadRows(() => query(studentIds)));
+        }
+        return rows;
+      };
+
       const [eventResult, anamnesisResult, assessmentResult] = await Promise.all([
-        (supabase as any)
+        loadStudentRows((studentIds) => (supabase as any)
           .from("student_funnel_events")
           .select("id, student_id, event_type, status, error, created_at, processed_at")
           .eq("company_id", effectiveCompanyId)
-          .in("student_id", ids)
+          .in("student_id", studentIds)
           .order("created_at", { ascending: false })
-          .limit(240),
-        (supabase as any)
+          .order("id", { ascending: false })),
+        loadStudentRows((studentIds) => (supabase as any)
           .from("student_anamneses")
-          .select("student_id")
+          .select("id, student_id")
           .eq("company_id", effectiveCompanyId)
-          .in("student_id", ids),
-        (supabase as any)
+          .in("student_id", studentIds)
+          .order("id", { ascending: true })),
+        loadStudentRows((studentIds) => (supabase as any)
           .from("functional_assessments")
-          .select("student_id")
+          .select("id, student_id")
           .eq("company_id", effectiveCompanyId)
-          .in("student_id", ids),
+          .in("student_id", studentIds)
+          .order("id", { ascending: true })),
       ]);
 
-      if (eventResult.error) console.warn("registration funnel events unavailable", eventResult.error);
-      if (anamnesisResult.error) console.warn("registration anamneses unavailable", anamnesisResult.error);
-      if (assessmentResult.error) console.warn("registration assessments unavailable", assessmentResult.error);
       const latestEventByStudent = new Map<string, FunnelEvent>();
-      ((eventResult.error ? [] : eventResult.data || []) as FunnelEvent[]).forEach((event) => {
+      (eventResult as FunnelEvent[]).forEach((event) => {
         if (!latestEventByStudent.has(event.student_id)) latestEventByStudent.set(event.student_id, event);
       });
-      const anamnesisStudents = new Set((anamnesisResult.error ? [] : anamnesisResult.data || []).map((row: any) => row.student_id));
-      const assessedStudents = new Set((assessmentResult.error ? [] : assessmentResult.data || []).map((row: any) => row.student_id));
+      const anamnesisStudents = new Set(anamnesisResult.map((row: any) => row.student_id));
+      const assessedStudents = new Set(assessmentResult.map((row: any) => row.student_id));
 
       setStudents([...leads, ...baseStudents.map((student) => ({
         ...student,
@@ -625,6 +643,7 @@ export default function RegistrationManager() {
       }))]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Nao foi possivel carregar os cadastros.";
+      setStudents([]);
       setLoadError(message);
     } finally {
       setLoading(false);
@@ -690,6 +709,7 @@ export default function RegistrationManager() {
           if (filter && waitHours(student) < filter.minHours) return false;
         }
         if (isOpenFunnelStage(student.stage)) return true;
+        if (student.stage === "lost") return true;
         if (student.stage === "active_onboarding") return true;
         if (student.stage === "active" && student.activated_at) return new Date(student.activated_at).getTime() >= thirtyDaysAgo;
         return false;
@@ -729,7 +749,12 @@ export default function RegistrationManager() {
     `${student.entityType}:${student.leadId || student.id}`;
 
   const moveCardToStage = async (student: StudentWithStage, targetStage: FunnelStageKey) => {
+    if (!effectiveCompanyId || movingCardId) return;
     if (student.stage === targetStage) return;
+    if (targetStage === "lost" && !canTransformRegistrationToLead(student)) {
+      toast.error("Aluno em acompanhamento não pode ser transformado em lead. Revise a matrícula no perfil.");
+      return;
+    }
     if (
       student.entityType === "student" &&
       !canMoveOperationalStudentToStage(student.status, targetStage)
@@ -740,6 +765,33 @@ export default function RegistrationManager() {
     const cardId = cardIdFor(student);
     setMovingCardId(cardId);
     try {
+      if (targetStage === "lost" || student.stage === "lost") {
+        if (targetStage !== "lost" && targetStage !== "contacted") {
+          toast.error("Retome o contato antes de avançar este lead no funil.");
+          return;
+        }
+        const { data, error } = await (supabase as any).rpc("set_registration_lead_stage", {
+          _company_id: effectiveCompanyId,
+          _entity_type: student.entityType,
+          _record_id: student.leadId || student.id,
+          _expected_stage: student.stage,
+          _target_stage: targetStage,
+        });
+        if (error) throw new Error(error.message || "Não foi possível atualizar o lead.");
+        if (data?.id !== (student.leadId || student.id) || data?.stage !== targetStage) {
+          throw new Error("A mudança de etapa não foi confirmada. Atualize a esteira.");
+        }
+        setActiveStage(targetStage);
+        setMobileStage(targetStage);
+        setBudgetFilter("all");
+        setWaitFilter("all");
+        await loadPipeline();
+        toast.success(targetStage === "lost"
+          ? "Perfil preservado em Leads. Nenhuma mensagem foi enviada."
+          : "Contato retomado. Nenhuma mensagem foi enviada.");
+        return;
+      }
+
       if (targetStage === "active") {
         if (student.entityType !== "student" || !canReconcileActiveStage(student.status)) {
           toast.error("Para evitar liberar aluno sem pagamento, somente cadastros já ativos podem ser reconciliados diretamente.");
@@ -965,42 +1017,12 @@ export default function RegistrationManager() {
     });
   };
 
-  const removeFromPipeline = async (student: StudentWithStage) => {
-    const isLead = student.entityType === "lead";
-    const confirmed = window.confirm(
-      isLead
-        ? `Excluir definitivamente o pré-cadastro de ${student.full_name}?`
-        : `Arquivar ${student.full_name}? O histórico será preservado.`,
-    );
-    if (!confirmed) return;
-
-    try {
-      if (isLead) {
-        const { error } = await (supabase as any)
-          .from("leads")
-          .delete()
-          .eq("id", student.leadId || student.id)
-          .eq("company_id", effectiveCompanyId)
-          .is("converted_to_student_id", null);
-        if (error) throw error;
-        toast.success("Pré-cadastro excluído.");
-      } else {
-        const { error } = await (supabase as any)
-          .from("students")
-          .update({ status: "inactive", sales_stage: "lost", updated_at: new Date().toISOString() })
-          .eq("id", student.id)
-          .eq("company_id", effectiveCompanyId);
-        if (error) throw error;
-        toast.success("Perfil arquivado sem apagar o histórico.");
-      }
-      await loadPipeline();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível remover da esteira.");
-    }
-  };
-
   const handleStageAction = async (student: StudentWithStage) => {
     try {
+      if (student.stage === "lost") {
+        await moveCardToStage(student, "contacted");
+        return;
+      }
       if (student.entityType === "lead" && student.stage === "interested") {
         const { data, error } = await supabase.functions.invoke("public-registration", {
           body: { action: "mark-lead-contacted", leadId: student.leadId || student.id, outcome: "in_conversation" },
@@ -1342,19 +1364,21 @@ export default function RegistrationManager() {
                       ? "Preparar cadastro fiscal"
                       : stageActionLabel(student.stage)}
                   </Button>
-                  <Button
+                  {student.stage !== "lost" && <Button
                     size="sm"
                     variant="ghost"
-                    className="min-h-8 h-auto w-full whitespace-normal px-2 py-1.5 text-xs leading-snug text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    disabled={!canTransformRegistrationToLead(student)}
+                    title={!canTransformRegistrationToLead(student) ? "Aluno em acompanhamento: revise a matrícula no perfil." : undefined}
+                    className="min-h-8 h-auto w-full whitespace-normal px-2 py-1.5 text-xs leading-snug"
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      void removeFromPipeline(student);
+                      void moveCardToStage(student, "lost");
                     }}
                   >
-                    <Trash2 className="mr-1 h-3.5 w-3.5" />
-                    <span>{student.entityType === "lead" ? "Excluir pré-cadastro" : "Arquivar perfil"}</span>
-                  </Button>
+                    <UsersRound className="mr-1 h-3.5 w-3.5" />
+                    <span>Transformar em lead</span>
+                  </Button>}
                 </div>
               </div>
             </div>
@@ -1593,7 +1617,7 @@ export default function RegistrationManager() {
           </div>
 
           {loadError && (
-            <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">
+            <div role="alert" className="rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">
               {loadError}
             </div>
           )}
@@ -1607,7 +1631,10 @@ export default function RegistrationManager() {
             <div className="space-y-3">
               <div className="md:hidden">
                 <Label className="text-xs text-muted-foreground">Etapa exibida</Label>
-                <Select value={mobileSelectedStage} onValueChange={(value) => setMobileStage(value as FunnelStageKey)}>
+                <Select value={mobileSelectedStage} onValueChange={(value) => {
+                  setMobileStage(value as FunnelStageKey);
+                  setActiveStage("all");
+                }}>
                   <SelectTrigger className="mt-1 rounded-xl">
                     <SelectValue />
                   </SelectTrigger>
