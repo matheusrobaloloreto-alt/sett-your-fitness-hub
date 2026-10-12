@@ -150,7 +150,7 @@ export default function MasterDashboard() {
               <div>
                 <p className="font-semibold text-foreground">BN Content</p>
                 <p className="text-sm text-muted-foreground font-sans">
-                  Consulte o acervo privado da BN e abra o Studio de criação pelo painel Master.
+                  Crie, edite e compartilhe os rascunhos da BN com a equipe Master.
                 </p>
               </div>
             </div>

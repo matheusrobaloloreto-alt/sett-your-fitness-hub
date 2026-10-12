@@ -88,3 +88,8 @@ verify_jwt = false
 [functions.library-video-ingest]
 # O handler valida JWT de usuário e o segredo server-to-server em caminhos separados.
 verify_jwt = false
+
+[functions.bn-content-studio]
+# The handler additionally validates the session with Auth.getUser and requires
+# the database master role before accessing shared drafts or paid generation.
+verify_jwt = true

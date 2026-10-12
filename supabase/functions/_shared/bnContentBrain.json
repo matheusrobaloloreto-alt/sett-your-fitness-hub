@@ -1,0 +1,1890 @@
+{
+  "brand_voice": {
+    "summary": "A voz da BN é a de um técnico-cientista que fala com autoridade calma: afirma com convicção, fundamenta com fisiologia e prova, e nunca infantiliza. Opera em dois registros do mesmo DNA — B2B par-a-par e denso para profissionais, B2C acessível mas sem perder profundidade — sempre voltando ao mantra \"treino individualizado começa na avaliação\".",
+    "persona": "equipe BN / BN como dupla: o cientista do treino + o técnico que põe a mão na massa. Não é coach motivacional, não é influencer fitness, não é academia. É o profissional que estudou, lê os papers e prescreve com critério — e que respeita a inteligência de quem está do outro lado. Pensa como dono: cada frase ou aumenta a autoridade técnica da marca ou educa. A voz é segura sem ser arrogante, direta sem ser ríspida, técnica sem ser hermética. Tem humor seco e ocasional, nunca palhaçada. Quando afirma algo forte (\"sem avaliação, o treino não é seu\"), entrega a razão fisiológica/prática logo em seguida — autoridade que se justifica, nunca que se impõe no grito.",
+    "person_and_pov": "POV padrão: \"nós/na BN\" (a marca como sujeito que prescreve e tem método) + \"você\" direto ao leitor. Em B2B, alterna para \"nós como pares\" — \"você já viu isso na sua prática\", \"todo mundo que avalia sabe que...\" — colocando o profissional no mesmo lado da mesa, nunca como aluno. Em B2C, \"você\" acolhedor mas adulto, e \"a gente\" para humanizar o método. Evitar 1ª pessoa do singular (\"eu acho\") exceto em Layout 2 (storytelling/feedback de aluno), onde a voz pode ser pessoal e narrada. Imperativo usado com parcimônia e sempre justificado (\"Avalie antes. Porque sem linha de base, você está adivinhando.\"). Verbos no presente, voz ativa, sujeito explícito.",
+    "sentence_style": "Estrutura \"tweet\": uma ideia por slide, frase que ocupa o espaço sem enfeite. Frases curtas e afirmativas como motor; uma frase longa explicativa por bloco, no máximo, para fundamentar. Padrão recorrente: AFIRMAÇÃO FORTE (título bold, fonte grande) + DESDOBRAMENTO (corpo médio que prova ou explica). Usar contraste e quebra de linha como ritmo (\"Não é sobre treinar mais. É sobre treinar o que é seu.\"). Bullets com chevron de acento para listas técnicas. Abrir com tensão/afirmação, fechar com consequência ou CTA. Zero adjetivo vazio, zero advérbio de muleta (\"simplesmente\", \"literalmente\", \"incrível\"). Números e referências quando existirem dão peso — em B2B, citar autor/mecanismo; em B2C, traduzir o número em consequência concreta. Densidade calibrada: B2B aceita jargão sem glossário; B2C explica o termo na mesma frase em que o usa.",
+    "b2b_voice": "Par-a-par com profissionais de educação física e fisioterapeutas. Densa, referenciável, \"salvável\". Pode e deve usar termo técnico cru sem diluir: torque, braço de momento, déficit unilateral, assimetria de força, RFD, controle motor, cadeia cinética, periodização ondulatória. Cita mecanismo e, quando couber, referência (Verkhoshansky, Bosch, Prestes, Leporace) — sempre como ferramenta de raciocínio, não como name-dropping. Trata o leitor como colega que vai aplicar aquilo com os próprios alunos/pacientes: \"você sabe que avaliar não é burocracia — é a única forma de prescrever carga com base em dado, não em achismo\". Tom de quem compartilha o porquê por trás do protocolo, não de quem ensina o óbvio. Fecha conteúdo B2B com algo aplicável (um critério, um teste, uma forma de pensar), não com venda direta. Autoridade aqui é a moeda — cada post B2B precisa deixar o profissional mais bem equipado.",
+    "b2c_voice": "Acessível mas adulta — clareza sem infantilizar, profundidade sem palestra. Traduz a ciência em consequência concreta para o aluno: em vez de \"déficit de força unilateral\", \"uma perna está puxando o peso da outra — e o teu joelho paga a conta\". Mantém o rigor por trás da simplicidade: o aluno sente que está nas mãos de quem sabe, não de quem motiva. Usa \"você\" próximo, reconhece a realidade dele (níveis 1 a 4, do iniciante ao avançado) sem condescendência. Motiva pela competência e pelo resultado real, nunca por hype ou pressão (\"você merece um treino que é seu\" > \"BORA MONSTRO\"). Pode usar analogia do cotidiano para ancorar o conceito técnico. Nunca promete resultado garantido nem usa escassez falsa. O fechamento B2C é convite com método por trás: \"agenda tua avaliação\" sempre ancorado no porquê.",
+    "tone_attributes": [
+      "Autoridade calma (afirma e fundamenta, não grita)",
+      "Técnico-científico aplicado",
+      "Direto e sem rodeio",
+      "Respeitoso da inteligência do leitor",
+      "Confiante sem arrogância",
+      "Humor seco e pontual",
+      "Educativo por padrão",
+      "Premium/atlético (não popularesco)",
+      "Honesto (sem promessa garantida nem hype)"
+    ],
+    "vocabulary_preferred": [
+      "avaliação",
+      "individualizado",
+      "ciência",
+      "evidência",
+      "mecanismo",
+      "protocolo",
+      "critério",
+      "linha de base",
+      "dado / com base em dado",
+      "torque",
+      "braço de momento",
+      "déficit / assimetria",
+      "cadeia cinética",
+      "controle motor",
+      "periodização",
+      "carga",
+      "progressão",
+      "adaptação",
+      "específico para você / que é seu",
+      "porquê / o porquê por trás",
+      "consequência",
+      "intenção (treinar com intenção)",
+      "prescrição"
+    ],
+    "vocabulary_avoid": [
+      "academia (como sinônimo da BN)",
+      "treininho / treino genérico vendido como solução",
+      "BORA / monstro / fera / shape dos sonhos",
+      "resultado garantido / 100% / em X dias",
+      "queima de gordura milagrosa",
+      "segredo / hack / fórmula secreta",
+      "última vaga / só hoje / corre que acaba (escassez falsa)",
+      "simplesmente / literalmente / incrível / sensacional (muletas)",
+      "no pain no gain / sem dor sem ganho",
+      "transformação radical (como promessa)",
+      "dieta / prescrição clínica (fora do escopo — guardrail)",
+      "emojis em excesso",
+      "linguagem infantilizada ('vamos lá, campeão')"
+    ],
+    "voice_examples": [
+      {
+        "context": "Capa B2C, Layout 1 (educativo) — pilar Erros & Mitos",
+        "example": "Treinar pesado não é o mesmo que treinar certo. // sub: Carga sem critério não é progressão. É só desgaste com data marcada."
+      },
+      {
+        "context": "Slide tweet B2B — pilar Ciência do Treino, voltado a profissionais",
+        "example": "Avaliar não é burocracia. É a única forma de prescrever carga com base em dado, não em achismo. // chevron: Sem linha de base, você não progride — você adivinha."
+      },
+      {
+        "context": "Slide B2C traduzindo conceito técnico (assimetria de força)",
+        "example": "Uma perna empurra mais que a outra e você nem sente. // O corpo compensa em silêncio — até o joelho cobrar a conta. Por isso a gente mede antes de carregar."
+      },
+      {
+        "context": "CTA final (último slide, padrão da marca)",
+        "example": "Na BN, ninguém treina sem ser avaliado primeiro. // Clica no link da bio e agenda sua avaliação. // @bnperformancetraining"
+      },
+      {
+        "context": "Capa Layout 2 (storytelling / prova social — feedback de aluno)",
+        "example": "Ela treinava há 6 anos. Nunca tinha sido avaliada. // sub: O que mudou não foi o esforço dela. Foi saber, pela primeira vez, o que o corpo dela precisava."
+      },
+      {
+        "context": "Slide B2B com referência técnica usada como raciocínio, não name-dropping",
+        "example": "Força não se prescreve no escuro. // Bosch já mostrava: movimento é contexto, não repetição isolada. Avaliar o padrão vem antes de escolher o exercício."
+      }
+    ]
+  },
+  "visual_system": {
+    "summary": "Sistema visual operacional da BN inspirado nas referências enviadas pelo equipe BN em 2026-08-12: paleta neutra editorial (preto, off-white, cinza e areia da marca) somada ao navy #0D1B3E; capas fotográficas com scrim; páginas internas limpas; contraste tipográfico radical entre título e corpo; e logo transparente original, sem fundo chapado.",
+    "palette": {
+      "navy": "#0D1B3E — azul-marinho BN. Usar em capas, CTAs, scrims e páginas escuras; não precisa ocupar todos os slides.",
+      "ink": "#111214 — preto editorial da referência. Usar em avisos, teasers e texto sobre off-white.",
+      "off_white": "#F4F2ED — branco quente da referência. Fundo principal das páginas internas em estilo tweet do L1.",
+      "gray": "#9B9A96 — cinza médio da referência. Apoio, metadados e elementos secundários; nunca corpo longo com baixo contraste.",
+      "sand": "#C8A876 — areia/bronze da logo. Acento oficial para uma palavra, selo, chevron, data e assinatura.",
+      "bronze": "#C8A876 — alias operacional de sand para compatibilidade com os renders existentes.",
+      "white": "#FFFFFF — texto sobre navy/preto e respiro de alto contraste.",
+      "accent": "#C8A876 — o acento padrão passa a ser a areia da marca. Azul claro não é cor dominante nas novas famílias.",
+      "usage_notes": "Paleta-base: navy + ink + off-white + gray + sand. L1 alterna capa fotográfica/navy com páginas tweet off-white; L2 usa foto, navy e sand; L3 usa ink/navy com tipografia editorial; L4 alterna cartaz fotográfico dessaturado e teaser quase preto. Máximo de uma cor de acento por slide."
+    },
+    "fonts": {
+      "title": "Avenir Next Bold (Heavy nas capas de maior impacto). Tracking levemente negativo (-1 a -2%) em títulos grandes; caixa mista (Sentence case), nunca tudo-maiúsculo no título inteiro — só a palavra-chave pode ganhar bronze/underline.",
+      "body": "Avenir Next Medium (corpo) e Demi Bold para o título-do-slide nos slides de conteúdo. Line-height 1.25-1.35 no corpo. Largura de linha alvo: 28-40 caracteres por linha (efeito 'tweet', texto respira).",
+      "sizes_px": "Canvas 1080x1350 (4:5). DOIS tamanhos por slide, sempre. CAPA: frase forte 96-120px Bold (3-5 palavras por linha), subtítulo 40-48px Medium. CONTEÚDO (estilo tweet): título-do-slide 60-72px Demi/Bold, corpo 38-46px Medium. BULLETS: 40-46px Medium com chevron de acento ‹ › 0.8x do corpo. CITAÇÃO/STORYTELLING (L2): aspas grandes 72px + frase 48-56px. CTA final: linha 1 (gancho) 64-76px Bold, linha 2 (ação) 40-46px Medium, @handle 32-36px bronze. NÚMERO do slide: 28-32px. Margem de segurança: 90px nas laterais, 110px topo/base — nada de texto colado na borda."
+    },
+    "overlay_rules": "\"Toda foto recebe overlay para o texto NUNCA disputar com a imagem. Três técnicas (escolher por foto): (1) GRADIENTE DIRECIONAL — degradê navy #0D1B3E de 95% de opacidade no lado/base onde o texto vive, indo a 15-25% no lado da imagem; texto sempre na zona escura. (2) SCRIM CHAPADO — retângulo navy a 55-70% cobrindo todo o slide quando a foto é muito clara/ruidosa; mantém legibilidade total. (3) DUOTONE NAVY — converter a foto para duotone (sombras #0D1B3E, luzes em branco/azul-acinzentado) e jogar texto branco por cima; é o tratamento mais 'on-brand' e científico. Regras duras: contraste mínimo texto/fundo 4.5:1 (corpo) e 3:1 (título grande) — checar SEMPRE no ponto mais claro atrás do texto. Se a palavra-chave cair sobre área clara, ou move-se o texto, ou aumenta-se o scrim local. Nunca colocar texto branco sobre céu/parede clara sem scrim. Faixa de leitura: reservar o terço inferior (storytelling/CTA) ou o terço superior (educativo) como zona de texto consistente entre slides do mesmo carrossel — o olho aprende onde ler. Foto = suporte, texto = protagonista.\"",
+    "logo_usage": "\"Logo = emblema bronze (#C8A876, círculo sólido com raios/lâminas em leque espiral) SEMPRE sobre navy #0D1B3E ou sobre área escura da foto (nunca sobre área clara sem scrim, nunca bronze sobre bronze). Posições: capa = emblema no topo-centro ou canto superior, tamanho 90-130px de diâmetro; slides internos = versão pequena (48-64px) no rodapé OU dispensável se o @handle já assina; CTA final = emblema + @bnperformancetraining em bronze. Zona de respiro (clear space) = no mínimo 0.5x o diâmetro do emblema livre em todos os lados; nada de texto/foto encostando. NUNCA: recolorir o emblema para azul, aplicar sombra dura, distorcer proporção, rotacionar, ou usar sobre fundo claro. Se o fundo for foto clara, colocar o emblema dentro de um disco navy ou sobre o scrim. Assinatura de marca padrão no rodapé: emblema bronze + 'BN Performance Training' (Avenir Bold branco) + @handle bronze 32px. Versão monocromática branca do emblema é permitida só quando o bronze não tiver contraste suficiente (ex.: sobre área média da foto) — preferir sempre o bronze original.\"",
+    "image_style": {
+      "description": "Imagens editoriais de treino e ciência em paleta neutra: preto, off-white, cinza, areia e sombras navy. Capas podem ser escuras e cinematográficas; storytelling pode ser mais humano e natural; eventos podem ser dessaturados. Sempre reservar espaço negativo para a copy. Nada de stock clichê, texto, logo, watermark, cores saturadas ou evidência fabricada.",
+      "imagen_prompt_formula": "[SUJEITO atlético, ambiente real ou motivo científico] + [TRATAMENTO: editorial neutral palette, black, warm off-white, gray, sand accent, deep navy #0D1B3E shadows] + [COMPOSIÇÃO: negative space no terço destinado ao texto, subject off-center] + [ATMOSFERA: premium, restrained, documentary or scientific as appropriate] + [TÉCNICA: controlled directional light, fine grain, vertical 4:5] + [NEGATIVAS: no text, no logos, no watermark, no saturated colors, no fake screenshots, no fabricated student transformation, no smiling stock pose]",
+      "example_prompts": [
+        "Cinematic dark fitness photograph, deep navy blue #0D1B3E environment, a muscular athlete mid back-squat seen from the side as a rim-lit silhouette, cool blue edge light defining the shoulder and spine, a faint warm bronze glow on the far background echoing a brand emblem, heavy negative space in the upper third for text, moody scientific gym atmosphere, shallow depth of field, fine film grain, premium and serious, vertical 4:5 1080x1350 — no text, no logo, no watermark, no warm saturated tones, not bright, no smiling stock model",
+        "Abstract scientific background in deep navy #0D1B3E, a faint glowing force-time curve and anatomical line-art of a human knee joint rendered as thin cool-blue wireframe over darkness, subtle floating data points and a soft bronze accent line on the right edge, large clean negative space in the lower third for typography, laboratory-of-performance mood, high-end, minimal, cinematic depth, fine grain, vertical 4:5 1080x1350 — no text, no numbers, no logos, no watermark, not colorful, dark and premium",
+        "Moody close-up of a runner's mid-stride leg and foot striking the ground, lit from behind with cold blue light against a deep navy #0D1B3E backdrop, motion energy with a hint of bronze highlight on the heel, dramatic shadow, empty dark space in the upper two-thirds reserved for headline text, scientific and athletic editorial feel, shallow depth of field, subtle grain, vertical 4:5 1080x1350 — no text, no logo, no watermark, no warm orange tones, not bright, not cheerful stock"
+      ]
+    }
+  },
+  "layout_rules": {
+    "summary": "Sistema de carrossel BN em 4:5 (1080x1350) com 4 layouts MECE — L1 educativo (motor de autoridade), L2 storytelling/prova social, L3 aviso de empresa, L4 evento — todos amarrados por regras universais (capa = frase forte + subtítulo; 2 tamanhos de fonte; último slide = CTA) e uma cadência de feed que faz L1 puxar o aprendizado e L2 puxar a conversão.",
+    "reference_sources": [
+      {
+        "purpose": "Paleta neutra editorial + navy BN",
+        "url": "https://www.instagram.com/p/DLAdLQqOGHm/"
+      },
+      {
+        "purpose": "Estrutura universal: capa forte, progressão e CTA final",
+        "url": "https://www.instagram.com/p/DXkUqa0EXyd/"
+      },
+      {
+        "purpose": "Contraste entre dois níveis tipográficos",
+        "url": "https://www.instagram.com/reel/DPTTPo4CVnZ/"
+      },
+      {
+        "purpose": "L1 capa fotográfica com headline de impacto",
+        "url": "https://www.instagram.com/p/DY0bQJbD6vp/"
+      },
+      {
+        "purpose": "L1 páginas internas em estilo tweet",
+        "url": "https://www.instagram.com/p/DTS2NXkDhmW/"
+      },
+      {
+        "purpose": "L2 narrativa visual com evidência e texto",
+        "url": "https://www.instagram.com/p/DXNPP6xkQxu/"
+      },
+      {
+        "purpose": "L3 comunicado institucional tipográfico",
+        "url": "https://www.instagram.com/p/DSfa41VAGXv/"
+      },
+      {
+        "purpose": "L4 cartaz editorial de evento",
+        "url": "https://www.instagram.com/p/DXjxdq2jw6q/"
+      },
+      {
+        "purpose": "L4 teaser minimalista + revelação",
+        "url": "https://www.instagram.com/p/DRmqCXLgAXB/"
+      }
+    ],
+    "universal_rules": [
+      "FORMATO FIXO: 1080x1350px (4:5). A paleta combina navy #0D1B3E, preto #111214, off-white #F4F2ED, cinza #9B9A96 e areia #C8A876. Render local Python+PIL; o texto PT-BR e a logo são sempre compostos de forma determinística.",
+      "REGRA DOS 2 TAMANHOS DE FONTE (inegociável em TODO slide de conteúdo): TÍTULO em Avenir Next Bold grande (~64-78px) + CORPO em Avenir Next Medium médio (~38-46px). Só dois níveis. Proibido um terceiro tamanho competindo — isso quebra a hierarquia 'tweet'.",
+      "CAPA (slide 1) = FRASE FORTE em Bold gigante (~84-104px, ocupa o slide) + SUBTÍTULO Medium (~40-48px) que estende/tensiona a frase. A frase forte é tese, provocação ou dor — nunca título descritivo tipo 'Sobre avaliação'.",
+      "ÚLTIMO SLIDE = SEMPRE CTA. Ação única e literal: 'Clica no link da bio e agenda sua avaliação' + assinatura @bnperformancetraining. Um só CTA por carrossel, verbo no imperativo, sem CTA concorrente.",
+      "ESTILO TWEET: o texto OCUPA o slide, sem enfeite decorativo. Respiro generoso (margens ~96px), no máximo ~30-40 palavras por slide de conteúdo. Se não cabe respirando, vira 2 slides — nunca diminui a fonte para encaixar.",
+      "COR DE TEXTO: branco sobre navy/preto; ink/navy sobre off-white. Acento areia #C8A876 para no máximo 1 palavra, chevrons, data, selo e remate do CTA.",
+      "BULLETS: sempre com chevron (›) na cor de acento, alinhados à esquerda, no máx 3-4 por slide. Bullet não é frase longa — é fragmento escaneável.",
+      "PAGINAÇÃO + ÂNCORA DE MARCA: indicador discreto (ex.: 02/07) no rodapé + logo emblema bronze pequena num canto fixo. Posição da logo e do paginador idêntica em todos os slides do carrossel (consistência de scroll).",
+      "CONTRASTE/ACESSIBILIDADE: branco sobre navy passa WCAG AA; acento azul #4A86E8 só em palavra/elemento, nunca em bloco de corpo longo (contraste mais fraco sobre navy). Nada de texto sobre a parte mais clara do fundo sem caixa/escurecimento.",
+      "DUPLA AUDIÊNCIA NUM SÓ CARROSSEL: capa + corpo entregam a tese ao B2C (clareza/resultado); 1 slide de aprofundamento técnico/mecanismo serve o B2B (algo salvável). O CTA reconcilia ambos para a avaliação.",
+      "ANTI-GUARDRAIL NA COPY: zero promessa de resultado garantido, zero escassez falsa, zero depoimento inventado, zero linguagem que diagnostique/prescreva clinicamente. Frase forte pode provocar, não pode mentir.",
+      "DENSIDADE DE SLIDES: 6 a 9 slides por carrossel (capa + 4-7 conteúdo + CTA). Menos que 6 desperdiça o formato; mais que 9 derruba a taxa de conclusão."
+    ],
+    "layouts": [
+      {
+        "id": "L1",
+        "name": "Educativo — Ensinar no Nicho (motor principal)",
+        "when": "Pilar central da conta (Ciência do Treino, Fisiologia Aplicada, Treino na Prática, Erros & Mitos, Protocolo BN). Conteúdo que o B2B SALVA e o B2C entende. ~60% do feed. É o que constrói a autoridade 'treino sério com ciência por trás'.",
+        "visual_direction": "Capa full-bleed com foto real/atlética, tratamento escuro e scrim navy forte na zona da copy; headline branca grande no terço inferior e subtítulo menor. Páginas internas em estilo tweet sobre off-white, com cabeçalho BN discreto, muito respiro, título grande e corpo médio; CTA final volta ao navy.",
+        "structure": [
+          "S1 CAPA: frase forte = tese ou dor afiada (ex.: 'Sem avaliação, o treino não é seu.') + SUBTÍTULO que cobra a consequência (ex.: 'É de outra pessoa adaptado pra você. E isso tem custo.'). Frase em Bold gigante, sub em Medium.",
+          "S2 O PROBLEMA/CONTEXTO: título Bold ('O que quase ninguém checa') + corpo Medium nomeando o erro comum ou a lacuna. Cria a tensão que o resto resolve.",
+          "S3 O MECANISMO (slot B2B salvável): título Bold com o conceito técnico ('Por que isso acontece') + corpo Medium com a explicação fisiológica/biomecânica em linguagem aplicada. Aqui mora a ciência — 1 referência ou termo técnico ancora a autoridade, sem virar paper.",
+          "S4 NA PRÁTICA: título Bold ('Como a BN faz') + 3 bullets com chevron › (passos/critérios objetivos). Traduz o mecanismo em ação — serve o B2C.",
+          "S5 ERRO A EVITAR (opcional, ativa pilar Erros & Mitos): título Bold ('O atalho que custa caro') + corpo Medium desmontando o mito com 1 frase de correção.",
+          "S6 SÍNTESE: título Bold com a regra memorável ('A regra é simples:') + corpo Medium de 1-2 linhas — a frase que a pessoa repete/salva.",
+          "S7 CTA: remate da marca ('Na BN, ninguém treina sem ser avaliado primeiro.') + ação ('Clica no link da bio e agenda sua avaliação.') + @bnperformancetraining. Acento bronze no remate."
+        ],
+        "notes": "É o carro-chefe. Profundidade real no S3 (o que diferencia BN de academia genérica). Sempre amarra na filosofia 'treino individualizado começa na avaliação' quando o tema permite — sem forçar."
+      },
+      {
+        "id": "L2",
+        "name": "Storytelling — Feedback de Aluno / Prova Social",
+        "when": "Prova social e conversão emocional. Intercala com L1 para alternar 'cabeça' (ensina) e 'coração' (mostra que funciona). ~20-25% do feed. Puxa agendamento melhor que qualquer L1.",
+        "visual_direction": "Capa humana/fotográfica com headline serif editorial, subtítulo sans e uma palavra em areia. Desenvolvimento em composição dividida: evidência/foto/print na metade superior e painel navy com título serif + corpo sans na metade inferior. Nunca inventar aluno, print, fala ou resultado.",
+        "structure": [
+          "S1 CAPA: frase forte = virada da história ou estado inicial cru (ex.: 'Ela treinava há 3 anos. E travava na mesma carga.') + SUBTÍTULO que promete a virada ('Até a avaliação mostrar o que ninguém tinha olhado.'). Bold grande + Medium.",
+          "S2 O PONTO DE PARTIDA: título Bold ('Onde ela começou') + corpo Medium com o cenário real — dor, estagnação, frustração concreta (sem inventar, sem dramatizar falso).",
+          "S3 A DESCOBERTA: título Bold ('O que a avaliação revelou') + corpo Medium ligando o caso ao método BN — aqui a história prova a tese de que avaliação muda o jogo. Conecta storytelling à ciência.",
+          "S4 A VIRADA/PROCESSO: título Bold ('O que mudou no treino') + 2-3 bullets com chevron › dos ajustes feitos (concretos, honestos, sem promessa de milagre).",
+          "S5 O RESULTADO: título Bold ('Onde ela chegou') + corpo Medium com o ganho real e verificável. Resultado honesto e específico — nunca 'resultado garantido' nem número fabricado.",
+          "S6 CTA: ponte do caso pro leitor ('A diferença não foi força de vontade. Foi método.') + ação ('Agenda tua avaliação no link da bio.') + @bnperformancetraining."
+        ],
+        "notes": "Depoimento SEMPRE real e com consentimento — guardrail duro contra prova social falsa. Pode anonimizar ('uma aluna nível 2'). O storytelling existe para validar a mesma tese do L1 (avaliação primeiro), não para fugir dela."
+      },
+      {
+        "id": "L3",
+        "name": "Aviso da Empresa — Comunicado Institucional",
+        "when": "Mudança operacional: novos horários, recesso/feriado, nova unidade, ajuste de planos, política nova, abertura de vagas. Baixa frequência (só quando há fato). Tom institucional, mas ainda BN — premium e direto.",
+        "visual_direction": "Capa tipográfica quase preta/navy, marca pequena no topo, anúncio em serif muito grande no centro e subtítulo curto na base. Páginas internas priorizam datas, horários e ação em campos limpos off-white/navy; sem estética de aula ou foto esportiva genérica.",
+        "structure": [
+          "S1 CAPA: frase forte = o aviso em uma linha clara ('Novos horários a partir de segunda.') + SUBTÍTULO com a essência ('O que muda pra você, em 3 slides.'). Selo bronze 'AVISO' / 'COMUNICADO' no topo para sinalizar a natureza do post.",
+          "S2 O QUE MUDA: título Bold ('O que muda') + corpo Medium ou 2-3 bullets com chevron › listando a mudança de forma inequívoca (datas, horários, valores — concretos).",
+          "S3 POR QUE / O QUE FAZER: título Bold ('O que você precisa fazer') + corpo Medium com a ação do aluno (ou 'nada muda no seu treino' se for o caso). Remove ansiedade, evita DM em massa.",
+          "S4 CTA/CANAL: ação contextual ao aviso ('Dúvidas? Chama no WhatsApp do link da bio.') + @bnperformancetraining. CTA aqui é de SUPORTE, não de venda."
+        ],
+        "notes": "Curto (3-4 slides) — aviso não é aula. Mantém paleta e tipografia BN mas com selo bronze que diferencia do conteúdo educativo no grid. Clareza absoluta de datas/números é o objetivo; ambiguidade gera enxurrada de DM."
+      },
+      {
+        "id": "L4",
+        "name": "Evento — Workshop / Aula Aberta / Avaliação em Mutirão",
+        "when": "Evento datado: workshop, aula aberta, palestra, ação de avaliação gratuita, parceria, semana temática. Objetivo = inscrição/presença. Frequência conforme calendário de eventos.",
+        "visual_direction": "Alternar duas direções: L4A cartaz editorial full-bleed com foto dessaturada, headline serif central e data/logística na base; L4B teaser quase preto, um único foco visual/data no centro e revelação posterior em linguagem de convite. Usar só para eventos reais.",
+        "structure": [
+          "S1 CAPA: frase forte = nome/promessa do evento ('Workshop: a avaliação que muda o treino.') + SUBTÍTULO com data + formato ('Sábado, 14h • presencial na BN • vagas limitadas pela sala'). Selo bronze 'EVENTO'. Escassez só se REAL (limite físico de vagas), nunca fabricada.",
+          "S2 PRA QUEM É: título Bold ('É pra você se…') + 3 bullets com chevron › qualificando o público (separa B2B 'profissional que quer aplicar' de B2C 'aluno que quer entender'). Filtra e gera identificação.",
+          "S3 O QUE VOCÊ LEVA: título Bold ('O que você sai sabendo') + 3 bullets com chevron › das entregas concretas do evento (conhecimento aplicável — coerente com autoridade BN).",
+          "S4 LOGÍSTICA: título Bold ('Onde e quando') + corpo Medium com data, hora, local, valor/gratuito, e como funciona. Bloco de fatos limpo, fácil de printar.",
+          "S5 CTA: ação de inscrição ('Garante tua vaga no link da bio.') + reforço honesto de limite se real ('São X lugares pela capacidade da sala.') + @bnperformancetraining. Acento bronze no CTA."
+        ],
+        "notes": "5 slides costuma bastar. A escassez (vagas limitadas) só aparece se for verdade física — guardrail contra escassez falsa. Se o evento tem componente técnico, S3 vira o gancho de autoridade que conecta com a linha editorial L1."
+      }
+    ],
+    "intercalation_strategy": "CADÊNCIA DO FEED (governa o que publica e em que ordem). Princípio: o feed alterna 'cabeça' (L1 ensina, constrói autoridade B2B) e 'coração' (L2 prova, converte B2C), com L3/L4 entrando por NECESSIDADE, não por cota. — RITMO BASE recomendado (ciclo de ~9 posts): L1, L1, L2, L1, L1, L2, L1, L3-ou-L4, L1. Lê-se: ~6 de cada 9 são educativos (motor de autoridade), 2 são storytelling (prova/conversão), 1 slot institucional/evento conforme o calendário. — REGRA DE OURO: nunca dois L2 seguidos (prova social repetida cansa e cheira a venda); nunca abrir a semana com L3 (aviso não puxa autoridade). Sempre que sair um L2, o post seguinte é L1 (volta a ensinar antes de pedir de novo). — INTERCALAÇÃO L1↔L2 É A ESPINHA: L1 cria a crença ('avaliação importa, eis a ciência'); L2 prova a crença ('olha quem mudou por causa da avaliação'). Os dois empurram para o MESMO CTA (agendar avaliação) — coerência de oferta no feed inteiro. — L3 (aviso) é EVENTUAL e reativo a fatos operacionais; entra fora do ritmo quando há comunicado, e some quando não há. Selo bronze evita que ele seja lido como conteúdo educativo. — L4 (evento) ENTRA EM CAMPANHA: quando há evento, vira sequência de 2-3 posts (anúncio → aprofundamento/pra-quem-é → última chamada) intercalados com L1, terminando 1-2 dias antes da data. — CONSISTÊNCIA DE TOPO DE GRID: por ser grade 4:5, manter equilíbrio visual nas 3 últimas posições (não empilhar 3 capas com a mesma cor de fundo dominante); alternar capas com mais navy escuro e capas com mais elemento atlético claro para o grid respirar. — TODA semana entrega pelo menos 1 slot 'salvável B2B' (um L1 com S3 técnico forte) e 1 slot 'humano B2C' (um L2): é assim que a dupla audiência é servida sem dividir a conta em duas."
+  },
+  "content_pillars": {
+    "summary": "Os 5 pilares operacionalizam o posicionamento da BN (\"treino sério, individualizado, com ciência por trás\") em dois trilhos de audiência: B2B (autoridade par-a-par, salvável) e B2C (clareza + resultado sem infantilizar), com o \"treino individualizado começa na avaliação\" como fio condutor recorrente.",
+    "audience_profiles": {
+      "b2b": "PERFIL B2B — Profissionais de educação física (personal trainers, treinadores) e fisioterapeutas, geralmente 25-45 anos, que atendem alunos/pacientes e competem por autoridade no próprio mercado. Dor central: querem se diferenciar do 'treineiro de planilha genérica' e validar decisões técnicas com ciência aplicada, mas têm pouco tempo para ler papers densos. O que querem da BN: conteúdo referenciável e SALVÁVEL — carrossel que vira material de aula, argumento que usam com o próprio cliente, racional fisiológico que fecha lacuna da graduação. Objeção: 'isso eu já sei' (precisa de profundidade real ou ângulo novo, nunca o óbvio). Gatilho de compartilhamento: 'isso eleva minha autoridade junto'. Tom certo: par-a-par, denso, sem condescendência, com nomenclatura técnica correta (torque, unidade motora, tensão mecânica, RPE, periodização ondulatória) e referências quando couber (Verkhoshansky, Bosch, Prestes, Leporace). Plataforma-comportamento: salva no Instagram, manda no grupo de colegas, usa em consultoria. NÃO quer: motivacional raso, promessa milagrosa, simplificação que distorce a ciência."
+    },
+    "pillars": [
+      {
+        "name": "Ciência do Treino",
+        "goal": "Estabelecer a BN como a marca que TRADUZ evidência em decisão de treino — provar que toda escolha (carga, volume, frequência, ordem dos exercícios) tem racional, não achismo. É o pilar-âncora da autoridade técnica e o que mais converte B2B em seguidor fiel.",
+        "audience": "B2B primário (par-a-par, referenciável), B2C avançado (níveis 3-4) como secundário",
+        "example_topics": [
+          "Tensão mecânica vs. dano muscular vs. estresse metabólico: o que REALMENTE hipertrofia (e por que '3x10 sentindo queimar' é raso)",
+          "Por que volume é o driver de hipertrofia mais validado — e onde está o ponto de retorno decrescente por grupo muscular/semana",
+          "Periodização ondulatória vs. linear: quando cada uma ganha, com o racional de fadiga e supercompensação",
+          "Proximidade da falha (RIR/RPE): quanto realmente precisa falhar para crescer — e o custo de fadiga de treinar até a falha sempre",
+          "Ordem dos exercícios e o mito do 'pré-exaustão': o que a evidência diz sobre sequência e recrutamento",
+          "Frequência semanal por grupo muscular: 1x vs. 2x vs. 3x e o papel da síntese proteica de 48-72h"
+        ],
+        "hook_styles": [
+          "Mito vs. evidência ('Você treina até a falha porque acha que cresce mais. A evidência discorda.')",
+          "Dado contraintuitivo ('O que mais hipertrofia não é o que você sente queimar.')",
+          "Pergunta técnica que expõe lacuna ('Você sabe DEFENDER por que prescreveu 4 séries e não 3?')",
+          "Afirmação de autoridade com convite a discordar ('Volume é rei. Mas tem um teto — e quase ninguém calcula o seu.')"
+        ]
+      },
+      {
+        "name": "Fisiologia Aplicada",
+        "goal": "Mostrar o 'porquê' por trás do corpo respondendo ao treino — transformar conceitos de fisiologia em decisões práticas. Diferencia a BN de quem só repassa exercício: aqui se explica o organismo. Forte gerador de conteúdo salvável B2B e de 'agora entendi' B2C.",
+        "audience": "B2B primário (fecha lacuna de graduação), B2C níveis 2-4 (dá sentido ao esforço)",
+        "example_topics": [
+          "Sistemas energéticos na prática: por que seu treino de força NÃO é 'cardio' — e o que isso muda na pausa entre séries",
+          "Síntese proteica muscular: a janela real (não é 30 min pós-treino) e o que sustenta o anabolismo por 48h",
+          "Adaptações neurais nas primeiras semanas: por que o iniciante fica forte ANTES de ficar grande",
+          "Fadiga central vs. periférica: o que limita sua última série e como isso muda a prescrição",
+          "Sono e recuperação: o que acontece com hormônio e reparo tecidual quando você dorme 5h",
+          "Frequência cardíaca e zonas: o que a FC realmente diz (e não diz) sobre intensidade no treino de força"
+        ],
+        "hook_styles": [
+          "'Porquê' fisiológico ('Você fica forte na 2ª semana sem ganhar músculo. Aqui está o que está acontecendo de verdade.')",
+          "Desmonte de timing/janela ('A janela anabólica de 30 minutos é marketing. A real dura 48 horas.')",
+          "Analogia corpo-máquina precisa, sem infantilizar",
+          "Conexão sintoma→mecanismo ('Sua última série falha não por falta de músculo. É o sistema nervoso.')"
+        ]
+      },
+      {
+        "name": "Treino na Prática",
+        "goal": "Converter ciência em execução — técnica de exercício, escolha de variação, ajuste de carga, progressão real. É a ponte que prova que a BN não fica na teoria: o B2C vê resultado aplicável e o B2B vê material que usa direto com o aluno. Pilar de maior alcance/poupança.",
+        "audience": "B2C todos os níveis (1-4) primário, B2B (ideias de progressão para clientes) secundário",
+        "example_topics": [
+          "Como saber se a carga está certa: o teste das últimas 2 reps (RIR na prática, sem jargão)",
+          "Amplitude completa vs. parcial: quando cada uma faz sentido e o erro de 'descer só até a metade'",
+          "Progressão de carga inteligente: por que adicionar 2kg toda semana quebra — e o que fazer no platô",
+          "Variação de exercício com intenção: trocar por trocar atrapalha; trocar por estímulo evolui",
+          "Aquecimento que serve pra algo: específico ao padrão de movimento, não 5 min de esteira aleatória",
+          "Como ajustar o treino no dia ruim (sono/estresse) sem jogar a semana fora"
+        ],
+        "hook_styles": [
+          "Erro de execução comum ('90% ajusta a carga errado. O teste certo leva 2 repetições.')",
+          "'Como saber se...' (autodiagnóstico acionável)",
+          "Antes/depois de técnica (storytelling de correção)",
+          "Mini-tutorial em formato tweet ('Platô não é falta de esforço. É falta de progressão planejada. Faça isso:')"
+        ]
+      },
+      {
+        "name": "Erros & Mitos",
+        "goal": "Quebrar crenças do senso comum fitness com autoridade — o pilar de maior potencial de engajamento e alcance (controvérsia técnica gera salvamento e debate). Posiciona a BN como a voz que SEPARA ciência de bro-science, reforçando 'não somos academia genérica'.",
+        "audience": "B2B (munição para discutir com clientes desinformados) e B2C (todos os níveis) em pé de igualdade",
+        "example_topics": [
+          "'Localizada não existe' — o mito da redução de gordura por região e o que realmente acontece",
+          "'Musculação trava o crescimento do adolescente': de onde veio o medo e o que a ciência diz",
+          "'Mulher fica masculinizada com peso': a fisiologia hormonal que derruba o mito",
+          "'Sentir dor no dia seguinte é sinal de bom treino': por que DOMS não mede resultado",
+          "'Tem que sentir queimar pra crescer': o erro de confundir estresse metabólico com hipertrofia",
+          "'Treino em jejum queima mais gordura': o que muda no balanço energético total (spoiler: quase nada)"
+        ],
+        "hook_styles": [
+          "Mito entre aspas + veredito seco ('\"Abdominal seca a barriga.\" Não seca. Eis o porquê.')",
+          "'Pare de fazer isso' (interrupção de padrão)",
+          "Mito popular vs. consenso científico lado a lado",
+          "Provocação respeitosa que convida a salvar ('Se você ainda acredita nisso, este carrossel é pra você.')"
+        ]
+      },
+      {
+        "name": "Protocolo BN",
+        "goal": "Pilar proprietário e de conversão — mostra COMO a BN trabalha: a avaliação como porta de entrada, a individualização como método, a régua de qualidade. É onde 'treino individualizado começa na avaliação' vira prova concreta. Sustenta prova social (storytelling de aluno) e CTA de agendar avaliação. Aqui mora a venda.",
+        "audience": "B2C (futuros alunos, prova de método e resultado) primário, B2B (referência de padrão profissional, posicionamento de marca) secundário",
+        "example_topics": [
+          "O que acontece na avaliação BN: o que medimos e por que cada item muda o seu treino",
+          "'Sem avaliação, o treino não é seu' — por que copiar a planilha de outro aluno te trava (Layout 2, storytelling)",
+          "Caso real: aluno chegou com dor no ombro tratada como 'falta de força' — o que a avaliação revelou (prova social)",
+          "Como a BN periodiza por indivíduo: dois alunos, mesmo objetivo, treinos diferentes (e o motivo)",
+          "Reavaliação: por que treino individualizado não é estático — ajustamos com dados, não com achismo",
+          "Os 4 níveis BN (iniciante→avançado): como sabemos onde você está e para onde levar"
+        ],
+        "hook_styles": [
+          "Frase-manifesto da marca ('Na BN, ninguém treina sem ser avaliado primeiro.')",
+          "Storytelling de transformação com início no problema (Layout 2)",
+          "Contraste 'genérico vs. BN' ('A diferença entre uma planilha e um treino seu começa em 1 hora de avaliação.')",
+          "CTA direto de baixa fricção ('Clica no link da bio e agenda sua avaliação. @bnperformancetraining')"
+        ]
+      }
+    ]
+  },
+  "guardrails": {
+    "summary": "Guardrails operacionais da BN Performance Training para conteúdo de dupla audiência (B2B saúde + B2C níveis 1-4): protege a autoridade técnica par-a-par com profissionais de educação física e fisioterapeutas sem o conteúdo virar prescrição clínica, e blinda a marca contra alegações de resultado garantido, escassez falsa e prova social fabricada.",
+    "do": [
+      "Ancorar toda afirmação técnica em mecanismo ('o agachamento aumenta torque no joelho POR ISSO...'), não em opinião — a audiência B2B salva conteúdo referenciável, então sempre que citar um efeito, deixe explícito o 'por quê' fisiológico.",
+      "Citar a fonte/autor quando a alegação for forte ou contraintuitiva (Verkhoshansky, Bosch, Prestes, Leporace, consenso/posicionamento de entidade) — em conteúdo B2B, alegação sem rastreabilidade derruba a autoridade par-a-par.",
+      "Usar linguagem de probabilidade e faixa, não de garantia: 'tende a', 'na maioria dos casos', 'a evidência sugere', 'pode levar a' — substitui qualquer 'vai', 'garante', 'em X dias você terá'.",
+      "Distinguir explicitamente nível de evidência vs. prática de campo quando misturar: marcar 'na prática da BN observamos...' separado de 'a literatura mostra...' para não vender experiência anedótica como ciência.",
+      "No Layout 2 (storytelling/feedback de aluno), tratar todo depoimento como caso individual com a ressalva de individualidade ('resultado do João, no contexto dele') — prova social honesta, nunca generalizável como promessa.",
+      "Reforçar o pilar 'individualização começa na avaliação' como o gating ético de toda recomendação: qualquer dica de treino vem acompanhada de 'isto precisa ser ajustado à sua avaliação/contexto', o que protege juridicamente E sustenta o posicionamento.",
+      "Adaptar a profundidade por audiência sem mentir para nenhuma: B2C ganha a versão clara do mesmo mecanismo verdadeiro (simplificar SEM distorcer a ciência), não uma versão 'fácil' factualmente errada.",
+      "Incluir contraindicação/quando-não-fazer em conteúdo de exercício ('evite se houver dor aguda, lesão recente ou orientação médica em contrário') — em audiência de saúde isso é esperado e eleva credibilidade.",
+      "Direcionar à ação certa e verificável no CTA (agendar avaliação, link na bio, @bnperformancetraining), sem prometer o desfecho da ação ('agende sua avaliação', não 'agende e destrave seu shape em 30 dias').",
+      "Revisar a copy PT-BR renderizada em Python+PIL pixel a pixel antes de publicar (a IA do Canva embaralha/traduz PT-BR — lição da marca); QA de texto é guardrail, não polimento.",
+      "Padronizar disclaimers reutilizáveis curtos por tipo de slide (educativo, exercício, depoimento) para que nenhum carrossel saia sem a ressalva apropriada.",
+      "Creditar/respeitar direito de imagem e consentimento explícito do aluno antes de usar foto, nome ou print de conversa em Layout 2 (prova social)."
+    ],
+    "dont": [
+      "Não prometer resultado, prazo ou número garantido ('emagrece X kg', 'hipertrofia em 8 semanas', 'elimina a dor') — nem em copy nem em depoimento editado; troque por faixa realista e dependente de contexto.",
+      "Não fabricar escassez ('últimas 3 vagas', 'só hoje', contador falso) nem urgência inventada; se houver limite real de agenda/turma, dizer o número verdadeiro e verificável.",
+      "Não usar depoimento falso, composto, encenado ou 'antes/depois' sem consentimento e sem contexto — e nunca apresentar caso isolado como padrão esperado da marca.",
+      "Não diagnosticar ('você tem encurtamento de psoas', 'isso é uma hérnia') — análise mecânica/postural não é diagnóstico clínico; descrever padrão de movimento, não nomear patologia do seguidor.",
+      "Não prescrever tratamento clínico, conduta de reabilitação individual, medicamento, suplemento como terapia, ou dieta clínica para doença/transtorno alimentar — isso é ato de profissional habilitado, não conteúdo de marca.",
+      "Não dar protocolo individual 'faça isto' para um seguidor específico nos comentários/DM sem avaliação — manter conteúdo no plano educativo geral.",
+      "Não atacar, depreciar nem citar concorrentes/'academia genérica' de forma que vire afirmação difamável; o contraste deve ser sobre método (avaliação/individualização), não ofensa a terceiros.",
+      "Não copiar texto, arte, fotos de banco sem licença, ou trechos de papers/autores sem atribuição — risco de direito autoral e perda de autoridade na audiência B2B.",
+      "Não simplificar a ponto de ensinar algo factualmente errado para o B2C (ex.: 'músculo vira gordura', 'suar é queimar gordura', mitos que a própria marca combate no pilar Erros & Mitos).",
+      "Não usar termos clínicos regulados ('cura', 'trata', 'reabilita', 'corrige a lesão') como benefício de marketing — são gatilhos jurídicos e clínicos.",
+      "Não transformar o pilar 'Fisiologia Aplicada' em alegação de saúde generalista sobre o seguidor ('seu cortisol está alto, faça isto'); manter no nível educativo, não no de avaliação individual à distância.",
+      "Não publicar sem checar a copy PT-BR renderizada — texto embaralhado/traduzido é falha de marca que destrói credibilidade na audiência técnica."
+    ],
+    "claim_guardrails": [
+      "Resultado: substituir toda promessa por expectativa condicionada — 'os resultados dependem de avaliação, adesão e individualidade; variam de pessoa para pessoa'. Nenhum número de kg/cm/% sem contexto.",
+      "Garantia: a BN nunca garante desfecho; vende método (treino individualizado baseado em ciência) e processo (avaliação → prescrição), não outcome.",
+      "Prova/evidência: alegação forte exige mecanismo + (idealmente) fonte; 'estudos mostram' só com referência verificável atrás. Evitar 'comprovado cientificamente' como slogan vazio.",
+      "Escassez/urgência: só comunicar limite que existe de fato (vagas reais da agenda, turma com teto real); proibido contador/estoque falso.",
+      "Prova social: depoimento real, com consentimento, marcado como caso individual; sem 'todos os alunos', sem antes/depois sem ressalva de individualidade e contexto.",
+      "Comparativo: contraste com 'academia genérica' deve ser sobre o método (avaliação/individualização), factual e não nominal a um concorrente — evita difamação.",
+      "Superlativos: evitar 'o melhor', 'o único', 'o mais eficaz' sem base demonstrável; preferir diferencial verificável ('ninguém treina na BN sem ser avaliado primeiro')."
+    ],
+    "health_safety_limits": [
+      "Não diagnosticar: análise postural/biomecânica descreve padrão de movimento, nunca nomeia patologia do seguidor ('isso é tendinite/hérnia/encurtamento').",
+      "Não prescrever clinicamente: nada de conduta de reabilitação individual, medicamento, dose de suplemento como terapia, ou dieta clínica para doença/transtorno alimentar à distância.",
+      "Respeitar dor, lesão e sinais de alerta: todo conteúdo de exercício carrega 'pare diante de dor aguda, lesão recente ou orientação médica em contrário' e orienta procurar profissional.",
+      "Encaminhar diante de red flags (dor persistente, sinais cardiológicos, sintomas neurológicos, RED-S, gestação/pós-parto, populações especiais) — conteúdo geral não substitui avaliação presencial.",
+      "Manter o conteúdo no plano educativo geral, não no plano de prescrição individual — a individualização só acontece após avaliação na BN, e isso deve estar dito.",
+      "Populações específicas (gestante, pós-parto, adolescente, idoso, cardiopata, lesionado) exigem ressalva explícita de individualização e acompanhamento profissional; não tratar como público padrão.",
+      "B2B: posicionar o conteúdo como insumo técnico par-a-par para o profissional aplicar com critério ao próprio aluno/paciente — não como protocolo pronto a ser replicado cego."
+    ],
+    "legal_notes": "Não há vínculo médico/terapêutico criado por conteúdo educativo — deixar isso claro evita expectativa de dever de cuidado clínico (a relação técnica nasce na avaliação presencial). Imagem, nome e prints de conversa de alunos só com consentimento por escrito (LGPD/direito de imagem); dados de avaliação são dados pessoais sensíveis de saúde e não devem aparecer em conteúdo identificável sem autorização específica. Crédito/licença obrigatórios para fotos, trilhas, arte e citações de autores/papers (direito autoral) — fundos próprios via Gemini Imagen reduzem esse risco. Termos clínicos regulados ('cura', 'trata', 'reabilita') em peça de marketing podem configurar publicidade enganosa e invasão de competência de profissão regulamentada — manter linguagem em treino/educação. Comparativos com concorrentes devem ser factuais e sobre método para evitar concorrência desleal/difamação. Toda peça idealmente assinada com responsável técnico habilitado (CREF/CONFEF da BN) reforçando que a orientação real ocorre sob supervisão profissional. Disclaimer padrão recomendado em conteúdo de treino: 'Conteúdo educativo, não substitui avaliação individual com profissional habilitado.'"
+  },
+  "vocabulary_preferences": {
+    "prefer": [
+      "avaliação",
+      "individualizado",
+      "ciência",
+      "evidência",
+      "mecanismo",
+      "protocolo",
+      "critério",
+      "linha de base",
+      "dado / com base em dado",
+      "torque",
+      "braço de momento",
+      "déficit / assimetria",
+      "cadeia cinética",
+      "controle motor",
+      "periodização",
+      "carga",
+      "progressão",
+      "adaptação",
+      "específico para você / que é seu",
+      "porquê / o porquê por trás",
+      "consequência",
+      "intenção (treinar com intenção)",
+      "prescrição"
+    ],
+    "avoid": [
+      "academia (como sinônimo da BN)",
+      "treininho / treino genérico vendido como solução",
+      "BORA / monstro / fera / shape dos sonhos",
+      "resultado garantido / 100% / em X dias",
+      "queima de gordura milagrosa",
+      "segredo / hack / fórmula secreta",
+      "última vaga / só hoje / corre que acaba (escassez falsa)",
+      "simplesmente / literalmente / incrível / sensacional (muletas)",
+      "no pain no gain / sem dor sem ganho",
+      "transformação radical (como promessa)",
+      "dieta / prescrição clínica (fora do escopo — guardrail)",
+      "emojis em excesso",
+      "linguagem infantilizada ('vamos lá, campeão')"
+    ]
+  },
+  "aesthetics": {
+    "default": "l1_educativo",
+    "available": [
+      {
+        "key": "l1_educativo",
+        "label": "L1 · Educativo",
+        "theme": "misto",
+        "formats": [
+          "carrossel"
+        ],
+        "layout_id": "L1",
+        "desc": "Capa fotográfica escura + páginas internas off-white em estilo tweet + CTA navy.",
+        "when_to_use": "Ensinar no nicho, construir autoridade e gerar salvamentos.",
+        "rich": true,
+        "default": true
+      },
+      {
+        "key": "l2_storytelling",
+        "label": "L2 · História real",
+        "theme": "misto",
+        "formats": [
+          "storytelling"
+        ],
+        "layout_id": "L2",
+        "desc": "Foto/evidência + narrativa editorial em navy, com contraste serif/sans.",
+        "when_to_use": "Feedback real de aluno, processo e prova social com consentimento.",
+        "rich": true,
+        "default": false
+      },
+      {
+        "key": "l3_aviso",
+        "label": "L3 · Aviso BN",
+        "theme": "dark",
+        "formats": [
+          "aviso"
+        ],
+        "layout_id": "L3",
+        "desc": "Comunicado tipográfico em ink/navy, serif grande e informação objetiva.",
+        "when_to_use": "Horários, recesso, abertura, mudança operacional ou comunicado real.",
+        "rich": false,
+        "default": false
+      },
+      {
+        "key": "l4_evento_poster",
+        "label": "L4 · Evento cartaz",
+        "theme": "dark",
+        "formats": [
+          "evento"
+        ],
+        "layout_id": "L4",
+        "variant": "poster",
+        "desc": "Cartaz editorial com foto dessaturada, headline serif e logística na base.",
+        "when_to_use": "Anúncio e apresentação de evento real.",
+        "rich": false,
+        "default": false
+      },
+      {
+        "key": "l4_evento_teaser",
+        "label": "L4 · Evento teaser",
+        "theme": "dark",
+        "formats": [
+          "evento"
+        ],
+        "layout_id": "L4",
+        "variant": "teaser",
+        "desc": "Teaser quase preto, um foco central e revelação em linguagem de convite.",
+        "when_to_use": "Save the date, pré-anúncio ou última chamada de evento real.",
+        "rich": false,
+        "default": false
+      },
+      {
+        "key": "navy",
+        "label": "Navy · Peça única",
+        "theme": "dark",
+        "formats": [
+          "post",
+          "story",
+          "reels"
+        ],
+        "desc": "Navy limpo para peças únicas, stories e cards de Reels.",
+        "when_to_use": "Formatos que não são carrosséis L1-L4.",
+        "rich": false,
+        "default": false
+      }
+    ],
+    "emphasis_markup": "Em L1/L2: **negrito** para termos-chave, *itálico* para nuance/citação e ==destaque== para uma única palavra ou punchline em areia #C8A876."
+  },
+  "objectives": [
+    {
+      "key": "autoridade",
+      "label": "Autoridade / Educar",
+      "bucket": "atracao",
+      "description": "Topo de funil. Ensina um conceito de treino pela ciência para alcançar contas novas e virar referência confiável no nicho. É o motor de alcance da BN: quanto mais gente salva e compartilha, mais o algoritmo entrega para não-seguidores. Ancora nos pilares Ciência do Treino, Fisiologia Aplicada e Erros & Mitos. Aqui NÃO se vende: constrói-se a confiança que faz a venda acontecer depois. Traduz autoridade técnica (B2B: profs/fisios) em linguagem aplicável (B2C: alunos 1-4). Sempre com fonte ou princípio fisiológico por trás, nunca achismo.",
+      "kpi": "Salvamentos + alcance de contas não seguidoras (proxy de autoridade e novos seguidores)",
+      "recommended_formats": [
+        "carrossel",
+        "reels",
+        "post"
+      ],
+      "recommended_aesthetics": [
+        "white_card",
+        "light_infographic",
+        "bronze_editorial"
+      ],
+      "cta_styles": [
+        "Salva esse post pra consultar antes do seu proximo treino.",
+        "Compartilha com aquele colega de treino que ainda acredita nesse mito.",
+        "Segue a @bn pra entender o treino pela ciencia, nao pelo achismo.",
+        "Quer a referencia cientifica disso? Comenta 'FONTE' que eu mando."
+      ]
+    },
+    {
+      "key": "engajar",
+      "label": "Engajar",
+      "bucket": "engajamento",
+      "description": "Meio de funil. Provoca conversa e reacao para aquecer o alcance e revelar quem esta na base pensando o mesmo problema. Usa opiniao, mito vs. ciencia, 'erros que voce comete' e perguntas diretas. O engajamento aqui e ferramenta de distribuicao (comentario/compartilhamento empurram o post) e de leitura de audiencia — quem comenta esta se qualificando. Tom BN: provoca com dado e honestidade, sem clickbait vazio nem polemica artificial. Pilar forte: Erros & Mitos e Treino na Pratica.",
+      "kpi": "Comentarios + compartilhamentos (taxa de interacao / conversas iniciadas no post)",
+      "recommended_formats": [
+        "reels",
+        "story",
+        "post"
+      ],
+      "recommended_aesthetics": [
+        "black_marker",
+        "foto_impacto",
+        "dark_minimal"
+      ],
+      "cta_styles": [
+        "E voce, treina por sensacao ou por dado? Conta aqui embaixo.",
+        "Concorda ou discorda? Quero ler seu argumento nos comentarios.",
+        "Qual desses erros voce ja cometeu? Responde com o numero.",
+        "Marca alguem que precisa parar de treinar assim."
+      ]
+    },
+    {
+      "key": "nutrir",
+      "label": "Nutrir / Aquecer base",
+      "bucket": "engajamento",
+      "description": "Meio de funil, relacao continua. Mantem a base morna entre os posts de venda: bastidores do metodo, rotina do prof, como a BN pensa um caso, respostas a duvidas recorrentes. Constroi intimidade e prova de processo (o 'como funciona por dentro') que reduz a friccao na hora de contratar. Vive muito nos Stories (sequencia diaria, enquete, caixa de perguntas) e em storytelling. Sem venda dura — prepara o terreno. Reforca o Protocolo BN como jeito de trabalhar, humanizando a autoridade.",
+      "kpi": "Retencao/conclusao de Stories + respostas em enquete e caixa de perguntas (interacao 1-a-1 com a base)",
+      "recommended_formats": [
+        "story",
+        "storytelling",
+        "reels"
+      ],
+      "recommended_aesthetics": [
+        "foto_impacto",
+        "white_card",
+        "navy"
+      ],
+      "cta_styles": [
+        "Responde a enquete: qual tema voce quer que eu aprofunde essa semana?",
+        "Manda sua duvida na caixa de perguntas que eu respondo por aqui.",
+        "Assiste ate o final pra ver como a gente aplica isso na pratica.",
+        "Me conta em que ponto do seu treino voce esta hoje."
+      ]
+    },
+    {
+      "key": "captar",
+      "label": "Captar lead / DM",
+      "bucket": "conversao",
+      "description": "Fundo de funil, conversao suave. Faz a pessoa levantar a mao: iniciar DM, comentar palavra-chave, clicar no link, pedir um material. Nao pede a compra ainda — pede o contato qualificado que alimenta o comercial. Funciona com guia pratico + oferta de aprofundamento ('quer o passo a passo completo? chama no direto'), isca de valor (checklist, mini-guia) e caixa de perguntas com CTA. Toda captura passa pela porta da avaliacao: 'a gente comeca te avaliando'. Sem isca enganosa — entrega de verdade o que promete.",
+      "kpi": "DMs iniciadas + comentarios com palavra-chave + cliques no link da bio (leads qualificados gerados)",
+      "recommended_formats": [
+        "carrossel",
+        "story",
+        "post"
+      ],
+      "recommended_aesthetics": [
+        "white_card",
+        "navy",
+        "light_infographic"
+      ],
+      "cta_styles": [
+        "Comenta 'AVALIACAO' que eu te mando o passo a passo no direto.",
+        "Quer o material completo? Manda 'BN' na DM que eu te envio.",
+        "Link na bio pra entender como funciona a avaliacao inicial.",
+        "Quer destrinchar o seu caso? Chama no direto — a gente comeca pela avaliacao."
+      ]
+    },
+    {
+      "key": "vender",
+      "label": "Vender consultoria",
+      "bucket": "conversao",
+      "description": "Fundo de funil, conversao dura. Apresenta a oferta e chama para o passo comercial: agendar avaliacao, iniciar conversa de contratacao. Usa case/transformacao honesta (com contexto, sem milagre), explicacao do metodo (Protocolo BN) e prova de processo. O gancho central da marca vive aqui: 'treino individualizado comeca na avaliacao'. Diferencial vs. concorrentes de hype: BN vende o RIGOR (avalia, planeja, ajusta por dado), nao a promessa de resultado. Zero escassez falsa, zero garantia irreal, sem depoimento fabricado. Densidade baixa no calendario (nao satura), mas com CTA inequivoco.",
+      "kpi": "Avaliacoes agendadas + conversas de venda iniciadas (contratacoes de consultoria)",
+      "recommended_formats": [
+        "storytelling",
+        "carrossel",
+        "story"
+      ],
+      "recommended_aesthetics": [
+        "bronze_editorial",
+        "navy",
+        "foto_impacto",
+        "white_card"
+      ],
+      "cta_styles": [
+        "Treino individualizado comeca na avaliacao. Agenda a sua pelo link na bio.",
+        "Sem promessa magica: a gente avalia, monta seu plano e ajusta por dado. Bora comecar? Link na bio.",
+        "Se voce quer parar de treinar no escuro, chama no direto — a consultoria BN comeca te avaliando.",
+        "Manda 'QUERO' na DM que eu te explico como funciona o acompanhamento, passo a passo."
+      ]
+    }
+  ],
+  "formats_library": [
+    {
+      "key": "mito-vs-verdade",
+      "name": "Mito vs. Verdade — BN Desmascara",
+      "format_type": "carrossel",
+      "bucket": "atracao",
+      "objective": [
+        "autoridade"
+      ],
+      "structure": [
+        {
+          "step": "Slide 1 — Capa (o mito)",
+          "guidance": "Escreva o mito EXATAMENTE como o aluno ouve na academia, entre aspas, em ==destaque==. Selo pequeno 'MITO' no topo. NÃO responda ainda — só abra a dúvida (curiosity gap). Ex: ==\"Sentir dor no dia seguinte = treino bom\"=="
+        },
+        {
+          "step": "Slide 2 — Por que todo mundo repete",
+          "guidance": "Valide por que o mito PARECE fazer sentido (empatia, nunca deboche). 1-2 frases: 'Faz sentido pensar assim porque...'. Nunca humilhe quem acredita — a BN corrige, não zomba."
+        },
+        {
+          "step": "Slide 3 — O que a ciência mostra",
+          "guidance": "Vire a chave com o mecanismo real em linguagem simples (ex: dor tardia = DOMS, marca dano/novidade, não eficácia do estímulo). Se citar estudo, cite tipo e ano — NUNCA invente número ou referência."
+        },
+        {
+          "step": "Slide 4 — A correção BN",
+          "guidance": "Afirme a verdade em UMA frase memorável em **negrito**. Ex: **Progressão de carga é o que constrói músculo — não a dor.**"
+        },
+        {
+          "step": "Slide 5 — Na prática",
+          "guidance": "1 ação concreta que o seguidor aplica hoje (pilar Treino na Prática). Traduz autoridade em uso real, não em teoria."
+        },
+        {
+          "step": "Slide 6 — CTA",
+          "guidance": "Convide a salvar e marcar alguém que ainda acredita no mito. CTA honesto, sem promessa de resultado garantido nem prazo mágico."
+        }
+      ],
+      "hook_style": "Mito entre aspas + selo 'MITO' na capa, com a resposta segurada (curiosity gap)",
+      "cta_style": "Salvar + marcar alguém que ainda acredita nesse mito",
+      "aesthetic_hint": "dark_minimal",
+      "when_to_use": "Quando existe uma crença comum e errada no nicho que dá pra corrigir com ciência. Altíssimo compartilhamento — as pessoas marcam quem 'precisa ver isso'. Pilar Erros & Mitos.",
+      "example_topic": "\"Precisa sentir dor no dia seguinte pra saber que o treino funcionou\" — o que o DOMS realmente diz sobre o estímulo"
+    },
+    {
+      "key": "tres-erros-que-sabotam",
+      "name": "3 Erros que Sabotam (Erros Silenciosos)",
+      "format_type": "carrossel",
+      "bucket": "atracao",
+      "objective": [
+        "autoridade"
+      ],
+      "structure": [
+        {
+          "step": "Slide 1 — Capa (a promessa)",
+          "guidance": "Título com número + resultado específico + quebra de expectativa: '3 erros que sabotam [resultado] mesmo treinando pesado'. Deixe claro pra QUEM é. Número no título puxa salvamento."
+        },
+        {
+          "step": "Slide 2 — Erro 1 (+ por quê)",
+          "guidance": "Nomeie o erro em **negrito** e explique em 1 frase POR QUE ele trava o resultado (mecanismo, não achismo). Um erro por slide."
+        },
+        {
+          "step": "Slide 3 — Erro 2 (+ por quê)",
+          "guidance": "Mesmo padrão. Escale do mais comum para o mais surpreendente."
+        },
+        {
+          "step": "Slide 4 — Erro 3 (+ por quê)",
+          "guidance": "O erro 'não óbvio' — o que separa a BN de dica genérica de internet. Aqui mora a autoridade técnica."
+        },
+        {
+          "step": "Slide 5 — O princípio corretor",
+          "guidance": "Resuma a correção dos 3 num princípio único BN (ex: 'individualização + progressão registrada'). Reforça o Protocolo BN sem virar propaganda."
+        },
+        {
+          "step": "Slide 6 — CTA",
+          "guidance": "Salvar pra revisar antes do próximo treino + comentar qual erro te pegava. Sem hype."
+        }
+      ],
+      "hook_style": "Número + resultado específico + 'mesmo treinando pesado' (quebra de expectativa)",
+      "cta_style": "Salvar pra aplicar no próximo treino + comentar qual erro cometia",
+      "aesthetic_hint": "black_marker",
+      "when_to_use": "Puxar público novo que já treina mas estagnou. Formato de altíssimo salvamento; use quando o tema tem erros concretos, verificáveis e corrigíveis.",
+      "example_topic": "3 erros na execução do agachamento que travam seus ganhos de força (e ninguém te corrige)"
+    },
+    {
+      "key": "checklist-salvavel",
+      "name": "Checklist Salvável (Salva que vai usar)",
+      "format_type": "carrossel",
+      "bucket": "atracao",
+      "objective": [
+        "autoridade"
+      ],
+      "structure": [
+        {
+          "step": "Slide 1 — Capa (promessa utilitária)",
+          "guidance": "Título 'Checklist: [tarefa prática]' + promessa de que é pra salvar e usar. Ex: 'Antes de aumentar a carga, cheque estes 5 itens'. Utilidade explícita > frase bonita."
+        },
+        {
+          "step": "Slide 2 — Por que importa",
+          "guidance": "1 linha sobre o risco de fazer sem checar (lesão, estagnação). Curto — o valor é a lista, não a introdução."
+        },
+        {
+          "step": "Slide 3 — Itens do checklist",
+          "guidance": "3 a 6 itens, cada um uma linha acionável com ✓, VERIFICÁVEL objetivamente (nada de 'sinta seu corpo'). 1 item por slide ou agrupados conforme a estética."
+        },
+        {
+          "step": "Slide 4 — Regra de ouro",
+          "guidance": "O critério que resume tudo em **negrito**. Ex: **Só progrida se bateu todas as reps com técnica em 2 treinos seguidos.** Princípio BN."
+        },
+        {
+          "step": "Slide 5 — CTA",
+          "guidance": "'Salve e reabra na hora do treino.' Utilitário puro, sem hype nem escassez."
+        }
+      ],
+      "hook_style": "'Checklist' + tarefa prática + promessa de utilidade ('salva que vai usar')",
+      "cta_style": "Salvar e reabrir no momento de executar",
+      "aesthetic_hint": "light_infographic",
+      "when_to_use": "Quando o tema é um procedimento verificável (progressão, aquecimento, escolha de carga, volta ao treino). Máquina de salvamento; funciona pra B2C e como material que o prof/fisio compartilha com o aluno.",
+      "example_topic": "Checklist: como saber se você está pronto pra aumentar a carga com segurança (progressão)"
+    },
+    {
+      "key": "tres-sinais-de",
+      "name": "3 Sinais de que... (Diagnóstico Rápido)",
+      "format_type": "carrossel",
+      "bucket": "atracao",
+      "objective": [
+        "autoridade"
+      ],
+      "structure": [
+        {
+          "step": "Slide 1 — Capa (sinal + tensão)",
+          "guidance": "'3 sinais de que [algo indesejado está acontecendo]'. Gera autoidentificação imediata. Ex: '3 sinais de que você treina demais e evolui de menos'."
+        },
+        {
+          "step": "Slide 2 — Sinal 1",
+          "guidance": "Sintoma observável na rotina do seguidor + o que ele indica fisiologicamente (pilar Fisiologia Aplicada). Sinal em **negrito**."
+        },
+        {
+          "step": "Slide 3 — Sinal 2",
+          "guidance": "Idem. Ordene do mais comum ao mais alarmante."
+        },
+        {
+          "step": "Slide 4 — Sinal 3",
+          "guidance": "O sinal 'silencioso' que só quem tem repertório percebe. Diferencial técnico da BN."
+        },
+        {
+          "step": "Slide 5 — O que fazer (honesto)",
+          "guidance": "Ação prática E quando procurar avaliação profissional. GUARDRAIL: são 'sinais', NUNCA 'diagnóstico'. Não diagnostica nem prescreve clinicamente — se for saúde, orientar avaliação."
+        },
+        {
+          "step": "Slide 6 — CTA",
+          "guidance": "Marcar quem está se identificando + salvar. Identificação gera compartilhamento orgânico."
+        }
+      ],
+      "hook_style": "'3 sinais de que [problema]' — autodiagnóstico que gera identificação instantânea",
+      "cta_style": "Marcar alguém que está com esses sinais + salvar",
+      "aesthetic_hint": "dark_minimal",
+      "when_to_use": "Quando há um problema comum e reconhecível (overtraining, técnica ruim, subnutrição de treino, sono ruim). Alto compartilhamento por identificação. Sempre respeitar o guardrail de não diagnosticar.",
+      "example_topic": "3 sinais de que você está em overreaching: cansaço que não passa, força caindo e sono piorando"
+    },
+    {
+      "key": "ciencia-traduzida",
+      "name": "Ciência Traduzida (O Estudo Explica)",
+      "format_type": "carrossel",
+      "bucket": "atracao",
+      "objective": [
+        "autoridade"
+      ],
+      "structure": [
+        {
+          "step": "Slide 1 — Capa (o dado forte)",
+          "guidance": "Abra com o achado/número mais contraintuitivo em ==destaque==. Ex: '==A maior parte do ganho mora entre 10-20 séries por grupo/semana=='. Sem prometer milagre."
+        },
+        {
+          "step": "Slide 2 — O que o estudo fez",
+          "guidance": "1-2 frases: tipo de estudo (meta-análise, ECR), população e o que mediram. Honestidade metodológica é assinatura da BN."
+        },
+        {
+          "step": "Slide 3 — O que encontraram",
+          "guidance": "O achado central, simples. Traduza a estatística em linguagem humana, sem perder a precisão."
+        },
+        {
+          "step": "Slide 4 — O que isso significa pra você",
+          "guidance": "A ponte do laboratório pra prática do seguidor. Essa tradução É o valor do post (pilar Ciência do Treino → Treino na Prática)."
+        },
+        {
+          "step": "Slide 5 — A ressalva honesta",
+          "guidance": "O que o estudo NÃO prova / limites / 'depende de'. Este slide é o diferencial BN vs. hype. Ex: 'é média de grupo, não regra individual'."
+        },
+        {
+          "step": "Slide 6 — CTA",
+          "guidance": "Salvar + seguir 'ciência sem hype'. Pode citar a referência (autor, ano) nos comentários — só se ela existir de verdade."
+        }
+      ],
+      "hook_style": "Número/achado contraintuitivo em destaque na capa, direto de um estudo real",
+      "cta_style": "Salvar + seguir 'ciência sem hype'; opcional pedir a referência nos comentários",
+      "aesthetic_hint": "bronze_editorial",
+      "when_to_use": "Quando há um estudo/meta-análise real e relevante pra traduzir. Constrói autoridade máxima e atrai B2B (profs/fisios). NUNCA inventar número ou fonte — sem referência real, não usar este formato.",
+      "example_topic": "O que a meta-análise diz sobre volume semanal e hipertrofia — e por que 'mais' nem sempre é melhor"
+    },
+    {
+      "key": "isto-ou-aquilo",
+      "name": "Isto ou Aquilo (Comparação Lado a Lado)",
+      "format_type": "carrossel",
+      "bucket": "atracao",
+      "objective": [
+        "autoridade"
+      ],
+      "structure": [
+        {
+          "step": "Slide 1 — Capa (o duelo)",
+          "guidance": "'X vs. Y: o que a ciência prefere?' com dois termos que o público debate. Curiosity gap — NÃO entregue o veredito na capa."
+        },
+        {
+          "step": "Slide 2 — As regras do jogo",
+          "guidance": "Diga o critério de comparação (ex: 'pra ganho de força', 'pra iniciante'). Contexto explícito evita resposta absolutista — marca da honestidade BN."
+        },
+        {
+          "step": "Slide 3 — Lado A (prós e contras)",
+          "guidance": "O que X faz bem e onde falha. Honesto, sem torcida. Um bloco visual por lado."
+        },
+        {
+          "step": "Slide 4 — Lado B (prós e contras)",
+          "guidance": "Idem para Y. Mesmo peso, mesma justiça."
+        },
+        {
+          "step": "Slide 5 — Veredito BN (com 'depende')",
+          "guidance": "Resposta clara MAS contextual em **negrito**. Ex: **Pra iniciante, Y; pra avançado buscando força máxima, X.** Autoridade que não finge que existe bala de prata."
+        },
+        {
+          "step": "Slide 6 — CTA",
+          "guidance": "Comentar 'time X ou Y' + salvar. Debate saudável gera alcance sem apelar pra briga."
+        }
+      ],
+      "hook_style": "'X vs. Y — o que a ciência prefere?' com o veredito segurado (curiosity gap + debate)",
+      "cta_style": "Comentar qual usa/prefere + salvar a comparação",
+      "aesthetic_hint": "light_infographic",
+      "when_to_use": "Quando existe uma dúvida binária popular no nicho (exercício A vs. B, método vs. método, jejum vs. comer antes). Gera comentário e alcance; o slide 'depende' foge do absolutismo e reforça a honestidade.",
+      "example_topic": "Agachamento livre vs. leg press: qual constrói mais força de verdade (e pra quem)?"
+    },
+    {
+      "key": "verdade-impopular",
+      "name": "Verdade Impopular (Hot Take Honesto)",
+      "format_type": "post",
+      "bucket": "atracao",
+      "objective": [
+        "autoridade"
+      ],
+      "structure": [
+        {
+          "step": "Arte — a afirmação",
+          "guidance": "Uma frase forte que contraria um clichê fitness, em ==destaque==, ocupando o post inteiro. Ex: '==Você não precisa mudar o treino toda semana.=='. Dita com calma, não como briga."
+        },
+        {
+          "step": "Legenda — abertura",
+          "guidance": "Reconheça em 1 linha por que a ideia OPOSTA vende (novidade, sensação de progresso, dopamina do 'novo')."
+        },
+        {
+          "step": "Legenda — a correção",
+          "guidance": "A verdade ancorada num princípio (progressão + constância > novidade). Curto, afiado, com 1 mecanismo ou evidência — sem inventar fonte."
+        },
+        {
+          "step": "Legenda — convite ao debate",
+          "guidance": "Convide discordância educada: 'me diz onde você discorda'. Autoridade que dialoga, nunca arrogância. GUARDRAIL: contrarianismo só com fundamento real, nunca provocação vazia por engajamento."
+        }
+      ],
+      "hook_style": "Afirmação contra o senso comum do fitness, dita com serenidade (autoridade, não briga)",
+      "cta_style": "Convidar discordância educada nos comentários ('me diz onde você discorda')",
+      "aesthetic_hint": "dark_minimal",
+      "when_to_use": "Post único de opinião ancorada em ciência. Ótimo pra alcance e pra posicionar a BN como 'a voz honesta do nicho'. Usar com moderação e SEMPRE com fundamento — nunca contrarianismo vazio.",
+      "example_topic": "Você não precisa 'confundir o músculo'. Precisa de progressão e constância."
+    },
+    {
+      "key": "enquete-certo-errado",
+      "name": "Enquete Certo ou Errado (Mito de Treino)",
+      "format_type": "story",
+      "bucket": "engajamento",
+      "objective": [
+        "engajar",
+        "nutrir"
+      ],
+      "hook_style": "Afirmacao-armadilha que a maioria acha obvia, seguida de 'CERTO ou ERRADO?' — o dedo responde antes do cerebro pensar.",
+      "cta_style": "Sticker de enquete nativo de 2 opcoes (CERTO / ERRADO) + convite a justificar no direct: 'errou? me conta por que voce achava isso'.",
+      "when_to_use": "Para aquecer a audiencia de manha ou em pre-lancamento com baixissima friccao, medir a crenca dominante e abrir gancho para um conteudo de autoridade no story seguinte.",
+      "example_topic": "Alongamento estatico antes do treino previne lesao — CERTO ou ERRADO? (reveal: a evidencia nao sustenta; mobilidade especifica supera alongamento passivo, e ele pode reduzir pico de forca)",
+      "aesthetic_hint": "black_marker",
+      "structure": [
+        {
+          "step": "Story 1 — Gancho + enquete",
+          "guidance": "Uma frase-armadilha grande na tela e o sticker de enquete CERTO/ERRADO logo abaixo. Zero explicacao ainda. O objetivo e o dedo ser mais rapido que o cerebro."
+        },
+        {
+          "step": "Story 2 — Placar + suspense",
+          "guidance": "Republique o resultado parcial ('70% marcou CERTO... segura essa'). Prova social + curiosidade, sinalizando que a maioria vai errar, sem entregar a resposta."
+        },
+        {
+          "step": "Story 3 — Veredito com ciencia",
+          "guidance": "Revele a resposta com 1 mecanismo fisiologico curto e honesto: o que a evidencia mostra e o que ainda e incerto. Nunca humilhe quem errou — tom de tecnico-cientista calmo."
+        },
+        {
+          "step": "Story 4 — Aplicacao + CTA de direct",
+          "guidance": "'Na pratica, faca assim:' 1 acao concreta. Fecha convidando conversa: 'achou que era certo? me chama no direct que eu explico pro seu caso.'"
+        }
+      ]
+    },
+    {
+      "key": "comenta-palavra-material",
+      "name": "Comenta a Palavra (Isca de Material)",
+      "format_type": "reels",
+      "bucket": "engajamento",
+      "objective": [
+        "engajar",
+        "nutrir"
+      ],
+      "hook_style": "Promessa de um recurso concreto e util nos 2 primeiros segundos: 'Eu montei um checklist de avaliacao e ele e seu de graca.'",
+      "cta_style": "'Comenta [PALAVRA] que eu te mando no direct' — o comentario dispara a conversa e a entrega REAL. Regra dura: so prometer material que voce vai realmente enviar.",
+      "when_to_use": "Quando voce TEM um material real de valor (checklist, planilha, mini-guia) e quer converter alcance em conversas no direct — o degrau antes de oferecer consultoria.",
+      "example_topic": "Comenta AVALIACAO que eu te mando o checklist dos 7 testes que eu aplico antes de montar qualquer treino",
+      "aesthetic_hint": "foto_impacto",
+      "structure": [
+        {
+          "step": "Beat 1 — Gancho (0-2s)",
+          "guidance": "Fale direto pra camera o que a pessoa ganha: 'Antes de montar qualquer treino eu aplico 7 testes. Vou te dar esse checklist.' Sem rodeio."
+        },
+        {
+          "step": "Beat 2 — Prova/porque (3-10s)",
+          "guidance": "2-3 frases de autoridade ('treino individualizado comeca na avaliacao') mostrando por que o material importa. Mostre 1-2 itens reais como amostra pra provar que existe."
+        },
+        {
+          "step": "Beat 3 — Condicao clara (10-15s)",
+          "guidance": "Explique a troca com honestidade: 'E de graca. So comenta a palavra AVALIACAO aqui embaixo que o direct chega.' Nada de escassez falsa."
+        },
+        {
+          "step": "Beat 4 — CTA + reforco (15-20s)",
+          "guidance": "Repita a palavra EXATA na fala e na legenda fixada (MAIUSCULA). Peca tambem 'salva pra nao perder'. Uma so palavra, sem variacoes, pra facilitar a resposta."
+        }
+      ]
+    },
+    {
+      "key": "hot-take-cientifico",
+      "name": "Hot Take Cientifico (Opiniao Polemica Embasada)",
+      "format_type": "carrossel",
+      "bucket": "engajamento",
+      "objective": [
+        "engajar",
+        "nutrir"
+      ],
+      "hook_style": "Afirmacao contra o senso comum do nicho, dita com conviccao — 'Vou te contrariar:' — sem clickbait vazio: a tese se sustenta na fisiologia.",
+      "cta_style": "Convite ao debate qualificado: 'Concorda ou discorda? Comenta seu argumento — e me diz se voce e aluno ou treina gente.' Provoca resposta longa, nao so emoji.",
+      "when_to_use": "Quando quiser volume de comentarios e posicionar a BN como voz de autoridade que pensa diferente. Ideal para a audiencia B2B (profs/fisios), que adora debate par-a-par.",
+      "example_topic": "'Treinar ate a falha' e superestimado para hipertrofia — e a fisiologia explica por que",
+      "aesthetic_hint": "black_marker",
+      "structure": [
+        {
+          "step": "Slide 1 — Capa/tese",
+          "guidance": "A frase polemica sozinha, grande: 'Voce NAO precisa treinar ate a falha.' Subtitulo pequeno: 'e a ciencia concorda'. So a tese, sem defesa ainda."
+        },
+        {
+          "step": "Slide 2 — O senso comum",
+          "guidance": "Nomeie a crenca dominante SEM ironia: 'O que todo mundo repete: falha = maximo estimulo.' Valide por que e razoavel acreditar nisso — respeito antes de contrariar."
+        },
+        {
+          "step": "Slide 3-4 — A evidencia",
+          "guidance": "1-2 mecanismos/achados que sustentam a tese (tensao mecanica, volume efetivo, fadiga x recuperacao). Honestidade: descreva o que os estudos mostram e a magnitude, sem inventar numero."
+        },
+        {
+          "step": "Slide 5 — A nuance (honestidade BN)",
+          "guidance": "'Quando a falha AINDA faz sentido:' mostre o outro lado. Isso separa a BN do hype, blinda de critica e reforca autoridade honesta."
+        },
+        {
+          "step": "Slide 6 — CTA de debate",
+          "guidance": "'Isso muda como voce monta treino? Concorda ou discorda? Comenta seu argumento — e diz se voce e aluno ou treina gente.' Convite par-a-par que puxa comentario denso."
+        }
+      ]
+    },
+    {
+      "key": "dilema-time-a-b",
+      "name": "Time A ou Time B (Dilema com Enquete)",
+      "format_type": "story",
+      "bucket": "engajamento",
+      "objective": [
+        "engajar",
+        "nutrir"
+      ],
+      "hook_style": "Dois perfis/opcoes mutuamente exclusivos que forcam a pessoa a se identificar — 'Qual voce e?' A autoidentificacao vira interacao automatica.",
+      "cta_style": "Enquete A vs B de baixa friccao + 'me conta no direct por que voce e desse time' ou 'marca um amigo do time errado'.",
+      "when_to_use": "Quando quiser engajamento rapido e, de quebra, SEGMENTAR a audiencia (quem treina por sensacao x por dado, iniciante x avancado) para conteudo e oferta futuros.",
+      "example_topic": "Cardio ANTES ou DEPOIS da musculacao? Time A x Time B — e qual a fisiologia prefere pra cada objetivo",
+      "aesthetic_hint": "navy",
+      "structure": [
+        {
+          "step": "Story 1 — O dilema + enquete",
+          "guidance": "Tela dividida ao meio (A | B), cada lado com rotulo claro. Sticker de enquete com as 2 opcoes. Nao revele o 'certo' ainda — deixe a divisao acontecer."
+        },
+        {
+          "step": "Story 2 — Placar + provocacao",
+          "guidance": "Mostre a divisao dos votos ('ta 55/45, empate tecnico') e provoque: 'os dois times tem razao em parte — segura.' Mantem a tensao viva."
+        },
+        {
+          "step": "Story 3 — Veredito com contexto",
+          "guidance": "Explique que a resposta depende do OBJETIVO (nao existe certo absoluto — honestidade BN). De o criterio de decisao em 1 frase clara."
+        },
+        {
+          "step": "Story 4 — CTA de direct",
+          "guidance": "'Qual e o SEU objetivo? Me manda no direct que eu te digo qual time faz sentido pra voce.' Converte a interacao coletiva em conversa 1:1."
+        }
+      ]
+    },
+    {
+      "key": "pergunta-abre-dm",
+      "name": "Me Conta Seu Caso (Pergunta que Abre Direct)",
+      "format_type": "reels",
+      "bucket": "engajamento",
+      "objective": [
+        "engajar",
+        "nutrir"
+      ],
+      "hook_style": "Nomear com precisao uma dor especifica e comum ('Travou no mesmo peso ha semanas?') — quem se reconhece sente que o conteudo e sobre ele.",
+      "cta_style": "Pergunta diagnostica aberta + convite ao direct com micro-entrega em troca ('me manda X que eu aponto o erro mais comum') — orientacao educativa, nunca prescricao clinica individual.",
+      "when_to_use": "Quando quiser abrir conversas 1:1 qualificadas no direct (topo do funil de consultoria) e coletar as dores reais da audiencia em primeira mao.",
+      "example_topic": "Travou na mesma carga no supino ha 3 semanas? Me conta o que voce ta fazendo que eu aponto o erro mais comum",
+      "aesthetic_hint": "dark_minimal",
+      "structure": [
+        {
+          "step": "Beat 1 — Gancho-dor (0-3s)",
+          "guidance": "Diga a dor especifica em voz alta com um detalhe/numero que da especificidade ('mesmo peso ha 3 semanas'). Quem vive isso para o dedo."
+        },
+        {
+          "step": "Beat 2 — Validacao + causa (3-12s)",
+          "guidance": "Mostre que voce entende o problema e nomeie 1 causa provavel, sem resolver tudo. Autoridade calma: 'quase sempre e 1 de 3 coisas.'"
+        },
+        {
+          "step": "Beat 3 — Convite ao direct (12-20s)",
+          "guidance": "Faca a pergunta que a pessoa quer responder: 'me manda no direct QUAL exercicio e ha quanto tempo.' Prometa uma micro-entrega honesta (1 ajuste, nao um treino completo)."
+        },
+        {
+          "step": "Beat 4 — Guardrail + CTA legenda (20-25s)",
+          "guidance": "Deixe claro que e orientacao geral e que caso com dor/lesao pede avaliacao presencial. Legenda reforca 'chama no direct' + 'salva pra usar depois'."
+        }
+      ]
+    },
+    {
+      "key": "chuta-o-numero",
+      "name": "Chuta o Numero (Quiz de Dado Cientifico)",
+      "format_type": "story",
+      "bucket": "engajamento",
+      "objective": [
+        "engajar",
+        "nutrir"
+      ],
+      "hook_style": "Um dado fisiologico surpreendente transformado em adivinhacao — 'Chuta:' — a vontade de acertar gera interacao no slider/quiz.",
+      "cta_style": "Sticker de controle deslizante (emoji slider) ou quiz + reveal com fonte honesta; convite a 'errou por quanto? comenta' ou 'me conta no direct'.",
+      "when_to_use": "Quando quiser interacao ludica de baixa friccao que ainda entrega autoridade cientifica. Otimo pra quebrar uma sequencia de conteudo denso e reengajar quem sumiu.",
+      "example_topic": "Quantos % de forca voce perde depois de 2 semanas SEM treinar? Chuta antes de arrastar (reveal com faixa realista e o que isso muda na pratica)",
+      "aesthetic_hint": "light_infographic",
+      "structure": [
+        {
+          "step": "Story 1 — Pergunta + slider",
+          "guidance": "Pergunta numerica clara + sticker de slider ou quiz. Peca o chute ANTES de qualquer dica. Mantenha o numero escondido."
+        },
+        {
+          "step": "Story 2 — Tensao",
+          "guidance": "'A maioria chutou alto demais...' — crie expectativa e valide que o senso comum exagera (ou subestima) o dado. Nao entregue ainda."
+        },
+        {
+          "step": "Story 3 — Reveal com fonte",
+          "guidance": "Mostre a FAIXA real, nao um numero magico, e cite a origem de forma honesta ('estudos variam, mas fica entre X e Y'). Zero precisao falsa."
+        },
+        {
+          "step": "Story 4 — O que muda + CTA",
+          "guidance": "Traduza o dado em decisao de treino ('por isso 1 semana off nao te faz perder tudo'). Fecha: 'errou por quanto? comenta' ou 'me chama no direct'."
+        }
+      ]
+    },
+    {
+      "key": "storytelling-transformacao-aluno",
+      "name": "Storytelling de Transformação (a virada real do aluno)",
+      "format_type": "storytelling",
+      "bucket": "conversao",
+      "aesthetic_hint": "foto_impacto",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "hook_style": "Tensão real: um aluno esforçado que estava TRAVADO. O gancho nomeia o problema oculto, nunca a falta de esforço ('3 anos treinando. Esforço nunca foi o problema dele — era outra coisa').",
+      "cta_style": "Convite suave para a avaliação, espelhando a dor do início: 'Se você também treina e não sai do lugar, o primeiro passo é entender o porquê. Chama no direct que a gente marca sua avaliação.' Sem escassez falsa.",
+      "when_to_use": "Quando você tem um caso real e documentado (com consentimento do aluno) e quer converter quem se identifica com a estagnação. Intercalar com conteúdo educativo — no máximo 1 a cada 4-5 posts, para não virar propaganda constante.",
+      "example_topic": "Aluno nível 2 que treinava sozinho há 3 anos, estagnou no supino e convivia com dor no ombro. A avaliação BN mostrou instabilidade escapular — não falta de carga. Quatro meses depois: ombro sem dor e progressão retomada.",
+      "structure": [
+        {
+          "step": "1. Gancho — estado inicial + problema oculto",
+          "guidance": "Abra com a PESSOA, não com a BN. Deixe claro que o esforço existia, mas o resultado não vinha. Crie identificação imediata com quem treina duro e não evolui."
+        },
+        {
+          "step": "2. O ponto de virada (a avaliação)",
+          "guidance": "Mostre que a avaliação revelou a causa raiz que ninguém tinha olhado. Aqui entra o diferencial BN sem vender ainda — a avaliação como método, não como pitch."
+        },
+        {
+          "step": "3. O processo, não o milagre",
+          "guidance": "Descreva o que mudou na prescrição e seja honesto sobre o tempo. Foi ajuste, constância e meses — não transformação da noite pro dia. Honestidade é a marca."
+        },
+        {
+          "step": "4. O resultado concreto e verificável",
+          "guidance": "Uma métrica específica e crível (carga, ausência de dor, marca de prova). Nada de 'resultado absurdo' ou promessa. Autoridade vem da sobriedade do número."
+        },
+        {
+          "step": "5. A ponte pra você",
+          "guidance": "Reconecte a história ao leitor: 'Se você se viu nessa história...'. Espelhe a dor do slide 1 na realidade de quem está lendo."
+        },
+        {
+          "step": "6. CTA — avaliação",
+          "guidance": "Um único caminho: DM ou agendamento da avaliação. Verbo no imperativo, tom calmo, sem contagem regressiva nem 'últimas vagas' inventadas."
+        }
+      ]
+    },
+    {
+      "key": "bastidores-avaliacao",
+      "name": "Bastidores da Avaliação BN (o método por trás)",
+      "format_type": "carrossel",
+      "bucket": "conversao",
+      "aesthetic_hint": "navy",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "hook_style": "Contraste com o mercado: 'A maioria te entrega treino no primeiro dia. A BN não. E o motivo importa pra você.' Provoca sem arrogância.",
+      "cta_style": "CTA de entrada no método: 'É exatamente assim que começa quem treina com a gente. Quer fazer a sua avaliação? Comenta AVALIAÇÃO ou chama no direct.'",
+      "when_to_use": "Para educar o mercado sobre o diferencial de PROCESSO e atrair quem valoriza método. Excelente rodar logo após uma objeção de preço aparecer nos comentários/direct — reposiciona o valor.",
+      "example_topic": "O que a avaliação BN mede ANTES de prescrever qualquer treino: anamnese de histórico e dor, testes de mobilidade, avaliação de padrões de movimento (agachar, empurrar, puxar) e definição de metas. Por que pular isso é o erro nº 1.",
+      "structure": [
+        {
+          "step": "1. Capa/hook",
+          "guidance": "'Por que a BN não te dá treino no primeiro dia.' Provocação que gera curiosidade, sem soar superior ao concorrente."
+        },
+        {
+          "step": "2. O princípio central",
+          "guidance": "Enuncie a filosofia da marca: 'Treino individualizado começa na avaliação.' É o eixo que sustenta todo o resto do carrossel."
+        },
+        {
+          "step": "3. Etapa 1 — Anamnese e histórico",
+          "guidance": "Mostre que se investiga dor, lesões, rotina e objetivo real. Um slide, com foto ou ícone. Concreto, não abstrato."
+        },
+        {
+          "step": "4. Etapa 2 — Movimento e mobilidade",
+          "guidance": "Avaliação de padrões (agachar, empurrar, puxar) e restrições. Deixe claro que carga sem qualidade de movimento é risco, não progresso."
+        },
+        {
+          "step": "5. Etapa 3 — Força e metas",
+          "guidance": "Como se estabelece o ponto de partida real e a meta mensurável. Isso ancora a prescrição em dados, não em achismo."
+        },
+        {
+          "step": "6. O que isso evita",
+          "guidance": "Benefício honesto: menos lesão, menos estagnação, fim do treino genérico. Conecte cada etapa a um risco que ela elimina."
+        },
+        {
+          "step": "7. CTA — agendar avaliação",
+          "guidance": "Convite direto para a avaliação como porta de entrada. Um único caminho de ação, sem pressão artificial."
+        }
+      ]
+    },
+    {
+      "key": "prova-autoridade",
+      "name": "Prova & Autoridade (o dado que sustenta o método)",
+      "format_type": "carrossel",
+      "bucket": "conversao",
+      "aesthetic_hint": "bronze_editorial",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "hook_style": "Afirmação de autoridade ancorada em ciência: 'Isso não é opinião. É o que a literatura mostra sobre [tema] — e quase ninguém aplica.' Contraria o senso comum do nicho.",
+      "cta_style": "CTA que transfere o rigor para a oferta: 'É esse nível de critério que entra na SUA prescrição. Consultoria BN — link na bio.'",
+      "when_to_use": "Quando você precisa elevar a percepção de valor ANTES de uma oferta direta. Muito forte com audiência B2B (profs de ed. física e fisios) — vende autoridade que justifica o preço.",
+      "example_topic": "Por que volume progressivo individualizado supera 'treino puxado' genérico. O que a evidência de hipertrofia realmente mostra sobre proximidade da falha e progressão — e como a BN traduz isso na prática.",
+      "structure": [
+        {
+          "step": "1. Hook — tese contraintuitiva",
+          "guidance": "Afirme algo que contraria a crença popular do nicho, mas que a ciência sustenta. Sem clickbait vazio — a promessa tem que ser entregue."
+        },
+        {
+          "step": "2. O que o mercado faz (o erro comum)",
+          "guidance": "Descreva a prática difundida e por que ela parece certa mas é rasa. Cria a tensão que a autoridade vai resolver."
+        },
+        {
+          "step": "3. O que a evidência mostra",
+          "guidance": "Traga o princípio correto em linguagem acessível. Cite o mecanismo, não papers em excesso. Honestidade sobre nuance ('depende de X') aumenta credibilidade."
+        },
+        {
+          "step": "4. Como a BN aplica na prática",
+          "guidance": "Ponte da teoria pro método: mostre que o princípio vira decisão de prescrição via avaliação. Prova de execução, não só conhecimento."
+        },
+        {
+          "step": "5. O custo de ignorar isso",
+          "guidance": "O que a pessoa perde ao seguir o genérico: tempo, platô, risco. Sem catastrofizar — tom sóbrio."
+        },
+        {
+          "step": "6. CTA — consultoria/oferta",
+          "guidance": "Transfira o rigor demonstrado para o convite. Link na bio ou DM. O valor já foi construído; o CTA só abre a porta."
+        }
+      ]
+    },
+    {
+      "key": "oferta-consultoria",
+      "name": "Oferta de Consultoria BN (pra quem é e pra quem não é)",
+      "format_type": "carrossel",
+      "bucket": "conversao",
+      "aesthetic_hint": "dark_minimal",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "hook_style": "Honestidade que filtra e atrai: 'A consultoria BN não é pra todo mundo. Vou ser sincero sobre pra quem ela é — e pra quem não é.'",
+      "cta_style": "Oferta transparente sem escassez falsa: 'As vagas de [mês] estão abertas. O primeiro passo é a avaliação — chama no direct.' Se houver limite real de vagas, diga o número real; nunca invente urgência.",
+      "when_to_use": "1 a 2x por mês, apenas quando há abertura REAL de vagas, e sempre depois de uma sequência de conteúdo de valor. Nunca como primeiro contato frio.",
+      "example_topic": "Consultoria BN: o que inclui (avaliação inicial, prescrição individualizada, ajustes quinzenais, acompanhamento direto), pra quem é (quer método e constância) e pra quem NÃO é (quer atalho ou treino genérico de app).",
+      "structure": [
+        {
+          "step": "1. Hook — 'não é pra todo mundo'",
+          "guidance": "Abra filtrando. A honestidade de dizer que nem todos deveriam entrar aumenta a confiança e a qualidade do lead."
+        },
+        {
+          "step": "2. Pra quem É",
+          "guidance": "Descreva o aluno ideal: quer processo, valoriza avaliação, aceita que resultado leva tempo. Quem se encaixa se sente 'visto'."
+        },
+        {
+          "step": "3. Pra quem NÃO é",
+          "guidance": "Repila quem busca atalho, pílula mágica ou treino genérico barato. Contraintuitivo, mas eleva o valor percebido e reduz churn."
+        },
+        {
+          "step": "4. O que inclui de fato",
+          "guidance": "Entregáveis concretos e reais — sem inflar a lista. Cada item conecta ao método (avaliação → prescrição → ajuste)."
+        },
+        {
+          "step": "5. Como funciona (3 passos)",
+          "guidance": "Avaliação → prescrição individualizada → ajustes periódicos. Deixa o processo tangível e reduz a ansiedade da decisão."
+        },
+        {
+          "step": "6. Investimento e vagas",
+          "guidance": "Transparência sobre o modelo e as vagas reais. Sem contagem regressiva forjada. Se preferir não postar preço, direcione pra conversa no direct."
+        },
+        {
+          "step": "7. CTA único",
+          "guidance": "Um só caminho de ação (DM ou link), verbo no imperativo. Reforce que começa pela avaliação, não por um contrato às cegas."
+        }
+      ]
+    },
+    {
+      "key": "objecao-quebra",
+      "name": "Quebra de Objeção (a pergunta que trava a compra)",
+      "format_type": "carrossel",
+      "bucket": "conversao",
+      "aesthetic_hint": "black_marker",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "hook_style": "Nomear a objeção em voz alta, com as palavras reais do cliente: '\"Consultoria online funciona pra quem quer resultado sério?\" — resposta honesta, sem enrolação.'",
+      "cta_style": "CTA que fecha a dúvida e abre a conversa: 'Se essa era a sua única trava, ela já foi. Bora começar pela avaliação — direct aberto.'",
+      "when_to_use": "Quando a MESMA objeção se repete nos comentários e no direct (preço, online x presencial, tempo, 'já tento sozinho'). Rode logo antes ou depois de uma oferta para destravar quem estava na dúvida.",
+      "example_topic": "'Consultoria online funciona pra quem quer resultado sério?' — o que funciona online, o que NÃO funciona, e por que o modelo remoto da BN se apoia na avaliação e nos ajustes contínuos, não em PDF genérico.",
+      "structure": [
+        {
+          "step": "1. Hook = a objeção literal",
+          "guidance": "Use as palavras exatas que o cliente usa. Quem tem essa dúvida sente que o post é sobre ela e para."
+        },
+        {
+          "step": "2. Valide a parte legítima",
+          "guidance": "Concorde com o que a objeção tem de verdadeiro ('sim, muita consultoria online é genérica e não funciona'). Concordar antes de rebater constrói confiança."
+        },
+        {
+          "step": "3. Reposicione o critério",
+          "guidance": "Tire o foco do medo e coloque no que realmente decide o resultado (individualização, avaliação, ajuste). Muda a pergunta que a pessoa deveria fazer."
+        },
+        {
+          "step": "4. Como a BN resolve isso",
+          "guidance": "Mostre o mecanismo concreto — avaliação, prescrição individual, ajustes quinzenais. Prova de método, nunca promessa de resultado garantido."
+        },
+        {
+          "step": "5. Honestidade — onde NÃO serve",
+          "guidance": "Diga abertamente pra quem o modelo não funciona. Reconhecer os limites é o que dá autoridade real e diferencia da BN do hype do nicho."
+        },
+        {
+          "step": "6. CTA — convite calmo",
+          "guidance": "Convide para a avaliação como próximo passo de baixo risco. Tom tranquilo, sem 'corre que acaba'."
+        }
+      ]
+    },
+    {
+      "key": "story-conversao-dm",
+      "name": "Sequência de Stories que abre DM (conversão diária)",
+      "format_type": "story",
+      "bucket": "conversao",
+      "aesthetic_hint": "foto_impacto",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "hook_style": "Bastidor real + pergunta de 1 toque: o primeiro story mostra uma cena verdadeira (uma avaliação, um treino) e faz uma enquete que levanta a mão de quem tem a dor.",
+      "cta_style": "Baixa fricção no story final: caixinha de pergunta + figurinha de link 'Avaliação' ou 'me chama'. Convite direto e humano, sem pressão ('quer fazer a sua? Toca aqui').",
+      "when_to_use": "Rotina diária/semanal para aquecer a base e transformar atenção passiva em conversa 1:1 no direct — que é onde a consultoria realmente fecha. Ideal quando o feed já entregou valor.",
+      "example_topic": "Série de 4-5 stories: bastidor real de uma avaliação → enquete 'você sabe qual é o seu ponto fraco no treino?' → mini-explicação do que a avaliação revela → print de feedback de aluno (com consentimento) → caixinha/CTA 'quer fazer a sua?'.",
+      "structure": [
+        {
+          "step": "1. Story bastidor/gancho",
+          "guidance": "Cena real e crua (avaliação, treino, prancheta). Legenda curtíssima. Autenticidade > produção — o objetivo é parecer verdade, não anúncio."
+        },
+        {
+          "step": "2. Story enquete/pergunta",
+          "guidance": "Interação de 1 toque para segmentar quem tem a dor ('já travou no treino e não soube por quê?'). Quem responde vira lead quente."
+        },
+        {
+          "step": "3. Story mini-ensino",
+          "guidance": "Entregue 1 insight ligado direto à dor da enquete. Gera reciprocidade antes de qualquer convite."
+        },
+        {
+          "step": "4. Story prova",
+          "guidance": "Print ou depoimento curto de aluno real, com consentimento. Prova social específica, sem exagero — nada de 'resultado insano'."
+        },
+        {
+          "step": "5. Story CTA/caixinha",
+          "guidance": "Baixa fricção: caixinha 'me chama' ou figurinha de link para a avaliação. Tom de convite, não de venda dura. Responda cada DM pessoalmente."
+        }
+      ]
+    },
+    {
+      "key": "reels-verdade-convite",
+      "name": "Reels 'Verdade Inconveniente + Convite'",
+      "format_type": "reels",
+      "bucket": "conversao",
+      "aesthetic_hint": "foto_impacto",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "hook_style": "Primeiros 2-3s falados com uma verdade que contraria o senso comum do nicho: 'Treinar até não aguentar mais não é o que te faz evoluir.' Sem clickbait vazio — a afirmação é sustentada no corpo do vídeo.",
+      "cta_style": "Fechamento falado + texto na tela: 'Se você quer treino feito pra VOCÊ, e não copiado de ninguém, começa pela avaliação — link na bio.' Convite tranquilo, sem urgência forjada.",
+      "when_to_use": "1x por semana para alcance frio (topo de funil) que ainda converte quem já está quente. Formato ideal para posicionar autoridade e capturar quem descobre a BN agora.",
+      "example_topic": "'Por que treino puxado nem sempre é treino que funciona' — em ~30s: o mito → o que a ciência mostra sobre estímulo e recuperação → como a BN individualiza via avaliação → convite para a consultoria.",
+      "structure": [
+        {
+          "step": "1. Hook falado (0-3s)",
+          "guidance": "Afirmação contraintuitiva e específica logo no primeiro frame. Sem intro, sem 'oi pessoal'. É o que segura o dedo do usuário."
+        },
+        {
+          "step": "2. O mito/erro do mercado (3-10s)",
+          "guidance": "Explique o que quase todo mundo faz e por que parece certo. Cria a tensão que o vídeo vai resolver."
+        },
+        {
+          "step": "3. A verdade/ciência (10-20s)",
+          "guidance": "Traga o princípio correto em linguagem acessível — sem jargão desnecessário. É a entrega de valor que justifica o hook."
+        },
+        {
+          "step": "4. O método BN na prática (20-27s)",
+          "guidance": "Mostre que na BN esse princípio vira decisão via avaliação e individualização. Prova de método, não promessa de resultado."
+        },
+        {
+          "step": "5. Convite (27-32s)",
+          "guidance": "CTA calmo, falado + texto na tela + 'link na bio'. Fecha posicionando a BN como o caminho do treino individualizado, não do genérico."
+        }
+      ]
+    },
+    {
+      "key": "revisao-de-estudo",
+      "name": "Revisão de Estudo — O que a ciência mostra",
+      "format_type": "carrossel",
+      "bucket": "atracao",
+      "objective": [
+        "autoridade"
+      ],
+      "structure": [
+        {
+          "step": "Capa / Hook",
+          "guidance": "Título com o achado central em linguagem direta + tarja 'BASEADO EM ESTUDO'. Nada de 'chocante' ou 'a verdade que escondem'. Ex.: 'Treinar até a falha NÃO é obrigatório pra hipertrofia — diz a meta-análise'."
+        },
+        {
+          "step": "A pergunta",
+          "guidance": "Enuncie a dúvida prática que o estudo responde e por que o prof/fisio/aluno avançado deveria se importar. Ancora relevância antes do dado."
+        },
+        {
+          "step": "O que foi estudado",
+          "guidance": "Desenho do estudo em 1 frase honesta: tipo (meta-análise / RCT / observacional), n de participantes, população e duração. Transparência de método = autoridade."
+        },
+        {
+          "step": "O achado principal",
+          "guidance": "Resultado central com o número ou tamanho de efeito real. Use ==destaque== no dado. Não extrapolar além do que o estudo mede."
+        },
+        {
+          "step": "A ressalva",
+          "guidance": "Limitação verdadeira (população específica, tempo curto, efeito pequeno, conflito de interesse). Slide-assinatura da BN: honestidade constrói confiança e diferencia de quem só vende hype."
+        },
+        {
+          "step": "Aplicação prática BN",
+          "guidance": "Como isso muda (ou NÃO muda) a prescrição na prática. Conecte ao pilar Protocolo BN e a 'treino individualizado começa na avaliação'."
+        },
+        {
+          "step": "CTA + fonte",
+          "guidance": "Convite para salvar/comentar + citação do estudo (autor, ano, revista). CTA de consultoria suave, sem promessa de resultado."
+        }
+      ],
+      "hook_style": "Afirmação contraintuitiva ancorada em evidência, sem sensacionalismo ('X não é o que você pensa — segundo a ciência')",
+      "cta_style": "Salvar + citar a fonte + convite honesto de consultoria ('Quer treino guiado por evidência? Link na bio')",
+      "aesthetic_hint": "bronze_editorial",
+      "when_to_use": "Quando há um estudo ou meta-análise relevante para ancorar autoridade e diferenciar a BN pela ciência. Ideal para B2B (profs/fisios) e alunos avançados (níveis 3-4).",
+      "example_topic": "Meta-análise de volume semanal e hipertrofia (linha Schoenfeld): quantas séries por grupo muscular realmente importam"
+    },
+    {
+      "key": "anatomia-aplicada",
+      "name": "Anatomia Aplicada ao Treino",
+      "format_type": "carrossel",
+      "bucket": "engajamento",
+      "objective": [
+        "engajar",
+        "nutrir"
+      ],
+      "structure": [
+        {
+          "step": "Capa / Hook",
+          "guidance": "Nomeie a estrutura + a promessa de aplicação prática. Ex.: 'Glúteo médio: o músculo que decide a estabilidade do seu quadril na corrida'."
+        },
+        {
+          "step": "A estrutura",
+          "guidance": "Origem, inserção e função em linguagem clara, apoiado por ilustração/infográfico anatômico. Precisão técnica é o produto aqui."
+        },
+        {
+          "step": "O que ele faz no movimento",
+          "guidance": "Traduza a anatomia em ação real (correr, agachar, saltar). Sai do livro e entra no gesto."
+        },
+        {
+          "step": "O erro comum",
+          "guidance": "O que acontece quando a estrutura é negligenciada (compensação, sobrecarga vizinha). Explique o mecanismo, sem alarmismo de lesão."
+        },
+        {
+          "step": "O que muda no treino",
+          "guidance": "Princípio de como treinar/ativar corretamente essa estrutura. Lógica, não receita mágica ou 'exercício secreto'."
+        },
+        {
+          "step": "Exercício aplicado",
+          "guidance": "1 exercício-chave com o PORQUÊ biomecânico de funcionar. Amarra no Protocolo BN."
+        },
+        {
+          "step": "CTA",
+          "guidance": "Salvar para referência + 'qual estrutura você quer ver a seguir?' (gera comentário). Convite de consultoria suave."
+        }
+      ],
+      "hook_style": "Nome anatômico + função de alto impacto prático ('a estrutura que decide X no seu movimento')",
+      "cta_style": "Pergunta que gera comentário (qual próxima estrutura) + salvar como material de referência",
+      "aesthetic_hint": "light_infographic",
+      "when_to_use": "Para demonstrar profundidade técnica e educar sobre uma estrutura ligada a um gesto/objetivo. Alto potencial de save e ótimo para atrair audiência B2B.",
+      "example_topic": "Glúteo médio e a estabilização do quadril na corrida: por que fortalecer reduz o valgo dinâmico"
+    },
+    {
+      "key": "protocolo-passo-a-passo",
+      "name": "Protocolo BN — Passo a Passo",
+      "format_type": "carrossel",
+      "bucket": "engajamento",
+      "objective": [
+        "engajar",
+        "nutrir"
+      ],
+      "structure": [
+        {
+          "step": "Capa / Hook",
+          "guidance": "O objetivo + assinatura 'do jeito BN'. Ex.: 'Como progredir carga sem se machucar — o protocolo que usamos com iniciantes'."
+        },
+        {
+          "step": "O princípio",
+          "guidance": "A lógica por trás do protocolo (por que funciona). Ancore em fisiologia/biomecânica, não em opinião."
+        },
+        {
+          "step": "Passo 1",
+          "guidance": "Primeira etapa concreta + o critério OBJETIVO (o que observar/medir). Reforça 'o treino começa na avaliação'."
+        },
+        {
+          "step": "Passo 2",
+          "guidance": "Segunda etapa + a variável de ajuste. Progressão clara e reproduzível."
+        },
+        {
+          "step": "Passo 3",
+          "guidance": "Terceira etapa + como saber que está pronto para avançar. Critério, não achismo."
+        },
+        {
+          "step": "Quando NÃO usar",
+          "guidance": "Contraindicação honesta ou limite do protocolo. Diferencial BN: mostra os limites em vez de vender solução universal."
+        },
+        {
+          "step": "CTA",
+          "guidance": "Salvar o passo a passo + convite de consultoria para a versão individualizada. 'A personalização começa na avaliação' — o método público, a aplicação é o produto."
+        }
+      ],
+      "hook_style": "Objetivo prático + assinatura do método ('o protocolo que usamos para X')",
+      "cta_style": "Salvar + oferta de individualização via consultoria (a versão pessoal do protocolo)",
+      "aesthetic_hint": "white_card",
+      "when_to_use": "Quando quer mostrar o método BN em ação e nutrir lead rumo à consultoria, entregando o framework mas reservando a personalização (que é o produto).",
+      "example_topic": "Progressão de carga para iniciantes (níveis 1-2): critérios objetivos para subir peso sem virar dor"
+    },
+    {
+      "key": "analise-biomecanica",
+      "name": "Análise Biomecânica de Movimento",
+      "format_type": "reels",
+      "bucket": "atracao",
+      "objective": [
+        "autoridade"
+      ],
+      "structure": [
+        {
+          "step": "Gancho (0-3s)",
+          "guidance": "Mostre o movimento + pergunta/afirmação curta. Ex.: 'Seu agachamento trava aqui? A anatomia explica.' Precisa prender antes do scroll."
+        },
+        {
+          "step": "O gesto correto",
+          "guidance": "Demonstre o padrão ideal apontando as articulações-chave. Imagem clara vale mais que texto."
+        },
+        {
+          "step": "O que acontece por dentro",
+          "guidance": "Torque / alavanca / ângulo articular no ponto crítico. Traduza a mecânica em imagem que o leigo entende."
+        },
+        {
+          "step": "O erro comum",
+          "guidance": "Mostre a compensação e sua consequência mecânica. Explique, sem dramatizar lesão ou assustar."
+        },
+        {
+          "step": "A correção",
+          "guidance": "O ajuste prático + o porquê biomecânico de resolver. Aplicável hoje."
+        },
+        {
+          "step": "Fechamento + CTA",
+          "guidance": "Síntese em 1 frase + 'salva e manda pra quem treina assim'. Convite de análise individual suave."
+        }
+      ],
+      "hook_style": "Pergunta sobre uma dor/trava comum resolvida pela mecânica ('trava aqui? a anatomia explica'), nunca 'você faz TUDO errado'",
+      "cta_style": "Salvar + compartilhar com quem precisa + convite de análise/consultoria individual",
+      "aesthetic_hint": "dark_minimal",
+      "when_to_use": "Para alcance (reels) demonstrando autoridade técnica em vídeo. Atrai público novo que busca corrigir movimento; complementa os carrosséis densos.",
+      "example_topic": "Profundidade do agachamento x anatomia do quadril: por que nem todo mundo deve agachar até o chão"
+    },
+    {
+      "key": "mito-vs-ciencia",
+      "name": "Mito vs Ciência",
+      "format_type": "carrossel",
+      "bucket": "engajamento",
+      "objective": [
+        "engajar",
+        "nutrir"
+      ],
+      "structure": [
+        {
+          "step": "Capa / Hook",
+          "guidance": "Enuncie o mito entre aspas + tarja 'MITO ou CIÊNCIA?'. Ex.: '\"Alongar antes previne lesão\" — será?'. Provocação honesta, não caça-clique."
+        },
+        {
+          "step": "Por que todo mundo acredita",
+          "guidance": "De onde veio a crença (cultura de academia, marketing antigo, intuição). Empatia com quem acredita, sem julgamento."
+        },
+        {
+          "step": "O que a evidência mostra",
+          "guidance": "O dado que contradiz ou nuança o mito. ==destaque== no achado. Cite a natureza da evidência."
+        },
+        {
+          "step": "O fundo de verdade",
+          "guidance": "Onde a crença acerta parcialmente. Honestidade BN: quase nada é 100% preto no branco — isso separa autoridade de dogma."
+        },
+        {
+          "step": "O que fazer na prática",
+          "guidance": "A recomendação baseada em evidência, aplicável já. Fecha o loop educacional."
+        },
+        {
+          "step": "CTA",
+          "guidance": "'Concorda? Comenta.' (debate saudável) + salvar. Convite de consultoria suave."
+        }
+      ],
+      "hook_style": "Mito popular entre aspas + provocação honesta ('será?'), jamais 'a verdade que ninguém te conta'",
+      "cta_style": "Convite ao debate respeitoso (comentário) + salvar como referência",
+      "aesthetic_hint": "black_marker",
+      "when_to_use": "Para engajar (comentários/compartilhamentos) desmontando um mito COM nuance. Reforça o par autoridade + honestidade que diferencia a BN.",
+      "example_topic": "'Alongamento estático antes do treino previne lesão': o que a evidência atual realmente mostra (e onde ela tem razão)"
+    },
+    {
+      "key": "fisiologia-aplicada",
+      "name": "Fisiologia Aplicada — Por trás da adaptação",
+      "format_type": "carrossel",
+      "bucket": "atracao",
+      "objective": [
+        "autoridade"
+      ],
+      "structure": [
+        {
+          "step": "Capa / Hook",
+          "guidance": "O fenômeno + promessa de entender o 'porquê'. Ex.: 'Por que descanso também é treino: a fisiologia da supercompensação'."
+        },
+        {
+          "step": "O fenômeno",
+          "guidance": "Descreva o mecanismo fisiológico em linguagem clara. Precisão sem jargão vazio — o leigo entende, o profissional respeita."
+        },
+        {
+          "step": "O que dispara a adaptação",
+          "guidance": "O estímulo necessário (sobrecarga, recuperação, frequência). Relação causa-efeito explícita."
+        },
+        {
+          "step": "Como treinar para isso",
+          "guidance": "Aplicação prática do mecanismo na periodização/rotina. Do conceito para a prancheta."
+        },
+        {
+          "step": "O erro que sabota",
+          "guidance": "O comportamento comum que impede a adaptação (ex.: nunca recuperar de verdade). Com clareza, sem culpar o aluno."
+        },
+        {
+          "step": "CTA",
+          "guidance": "Salvar + 'faz sentido pra sua rotina?' + convite de consultoria para aplicar de forma individualizada."
+        }
+      ],
+      "hook_style": "Reframe de senso comum via mecanismo fisiológico ('por que X também é Y')",
+      "cta_style": "Salvar + pergunta de aplicação pessoal + consultoria suave",
+      "aesthetic_hint": "navy",
+      "when_to_use": "Para explicar o 'porquê' fisiológico por trás de uma recomendação, elevando a percepção de autoridade e método sobre concorrentes que só mostram o 'o quê'.",
+      "example_topic": "Supercompensação: por que o ganho acontece no descanso e como a periodização BN usa isso a favor do aluno"
+    },
+    {
+      "key": "comparativo-tecnico",
+      "name": "Comparativo Técnico — X vs Y baseado em evidência",
+      "format_type": "carrossel",
+      "bucket": "engajamento",
+      "objective": [
+        "engajar",
+        "nutrir"
+      ],
+      "structure": [
+        {
+          "step": "Capa / Hook",
+          "guidance": "As duas opções + a pergunta real. Ex.: 'Agachamento livre vs leg press: o que a ciência diz sobre hipertrofia?'. Duelo técnico, não torcida."
+        },
+        {
+          "step": "O que muda de verdade",
+          "guidance": "A diferença mecânica/fisiológica central entre as duas (recrutamento, amplitude, estabilidade, curva de força). Objetivo."
+        },
+        {
+          "step": "Opção A",
+          "guidance": "Para que serve melhor + evidência/lógica. Prós e o contexto ideal de uso. Sem demonizar."
+        },
+        {
+          "step": "Opção B",
+          "guidance": "Para que serve melhor + evidência/lógica. Prós e o contexto ideal. Trate as duas com justiça."
+        },
+        {
+          "step": "O veredito honesto",
+          "guidance": "'Depende de X' — o critério real de escolha (objetivo, nível, histórico, dor, contexto). Nenhum falso vencedor universal."
+        },
+        {
+          "step": "Como a BN decide",
+          "guidance": "O critério da avaliação que define qual usar para cada aluno. Mostra o método sem entregar a personalização."
+        },
+        {
+          "step": "CTA",
+          "guidance": "Salvar + 'qual você usa?' (comentário) + convite de individualização via consultoria."
+        }
+      ],
+      "hook_style": "Duelo técnico com pergunta baseada em evidência ('X vs Y: o que a ciência diz?'), nunca 'o exercício X é melhor que Y' de forma absoluta",
+      "cta_style": "Salvar + pergunta de preferência (comentário) + individualização via consultoria",
+      "aesthetic_hint": "light_infographic",
+      "when_to_use": "Quando há um debate comum (A vs B) para resolver com nuance e expor o critério de decisão da BN. Alto potencial de save e comentário.",
+      "example_topic": "Agachamento livre vs leg press para hipertrofia de quadríceps: o que muda e como escolher por aluno"
+    },
+    {
+      "key": "gancho-valor-cta",
+      "name": "Gancho → Valor → CTA (sequência clássica de venda)",
+      "format_type": "story",
+      "bucket": "conversao",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "when_to_use": "Sequência de venda 'padrão ouro' pra quando você quer converter sem parecer que só quer vender. Use quando a audiência já te acompanha mas ainda não deu o passo. Roda em 3-4 stories seguidos, no mesmo dia, 1-2x por semana. É o formato-base — todos os outros são variações dele.",
+      "example_topic": "Por que seu core não evolui mesmo fazendo prancha todo dia (e o que a avaliação revela antes de prescrever)",
+      "structure": [
+        {
+          "step": "Story 1 — Gancho (dor específica)",
+          "guidance": "Uma frase-soco que nomeia um erro/dor concreto do público, não genérico. Texto grande, fundo escuro, zero enrolação. Ex.: 'Prancha todo dia e o core parado? O problema não é volume.' O gancho tem que fazer a pessoa PARAR de deslizar. Sem clickbait — a promessa tem que ser cumprida no story 2."
+        },
+        {
+          "step": "Story 2 — Valor (ciência de verdade)",
+          "guidance": "Entregue UM insight real, baseado em fisiologia/mecânica, que já ajuda quem assiste. Autoridade BN = você ensina de graça e ainda sobra motivo pra contratar. Ex.: 'Core é estabilização, não só resistência isométrica — precisa de estímulo anti-rotação e progressão de carga.' Não invente número, não prometa resultado garantido."
+        },
+        {
+          "step": "Story 3 — Ponte (individualização)",
+          "guidance": "Mostre que o insight genérico só vira resultado quando é individualizado. Aqui entra o DNA BN: 'treino individualizado começa na avaliação'. Ex.: 'Qual variação, qual carga, quantas séries pra VOCÊ? Isso só a avaliação responde.' Honestidade: reconheça que não dá pra prescrever certo sem avaliar."
+        },
+        {
+          "step": "Story 4 — CTA (convite direto)",
+          "guidance": "Chamada clara e sem hype, com 1 ação só. Sticker de link ('Quero minha avaliação') ou 'me chama no direct escrevendo CORE'. Repita o benefício em 1 linha. Nada de 'últimas horas' se não for verdade."
+        }
+      ],
+      "hook_style": "Dor/erro específico afirmado como fato — nomeia o problema exato do nicho (B2C aluno nível 1-3) e nega a causa óbvia",
+      "cta_style": "Convite único e direto com sticker de link ou palavra-chave pro direct; benefício reforçado, sem urgência artificial",
+      "aesthetic_hint": "dark_minimal"
+    },
+    {
+      "key": "enquete-dm",
+      "name": "Enquete → DM (segmenta e puxa conversa)",
+      "format_type": "story",
+      "bucket": "conversao",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "when_to_use": "Quando você quer TRANSFORMAR audiência passiva em conversa no direct (onde a consultoria realmente vende). O sticker de enquete/quiz segmenta quem tem o problema, e você fala no privado só com quem levantou a mão. Ótimo pra base morna e pra dias em que você não quer 'vender na cara'.",
+      "example_topic": "Enquete: 'Você sente dor no joelho ao agachar?' → DM com o checklist de avaliação BN pra quem respondeu SIM",
+      "structure": [
+        {
+          "step": "Story 1 — Enquete que segmenta",
+          "guidance": "Pergunta binária ou quiz que separa quem tem o problema de quem não tem. Use o sticker nativo (enquete/quiz) — o algoritmo entrega mais e você coleta quem respondeu. Ex.: 'Dói o joelho ao agachar? SIM / NÃO'. Pergunta tem que ser fácil de responder em 1 toque."
+        },
+        {
+          "step": "Story 2 — Valida e entrega mini-insight",
+          "guidance": "Comente o resultado parcial ('muita gente marcou SIM') e entregue 1 informação útil na hora, sem diagnosticar clinicamente. Ex.: 'Dor no agachamento raramente é o joelho — costuma ser mobilidade de tornozelo ou controle de quadril.' Guardrail: não diagnostique nem prometa cura."
+        },
+        {
+          "step": "Story 3 — Convite pro direct",
+          "guidance": "Chame quem marcou a resposta-alvo pra continuar no privado, oferecendo algo concreto e gratuito (checklist, mini-diagnóstico). Ex.: 'Marcou SIM? Me manda a palavra JOELHO no direct que eu te mando o checklist de avaliação.' A troca é valor por conversa, não venda direta."
+        },
+        {
+          "step": "Story 4 — Reforço social (opcional)",
+          "guidance": "Se já começaram a chegar DMs, mostre (com print anonimizado e consentimento) o volume de gente pedindo, reforçando o CTA pra quem ficou em cima do muro. Se não tiver, pule — nunca forje prints."
+        }
+      ],
+      "hook_style": "Pergunta de identificação em 1 toque (enquete/quiz nativo) que faz a pessoa se reconhecer no problema",
+      "cta_style": "Palavra-chave no direct em troca de um entregável gratuito; conversa antes de oferta",
+      "aesthetic_hint": "light_infographic"
+    },
+    {
+      "key": "prova-social-oferta",
+      "name": "Prova Social → Oferta (resultado real → convite)",
+      "format_type": "story",
+      "bucket": "conversao",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "when_to_use": "Quando você tem um caso de aluno REAL, com consentimento, e quer converter quem ainda duvida de que funciona. A prova social honesta (com contexto, tempo e recorte justo) derruba objeção melhor que qualquer argumento. Use 1-2x por mês, sempre com autorização do aluno.",
+      "example_topic": "Aluno nível 2: de dor lombar no levantamento terra a treinar 3x/semana sem dor em 12 semanas — o que mudou começou na avaliação",
+      "structure": [
+        {
+          "step": "Story 1 — Ponto de partida honesto",
+          "guidance": "Mostre de onde o aluno saiu, com contexto real (com consentimento explícito). Nada de 'antes' dramatizado. Ex.: 'Ele chegou com dor lombar no terra e medo de carga.' Humaniza e cria identificação com quem está no mesmo ponto."
+        },
+        {
+          "step": "Story 2 — O processo (o método, não o milagre)",
+          "guidance": "Explique O QUE foi feito: avaliação, correção técnica, progressão de carga, ajuste de volume. Foque no método BN, não em 'segredo'. Ex.: 'Avaliação mostrou déficit de dobradiça de quadril → regredimos o padrão e progredimos em 12 semanas.' Deixe claro que o caminho foi individualizado."
+        },
+        {
+          "step": "Story 3 — Resultado com recorte justo",
+          "guidance": "Dado concreto e honesto: tempo, frequência, número — sem generalizar pra todo mundo. Ex.: '12 semanas, 3x/semana, sem dor — o resultado dele, no contexto dele.' Guardrail obrigatório: nada de 'resultado garantido' nem 'todo mundo consegue isso'."
+        },
+        {
+          "step": "Story 4 — Oferta",
+          "guidance": "Conecte o caso ao convite: 'Se você quer um processo individualizado assim, a consultoria está aberta.' Sticker de link. Reforce que começa pela avaliação. Tom de convite, não de pressão."
+        }
+      ],
+      "hook_style": "Antes/depois com contexto e consentimento — ponto de partida real que gera identificação, sem dramatização",
+      "cta_style": "Convite ancorado no caso ('um processo assim') com link; sempre reforça que começa na avaliação",
+      "aesthetic_hint": "foto_impacto"
+    },
+    {
+      "key": "contagem-vagas-real",
+      "name": "Conta Regressiva de Vagas (limite real, sem escassez falsa)",
+      "format_type": "story",
+      "bucket": "conversao",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "when_to_use": "Só quando existe um limite REAL de vagas (acompanhamento individual tem teto real de atenção) ou um prazo REAL de fechamento de turma. A escassez da BN é honesta e explicada — é o oposto do 'só hoje' fake do nicho. Use na abertura/fechamento de turma. NUNCA rode com número ou data inventados.",
+      "example_topic": "8 vagas de consultoria individual neste ciclo — por que eu limito (e por que não é 'só hoje')",
+      "structure": [
+        {
+          "step": "Story 1 — Anúncio com o porquê do limite",
+          "guidance": "Abra com o número real de vagas e explique a razão honesta do limite. Ex.: 'Abri 8 vagas. É 8 porque acompanhamento individual de verdade tem limite de atenção — não dá pra atender 50 bem.' A explicação é o que separa a BN do hype."
+        },
+        {
+          "step": "Story 2 — O que entra na consultoria",
+          "guidance": "Deixe o entregável cristalino: avaliação, prescrição individualizada, ajustes, canal de contato. Sem promessa de resultado. Ex.: 'Você leva: avaliação completa, treino individualizado, revisões quinzenais e suporte direto.' Honestidade sobre o que É e o que NÃO é."
+        },
+        {
+          "step": "Story 3 — Contagem regressiva real",
+          "guidance": "Use o sticker de contagem regressiva apontando pra data REAL de fechamento. Ex.: 'Inscrições até sexta 23h59.' Só coloque se a data for verdadeira e você vá cumprir. Se fechar antes por lotar, comunique — não estenda 'fake'."
+        },
+        {
+          "step": "Story 4 — Últimas vagas / fechamento (só se real)",
+          "guidance": "Atualize com o número que restou de fato ('3 vagas') ou anuncie fechamento. Transparência total: se lotou, diga que lotou e abra lista de espera. Nunca 'reabra' vaga que disse estar fechada."
+        }
+      ],
+      "hook_style": "Número real de vagas + a razão honesta do limite — escassez explicada, não fabricada",
+      "cta_style": "Sticker de contagem regressiva com data verdadeira + link; atualização transparente das vagas restantes",
+      "aesthetic_hint": "bronze_editorial"
+    },
+    {
+      "key": "mito-verdade-consultoria",
+      "name": "Mito → Verdade → Consultoria (corrige e convida)",
+      "format_type": "story",
+      "bucket": "conversao",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "when_to_use": "Quando você quer gerar reação/engajamento e converter no mesmo fôlego. Derruba um mito comum do nicho com ciência (pilar 'Erros & Mitos') e ancora a solução na individualização. Gera salvamentos e respostas, e posiciona a BN como a voz que corrige o mercado. Use quando um mito específico estiver circulando.",
+      "example_topic": "Mito: 'sentir dor no dia seguinte é sinal de bom treino' → o que a ciência (e a avaliação) realmente dizem sobre DOMS",
+      "structure": [
+        {
+          "step": "Story 1 — O mito (dito como o público acredita)",
+          "guidance": "Afirme o mito do jeito que a maioria pensa, pra gerar reconhecimento e reação. Ex.: 'Dor no dia seguinte = treino bom, né? A galera jura que sim.' Deixe o gancho provocar sem ofender."
+        },
+        {
+          "step": "Story 2 — A verdade (com base científica)",
+          "guidance": "Corrija com fisiologia, firme e honesto, sem arrogância. Ex.: 'DOMS mede dano muscular e novidade do estímulo, não qualidade nem progresso. Dá pra evoluir sem dor.' Cite o princípio, não invente estudo específico se não tiver a fonte."
+        },
+        {
+          "step": "Story 3 — Por que sozinho é difícil",
+          "guidance": "Mostre que aplicar isso na prática (dosar estímulo sem exagero) exige individualização. Ex.: 'Achar TEU ponto de estímulo ideal sem virar dor toda semana é ajuste fino — e é individual.' Conecta o conhecimento ao serviço."
+        },
+        {
+          "step": "Story 4 — CTA suave",
+          "guidance": "Convite leve, não agressivo. Ex.: 'Quer treinar com base em ciência e não em dor? Chama no direct.' Palavra-chave ou link. Tom de quem educa, não de quem empurra."
+        }
+      ],
+      "hook_style": "Mito afirmado como a crença popular — provoca reação e reconhecimento ('será que tô errado?')",
+      "cta_style": "Convite suave e educativo pro direct/link, posicionando a consultoria como a aplicação prática da ciência",
+      "aesthetic_hint": "black_marker"
+    },
+    {
+      "key": "autodiagnostico-dm",
+      "name": "Autodiagnóstico → DM (qual erro é o teu?)",
+      "format_type": "story",
+      "bucket": "conversao",
+      "objective": [
+        "captar",
+        "vender"
+      ],
+      "when_to_use": "Quando você quer que a própria audiência se qualifique e te procure. A pessoa se identifica com um dos sinais, responde qual é o dela e você entra no direct com o próximo passo. Excelente pra encher o direct de leads mornos já segmentados por dor. Use em semanas de foco em captação.",
+      "example_topic": "3 sinais de que teu treino de hipertrofia tá no automático (e não individualizado de verdade)",
+      "structure": [
+        {
+          "step": "Story 1 — A lista (checklist afiado)",
+          "guidance": "Anuncie um checklist curto de 3 sinais que o público comete. Ex.: '3 sinais de que teu treino tá no piloto automático.' Promessa clara de autoconhecimento rápido. Formato de lista escaneável."
+        },
+        {
+          "step": "Story 2 — Detalha cada sinal",
+          "guidance": "1 frame por sinal (ou os 3 num carrossel de stories), específico o bastante pra doer. Ex.: '1) Mesma carga há 6 semanas. 2) Nunca mediram tua recuperação. 3) Teu treino é igual ao do teu amigo.' Cada sinal aponta pra falta de individualização."
+        },
+        {
+          "step": "Story 3 — Sticker 'qual é o teu?'",
+          "guidance": "Use enquete/pergunta pra pessoa escolher o número que mais bate com ela. Ex.: 'Qual desses é o teu? Manda o número.' Baixa fricção, gera engajamento e segmenta a dor."
+        },
+        {
+          "step": "Story 4 — CTA pro direct",
+          "guidance": "Peça o número no direct em troca do próximo passo personalizado. Ex.: 'Me manda o número no direct que eu te digo por onde começar a corrigir.' Converte engajamento em conversa 1:1 — onde a consultoria vende."
+        }
+      ],
+      "hook_style": "Checklist de identificação ('3 sinais de que...') que faz a pessoa se reconhecer e querer saber qual é o dela",
+      "cta_style": "Responder o número no direct em troca de um próximo passo personalizado; captação segmentada por dor",
+      "aesthetic_hint": "light_infographic"
+    }
+  ]
+}
