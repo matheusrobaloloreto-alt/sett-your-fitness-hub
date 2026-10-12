@@ -40,7 +40,7 @@ export function BnContentStudioEditor({ draft, settings, capabilities, assets, b
   return <section aria-label="Editor de conteúdo" className="min-w-0 space-y-4">
     <div className="flex flex-wrap items-center gap-2 border-b pb-3">
       <p className="mr-auto text-xs text-muted-foreground">{dirty ? "Alterações não salvas" : draft.post ? `${draft.post.status === "approved" ? "Aprovado" : "Rascunho"} · v${draft.post.version}` : "Novo rascunho"}</p>
-      <Button variant="outline" size="icon" title="Exportar PNG, legenda e JSON" aria-label="Exportar conteúdo" disabled={busy || !valid} onClick={onExport}><Download /></Button>
+      <Button variant="outline" size="icon" title="Exportar ZIP com PNGs, legenda e JSON" aria-label="Exportar conteúdo" disabled={busy || !valid} onClick={onExport}><Download /></Button>
       <Button variant="outline" size="sm" disabled={busy || !approvable} onClick={() => onSave("approved")}><Check />Aprovar</Button>
       <Button size="sm" disabled={busy || !valid} onClick={() => onSave("draft")}><Save />Salvar</Button>
     </div>

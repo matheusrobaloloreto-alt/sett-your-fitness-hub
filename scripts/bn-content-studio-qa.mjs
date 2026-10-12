@@ -13,7 +13,7 @@ import { chromium } from "playwright";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.join(root, "output/bn-content-cloud-qa");
 await mkdir(out, { recursive: true });
-const report = { synthetic_only: true, production_authentication_verified: false, started_at: new Date().toISOString(), checks: [], defects: [], screenshots: [], exports: [], blocked_network: [] };
+const report = { synthetic_only: true, production_authentication_verified: false, started_at: new Date().toISOString(), checks: [], defects: [], screenshots: [], exports: [], zip_exports: [], blocked_network: [] };
 const clone = value => structuredClone(value);
 const pid = "11111111-1111-4111-8111-111111111111";
 const actorId = "22222222-2222-4222-8222-222222222222";
@@ -42,7 +42,7 @@ const settings = {
     { key: "qa_reels", name: "Reels", format_type: "reels" },
   ], pillars: ["Avaliação", "Planejamento"],
 };
-const sources = ["src/pages/master/MasterBnContent.tsx", ...["Editor", "Preview", "Calendar", "Archive"].map(name => `src/components/master/BnContentStudio${name}.tsx`), "src/lib/bnContentStudio.ts", "src/lib/bnContentRenderer.ts", "supabase/functions/_shared/bnContent.ts", "supabase/functions/bn-content-studio/handler.ts", "supabase/functions/bn-content-studio/index.ts", "supabase/functions/bn-content-studio/store.ts", "supabase/functions/bn-content-studio/provider.ts", "supabase/migrations/20261012074421_bn_content_studio_cloud.sql"];
+const sources = ["src/pages/master/MasterBnContent.tsx", ...["Editor", "Preview", "Calendar", "Archive"].map(name => `src/components/master/BnContentStudio${name}.tsx`), "src/lib/bnContentStudio.ts", "src/lib/bnContentRenderer.ts", "src/lib/bnContentZip.ts", "package.json", "package-lock.json", "supabase/functions/_shared/bnContent.ts", "supabase/functions/bn-content-studio/handler.ts", "supabase/functions/bn-content-studio/index.ts", "supabase/functions/bn-content-studio/store.ts", "supabase/functions/bn-content-studio/provider.ts", "supabase/migrations/20261012074421_bn_content_studio_cloud.sql"];
 async function hashes() {
   return Object.fromEntries(await Promise.all(sources.map(async file => [file, createHash("sha256").update(await readFile(path.join(root, file))).digest("hex")])));
 }
@@ -157,12 +157,12 @@ try {
     context.setDefaultTimeout(10000);
     context.setDefaultNavigationTimeout(60000);
     const page=await context.newPage();
-    const state={posts:[makePost()],calendars:[],calls:[],nextError:null,capabilities:{text:true,images:true},nextId:3,assets:{},assetPng:null};
+    const state={posts:[makePost()],calendars:[],calls:[],nextError:null,capabilities:{text:true,images:true},nextId:3,assets:{},assetPng:null,failAsset:false};
     page.on("dialog",dialog=>dialog.accept());
     const pageErrors=[]; page.on("pageerror",error=>pageErrors.push(error.message));
     await context.route("**/*",async route=>{
       const request=route.request(); const url=new URL(request.url());
-      if(url.origin === "https://bn-qa-assets.invalid" && state.assetPng) return route.fulfill({contentType:"image/png",body:state.assetPng,headers:{"Access-Control-Allow-Origin":"*"}});
+      if(url.origin === "https://bn-qa-assets.invalid" && state.assetPng) return state.failAsset ? route.fulfill({status:404,body:"Synthetic missing asset",headers:{"Access-Control-Allow-Origin":"*","Cache-Control":"no-store"}}) : route.fulfill({contentType:"image/png",body:state.assetPng,headers:{"Access-Control-Allow-Origin":"*","Cache-Control":"no-store"}});
       if(url.origin !== origin) { report.blocked_network.push({viewport:label,origin:url.origin,path:url.pathname}); return route.abort(); }
       if(url.pathname !== "/__qa_api") return route.continue();
       const input=request.postDataJSON(); state.calls.push(clone(input));
@@ -236,6 +236,40 @@ try {
       return results;
     });
     async function screenshot(name){const filename=`${label}-${name}.png`;await page.screenshot({path:path.join(out,filename),fullPage:true});report.screenshots.push(filename);}
+    async function verifyZipDownload(tag, spec, filename, withBackground=false) {
+      const downloads=[];const onDownload=download=>downloads.push(download);page.on("download",onDownload);
+      try {
+        const pending=page.waitForEvent("download",{timeout:20000});await page.getByRole("button",{name:"Exportar conteúdo",exact:true}).click();const download=await pending;
+        assert.equal(download.suggestedFilename(),`${filename}.zip`);
+        await page.getByRole("status").filter({hasText:"Arquivos exportados."}).waitFor();await page.waitForTimeout(500);
+        assert.equal(downloads.length,1,"Export must trigger exactly one ZIP download, not separate PNGs/TXT/JSON");
+        const zipFile=`${label}-${tag}.zip`;const zipPath=path.join(out,zipFile);await download.saveAs(zipPath);
+        const bytes=await readFile(zipPath);assert.equal(bytes.subarray(0,4).toString("hex"),"504b0304");
+        const crcLog=execFileSync("/usr/bin/unzip",["-t",zipPath],{encoding:"utf8"});await writeFile(path.join(out,`${label}-${tag}-unzip.log`),crcLog);
+        const entries=execFileSync("/usr/bin/unzip",["-Z1",zipPath],{encoding:"utf8"}).trim().split("\n");
+        const expected=[...spec.slides.map((_,i)=>`${filename}-slide-${i+1}.png`),`${filename}-legenda.txt`,`${filename}.json`];
+        assert.equal(new Set(entries).size,entries.length);assert.deepEqual([...entries].sort(),[...expected].sort());
+        const readEntry=name=>execFileSync("/usr/bin/unzip",["-p",zipPath,name],{maxBuffer:25*1024*1024});
+        const caption=readEntry(`${filename}-legenda.txt`).toString("utf8");assert.equal(caption,[spec.caption,spec.hashtags.join(" ")].filter(Boolean).join("\n\n"));
+        assert.deepEqual(JSON.parse(readEntry(`${filename}.json`).toString("utf8")),spec);
+        const pngs=[];
+        for(const [index,name]of expected.slice(0,spec.slides.length).entries()) {
+          const png=readEntry(name);assert.equal(png.subarray(0,8).toString("hex"),"89504e470d0a1a0a");
+          const pixels=await page.evaluate(async base64=>{
+            const bytes=Uint8Array.from(atob(base64),c=>c.charCodeAt(0));const bitmap=await createImageBitmap(new Blob([bytes],{type:"image/png"}));
+            const canvas=document.createElement("canvas");canvas.width=bitmap.width;canvas.height=bitmap.height;const ctx=canvas.getContext("2d");ctx.drawImage(bitmap,0,0);bitmap.close();
+            const data=ctx.getImageData(0,0,canvas.width,canvas.height).data;const colors=new Set();let nonOpaque=0;
+            for(let at=0;at<data.length;at+=4*149){colors.add(`${data[at]},${data[at+1]},${data[at+2]}`);if(data[at+3]!==255)nonOpaque++;}
+            const pixel=x=>[...ctx.getImageData(Math.floor(canvas.width*x),Math.floor(canvas.height*.25),1,1).data];
+            return {width:canvas.width,height:canvas.height,colors:colors.size,nonOpaque,left:pixel(.25),right:pixel(.75)};
+          },png.toString("base64"));
+          assert.equal(pixels.width,1080);assert.equal(pixels.height,["story","reels"].includes(spec.format)?1920:1350);assert.ok(pixels.colors>12,`Blank PNG: ${name}`);assert.equal(pixels.nonOpaque,0);
+          if(withBackground&&index===0){assert.ok(pixels.left[0]>pixels.left[1]+20,"Left synthetic red background missing");assert.ok(pixels.right[1]>pixels.right[0]+20,"Right synthetic green background missing");}
+          const artifact=`${label}-${tag}-${name}`;await writeFile(path.join(out,artifact),png);pngs.push({entry:name,file:artifact,bytes:png.length,...pixels});
+        }
+        const evidence={file:zipFile,downloads:downloads.length,entries,png_count:pngs.length,pngs,caption_matches:true,spec_matches:true,crc_verified:true,bytes:bytes.length};report.zip_exports.push(evidence);return evidence;
+      } finally {page.off("download",onDownload);}
+    }
     await check(`${label}: Studio renders real editor and no horizontal overflow`,async()=>{
       await page.getByRole("region",{name:"Editor de conteúdo"}).waitFor({timeout:15000});
       await page.locator('img[alt^="Slide "]').first().waitFor();
@@ -276,11 +310,7 @@ try {
         const count=state.posts.length;await page.getByRole("button",{name:/Salvar como novo rascunho/}).click();
         await page.waitForTimeout(300);assert.equal(state.posts.length,count+1);assert.notEqual(state.posts[0].id,pid);assert.match(state.posts[0].spec.topic,/Edição local preservada/);
       });
-      await check(`${label}: export button downloads actual PNG`,async()=>{
-        const pending=page.waitForEvent("download",{timeout:15000});await page.getByRole("button",{name:"Exportar conteúdo",exact:true}).click();const download=await pending;
-        assert.match(download.suggestedFilename(),/\.png$/);const filename=`${label}-ui-${download.suggestedFilename().replace(/[^a-zA-Z0-9._-]/g,"_")}`;await download.saveAs(path.join(out,filename));
-        const png=await readFile(path.join(out,filename));assert.equal(png.subarray(0,8).toString("hex"),"89504e470d0a1a0a");return {file:filename,bytes:png.length};
-      });
+      await check(`${label}: one ZIP downloads all PNGs, caption and spec`,()=>verifyZipDownload("ui-export",clone(state.posts[0].spec),state.posts[0].id));
       await check(`${label}: API authorization errors sanitized, draft retained`,async()=>{
         const local=await page.getByLabel("Tema",{exact:true}).inputValue();state.nextError={status:403,body:{error:"synthetic raw internal URL https://private.invalid"}};
         await page.getByRole("button",{name:"Salvar",exact:true}).click();await page.getByText(/somente para Masters autorizados/).waitFor();
@@ -298,10 +328,14 @@ try {
         assert.ok(state.posts[0].spec.slides[0].background_path,"Generated background should be saved with CAS");
         await page.waitForFunction(()=>[...document.images].some(image=>image.alt.startsWith("Slide ")&&image.complete&&image.naturalWidth===1080));
         await screenshot("with-private-background");
-        const pending=page.waitForEvent("download");await page.getByRole("button",{name:"Exportar conteúdo",exact:true}).click();const download=await pending;
-        const filename=`${label}-private-background-export.png`;await download.saveAs(path.join(out,filename));
-        const png=await readFile(path.join(out,filename));assert.equal(png.subarray(0,8).toString("hex"),"89504e470d0a1a0a");
-        assert.ok(png.length>10000);return {file:filename,bytes:png.length};
+        return verifyZipDownload("private-background-export",clone(state.posts[0].spec),state.posts[0].id,true);
+      });
+      await check(`${label}: failed background export never downloads a partial ZIP`,async()=>{
+        const downloads=[];const onDownload=download=>downloads.push(download);page.on("download",onDownload);state.failAsset=true;
+        try {
+          await page.getByRole("button",{name:"Exportar conteúdo",exact:true}).click();await page.getByRole("alert").waitFor();await page.waitForTimeout(500);
+          assert.equal(downloads.length,0);assert.ok(state.posts[0].spec.slides[0].background_path);await screenshot("zip-failed-background");return {downloads:0,draft_background_retained:true};
+        }finally{state.failAsset=false;page.off("download",onDownload);}
       });
       await check(`${label}: image-bearing draft cannot offer unsupported copy`,async()=>{
         const copies=page.getByRole("button",{name:/Salvar como novo rascunho|Salvar cópia/});
@@ -323,6 +357,7 @@ try {
         const call=state.calls.findLast(c=>c.action==="generate");const aesthetic=settings.aesthetics.find(a=>a.key===call.aesthetic);
         await screenshot("story-format-generation");assert.ok(!aesthetic.formats || aesthetic.formats.includes(call.format),JSON.stringify({format:call.format,aesthetic:call.aesthetic}));
       });
+      await check(`${label}: story ZIP contains every 1080x1920 slide`,()=>verifyZipDownload("story-export",{...clone(baseSpec),format:"story",aesthetic:"navy"},state.posts[0].id));
       await check(`${label}: quota error preserves draft and sanitized message`,async()=>{
         const value=await page.getByLabel("Título do slide",{exact:true}).inputValue();state.nextError={status:429,body:{error:"provider private failure"}};
         await page.getByRole("button",{name:"Gerar conteúdo",exact:true}).click();await page.getByText(/Limite de geração atingido/).waitFor();assert.equal(await page.getByLabel("Título do slide",{exact:true}).inputValue(),value);

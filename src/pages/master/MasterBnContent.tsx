@@ -13,6 +13,7 @@ import {
   type BnContentDraft, type BnStudioBootstrap, type BnStudioPost,
 } from "@/lib/bnContentStudio";
 import { bnSlideDimensions, downloadBnContentBlob, renderBnContentSlide } from "@/lib/bnContentRenderer";
+import { createBnContentZip } from "@/lib/bnContentZip";
 
 function useUnsavedDraftGuard(dirty: boolean, busy: boolean) {
   const navigation = useContext(UNSAFE_NavigationContext);
@@ -158,9 +159,9 @@ export default function MasterBnContent() {
       }
       if (!mounted.current) return;
       const filename = draft.post?.id || "bn-conteudo";
-      slides.forEach((blob, index) => downloadBnContentBlob(blob, `${filename}-slide-${index + 1}.png`));
-      downloadBnContentBlob(new Blob([[draft.spec.caption, draft.spec.hashtags.join(" ")].filter(Boolean).join("\n\n")], { type: "text/plain;charset=utf-8" }), `${filename}-legenda.txt`);
-      downloadBnContentBlob(new Blob([JSON.stringify(draft.spec, null, 2)], { type: "application/json" }), `${filename}.json`);
+      const archive = await createBnContentZip(draft.spec, slides, filename);
+      if (!mounted.current) return;
+      downloadBnContentBlob(archive, `${filename}.zip`);
       setNotice("Arquivos exportados.");
     });
   };

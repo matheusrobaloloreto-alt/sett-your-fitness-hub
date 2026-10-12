@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Link, Route, Routes } from "react-router-dom";
+import { Blob as NodeBlob } from "node:buffer";
+import { strFromU8, unzipSync } from "fflate";
 import { parseBnContentManifest } from "@/lib/bnContentArchive";
 import type { BnContentSpec, BnStudioBootstrap } from "@/lib/bnContentStudio";
 
@@ -30,6 +32,7 @@ const calls = (action: string) => invoke.mock.calls.filter(([, options]) => opti
 describe("MasterBnContent cloud", () => {
   beforeEach(() => {
     invoke.mockReset(); storageFrom.mockReset(); renderer.mockReset(); downloadBlob.mockReset();
+    vi.stubGlobal("Blob", NodeBlob);
     renderer.mockResolvedValue(new Blob(["png"], { type: "image/png" }));
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:preview"), revokeObjectURL: vi.fn() }));
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -158,12 +161,20 @@ describe("MasterBnContent cloud", () => {
     expect(calls("save")[0][1].body.spec.slides[0].background_path).toContain(`studio/${id}/assets/`);
     expect(screen.queryByRole("button", { name: "Salvar como novo rascunho" })).not.toBeInTheDocument();
   });
-  it("announces approval only after positive ACK and exports PNG, caption and JSON", async () => {
+  it("announces approval only after positive ACK and downloads one ZIP with every PNG, caption and JSON", async () => {
+    const exportSpec = { ...spec, slides: [spec.slides[0], { role: "cta" as const, title: "Próximo passo" }] };
+    invoke.mockResolvedValueOnce({ data: { ...bootstrap, posts: [{ ...post, spec: exportSpec }] }, error: null });
     render(<MasterBnContent />); await ready(); fireEvent.click(screen.getByRole("button", { name: /Força compartilhada/ }));
     fireEvent.click(screen.getByRole("button", { name: "Aprovar", exact: true })); await screen.findByText("Post aprovado e salvo.");
     fireEvent.click(screen.getByRole("button", { name: "Exportar conteúdo" })); await screen.findByText("Arquivos exportados.");
-    expect(downloadBlob).toHaveBeenCalledTimes(3);
-    expect(downloadBlob.mock.calls.map(([, name]) => name)).toEqual([`${id}-slide-1.png`, `${id}-legenda.txt`, `${id}.json`]);
+    expect(downloadBlob).toHaveBeenCalledOnce();
+    const [archive, filename] = downloadBlob.mock.calls[0];
+    expect(filename).toBe(`${id}.zip`);
+    expect(archive.type).toBe("application/zip");
+    const files = unzipSync(new Uint8Array(await archive.arrayBuffer()));
+    expect(Object.keys(files)).toEqual([`${id}-slide-1.png`, `${id}-slide-2.png`, `${id}-legenda.txt`, `${id}.json`]);
+    expect(strFromU8(files[`${id}-legenda.txt`])).toBe(`${spec.caption}\n\n${spec.hashtags.join(" ")}`);
+    expect(JSON.parse(strFromU8(files[`${id}.json`]))).toEqual(exportSpec);
   });
   it("shows actionable renderer overflow errors in preview and export", async () => {
     const message = "O texto do slide 1 não cabe sem cortes. Divida o conteúdo em mais slides.";
@@ -172,6 +183,20 @@ describe("MasterBnContent cloud", () => {
     expect(await screen.findByText(message)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Exportar conteúdo" }));
     await waitFor(() => expect(screen.getAllByText(message)).toHaveLength(2)); expect(downloadBlob).not.toHaveBeenCalled();
+  });
+  it("downloads nothing when a later slide fails after the first PNG was rendered", async () => {
+    const exportSpec = { ...spec, slides: [spec.slides[0], { role: "cta" as const, title: "Próximo passo" }] };
+    invoke.mockResolvedValueOnce({ data: { ...bootstrap, posts: [{ ...post, spec: exportSpec }] }, error: null });
+    render(<MasterBnContent />); await ready(); fireEvent.click(screen.getByRole("button", { name: /Força compartilhada/ }));
+    await screen.findByRole("img", { name: "Slide 1: Força começa aqui" });
+    renderer.mockImplementation(async (_spec, index) => {
+      if (index === 1) throw new Error("O texto do slide 2 não cabe sem cortes. Divida o conteúdo em mais slides.");
+      return new Blob(["first-png"], { type: "image/png" });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Exportar conteúdo" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/texto do slide 2/);
+    expect(downloadBlob).not.toHaveBeenCalled();
+    expect(screen.queryByText("Arquivos exportados.")).not.toBeInTheDocument();
   });
   it("creates a calendar and reopens the persisted response", async () => {
     invoke.mockResolvedValueOnce({ data: { ...bootstrap, capabilities: { text: true, images: true } }, error: null });
