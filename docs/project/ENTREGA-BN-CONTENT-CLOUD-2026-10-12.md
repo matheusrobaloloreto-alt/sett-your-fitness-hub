@@ -59,11 +59,17 @@ geracao de video nem publicacao automatica no Instagram.
 - Acesso anonimo a funcao: HTTP 401. URL publica da imagem privada: HTTP 400,
   sem bytes da imagem. Bucket privado e objeto nao vazio conferidos no banco.
 - Exportacao em lote: Chrome bloqueou os arquivos depois do primeiro PNG;
-  patch de download unico aprovado pelo QA independente local, pronto para publicar
-  neste checkpoint. 46 checks em Chromium (390x844 e 1440x1000): exatamente um
+  patch de download unico aprovado pelo QA independente local e publicado.
+  46 checks em Chromium (390x844 e 1440x1000): exatamente um
   download por exportacao, seis ZIPs abertos, 18 PNGs decodificados, dimensoes,
   pixels, CRC, legenda e JSON conferidos; falha de asset produz zero downloads.
 - Acervo ao vivo: 19 posts anteriores visiveis na sessao Master de producao.
+- Reteste real apos deploy ZIP: Chrome baixou um unico arquivo de 2263049 bytes,
+  contendo os seis PNGs, legenda TXT e JSON. `unzip -t` aprovou todos os oito
+  arquivos. Nenhuma permissao adicional para downloads multiplos foi concedida.
+- Calendario real de uma semana e uma publicacao gerado, salvo e reaberto apos
+  reload. Conteudo tecnico permanece interno, sem publicacao social.
+- Screenshot de producao: `output/bn-content-production-20261012.jpg`.
 - Uma rodada de testes ficou suspensa pelo ambiente e expirou no canal do worker;
   a reexecucao serial final concluiu os 47 testes, sem falhas de assercao.
 
@@ -79,12 +85,13 @@ Worktree: `sett-load-save-release-20260928`; branch
 Destino: Supabase `zshrcgbyhzxpnlccssyz` e Netlify
 `9a061d2e-ee2c-444b-aa69-fe262caf0246`, dominio `www.settapp.com.br`.
 
-Estado neste checkpoint: cloud publicada e fluxo autenticado principal validado.
+Estado final: cloud publicada e fluxo autenticado validado em producao.
 Migration `20261012074421_bn_content_studio_cloud` aplicada; edge
 `bn-content-studio` ACTIVE v1 com `verify_jwt=true`, mais auth e papel no handler.
-Commit de produto `7df72e4`, enviado para a branch remota. Netlify de producao
-`6acc90875073340c18b4648c`, estado `ready` e dominio confirmado.
-Correcao complementar de exportacao em validacao.
+Commit inicial de produto `7df72e4`; correcao ZIP `0869701`, ambos enviados para
+a branch remota. Netlify final de producao `6acc97ce0b9573ae13c2bfa1`, estado
+`ready` e dominio confirmado, titulo `SETT BN Content cloud ZIP 0869701`.
+Deploy inicial cloud `6acc90875073340c18b4648c` preservado no historico.
 Deploy anterior para rollback: `6ac926a677f56442466e1e2f`.
 
 Rollback: restaurar o frontend anterior; desabilitar somente a geracao nova se
@@ -94,8 +101,9 @@ conteudo, acervo, matriculas ou treinos para reverter esta entrega.
 ## Limites E Pendencias
 
 - Validacao no dispositivo da socia depende do acesso dela; nao simular essa prova.
-- Conexao de automacao com Chrome recuperada; reteste de ZIP e calendario ao vivo
-  em conclusao neste checkpoint. Acervo ja conferido.
+- Conexao de automacao com Chrome recuperada; ZIP, acervo e calendario conferidos
+  ao vivo. A revisao de texto foi coberta nos testes automatizados, nao foi
+  repetida contra o provedor em producao.
 - Copia de rascunho com imagens vinculadas nao e oferecida, pois as imagens possuem
   namespace privado por post. A exportacao da edicao continua disponivel.
 - Geracao depende da disponibilidade e do saldo da conta Gemini existente;
