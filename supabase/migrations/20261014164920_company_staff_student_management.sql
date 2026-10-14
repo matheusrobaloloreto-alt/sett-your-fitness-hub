@@ -287,4 +287,3 @@ begin
   end loop;
 end;
 $financial_guards$;
-

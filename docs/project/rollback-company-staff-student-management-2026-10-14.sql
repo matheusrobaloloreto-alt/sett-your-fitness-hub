@@ -175,4 +175,3 @@ $financial_guards$;
 
 
 drop function if exists public.can_manage_staff_student_financial(uuid, uuid);
-
