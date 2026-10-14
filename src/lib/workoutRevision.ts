@@ -44,7 +44,7 @@ function workoutRevisionError(error?: { code?: string; details?: string; hint?: 
     return new Error("Este não é o ciclo que o aluno está vendo. Abra o ciclo atual indicado no perfil antes de salvar.");
   }
   if (raw.includes("workout_revision_forbidden")) {
-    return new Error("Seu acesso atual não permite alterar este aluno. Atualize o treinador responsável ou peça acesso à coordenação.");
+    return new Error("Seu acesso atual não permite alterar este aluno nesta empresa. Confira a empresa selecionada e as permissões da sua conta.");
   }
   return new Error(raw || "Falha ao salvar a nova versão do treino.");
 }

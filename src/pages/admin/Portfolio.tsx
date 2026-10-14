@@ -37,6 +37,7 @@ import {
 
 interface Collaborator { user_id: string; full_name: string; roles: string[] }
 interface PortfolioStudent {
+  company_id: string | null;
   id: string; full_name: string; status: string; whatsapp: string | null; phone: string | null;
   email: string | null; birth_date: string | null; cpf: string | null; cep: string | null;
   address: string | null; address_number: string | null; neighborhood: string | null;
@@ -77,8 +78,10 @@ export default function Portfolio() {
   const { toast } = useToast();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId ?? null;
+  const canManageCompanyStudents = Boolean(user?.id && effectiveCompanyId)
+    && ["trainer", "coordinator", "admin", "master"].includes(role || "");
   const canPickOthers = role === "admin" || role === "master";
-  const canReassignStudents = role === "admin" || role === "coordinator" || role === "master";
+  const canReassignStudents = canManageCompanyStudents;
 
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [selectedId, setSelectedId] = useState<string>(ALL_STUDENTS);
@@ -113,31 +116,30 @@ export default function Portfolio() {
   // Colaboradores da empresa: seletor do admin/master e destinos da troca de professor.
   useEffect(() => {
     let active = true;
+    setCollaborators([]);
     if (!effectiveCompanyId) {
       setCollaborators([]);
       return () => { active = false; };
     }
     (async () => {
-      const { data: members } = await supabase.from("company_members").select("user_id").eq("company_id", effectiveCompanyId);
-      const ids = (members || []).map((m) => m.user_id);
-      if (!ids.length) { if (active) setCollaborators([]); return; }
-      const [{ data: roles }, { data: profiles }] = await Promise.all([
-        supabase.from("user_roles").select("user_id, role").in("user_id", ids),
-        supabase.from("profiles").select("user_id, full_name").in("user_id", ids),
-      ]);
-      if (!active) return;
-      const nameMap = new Map((profiles || []).map((p) => [p.user_id, p.full_name || "Sem nome"]));
-      const byUser = new Map<string, string[]>();
-      (roles || []).forEach((r) => {
-        if (["admin", "coordinator", "trainer"].includes(r.role)) {
-          byUser.set(r.user_id, [...(byUser.get(r.user_id) || []), r.role]);
+      try {
+        const { data, error } = await (supabase as any).rpc("get_company_student_staff_directory", {
+          _company_id: effectiveCompanyId,
+        });
+        if (!active) return;
+        if (error) {
+          toast({ title: "Erro ao carregar equipe", description: error.message, variant: "destructive" });
+          return;
         }
-      });
-      setCollaborators([...byUser.entries()].map(([uid, rs]) => ({ user_id: uid, full_name: nameMap.get(uid) || uid.slice(0, 8), roles: rs }))
-        .sort((a, b) => a.full_name.localeCompare(b.full_name)));
+        setCollaborators(((data || []) as Collaborator[])
+          .map((member) => ({ ...member, full_name: member.full_name || "Sem nome" }))
+          .sort((a, b) => a.full_name.localeCompare(b.full_name)));
+      } catch (error) {
+        if (active) toast({ title: "Erro ao carregar equipe", description: error instanceof Error ? error.message : "Equipe indisponível", variant: "destructive" });
+      }
     })();
     return () => { active = false; };
-  }, [effectiveCompanyId]);
+  }, [effectiveCompanyId, toast]);
 
   useEffect(() => {
     currentScopeRef.current = { companyId: effectiveCompanyId, trainerId: selectedId };
@@ -168,7 +170,7 @@ export default function Portfolio() {
     setLoading(true);
     let studentsQuery = supabase
       .from("students")
-      .select("id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, country_code, notes, assigned_trainer_id")
+      .select("id, company_id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, country_code, notes, assigned_trainer_id")
       .eq("company_id", companyIdAtRequest)
       .order("full_name");
     if (selectedIdAtRequest !== ALL_STUDENTS) {
@@ -218,7 +220,7 @@ export default function Portfolio() {
   useEffect(() => { load(); }, [load]);
 
   const openEditStudent = (student: PortfolioStudent) => {
-    if (bulkInteractionLocked) return;
+    if (bulkInteractionLocked || !canManageStudent(student)) return;
     const brazilian = isBrazilianCountry(student.country_code);
     setEditingStudent(student);
     setStudentForm({
@@ -241,6 +243,7 @@ export default function Portfolio() {
 
   const saveStudent = async () => {
     if (!editingStudent || !studentForm.full_name.trim()) return;
+    if (!canManageStudent(editingStudent)) return;
     const brazilian = isBrazilianCountry(editingStudent.country_code);
     setSavingStudent(true);
     const { error } = await supabase.from("students").update({
@@ -287,7 +290,7 @@ export default function Portfolio() {
   };
 
   const deleteStudent = async (student: PortfolioStudent) => {
-    if (bulkInteractionLocked) return;
+    if (bulkInteractionLocked || !canManageStudent(student)) return;
     const confirmed = window.confirm(`Excluir ${student.full_name}? Esta ação remove o perfil e não pode ser desfeita.`);
     if (!confirmed) return;
     const { error } = await supabase.from("students").delete().eq("id", student.id).eq("company_id", effectiveCompanyId!);
@@ -308,7 +311,6 @@ export default function Portfolio() {
     const currentTrainerId = transferStudent?.assigned_trainer_id || selectedId;
     const query = transferSearch.trim().toLowerCase();
     return collaborators
-      .filter((collaborator) => collaborator.roles.includes("trainer"))
       .filter((collaborator) => collaborator.user_id !== currentTrainerId)
       .filter((collaborator) => !query || collaborator.full_name.toLowerCase().includes(query))
       .sort((a, b) => a.full_name.localeCompare(b.full_name));
@@ -351,7 +353,6 @@ export default function Portfolio() {
   const bulkEligibleTransferTargets = useMemo(() => {
     const query = bulkSearch.trim().toLowerCase();
     return collaborators
-      .filter((collaborator) => collaborator.roles.includes("trainer"))
       .filter((collaborator) => collaborator.user_id !== selectedId)
       .filter((collaborator) => !query || collaborator.full_name.toLowerCase().includes(query))
       .sort((a, b) => a.full_name.localeCompare(b.full_name));
@@ -378,7 +379,8 @@ export default function Portfolio() {
   };
 
   const openBulkTransferDialog = (studentsToTransfer = selectedBulkStudents) => {
-    if (bulkInteractionLocked) return;
+    if (bulkInteractionLocked || !canReassignStudents
+      || studentsToTransfer.some((candidate) => !students.some((s) => s.id === candidate.id && canManageStudent(s)))) return;
     if (studentsToTransfer.length === 0) {
       toast({
         title: "Nenhum aluno elegivel selecionado",
@@ -396,7 +398,7 @@ export default function Portfolio() {
   };
 
   const openTransferDialog = (student: PortfolioStudent) => {
-    if (bulkInteractionLocked) return;
+    if (bulkInteractionLocked || !canManageStudent(student)) return;
     setTransferStudent(student);
     setTransferSearch("");
     setTransferTargetId("");
@@ -405,8 +407,9 @@ export default function Portfolio() {
 
   const confirmTransferStudent = async () => {
     if (!transferStudent || !transferTargetId) return;
+    if (!canManageStudent(transferStudent)) return;
     const destination = collaborators.find((collaborator) => collaborator.user_id === transferTargetId);
-    if (!destination || !destination.roles.includes("trainer")) return;
+    if (!destination) return;
     if (!transferScope || transferScope.companyId !== effectiveCompanyId || transferScope.trainerId !== selectedId) {
       toast({ title: "Carteira alterada", description: "Reabra a troca nesta carteira antes de confirmar.", variant: "destructive" });
       setTransferStudent(null);
@@ -454,8 +457,10 @@ export default function Portfolio() {
   };
 
   const confirmBulkTransfer = async () => {
+    if (!canReassignStudents
+      || selectedBulkStudents.some((candidate) => !students.some((s) => s.id === candidate.id && canManageStudent(s)))) return;
     const destination = collaborators.find((collaborator) => collaborator.user_id === bulkTargetId);
-    if (!destination || !destination.roles.includes("trainer") || selectedBulkStudents.length === 0) return;
+    if (!destination || selectedBulkStudents.length === 0) return;
     if (!bulkScope || bulkScope.companyId !== effectiveCompanyId || bulkScope.trainerId !== selectedId) {
       toast({ title: "Carteira alterada", description: "Reabra a troca em massa nesta carteira antes de confirmar.", variant: "destructive" });
       setBulkDialogOpen(false);
@@ -524,10 +529,8 @@ export default function Portfolio() {
   }, [students]);
 
   const canManageStudent = useCallback((student: PortfolioStudent) => (
-    role !== "trainer"
-    || student.assigned_trainer_id === user?.id
-    || student.enrollment_trainer_id === user?.id
-  ), [role, user?.id]);
+    canManageCompanyStudents && student.company_id === effectiveCompanyId
+  ), [canManageCompanyStudents, effectiveCompanyId]);
 
   const selectedName = selectedId === ALL_STUDENTS
     ? "todos os alunos"
@@ -622,7 +625,7 @@ export default function Portfolio() {
                 const bulkEligible = isBulkTrainerReassignmentEligible(s);
                 return (
                   <div key={s.id} className="flex flex-wrap items-center gap-2 py-2.5">
-                    {canReassignStudents && (
+                    {canReassignStudents && canManageStudent(s) && (
                       <Checkbox
                         checked={bulkSelectedSet.has(s.id)}
                         onCheckedChange={(checked) => toggleBulkStudent(s, checked === true)}
@@ -676,7 +679,7 @@ export default function Portfolio() {
                           />
                         </>
                       )}
-                      {canReassignStudents && (
+                      {canReassignStudents && canManageStudent(s) && (
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>

@@ -24,7 +24,7 @@ const bootstrap: BnStudioBootstrap = {
   }, assets: {}, capabilities: { text: false, images: false },
 };
 const manifest = JSON.stringify([{ id: "post-1", title: "Treino individualizado", status: "draft", slides: ["posts/post-1/slide_1.png"], caption: "Legenda segura" }]);
-function tab(name: string) { fireEvent.keyDown(screen.getByRole("tab", { name, exact: true }), { key: "Enter" }); }
+function tab(name: string) { fireEvent.keyDown(screen.getByRole("tab", { name }), { key: "Enter" }); }
 async function ready() { await screen.findByLabelText("Título do slide"); }
 const change = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label, { exact: true }), { target: { value } });
 const calls = (action: string) => invoke.mock.calls.filter(([, options]) => options.body.action === action);
@@ -53,10 +53,10 @@ describe("MasterBnContent cloud", () => {
 
   it("creates a manual draft and saves without a generation key or a client-generated id", async () => {
     render(<MasterBnContent />); await ready();
-    expect(screen.getByRole("button", { name: "Salvar", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
     change("Título do slide", "Título manual");
-    expect(screen.getByRole("button", { name: "Salvar", exact: true })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "Salvar", exact: true }));
+    expect(screen.getByRole("button", { name: "Salvar" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     expect(await screen.findByText("Rascunho salvo.")).toBeInTheDocument();
     expect(calls("save")[0][1].body).not.toHaveProperty("id");
     expect(calls("save")[0][1].body.spec.slides[0].title).toBe("Título manual");
@@ -67,7 +67,7 @@ describe("MasterBnContent cloud", () => {
     fireEvent.click(screen.getByRole("button", { name: /Força compartilhada/ }));
     expect(screen.getByLabelText("Título do slide")).toHaveValue("Força começa aqui");
     change("Subtítulo", "Apoio"); change("Texto", "Texto final"); change("Tópicos", "Primeiro\n\nSegundo\n"); change("Cena da imagem", "Athlete"); change("Legenda", "Nova legenda"); change("Hashtags", "#força #treino");
-    fireEvent.click(screen.getByRole("button", { name: "Salvar", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await screen.findByText("Rascunho salvo.");
     expect(calls("save")[0][1].body).toMatchObject({ id, expected_version: 1, spec: { caption: "Nova legenda", hashtags: ["#força", "#treino"], slides: [{ subtitle: "Apoio", body: "Texto final", bullets: ["Primeiro", "Segundo"], image_scene: "Athlete" }] } });
   });
@@ -77,14 +77,14 @@ describe("MasterBnContent cloud", () => {
     change("Título do slide", "Minha edição");
     fireEvent.click(screen.getByRole("button", { name: "Atualizar Studio" }));
     await waitFor(() => expect(calls("bootstrap")).toHaveLength(2));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Salvar", exact: true })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Salvar" })).toBeEnabled());
     expect(screen.getByLabelText("Título do slide")).toHaveValue("Minha edição");
     expect(window.confirm).not.toHaveBeenCalled();
   });
   it("keeps edits after failed save and does not announce saved or approved", async () => {
     render(<MasterBnContent />); await ready(); change("Título do slide", "Preservar");
     invoke.mockResolvedValueOnce({ data: null, error: { context: { status: 500, json: async () => ({ error: "save_failed" }) } } });
-    fireEvent.click(screen.getByRole("button", { name: "Salvar", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/não confirmou/);
     expect(screen.getByLabelText("Título do slide")).toHaveValue("Preservar");
     expect(screen.queryByText("Rascunho salvo.")).not.toBeInTheDocument();
@@ -92,7 +92,7 @@ describe("MasterBnContent cloud", () => {
   it("preserves conflicting edits and can explicitly save a new copy without backgrounds", async () => {
     render(<MasterBnContent />); await ready(); fireEvent.click(screen.getByRole("button", { name: /Força compartilhada/ })); change("Título do slide", "Conflito preservado");
     invoke.mockResolvedValueOnce({ data: null, error: { context: { status: 409, json: async () => ({ error: "version_conflict" }) } } });
-    fireEvent.click(screen.getByRole("button", { name: "Salvar", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/Outro Master/);
     expect(screen.getByLabelText("Título do slide")).toHaveValue("Conflito preservado");
     fireEvent.click(screen.getByRole("button", { name: "Salvar cópia" }));
@@ -134,7 +134,7 @@ describe("MasterBnContent cloud", () => {
     fireEvent.click(screen.getByRole("button", { name: "Adicionar slide" })); change("Título do slide", "Segundo");
     fireEvent.click(screen.getByRole("button", { name: "Mover slide para cima" }));
     expect(screen.getByLabelText("Título do slide")).toHaveValue("Segundo");
-    fireEvent.click(screen.getByRole("tab", { name: "Slide 2", exact: true })); expect(screen.getByLabelText("Título do slide")).toHaveValue("Primeiro");
+    fireEvent.click(screen.getByRole("tab", { name: "Slide 2" })); expect(screen.getByLabelText("Título do slide")).toHaveValue("Primeiro");
     fireEvent.click(screen.getByRole("button", { name: "Remover slide" })); expect(screen.getByLabelText("Título do slide")).toHaveValue("Segundo");
     expect(screen.getByRole("button", { name: "Remover slide" })).toBeDisabled();
     await screen.findByRole("img", { name: "Slide 1: Segundo" });
@@ -144,7 +144,7 @@ describe("MasterBnContent cloud", () => {
     render(<MasterBnContent />); await ready(); change("Briefing", "Criar um conteúdo sobre força");
     fireEvent.click(screen.getByRole("button", { name: "Gerar conteúdo" }));
     await waitFor(() => expect(screen.getByLabelText("Título do slide")).toHaveValue("Conteúdo gerado"));
-    change("Revisão", "Encurtar o texto"); fireEvent.click(screen.getByRole("button", { name: "Revisar", exact: true }));
+    change("Revisão", "Encurtar o texto"); fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
     await waitFor(() => expect(calls("revise")).toHaveLength(1));
     expect(calls("save")).toHaveLength(0);
     expect(calls("generate")[0][1].body).toMatchObject({ format: "carrossel", format_key: "educativo", audience: "misto" });
@@ -165,7 +165,7 @@ describe("MasterBnContent cloud", () => {
     const exportSpec = { ...spec, slides: [spec.slides[0], { role: "cta" as const, title: "Próximo passo" }] };
     invoke.mockResolvedValueOnce({ data: { ...bootstrap, posts: [{ ...post, spec: exportSpec }] }, error: null });
     render(<MasterBnContent />); await ready(); fireEvent.click(screen.getByRole("button", { name: /Força compartilhada/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Aprovar", exact: true })); await screen.findByText("Post aprovado e salvo.");
+    fireEvent.click(screen.getByRole("button", { name: "Aprovar" })); await screen.findByText("Post aprovado e salvo.");
     fireEvent.click(screen.getByRole("button", { name: "Exportar conteúdo" })); await screen.findByText("Arquivos exportados.");
     expect(downloadBlob).toHaveBeenCalledOnce();
     const [archive, filename] = downloadBlob.mock.calls[0];

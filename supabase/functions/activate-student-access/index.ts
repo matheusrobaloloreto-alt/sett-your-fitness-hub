@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { HttpError, isUuid } from "../_shared/tenant-auth.ts";
+import { createStudentAccount, getLinkedStudentAccount } from "../_shared/student-account-access.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -6,7 +8,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-Deno.serve(async (req) => {
+export async function handleActivateStudentAccess(req: Request) {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -28,7 +30,7 @@ Deno.serve(async (req) => {
 
     const token = authHeader.replace("Bearer ", "");
     const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
+    if (claimsError || !claimsData?.claims || claimsData.claims.is_anonymous === true) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -43,10 +45,14 @@ Deno.serve(async (req) => {
     );
 
     // Check caller is admin/master/coordinator/trainer
-    const { data: callerRoles } = await adminClient
+    const { data: callerRoles, error: callerRolesError } = await adminClient
       .from("user_roles")
       .select("role")
       .eq("user_id", callerId);
+
+    if (callerRolesError || !Array.isArray(callerRoles)) {
+      throw new HttpError(503, "Unable to validate staff role");
+    }
 
     const roles = callerRoles?.map((r: any) => r.role) || [];
     if (!roles.some((r: string) => ["admin", "master", "coordinator", "trainer"].includes(r))) {
@@ -57,7 +63,7 @@ Deno.serve(async (req) => {
     }
 
     const { student_id } = await req.json();
-    if (!student_id) {
+    if (!isUuid(student_id)) {
       return new Response(JSON.stringify({ error: "student_id required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -78,7 +84,31 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (student.user_id) {
+    if (!student.company_id) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const { data: isStaff, error: staffError } = await adminClient.rpc("is_company_staff", {
+      _user_id: callerId,
+      _company_id: student.company_id,
+    });
+    if (staffError) {
+      return new Response(JSON.stringify({ error: "Unable to validate company access" }), {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (isStaff !== true) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const identity = await getLinkedStudentAccount(adminClient, student);
+    if (identity) {
       return new Response(JSON.stringify({ error: "Student already has access", user_id: student.user_id }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -95,59 +125,7 @@ Deno.serve(async (req) => {
     // Create auth user with a temporary password (student will reset via email)
     const tempPassword = crypto.randomUUID().slice(0, 12) + "Aa1!";
 
-    let userId: string;
-    const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
-      email: student.email,
-      password: tempPassword,
-      email_confirm: true,
-      user_metadata: { full_name: student.full_name },
-    });
-
-    if (createError) {
-      console.error("createUser error", createError);
-      if (createError.message?.includes("already been registered") || createError.message?.includes("already registered")) {
-        const { data: { users } } = await adminClient.auth.admin.listUsers();
-        const existingUser = users?.find((u: any) => u.email === student.email);
-        if (!existingUser) {
-          return new Response(JSON.stringify({ error: "User not found" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-        userId = existingUser.id;
-      } else {
-        return new Response(JSON.stringify({ error: createError.message }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    } else {
-      userId = newUser.user.id;
-    }
-
-    // Assign student role
-    const { error: roleError } = await adminClient
-      .from("user_roles")
-      .upsert({ user_id: userId, role: "student" }, { onConflict: "user_id,role" });
-    if (roleError) console.error("user_roles upsert error", roleError);
-
-    // Link student record to user
-    const { error: linkError } = await adminClient
-      .from("students")
-      .update({ user_id: userId })
-      .eq("id", student_id);
-    if (linkError) console.error("students update error", linkError);
-
-    // Add to company_members if student has company_id
-    if (student.company_id) {
-      const { error: cmError } = await adminClient
-        .from("company_members")
-        .upsert(
-          { user_id: userId, company_id: student.company_id },
-          { onConflict: "user_id" }
-        );
-      if (cmError) console.error("company_members upsert error", cmError);
-    }
+    const userId = await createStudentAccount(adminClient, student, tempPassword);
 
     return new Response(JSON.stringify({ 
       success: true, 
@@ -158,10 +136,11 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    console.error("activate-student-access fatal", err);
-    return new Response(JSON.stringify({ error: (err as Error).message }), {
-      status: 500,
+    return new Response(JSON.stringify({ error: err instanceof HttpError ? err.message : "Nao foi possivel liberar o acesso do aluno" }), {
+      status: err instanceof HttpError ? err.status : 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-});
+}
+
+if (import.meta.main) Deno.serve(handleActivateStudentAccess);

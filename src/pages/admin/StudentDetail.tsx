@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/useAuth";
+import { useMaster } from "@/contexts/MasterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -299,7 +300,9 @@ export default function StudentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { session, role } = useAuth();
+  const { session, role, companyId } = useAuth();
+  const { viewingCompany, isViewingCompany } = useMaster();
+  const selectedCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId;
   const { toast } = useToast();
   const studentDetailRoutePrefix = role === "master" ? "admin" : role || "admin";
   const returnToPath = useMemo(() => {
@@ -313,6 +316,9 @@ export default function StudentDetail() {
     });
   }, [location.search, location.state, studentDetailRoutePrefix]);
   const [student, setStudent] = useState<Student | null>(null);
+  const effectiveCompanyId = selectedCompanyId || (role === "master" ? student?.company_id : null);
+  const canManageStudent = Boolean(session?.user?.id && effectiveCompanyId && student?.company_id === effectiveCompanyId)
+    && ["trainer", "coordinator", "admin", "master"].includes(role || "");
   const [preRegistration, setPreRegistration] = useState<PreRegistrationData | null>(null);
   const [preRegistrationLoading, setPreRegistrationLoading] = useState(true);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
@@ -350,6 +356,7 @@ export default function StudentDetail() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [trainers, setTrainers] = useState<Trainer[]>([]);
   const [trainerOptionsLoading, setTrainerOptionsLoading] = useState(false);
+  const [assigningTrainer, setAssigningTrainer] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [selectedTrainerId, setSelectedTrainerId] = useState("");
   const [startDate, setStartDate] = useState<Date>(new Date());
@@ -533,13 +540,16 @@ export default function StudentDetail() {
     // loadData is the page-level loader; adding it as a dependency would re-run
     // the loader on every render because it closes over local UI handlers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, selectedCompanyId, role]);
 
   const loadData = async (studentId: string) => {
     setLoading(true);
+    setStudent(null);
+    if (role !== "master" && !selectedCompanyId) { setLoading(false); return; }
 
-    const { data: studentData } = await supabase
-      .from("students").select("*").eq("id", studentId).single();
+    let studentQuery = supabase.from("students").select("*").eq("id", studentId);
+    if (selectedCompanyId) studentQuery = studentQuery.eq("company_id", selectedCompanyId);
+    const { data: studentData } = await studentQuery.single();
 
     if (!studentData) { setLoading(false); return; }
     setStudent(studentData as Student);
@@ -781,44 +791,25 @@ export default function StudentDetail() {
     }
 
     setTrainerOptionsLoading(true);
+    setTrainers([]);
     try {
-      const [{ data: plansData, error: plansError }, { data: membersData, error: membersError }] = await Promise.all([
+      const [{ data: plansData, error: plansError }, { data: directoryData, error: directoryError }] = await Promise.all([
         supabase
           .from("plans")
           .select("id, name, duration_weeks, duration_days, plan_kind")
           .eq("company_id", targetCompanyId)
           .eq("is_active", true)
           .order("name"),
-        supabase.from("company_members").select("user_id").eq("company_id", targetCompanyId),
+        (supabase as any).rpc("get_company_student_staff_directory", { _company_id: targetCompanyId }),
       ]);
 
       if (plansError) throw plansError;
-      if (membersError) throw membersError;
+      if (directoryError) throw directoryError;
       setPlans(plansData || []);
 
-      const memberIds = [...new Set((membersData || []).map((member) => member.user_id))];
-      if (memberIds.length === 0) {
-        setTrainers([]);
-        return;
-      }
-
-      const [{ data: rolesData, error: rolesError }, { data: profilesData, error: profilesError }] = await Promise.all([
-        supabase
-          .from("user_roles")
-          .select("user_id, role")
-          .in("user_id", memberIds)
-          .in("role", ["admin", "coordinator", "trainer"]),
-        supabase.from("profiles").select("user_id, full_name").in("user_id", memberIds),
-      ]);
-
-      if (rolesError) throw rolesError;
-      if (profilesError) throw profilesError;
-
-      const eligibleIds = new Set((rolesData || []).map((roleRow) => roleRow.user_id));
       setTrainers(
-        (profilesData || [])
-          .filter((profile) => eligibleIds.has(profile.user_id))
-          .map((profile) => ({ user_id: profile.user_id, full_name: profile.full_name || "Sem nome" }))
+        ((directoryData || []) as Array<Trainer & { roles: string[] }>)
+          .map((member) => ({ user_id: member.user_id, full_name: member.full_name || "Sem nome" }))
           .sort((a, b) => a.full_name.localeCompare(b.full_name, "pt-BR")),
       );
     } catch (error) {
@@ -843,27 +834,37 @@ export default function StudentDetail() {
     ? addDays(startDate, (selectedPlan.duration_days || (selectedPlan.duration_weeks ?? 4) * 7) - 1)
     : null;
 
-  // Atribuir/trocar treinador direto do perfil (grava na MATRÍCULA e sincroniza o aluno).
+  const canReassignEnrollmentTrainer = (enrollmentId: string) => canManageStudent
+    && enrollments.some((enrollment) => enrollment.id === enrollmentId
+      && ["active", "awaiting_training", "awaiting_renewal", "trial"].includes(enrollment.status));
+
+  // A troca atômica sincroniza apenas matrículas operacionais; o histórico fica intacto.
   const handleAssignTrainerInline = async (enrollmentId: string, trainerId: string) => {
-    if (!trainerId || !id) return;
-    const { error } = await supabase.from("enrollments").update({ trainer_id: trainerId }).eq("id", enrollmentId);
-    if (error) {
-      toast({ title: "Erro ao atribuir treinador", description: error.message, variant: "destructive" });
-      return;
+    if (assigningTrainer || !trainerId || !id || !canReassignEnrollmentTrainer(enrollmentId) || student?.assigned_trainer_id === trainerId || !trainers.some((t) => t.user_id === trainerId)) return;
+    setAssigningTrainer(true);
+    try {
+      const { error } = await (supabase as any).rpc("reassign_student_trainer", {
+        _student_id: id,
+        _trainer_id: trainerId,
+        _expected_trainer_id: student?.assigned_trainer_id || null,
+      });
+      if (error) {
+        toast({ title: "Erro ao atribuir treinador", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Treinador atribuído!" });
+      await loadData(id);
+    } catch (error) {
+      toast({ title: "Erro ao atribuir treinador", description: error instanceof Error ? error.message : "Tente novamente.", variant: "destructive" });
+    } finally {
+      setAssigningTrainer(false);
     }
-    const { error: studentError } = await supabase.from("students").update({ assigned_trainer_id: trainerId }).eq("id", id);
-    if (studentError) {
-      toast({ title: "Matrícula atualizada parcialmente", description: `O treinador foi salvo na matrícula, mas não no perfil: ${studentError.message}`, variant: "destructive" });
-      return;
-    }
-    toast({ title: "Treinador atribuído!" });
-    loadData(id);
   };
 
   // Seletor inline de treinador — substitui o "Treinador desconhecido" estático.
   const TrainerInlineSelect = ({ enrollmentId, trainerId, trainerName }: { enrollmentId: string; trainerId: string | null; trainerName?: string }) => (
-    <Select value={trainerId || ""} onValueChange={(v) => handleAssignTrainerInline(enrollmentId, v)}>
-      <SelectTrigger className="h-6 w-auto min-w-[150px] border-dashed px-2 py-0 text-xs gap-1 [&>svg]:h-3 [&>svg]:w-3">
+    <Select value={trainerId || ""} onValueChange={(v) => handleAssignTrainerInline(enrollmentId, v)} disabled={assigningTrainer || !canReassignEnrollmentTrainer(enrollmentId)}>
+      <SelectTrigger aria-label={`Professor da matrícula ${enrollments.find((enrollment) => enrollment.id === enrollmentId)?.plan_name || "do aluno"}`} className="h-6 w-auto min-w-[150px] border-dashed px-2 py-0 text-xs gap-1 [&>svg]:h-3 [&>svg]:w-3">
         <Dumbbell className="h-3 w-3 shrink-0" />
         <SelectValue placeholder="Selecionar treinador">
           {trainerId && trainerName && trainerName !== "Treinador desconhecido" ? trainerName : "Selecionar treinador"}
@@ -1205,9 +1206,7 @@ export default function StudentDetail() {
     || null;
 
   const canManageEnrollment = (enrollment: Enrollment) =>
-    role === "master" || role === "admin" || role === "coordinator"
-    || (role === "trainer" && Boolean(session?.user?.id)
-      && (enrollment.trainer_id === session.user.id || student?.assigned_trainer_id === session.user.id));
+    canManageStudent && enrollments.some((row) => row.id === enrollment.id);
 
   const inactiveCurrentPrescription = enrollments.find((enrollment) =>
     enrollment.status === "inactive"
@@ -1752,7 +1751,7 @@ export default function StudentDetail() {
     );
   }
 
-  if (!student) {
+  if (!student || student.company_id !== effectiveCompanyId) {
     return (
       <>
         <div className="text-center py-20">
@@ -2215,7 +2214,7 @@ export default function StudentDetail() {
                                         Exibido ao aluno
                                       </Badge>
                                     )}
-                                    {(role === "trainer" || role === "admin" || role === "master" || role === "coordinator") && (
+                                    {canManageStudent && (
                                       <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto">
                                         <Button
                                           variant="outline"
@@ -2267,7 +2266,7 @@ export default function StudentDetail() {
                                         )}
                                       </div>
                                     )}
-                                    {(role === "trainer" || role === "admin" || role === "master" || role === "coordinator") && (
+                                    {canManageStudent && (
                                       <Popover>
                                         <PopoverTrigger asChild>
                                           <Button

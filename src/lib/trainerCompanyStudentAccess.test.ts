@@ -21,12 +21,13 @@ describe("trainer company student access", () => {
     expect(migrationSource).toContain("as restrictive for insert");
   });
 
-  it("shows every company student by default and keeps trainer mutations scoped", () => {
+  it("shows every company student and scopes staff mutations to the company", () => {
     expect(portfolioSource).toContain('const ALL_STUDENTS = "all"');
     expect(portfolioSource).toContain("selectedIdAtRequest !== ALL_STUDENTS");
     expect(portfolioSource).toContain("<SelectItem value={ALL_STUDENTS}>Todos os alunos</SelectItem>");
     expect(portfolioSource).toContain("const canManageStudent = useCallback");
     expect(studentsManagerSource).toContain("const canManageStudent = (student: Student)");
-    expect(studentsManagerSource).toContain("student.enrollment_trainer_id === session?.user?.id");
+    expect(studentsManagerSource).toContain("canManageCompanyStudents && student.company_id === effectiveCompanyId");
+    expect(studentsManagerSource).not.toContain("student.enrollment_trainer_id === session?.user?.id");
   });
 });

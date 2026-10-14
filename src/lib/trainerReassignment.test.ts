@@ -65,7 +65,7 @@ describe("student trainer reassignment hotfix", () => {
     expect(portfolio).toContain("UserRoundCog");
     expect(portfolio).toContain('rpc("reassign_student_trainer"');
     expect(portfolio).toContain("Histórico, ciclos, treinos, pagamentos e conversas serão preservados.");
-    expect(portfolio).toContain('roles.includes("trainer")');
+    expect(portfolio).toContain('rpc("get_company_student_staff_directory"');
     expect(portfolio).toContain("currentScopeRef.current.companyId !== companyIdAtRequest");
     expect(portfolio).toContain("loadSeqRef.current !== requestId");
     expect(portfolio).toContain("await load()");

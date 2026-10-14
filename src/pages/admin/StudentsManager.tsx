@@ -26,6 +26,7 @@ import { isInfluencerPlan } from "@/lib/influencerPlan";
 
 interface Student {
   id: string;
+  company_id: string | null;
   full_name: string;
   email: string | null;
   phone: string | null;
@@ -120,6 +121,7 @@ export default function StudentsManager() {
   const [editing, setEditing] = useState<Student | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [assigningStudentId, setAssigningStudentId] = useState<string | null>(null);
   const [accessLoadingId, setAccessLoadingId] = useState<string | null>(null);
   const [batchAccessLoading, setBatchAccessLoading] = useState(false);
 
@@ -148,6 +150,8 @@ export default function StudentsManager() {
   const navigate = useNavigate();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
+  const canManageCompanyStudents = Boolean(session?.user?.id && effectiveCompanyId)
+    && ["trainer", "coordinator", "admin", "master"].includes(role || "");
   const rolePrefix = role === "coordinator" ? "/coordinator" : role === "trainer" ? "/trainer" : "/admin";
 
   useEffect(() => { loadData(); }, [effectiveCompanyId]);
@@ -158,33 +162,23 @@ export default function StudentsManager() {
 
     const studentsQuery = supabase.from("students").select("*").eq("company_id", effectiveCompanyId).order("full_name");
     const plansQuery = supabase.from("plans").select("id, name, duration_weeks, duration_days, plan_kind").eq("is_active", true).eq("company_id", effectiveCompanyId).order("name");
-    // Restrict trainer/coordinator/admin lookup to the current company via company_members
-    const membersQuery = supabase.from("company_members").select("user_id").eq("company_id", effectiveCompanyId);
+    setTrainers([]);
+    const directoryQuery = (supabase as any).rpc("get_company_student_staff_directory", { _company_id: effectiveCompanyId });
 
-    const [{ data: studentsData }, { data: plansData }, { data: membersData }] = await Promise.all([
+    const [{ data: studentsData }, { data: plansData }, { data: directoryData, error: directoryError }] = await Promise.all([
       studentsQuery,
       plansQuery,
-      membersQuery,
+      directoryQuery,
     ]);
 
     setPlans(plansData || []);
 
-    // Load trainers (filtered by company members + relevant roles)
-    const memberIds = (membersData || []).map(m => m.user_id);
-    if (memberIds.length > 0) {
-      const [{ data: rolesData }, { data: profiles }] = await Promise.all([
-        supabase.from("user_roles").select("user_id, role").in("user_id", memberIds).in("role", ["admin", "coordinator", "trainer"]),
-        supabase.from("profiles").select("user_id, full_name").in("user_id", memberIds),
-      ]);
-      const trainerIds = new Set((rolesData || []).map(r => r.user_id));
-      setTrainers(
-        (profiles || [])
-          .filter(p => trainerIds.has(p.user_id))
-          .map(p => ({ user_id: p.user_id, full_name: p.full_name || "Sem nome" }))
-      );
-    } else {
-      setTrainers([]);
+    if (directoryError) {
+      toast({ title: "Erro ao carregar equipe", description: directoryError.message, variant: "destructive" });
     }
+    setTrainers(directoryError ? [] : ((directoryData || []) as Array<Trainer & { roles: string[] }>)
+      .map((member) => ({ user_id: member.user_id, full_name: member.full_name || "Sem nome" }))
+      .sort((a, b) => a.full_name.localeCompare(b.full_name, "pt-BR")));
 
     // Load enrollments for plan names
     if (studentsData) {
@@ -222,17 +216,16 @@ export default function StudentsManager() {
     return true;
   });
   const canManageStudent = (student: Student) => (
-    role !== "trainer"
-    || student.assigned_trainer_id === session?.user?.id
-    || student.enrollment_trainer_id === session?.user?.id
+    canManageCompanyStudents && student.company_id === effectiveCompanyId
   );
   const activeWithoutAccess = students.filter(s => canManageStudent(s) && s.status === "active" && !s.user_id);
   const activeWithoutAccessWithEmail = activeWithoutAccess.filter(s => !!s.email);
   const activeWithoutAccessNoEmail = activeWithoutAccess.length - activeWithoutAccessWithEmail.length;
 
-  const openCreate = () => { setEditing(null); setForm(emptyForm); setOpen(true); };
+  const openCreate = () => { if (!canManageCompanyStudents) return; setEditing(null); setForm(emptyForm); setOpen(true); };
 
   const openEdit = (s: Student) => {
+    if (!canManageStudent(s)) return;
     const brazilian = isBrazilianCountry(s.country_code);
     setEditing(s);
     setForm({
@@ -249,6 +242,7 @@ export default function StudentsManager() {
   };
 
   const handleSave = async () => {
+    if (!canManageCompanyStudents || (editing && !canManageStudent(editing))) return;
     if (!form.full_name.trim()) return;
 
     // Validação de dados de cobrança (necessários para o link de pagamento funcionar)
@@ -302,7 +296,7 @@ export default function StudentsManager() {
     }
 
     if (editing) {
-      const { error } = await supabase.from("students").update(payload).eq("id", editing.id);
+      const { error } = await supabase.from("students").update(payload).eq("id", editing.id).eq("company_id", effectiveCompanyId!);
       if (error) { toast({ title: "Erro", description: error.message, variant: "destructive" }); return; }
       // Sync address to Asaas
       try {
@@ -329,24 +323,40 @@ export default function StudentsManager() {
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("students").delete().eq("id", id);
+    const student = students.find((s) => s.id === id);
+    if (!student || !canManageStudent(student)) return;
+    const { error } = await supabase.from("students").delete().eq("id", id).eq("company_id", effectiveCompanyId!);
     if (error) { toast({ title: "Erro", description: error.message, variant: "destructive" }); return; }
     toast({ title: "Aluno removido" });
     loadData();
   };
 
   const handleAssignTrainer = async (studentId: string, trainerId: string) => {
-    const { error } = await supabase.from("students").update({ assigned_trainer_id: trainerId }).eq("id", studentId);
-    if (error) {
-      console.error("[handleAssignTrainer] update failed:", error);
-      toast({ title: "Erro ao atribuir treinador", description: `${error.message}${error.code ? ` (código ${error.code})` : ""}`, variant: "destructive" });
-      return;
+    const student = students.find((s) => s.id === studentId);
+    if (assigningStudentId || !student || !canManageStudent(student) || student.assigned_trainer_id === trainerId || !trainers.some((t) => t.user_id === trainerId)) return;
+    setAssigningStudentId(studentId);
+    try {
+      const { error } = await (supabase as any).rpc("reassign_student_trainer", {
+        _student_id: studentId,
+        _trainer_id: trainerId,
+        _expected_trainer_id: student.assigned_trainer_id || null,
+      });
+      if (error) {
+        toast({ title: "Erro ao atribuir treinador", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Treinador atribuído!" });
+      await loadData();
+    } catch (error) {
+      toast({ title: "Erro ao atribuir treinador", description: errorMessage(error, "Tente novamente."), variant: "destructive" });
+    } finally {
+      setAssigningStudentId(null);
     }
-    toast({ title: "Treinador atribuído!" });
-    loadData();
   };
 
   const handleChangePlan = async (studentId: string, planId: string) => {
+    const student = students.find((s) => s.id === studentId);
+    if (!student || !canManageStudent(student)) return;
     const selectedPlan = plans.find((plan) => plan.id === planId);
     if (!selectedPlan || !effectiveCompanyId) return;
     const { error } = isInfluencerPlan(selectedPlan)
@@ -372,6 +382,7 @@ export default function StudentsManager() {
   };
 
   const handleStartEnrollment = async (s: Student) => {
+    if (!canManageStudent(s)) return;
     const plan = plans.find(p => p.id === s.selected_plan_id);
     if (isInfluencerPlan(plan)) {
       await handleChangePlan(s.id, plan.id);
@@ -434,6 +445,7 @@ export default function StudentsManager() {
   };
 
   const requestStudentCredentials = async (student: Student): Promise<{ email: string; password: string } | null> => {
+    if (!canManageStudent(student)) return null;
     if (!student.email) {
       toast({ title: "Sem e-mail", description: "Cadastre um e-mail no aluno para gerar o acesso.", variant: "destructive" });
       return null;
@@ -647,8 +659,8 @@ export default function StudentsManager() {
                 {canManageStudent(s) && <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border">
                   <div className="flex-1 space-y-1">
                     <Label className="text-xs font-sans text-muted-foreground">Treinador{influencer ? " (opcional)" : ""}</Label>
-                    <Select value={s.assigned_trainer_id || ""} onValueChange={v => handleAssignTrainer(s.id, v)} disabled={influencer}>
-                      <SelectTrigger className="bg-secondary border-border h-8 text-xs"><SelectValue placeholder={influencer ? "Não exigido" : "Atribuir treinador"} /></SelectTrigger>
+                    <Select value={s.assigned_trainer_id || ""} onValueChange={v => handleAssignTrainer(s.id, v)} disabled={influencer || Boolean(assigningStudentId)}>
+                      <SelectTrigger aria-label={`Professor responsável por ${s.full_name}`} className="bg-secondary border-border h-8 text-xs"><SelectValue placeholder={influencer ? "Não exigido" : "Atribuir treinador"} /></SelectTrigger>
                       <SelectContent>{trainers.map(t => <SelectItem key={t.user_id} value={t.user_id}>{t.full_name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>

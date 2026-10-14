@@ -4,6 +4,7 @@
 // (nesse caso REDEFINE a senha para um valor conhecido). Autorização por empresa (staff/master).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantAccess, HttpError } from "../_shared/tenant-auth.ts";
+import { createStudentAccount, ensureStudentAccountMembership, getLinkedStudentAccount } from "../_shared/student-account-access.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,7 +24,7 @@ function generatePassword(): string {
   return core + "@7a"; // garante símbolo + dígito + minúscula → passa em qualquer policy
 }
 
-Deno.serve(async (req) => {
+export async function handleStudentLoginCredentials(req: Request) {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const authHeader = req.headers.get("Authorization");
@@ -36,7 +37,7 @@ Deno.serve(async (req) => {
     );
     const token = authHeader.replace("Bearer ", "");
     const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) return json(401, { error: "Unauthorized" });
+    if (claimsError || !claimsData?.claims || claimsData.claims.is_anonymous === true) return json(401, { error: "Unauthorized" });
     const callerId = claimsData.claims.sub as string;
 
     const adminClient = createClient(
@@ -48,8 +49,9 @@ Deno.serve(async (req) => {
     if (!student_id) return json(400, { error: "student_id required" });
 
     // Autorização por empresa (master ou staff da mesma empresa do aluno)
-    await assertTenantAccess(adminClient, claimsData.claims, { studentId: student_id, requireStaff: true });
-    const { data: callerRoles } = await adminClient.from("user_roles").select("role").eq("user_id", callerId);
+    const tenant = await assertTenantAccess(adminClient, claimsData.claims, { studentId: student_id, requireStaff: true });
+    const { data: callerRoles, error: callerRolesError } = await adminClient.from("user_roles").select("role").eq("user_id", callerId);
+    if (callerRolesError || !Array.isArray(callerRoles)) return json(503, { error: "Unable to validate staff role" });
     const roles = (callerRoles || []).map((r: any) => r.role);
     if (!roles.some((r: string) => ["admin", "master", "coordinator", "trainer"].includes(r))) {
       return json(403, { error: "Forbidden" });
@@ -59,71 +61,30 @@ Deno.serve(async (req) => {
       .from("students")
       .select("id, email, full_name, user_id, company_id")
       .eq("id", student_id)
+      .eq("company_id", tenant.companyId)
       .single();
     if (studentError || !student) return json(404, { error: "Student not found" });
     if (!student.email) return json(400, { error: "Aluno precisa ter um email cadastrado" });
 
     const password = generatePassword();
-    let userId = student.user_id as string | null;
-    let needsLink = false;
-
-    // 1) Se já tem user_id, confirma que a conta de auth ainda existe (pode ser órfã = foi apagada).
-    if (userId) {
-      const { data: got, error: getErr } = await adminClient.auth.admin.getUserById(userId);
-      if (getErr || !got?.user) userId = null; // órfão → re-resolve pelo e-mail
-    }
-
-    // 2) Sem conta válida → acha pelo e-mail (já existe) ou cria.
-    if (!userId) {
-      const { data: list } = await adminClient.auth.admin.listUsers();
-      const existing = list?.users?.find(
-        (u: any) => (u.email || "").toLowerCase() === String(student.email).toLowerCase(),
-      );
-      if (existing) {
-        userId = existing.id;
-      } else {
-        const { data: created, error: createError } = await adminClient.auth.admin.createUser({
-          email: student.email,
-          password,
-          email_confirm: true,
-          user_metadata: { full_name: student.full_name },
-        });
-        if (createError || !created?.user) return json(400, { error: createError?.message || "Falha ao criar conta" });
-        userId = created.user.id;
+    const identity = await getLinkedStudentAccount(adminClient, student);
+    let userId: string;
+    if (identity) {
+      await ensureStudentAccountMembership(adminClient, student, identity);
+      const { data, error } = await adminClient.auth.admin.updateUserById(identity.userId, { password, email_confirm: true });
+      if (error || data?.user?.id !== identity.userId) {
+        return json(503, { error: "Nao foi possivel redefinir o acesso do aluno" });
       }
-      // Guarda contra duplicado: esse login já pertence a OUTRO cadastro?
-      const { data: others } = await adminClient
-        .from("students").select("id").eq("user_id", userId).neq("id", student_id);
-      if (others && others.length) {
-        return json(409, {
-          error: "Este e-mail já tem login vinculado a OUTRO cadastro deste aluno (cadastro duplicado). Use o cadastro principal ou consolide os cadastros.",
-        });
-      }
-      needsLink = true;
-    }
-
-    // 3) Redefine a senha (valor conhecido) na conta resolvida.
-    {
-      const { error } = await adminClient.auth.admin.updateUserById(userId!, { password, email_confirm: true });
-      if (error) return json(400, { error: error.message });
-    }
-
-    // 4) Vincula (se mudou) + papel de aluno + empresa.
-    if (needsLink) {
-      const { error: linkError } = await adminClient.from("students").update({ user_id: userId }).eq("id", student_id);
-      if (linkError) console.error("students link error", linkError);
-    }
-    await adminClient.from("user_roles").upsert({ user_id: userId, role: "student" }, { onConflict: "user_id,role" });
-    if (student.company_id) {
-      await adminClient
-        .from("company_members")
-        .upsert({ user_id: userId, company_id: student.company_id }, { onConflict: "user_id" });
+      userId = identity.userId;
+    } else {
+      userId = await createStudentAccount(adminClient, student, password);
     }
 
     return json(200, { email: student.email, password, user_id: userId });
   } catch (err) {
     const status = err instanceof HttpError ? (err as HttpError).status : 500;
-    console.error("student-login-credentials error", err);
-    return json(status, { error: (err as Error).message });
+    return json(status, { error: err instanceof HttpError ? err.message : "Nao foi possivel liberar o acesso do aluno" });
   }
-});
+}
+
+if (import.meta.main) Deno.serve(handleStudentLoginCredentials);

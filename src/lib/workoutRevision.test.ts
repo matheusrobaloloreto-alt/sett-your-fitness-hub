@@ -54,6 +54,22 @@ describe("workout revisions", () => {
     })).rejects.toBeInstanceOf(WorkoutRevisionConflictError);
   });
 
+  it("reports a company permission failure without suggesting reassignment", async () => {
+    const db = { rpc: async () => ({ data: null, error: { message: "workout_revision_forbidden" } }) };
+    await expect(saveCycleWorkoutRevision(db, {
+      cycleId, expectedRows: [], workouts: [{ title: "Treino A", exercises: [] }],
+    })).rejects.toThrow("Confira a empresa selecionada e as permissões da sua conta");
+  });
+
+  it.each(["JWT expired", "permission denied for table workouts", "Unauthorized"])(
+    "preserves the real authorization error: %s", async (message) => {
+      const db = { rpc: async () => ({ data: null, error: { message } }) };
+      await expect(saveCycleWorkoutRevision(db, {
+        cycleId, expectedRows: [], workouts: [{ title: "Treino A", exercises: [] }],
+      })).rejects.toThrow(message);
+    },
+  );
+
   it("exposes revision conflicts even when PostgREST carries the marker outside message", async () => {
     const db = {
       rpc: async () => ({
