@@ -18,7 +18,7 @@ const sources = {
   sync: await migration('20260721133000_sync_student_enrollment_trainers.sql'),
   history: await migration('20260420174013_51ac3ed1-223a-4b52-b3d8-38fc43a6fe8f.sql'),
   historyIntegrity: await migration('20260820093445_preserve_legacy_trainer_history_references.sql'),
-  management: await migration('20261014164920_company_staff_student_management.sql'),
+  management: await migration('20261014194335_company_staff_student_management.sql'),
 };
 
 // Extract bounded, unmodified statements from canonical migrations; fail on drift.
@@ -806,7 +806,7 @@ try {
   console.log(JSON.stringify({ok:failures.length===0,passed,failed:failures.length,total:passed+failures.length,
     environment:'local in-memory PGlite; synthetic fixtures; no live database',
     policySources:['20260820113000','20260922110000'],
-    actualMigration:'20261014164920_company_staff_student_management.sql',
+    actualMigration:'20261014194335_company_staff_student_management.sql',
     limitations:['Minimal schema, not complete production schema replay','CAS tested sequentially; no concurrent multi-connection lock scheduling','Master global access is inherited from the real is_company_staff function'],
     failures},null,2));
   if (failures.length) process.exitCode = 1;

@@ -39,14 +39,35 @@ exigia atribuicao direta ou vinculo do treinador na matricula. O RPC
 
 ## Validacao e publicacao
 
-Validacao local concluida para o escopo de acesso; publicacao em andamento.
-Nao considerar este checkpoint como confirmacao de producao.
+Publicado e conferido em producao, com a ressalva de desempenho documentada abaixo.
 Baseline `d517a69`, worktree `sett-load-save-release-20260928`, branch
 `codex/sett-load-save-release-20260928`.
 
 Backend canonico: `zshrcgbyhzxpnlccssyz`.
 Site Netlify: `9a061d2e-ee2c-444b-aa69-fe262caf0246`.
 Deploy anterior confirmado: `6acc97ce0b9573ae13c2bfa1`.
+
+Commit de produto `8c07363`, normalizacao SQL `478f23e`, enviados para a branch.
+Migration aplicada `20261014194335_company_staff_student_management`.
+O arquivo local foi alinhado ao identificador atribuido pelo ledger remoto.
+Netlify final `6acfdb792b0c7223af5c72d5`, estado `ready`, dominio
+`https://www.settapp.com.br` confirmado.
+Edges `activate-student-access` v45 e `student-login-credentials` v40, ambas
+ACTIVE com `verify_jwt=true`. Nenhuma Edge do motor foi publicada.
+
+Auditoria autenticada de autorizacao em transacao somente-leitura:
+- Antes: 26 combinacoes treinador/aluno autorizadas.
+- Depois: 148/148 combinacoes da propria empresa autorizadas.
+- Financeiro: permanece em 26 combinacoes, sem ampliacao.
+- Acessos externos a empresa e membros externos no diretorio: zero.
+- EXECUTE anonimo dos helpers de gestao/diretorio: negado.
+
+Conferencia real no Chrome autenticado como Master: Carteira carregada, perfil
+de teste filtrado, diretorio de troca de profissional exibido e cancelado.
+Nao houve troca de responsavel, reset de senha, envio de mensagem ou edicao de
+treino real para testar. A matriz de papeis da interface foi validada nos testes;
+nao foi alegado login real separado em cada conta de treinador.
+Screenshot local privado: `output/staff-student-production-20261014.jpg`.
 
 Primeira rodada completa: 204 arquivos Vitest, 1518 testes aprovados e 7 ignorados.
 Reteste final do escopo: 6 arquivos, 78 testes aprovados, incluindo as telas de
