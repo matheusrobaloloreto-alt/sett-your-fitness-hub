@@ -1,7 +1,7 @@
 -- Transactional canary for public.reschedule_training_cycles_from.
 --
 -- Safe local/staging usage:
---   { cat supabase/migrations/20261015090806_allow_reschedule_cycles_with_history.sql; \
+--   { cat supabase/migrations/20261015091735_allow_reschedule_cycles_with_history.sql; \
 --     cat scripts/reschedule-training-cycles-canary.sql; } \
 --     | psql "$DATABASE_URL" -v ON_ERROR_STOP=1
 --

@@ -42,16 +42,29 @@ permissoes negativas, sobreposicao, falha tardia com rollback atomico e
 execucao do SQL de rollback com reaplicacao da migration nova.
 
 Contratos existentes de supersessao semantica e entrega de biblioteca:
-10/10 aprovados. Revisao independente do delta SQL aprovada sem P1/P2;
-reexecucao independente inicial de 35/35 aprovada antes do teste adicional
-de rollback manual. Nenhuma garantia de desempenho geral foi inferida.
+10/10 aprovados. Revisao independente final do delta SQL e canary aprovada sem
+P1/P2; reexecucao independente final de 36/36 aprovada, inclusive rollback
+manual. Nenhuma garantia de desempenho geral foi inferida.
 
 Limites: schema sintetico minimo com helpers reais e shim local de JWT;
 concorrencia multiconexao nao exercitada. Efeitos interciclos revisados no
 gatilho vivo, nao simulados pelo contrato. Canary local/staging atualizado,
 mas nao executado em producao. Nao equivale a teste em conta real de aluno.
 
-Estado: validado localmente; publicacao e leitura de confirmacao pendentes.
+Publicado no banco de producao, migration
+`20261015091735_allow_reschedule_cycles_with_history`.
+Commit de produto `e0046f3`, enviado para a branch. Arquivo local alinhado ao
+identificador atribuido pelo ledger remoto depois da aplicacao.
+
+Leitura pos-publicacao confirmou definicao exata da funcao testada,
+SECURITY DEFINER e ACL anteriores preservados, EXECUTE anonimo negado,
+EXECUTE autenticado permitido e zero autorizacoes privadas remanescentes.
+Advisor de seguranca com os mesmos avisos/contagens antes e depois; isso
+nao significa ausencia de riscos gerais no projeto. Os avisos preexistentes
+nao foram alterados neste escopo.
+
+Nao houve novo deploy Netlify: o app ja chama este RPC e a assinatura nao
+mudou. A correcao esta efetiva no banco compartilhado pelo app publicado.
 
 ## Rollback
 
@@ -64,7 +77,8 @@ historico. Nenhuma tabela ou dado precisa ser excluido.
 
 - Acesso da equipe a alunos/prescricoes: publicado e conferido na entrega
   de 2026-10-14, sem ampliar financeiro ou acesso entre empresas.
-- Reagendamento com historico: correcao local, validacao em andamento.
+- Reagendamento com historico: publicado no banco, leitura de confirmacao e
+  testes locais aprovados; nenhuma data real alterada para demonstracao.
 - Benchmark do motor: aguardando investigacao em ambiente sem contencao;
   ultimo resultado 953,287 ms para teto de 500 ms. Motor nao alterado aqui.
 
