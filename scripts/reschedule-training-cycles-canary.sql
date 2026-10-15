@@ -1,7 +1,7 @@
 -- Transactional canary for public.reschedule_training_cycles_from.
 --
 -- Safe local/staging usage:
---   { cat supabase/migrations/20260909160943_fix_reschedule_training_cycles_chronological.sql; \
+--   { cat supabase/migrations/20261015090806_allow_reschedule_cycles_with_history.sql; \
 --     cat scripts/reschedule-training-cycles-canary.sql; } \
 --     | psql "$DATABASE_URL" -v ON_ERROR_STOP=1
 --
@@ -39,6 +39,8 @@ declare
   v_noop_target_start date;
   v_noop_target_end date;
   v_noop_enrollment_end date;
+  v_history_workouts jsonb;
+  v_history_sessions jsonb;
   v_failed boolean;
 begin
   if to_regclass('private.training_cycle_rebase_authorizations') is null then
@@ -278,18 +280,47 @@ begin
   insert into public.workout_sessions (id, workout_id, student_id, company_id, completed_at)
   values (v_session_id, v_used_workout_id, v_student_id, v_company_id, now());
 
-  v_failed := false;
-  begin
-    perform public.reschedule_training_cycles_from(v_enrollment_id, v_target_id, date '2026-04-09');
-  exception when others then
-    if sqlerrm like '%treinos realizados%' then
-      v_failed := true;
-    else
-      raise;
-    end if;
-  end;
-  if not v_failed then
-    raise exception 'reschedule_canary_usage_block_was_not_enforced';
+  select jsonb_agg(to_jsonb(workout) order by workout.id)
+    into v_history_workouts
+    from public.workouts workout
+   where workout.id in (v_workout_id, v_used_workout_id);
+  select jsonb_agg(to_jsonb(session) order by session.id)
+    into v_history_sessions
+    from public.workout_sessions session
+   where session.id = v_session_id;
+
+  perform public.reschedule_training_cycles_from(v_enrollment_id, v_target_id, date '2026-04-09');
+
+  if not exists (
+    select 1 from public.training_cycles cycle
+    where cycle.id = v_target_id
+      and (cycle.start_date, cycle.end_date) = (date '2026-04-09', date '2026-05-08')
+  ) or not exists (
+    select 1 from public.training_cycles cycle
+    where cycle.id = v_following_low_number_id
+      and (cycle.start_date, cycle.end_date) = (date '2026-05-09', date '2026-06-07')
+  ) or not exists (
+    select 1 from public.enrollments enrollment
+    where enrollment.id = v_enrollment_id and enrollment.end_date = date '2026-06-07'
+  ) then
+    raise exception 'reschedule_canary_history_schedule_shift_failed';
+  end if;
+
+  if v_history_workouts is distinct from (
+    select jsonb_agg(to_jsonb(workout) order by workout.id)
+    from public.workouts workout where workout.id in (v_workout_id, v_used_workout_id)
+  ) or v_history_sessions is distinct from (
+    select jsonb_agg(to_jsonb(session) order by session.id)
+    from public.workout_sessions session where session.id = v_session_id
+  ) then
+    raise exception 'reschedule_canary_workout_history_mutated';
+  end if;
+
+  if exists (
+    select 1 from private.training_cycle_rebase_authorizations authz
+    where authz.enrollment_id = v_enrollment_id and authz.transaction_id = txid_current()
+  ) then
+    raise exception 'reschedule_canary_history_rebase_authorization_leaked';
   end if;
 end;
 $$;
