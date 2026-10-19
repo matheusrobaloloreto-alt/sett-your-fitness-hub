@@ -38,12 +38,21 @@
   `deno check`, lint focado, `git diff --check` e build de producao passaram.
 - Revisao independente final: aprovada, sem achados funcionais pendentes;
   43 Vitest e 219 Deno verificados pelo revisor, com nova execucao dos 162 casos
-  e do lint apos o ajuste final. Publicacao do pacote completo: em andamento.
+  e do lint apos o ajuste final.
 - Primeiro patch da tela publicado no Netlify:
   `6ad6410336195fa5234ecaa9` (commit `59c5e14`, service worker v11).
 - Backend anterior confirmado antes da publicacao: `whatsapp-manager` v89,
   com verificacao JWT habilitada. Copia privada preservada fora do Git em
   `output/whatsapp-incident-20261019/backup-v89/`.
+- Pacote completo publicado: commit `e4d8e49` enviado na branch
+  `codex/sett-load-save-release-20260928`; funcao `whatsapp-manager` v90 ACTIVE
+  com JWT habilitado. Os nove arquivos remotos foram comparados ao codigo local
+  e coincidem. Nenhuma outra funcao ou migracao foi publicada.
+- Frontend publicado no Netlify `6ad6734a4f3d3a099dd67304`, service worker v12
+  identico ao build. Read-back do deploy confirma estado `ready`.
+- Interface autenticada de producao reaberta: mostra `Estado desconhecido`,
+  `whatsapp_provider_failure` e `Automacao externa nao verificada`, em vez de
+  assumir instancia inexistente ou configuracao saudavel durante a indisponibilidade.
 
 ## Pendencias e recuperacao
 
