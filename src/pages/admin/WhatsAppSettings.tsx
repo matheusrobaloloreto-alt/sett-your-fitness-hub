@@ -7,9 +7,72 @@ import { Loader2, MessageSquare, Wifi, WifiOff, QrCode, Phone, Bot, ShieldAlert,
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
+import { z } from "zod";
+import type { WhatsAppProviderIssue } from "../../../supabase/functions/_shared/whatsappProviderState";
 
-type ConnectionState = "disconnected" | "waiting_qr" | "connected" | "loading" | "not_configured";
-type BotStatus = { loading: boolean; enabled: boolean; source: string; details?: string };
+type ConnectionState = "disconnected" | "waiting_qr" | "connected" | "loading" | "not_configured" | "unknown";
+type BotStatus = { loading: boolean; enabled: boolean | null; source: string; details?: string };
+class WhatsAppRequestError extends Error {}
+
+const providerMessages: Record<WhatsAppProviderIssue | "whatsapp_not_configured", string> = {
+  whatsapp_instance_not_connected: "O provedor informou que a sessão não está conectada.",
+  whatsapp_instance_missing: "Instância não encontrada no endereço consultado. Verifique o diagnóstico do provedor.",
+  whatsapp_provider_unauthorized: "Falha de autorização no provedor WhatsApp.",
+  whatsapp_provider_busy: "Provedor ocupado ou limite de consultas atingido.",
+  whatsapp_recipient_rejected: "O provedor recusou o destinatário.",
+  whatsapp_provider_invalid_payload: "O provedor não aceitou a solicitação.",
+  whatsapp_provider_failure: "Falha na consulta ao provedor WhatsApp.",
+  whatsapp_not_configured: "Integração WhatsApp não configurada no servidor.",
+};
+
+function safeProviderMessage(payload: unknown) {
+  const code = payload && typeof payload === "object" && "code" in payload ? payload.code : null;
+  if (typeof code === "string" && Object.prototype.hasOwnProperty.call(providerMessages, code)) {
+    return `${providerMessages[code as keyof typeof providerMessages]} (${code})`;
+  }
+  return "Não foi possível verificar a integração. O estado da conexão é desconhecido.";
+}
+
+const probeClassification = z.enum([
+  "ok", "unauthorized", "not_found", "rate_limited", "provider_unavailable",
+  "network_error", "unexpected_response", "not_configured",
+]);
+const probeSchema = z.object({ status: z.number().int().min(100).max(599).nullable(), classification: probeClassification });
+const diagnosticsSchema = z.object({
+  evolution: z.object({
+    configured: z.boolean(),
+    host: z.string().max(253).regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i).nullable().optional().catch(null),
+    configuredBaseHasPath: z.boolean().optional(),
+    candidates: z.array(z.object({
+      candidate: z.enum(["configured", "origin"]),
+      fetchInstances: probeSchema,
+      connectionState: probeSchema,
+    })).max(2),
+  }),
+  zapi: z.object({ configured: z.boolean(), classification: probeClassification }).optional(),
+});
+
+function summarizeDiagnostics(payload: unknown) {
+  const result = diagnosticsSchema.safeParse(payload);
+  if (!result.success) return "Diagnóstico indisponível: resposta não reconhecida.";
+  const { evolution, zapi } = result.data;
+  const lines = [
+    `Evolution: ${evolution.configured ? "configurado" : "não configurado"}`,
+    `Host: ${evolution.host || "não informado"}`,
+  ];
+  if (typeof evolution.configuredBaseHasPath === "boolean") {
+    lines.push(`Base com caminho: ${evolution.configuredBaseHasPath ? "sim" : "não"}`);
+  }
+  for (const candidate of evolution.candidates) {
+    const label = candidate.candidate === "configured" ? "Base configurada" : "Origem";
+    for (const endpoint of ["fetchInstances", "connectionState"] as const) {
+      const probe = candidate[endpoint];
+      lines.push(`${label} · ${endpoint}: HTTP ${probe.status ?? "sem resposta"} (${probe.classification})`);
+    }
+  }
+  if (zapi) lines.push(`Z-API: ${zapi.configured ? zapi.classification : "não configurado"}`);
+  return lines.join("\n");
+}
 
 export default function WhatsAppSettings() {
   const [state, setState] = useState<ConnectionState>("loading");
@@ -17,7 +80,10 @@ export default function WhatsAppSettings() {
   const [phone, setPhone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [integrationError, setIntegrationError] = useState("");
-  const [botStatus, setBotStatus] = useState<BotStatus>({ loading: true, enabled: false, source: "none" });
+  const [botStatus, setBotStatus] = useState<BotStatus>({ loading: true, enabled: null, source: "none" });
+  const [diagnostics, setDiagnostics] = useState("");
+  const [diagnosing, setDiagnosing] = useState(false);
+  const diagnosticsEpochRef = useRef(0);
   const [disablingBot, setDisablingBot] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const qrIssuedAtRef = useRef<number | null>(null);
@@ -26,9 +92,16 @@ export default function WhatsAppSettings() {
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
 
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
   const invoke = useCallback(async (action: string) => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { toast.error("Sessão expirada"); return null; }
+    if (!session) throw new WhatsAppRequestError("Sessão expirada. Entre novamente para continuar.");
 
     const res = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`,
@@ -43,25 +116,36 @@ export default function WhatsAppSettings() {
       }
     );
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || "Erro ao comunicar com o servidor");
+    const data = await res.json();
+    const knownDisconnectedInstance = action === "check-status" && data?.status === "disconnected" &&
+      ["whatsapp_instance_missing", "whatsapp_instance_not_connected"].includes(data?.code);
+    if (!res.ok || data?.error || (data?.code && !knownDisconnectedInstance)) {
+      throw new WhatsAppRequestError(safeProviderMessage(data));
     }
-    return res.json();
+    return data;
   }, [effectiveCompanyId]);
 
   const checkStatus = useCallback(async () => {
     try {
       const data = await invoke("check-status");
-      if (!data) return;
-      setIntegrationError("");
+      if (!data || !["connected", "disconnected", "waiting_qr", "not_configured"].includes(data.status)) {
+        throw new Error(safeProviderMessage(data));
+      }
+      setIntegrationError(data.code ? safeProviderMessage(data) : "");
       setState(data.status as ConnectionState);
       if (data.status === "not_configured") {
-        setBotStatus({ loading: false, enabled: false, source: "none" });
+        setBotStatus({ loading: false, enabled: null, source: "none" });
         stopPolling();
         return;
       }
       setPhone(data.phone || null);
+      if (data.status === "disconnected") {
+        setPhone(null);
+        setQrcode(null);
+        qrIssuedAtRef.current = null;
+        stopPolling();
+        return;
+      }
       if (data.status === "connected") {
         setQrcode(null);
         qrIssuedAtRef.current = null;
@@ -77,31 +161,36 @@ export default function WhatsAppSettings() {
             qrIssuedAtRef.current = Date.now();
           }
           if (refreshed?.status) setState(refreshed.status as ConnectionState);
-        } catch { /* silent */ }
+        } catch (error) {
+          setState("unknown");
+          setQrcode(null);
+          setIntegrationError(error instanceof WhatsAppRequestError ? error.message : safeProviderMessage(null));
+          stopPolling();
+        }
       }
     } catch (error) {
-      setState("disconnected");
-      setIntegrationError(error instanceof Error ? error.message : "Não foi possível verificar a integração.");
+      setState("unknown");
+      setPhone(null);
+      setQrcode(null);
+      stopPolling();
+      // Request errors may contain URLs, identifiers or credentials; use only our safe messages.
+      setIntegrationError(error instanceof WhatsAppRequestError ? error.message : safeProviderMessage(null));
     }
-  }, [invoke]);
+  }, [invoke, stopPolling]);
 
   const checkBotSettings = useCallback(async () => {
+    setBotStatus({ loading: true, enabled: null, source: "none" });
     try {
       const data = await invoke("fetch-bot-settings");
-      if (!data) return;
+      if (!data || typeof data.enabled !== "boolean" || !["typebot", "settings"].includes(data.source)) {
+        throw new Error("Bot settings unavailable");
+      }
       const details = data.source === "typebot" ? "Typebot" : data.source === "settings" ? "Configurações da instância" : "";
       setBotStatus({ loading: false, enabled: data.enabled, source: data.source, details });
     } catch {
-      setBotStatus({ loading: false, enabled: false, source: "none" });
+      setBotStatus({ loading: false, enabled: null, source: "none" });
     }
   }, [invoke]);
-
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }, []);
 
   const startPolling = useCallback(() => {
     stopPolling();
@@ -114,11 +203,33 @@ export default function WhatsAppSettings() {
       checkStatus();
       checkBotSettings();
     } else {
-      setState("disconnected");
-      setBotStatus({ loading: false, enabled: false, source: "none" });
+      setState("unknown");
+      setBotStatus({ loading: false, enabled: null, source: "none" });
     }
     return () => stopPolling();
   }, [effectiveCompanyId, checkStatus, checkBotSettings, stopPolling]);
+
+  useEffect(() => {
+    diagnosticsEpochRef.current += 1;
+    setDiagnostics("");
+    setDiagnosing(false);
+    return () => { diagnosticsEpochRef.current += 1; };
+  }, [effectiveCompanyId, role]);
+
+  const handleDiagnostics = async () => {
+    if (!effectiveCompanyId || (role !== "admin" && role !== "master")) return;
+    const epoch = ++diagnosticsEpochRef.current;
+    setDiagnosing(true);
+    setDiagnostics("");
+    try {
+      const data = await invoke("provider-diagnostics");
+      if (epoch === diagnosticsEpochRef.current) setDiagnostics(summarizeDiagnostics(data));
+    } catch {
+      if (epoch === diagnosticsEpochRef.current) setDiagnostics("Não foi possível consultar o diagnóstico do provedor.");
+    } finally {
+      if (epoch === diagnosticsEpochRef.current) setDiagnosing(false);
+    }
+  };
 
   const handleConnect = async () => {
     if (!effectiveCompanyId) {
@@ -238,6 +349,11 @@ export default function WhatsAppSettings() {
                   <WifiOff className="h-3 w-3" /> Desconectado
                 </Badge>
               )}
+              {state === "unknown" && (
+                <Badge variant="outline" className="gap-1 border-amber-300 text-amber-700">
+                  <ShieldAlert className="h-3 w-3" /> Estado desconhecido
+                </Badge>
+              )}
               {state === "waiting_qr" && (
                 <Badge variant="secondary" className="gap-1 bg-amber-100 text-amber-800 border-amber-300">
                   <QrCode className="h-3 w-3" /> Aguardando leitura
@@ -256,7 +372,7 @@ export default function WhatsAppSettings() {
             </div>
 
             {(state === "not_configured" || integrationError) && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <div role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 break-words">
                 {integrationError || "A conexão está preparada no app, mas as credenciais do provedor WhatsApp ainda não foram configuradas no servidor."}
               </div>
             )}
@@ -292,7 +408,12 @@ export default function WhatsAppSettings() {
             )}
 
             {/* Actions */}
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
+              {state === "unknown" && (
+                <Button variant="outline" onClick={checkStatus} disabled={busy}>
+                  <RefreshCw className="h-4 w-4 mr-2" /> Verificar conexão
+                </Button>
+              )}
               {(state === "disconnected" || state === "loading") && (
                 <Button onClick={handleConnect} disabled={busy || state === "loading"}>
                   {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
@@ -317,6 +438,15 @@ export default function WhatsAppSettings() {
                 </Button>
               )}
             </div>
+            {(role === "admin" || role === "master") && (
+              <div className="space-y-3">
+                <Button variant="outline" size="sm" onClick={handleDiagnostics} disabled={diagnosing}>
+                  {diagnosing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ShieldAlert className="h-4 w-4 mr-2" />}
+                  Diagnóstico do provedor
+                </Button>
+                {diagnostics && <div role="status" className="rounded-md border bg-muted/50 p-3 text-xs whitespace-pre-line break-words">{diagnostics}</div>}
+              </div>
+            )}
           </CardContent>
         </Card>
         )}
@@ -339,6 +469,14 @@ export default function WhatsAppSettings() {
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">Verificando…</span>
+              </div>
+            ) : botStatus.enabled === null ? (
+              <div className="flex items-center gap-3 p-3 rounded-md border border-amber-200 bg-amber-50 text-amber-800">
+                <ShieldAlert className="h-5 w-5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium">Automação externa não verificada</p>
+                  <p className="text-xs mt-0.5">Não foi possível confirmar as configurações no provedor.</p>
+                </div>
               </div>
             ) : botStatus.enabled ? (
               <>
@@ -369,7 +507,7 @@ export default function WhatsAppSettings() {
                 <div>
                   <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Nenhuma automação externa detectada</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Todas as mensagens automáticas são controladas pelos fluxos da plataforma.
+                    Nenhuma automação foi encontrada nas configurações consultadas.
                   </p>
                 </div>
               </div>
