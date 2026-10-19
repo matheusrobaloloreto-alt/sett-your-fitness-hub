@@ -125,6 +125,21 @@ export default function WhatsAppSettings() {
     return data;
   }, [effectiveCompanyId]);
 
+  const refreshQr = useCallback(async () => {
+    const data = await invoke("refresh-qr");
+    if (!data || !["connected", "disconnected", "waiting_qr", "not_configured"].includes(data.status)) {
+      throw new WhatsAppRequestError(safeProviderMessage(data));
+    }
+    setIntegrationError("");
+    setState(data.status as ConnectionState);
+    setQrcode(data.status === "waiting_qr" ? data.qrcode || null : null);
+    qrIssuedAtRef.current = data.status === "waiting_qr" ? Date.now() : null;
+    if (data.status !== "waiting_qr") {
+      setPhone(data.status === "connected" ? data.phone || null : null);
+      stopPolling();
+    }
+  }, [invoke, stopPolling]);
+
   const checkStatus = useCallback(async () => {
     try {
       const data = await invoke("check-status");
@@ -152,21 +167,9 @@ export default function WhatsAppSettings() {
         stopPolling();
         return;
       }
-      // Auto-refresh QR if it's been waiting too long (~25s)
-      if (data.status === "waiting_qr" && qrIssuedAtRef.current && Date.now() - qrIssuedAtRef.current > 25000) {
-        try {
-          const refreshed = await invoke("refresh-qr");
-          if (refreshed?.qrcode) {
-            setQrcode(refreshed.qrcode);
-            qrIssuedAtRef.current = Date.now();
-          }
-          if (refreshed?.status) setState(refreshed.status as ConnectionState);
-        } catch (error) {
-          setState("unknown");
-          setQrcode(null);
-          setIntegrationError(error instanceof WhatsAppRequestError ? error.message : safeProviderMessage(null));
-          stopPolling();
-        }
+      // Pace safe QR refreshes even when the provider has not issued a QR yet.
+      if (data.status === "waiting_qr" && qrIssuedAtRef.current !== null && Date.now() - qrIssuedAtRef.current >= 25000) {
+        await refreshQr();
       }
     } catch (error) {
       setState("unknown");
@@ -176,7 +179,7 @@ export default function WhatsAppSettings() {
       // Request errors may contain URLs, identifiers or credentials; use only our safe messages.
       setIntegrationError(error instanceof WhatsAppRequestError ? error.message : safeProviderMessage(null));
     }
-  }, [invoke, stopPolling]);
+  }, [invoke, refreshQr, stopPolling]);
 
   const checkBotSettings = useCallback(async () => {
     setBotStatus({ loading: true, enabled: null, source: "none" });
@@ -196,6 +199,13 @@ export default function WhatsAppSettings() {
     stopPolling();
     pollRef.current = setInterval(checkStatus, 5000);
   }, [checkStatus, stopPolling]);
+
+  useEffect(() => {
+    if (state !== "waiting_qr") return;
+    qrIssuedAtRef.current ??= Date.now();
+    startPolling();
+    return stopPolling;
+  }, [state, startPolling, stopPolling]);
 
   // Initial load
   useEffect(() => {
@@ -241,10 +251,9 @@ export default function WhatsAppSettings() {
       const data = await invoke("init-connection");
       if (!data) return;
       setState(data.status as ConnectionState);
-      if (data.qrcode) {
-        setQrcode(data.qrcode);
+      if (data.status === "waiting_qr") {
+        setQrcode(data.qrcode || null);
         qrIssuedAtRef.current = Date.now();
-        startPolling();
       }
       if (data.status === "connected") {
         toast.success("WhatsApp já conectado!");
@@ -273,20 +282,16 @@ export default function WhatsAppSettings() {
     }
   };
 
-  const handleRestart = async () => {
+  const handleRefreshQr = async () => {
     setBusy(true);
     try {
-      const data = await invoke("restart-connection");
-      if (!data) return;
-      setState(data.status as ConnectionState);
-      if (data.qrcode) {
-        setQrcode(data.qrcode);
-        qrIssuedAtRef.current = Date.now();
-        startPolling();
-      }
-      toast.success("Instância recriada, escaneie o novo QR Code");
-    } catch (err: any) {
-      toast.error(err.message || "Erro ao reconectar");
+      await refreshQr();
+    } catch (error) {
+      setState("unknown");
+      setQrcode(null);
+      qrIssuedAtRef.current = null;
+      stopPolling();
+      setIntegrationError(error instanceof WhatsAppRequestError ? error.message : safeProviderMessage(null));
     } finally {
       setBusy(false);
     }
@@ -422,9 +427,9 @@ export default function WhatsAppSettings() {
               )}
               {state === "waiting_qr" && (
                 <>
-                  <Button variant="outline" onClick={handleRestart} disabled={busy}>
+                  <Button variant="outline" onClick={handleRefreshQr} disabled={busy}>
                     {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                    Reconectar
+                    Atualizar QR Code
                   </Button>
                   <Button variant="ghost" onClick={handleDisconnect} disabled={busy}>
                     Cancelar

@@ -148,6 +148,85 @@ describe("WhatsAppSettings uncertain provider state", () => {
     expect(requests).not.toContain("disconnect");
   });
 
+  it.each(["automatic", "manual"])("recovers a waiting connection without a QR using %s refresh only", async mode => {
+    render(<WhatsAppSettings />);
+    await screen.findByText("Desconectado", { exact: true });
+    vi.useFakeTimers();
+    replies["init-connection"] = { status: "waiting_qr", qrcode: null, count: 0 };
+    replies["check-status"] = { status: "waiting_qr" };
+    replies["refresh-qr"] = { status: "waiting_qr", qrcode: "refreshed-qr" };
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Conectar WhatsApp" })); });
+    expect(screen.getByText("Aguardando leitura")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "QR Code WhatsApp" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reconectar" })).not.toBeInTheDocument();
+    if (mode === "manual") {
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Atualizar QR Code" })); });
+    } else {
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(requests.filter(action => action === "check-status")).toHaveLength(2);
+      expect(requests).not.toContain("refresh-qr");
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    }
+    expect(screen.getByRole("img", { name: "QR Code WhatsApp" })).toHaveAttribute("src", "data:image/png;base64,refreshed-qr");
+    expect(requests.filter(action => action === "refresh-qr")).toHaveLength(1);
+    expect(requests.filter(action => action === "init-connection")).toHaveLength(1);
+    replies["check-status"] = { status: "disconnected", code: "whatsapp_provider_failure" };
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(screen.getByText("Estado desconhecido")).toBeInTheDocument();
+    const count = requests.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(requests).toHaveLength(count);
+    expect(requests).not.toContain("restart-connection");
+    expect(requests).not.toContain("disconnect");
+  });
+
+  it("paces safe refreshes when the provider is still waiting without a QR", async () => {
+    render(<WhatsAppSettings />);
+    await screen.findByText("Desconectado", { exact: true });
+    vi.useFakeTimers();
+    replies["init-connection"] = { status: "waiting_qr", qrcode: null, count: 0 };
+    replies["check-status"] = { status: "waiting_qr" };
+    replies["refresh-qr"] = { status: "waiting_qr", qrcode: null, count: 0 };
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Conectar WhatsApp" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(25_000); });
+    expect(requests.filter(action => action === "refresh-qr")).toHaveLength(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(requests.filter(action => action === "refresh-qr")).toHaveLength(1);
+    expect(screen.getByText("Aguardando leitura")).toBeInTheDocument();
+    expect(requests).not.toContain("restart-connection");
+    expect(requests).not.toContain("disconnect");
+  });
+
+  it("resumes safe polling when the page opens in waiting state without a QR", async () => {
+    replies["check-status"] = { status: "waiting_qr", qrcode: null };
+    vi.useFakeTimers();
+    await act(async () => { render(<WhatsAppSettings />); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(requests.filter(action => action === "check-status")).toHaveLength(2);
+    expectNoMutations();
+  });
+
+  it.each(["automatic", "manual"])("stops polling when %s QR refresh fails", async mode => {
+    render(<WhatsAppSettings />);
+    await screen.findByText("Desconectado", { exact: true });
+    vi.useFakeTimers();
+    replies["init-connection"] = { status: "waiting_qr", qrcode: null, count: 0 };
+    replies["check-status"] = { status: "waiting_qr" };
+    replies["refresh-qr"] = new Error("provider unavailable");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Conectar WhatsApp" })); });
+    if (mode === "manual") {
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Atualizar QR Code" })); });
+    } else {
+      await act(async () => { await vi.advanceTimersByTimeAsync(25_000); });
+    }
+    expect(screen.getByText("Estado desconhecido")).toBeInTheDocument();
+    const count = requests.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(requests).toHaveLength(count);
+    expect(requests).not.toContain("restart-connection");
+    expect(requests).not.toContain("disconnect");
+  });
+
   it("does not surface unknown issue codes or raw messages", async () => {
     replies["check-status"] = { status: "disconnected", code: "private-token-5511999999999", error: "Bearer fixture-secret" };
     render(<WhatsAppSettings />);

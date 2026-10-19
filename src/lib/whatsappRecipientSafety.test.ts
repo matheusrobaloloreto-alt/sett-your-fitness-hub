@@ -5,6 +5,10 @@ const managerSource = readFileSync(
   "supabase/functions/whatsapp-manager/index.ts",
   "utf8",
 );
+const connectionProbeSource = readFileSync(
+  "supabase/functions/_shared/whatsappConnectionProbe.ts",
+  "utf8",
+);
 const dispatcherSource = readFileSync(
   "supabase/functions/process-automation-sessions/index.ts",
   "utf8",
@@ -42,13 +46,17 @@ describe("WhatsApp recipient safety contracts", () => {
     );
   });
 
-  it("revalidates the provider session live and persists a stale connection as disconnected", () => {
+  it("revalidates the provider live and requires healthy evidence before marking it missing", () => {
     expect(managerSource).toContain(
       "const verifyLiveOutboundInstance = async () =>",
     );
-    expect(managerSource).toContain(
-      "/instance/connectionState/${instanceName}",
+    expect(managerSource).toContain("probeWhatsAppConnection({");
+    expect(connectionProbeSource).toContain(
+      "/instance/connectionState/${encodeURIComponent(args.instanceName)}",
     );
+    expect(connectionProbeSource).toContain('get("/instance/fetchInstances")');
+    expect(connectionProbeSource).toContain("listResponse.status !== 200");
+    expect(connectionProbeSource).toContain('found ? connectionProviderFailure(404) : { kind: "missing" }');
     expect(managerSource).toMatch(
       /await persistInstance\(\{\s*status: "disconnected",\s*phone_number: null,\s*qr_code: null,?\s*\}\)/,
     );

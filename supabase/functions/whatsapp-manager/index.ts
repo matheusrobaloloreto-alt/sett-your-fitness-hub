@@ -16,7 +16,6 @@ import {
   validateOutboundWhatsAppMedia,
 } from "../_shared/whatsappMedia.ts";
 import {
-  providerConnectionState,
   providerIssueFromResponse,
   type WhatsAppProviderIssue,
 } from "../_shared/whatsappProviderState.ts";
@@ -26,6 +25,13 @@ import {
   probeZapiFallback,
   safeProviderHost,
 } from "../_shared/whatsappProviderDiagnostics.ts";
+import {
+  connectionProviderFailure,
+  type ConnectionProviderError,
+  probeWhatsAppConnection,
+  readWhatsAppConnectionState,
+  readWhatsAppCreationEvidence,
+} from "../_shared/whatsappConnectionProbe.ts";
 import {
   isTransientWhatsAppEditCommitError,
   messageEditEligibility,
@@ -548,51 +554,27 @@ Deno.serve(async (req) => {
       if (data?.id) persistedInstanceId = data.id;
     };
 
+    const probeConnection = () => probeWhatsAppConnection({
+      baseUrl: evoUrl,
+      instanceName,
+      headers: evoHeaders,
+    });
+    const connectionErrorResponse = (failure: ConnectionProviderError) => json({
+      status: "unknown",
+      code: failure.issue,
+      error: "Não foi possível verificar a conexão do WhatsApp no provedor. Tente novamente mais tarde.",
+    }, providerIssueHttpStatus(failure.issue));
+
     const verifyLiveOutboundInstance = async () => {
-      let response: Response;
-      try {
-        response = await fetch(
-          `${evoUrl}/instance/connectionState/${instanceName}`,
-          {
-            headers: evoHeaders,
-          },
-        );
-      } catch {
-        return {
-          ok: false as const,
-          issue: "whatsapp_provider_failure" as WhatsAppProviderIssue,
-        };
+      const probe = await probeConnection();
+      if (probe.kind === "provider_error") {
+        return { ok: false as const, issue: probe.issue };
       }
-
-      const rawBody = await response.text().catch(() => "");
-      if (!response.ok) {
-        const issue = response.status === 404
-          ? "whatsapp_instance_missing" as const
-          : providerIssueFromResponse(response.status, rawBody);
-        if (
-          issue === "whatsapp_instance_not_connected" ||
-          issue === "whatsapp_instance_missing"
-        ) {
-          await persistInstance({
-            status: "disconnected",
-            phone_number: null,
-            qr_code: null,
-          });
-        }
-        return { ok: false as const, issue };
+      if (probe.kind === "missing") {
+        await persistInstance({ status: "disconnected", phone_number: null, qr_code: null });
+        return { ok: false as const, issue: "whatsapp_instance_missing" as const };
       }
-
-      let payload: unknown = null;
-      try {
-        payload = rawBody ? JSON.parse(rawBody) : null;
-      } catch {
-        return {
-          ok: false as const,
-          issue: "whatsapp_provider_failure" as WhatsAppProviderIssue,
-        };
-      }
-
-      const state = providerConnectionState(payload);
+      const state = probe.status;
       if (state !== "connected") {
         await persistInstance({
           status: state,
@@ -655,7 +637,7 @@ Deno.serve(async (req) => {
 
     // ─── Helper: create fresh instance ───
     const createFreshInstance = async () => {
-      console.log("[createFreshInstance] Creating instance:", instanceName);
+      console.log("[createFreshInstance] Creating instance");
       const webhookUrl = new URL(
         `${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-webhook`,
       );
@@ -663,6 +645,7 @@ Deno.serve(async (req) => {
       const createRes = await fetch(`${evoUrl}/instance/create`, {
         method: "POST",
         headers: evoHeaders,
+        signal: AbortSignal.timeout(8_000),
         body: JSON.stringify({
           instanceName,
           integration: "WHATSAPP-BAILEYS",
@@ -676,37 +659,32 @@ Deno.serve(async (req) => {
             events: ["MESSAGES_UPSERT", "MESSAGES_SET", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
           },
         }),
-      });
+      }).catch(() => null);
 
-      if (!createRes.ok) {
-        const errText = await createRes.text();
-        const issue = providerIssueFromResponse(createRes.status, errText);
-        console.error(
-          "[createFreshInstance] provider error:",
-          sanitizeProviderErrorForLog(createRes.status, issue, errText),
-        );
-        return json({
-          ...providerIssueError(issue),
-          error: "Não foi possível iniciar a conexão do WhatsApp no provedor.",
-        }, providerIssueHttpStatus(issue));
+      if (!createRes?.ok) {
+        return connectionErrorResponse(connectionProviderFailure(createRes?.status ?? null));
       }
 
-      const createData = await createRes.json();
+      const createData = await createRes.json().catch(() => null);
+      const evidence = readWhatsAppCreationEvidence(createData, instanceName);
+      if (!evidence) {
+        return connectionErrorResponse(connectionProviderFailure(createRes.status));
+      }
       console.log(
         "[createFreshInstance] provider response:",
         {
-          state: providerConnectionState(createData),
-          hasQr: Boolean(createData?.qrcode?.base64),
+          state: evidence.status,
+          hasQr: Boolean(evidence.qrCode),
         },
       );
       await persistInstance({
-        status: "waiting_qr",
-        qr_code: createData?.qrcode?.base64 || null,
+        status: evidence.status,
+        qr_code: evidence.qrCode,
       });
 
       return json({
-        status: "waiting_qr",
-        qrcode: createData?.qrcode?.base64 || null,
+        status: evidence.status,
+        qrcode: evidence.qrCode,
       });
     };
 
@@ -790,88 +768,53 @@ Deno.serve(async (req) => {
       } catch { /* ignore */ }
     };
 
+    // Connecting or refreshing an existing session never destroys it. Only an
+    // explicit init with independently confirmed absence may create an instance.
+    const connectExistingInstance = async () => {
+      let connectData: any;
+      try {
+        const response = await fetch(
+          `${evoUrl}/instance/connect/${encodeURIComponent(instanceName)}`,
+          { method: "GET", headers: evoHeaders, signal: AbortSignal.timeout(8_000) },
+        );
+        if (!response.ok) return connectionErrorResponse(connectionProviderFailure(response.status));
+        connectData = await response.json();
+      } catch {
+        return connectionErrorResponse(connectionProviderFailure(null));
+      }
+      if (!connectData || typeof connectData !== "object" || Array.isArray(connectData) || connectData.error) {
+        return connectionErrorResponse(connectionProviderFailure(200));
+      }
+      const state = readWhatsAppConnectionState(connectData);
+      if ((Object.hasOwn(connectData, "state") || (connectData.instance && Object.hasOwn(connectData.instance, "state"))) && !state) {
+        return connectionErrorResponse(connectionProviderFailure(200));
+      }
+      const candidate = connectData.base64 ?? connectData.qrcode?.base64;
+      if (candidate != null && typeof candidate !== "string") {
+        return connectionErrorResponse(connectionProviderFailure(200));
+      }
+      const qr = typeof candidate === "string" && candidate.trim() ? candidate : null;
+      if (!state && !qr && !(Number.isInteger(connectData.count) && connectData.count >= 0)) {
+        return connectionErrorResponse(connectionProviderFailure(200));
+      }
+      if (state === "connected") {
+        await persistInstance({ status: "connected", qr_code: null });
+        return json({ status: "connected", qrcode: null });
+      }
+      if (qr) await persistInstance({ status: "waiting_qr", qr_code: qr });
+      return json({ status: "waiting_qr", qrcode: qr });
+    };
+
     // ─── INIT CONNECTION ───
     if (action === "init-connection") {
-      let existsInEvo = false;
-      let evoState = "close";
-      try {
-        const checkRes = await fetch(
-          `${evoUrl}/instance/connectionState/${instanceName}`,
-          {
-            headers: evoHeaders,
-          },
-        );
-        if (checkRes.ok) {
-          existsInEvo = true;
-          const checkData = await checkRes.json();
-          evoState = checkData?.instance?.state || "close";
-        }
-      } catch { /* doesn't exist */ }
-
-      if (!existsInEvo) {
-        return await createFreshInstance();
-      }
-
-      // If already connected, just report
-      if (evoState === "open") {
+      const probe = await probeConnection();
+      if (probe.kind === "provider_error") return connectionErrorResponse(probe);
+      if (probe.kind === "missing") return await createFreshInstance();
+      if (probe.status === "connected") {
         await persistInstance({ status: "connected", qr_code: null });
         return json({ status: "connected" });
       }
-
-      // Try to connect existing instance
-      console.log(
-        "[init-connection] Connecting existing instance:",
-        instanceName,
-      );
-      const connectRes = await fetch(
-        `${evoUrl}/instance/connect/${instanceName}`,
-        {
-          headers: evoHeaders,
-        },
-      );
-
-      if (!connectRes.ok) {
-        const errText = await connectRes.text();
-        const issue = providerIssueFromResponse(connectRes.status, errText);
-        console.error(
-          "[init-connection] connect failed:",
-          sanitizeProviderErrorForLog(connectRes.status, issue, errText),
-        );
-        // Connection endpoint failed — destroy and recreate
-        await destroyInstance();
-        return await createFreshInstance();
-      }
-
-      const connectData = await connectRes.json();
-      console.log(
-        "[init-connection] connect response:",
-        {
-          state: providerConnectionState(connectData),
-          hasQr: Boolean(connectData?.base64 || connectData?.qrcode?.base64),
-        },
-      );
-
-      const qr = connectData?.base64 || connectData?.qrcode?.base64 || null;
-      const state = connectData?.instance?.state || "waiting_qr";
-
-      // If stuck (no QR and not open), destroy and recreate
-      if (state !== "open" && !qr) {
-        console.log(
-          "[init-connection] Instance stuck without QR, destroying and recreating...",
-        );
-        await destroyInstance();
-        return await createFreshInstance();
-      }
-
-      await persistInstance({
-        status: state === "open" ? "connected" : "waiting_qr",
-        qr_code: qr,
-      });
-
-      return json({
-        status: state === "open" ? "connected" : "waiting_qr",
-        qrcode: qr,
-      });
+      return await connectExistingInstance();
     }
 
     // ─── RESTART CONNECTION ───
@@ -893,63 +836,31 @@ Deno.serve(async (req) => {
 
     // ─── REFRESH QR (re-fetch a new QR for an existing waiting instance) ───
     if (action === "refresh-qr") {
-      try {
-        const connectRes = await fetch(
-          `${evoUrl}/instance/connect/${instanceName}`,
-          { headers: evoHeaders },
-        );
-        if (!connectRes.ok) {
-          // instance probably gone — recreate
-          return await createFreshInstance();
-        }
-        const connectData = await connectRes.json();
-        const qr = connectData?.base64 || connectData?.qrcode?.base64 || null;
-        const state = connectData?.instance?.state || "waiting_qr";
-
-        if (state !== "open" && !qr) {
-          await destroyInstance();
-          return await createFreshInstance();
-        }
-
-        await persistInstance({
-          status: state === "open" ? "connected" : "waiting_qr",
-          qr_code: qr,
-        });
-
-        return json({
-          status: state === "open" ? "connected" : "waiting_qr",
-          qrcode: qr,
-        });
-      } catch (err) {
-        console.error("[refresh-qr] error:", err);
-        return json({ error: "Failed to refresh QR" }, 502);
+      const probe = await probeConnection();
+      if (probe.kind === "provider_error") return connectionErrorResponse(probe);
+      if (probe.kind === "missing") {
+        return json({ status: "disconnected", code: "whatsapp_instance_missing" }, 409);
       }
+      if (probe.status === "connected") {
+        await persistInstance({ status: "connected", qr_code: null });
+        return json({ status: "connected", qrcode: null });
+      }
+      return await connectExistingInstance();
     }
 
     // ─── CHECK STATUS ───
     if (action === "check-status") {
-      const stateRes = await fetch(
-        `${evoUrl}/instance/connectionState/${instanceName}`,
-        {
-          headers: evoHeaders,
-        },
-      );
-
-      if (!stateRes.ok) {
-        const rawBody = await stateRes.text().catch(() => "");
-        const issue = stateRes.status === 404
-          ? "whatsapp_instance_missing" as const
-          : providerIssueFromResponse(stateRes.status, rawBody);
+      const probe = await probeConnection();
+      if (probe.kind === "provider_error") return connectionErrorResponse(probe);
+      if (probe.kind === "missing") {
         await persistInstance({
           status: "disconnected",
           phone_number: null,
           qr_code: null,
         });
-        return json({ status: "disconnected", code: issue });
+        return json({ status: "disconnected", code: "whatsapp_instance_missing" });
       }
-
-      const stateData = await stateRes.json();
-      const mappedStatus = providerConnectionState(stateData);
+      const mappedStatus = probe.status;
 
       let connectedPhone: string | null = null;
       if (mappedStatus === "connected") {
@@ -958,7 +869,7 @@ Deno.serve(async (req) => {
             `${evoUrl}/instance/fetchInstances?instanceName=${
               encodeURIComponent(instanceName)
             }`,
-            { headers: evoHeaders },
+            { headers: evoHeaders, signal: AbortSignal.timeout(8_000) },
           );
           if (detailsRes.ok) {
             const detailsData = await detailsRes.json();
@@ -969,15 +880,17 @@ Deno.serve(async (req) => {
               details?.owner || null;
             connectedPhone = owner ? String(owner).replace(/\D/g, "") : null;
           }
-        } catch (error) {
-          console.warn("[check-status] Failed to load connected phone:", error);
+        } catch {
+          console.warn("[check-status] Failed to load connected phone");
         }
       }
 
       await persistInstance({
         status: mappedStatus,
-        phone_number: connectedPhone,
-        ...(mappedStatus === "connected" ? { qr_code: null } : {}),
+        ...(mappedStatus === "connected"
+          ? (connectedPhone ? { phone_number: connectedPhone } : {})
+          : { phone_number: null }),
+        ...(mappedStatus === "connected" || mappedStatus === "disconnected" ? { qr_code: null } : {}),
       });
 
       let deliveryWebhookConfigured: boolean | null = null;
