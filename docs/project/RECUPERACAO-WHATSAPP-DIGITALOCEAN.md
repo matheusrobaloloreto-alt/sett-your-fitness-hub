@@ -15,8 +15,26 @@
 - Bootstrap revisado independentemente apos correcao do marcador UFW `(None)`;
   7/7 testes locais aprovados. SHA-256 aprovado:
   `6b12d9317e399934908e19eabcd6dd8097f945758ae15cd8e291adb511f205a3`.
-- Instalacao iniciada. DNS/TLS, runtime, pareamento, webhook e entrega ainda
-  pendentes. Hostinger aguarda login do usuario. Nenhum cutover no SETT.
+- Instalacao concluida: Docker 29.9.2, Compose 5.6.1, Caddy 2.11.7.
+  UFW permite SSH somente pelo IPv4 do operador e HTTP/HTTPS publicos.
+  API em loopback; 8080/5432/6379/2019 bloqueadas em teste externo.
+- DNS A `whatsapp.settapp.com.br` criado com TTL 300, sem alterar raiz/www.
+  HTTPS valido. API exige chave: correta 200, ausente/incorreta 401.
+- Corrigida incompatibilidade CORS do upstream v2.3.7: chamadas sem Origin
+  recebiam 500. Proxy e healthcheck agora enviam origem fixa reservada;
+  CORS continua restrito, sem wildcard e sem refletir origem do navegador.
+- 27/27 testes de configuracao passaram no host, zero skips; 100 consultas
+  autenticadas em concorrencia 5 passaram. Reinicio dos tres servicos
+  preservou os volumes e 57 migrations; zero OOM. Memoria disponivel acima
+  de 1.3 GiB em repouso/ensaio HTTP, nao prova pico de sincronizacao real.
+- `EVOLUTION_API_URL` alterada no Supabase para o novo HTTPS. Chave e
+  `WHATSAPP_WEBHOOK_SECRET` inalterados. SETT confirmou ausencia no novo
+  provedor e criou uma unica instancia. QR exibido ao usuario; banco confirma
+  `waiting_qr`, uma linha. Manager sem JWT e webhook sem secret retornam 401.
+- Pendentes: usuario escanear QR, validar conexao/sincronizacao, consumo sob
+  carga real e envio/recebimento. Nao declarar WhatsApp recuperado antes disso.
+- Railway reconsultada antes do cutover: zero deployments ativos nos tres
+  servicos; volumes antigos preservados. Nao reativar a origem em paralelo.
 
 As secoes de preparacao abaixo registram o desenho e os gates originais;
 nao devem ser lidas como evidencia de recuperacao operacional concluida.

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { runInNewContext } from 'node:vm';
 
 const base = dirname(fileURLToPath(import.meta.url));
 function fixture(run) {
@@ -32,6 +33,40 @@ const change = (dir, edit) => {
 test('static preflight uses only tracked configuration, no Docker or private files', () => {
   const result = preflight(base);
   assert.equal(result.status, 0, result.stderr);
+});
+
+test('Evolution healthcheck sends the fixed server Origin and API key without widening CORS', async () => {
+  const { evolution } = JSON.parse(readFileSync(join(base, 'compose.json'), 'utf8')).services;
+  assert.equal(evolution.environment.CORS_ORIGIN, 'https://invalid.invalid');
+  assert.equal(evolution.environment.CORS_CREDENTIALS, 'false');
+  assert.deepEqual(evolution.ports, ['127.0.0.1:8080:8080']);
+  assert.deepEqual(evolution.healthcheck.test.slice(0, 3), ['CMD', 'node', '-e']);
+  const calls = [];
+  await runInNewContext(evolution.healthcheck.test[3], {
+    process: {
+      env: { AUTHENTICATION_API_KEY: 'synthetic-healthcheck-fixture' },
+      exit: code => { throw new Error(`healthcheck exited: ${code}`); },
+    },
+    AbortSignal,
+    fetch: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, json: async () => [] };
+    },
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'http://127.0.0.1:8080/instance/fetchInstances');
+  assert.equal(calls[0].options.headers.Origin, 'https://invalid.invalid');
+  assert.equal(calls[0].options.headers.apikey, 'synthetic-healthcheck-fixture');
+  assert.deepEqual(Object.keys(calls[0].options.headers).sort(), ['Origin', 'apikey']);
+});
+
+test('Caddy sets only the fixed upstream Origin and preserves API authentication', () => {
+  const caddy = readFileSync(join(base, 'Caddyfile.example'), 'utf8');
+  const directives = caddy.split('\n').filter(line => !line.trimStart().startsWith('#')).join('\n');
+  assert.match(directives, /reverse_proxy 127\.0\.0\.1:8080\s*\{\s*header_up Origin https:\/\/invalid\.invalid\s*\}/);
+  assert.equal((directives.match(/header_up\b/g) ?? []).length, 1);
+  assert.doesNotMatch(directives, /Access-Control-Allow-Origin|apikey/i);
+  assert.match(directives, /respond @management 404/);
 });
 for (const [label, edit] of [
   ['public Evolution port', c => { c.services.evolution.ports = ['8080:8080']; }],

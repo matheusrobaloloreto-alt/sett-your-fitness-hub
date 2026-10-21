@@ -62,7 +62,7 @@
         "redis": { "condition": "service_healthy" }
       },
       "healthcheck": {
-        "test": ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/instance/fetchInstances',{headers:{apikey:process.env.AUTHENTICATION_API_KEY},signal:AbortSignal.timeout(4000)}).then(async r=>{if(!r.ok||!Array.isArray(await r.json()))process.exit(1)}).catch(()=>process.exit(1))"],
+        "test": ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/instance/fetchInstances',{headers:{apikey:process.env.AUTHENTICATION_API_KEY,Origin:'https://invalid.invalid'},signal:AbortSignal.timeout(4000)}).then(async r=>{if(!r.ok||!Array.isArray(await r.json()))process.exit(1)}).catch(()=>process.exit(1))"],
         "interval": "30s", "timeout": "6s", "retries": 5, "start_period": "60s"
       },
       "mem_limit": "2g",
