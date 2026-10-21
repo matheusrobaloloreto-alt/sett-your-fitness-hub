@@ -1,0 +1,75 @@
+{
+  "name": "sett-whatsapp",
+  "services": {
+    "postgres": {
+      "image": "postgres:18",
+      "restart": "unless-stopped",
+      "env_file": [{ "path": "./private/postgres.env", "format": "raw" }],
+      "environment": { "PGDATA": "/var/lib/postgresql/18/docker" },
+      "volumes": ["postgres_data:/var/lib/postgresql"],
+      "networks": ["backend"],
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""],
+        "interval": "10s", "timeout": "5s", "retries": 12, "start_period": "30s"
+      },
+      "mem_limit": "1g",
+      "security_opt": ["no-new-privileges:true"],
+      "logging": { "driver": "local", "options": { "max-size": "10m", "max-file": "3" } }
+    },
+    "redis": {
+      "image": "redis:8.2.1",
+      "restart": "unless-stopped",
+      "command": ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"],
+      "volumes": ["redis_data:/data"],
+      "networks": ["backend"],
+      "healthcheck": {
+        "test": ["CMD", "redis-cli", "ping"],
+        "interval": "10s", "timeout": "5s", "retries": 12, "start_period": "10s"
+      },
+      "mem_limit": "512m",
+      "security_opt": ["no-new-privileges:true"],
+      "logging": { "driver": "local", "options": { "max-size": "10m", "max-file": "3" } }
+    },
+    "evolution": {
+      "image": "evoapicloud/evolution-api:v2.3.7",
+      "restart": "unless-stopped",
+      "working_dir": "/evolution",
+      "entrypoint": ["node", "dist/main.js"],
+      "env_file": [{ "path": "./private/evolution.env", "format": "raw" }],
+      "environment": {
+        "SERVER_TYPE": "http", "SERVER_PORT": "8080",
+        "SERVER_DISABLE_MANAGER": "true", "SERVER_DISABLE_DOCS": "true",
+        "DATABASE_PROVIDER": "postgresql",
+        "CACHE_REDIS_ENABLED": "true", "CACHE_REDIS_URI": "redis://redis:6379/6",
+        "CACHE_LOCAL_ENABLED": "false", "CACHE_REDIS_SAVE_INSTANCES": "false",
+        "DEL_INSTANCE": "false", "DEL_TEMP_INSTANCES": "false",
+        "AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES": "false",
+        "CORS_ORIGIN": "https://invalid.invalid", "CORS_CREDENTIALS": "false",
+        "WEBHOOK_GLOBAL_ENABLED": "false", "WEBHOOK_GLOBAL_URL": "",
+        "LOG_LEVEL": "ERROR,WARN", "LOG_BAILEYS": "fatal", "LOG_COLOR": "false",
+        "TELEMETRY_ENABLED": "false", "SENTRY_DSN": "", "PROMETHEUS_METRICS": "false",
+        "RABBITMQ_ENABLED": "false", "SQS_ENABLED": "false", "NATS_ENABLED": "false",
+        "KAFKA_ENABLED": "false", "PUSHER_ENABLED": "false", "WEBSOCKET_ENABLED": "false",
+        "S3_ENABLED": "false", "TYPEBOT_ENABLED": "false", "CHATWOOT_ENABLED": "false",
+        "OPENAI_ENABLED": "false", "DIFY_ENABLED": "false", "N8N_ENABLED": "false",
+        "EVOAI_ENABLED": "false", "FLOWISE_ENABLED": "false"
+      },
+      "ports": ["127.0.0.1:8080:8080"],
+      "volumes": ["evolution_instances:/evolution/instances"],
+      "networks": ["backend", "egress"],
+      "depends_on": {
+        "postgres": { "condition": "service_healthy" },
+        "redis": { "condition": "service_healthy" }
+      },
+      "healthcheck": {
+        "test": ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/instance/fetchInstances',{headers:{apikey:process.env.AUTHENTICATION_API_KEY},signal:AbortSignal.timeout(4000)}).then(async r=>{if(!r.ok||!Array.isArray(await r.json()))process.exit(1)}).catch(()=>process.exit(1))"],
+        "interval": "30s", "timeout": "6s", "retries": 5, "start_period": "60s"
+      },
+      "mem_limit": "2g",
+      "security_opt": ["no-new-privileges:true"],
+      "logging": { "driver": "local", "options": { "max-size": "10m", "max-file": "3" } }
+    }
+  },
+  "networks": { "backend": { "internal": true }, "egress": {} },
+  "volumes": { "postgres_data": {}, "redis_data": {}, "evolution_instances": {} }
+}

@@ -1,0 +1,8 @@
+# Host-installed Caddy only. Root must replace this reserved placeholder.
+# Containerized Caddy cannot use this loopback upstream unchanged.
+https://REPLACE_WITH_APPROVED_EVOLUTION_HOST {
+    @management path /manager /manager/* /docs /docs/* /assets/* /metrics /verify-creds
+    respond @management 404
+    reverse_proxy 127.0.0.1:8080
+    # Deliberately no access log: instance URLs may contain sensitive data.
+}
