@@ -1,4 +1,25 @@
-# SETT: preparacao local da recuperacao WhatsApp
+# SETT: recuperacao WhatsApp na DigitalOcean
+
+## Checkpoint operacional 2026-10-21
+
+- Usuario aprovou DigitalOcean ate US$24/mes e pediu reducao de custo.
+  Criado `sett-whatsapp-01`, Droplet `611262433`, NYC1, Ubuntu 24.04,
+  `s-1vcpu-2gb`, 2 GiB/1 vCPU/50 GB, **US$12/mes de base**.
+  Sem backup pago, volume extra ou banco gerenciado.
+- SSH exclusivo autorizado, chave publica cadastrada; chave privada somente
+  no Mac. Acesso SSH e identidade do host confirmados, cloud-init concluido.
+- Banco novo: origem Railway continua intacta e indisponivel para backup de
+  sessao; novo QR pode ser necessario. Historico Supabase nao foi alterado.
+- API key existente preservada em arquivos privados; nova senha PostgreSQL
+  gerada, fora do Git. Nenhum valor sensivel integra este documento.
+- Bootstrap revisado independentemente apos correcao do marcador UFW `(None)`;
+  7/7 testes locais aprovados. SHA-256 aprovado:
+  `6b12d9317e399934908e19eabcd6dd8097f945758ae15cd8e291adb511f205a3`.
+- Instalacao iniciada. DNS/TLS, runtime, pareamento, webhook e entrega ainda
+  pendentes. Hostinger aguarda login do usuario. Nenhum cutover no SETT.
+
+As secoes de preparacao abaixo registram o desenho e os gates originais;
+nao devem ser lidas como evidencia de recuperacao operacional concluida.
 
 Baseline: `codex/sett-load-save-release-20260928`, `f0f8fff`, 2026-10-21.
 Escopo: `ops/whatsapp-evolution/` e este documento. Nenhum deploy, upload,
@@ -255,3 +276,121 @@ esta autorizado e nenhum backup foi criado nesta entrega.
 Esta preparacao nao comprova compatibilidade em runtime, restauracao, DNS/TLS,
 estado remoto atual ou entrega WhatsApp. Esses resultados dependem de acesso
 do usuario/raiz e QA independente posterior.
+
+## Adendo de orcamento: candidato 2 GB (2026-10-21)
+
+Este adendo atualiza a direcao de orcamento acima, preservada como historico:
+o usuario pediu reduzir o custo frente a US$24/mes. A raiz selecionara um
+candidato de 2 GB/US$12 por mes; preco/plano final ainda exigem verificacao
+pela raiz. A chave SSH foi aprovada, mas nenhum host foi criado nesta entrega
+e o pagamento segue pendente. Nao criar recursos pagos nem fazer upgrade
+automatico. Esta entrega e somente local, sem SSH, segredos ou acao remota.
+
+`compose.low-memory.json` e um override opcional, sempre APOS `compose.json`:
+
+| Servico | Limite do container | Limite interno |
+| --- | --- | --- |
+| Evolution | 1 GiB | `NODE_OPTIONS=--max-old-space-size=768` (MiB) |
+| PostgreSQL | 384 MiB | sem alteracao de tuning nesta entrega |
+| Redis | 128 MiB | `maxmemory 64mb`, `noeviction`, AOF preservado |
+
+Total dos containers: 1536 MiB. Em 2048 MiB nominais restam 512 MiB para
+SO, Docker e Caddy, acima do minimo orcado de 400 MiB. Isso e apenas um
+orcamento de limites, nao prova de capacidade: RAM utilizavel pode ser menor,
+o heap antigo V8 nao inclui toda a memoria do Node e Redis pode consumir
+memoria extra para persistencia. `noeviction` recusa escritas quando cheio;
+nao transforma pressao de memoria em operacao saudavel.
+
+Semantica conferida na [documentacao oficial de merge Compose](https://docs.docker.com/reference/compose-file/merge/):
+mapas de ambiente sao mesclados, escalares `mem_limit` substituidos e
+`command` e substituido integralmente (nao concatenado). Por isso o override
+repete o comando Redis inteiro, incluindo AOF. O
+[limite de old space do Node](https://nodejs.org/api/cli.html#--max-old-space-sizesize-in-megabytes)
+nao e um limite total de RSS; o [mem_limit do Compose](https://docs.docker.com/reference/compose-file/services/#mem_limit)
+limita o container. Nao ha mudanca de imagem, dependencia ou arquivo privado.
+
+Validacao local e gate obrigatorio no host, respectivamente:
+
+```sh
+node --test ops/whatsapp-evolution/config.test.mjs ops/whatsapp-evolution/low-memory.test.mjs
+# No host com Compose >=2.30.0, exigir o teste de merge real, sem skip:
+REQUIRE_COMPOSE=1 node --test ops/whatsapp-evolution/low-memory.test.mjs
+```
+
+O teste de merge real usa apenas arquivos temporarios com env vazio, sem
+ler segredos, iniciar containers ou fazer pull. Os testes Node estaticos
+validam o subconjunto exato de merge usado pelo override e rejeitam limites
+da base, heap sem teto, comando Redis concatenado e politica com eviction.
+O preflight legado continua lendo SOMENTE `compose.json`, inclusive com
+flags Docker fixas: passar `host`/`status` nao valida este perfil de 2 GB.
+Ele continua necessario para suas verificacoes de seguranca, mas nao pode
+ser usado como evidencia de merge, limites efetivos ou saude deste candidato.
+
+Depois dos gates existentes e apenas pela raiz, qualquer comando Compose
+do perfil economico (config/up/run/ps/stop) deve usar os DOIS `-f` na mesma
+ordem e o mesmo diretorio/projeto. Exemplo somente de validacao silenciosa:
+
+```sh
+docker compose -f ops/whatsapp-evolution/compose.json -f ops/whatsapp-evolution/compose.low-memory.json config --quiet
+```
+
+Antes de producao, a raiz deve registrar gate de runtime no host de 2 GB:
+
+1. Confirmar RAM utilizavel e limites efetivos dos tres containers por
+   campos selecionados de inspecao; nunca despejar env ou `docker inspect`
+   completo. Registrar RSS/pico, memoria disponivel do host, OOMKilled,
+   contadores de OOM do cgroup/kernel e contagem de reinicios antes/depois.
+2. Exercitar inicializacao/migracao controlada, pareamento, sincronizacao
+   de historico e carga representativa do pico esperado com margem definida
+   pela raiz. Incluir persistencia/restart e rewrite AOF. Fixar e registrar
+   volume, duracao, concorrencia e latencia aceitavel antes do ensaio;
+   healthcheck verde ou teste ocioso nao substituem esse ensaio.
+3. Exigir zero OOM, zero reinicio inesperado, nenhum erro Redis de memoria,
+   nenhum crescimento continuo ate o teto e pelo menos 400 MiB disponiveis
+   no host durante o pico. Confirmar saude de DB/Redis/API e entrega/callback
+   pelo fluxo autorizado, com revisao independente antes do cutover.
+4. Se faltar qualquer evidencia ou algum criterio falhar, ABORTAR o cutover,
+   manter o estado seguro e levar o resultado a raiz. Nao afirmar que 2 GB
+   suporta producao, nao elevar limites para consumir a reserva e nao migrar
+   automaticamente para plano mais caro. Preservar volumes e a regra de
+   nunca ativar duas copias da mesma sessao, inclusive no rollback.
+
+Capacidade 2 GB, merge real no host, OOM/carga, QA independente e producao
+permanecem pendentes; nenhum resultado local deste adendo os aprova.
+
+### Bootstrap do host (preparado, nao executado)
+
+Atualizacao informada pela raiz: host criado em plano US$12/mes, 2 GiB,
+Ubuntu 24.04 amd64. Isso substitui a pendencia de criacao acima; o executor
+nao acessou nem verificou o host. `bootstrap-host.sh` aguarda revisao da raiz.
+
+Uso posterior, somente apos revisao: `sudo bash bootstrap-host.sh <operatorIPv4>`.
+O argumento deve ser o IPv4 de origem do operador, nao o IP do servidor.
+Se `SSH_CONNECTION` estiver disponivel, origem e porta 22 devem coincidir.
+Verificar o IP efetivo e ter console de recuperacao antes de habilitar UFW;
+apos executar, confirmar uma segunda sessao SSH antes de encerrar a primeira.
+
+O script exige root, Ubuntu noble/amd64 e host sem workloads, aplicacoes em
+`/opt/sett-whatsapp` ou regras UFW alheias. Recusa pacotes Docker conflitantes
+em vez de remove-los. Instala Docker/Compose pelo repositorio oficial Docker,
+Caddy pelo repositorio oficial indicado pelo projeto e Node.js via Ubuntu.
+Nao executa upgrade geral, reboot, alteracao de sshd ou deploy. Compose menor
+que 2.30.0 interrompe o fluxo; nao dispara upgrade automatico.
+
+Prepara `/opt/sett-whatsapp` (root, 750) e `private/` (root, 700), sem criar
+segredos. UFW permite 80/443 TCP e 22 TCP somente do IPv4 informado; entrada
+padrao negada, saida permitida, IPv6 protegido. Portas publicadas por Docker
+podem contornar UFW: manter o binding loopback da Evolution.
+
+O marcador `/var/lib/sett-whatsapp-bootstrap` permite retomar falha parcial
+com o mesmo operador, antes de haver aplicacao/dados. Nao remover marcadores,
+regras ou dados para forcar o script a prosseguir. Instala com `policy-rc.d`
+temporario para evitar inicio automatico de servicos; Caddy fica desabilitado
+ate sua configuracao aprovada. Falhas nao fazem rollback de pacotes/repositorios.
+Uma interrupcao abrupta pode deixar `policy-rc.d`, exigindo inspecao da raiz.
+Pacotes podem habilitar unidades no boot; verificar servicos antes de reboot.
+Nenhum bootstrap comprova capacidade, pareamento, TLS ou entrega WhatsApp.
+
+Verificacao local prevista: `bash -n ops/whatsapp-evolution/bootstrap-host.sh`.
+Fontes: [Docker no Ubuntu](https://docs.docker.com/engine/install/ubuntu/) e
+[instalacao oficial do Caddy](https://caddyserver.com/docs/install#debian-ubuntu-raspbian).
