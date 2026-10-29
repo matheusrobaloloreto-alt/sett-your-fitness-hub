@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { z } from "zod";
+import { Navigate } from "react-router-dom";
+import { SettingHelp } from "@/components/admin/SettingHelp";
 import type { WhatsAppProviderIssue } from "../../../supabase/functions/_shared/whatsappProviderState";
 
 type ConnectionState = "disconnected" | "waiting_qr" | "connected" | "loading" | "not_configured" | "unknown";
@@ -74,7 +76,7 @@ function summarizeDiagnostics(payload: unknown) {
   return lines.join("\n");
 }
 
-export default function WhatsAppSettings() {
+export function WhatsAppConnectionPanel({ embedded = false }: { embedded?: boolean }) {
   const [state, setState] = useState<ConnectionState>("loading");
   const [qrcode, setQrcode] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
@@ -313,12 +315,12 @@ export default function WhatsAppSettings() {
   return (
     <>
       <div className="space-y-6">
-        <div>
+        {!embedded && <div>
           <h1 className="text-2xl font-bold text-primary tracking-wide">WhatsApp</h1>
           <p className="text-muted-foreground font-sans text-sm">
             Gerencie a conexão do WhatsApp Business
           </p>
-        </div>
+        </div>}
 
         {role === "master" && !effectiveCompanyId && (
           <Card className="max-w-lg">
@@ -335,6 +337,7 @@ export default function WhatsAppSettings() {
             <CardTitle className="flex items-center gap-2 text-lg">
               <MessageSquare className="h-5 w-5" />
               Conexão WhatsApp
+              <SettingHelp label="Conexão WhatsApp" what="Mostra o estado consultado da instância WhatsApp já vinculada à empresa." edits="Os botões permitem conectar, atualizar a leitura ou desconectar a instância existente." effect="Consultar o estado não desconecta. Enquanto aguarda leitura, o QR Code pode ser atualizado automaticamente. Desconectar encerra a sessão e interrompe envios e recebimentos até reconectar." />
             </CardTitle>
             <CardDescription>
               Conecte seu número de WhatsApp para receber e enviar mensagens pela plataforma.
@@ -463,6 +466,7 @@ export default function WhatsAppSettings() {
             <CardTitle className="flex items-center gap-2 text-lg">
               <Bot className="h-5 w-5" />
               Automação externa da instância
+              <SettingHelp label="Automação externa da instância" what="Indica se o provedor tem uma automação externa aos fluxos do SETT." edits="A consulta apenas verifica; o botão de desativar altera essa automação externa no provedor." effect="Desativar interrompe a automação externa identificada. Os fluxos configurados no SETT continuam separados." />
             </CardTitle>
             <CardDescription>
               Verifica se existe alguma automação configurada diretamente no provedor WhatsApp (fora da plataforma).
@@ -527,4 +531,11 @@ export default function WhatsAppSettings() {
       </div>
     </>
   );
+}
+
+// Preserve old bookmarks without maintaining a second connection management page.
+export default function WhatsAppSettings() {
+  const { role } = useAuth();
+  const prefix = role === 'trainer' ? 'trainer' : role === 'coordinator' ? 'coordinator' : 'admin';
+  return <Navigate replace to={`/${prefix}/settings?tab=integrations`} />;
 }

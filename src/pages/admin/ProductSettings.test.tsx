@@ -1,4 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactElement } from 'react';
+import { act, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_COMPANY_PRODUCT_SETTINGS } from '@/lib/companyProductSettings';
 import ProductSettings from './ProductSettings';
@@ -15,6 +17,8 @@ vi.mock('@/lib/companyProductSettings', async (original) => ({
   fetchCompanyProductSettings: mocks.fetch,
   saveCompanyProductSettings: mocks.save,
 }));
+vi.mock('@/components/admin/CompanyAchievements', () => ({ default: () => <div>Conquistas</div> }));
+vi.mock('@/components/admin/CompanyCommercialSettings', () => ({ default: () => <div>Comercial preservado</div> }));
 vi.mock('@/components/admin/FormDefinitionManager', () => ({ default: () => <div>Formularios</div> }));
 
 describe('company product settings screen', () => {
@@ -24,6 +28,29 @@ describe('company product settings screen', () => {
     mocks.master = { isViewingCompany: false, viewingCompany: null };
     mocks.fetch.mockResolvedValue({ settings: structuredClone(DEFAULT_COMPANY_PRODUCT_SETTINGS), version: 7 });
     mocks.save.mockImplementation(async (_id, settings) => ({ settings, version: 8 }));
+  });
+
+  it('keeps drafts across URL tab changes and relocates the existing controls', async () => {
+    render(<ProductSettings />);
+    fireEvent.change(await screen.findByLabelText('Mensagem'), { target: { value: 'Rascunho preservado' } });
+    expect(screen.queryByRole('button', { name: 'Operação' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Formulários' }));
+    expect(screen.getByLabelText('Prazo para avaliação e treino (dias úteis)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Experiência' }));
+    expect(screen.getByLabelText('Hora do lembrete diário')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sobre Push de novo treino publicado' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Identidade' }));
+    expect(await screen.findByText('Comercial preservado')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mensagens' }));
+    expect(await screen.findByLabelText('Mensagem')).toHaveValue('Rascunho preservado');
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it('accepts a valid query tab and safely defaults an invalid tab', async () => {
+    const view = rtlRender(<ProductSettings />, { wrapper: ({ children }) => <MemoryRouter initialEntries={['/admin/settings?tab=forms']}>{children}</MemoryRouter> });
+    expect(await screen.findByLabelText('Prazo para avaliação e treino (dias úteis)')).toBeInTheDocument();
+    view.unmount();
+    rtlRender(<ProductSettings />, { wrapper: ({ children }) => <MemoryRouter initialEntries={['/admin/settings?tab=invalid']}>{children}</MemoryRouter> });
+    expect(await screen.findByLabelText('Mensagem')).toBeInTheDocument();
   });
 
   it('persists the selected company and expected version, then reflects the returned version', async () => {
@@ -136,3 +163,5 @@ describe('company product settings screen', () => {
     expect(screen.queryByRole('button', { name: '{{email}}' })).not.toBeInTheDocument();
   });
 });
+
+function render(ui: ReactElement) { return rtlRender(ui, { wrapper: MemoryRouter }); }

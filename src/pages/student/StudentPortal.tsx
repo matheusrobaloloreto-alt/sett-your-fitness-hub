@@ -71,6 +71,7 @@ import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
 import { selectPreferredVisibleCycle, selectPrescriptionEnrollment, selectStudentWorkoutCycleWindow } from "@/lib/prescriptionSchedule";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
+import { projectPrescriptionCoverage } from "@/lib/prescriptionCoverage";
 import { createWorkoutLogSaveQueue, saveWorkoutLogBatchIfCurrent, type WorkoutLogSaveResult } from "@/lib/workoutLogPersistence";
 import { normalizeSetType } from "@/lib/setTypes";
 import { isWorkoutLogAwaitingConfirmation, shouldSaveWorkoutLog, workoutLogForDate } from "@/lib/workoutLogRequest";
@@ -254,7 +255,8 @@ export function useStudentPortalExtraSetReconciliation({
 }
 
 export default function StudentPortal() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, companyId: authCompanyId } = useAuth();
+  const userScope = `${user?.id ?? ""}:${authCompanyId ?? ""}`;
   const { toast } = useToast();
   const [activeView, setActiveView] = useState<ActiveView>("home");
   const [studentId, setStudentId] = useState<string | null>(null);
@@ -263,6 +265,7 @@ export default function StudentPortal() {
   const [studentIsInactive, setStudentIsInactive] = useState(false);
   const [gender, setGender] = useState<Gender | null>(null);
   const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [coverage, setCoverage] = useState<ReturnType<typeof projectPrescriptionCoverage> | null>(null);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
   const [selectedWeekStart, setSelectedWeekStart] = useState<number | null>(null);
@@ -278,6 +281,12 @@ export default function StudentPortal() {
   const [feedbackInstrumentAnswers,setFeedbackInstrumentAnswers]=useState<Record<string,unknown>>({});
   const [loading, setLoading] = useState(true);
   const [contentLoading, setContentLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [loadedUserScope, setLoadedUserScope] = useState<string | null>(null);
+  const loadRequestId = useRef(0);
+  const currentUserScope = useRef(userScope);
+  currentUserScope.current = userScope;
+  const dataUserScope = useRef<string | null>(null);
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
   const [logs, setLogs] = useState<Record<string, WorkoutLog>>({});
   const [logsRestoredKey, setLogsRestoredKey] = useState<string | null>(null);
@@ -310,6 +319,10 @@ export default function StudentPortal() {
 
   const todayStr = businessDateYmd();
   const logsBackupKey = studentId ? `sett_logs_${studentId}_${todayStr}` : null;
+  const awaitingPrescription = !studentIsInactive && !(coverage?.reliable && coverage.hasCurrentWorkout);
+  const lastPublishedCycle = cycles.filter(cycle => cycle.workouts.length > 0 && cycle.end_date < todayStr)
+    .sort((a, b) => b.end_date.localeCompare(a.end_date))[0];
+
 
   const session = useWorkoutSession(studentId, companyId);
   const activeWorkoutResolution = useMemo(
@@ -420,9 +433,11 @@ export default function StudentPortal() {
 
   const { activeRest, startRest, clearRest } = useRestTimer();
 
+  const invalidateLoad = useCallback(() => { ++loadRequestId.current; }, []);
   useEffect(() => {
-    if (user?.id) loadStudentData();
-  }, [user?.id]);
+    if (user?.id) void loadStudentData();
+    return invalidateLoad;
+  }, [user?.id, authCompanyId, invalidateLoad]);
 
   const recordLoadPerformance = (metric: "shell_ready" | "content_ready") => {
     if (recordedPerformanceMetrics.current.has(metric)) return;
@@ -435,18 +450,32 @@ export default function StudentPortal() {
     });
   };
 
-  // Provas/metas alvo do aluno (exibidas no calendário).
-  useEffect(() => {
-    if (!studentId) return;
-    (supabase as any)
-      .from("student_goals")
-      .select("id, target_date, title, kind, status, description, metric")
-      .eq("student_id", studentId)
-      .order("target_date")
-      .then(({ data }: any) => setStudentGoals(data || []));
-  }, [studentId]);
-
   const loadStudentData = async () => {
+    if (currentUserScope.current !== userScope) return;
+    const requestId = ++loadRequestId.current;
+    const userId = user?.id;
+    if (!userId) return;
+    const isStale = () => requestId !== loadRequestId.current || currentUserScope.current !== userScope;
+    const read = async <T,>(query: T): Promise<Awaited<T>> => {
+      const result = await query;
+      if (isStale()) throw new Error("Obsolete portal request");
+      if ((result as { error?: unknown }).error) throw new Error("Portal read unavailable");
+      return result;
+    };
+    if (dataUserScope.current !== userScope) {
+      dataUserScope.current = userScope;
+      setStudentId(null); setCompanyId(null); setStudentName("");
+      setCycles([]); setSelectedCycle(null); setSelectedWorkoutId(null);
+      setEnrollmentInfo(null); setActiveEnrollmentId(null);
+      setAllLogs([]); setWorkoutSessions([]); setWorkoutFeedbacks([]); setStudentGoals([]);
+      setHasNutrition(false); setRunningSports(new Set());
+      commitLogs(() => ({})); setPreviousLogs({});
+      setExtraSets({}); extraSetsWorkoutRef.current = null; extraSetsByWorkoutRef.current = {};
+      setActiveView("home");
+    }
+    setLoadError(false);
+    setCoverage(null);
+    const businessToday = parseISO(todayStr);
     performanceStartedAt.current = performance.now();
     performanceCompanyId.current = null;
     recordedPerformanceMetrics.current.clear();
@@ -454,13 +483,14 @@ export default function StudentPortal() {
     setContentLoading(true);
     setPreferredCyclePrescriptionCleared(false);
     try {
-    const { data: student } = await supabase
+    const { data: student } = await read(supabase
       .from("students")
       .select("id, full_name, company_id, weekly_workout_goal, gender, status")
-      .eq("user_id", user!.id)
-      .maybeSingle();
+      .eq("user_id", userId)
+      .maybeSingle());
 
     if (!student) {
+      setStudentId(null); setCompanyId(null);
       setContentLoading(false);
       return;
     }
@@ -472,9 +502,7 @@ export default function StudentPortal() {
     setStudentIsInactive(inactive);
     setGender((student as any).gender === "male" || (student as any).gender === "female" ? (student as any).gender : null);
     setWeeklyGoal((student as any).weekly_workout_goal || 3);
-    // O shell real do portal (cabeçalho + identidade) já pode ser exibido
-    // enquanto as prescrições e o histórico terminam de carregar.
-    setLoading(false);
+    // O conteúdo só fica disponível após confirmar todas as leituras.
     recordLoadPerformance("shell_ready");
 
     if (inactive) {
@@ -492,9 +520,9 @@ export default function StudentPortal() {
     // RLS já permite o aluno ler nutrition_plans e running_plans próprios.
     {
       const [{ data: nutritionRows }, { data: runs }, { data: anamnese }] = await Promise.all([
-        (supabase as any).from("nutrition_plans").select("id, start_date, end_date").eq("student_id", student.id),
-        (supabase as any).from("running_plans").select("sport, start_date, end_date").eq("student_id", student.id),
-        (supabase as any).from("student_anamneses").select("wants_nutrition, has_nutritionist").eq("student_id", student.id).maybeSingle(),
+        read((supabase as any).from("nutrition_plans").select("id, start_date, end_date").eq("student_id", student.id)),
+        read((supabase as any).from("running_plans").select("sport, start_date, end_date").eq("student_id", student.id)),
+        read((supabase as any).from("student_anamneses").select("wants_nutrition, has_nutritionist").eq("student_id", student.id).maybeSingle()),
       ]);
       const isVisibleToday = (row: any) => (!row.start_date || row.start_date <= todayStr) && (!row.end_date || row.end_date >= todayStr);
       setHasNutrition((nutritionRows ?? []).some(isVisibleToday) || (!!(anamnese as any)?.wants_nutrition && !!(anamnese as any)?.has_nutritionist));
@@ -504,14 +532,18 @@ export default function StudentPortal() {
     }
 
 
-    const { data: enrollmentRows } = await supabase
+    const { data: enrollmentRows } = await read(supabase
       .from("enrollments")
-      .select("id, start_date, end_date, plan_id, status, created_at, carried_over_cycle_id")
+      .select("id, student_id, company_id, start_date, end_date, training_start_date, plan_id, status, created_at, carried_over_cycle_id")
       .eq("student_id", student.id)
       .in("status", ["active", "awaiting_training", "awaiting_renewal"])
       .order("created_at", { ascending: false })
-      .limit(10);
-    const enrollment = selectPrescriptionEnrollment((enrollmentRows || []) as any[]);
+      .limit(10));
+    const enrollment = selectPrescriptionEnrollment((enrollmentRows || []) as any[], { today: businessToday, expectedStudentId: student.id, expectedCompanyId: student.company_id });
+    if (!enrollment) {
+      setActiveEnrollmentId(null); setEnrollmentInfo(null);
+      setCycles([]); setSelectedCycle(null); setSelectedWorkoutId(null);
+    }
 
     let planDurationDays = 42;
     let cycleDurationDays = 42;
@@ -522,11 +554,11 @@ export default function StudentPortal() {
       let planName = "Plano";
       const planId = (enrollment as any).plan_id;
       if (planId) {
-        const { data: planRow } = await supabase
+        const { data: planRow } = await read(supabase
           .from("plans")
           .select("name, duration_days, duration_weeks, cycle_duration_days")
           .eq("id", planId)
-          .maybeSingle();
+          .maybeSingle());
         if ((planRow as any)?.name) planName = (planRow as any).name;
         planDurationDays = Math.max(
           1,
@@ -548,22 +580,27 @@ export default function StudentPortal() {
     if (enrollment) {
       // O cast mantém compatibilidade com o tipo local legado da tabela.
       const cycleSelect = "id, enrollment_id, student_id, company_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, objective, duration_weeks, delivery_status, prescription_cleared_at";
-      const { data: cyclesData } = await (supabase as any)
+      const { data: cyclesData } = await read((supabase as any)
         .from("training_cycles")
         .select(cycleSelect)
         .eq("enrollment_id", enrollment.id)
-        .order("cycle_number");
+        .order("cycle_number"));
       const carriedOverCycleId = (enrollment as any).carried_over_cycle_id;
       const { data: carriedOverCycle } = carriedOverCycleId
-        ? await (supabase as any)
+        ? await read((supabase as any)
           .from("training_cycles")
           .select(cycleSelect)
           .eq("id", carriedOverCycleId)
           .eq("student_id", student.id)
           .eq("company_id", student.company_id)
-          .maybeSingle()
+          .maybeSingle())
         : { data: null };
 
+      if (!(cyclesData?.length || carriedOverCycle)) {
+        setCoverage(projectPrescriptionCoverage({ enrollment, cycles: [], expectedStudentId: student.id,
+          expectedCompanyId: student.company_id, today: todayStr, planDurationDays, cycleDurationDays }));
+        setCycles([]); setSelectedCycle(null); setSelectedWorkoutId(null);
+      }
       if ((cyclesData && cyclesData.length > 0) || carriedOverCycle) {
         const visibleCycles = (cyclesData || []).filter((cycle) => cycle.status !== "superseded" && !cycle.superseded_by_cycle_id);
         const visibleCycleIds = new Set(visibleCycles.map((cycle) => cycle.id));
@@ -578,15 +615,23 @@ export default function StudentPortal() {
           visibleCycles.push(carriedOverCycle);
         }
         const workoutsData = visibleCycles.length > 0
-          ? (await supabase
+          ? (await read(supabase
             .from("workouts")
             .select("id, name, title, description, exercises, cycle_id, day_of_week, sort_order")
             .is("superseded_at", null)
-            .in("cycle_id", visibleCycles.map(c => c.id))).data
+            .in("cycle_id", visibleCycles.map(c => c.id)))).data
           : [];
 
         const allMaterializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
         const workoutCycleIds = new Set(allMaterializedWorkouts.map((workout) => workout.cycle_id));
+        const currentCoverage = projectPrescriptionCoverage({
+          enrollment,
+          cycles: visibleCycles.map(cycle => ({ ...cycle,
+            has_usable_workouts: !cycle.prescription_cleared_at && workoutCycleIds.has(cycle.id) })),
+          expectedStudentId: student.id, expectedCompanyId: student.company_id,
+          today: todayStr, planDurationDays, cycleDurationDays,
+        });
+        setCoverage(currentCoverage);
         const { cycles: schedulableCycles, preferredCycle } = selectStudentWorkoutCycleWindow(
           (cyclesData || []).map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && workoutCycleIds.has(cycle.id) })),
           {
@@ -597,6 +642,8 @@ export default function StudentPortal() {
             expectedCompanyId: student.company_id,
             planDurationDays,
             cycleDurationDays,
+            today: businessToday,
+            enrollment,
           },
         );
         const schedulableCycleIds = new Set(schedulableCycles.map((cycle) => cycle.id));
@@ -610,10 +657,10 @@ export default function StudentPortal() {
 
         const videoMap: Record<string, { video_url: string | null; video_path: string | null; youtube_video_id: string | null; thumbnail_url: string | null }> = {};
         if (exerciseIds.size > 0) {
-          const { data: libraryData } = await (supabase as any)
+          const { data: libraryData } = await read((supabase as any)
             .from("exercise_library")
             .select("id, video_url, video_path, youtube_video_id, thumbnail_url")
-            .in("id", Array.from(exerciseIds));
+            .in("id", Array.from(exerciseIds)));
           if (libraryData) {
             libraryData.forEach((lib: any) => {
               videoMap[lib.id] = { video_url: lib.video_url, video_path: lib.video_path, youtube_video_id: lib.youtube_video_id ?? null, thumbnail_url: lib.thumbnail_url ?? null };
@@ -650,15 +697,17 @@ export default function StudentPortal() {
         });
         setCycles(enriched);
 
-        const today = new Date();
+        const today = businessToday;
         const chosen = enriched.find((cycle) => cycle.id === preferredCycle?.id) ?? selectPreferredVisibleCycle(
           enriched.map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && cycle.workouts.length > 0 })),
           today,
         );
         setPreferredCyclePrescriptionCleared(Boolean(chosen?.prescription_cleared_at));
         setSelectedCycle(chosen);
-        // P6 — marca a prescrição como vista assim que o aluno abre o ciclo escolhido.
-        if (chosen?.id && (chosen as any).delivery_status !== "viewed") {
+        // Marca como vista somente uma prescrição com conteúdo e vigência atual.
+        if (currentCoverage.hasCurrentWorkout && chosen?.id && currentCoverage.currentWorkoutCycleIds.includes(chosen.id)
+          && chosen.workouts.length > 0 && chosen.start_date <= todayStr
+          && chosen.end_date >= todayStr && (chosen as any).delivery_status !== "viewed") {
           void (supabase as any).rpc("mark_training_cycle_viewed", { _cycle_id: chosen.id });
         }
         const todayDow = new Date().getDay();
@@ -673,18 +722,24 @@ export default function StudentPortal() {
     const [
       { logs: logsData, sessions: sessionsData },
       { data: feedbackData },
+      { data: goalsData },
     ] = await Promise.all([
       loadStudentTrainingHistory(supabase, student.id),
-      supabase
+      read(supabase
         .from("workout_feedback")
         .select("id, workout_session_id, notes, trainer_reply, trainer_replied_at, trainer_reply_author_name")
         .eq("student_id", student.id)
         .order("created_at", { ascending: false })
-        .limit(50),
+        .limit(50)),
+      read((supabase as any).from("student_goals")
+        .select("id, target_date, title, kind, status, description, metric")
+        .eq("student_id", student.id).order("target_date")),
     ]);
+    if (isStale()) return;
+    setStudentGoals(goalsData || []);
 
     setWorkoutSessions(sessionsData);
-    if (feedbackData) setWorkoutFeedbacks(feedbackData);
+    setWorkoutFeedbacks(feedbackData || []);
     setAllLogs(logsData);
     const todayLogMap: Record<string, WorkoutLog> = {};
     const prevLogMap: Record<string, WorkoutLog> = {};
@@ -709,12 +764,16 @@ export default function StudentPortal() {
     setPreviousLogs(prevLogMap);
     setContentLoading(false);
     recordLoadPerformance("content_ready");
-    } catch (err) {
-      console.error("Erro ao carregar dados do aluno:", err);
+    } catch {
+      if (isStale()) return;
+      setLoadError(true);
       setContentLoading(false);
-      toast({ title: "Erro ao carregar seus dados", description: "Tente recarregar a página.", variant: "destructive" });
+      toast({ title: "Erro ao carregar seus dados", description: "Use Tentar novamente para repetir a consulta.", variant: "destructive" });
     } finally {
-      setLoading(false);
+      if (!isStale()) {
+        setLoadedUserScope(userScope);
+        setLoading(false);
+      }
     }
   };
 
@@ -1019,12 +1078,22 @@ export default function StudentPortal() {
 
   const handleStartSession = async () => {
     if (!selectedWorkout) return;
+    if (awaitingPrescription) {
+      toast({ title: "Aguardando prescrição", description: "Não há treino publicado para o período atual. Fale com sua equipe.", variant: "destructive" });
+      return;
+    }
     if (startBlockedReason) {
       emitBenitoProductEvent({ source: "student_workout", action: "start_blocked" });
       toast({ title: "Sessão ativa em andamento", description: startBlockedReason, variant: "destructive" });
       return;
     }
-    await session.startSession(selectedWorkout.id);
+    const operationScope = userScope;
+    const result = await session.startSession(selectedWorkout.id);
+    if (currentUserScope.current !== operationScope) return;
+    if (result?.ok !== true) {
+      toast({ title: "Não foi possível iniciar o treino", description: "O início não foi confirmado. Tente novamente.", variant: "destructive" });
+      return;
+    }
     emitBenitoProductEvent({ source: "student_workout", action: "started" });
     toast({ title: "Treino iniciado!", description: "O cronômetro está rodando." });
   };
@@ -1037,15 +1106,23 @@ export default function StudentPortal() {
     try {
 
     const previousBestWeights: Record<string, number> = {};
+    const unknownPreviousExercises = new Set<number>();
     selectedWorkout.exercises.forEach((ex, idx) => {
       const exLogs = allLogs.filter((l: any) => l.workout_id === selectedWorkout.id && l.exercise_index === idx && l.session_date !== todayStr);
-      const maxW = exLogs.reduce((max: number, l: any) => Math.max(max, Number(l.weight) || 0), 0);
+      const maxW = exLogs.filter((log: any) => log.completed === true)
+        .reduce((max: number, log: any) => {
+          const weight = Number(log.weight);
+          return Number.isFinite(weight) ? Math.max(max, weight) : max;
+        }, 0);
       previousBestWeights[`ex-${idx}`] = maxW;
+      if (exLogs.some((log: any) => log.completed !== true && (Number(log.weight) > 0 || Number(log.reps_done) > 0))) {
+        unknownPreviousExercises.add(idx);
+      }
     });
 
     const completion = await runStudentPortalWorkoutCompletion<SessionSummary>({
       saveCurrentLogs: () => saveCurrentLogs({ silent: true, notifyConflict: false }),
-      finishSession: () => session.finishSession(logsRef.current, selectedWorkout.exercises, previousBestWeights),
+      finishSession: () => session.finishSession(logsRef.current, selectedWorkout.exercises, previousBestWeights, unknownPreviousExercises),
       onCompleted: (finishedSession) => {
         setWorkoutSessions((current) => upsertCompletedWorkoutSession(current, finishedSession, todayStr));
       },
@@ -1145,7 +1222,13 @@ export default function StudentPortal() {
 
 
   const handleAbandonSession = async () => {
-    await session.abandonSession();
+    const operationScope = userScope;
+    const result = await session.abandonSession();
+    if (currentUserScope.current !== operationScope) return;
+    if (result?.ok !== true) {
+      toast({ title: "Não foi possível abandonar o treino", description: "O encerramento não foi confirmado. Sua sessão foi preservada; tente novamente.", variant: "destructive" });
+      return;
+    }
     toast({ title: "Treino abandonado" });
   };
 
@@ -1231,12 +1314,20 @@ export default function StudentPortal() {
     setActiveView("treino");
   };
 
-  if (loading) {
+  if (loading || loadedUserScope !== userScope) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
+  }
+
+  if (loadError) {
+    return <div role="alert" className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background p-6">
+      <p>Não foi possível carregar seus dados. As informações estão indisponíveis.</p>
+      <Button variant="outline" onClick={() => void loadStudentData()}>Tentar novamente</Button>
+      <Button variant="ghost" onClick={signOut}>Sair</Button>
+    </div>;
   }
 
   if (!studentId) {
@@ -1251,6 +1342,18 @@ export default function StudentPortal() {
   }
 
   const isSessionForCurrentWorkout = session.isActive && session.activeSession?.workoutId === selectedWorkout?.id;
+  const pendingPrescriptionNotice = (
+    <Card className="border-border bg-card">
+      <CardContent className="space-y-3 p-5" role="status">
+        <h2 className="font-semibold text-foreground">Aguardando prescrição</h2>
+        <p className="text-sm text-muted-foreground">Ainda não há treino publicado para o período atual. A existência de um ciclo na agenda não significa que o treino esteja pronto. Fale com sua equipe para acompanhar a prescrição.</p>
+        {lastPublishedCycle && <p className="text-sm text-muted-foreground">Último treino publicado: ciclo {lastPublishedCycle.cycle_number}, válido até {format(parseISO(lastPublishedCycle.end_date), "dd/MM/yyyy")}.</p>}
+        <Button variant="outline" onClick={() => setActiveView("calendario")}>Ver histórico de treinos</Button>
+        {session.isActive && <Button variant="outline" onClick={handleAbandonSession}>Encerrar sessão ativa</Button>}
+      </CardContent>
+    </Card>
+  );
+
 
   // Modalidades de cardio disponíveis (running_plans.sport). Corrida engloba triathlon.
   const hasCorrida = !preferredCyclePrescriptionCleared && (runningSports.has("corrida") || runningSports.has("triathlon"));
@@ -1367,21 +1470,22 @@ export default function StudentPortal() {
           {user?.id && <PushBanner userId={user.id} companyId={companyId} />}
           {studentId && <CheckinCard studentId={studentId} companyId={companyId} />}
           <PlatformAdSlot audience="student" placement="dashboard_banner" companyId={companyId} />
+          {awaitingPrescription && pendingPrescriptionNotice}
           <StudentHome
             nameBadge={<AthleticClubStar studentId={studentId} />}
             studentName={studentName}
             enrollmentInfo={enrollmentInfo}
             overallProgress={getOverallProgress()}
-            selectedCycle={studentIsInactive ? null : selectedCycle}
+            selectedCycle={studentIsInactive || awaitingPrescription ? null : selectedCycle}
             cycleProgress={selectedCycle ? getCycleProgress(selectedCycle) : 0}
-            workoutCount={studentIsInactive ? 0 : workoutCount}
+            workoutCount={studentIsInactive || awaitingPrescription ? 0 : workoutCount}
             weeklySessionCount={weeklySessionCount}
             trainedDays={trainedDays}
             currentDayOfWeek={new Date().getDay()}
             totalSessions={totalSessions}
             weeklyGoal={weeklyGoal}
             streak={streak}
-            activeWorkoutId={session.activeSession?.workoutId ?? null}
+            activeWorkoutId={awaitingPrescription ? null : session.activeSession?.workoutId ?? null}
             goalEditor={studentId ? <WeeklyGoalEditor studentId={studentId} currentGoal={weeklyGoal} onSaved={setWeeklyGoal} /> : null}
             leaderboard={studentId ? <MonthlyLeaderboard companyId={companyId} /> : null}
             hasNutrition={!studentIsInactive && hasNutrition}
@@ -1407,16 +1511,8 @@ export default function StudentPortal() {
         {activeView === "treino" && (
           <div className="space-y-6">
             {/* (seletor de ciclos removido — o ciclo atual já é mostrado abaixo) */}
-            {!selectedCycle && (
-              <div className="rounded-xl border border-border bg-card p-6 text-center space-y-2">
-                <div className="text-3xl">💪</div>
-                <p className="font-sans font-medium text-foreground">Seu treino está sendo preparado</p>
-                <p className="text-sm text-muted-foreground font-sans">
-                  Seu treinador está montando seu plano com cuidado. Assim que ficar pronto, ele aparece aqui — e você recebe um aviso no WhatsApp. Qualquer dúvida, é só chamar!
-                </p>
-              </div>
-            )}
-            {selectedCycle && (
+            {(!selectedCycle || awaitingPrescription) && pendingPrescriptionNotice}
+            {selectedCycle && !awaitingPrescription && (
               <div className="space-y-4">
                 <Card className="bg-card border-border">
                   <CardContent className="p-4 space-y-2">
@@ -1660,7 +1756,7 @@ export default function StudentPortal() {
         )}
 
         {/* CALENDARIO VIEW */}
-        {activeView === "calendario" && selectedCycle && (
+        {activeView === "calendario" && studentId && (
           <div className="space-y-6">
           <StudentCalendar
             workouts={cycles.flatMap(c => c.workouts)}
@@ -1668,8 +1764,8 @@ export default function StudentPortal() {
             currentDayOfWeek={new Date().getDay()}
             onSelectWorkout={handleCalendarSelectWorkout}
             allLogs={displayLogs}
-            cycleStartDate={selectedCycle.start_date}
-            cycleEndDate={selectedCycle.end_date}
+            cycleStartDate={selectedCycle?.start_date}
+            cycleEndDate={selectedCycle?.end_date}
             workoutSessions={workoutSessions}
             goals={studentGoals}
           />

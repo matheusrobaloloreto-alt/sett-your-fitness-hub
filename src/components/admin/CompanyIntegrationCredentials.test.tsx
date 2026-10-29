@@ -27,7 +27,7 @@ it('saves explicit Asaas environment, clears password, displays prepared only, a
   await screen.findByRole('status');
   expect(api.saveIntegrationCredentials).toHaveBeenCalledWith('a', 'asaas', { api_key: 'synthetic-api-key-long', environment: 'production' }, 0);
   expect(screen.getByLabelText('Nova chave Asaas')).toHaveValue('');
-  expect(screen.getByText(/Preparado — uso desativado/)).toHaveTextContent('••••••••');
+  expect(screen.getByText(/Chave preparada neste cofre — ativação futura/)).toHaveTextContent('••••••••');
   expect(document.body).not.toHaveTextContent('synthetic-api-key-long');
   fireEvent.click(screen.getByRole('button', { name: 'Remover Asaas' }));
   await screen.findByText('Credencial preparada removida.');
@@ -80,7 +80,7 @@ it('discards late status/save results and drafts after tenant switch', async () 
   state.companyId = 'b'; view.rerender(<CompanyIntegrationCredentials companyId="b" />);
   await waitFor(() => expect(api.fetchIntegrationStatus).toHaveBeenCalledWith('b'));
   await act(async () => { resolve(statuses(1)); });
-  expect(screen.queryByText(/Preparado — uso desativado/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Chave preparada neste cofre — ativação futura/)).not.toBeInTheDocument();
   expect(screen.getByLabelText('Nova chave Asaas')).toHaveValue('');
 });
 it('ignores an initial state read that resolves after the company changes', async () => {
@@ -90,6 +90,6 @@ it('ignores an initial state read that resolves after the company changes', asyn
   state.companyId = 'b'; view.rerender(<CompanyIntegrationCredentials companyId="b" />);
   await screen.findByLabelText('Nova chave Asaas');
   await act(async () => { resolve(statuses(1)); });
-  expect(screen.queryByText(/Preparado — uso desativado/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Chave preparada neste cofre — ativação futura/)).not.toBeInTheDocument();
   expect(screen.getByLabelText('Nova chave Asaas')).toHaveValue('');
 });

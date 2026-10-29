@@ -63,7 +63,7 @@ describe("SETT integration contracts", () => {
 
   it("keeps integrated generation bound to the selected persisted cycle without rewriting cycle dates", () => {
     const studio = source("src/pages/admin/PrescriptionStudio.tsx");
-    expect(studio).toContain("selectDefaultPrescriptionScheduleCycle(rows)");
+    expect(studio).toContain("selectDefaultPrescriptionScheduleCycle(rows, new Date(`${businessDateYmd()}T12:00:00`))");
     expect(studio).toContain("setSelectedCycleId(preferred?.id || \"\")");
     expect(studio).toContain("selectPreviousPrescriptionCycle(scheduleCycles, cycle)");
     expect(studio).toContain("isPrescriptionHistoryBeforeTarget(row, firstTarget, scheduleCycles)");

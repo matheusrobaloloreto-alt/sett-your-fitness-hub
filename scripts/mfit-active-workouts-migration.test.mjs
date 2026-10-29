@@ -4127,3 +4127,57 @@ test("linked own-video aliases require exact reviewed targets and sanitized evid
     aliasPayload.aliases.length,
   );
 });
+
+
+test('source identity blocks edited payload rather than appending another cycle', async () => {
+ const input=baseInput(), db=new MemoryDb();
+ const first=await runMigration({...input,db,apply:true,today:'2026-08-10'});assert.equal(first.results[0].status,'imported');
+ const writes=structuredClone(db.writes);input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].reps='8';
+ const rerun=await runMigration({...input,db,apply:true,today:'2026-08-10'});
+ assert.equal(rerun.results[0].reason,'source_content_changed_requires_review');assert.deepEqual(db.writes,writes);assert.equal(db.cycles.length,1);
+});
+
+test('late imports are numbered in source date order, not external identifier order', async () => {
+ const input=baseInput(),p=input.mfitWorkoutsPayload.clients[0].fichas[0];
+ input.mfitWorkoutsPayload.clients[0].fichas=[{...structuredClone(p),id:'a-later',start_date:'2026-08-10',end_date:'2026-09-20'},{...structuredClone(p),id:'z-earlier',start_date:'2026-06-01',end_date:'2026-07-12'}];
+ const db=new MemoryDb();await runMigration({...input,db,apply:true,today:'2026-08-10'});
+ assert.equal(db.cycles[0].start_date,'2026-06-01');assert.deepEqual(db.cycles.map(c=>c.cycle_number),[1,2]);
+});
+
+test('offline-prescribed slot is never reused just because digital workouts are absent', async () => {
+ const db=new MemoryDb({cycles:[{id:'offline-slot',enrollment_id:IDS.enrollment,student_id:IDS.studentPhone,company_id:IDS.company,cycle_number:5,start_date:'2026-08-10',end_date:'2026-09-20',status:'active',prescribed_offline_at:'2026-08-10'}]});
+ await runMigration({...baseInput(),db,apply:true,today:'2026-08-10'});
+ assert.equal(db.workouts.some(w=>w.cycle_id==='offline-slot'),false);assert.equal(db.cycles[0].cycle_number,5);
+});
+
+
+test('same source without dates replays on a later day without content revision', async () => {
+ const input=baseInput();delete input.mfitWorkoutsPayload.clients[0].fichas[0].start_date;delete input.mfitWorkoutsPayload.clients[0].fichas[0].end_date;
+ const db=new MemoryDb();await runMigration({...input,db,apply:true,today:'2026-08-10'});const writes=structuredClone(db.writes);
+ const repeat=await runMigration({...input,db,apply:true,today:'2026-08-11'});assert.equal(repeat.results[0].status,'already_imported');assert.deepEqual(db.writes,writes);
+});
+
+test('new sources require a real external plan identity, not a content-derived fallback',async()=>{
+ const input=baseInput();delete input.mfitWorkoutsPayload.clients[0].fichas[0].id;
+ const db=new MemoryDb();const result=await runMigration({...input,db,apply:true,today:'2026-08-10'});
+ assert.equal(result.results[0].reason,'source_plan_identity_required');assert.deepEqual(db.writes,{exercises:0,cycles:0,workouts:0,workoutExercises:0});
+});
+
+test('current awaiting_training enrollment wins over expired active and foreign company rows',async()=>{
+ const db=new MemoryDb({enrollments:[{id:'expired',company_id:IDS.company,student_id:IDS.studentPhone,status:'active',start_date:'2025-01-01',end_date:'2025-12-31'}, {id:IDS.enrollment,company_id:IDS.company,student_id:IDS.studentPhone,status:'awaiting_training',start_date:'2026-01-01',end_date:'2026-12-31'}, {id:'foreign',company_id:'foreign',student_id:IDS.studentPhone,status:'active',start_date:'2026-01-01',end_date:'2026-12-31'}]});
+ const report=await runMigration({...baseInput(),db,apply:true,today:'2026-08-10'});assert.equal(report.results[0].status,'imported');assert.equal(db.cycles[0].enrollment_id,IDS.enrollment);
+});
+
+
+test('legacy payload marker and UUID remain a no-op, while changed legacy source requires review', async () => {
+ const input=baseInput(),db=new MemoryDb();await runMigration({...input,db,apply:true,today:'2026-08-10'});
+ const cycle=db.cycles[0],workout=db.workouts[0],marker=workout.notes.split('\n')[0];
+ const legacyId=deterministicUuid(IMPORT_VERSION,'cycle',IDS.company,IDS.enrollment,'plan-active-1',marker.slice(MARKER_PREFIX.length));
+ cycle.id=legacyId;delete cycle.notes;workout.cycle_id=legacyId;workout.notes=marker;
+ const oldWorkoutId=workout.id;workout.id=deterministicUuid(IMPORT_VERSION,'workout',legacyId,'session-a',0);
+ for(const row of db.workoutExercises){if(row.workout_id===oldWorkoutId){row.workout_id=workout.id;row.id=deterministicUuid(IMPORT_VERSION,'workout-exercise',workout.id,0);}}
+ const writes=structuredClone(db.writes);
+ const retry=await runMigration({...input,db,apply:true,today:'2026-08-10'});assert.equal(retry.results[0].status,'already_imported');assert.deepEqual(db.writes,writes);
+ input.mfitWorkoutsPayload.clients[0].fichas[0].workouts[0].exercises[0].reps='20';
+ const changed=await runMigration({...input,db,apply:true,today:'2026-08-10'});assert.equal(changed.results[0].reason,'source_content_changed_requires_review');assert.deepEqual(db.writes,writes);
+});

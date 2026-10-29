@@ -1,3 +1,4 @@
+import { PlanPaymentSettings } from '@/components/admin/PlanPaymentSettings';
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -128,6 +129,7 @@ export default function PlansManager() {
   return (
     <>
       <div className="space-y-6">
+        {effectiveCompanyId && (role === "admin" || role === "master") && <PlanPaymentSettings key={effectiveCompanyId} companyId={effectiveCompanyId} />}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-4xl text-primary">PLANOS</h1>

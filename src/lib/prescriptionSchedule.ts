@@ -1,3 +1,4 @@
+import { cycleMatchesContext, enrollmentTerm, hasPrescriptionHistory, scheduleDay, type ScheduleContext } from './prescriptionCoverage';
 export type PrescriptionScheduleMode = "single" | "remaining";
 
 export interface PrescriptionScheduleCycle {
@@ -16,6 +17,18 @@ export interface PrescriptionScheduleCycle {
   prescription_cleared_signature?: string | null;
   has_workouts?: boolean;
   has_bundle?: boolean;
+  has_usable_workouts?: boolean;
+  has_history?: boolean;
+  prescribed_offline_at?: string | null;
+  prescribed_offline_by?: string | null;
+  prescribed_offline_note?: string | null;
+  bundle_id?: string | null;
+  anamnese_id?: string | null;
+  notes?: string | null;
+  objective?: string | null;
+  workouts?: unknown;
+  sequence_phase?: string | null;
+  sequence_number?: number | null;
 }
 
 export interface PrescriptionEnrollment {
@@ -23,6 +36,11 @@ export interface PrescriptionEnrollment {
   status: string;
   created_at?: string | null;
   carried_over_cycle_id?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  training_start_date?: string | null;
+  student_id?: string | null;
+  company_id?: string | null;
 }
 
 export interface PrescriptionHistoryRow {
@@ -46,9 +64,9 @@ export function isPrescriptionClearedCycle(
 }
 
 export function hasActivePrescriptionContent(
-  cycle: Pick<PrescriptionScheduleCycle, "prescription_cleared_at" | "has_workouts" | "has_bundle">,
+  cycle: Pick<PrescriptionScheduleCycle, "prescription_cleared_at" | "has_workouts" | "has_bundle" | "prescribed_offline_at" | "prescribed_offline_by" | "prescribed_offline_note">,
 ): boolean {
-  return !isPrescriptionClearedCycle(cycle) && Boolean(cycle.has_workouts || cycle.has_bundle);
+  return !isPrescriptionClearedCycle(cycle) && Boolean(cycle.has_workouts || cycle.has_bundle || cycle.prescribed_offline_at || cycle.prescribed_offline_by || cycle.prescribed_offline_note?.trim());
 }
 
 function utcDay(value: string | Date): number {
@@ -211,7 +229,15 @@ export function selectCurrentPlanCycleWindow<T extends PrescriptionScheduleCycle
   cycles: T[],
   planDurationDays: number,
   cycleDurationDays = 42,
+  context?: ScheduleContext,
 ): T[] {
+  if (context) {
+    const term = enrollmentTerm(context.enrollment, planDurationDays);
+    if (!term) return [];
+    return cycles.filter(cycle => cycleMatchesContext(cycle, context) && !isSupersededCycle(cycle)
+      && scheduleDay(cycle.start_date) <= term.end && scheduleDay(cycle.end_date) >= term.start)
+      .sort(sortChronologically);
+  }
   const visible = collapseOverlappingCyclesForDisplay(cycles);
   if (!visible.length) return [];
 
@@ -244,15 +270,17 @@ export function selectCyclesForProgramHistory<T extends PrescriptionScheduleCycl
   cycles: T[],
   planDurationDays: number,
   cycleDurationDays = 42,
+  context?: ScheduleContext,
 ): T[] {
-  const visible = cycles.filter((cycle) => !isSupersededCycle(cycle));
+  const visible = cycles.filter(cycle => (!context || cycleMatchesContext(cycle, context))
+    && (!isSupersededCycle(cycle) || hasPrescriptionHistory(cycle)));
   const currentIds = new Set(
-    selectCurrentPlanCycleWindow(visible, planDurationDays, cycleDurationDays)
+    selectCurrentPlanCycleWindow(visible, planDurationDays, cycleDurationDays, context)
       .map((cycle) => cycle.id),
   );
 
   return visible
-    .filter((cycle) => currentIds.has(cycle.id) || hasActivePrescriptionContent(cycle))
+    .filter((cycle) => currentIds.has(cycle.id) || hasPrescriptionHistory(cycle))
     .sort((left, right) => utcDay(left.start_date) - utcDay(right.start_date)
       || left.cycle_number - right.cycle_number);
 }
@@ -266,6 +294,7 @@ export function selectStudentWorkoutCycleWindow<T extends PrescriptionScheduleCy
     planDurationDays: number;
     cycleDurationDays?: number;
     today?: Date;
+    enrollment?: PrescriptionEnrollment;
   },
 ): { cycles: T[]; preferredCycle: T | null } {
   const today = args.today ?? new Date();
@@ -275,6 +304,7 @@ export function selectStudentWorkoutCycleWindow<T extends PrescriptionScheduleCy
     currentCycles,
     args.planDurationDays,
     cycleDurationDays,
+    args.enrollment ? { enrollment: args.enrollment, expectedStudentId: args.expectedStudentId, expectedCompanyId: args.expectedCompanyId, today } : undefined,
   );
   const currentById = new Set(currentWindow.map((cycle) => cycle.id));
   const started = (cycle: T) => utcDay(cycle.start_date) <= utcDay(today);
@@ -336,6 +366,7 @@ export function selectStudentWorkoutCycleWindow<T extends PrescriptionScheduleCy
  */
 export function selectPrescriptionEnrollment<T extends PrescriptionEnrollment>(
   enrollments: T[],
+  options: { today?: Date | string; expectedStudentId?: string | null; expectedCompanyId?: string | null; allowFuture?: boolean } = {},
 ): T | null {
   const statusPriority: Record<string, number> = {
     active: 0,
@@ -343,9 +374,21 @@ export function selectPrescriptionEnrollment<T extends PrescriptionEnrollment>(
     awaiting_renewal: 2,
   };
 
+  const today = scheduleDay(options.today ?? new Date());
+  const rank = (enrollment: T) => {
+    if (enrollment.start_date == null && enrollment.end_date == null && enrollment.training_start_date == null) return 2;
+    const term = enrollmentTerm(enrollment);
+    if (!term) return 4;
+    if (today >= term.contractStart && today <= term.end) return 0;
+    return today < term.contractStart && options.allowFuture ? 1 : 4;
+  };
   return [...enrollments]
-    .filter((enrollment) => enrollment.status in statusPriority)
+    .filter(enrollment => enrollment.status in statusPriority && rank(enrollment) < 4
+      && (!options.expectedStudentId || enrollment.student_id === options.expectedStudentId)
+      && (!options.expectedCompanyId || enrollment.company_id === options.expectedCompanyId))
     .sort((a, b) => {
+      const dateDifference = rank(a) - rank(b);
+      if (dateDifference) return dateDifference;
       const statusDifference = statusPriority[a.status] - statusPriority[b.status];
       if (statusDifference !== 0) return statusDifference;
       return String(b.created_at || "").localeCompare(String(a.created_at || ""));
@@ -435,8 +478,11 @@ export function scheduleSpanWeeks(cycles: PrescriptionScheduleCycle[]): number {
   return Math.max(1, Math.ceil((end - start + DAY_MS) / (7 * DAY_MS)));
 }
 
-export function longitudinalPhase(cycleNumber: number): LongitudinalPhase {
-  const index = ((Math.max(1, cycleNumber) - 1) % 4) + 1;
+export function longitudinalPhase(cycleNumber: number, sequence?: { sequence_phase?: string | null; sequence_number?: number | null } | number): LongitudinalPhase {
+  // Array.map supplies its numeric index as the second argument to legacy callers.
+  const context = typeof sequence === "object" ? sequence : undefined;
+  if (context?.sequence_phase && ['base', 'acumulacao', 'intensificacao', 'consolidacao'].includes(context.sequence_phase)) return context.sequence_phase as LongitudinalPhase;
+  const index = ((Math.max(1, context?.sequence_number ?? cycleNumber) - 1) % 4) + 1;
   if (index === 1) return "base";
   if (index === 2) return "acumulacao";
   if (index === 3) return "intensificacao";

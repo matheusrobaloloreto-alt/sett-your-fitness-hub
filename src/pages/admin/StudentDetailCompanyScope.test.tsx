@@ -7,11 +7,14 @@ const mocks = vi.hoisted(() => ({
   master: { viewingCompany: null as { id: string } | null, isViewingCompany: false },
   from: vi.fn(), rpc: vi.fn(), toast: vi.fn(), navigate: vi.fn(), studentCompany: "company-a",
   studentTrainer: "profile-trainer",
+  cycles: [] as Array<Record<string, unknown>>,
+  cycleReadError: false,
   reassignError: null as { message: string; code: string } | null,
   enrollments: [] as Array<{ id: string; student_id: string; plan_id: string; trainer_id: string; status: string; start_date: string; end_date: string }>,
   writes: [] as string[],
   studentFilters: [] as Array<Record<string, unknown>>,
 }));
+vi.mock("@/lib/businessDate", () => ({ businessDateYmd: () => "2026-10-29" }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => mocks.auth }));
 vi.mock("@/contexts/MasterContext", () => ({ useMaster: () => mocks.master }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
@@ -54,6 +57,10 @@ vi.mock("@/components/admin/WeeklyContactToggle", () => ({ WeeklyContactToggle: 
 vi.mock("@/components/admin/IntercycleAnamnesisControls", () => ({ IntercycleAnamnesisControls: () => null, IntercycleAnamnesisTimeline: () => null }));
 vi.mock("@/components/ProgressPhotosPanel", () => ({ ProgressPhotosPanel: () => null }));
 
+vi.mock('@/components/admin/StudentWorkoutFeedbackCard', () => ({ StudentWorkoutFeedbackCard: () => null }));
+vi.mock('@/components/trainer/WorkoutAnalysis', () => ({ WorkoutAnalysis: () => null }));
+vi.mock('@/components/trainer/TrainerWeeklyBar', () => ({ TrainerWeeklyBar: () => null }));
+vi.mock('@/components/trainer/StudentVolumePanel', () => ({ StudentVolumePanel: () => null }));
 import StudentDetail from "./StudentDetail";
 
 beforeEach(() => {
@@ -63,6 +70,7 @@ beforeEach(() => {
   mocks.studentCompany = "company-a";
   mocks.studentTrainer = "profile-trainer";
   mocks.reassignError = null;
+  mocks.cycles = []; mocks.cycleReadError = false;
   mocks.enrollments = [
     { id: "enrollment-a", student_id: "student-a", plan_id: "plan-a", trainer_id: "other-trainer",
       status: "active", start_date: "2026-10-01", end_date: "2026-11-11" },
@@ -71,6 +79,7 @@ beforeEach(() => {
     { id: "enrollment-inactive", student_id: "student-a", plan_id: "plan-inactive", trainer_id: "historic-trainer",
       status: "inactive", start_date: "2026-08-01", end_date: "2026-09-11" },
   ];
+  mocks.enrollments = mocks.enrollments.map(row => ({ ...row, company_id: "company-a" }));
   mocks.writes = [];
   mocks.toast.mockReset();
   mocks.rpc.mockReset().mockImplementation(async (name: string, args: Record<string, string>) => {
@@ -94,9 +103,10 @@ beforeEach(() => {
   mocks.from.mockReset().mockImplementation((table: string) => {
     const filters: Record<string, unknown> = {};
     const query = {
-      select: () => query, order: () => query, in: () => query,
+      select: () => query, order: () => query, in: () => query, is: () => query, not: () => query,
       update: () => { mocks.writes.push(table); return query; },
       eq: (key: string, value: unknown) => { filters[key] = value; return query; },
+      maybeSingle: async () => ({ data: null, error: null }),
       single: async () => {
         mocks.studentFilters.push({ ...filters });
         const companyMatches = !filters.company_id || filters.company_id === mocks.studentCompany;
@@ -106,7 +116,7 @@ beforeEach(() => {
         } : null, error: null };
       },
       then: (resolve: (result: object) => unknown) => {
-        const data = table === "enrollments" ? mocks.enrollments
+        const data = table === "training_cycles" ? mocks.cycles : table === "enrollments" ? mocks.enrollments
           : table === "plans" ? [
             { id: "plan-a", name: "Fixture Plan", duration_weeks: 6, plan_kind: "paid" },
             { id: "plan-completed", name: "Historic Completed", duration_weeks: 6, plan_kind: "paid" },
@@ -114,7 +124,7 @@ beforeEach(() => {
           ] : table === "profiles" ? [{ user_id: "historic-trainer", full_name: "Historic Trainer" }]
           : table === "user_roles" ? [{ user_id: "actor", role: "trainer" }]
           : [];
-        return Promise.resolve({ data, error: null }).then(resolve);
+        return Promise.resolve({ data, error: table === "training_cycles" && mocks.cycleReadError ? { message: "Synthetic cycle read failure" } : null }).then(resolve);
       },
     };
     return query;
@@ -213,4 +223,34 @@ describe("StudentDetail staff company scope", () => {
     expect(mocks.enrollments[0].trainer_id).toBe("other-trainer");
     expect(mocks.writes).toEqual([]);
   });
+});
+
+
+it('shows pending contracted slots and preserves superseded offline history with original labels', async () => {
+  mocks.enrollments[0].end_date = '2027-04-25';
+  mocks.cycles = [
+    { id: 'offline-history', enrollment_id: 'enrollment-a', student_id: 'student-a', company_id: 'company-a', cycle_number: 18, start_date: '2025-01-01', end_date: '2025-02-11', status: 'superseded', prescribed_offline_at: '2025-01-01T10:00:00Z' },
+    { id: 'pending-now', enrollment_id: 'enrollment-a', student_id: 'student-a', company_id: 'company-a', cycle_number: 31, start_date: '2026-10-01', end_date: '2026-11-11', status: 'pending' },
+    { id: 'pending-later', enrollment_id: 'enrollment-a', student_id: 'student-a', company_id: 'company-a', cycle_number: 45, start_date: '2027-04-01', end_date: '2027-04-25', status: 'pending' },
+  ];
+  render(<StudentDetail />);
+  await screen.findByRole('heading', { name: 'FIXTURE STUDENT' });
+  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Análise' }), { button: 0, ctrlKey: false });
+  const history = await screen.findByRole('region', { name: 'Histórico anterior e fora da vigência' });
+  expect(within(history).getByText(/CICLO 18/)).toBeInTheDocument();
+  expect(within(history).getByText('Prescrito fora do app')).toBeInTheDocument();
+  const current = screen.getByRole('region', { name: 'Vigência contratual — ciclos persistidos' });
+  expect(within(current).getByText(/CICLO 31/)).toBeInTheDocument();
+  expect(within(current).getByText(/CICLO 45/)).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Cobertura contratual Fixture Plan' })).toHaveTextContent('25/04/2027');
+  expect(mocks.writes).toEqual([]);
+});
+
+it('shows an explicit coverage read error instead of claiming an empty schedule', async () => {
+  mocks.cycleReadError = true;
+  render(<StudentDetail />);
+  await screen.findByRole('heading', { name: 'FIXTURE STUDENT' });
+  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Análise' }), { button: 0, ctrlKey: false });
+  expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível confirmar a cobertura');
+  expect(mocks.writes).toEqual([]);
 });

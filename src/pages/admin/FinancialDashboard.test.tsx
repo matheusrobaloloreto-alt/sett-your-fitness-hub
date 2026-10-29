@@ -47,6 +47,7 @@ function localPayment(id = "local-parent", providerId: string | null = "pay_1", 
 }
 type LocalPayment = ReturnType<typeof localPayment>;
 let localRows: LocalPayment[] = [];
+let readFailure: { table: string; head?: boolean; reject?: boolean } | null = null;
 
 function entry(n: number, overrides: Partial<FinancialProjectionEntry> = {}): FinancialProjectionEntry {
   return {
@@ -83,6 +84,7 @@ beforeEach(() => {
   mocks.from.mockReset();
   mocks.toast.mockReset();
   localRows = [localPayment()];
+  readFailure = null;
   mocks.invoke.mockImplementation(async (_name, args) =>
     args.body.action === "financial-installment-snapshot" ? snapshot() : { data: { status: "SCHEDULED" }, error: null });
   mocks.from.mockImplementation((table: string) => {
@@ -92,8 +94,18 @@ beforeEach(() => {
       select: (_columns: string, options?: { head?: boolean }) => { head = Boolean(options?.head); return query; },
       eq: (column: string, value: string) => { if (column === "company_id") company = value; return query; },
       in: () => query, order: () => query, limit: () => query, range: () => query,
-      maybeSingle: async () => ({ data: { cpf: "00000000000", cep: "00000000", address: "Fixture", country_code: "BR" }, error: null }),
+      maybeSingle: async () => {
+        if (readFailure?.table === table) {
+          if (readFailure.reject) throw new TypeError('fixture offline');
+          return { data: null, error: new Error('fixture denied') };
+        }
+        return { data: { cpf: "00000000000", cep: "00000000", address: "Fixture", country_code: "BR" }, error: null };
+      },
       then: (resolve: (result: object) => unknown, reject?: (error: unknown) => unknown) => {
+        if (readFailure?.table === table && (readFailure.head === undefined || readFailure.head === head)) {
+          const error = new Error('fixture read denied');
+          return (readFailure.reject ? Promise.reject(error) : Promise.resolve({ data: null, count: null, error })).then(resolve, reject);
+        }
         const rows = localRows.filter((row) => !company || row.company_id === company);
         return Promise.resolve({ data: table === "payments" && !head ? rows : [], count: rows.length, error: null }).then(resolve, reject);
       },
@@ -274,4 +286,68 @@ describe("FinancialDashboard authoritative installment snapshot", () => {
     expect(within(history()).getByText("R$ 90,00")).toBeInTheDocument();
     expect(within(history()).queryByText("Fixture company-a")).not.toBeInTheDocument();
   });
+});
+
+
+describe("FinancialDashboard read failures", () => {
+  it.each([
+    { table: 'payments', head: false },
+    { table: 'payments', head: true },
+    { table: 'students' },
+    { table: 'payments', reject: true },
+  ])('does not present missing reads as trusted zero for %j and supports explicit retry', async failure => {
+    localRows = [];
+    mocks.invoke.mockResolvedValue(snapshot([]));
+    readFailure = failure;
+    render(<FinancialDashboard />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível carregar o financeiro');
+    expect(screen.queryByText('Nenhum pagamento encontrado')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ticket Médio')).not.toBeInTheDocument();
+    readFailure = null;
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }));
+    await loaded();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('Nenhum pagamento encontrado')).toBeInTheDocument();
+    expect(cashCard()).toHaveTextContent('R$ 0,00');
+  });
+  it('does not read unscoped data when master has no selected company', async () => {
+    mocks.auth.role = 'master';
+    render(<FinancialDashboard />);
+    expect(await screen.findByText('Selecione uma empresa para consultar o financeiro.')).toBeInTheDocument();
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('FinancialDashboard fiscal preflight reads', () => {
+  it.each([false, true])('does not request invoice when the student read fails (transport=%s)', async reject => {
+    render(<FinancialDashboard />);
+    await loaded();
+    readFailure = { table: 'students', reject };
+    fireEvent.click(within(history()).getByRole('button', { name: /emitir nota/i }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Não foi possível verificar o cadastro fiscal', variant: 'destructive' })));
+    expect(mocks.invoke.mock.calls.some(([, args]) => args.body.action === 'create-invoice')).toBe(false);
+  });
+});
+
+it('ignores a prior-company sync response without reloading old tenant or celebrating it', async () => {
+  mocks.auth.role = 'master';
+  mocks.master = { viewingCompany: { id: 'company-a' }, isViewingCompany: true };
+  localRows.push(localPayment('local-b', 'pay_b', 'company-b', 90));
+  const oldSync = deferred<{ data: { message: string }; error: null }>();
+  mocks.invoke.mockImplementation((_name, args) => args.body.action === 'sync-payments' ? oldSync.promise
+    : Promise.resolve(args.body.companyId === 'company-b'
+      ? snapshot([entry(1, { localPaymentIds: ['local-b'], asaasPaymentId: 'pay_b', value: 90 })], [], 'company-b') : snapshot()));
+  const view = render(<FinancialDashboard />);
+  await loaded();
+  fireEvent.click(screen.getByRole('button', { name: 'Sincronizar' }));
+  mocks.master = { viewingCompany: { id: 'company-b' }, isViewingCompany: true };
+  view.rerender(<FinancialDashboard />);
+  await waitFor(() => expect(within(history()).getByText('R$ 90,00')).toBeInTheDocument());
+  await act(async () => oldSync.resolve({ data: { message: 'fixture synced' }, error: null }));
+  expect(within(history()).getByText('R$ 90,00')).toBeInTheDocument();
+  expect(mocks.toast.mock.calls.some(([args]) => args.title === 'Sincronização concluída')).toBe(false);
+  expect(mocks.invoke.mock.calls.filter(([, args]) => args.body.action === 'financial-installment-snapshot')
+    .map(([, args]) => args.body.companyId)).toEqual(['company-a', 'company-b']);
 });

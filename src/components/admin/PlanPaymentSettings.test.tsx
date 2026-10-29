@@ -1,0 +1,40 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { cleanup } from '@testing-library/react';
+const mocks = vi.hoisted(() => ({ fetch: vi.fn(), save: vi.fn() }));
+vi.mock('@/lib/companyProductSettings', async () => ({ ...await vi.importActual('@/lib/companyProductSettings'), fetchCompanyProductSettings: mocks.fetch, saveCompanyProductSettings: mocks.save }));
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS } from '@/lib/companyProductSettings';
+import { PlanPaymentSettings } from './PlanPaymentSettings';
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
+it('saves only existing global installment fields through CAS and preserves unrelated settings', async () => {
+  const settings = structuredClone(DEFAULT_COMPANY_PRODUCT_SETTINGS);
+  settings.brand.company_name = 'Preservada';
+  mocks.fetch.mockResolvedValue({ settings, version: 9 });
+  mocks.save.mockImplementation(async (_id, next) => ({ settings: next, version: 10 }));
+  render(<PlanPaymentSettings companyId="a" />);
+  fireEvent.change(await screen.findByLabelText('Parcelas máximas: planos de 6 semanas'), { target: { value: '2' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Salvar parcelamento' }));
+  await waitFor(() => expect(mocks.save).toHaveBeenCalledWith('a', { ...settings, business: { ...settings.business, installments_short: 2 } }, 9));
+  expect(await screen.findByRole('status')).toHaveTextContent('salva');
+});
+it('retains a conflicting draft and never retries automatically', async () => {
+  mocks.fetch.mockResolvedValue({ settings: structuredClone(DEFAULT_COMPANY_PRODUCT_SETTINGS), version: 9 });
+  mocks.save.mockRejectedValue(new Error('Conflito. Recarregue.'));
+  render(<PlanPaymentSettings companyId="a" />);
+  const input = await screen.findByLabelText('Parcelas máximas: planos de 24 semanas');
+  fireEvent.change(input, { target: { value: '4' } }); fireEvent.click(screen.getByRole('button', { name: 'Salvar parcelamento' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Conflito');
+  expect(input).toHaveValue(4); expect(mocks.save).toHaveBeenCalledTimes(1);
+});
+it('ignores late acknowledgements after tenant change', async () => {
+  mocks.fetch.mockResolvedValue({ settings: structuredClone(DEFAULT_COMPANY_PRODUCT_SETTINGS), version: 1 });
+  let finish!: (value: unknown) => void; mocks.save.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  const { rerender } = render(<PlanPaymentSettings companyId="a" />);
+  fireEvent.change(await screen.findByLabelText('Parcelas máximas: planos de 6 semanas'), { target: { value: '3' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Salvar parcelamento' }));
+  rerender(<PlanPaymentSettings companyId="b" />);
+  await screen.findByLabelText('Parcelas máximas: planos de 6 semanas');
+  await act(async () => finish({ settings: DEFAULT_COMPANY_PRODUCT_SETTINGS, version: 2 }));
+  expect(screen.queryByText('Política de parcelamento salva.')).toBeNull();
+  expect(screen.getByLabelText('Parcelas máximas: planos de 6 semanas')).toHaveValue(1);
+});

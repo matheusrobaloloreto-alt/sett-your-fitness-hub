@@ -1,4 +1,6 @@
-import {act,fireEvent,render,screen,waitFor} from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactElement } from 'react';
+import {act,fireEvent,render as rtlRender,screen,waitFor} from '@testing-library/react';
 import {describe,expect,it,vi} from 'vitest';
 import ProductSettings from './ProductSettings';
 import {DEFAULT_COMPANY_PRODUCT_SETTINGS} from '@/lib/companyProductSettings';
@@ -24,3 +26,5 @@ describe('independent central settings review',()=>{
     expect(editor).toHaveValue(blocked?'Primeiro rascunho':'Edicao mais recente');
   });
 });
+
+function render(ui: ReactElement) { return rtlRender(ui, { wrapper: MemoryRouter }); }

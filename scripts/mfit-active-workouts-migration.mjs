@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 export const IMPORT_VERSION = "mfit-active-workouts-v1";
 export const MARKER_PREFIX = "mfit-import:v1:";
+export const SOURCE_MARKER_PREFIX = "mfit-source:v2:";
 export const EXPECTED_SUPABASE_PROJECT_REF = "zshrcgbyhzxpnlccssyz";
 
 const ACTIVE_ENROLLMENT_STATUSES = ["active", "awaiting_training", "awaiting_renewal"];
@@ -50,7 +51,7 @@ const SESSION_KEYS = ["workouts", "treinos", "sessions", "sessoes", "days", "dia
 const EXERCISE_KEYS = ["exercises", "exercicios", "exercs", "movements", "movimentos", "items"];
 
 const CORE_SCHEMA = {
-  enrollments: ["id", "student_id", "company_id", "status", "created_at"],
+  enrollments: ["id", "student_id", "company_id", "status", "created_at", "start_date", "end_date"],
   training_cycles: [
     "id",
     "enrollment_id",
@@ -64,6 +65,10 @@ const CORE_SCHEMA = {
     "objective",
     "duration_weeks",
     "delivery_status",
+    "notes",
+    "prescribed_offline_at",
+    "prescribed_offline_by",
+    "prescribed_offline_note",
   ],
   workouts: [
     "id",
@@ -337,7 +342,7 @@ export function normalizeMfitClients(payload) {
       const sourceId = cleanText(
         firstValue(row, ["id", "client_id", "clientId", "cliente_id", "clienteId", "objectID", "user_id"]),
       ) || `contact-${sha256(stableStringify(contact)).slice(0, 20)}`;
-      return { source_id: sourceId, input_index, ...contact };
+      return { source_id: sourceId, source_id_explicit: Boolean(firstValue(row, ["id", "client_id", "clientId", "cliente_id", "clienteId", "objectID", "user_id"])), input_index, ...contact };
     });
 }
 
@@ -750,6 +755,7 @@ export function normalizeMfitPlans(payload) {
     ])) || allSessions.length;
     const capturedEmptySessionCount = Number(sourceEmptySessionCountValue);
     const planCore = {
+      source_id_explicit: Boolean(firstValue(row, ["id", "plan_id", "planId", "ficha_id", "fichaId", "objectID"])),
       source_id: cleanText(firstValue(row, ["id", "plan_id", "planId", "ficha_id", "fichaId", "objectID"]))
         || `plan-${sha256(stableStringify(allSessions)).slice(0, 20)}`,
       name: cleanText(firstValue(row, ["name", "nome", "title", "titulo"])) || "Ficha MFIT",
@@ -1155,6 +1161,10 @@ function reasonForPlanResolutions(planResolutions, createMissingExerciseTargets)
   return "migration_batch_catalog_gate";
 }
 
+function hasOfflinePrescription(cycle) {
+  return Boolean(cycle.prescribed_offline_at || cycle.prescribed_offline_by || cycle.prescribed_offline_note);
+}
+
 function chooseReusableEmptyCycle(enrollmentCycles, workoutsByCycle, startDate, endDate, today) {
   const closedStatuses = new Set([
     "cancelled",
@@ -1168,6 +1178,7 @@ function chooseReusableEmptyCycle(enrollmentCycles, workoutsByCycle, startDate, 
     "concluído",
   ]);
   const candidates = enrollmentCycles
+    .filter((cycle) => !hasOfflinePrescription(cycle) && cycle.delivery_status !== "sent")
     .filter((cycle) => !closedStatuses.has(cleanText(cycle.status).toLocaleLowerCase("pt-BR")))
     .filter((cycle) => parseYmd(cycle.start_date) && parseYmd(cycle.end_date))
     .filter((cycle) => rangesOverlap(startDate, endDate, cycle.start_date, cycle.end_date))
@@ -1206,16 +1217,22 @@ function anonymousRef(...parts) {
   return sha256([IMPORT_VERSION, ...parts].join("\u0000")).slice(0, 12);
 }
 
-function chooseEnrollment(rows) {
-  const priority = new Map(ACTIVE_ENROLLMENT_STATUSES.map((status, index) => [status, index]));
-  return [...rows]
-    .map((row) => ({ ...row, status: cleanText(row.status).toLocaleLowerCase("pt-BR") }))
-    .filter((row) => priority.has(row.status))
-    .sort((a, b) => {
-      const rank = priority.get(a.status) - priority.get(b.status);
-      if (rank) return rank;
-      return cleanText(b.created_at).localeCompare(cleanText(a.created_at));
-    })[0] || null;
+function chooseEnrollment(rows, today, companyId) {
+  const eligible = rows.filter(row => row.company_id === companyId && ACTIVE_ENROLLMENT_STATUSES.includes(cleanText(row.status).toLowerCase()));
+  const dated = eligible.filter(row => parseYmd(row.start_date) && parseYmd(row.end_date));
+  const current = dated.filter(row => row.start_date <= today && row.end_date >= today);
+  // One legacy undated row is retained for existing audited imports; never let it outrank a current contract.
+  const candidates = current.length ? current : eligible.filter(row => !row.start_date && !row.end_date);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function hasSourceMarker(row, marker) {
+  return cleanText(row?.notes).split("\n").includes(marker);
+}
+
+function sourceConflict(cycles, workouts, sourceMarker, payloadMarker, contentMarker) {
+  const tagged = [...cycles, ...workouts].filter(row => hasSourceMarker(row, sourceMarker));
+  return tagged.some(row => !hasSourceMarker(row, contentMarker || payloadMarker));
 }
 
 function exerciseJson(exercise, exerciseId) {
@@ -1339,7 +1356,7 @@ export function createSupabaseAdapter(client, schema) {
     async getEnrollments(studentIds) {
       return selectByIds(
         "enrollments",
-        "id,student_id,company_id,status,created_at",
+        "id,student_id,company_id,status,created_at,start_date,end_date",
         "student_id",
         studentIds,
       );
@@ -1347,7 +1364,7 @@ export function createSupabaseAdapter(client, schema) {
     async getCycles(enrollmentIds) {
       return selectByIds(
         "training_cycles",
-        "id,enrollment_id,student_id,company_id,cycle_number,start_date,end_date,status,name,objective,duration_weeks,delivery_status",
+        "id,enrollment_id,student_id,company_id,cycle_number,start_date,end_date,status,name,objective,duration_weeks,delivery_status,notes,prescribed_offline_at,prescribed_offline_by,prescribed_offline_note",
         "enrollment_id",
         enrollmentIds,
       );
@@ -1355,7 +1372,7 @@ export function createSupabaseAdapter(client, schema) {
     async getCyclesByIds(ids) {
       return selectByIds(
         "training_cycles",
-        "id,enrollment_id,student_id,company_id,cycle_number,start_date,end_date,status,name,objective,duration_weeks,delivery_status",
+        "id,enrollment_id,student_id,company_id,cycle_number,start_date,end_date,status,name,objective,duration_weeks,delivery_status,notes,prescribed_offline_at,prescribed_offline_by,prescribed_offline_note",
         "id",
         ids,
       );
@@ -1721,6 +1738,18 @@ async function applyOperation(db, operation) {
   ) {
     return { status: "blocked", reason: "live_enrollment_company_mismatch" };
   }
+  if (operation.merge_reference_date && ((liveEnrollment.start_date && liveEnrollment.start_date > operation.merge_reference_date)
+    || (liveEnrollment.end_date && liveEnrollment.end_date < operation.merge_reference_date))) {
+    return { status: "blocked", reason: "enrollment_no_longer_current" };
+  }
+  if (operation.source_marker) {
+    const ownedEnrollments = (await db.getEnrollments([liveStudent.id])).filter(row => row.company_id === liveStudent.company_id);
+    const sourceCycles = await db.getCycles(ownedEnrollments.map(row => row.id));
+    const sourceWorkouts = await db.getWorkouts(sourceCycles.map(row => row.id));
+    if (sourceConflict(sourceCycles, sourceWorkouts, operation.source_marker, operation.marker, operation.content_marker)) {
+      return { status: "blocked", reason: "source_content_changed_requires_review" };
+    }
+  }
   if (operation.create_pending_cycle_on_overlap) {
     const liveSnapshot = await readPendingOverlapSnapshot(db, operation);
     if (
@@ -1834,8 +1863,8 @@ async function applyOperation(db, operation) {
     }
     const conflict = siblingCycles.some((row) =>
       rangesOverlap(operation.cycle.start_date, operation.cycle.end_date, row.start_date, row.end_date)
-      && (workoutsByCycle.get(row.id) || []).some((workout) =>
-        isMaterialized(workout) || normalizedWorkoutIds.has(workout.id)));
+      && (hasOfflinePrescription(row) || (workoutsByCycle.get(row.id) || []).some((workout) =>
+        isMaterialized(workout) || normalizedWorkoutIds.has(workout.id))));
     if (operation.create_pending_cycle_on_overlap) {
       const liveSnapshot = materializedOverlapSnapshot(
         siblingCycles,
@@ -1858,11 +1887,18 @@ async function applyOperation(db, operation) {
       return withExerciseTargetOutcome({ status: "blocked", reason: "concurrent_materialized_cycle" });
     }
 
-    await db.insertCycles([operation.cycle]);
+    try { await db.insertCycles([operation.cycle]); }
+    catch (error) { if (error?.code !== "23505") throw error; }
     cycle = (await db.getCyclesByIds([operation.cycle.id]))[0] || null;
     if (!cycle) return withExerciseTargetOutcome({ status: "partial_retry_required", reason: "cycle_insert_not_visible" });
   }
 
+  if (operation.source_marker && sourceConflict([cycle], [], operation.source_marker, operation.marker, operation.content_marker)) {
+    return withExerciseTargetOutcome({ status: "blocked", reason: "source_content_changed_requires_review" });
+  }
+  if (hasOfflinePrescription(cycle)) {
+    return withExerciseTargetOutcome({ status: "blocked", reason: "offline_prescription_protected" });
+  }
   if (cycle.enrollment_id !== operation.cycle.enrollment_id || cycle.company_id !== operation.cycle.company_id) {
     return withExerciseTargetOutcome({ status: "blocked", reason: "deterministic_cycle_collision" });
   }
@@ -1984,7 +2020,7 @@ export async function runMigration({
 
   const selected = [];
   for (const candidate of candidates) {
-    const enrollment = chooseEnrollment(enrollmentsByStudent.get(candidate.student.id) || []);
+    const enrollment = chooseEnrollment(enrollmentsByStudent.get(candidate.student.id) || [], parsedToday, expectedCompanyId);
     if (!enrollment) {
       results.push({ ref: candidate.ref, status: "skipped", reason: "no_current_enrollment", match_method: candidate.match_method, sessions: candidate.plan.sessions.length });
       continue;
@@ -2004,7 +2040,7 @@ export async function runMigration({
     selected.push({ ...candidate, enrollment, company_id: enrollment.company_id });
   }
 
-  const enrollmentIds = [...new Set(selected.map((candidate) => candidate.enrollment.id))];
+  const enrollmentIds = [...new Set(enrollments.filter(row => row.company_id === expectedCompanyId && studentIds.includes(row.student_id)).map(row => row.id))];
   const cycles = await db.getCycles(enrollmentIds);
   const workouts = await db.getWorkouts(cycles.map((cycle) => cycle.id));
   const existingNormalizedRows = db.normalizedSupport.available && workouts.length
@@ -2082,7 +2118,10 @@ export async function runMigration({
   const reservedRanges = new Map();
   const operations = [];
   let verifiedEmptySourceSessionsAcceptedPlans = 0;
-  selected.sort((a, b) => `${a.enrollment.id}:${a.plan.source_id}`.localeCompare(`${b.enrollment.id}:${b.plan.source_id}`));
+  selected.sort((a, b) => a.enrollment.id.localeCompare(b.enrollment.id)
+    || (a.plan.start_date || parsedToday).localeCompare(b.plan.start_date || parsedToday)
+    || (a.plan.end_date || "").localeCompare(b.plan.end_date || "")
+    || a.plan.source_id.localeCompare(b.plan.source_id));
 
   for (const candidate of selected) {
     const { plan, enrollment, company_id: companyId } = candidate;
@@ -2158,11 +2197,47 @@ export async function runMigration({
       end_date: endDate,
       sessions: plan.sessions,
     };
-    const payloadHash = sha256(stableStringify(normalizedPlan));
-    const marker = markerFor(payloadHash);
-    const deterministicCycleId = deterministicUuid(IMPORT_VERSION, "cycle", companyId, enrollment.id, plan.source_id, payloadHash);
-    const existingCycle = cyclesById.get(deterministicCycleId);
+    let payloadHash = sha256(stableStringify(normalizedPlan));
+    let marker = markerFor(payloadHash);
+    const sourceKey = sha256(stableStringify([companyId, candidate.client.source_id, plan.source_id]));
+    const sourceMarker = SOURCE_MARKER_PREFIX + sourceKey;
+    const deterministicCycleId = deterministicUuid("mfit-source-v2", "cycle", companyId, candidate.client.source_id, plan.source_id);
+    const legacyCycleId = deterministicUuid(IMPORT_VERSION, "cycle", companyId, enrollment.id, plan.source_id, payloadHash);
+    const contentMarker = "mfit-content:v2:" + sha256(stableStringify({ ...normalizedPlan, start_date: plan.start_date || null, end_date: plan.end_date || null, duration_weeks: plan.duration_weeks || durationFallback }));
+    const studentEnrollmentIds = new Set(enrollments.filter(row => row.company_id === companyId && row.student_id === candidate.student.id).map(row => row.id));
+    const priorCycles = cycles.filter(row => studentEnrollmentIds.has(row.enrollment_id));
+    const priorWorkouts = workouts.filter(row => priorCycles.some(cycle => cycle.id === row.cycle_id));
+    const legacySourceChanged = priorCycles.some(cycle => priorWorkouts.filter(row => row.cycle_id === cycle.id).some(row => {
+      const priorMarker = cleanText(row.notes).split("\n")[0];
+      return /^mfit-import:v1:[0-9a-f]{64}$/.test(priorMarker) && priorMarker !== marker
+        && cycle.id === deterministicUuid(IMPORT_VERSION, "cycle", companyId, cycle.enrollment_id, plan.source_id, priorMarker.slice(MARKER_PREFIX.length));
+    }));
+    if (legacySourceChanged) {
+      results.push({ref:candidate.ref,status:"blocked",reason:"source_content_changed_requires_review",match_method:candidate.match_method,sessions:plan.sessions.length});
+      continue;
+    }
+    const taggedCycleIds = [...new Set(priorWorkouts.filter(row => hasSourceMarker(row, sourceMarker)).map(row => row.cycle_id))];
+    if (taggedCycleIds.length > 1) {
+      results.push({ref:candidate.ref,status:"blocked",reason:"source_identity_ambiguous_requires_review",match_method:candidate.match_method,sessions:plan.sessions.length});
+      continue;
+    }
+    const stableCycle = cyclesById.get(deterministicCycleId) || (await db.getCyclesByIds([deterministicCycleId]))[0]
+      || priorCycles.find(row => hasSourceMarker(row, sourceMarker) || taggedCycleIds.includes(row.id));
+    const existingCycle = (stableCycle?.id === deterministicCycleId ? stableCycle : null) || cyclesById.get(legacyCycleId);
     const enrollmentCycles = cyclesByEnrollment.get(enrollment.id) || [];
+    if (sourceConflict([...priorCycles, ...(stableCycle ? [stableCycle] : [])], priorWorkouts, sourceMarker, marker, contentMarker)) {
+      results.push({ref:candidate.ref,status:"blocked",reason:"source_content_changed_requires_review",match_method:candidate.match_method,sessions:plan.sessions.length});
+      continue;
+    }
+    if (stableCycle && stableCycle.enrollment_id !== enrollment.id) {
+      results.push({ref:candidate.ref,status:"blocked",reason:"source_enrollment_changed_requires_review",match_method:candidate.match_method,sessions:plan.sessions.length});
+      continue;
+    }
+    // Missing source dates are defaults, not content revisions. Preserve the original payload marker on replay.
+    if (existingCycle && hasSourceMarker(existingCycle, contentMarker)) {
+      const originalMarker = cleanText(existingCycle.notes).split("\n").find(line => /^mfit-import:v1:[0-9a-f]{64}$/.test(line));
+      if (originalMarker) { marker = originalMarker; payloadHash = originalMarker.slice(MARKER_PREFIX.length); }
+    }
     const markerWorkouts = enrollmentCycles
       .flatMap((cycle) => workoutsByCycle.get(cycle.id) || [])
       .filter((workout) => markerMatches(workout.notes, marker));
@@ -2173,6 +2248,10 @@ export async function runMigration({
       continue;
     }
     const markerCycle = markerCycleIds.length ? cyclesById.get(markerCycleIds[0]) : null;
+    if ((plan.source_id_explicit === false || candidate.client.source_id_explicit === false) && !existingCycle && !markerCycle) {
+      results.push({ref:candidate.ref,status:"blocked",reason:"source_plan_identity_required",match_method:candidate.match_method,sessions:plan.sessions.length});
+      continue;
+    }
 
     const deterministicWorkouts = existingCycle ? (workoutsByCycle.get(existingCycle.id) || []) : [];
     if (deterministicWorkouts.some((workout) => workoutHasMaterialization(workout) && !markerMatches(workout.notes, marker))) {
@@ -2184,7 +2263,7 @@ export async function runMigration({
       cycle.id !== existingCycle?.id
       && cycle.id !== markerCycle?.id
       && rangesOverlap(startDate, endDate, cycle.start_date, cycle.end_date)
-      && (workoutsByCycle.get(cycle.id) || []).some(workoutHasMaterialization));
+      && (hasOfflinePrescription(cycle) || (workoutsByCycle.get(cycle.id) || []).some(workoutHasMaterialization)));
     let mergeTargetCycle = null;
     if (mergeOverlapIntoActiveCycle && !existingCycle && !markerCycle && materializedOverlaps.length) {
       const activeCoveringTargets = materializedOverlaps.filter((cycle) =>
@@ -2258,7 +2337,7 @@ export async function runMigration({
     const overlapping = enrollmentCycles.some((cycle) =>
       cycle.id !== targetCycleId
       && rangesOverlap(startDate, endDate, cycle.start_date, cycle.end_date)
-      && (workoutsByCycle.get(cycle.id) || []).some(workoutHasMaterialization));
+      && (hasOfflinePrescription(cycle) || (workoutsByCycle.get(cycle.id) || []).some(workoutHasMaterialization)));
     const creatingPendingOverlapCycle = Boolean(createPendingCycleOnOverlap && overlapping && !mergingIntoActiveCycle);
 
     const exerciseIds = new Map();
@@ -2303,7 +2382,10 @@ export async function runMigration({
       objective: plan.objective || null,
       duration_weeks: Math.max(1, Math.ceil((new Date(`${endDate}T00:00:00Z`) - new Date(`${startDate}T00:00:00Z`) + 86400000) / (7 * 86400000))),
       delivery_status: "sent",
+      notes: [marker, sourceMarker, contentMarker].join("\n"),
     };
+    const legacyMarkerReplay = Boolean((markerCycle || existingCycle) && !hasSourceMarker(existingCycle, sourceMarker)
+      && !markerWorkouts.some(row => hasSourceMarker(row, sourceMarker)));
     const existingTargetWorkouts = workoutsByCycle.get(targetCycleId) || [];
     const markerBaseSortOrders = markerWorkouts
       .map((workout) => {
@@ -2332,7 +2414,7 @@ export async function runMigration({
       sort_order: mergeBaseSortOrder + sessionIndex + 1,
       exercises: session.exercises.map((exercise) =>
         exerciseJson(exercise, exerciseIds.get(normalizeCatalogName(exercise.name)))),
-      notes: [marker, session.notes].filter(Boolean).join("\n"),
+      notes: [marker, ...(legacyMarkerReplay ? [] : [sourceMarker, contentMarker]), session.notes].filter(Boolean).join("\n"),
     }));
     const normalizedRows = workoutRows.flatMap((workout, workoutIndex) =>
       plan.sessions[workoutIndex].exercises.map((exercise, exerciseIndex) => ({
@@ -2404,6 +2486,8 @@ export async function runMigration({
             match_method: candidate.match_method,
             marker,
             marker_hash: payloadHash.slice(0, 16),
+            source_marker: sourceMarker,
+            content_marker: contentMarker,
             repair_kind: "normalized_mirror",
             reparented_marker_repair: true,
             merge_overlap_into_active_cycle: false,
@@ -2484,6 +2568,8 @@ export async function runMigration({
       match_method: candidate.match_method,
       marker,
       marker_hash: payloadHash.slice(0, 16),
+      source_marker: sourceMarker,
+      content_marker: contentMarker,
       repair_kind: repairKind,
       merge_overlap_into_active_cycle: mergingIntoActiveCycle,
       create_pending_cycle_on_overlap: creatingPendingOverlapCycle,

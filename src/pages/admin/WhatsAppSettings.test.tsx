@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import WhatsAppSettings from "./WhatsAppSettings";
+import { WhatsAppConnectionPanel as WhatsAppSettings } from "./WhatsAppSettings";
 
 const mocks = vi.hoisted(() => ({
   auth: { role: "admin", companyId: "company-a" },

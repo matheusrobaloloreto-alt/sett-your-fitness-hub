@@ -1,3 +1,4 @@
+import { projectPrescriptionCoverage } from '@/lib/prescriptionCoverage';
 import { useEffect, useState, useRef, useMemo, lazy, Suspense } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -58,7 +59,7 @@ import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { isBrazilianCountry } from "@/lib/fiscalRegistration";
 import { createPlansLink, openStudentChat } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
-import { collapseOverlappingCyclesForDisplay, selectCurrentPlanCycleWindow, selectCyclesForProgramHistory, selectPreferredVisibleCycle } from "@/lib/prescriptionSchedule";
+import { selectPrescriptionEnrollment, selectCurrentPlanCycleWindow, selectCyclesForProgramHistory, selectPreferredVisibleCycle, type PrescriptionEnrollment, type PrescriptionScheduleCycle } from "@/lib/prescriptionSchedule";
 import { isInfluencerPlan, planOperationalRequirements } from "@/lib/influencerPlan";
 import { archiveWorkoutForStudent, buildWorkoutArchiveSuccessMessage, buildWorkoutRestoreSuccessMessage, restoreWorkoutForStudent } from "@/lib/workoutArchive";
 import {
@@ -119,7 +120,7 @@ interface Student {
   company_id: string | null;
 }
 
-interface Enrollment {
+interface Enrollment extends PrescriptionEnrollment {
   id: string;
   plan_id: string;
   trainer_id: string;
@@ -138,7 +139,7 @@ interface Enrollment {
   training_start_date?: string;
 }
 
-interface TrainingCycle {
+interface TrainingCycle extends PrescriptionScheduleCycle {
   id: string;
   enrollment_id: string;
   cycle_number: number;
@@ -154,6 +155,25 @@ interface TrainingCycle {
   prescription_cleared_at?: string | null;
   prescription_cleared_event_id?: string | null;
   prescription_cleared_signature?: string | null;
+}
+
+export function EnrollmentCoverageSummary({ enrollment, cycles, studentId, companyId, readError = false }: {
+  enrollment: Enrollment; cycles: TrainingCycle[]; studentId: string; companyId: string; readError?: boolean;
+}) {
+  const coverage = projectPrescriptionCoverage({ enrollment, cycles, expectedStudentId: studentId, expectedCompanyId: companyId,
+    today: businessDateYmd(), cycleDurationDays: enrollment.cycle_duration_days || 42,
+    planDurationDays: enrollment.plan_duration_days || (enrollment.plan_duration || 6) * 7, readError });
+  if (!coverage.reliable) return <p role="alert">Não foi possível confirmar a cobertura contratual. Recarregue antes de prescrever.</p>;
+  const labels = { missing: 'Lacuna — sem ciclo persistido', scheduled: 'Agenda pendente — sem treino publicado', prepared: 'Conteúdo preparado — conferir liberação', delivered: 'Treino digital vigente', offline: 'Prescrição fora do app', review: 'Revisar sobreposição' };
+  return <section aria-label={`Cobertura contratual ${enrollment.plan_name || ''}`} className="space-y-2 rounded-lg border border-border p-3">
+    <h3 className="text-sm font-semibold">Cobertura contratual</h3>
+    <p className="text-xs">Vigência comercial: {safeFormatDate(coverage.term!.contract_start_date, 'dd/MM/yyyy')} → {safeFormatDate(coverage.term!.end_date, 'dd/MM/yyyy')}. Início operacional: {safeFormatDate(coverage.term!.start_date, 'dd/MM/yyyy')}. Agenda não equivale a treino entregue.</p>
+    {coverage.notStarted && <p>Treinamento ainda não iniciado. Início programado: {safeFormatDate(coverage.term!.start_date, 'dd/MM/yyyy')}.</p>}
+    <div className="grid gap-2 sm:grid-cols-2">{coverage.slots.map(slot => <div key={slot.position} className="rounded border border-border p-2 text-xs">
+      <strong>Período {slot.position}</strong> · {safeFormatDate(slot.start_date, 'dd/MM/yyyy')} a {safeFormatDate(slot.end_date, 'dd/MM/yyyy')}
+      <p>{labels[slot.state]}</p>
+    </div>)}</div>
+  </section>;
 }
 
 interface StudentWorkoutRow {
@@ -325,6 +345,8 @@ export default function StudentDetail() {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [cycles, setCycles] = useState<TrainingCycle[]>([]);
   const [rawCycles, setRawCycles] = useState<TrainingCycle[]>([]);
+  const [coverageReadError, setCoverageReadError] = useState(false);
+  const scheduleLoadGeneration = useRef(0);
   const [expandedEnrollmentCycles, setExpandedEnrollmentCycles] = useState<Record<string, boolean>>({});
   const [reschedulingCycleId, setReschedulingCycleId] = useState<string | null>(null);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
@@ -544,6 +566,8 @@ export default function StudentDetail() {
   }, [id, selectedCompanyId, role]);
 
   const loadData = async (studentId: string) => {
+    const generation = ++scheduleLoadGeneration.current;
+    setCoverageReadError(false); setRawCycles([]); setCycles([]);
     setLoading(true);
     setStudent(null);
     if (role !== "master" && !selectedCompanyId) { setLoading(false); return; }
@@ -552,6 +576,7 @@ export default function StudentDetail() {
     if (selectedCompanyId) studentQuery = studentQuery.eq("company_id", selectedCompanyId);
     const { data: studentData } = await studentQuery.single();
 
+    if (generation !== scheduleLoadGeneration.current) return;
     if (!studentData) { setLoading(false); return; }
     setStudent(studentData as Student);
     void loadEnrollmentOptions(studentData.company_id);
@@ -573,10 +598,12 @@ export default function StudentDetail() {
       setPreRegistrationLoading(false);
     }
 
-    const { data: enrollmentData } = await supabase
-      .from("enrollments").select("*").eq("student_id", studentId)
+    const { data: enrollmentData, error: enrollmentError } = await supabase
+      .from("enrollments").select("*").eq("student_id", studentId).eq("company_id", studentData.company_id)
       .order("start_date", { ascending: false });
 
+    if (generation !== scheduleLoadGeneration.current) return;
+    if (enrollmentError) { setCoverageReadError(true); setLoading(false); return; }
     if (!enrollmentData || enrollmentData.length === 0) {
       setEnrollments([]);
       setCycles([]);
@@ -593,13 +620,15 @@ export default function StudentDetail() {
     const planIds = [...new Set(enrollmentData.map((e) => e.plan_id))];
     const trainerIds = [...new Set(enrollmentData.map((e) => e.trainer_id).filter((id): id is string => !!id))];
 
-    const [{ data: plansData }, { data: profiles }] = await Promise.all([
+    const [{ data: plansData, error: plansError }, { data: profiles }] = await Promise.all([
       supabase.from("plans").select("id, name, duration_weeks, duration_days, cycle_duration_days, plan_kind").in("id", planIds),
       trainerIds.length > 0
         ? supabase.from("profiles").select("user_id, full_name").in("user_id", trainerIds)
         : Promise.resolve({ data: [] as { user_id: string; full_name: string | null }[] }),
     ]);
 
+    if (generation !== scheduleLoadGeneration.current) return;
+    if (plansError) { setCoverageReadError(true); setLoading(false); return; }
     const planMap = new Map((plansData || []).map((p) => [p.id, p]));
     const trainerMap = new Map((profiles || []).map((p) => [p.user_id, p.full_name]));
 
@@ -614,7 +643,7 @@ export default function StudentDetail() {
     setEnrollments(enrichedEnrollments);
 
     // Set header trainer from active enrollment, fallback to assigned_trainer_id
-    const activeEnrollment = enrichedEnrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal") || enrichedEnrollments[0];
+    const activeEnrollment = selectPrescriptionEnrollment(enrichedEnrollments, { today: businessDateYmd(), expectedStudentId: studentId, expectedCompanyId: studentData.company_id });
     if (activeEnrollment) {
       setTrainerName(trainerMap.get(activeEnrollment.trainer_id) || null);
     } else if (studentData.assigned_trainer_id) {
@@ -624,9 +653,11 @@ export default function StudentDetail() {
     }
 
     const enrollmentIds = enrollmentData.map((e) => e.id);
-    const { data: cycleData } = await supabase
-      .from("training_cycles").select("*").in("enrollment_id", enrollmentIds).order("end_date", { ascending: true });
+    const { data: cycleData, error: cycleError } = await supabase
+      .from("training_cycles").select("*").in("enrollment_id", enrollmentIds).eq("company_id", studentData.company_id).eq("student_id", studentId).order("end_date", { ascending: true });
 
+    if (generation !== scheduleLoadGeneration.current) return;
+    if (cycleError) { setCoverageReadError(true); setLoading(false); return; }
     if (!cycleData || cycleData.length === 0) {
       setCycles([]);
       setRawCycles([]);
@@ -639,9 +670,9 @@ export default function StudentDetail() {
       return;
     }
 
-    const schedulableCycleData = cycleData.filter((cycle) => cycle.status !== "superseded");
+    const schedulableCycleData = cycleData; // Preserve superseded and offline rows as history, never as new targets.
     const cycleIds = schedulableCycleData.map((c) => c.id);
-    const [activeWorkoutResult, archivedWorkoutResult, bundleResult, strengthPlanResult, runningPlanResult] = cycleIds.length > 0
+    const [activeWorkoutResult, archivedWorkoutResult, bundleResult, strengthPlanResult, runningPlanResult, historyPresenceResult] = cycleIds.length > 0
       ? await Promise.all([
         supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").is("superseded_at", null).in("cycle_id", cycleIds),
         supabase
@@ -670,6 +701,7 @@ export default function StudentDetail() {
           .eq("student_id", studentId)
           .in("training_cycle_id", cycleIds)
           .in("status", ["active", "scheduled"]),
+        supabase.from("workouts").select("cycle_id").in("cycle_id", cycleIds),
       ])
       : [
         { data: [] as StudentWorkoutRow[] },
@@ -677,7 +709,10 @@ export default function StudentDetail() {
         { data: [] as { training_cycle_id: string }[] },
         { data: [] as { training_cycle_id: string }[] },
         { data: [] as { training_cycle_id: string }[] },
+        { data: [] as { cycle_id: string }[] },
       ];
+    if (generation !== scheduleLoadGeneration.current) return;
+    if ([activeWorkoutResult, archivedWorkoutResult, bundleResult, strengthPlanResult, runningPlanResult, historyPresenceResult].some(result => "error" in result && result.error)) { setCoverageReadError(true); setLoading(false); return; }
     const workouts = (activeWorkoutResult.data || []) as StudentWorkoutRow[];
     const archivedRows = (archivedWorkoutResult.data || []) as StudentWorkoutRow[];
     const materializedWorkouts = filterMaterializedWorkouts(workouts || []);
@@ -714,16 +749,20 @@ export default function StudentDetail() {
       setWorkoutUsageCounts({});
     }
 
+    const historicalWorkoutCycleIds = new Set((historyPresenceResult.data || []).map(row => row.cycle_id));
     const cyclesWithSignals = schedulableCycleData.map((c) => ({
       ...c,
+      has_history: historicalWorkoutCycleIds.has(c.id) || materializedArchivedWorkouts.some(workout => workout.cycle_id === c.id) || strengthCycleIds.has(c.id) || runningCycleIds.has(c.id),
+      has_usable_workouts: !c.prescription_cleared_at && workoutCycleIds.has(c.id),
       has_workout: !c.prescription_cleared_at && workoutCycleIds.has(c.id),
       has_workouts: !c.prescription_cleared_at && workoutCycleIds.has(c.id),
       has_bundle: !c.prescription_cleared_at && bundleCycleIds.has(c.id),
       has_strength_plan: !c.prescription_cleared_at && strengthCycleIds.has(c.id),
       has_cardio_plan: !c.prescription_cleared_at && runningCycleIds.has(c.id),
     }));
+    if (generation !== scheduleLoadGeneration.current) return;
     setRawCycles(cyclesWithSignals);
-    const displayCycles = collapseOverlappingCyclesForDisplay(cyclesWithSignals);
+    const displayCycles = cyclesWithSignals.filter(cycle => cycle.status !== "superseded" && !cycle.superseded_by_cycle_id);
     setCycles(displayCycles);
 
     // Carregar um perfil é uma operação de leitura. Transições de matrícula
@@ -1191,6 +1230,7 @@ export default function StudentDetail() {
       allEnrollmentCycles(enrollment),
       enrollment.plan_duration_days || Math.max(1, (enrollment.plan_duration || 6) * 7),
       enrollment.cycle_duration_days || 42,
+      { enrollment, expectedStudentId: id, expectedCompanyId: student?.company_id },
     );
 
   const displayedEnrollmentCycles = (enrollment: Enrollment) =>
@@ -1199,12 +1239,9 @@ export default function StudentDetail() {
       : currentEnrollmentCycles(enrollment);
 
   const studentVisibleCycleForEnrollment = (enrollment: Enrollment) =>
-    selectPreferredVisibleCycle(currentEnrollmentCycles(enrollment));
+    selectPreferredVisibleCycle(currentEnrollmentCycles(enrollment), new Date(`${businessDateYmd()}T12:00:00`));
 
-  const manualPrescriptionEnrollment =
-    enrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal")
-    || enrollments[0]
-    || null;
+  const manualPrescriptionEnrollment = selectPrescriptionEnrollment(enrollments, { today: businessDateYmd(), expectedStudentId: id, expectedCompanyId: student?.company_id });
 
   const canManageEnrollment = (enrollment: Enrollment) =>
     canManageStudent && enrollments.some((row) => row.id === enrollment.id);
@@ -1455,18 +1492,27 @@ export default function StudentDetail() {
   );
 
   const renderWorkoutCycles = () => {
-    const activeEnroll = enrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal");
+    const activeEnroll = selectPrescriptionEnrollment(enrollments, { today: businessDateYmd(), expectedStudentId: id, expectedCompanyId: student?.company_id }) || enrollments[0];
+    if (coverageReadError) return <p role="alert">Não foi possível confirmar a cobertura contratual. Recarregue antes de prescrever.</p>;
     if (!activeEnroll) return <p className="text-muted-foreground font-sans text-sm text-center py-8">Nenhuma matrícula ativa.</p>;
     const enrollCycles = selectCyclesForProgramHistory(
       rawCycles.filter(c => c.enrollment_id === activeEnroll.id),
       activeEnroll.plan_duration_days || Math.max(1, (activeEnroll.plan_duration || 6) * 7),
       activeEnroll.cycle_duration_days || 42,
+      { enrollment: activeEnroll, expectedStudentId: id, expectedCompanyId: student?.company_id },
     );
+    if (coverageReadError) return <p role="alert">Não foi possível confirmar a cobertura contratual. Recarregue antes de prescrever.</p>;
+    const currentIds = new Set(currentEnrollmentCycles(activeEnroll).map(cycle => cycle.id));
+    const groups = [
+      { label: "Vigência contratual — ciclos persistidos", items: enrollCycles.filter(cycle => currentIds.has(cycle.id)) },
+      { label: "Histórico anterior e fora da vigência", items: enrollCycles.filter(cycle => !currentIds.has(cycle.id)) },
+    ];
     if (enrollCycles.length === 0) {
       return (
         <Card className="bg-card border-border border-dashed">
           <CardContent className="p-8 text-center">
             <CalendarDays className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+            <EnrollmentCoverageSummary enrollment={activeEnroll} cycles={allEnrollmentCycles(activeEnroll)} studentId={id!} companyId={student!.company_id!} />
             <p className="text-muted-foreground font-sans">Nenhum ciclo de treino criado.</p>
             <p className="text-xs text-muted-foreground/60 font-sans mt-1">Defina a data de início do treino na matrícula do aluno.</p>
           </CardContent>
@@ -1483,8 +1529,11 @@ export default function StudentDetail() {
             question="Como posso revisar a continuidade entre estes ciclos de treino?"
           />
         </div>
+        <EnrollmentCoverageSummary enrollment={activeEnroll} cycles={allEnrollmentCycles(activeEnroll)} studentId={id!} companyId={student!.company_id!} />
+        {groups.filter(group => group.items.length).map(group => <section key={group.label} aria-label={group.label}>
+        <h3 className="my-3 font-semibold">{group.label}</h3>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          {enrollCycles.map(cycle => {
+          {group.items.map(cycle => {
             const cycleWorkouts = (allWorkouts || []).filter((w: any) => w.cycle_id === cycle.id);
             const archivedCycleWorkouts = (archivedWorkouts || []).filter((w) => w.cycle_id === cycle.id);
             return (
@@ -1493,7 +1542,7 @@ export default function StudentDetail() {
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <h3 className="text-primary font-mono-data font-semibold text-xs">
-                        CICLO {cycle.cycle_number}
+                        CICLO {cycle.cycle_number} {currentIds.has(cycle.id) ? `· Posição ${currentEnrollmentCycles(activeEnroll).findIndex(item => item.id === cycle.id) + 1}` : "· Histórico"}
                       </h3>
                       <Badge
                         variant={cycle.status === "active" ? "default" : "outline"}
@@ -1619,7 +1668,7 @@ export default function StudentDetail() {
               </Card>
             );
           })}
-        </div>
+        </div></section>)}
       </div>
     );
   };
@@ -1902,12 +1951,9 @@ export default function StudentDetail() {
               <div className="space-y-4">
                 {/* Active enrollment summary */}
                 {enrollments.length > 0 && (() => {
-                  const active = enrollments.find(e => e.status === "active" || e.status === "awaiting_training" || e.status === "awaiting_renewal") || enrollments[0];
-                  const activeCycles = selectCurrentPlanCycleWindow(
-                    cycles.filter(c => c.enrollment_id === active.id),
-                    active.plan_duration_days || Math.max(1, (active.plan_duration || 6) * 7),
-                    active.cycle_duration_days || 42,
-                  );
+                  const active = selectPrescriptionEnrollment(enrollments, { today: businessDateYmd(), expectedStudentId: id, expectedCompanyId: student.company_id });
+                  if (!active) return <p>Nenhuma matrícula vigente por datas. O histórico permanece na aba Programa.</p>;
+                  const activeCycles = currentEnrollmentCycles(active);
                   return (
                       <Card className="bg-card border-border">
                       <CardHeader className="pb-3">
@@ -1932,6 +1978,7 @@ export default function StudentDetail() {
                           <TrainerInlineSelect enrollmentId={active.id} trainerId={active.trainer_id} trainerName={active.trainer_name} />
                           <span><CalendarDays className="h-3 w-3 inline mr-1" />{safeFormatDate(active.start_date, "dd/MM/yyyy")} → {safeFormatDate(active.end_date, "dd/MM/yyyy")}</span>
                         </div>
+                        <EnrollmentCoverageSummary enrollment={active} cycles={allEnrollmentCycles(active)} studentId={id!} companyId={student.company_id!} readError={coverageReadError} />
                         {activeCycles.length > 0 && (
                           <div className="mt-2 space-y-1">
                             <p className="text-xs font-medium text-foreground">Ciclos:</p>

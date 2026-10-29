@@ -4,6 +4,7 @@ import { useMaster } from '@/contexts/MasterContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SettingHelp } from './SettingHelp';
 import { fetchIntegrationStatus, saveIntegrationCredentials, removeIntegrationCredentials, type IntegrationProvider, type IntegrationStatus } from '@/lib/companyIntegrationCredentials';
 const LABELS: Record<IntegrationProvider, string> = { asaas: 'Asaas', whatsapp_evolution: 'WhatsApp Evolution' };
 const unavailable = 'Não foi possível preparar a integração. Confira acesso e disponibilidade do cofre.';
@@ -19,15 +20,15 @@ function CredentialForm({ row, busy, onSave, onRemove }: { row: IntegrationStatu
   }
   return <section className="space-y-4 rounded-xl border border-border p-4" aria-label={`Preparação ${LABELS[row.provider]}`}>
     <h3 className="font-semibold">{LABELS[row.provider]}</h3>
-    <p>{row.configured ? 'Preparado — uso desativado' : 'Sem credencial preparada'}{row.mask ? ` · ${row.mask}` : ''}</p>
-    <div className="space-y-2"><Label htmlFor={`${id}-key`}>Nova chave {LABELS[row.provider]}</Label>
+    <p>{row.configured ? 'Chave preparada neste cofre — ativação futura' : 'Nenhuma chave salva neste cofre'}{row.mask ? ` · ${row.mask}` : ''}</p>
+    <div className="space-y-2"><div className="flex items-center gap-2"><Label htmlFor={`${id}-key`}>Nova chave {LABELS[row.provider]}</Label><SettingHelp label={`Nova chave ${LABELS[row.provider]}`} what="Credencial privada da API, gravada no cofre desta empresa e ocultada após salvar." edits="Preparar substitui somente a chave preparada, usando controle de versão." effect="Esta preparação ainda não muda as credenciais do servidor, a conexão atual nem as cobranças. A ativação por empresa exige uma etapa posterior." /></div>
       <Input id={`${id}-key`} type="password" autoComplete="new-password" spellCheck={false} maxLength={4096} value={key} disabled={busy} onChange={event => setKey(event.target.value)} />
     </div>
-    {row.provider === 'asaas' ? <div className="space-y-2"><Label htmlFor={`${id}-option`}>Ambiente Asaas</Label>
+    {row.provider === 'asaas' ? <div className="space-y-2"><div className="flex items-center gap-2"><Label htmlFor={`${id}-option`}>Ambiente Asaas</Label><SettingHelp label="Ambiente Asaas" what="Identifica se a nova chave preparada pertence ao ambiente de testes ou de produção." edits="Salva o ambiente junto da chave preparada para a empresa." effect="Sandbox é destinado a testes. Selecionar produção aqui ainda não ativa cobranças nem altera o ambiente usado pelo servidor." /></div>
       <select id={`${id}-option`} className="h-10 rounded-md border border-input bg-background px-3" value={option} disabled={busy} onChange={event => setOption(event.target.value)}><option value="sandbox">Sandbox</option><option value="production">Produção</option></select>
-    </div> : <div className="space-y-2"><Label htmlFor={`${id}-option`}>Base HTTPS Evolution</Label><Input id={`${id}-option`} type="url" autoComplete="off" value={option} disabled={busy} onChange={event => setOption(event.target.value)} placeholder="https://provedor.exemplo.com" /></div>}
+    </div> : <div className="space-y-2"><div className="flex items-center gap-2"><Label htmlFor={`${id}-option`}>Base HTTPS Evolution</Label><SettingHelp label="Base HTTPS Evolution" what="Endereço seguro da API Evolution correspondente à nova chave preparada." edits="Define o destino que ficará associado à credencial preparada desta empresa." effect="Preparar este endereço não transfere nem recria a sessão WhatsApp existente. O servidor atual continua sendo utilizado até uma ativação controlada." /></div><Input id={`${id}-option`} type="url" autoComplete="off" value={option} disabled={busy} onChange={event => setOption(event.target.value)} placeholder="https://provedor.exemplo.com" /></div>}
     <div className="flex flex-wrap gap-2"><Button disabled={busy || !valid} onClick={() => void submit()}>Preparar {LABELS[row.provider]}</Button>
-      <Button variant="outline" disabled={busy || !row.configured} onClick={() => { setKey(''); void onRemove(); }}>Remover {LABELS[row.provider]}</Button></div>
+      <Button variant="outline" disabled={busy || !row.configured} onClick={() => { setKey(''); void onRemove(); }}>Remover {LABELS[row.provider]}</Button><SettingHelp label={`Remover chave preparada ${LABELS[row.provider]}`} what="Remove a credencial preparada deste cofre." edits="Exclui a chave preparada para esta empresa, mantendo o controle de versão." effect="Não desconecta a instância WhatsApp nem remove as credenciais atuais do servidor." /></div>
   </section>;
 }
 export default function CompanyIntegrationCredentials({ companyId }: { companyId: string }) {

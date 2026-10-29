@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  publishStrengthPlanToStudent,
   buildPublishDecisionLog,
   mapStrengthExercise,
   buildTrainingCycleMetadata,
@@ -211,4 +212,45 @@ describe("buildWorkoutRows", () => {
   it("retorna [] quando o plano não tem workouts", () => {
     expect(buildWorkoutRows({}, "c", "co")).toEqual([]);
   });
+});
+
+const publishDb = vi.hoisted(() => ({ current: null as any }));
+vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: (table: string) => publishDb.current.from(table), rpc: (...args: any[]) => publishDb.current.rpc(...args) } }));
+afterEach(() => vi.useRealTimers());
+function publisherFixture(overrides: Record<string, any[]> = {}) {
+  const tables: Record<string, any[]> = { enrollments: [{ id: 'enr', company_id: 'co', student_id: 's', status: 'awaiting_training', start_date: '2026-01-01', end_date: '2026-12-31' }], training_cycles: [], workouts: [], ...overrides };
+  const mutations: any[] = [];
+  const db = { mutations, tables, rpc: vi.fn(async (_name: string, args: any) => { mutations.push({ table: 'rpc', args }); return { data: { cycle_id: args.p_cycle_id, revision_id: 'rev', workouts_created: args.p_workouts.length, workout_ids: args.p_workouts.map((_: any, i: number) => `w${i}`) }, error: null }; }), from(table: string) {
+    let operation = 'read', payload: any, single = false; const filters: Array<(row: any) => boolean> = [];
+    const query: any = { select: () => query, eq: (k: string,v: any) => {filters.push(r=>r[k]===v);return query;}, neq: (k: string,v: any) => {filters.push(r=>r[k]!==v);return query;}, in: (k: string,v: any[]) => {filters.push(r=>v.includes(r[k]));return query;}, is: (k: string,v: any) => {filters.push(r=>(r[k]??null)===v);return query;}, order: () => query, limit: () => query,
+      insert: (v: any) => {operation='insert';payload=v;return query;}, update: (v: any) => {operation='update';payload=v;return query;}, maybeSingle: () => {single=true;return query;}, single: () => {single=true;return query;},
+      then: (resolve: any) => { let rows=(tables[table]||[]).filter(r=>filters.every(f=>f(r))); if(operation!=='read'){mutations.push({table,operation,payload});if(operation==='insert'){rows=[{id:`new-${table}`,...payload}];tables[table]??=[];tables[table].push(...rows);}}return Promise.resolve({data:single?rows[0]??null:rows,error:null}).then(resolve); }
+    };return query;
+  }};publishDb.current=db;vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-29T12:00:00Z'));return db;
+}
+const publishPlan={workouts:[{name:'A',exercises:[{exercise_name:'Synthetic squat',sets:3,reps:10}]}]};
+const scheduled={id:'slot',enrollment_id:'enr',student_id:'s',company_id:'co',cycle_number:18,start_date:'2026-10-01',end_date:'2026-11-11',status:'pending'};
+describe('publisher real database seam',()=>{
+ it('requires explicit cycle when an agenda exists, before any mutation',async()=>{const db=publisherFixture({training_cycles:[scheduled]});await expect(publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co'})).rejects.toThrow(/selecione.*ciclo/i);expect(db.mutations).toEqual([]);});
+ it('does not create a duplicate enrollment for current awaiting_training',async()=>{const db=publisherFixture();const result=await publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co'});expect(result.enrollmentId).toBe('enr');expect(result.createdEnrollment).toBe(false);expect(db.mutations.filter(x=>x.table==='enrollments')).toHaveLength(0);});
+ it('fails ambiguous current enrollments before mutations',async()=>{const db=publisherFixture({enrollments:[{id:'e1',company_id:'co',student_id:'s',status:'active',start_date:'2026-01-01',end_date:'2026-12-31'},{id:'e2',company_id:'co',student_id:'s',status:'active',start_date:'2026-09-01',end_date:'2027-09-01'}]});await expect(publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co'})).rejects.toThrow(/selecione.*ciclo/i);expect(db.mutations).toEqual([]);});
+ it('explicit target wins and preserves its number and dates',async()=>{const db=publisherFixture({training_cycles:[scheduled]});const result=await publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co',targetCycleId:'slot'});expect(result.cycleId).toBe('slot');expect(db.mutations.filter(x=>x.table==='training_cycles'&&x.operation==='insert')).toHaveLength(0);expect(db.tables.training_cycles[0]).toMatchObject({cycle_number:18,start_date:'2026-10-01'});});
+ it('requires explicit overwrite approval before even touching bundle',async()=>{const db=publisherFixture({training_cycles:[scheduled],workouts:[{id:'old',cycle_id:'slot',updated_at:'t',exercises:[{exercise_name:'Old'}]}]});await expect(publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co',targetCycleId:'slot'})).rejects.toThrow(/substitui/i);expect(db.mutations).toEqual([]);});
+ it('offline-prescribed target is protected even without digital workouts',async()=>{const db=publisherFixture({training_cycles:[{...scheduled,prescribed_offline_at:'2026-10-01'}]});await expect(publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co',targetCycleId:'slot'})).rejects.toThrow(/substitui/i);expect(db.mutations).toEqual([]);});
+});
+
+it('publisher ignores expired and foreign enrollments in favor of current awaiting_training',async()=>{
+ const db=publisherFixture({enrollments:[{id:'expired',company_id:'co',student_id:'s',status:'active',start_date:'2025-01-01',end_date:'2025-12-31'},{id:'foreign',company_id:'other',student_id:'s',status:'active',start_date:'2026-01-01',end_date:'2026-12-31'},{id:'current',company_id:'co',student_id:'s',status:'awaiting_training',start_date:'2026-01-01',end_date:'2026-12-31'}]});
+ const result=await publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co'});expect(result.enrollmentId).toBe('current');expect(result.createdEnrollment).toBe(false);expect(db.tables.enrollments).toHaveLength(3);
+});
+it('explicit replacement consent publishes into the selected cycle with revision CAS',async()=>{
+ const db=publisherFixture({training_cycles:[scheduled],workouts:[{id:'old',cycle_id:'slot',updated_at:'version-1',exercises:[{exercise_name:'Old'}]}]});
+ await publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co',targetCycleId:'slot',replaceTargetCycle:true});expect(db.rpc).toHaveBeenCalledWith('replace_cycle_workout_revision',expect.objectContaining({p_cycle_id:'slot',p_expected_rows:[{id:'old',updated_at:'version-1'}]}));
+});
+
+it('rejects foreign target or bundle before mutation',async()=>{
+ const db=publisherFixture({training_cycles:[{...scheduled,company_id:'foreign'}]});
+ await expect(publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co',targetCycleId:'slot'})).rejects.toThrow(/selecione/i);expect(db.mutations).toEqual([]);
+ const other=publisherFixture({prescription_bundles:[{id:'foreign-bundle',company_id:'other',student_id:'s'}]});
+ await expect(publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co',bundleId:'foreign-bundle'})).rejects.toThrow(/pacote/i);expect(other.mutations).toEqual([]);
 });

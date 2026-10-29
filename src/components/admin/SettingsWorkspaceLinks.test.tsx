@@ -11,11 +11,14 @@ describe('company settings workspace navigation', () => {
     expect(within(navigation).queryByText('Conteúdo, identidade e exportação.')).not.toBeInTheDocument();
     expect(navigation.querySelector('a[href="/admin/content-studio"]')).toBeNull();
   });
-  it('preserves the two company management destinations', () => {
+  it('centralizes the three company destinations in responsive settings cards', () => {
     render(<SettingsWorkspaceLinks />);
     const links = within(screen.getByRole('navigation', { name: 'Outras configurações da empresa' })).getAllByRole('link');
-    expect(links.map(link => link.getAttribute('href'))).toEqual(['/admin/governance', '/admin/operations']);
+    expect(links.map(link => link.getAttribute('href'))).toEqual(['/admin/governance', '/admin/operations', '/suporte']);
     expect(links[0]).toHaveTextContent('Administração da empresa');
     expect(links[1]).toHaveTextContent('Operação e relatórios');
+    expect(links[2]).toHaveTextContent('Diagnóstico');
+    expect(links[2]).toHaveTextContent('Verificações e suporte da empresa.');
+    expect(links[0].parentElement).toHaveClass('grid-cols-1', 'md:grid-cols-3');
   });
 });

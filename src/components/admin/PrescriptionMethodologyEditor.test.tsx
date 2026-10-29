@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { PrescriptionMethodologyEditor } from './PrescriptionMethodologyEditor';
-import { normalizeCompanyProductSettings, type CompanyProductSettings } from '@/lib/prescriptionMethodology';
+import { PRESCRIPTION_METHODS, normalizeCompanyProductSettings, type CompanyProductSettings } from '@/lib/prescriptionMethodology';
 function Harness({ disabled = false }: { disabled?: boolean }) {
   const [settings, setSettings] = useState(normalizeCompanyProductSettings().prescription);
   return <><PrescriptionMethodologyEditor settings={settings} onChange={setSettings} disabled={disabled}/><output data-testid="policy">{JSON.stringify(settings)}</output></>;
@@ -38,4 +38,26 @@ describe('bounded methodology editor', () => {
     expect(screen.getByText('Adicionar regra semanal')).toBeDisabled();
     expect(screen.getByLabelText('Progressão entre ciclos')).toBeDisabled();
   });
+});
+
+it('provides contextual help for every editable methodology field without modifying its draft', () => {
+  render(<Harness />);
+  fireEvent.click(screen.getByRole('button', { name: 'Adicionar regra semanal' }));
+  const before = saved();
+  const helpLabels = ['Progressão entre ciclos', ...PRESCRIPTION_METHODS.map(method => `Método ${method}`),
+    'Fase semana 1', 'RIR mínimo semana 1', 'RIR máximo semana 1', 'Volume percentual semana 1',
+    'Chave da pergunta extra', 'Resposta exata', 'Destino canônico', 'Valor canônico'];
+  for (const label of helpLabels) {
+    const help = screen.getByRole('button', { name: `Sobre ${label}` });
+    expect(help).toHaveAttribute('type', 'button');
+    fireEvent.click(help);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('O que é:');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('O que muda:');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Efeito:');
+    fireEvent.keyDown(help, { key: 'Escape' });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  }
+  expect(saved()).toEqual(before);
+  fireEvent.click(screen.getByRole('button', { name: 'Sobre Volume percentual semana 1' }));
+  expect(screen.getByRole('tooltip')).toHaveTextContent('multiplicador inicial');
 });

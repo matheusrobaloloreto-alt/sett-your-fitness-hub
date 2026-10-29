@@ -44,3 +44,26 @@ describe('company achievement editor', () => {
     expect(screen.getByLabelText('Titulo')).toHaveValue('Cinco treinos');
   });
 });
+
+it('offers help for every editable achievement field without saving or granting rewards', async () => {
+  render(<CompanyAchievements companyId="company-a" />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Nova conquista' })).toBeEnabled());
+  await draft();
+  for (const label of ['Codigo', 'Titulo', 'Descricao', 'Criterio da conquista', 'Meta', 'Pontos', 'Ativa']) {
+    const help = screen.getByRole('button', { name: `Sobre ${label}` });
+    expect(help).toHaveAttribute('type', 'button');
+    fireEvent.click(help);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('O que é:');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('O que muda:');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Efeito:');
+    fireEvent.keyDown(help, { key: 'Escape' });
+  }
+  expect(mocks.save).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Codigo')).toHaveValue('sessions_5');
+  expect(screen.getByLabelText('Titulo')).toHaveValue('Cinco treinos');
+  fireEvent.click(screen.getByRole('button', { name: 'Sobre Meta' }));
+  expect(screen.getByRole('tooltip')).toHaveTextContent('contagens existentes podem satisfazer');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Sobre Meta' }), { key: 'Escape' });
+  fireEvent.click(screen.getByRole('button', { name: 'Sobre Ativa' }));
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Conquistas obtidas e XP registrados permanecem preservados');
+});

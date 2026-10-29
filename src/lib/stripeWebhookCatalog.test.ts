@@ -4,22 +4,31 @@ import {URL as NodeURL} from "node:url";
 import ts from "typescript";
 import {expect,it,vi} from "vitest";
 import {normalizePlatformProductSettings} from "../../supabase/functions/_shared/platform-product-settings";
+import {claimStripeEventV2,applyStripeEventV2,failStripeEventV2} from "../../supabase/functions/_shared/stripe-event-ledger";
 import {getSubscriptionTier} from "../../supabase/functions/_shared/stripe-catalog-policy";
 
-it.each(["current","historical","intermediate","expanded","unknown","ambiguous","invalid-signature","deleted-known","deleted-unknown","checkout","checkout-incomplete","checkout-mismatch","checkout-unknown","duplicate"])("actual signed handler: %s price policy without provider network",async mode=>{
+it.each(["current","historical","intermediate","expanded","unknown","ambiguous","invalid-signature","deleted-known","deleted-unknown","checkout","checkout-incomplete","checkout-mismatch","checkout-unknown","duplicate"])("actual handler with simulated signature verification: %s price policy without provider network",async mode=>{
  const catalog=normalizePlatformProductSettings({tiers:{advanced:{stripe_price_id:"price_customAdvanced"},intermediate:{stripe_price_id:"price_customIntermediate"}}});
  const historical=normalizePlatformProductSettings({tiers:{advanced:{stripe_price_id:"price_historicalAdvanced"}}});
- const subscription={
+ const subscription={id:"sub_synthetic",
   metadata:{company_id:"00000000-0000-4000-8000-000000000001",tier:"basic"},status:"active",
   items:{data:[{price:{id:mode==="historical"?"price_historicalAdvanced":mode.includes("unknown")?"price_unknown":mode==="intermediate"?"price_customIntermediate":"price_customAdvanced",product:mode==="expanded"?{id:"prod_custom"}:"prod_custom"}}]},
  };
  if(mode==="checkout-incomplete")subscription.status="incomplete";
  const session={metadata:{...subscription.metadata},subscription:"sub_synthetic"};
  if(mode==="checkout-mismatch")subscription.metadata.company_id="00000000-0000-4000-8000-000000000002";
- const event={id:"evt_synthetic_policy",type:mode.startsWith("deleted")?"customer.subscription.deleted":mode.startsWith("checkout")?"checkout.session.completed":"customer.subscription.updated",data:{object:mode.startsWith("checkout")?session:subscription}};
+ const event={id:"evt_synthetic_policy",created:1800000000,type:mode.startsWith("deleted")?"customer.subscription.deleted":mode.startsWith("checkout")?"checkout.session.completed":"customer.subscription.updated",data:{object:mode.startsWith("checkout")?session:subscription}};
  if(mode==="ambiguous")historical.tiers.basic.stripe_price_id="price_customAdvanced";
  const updates:Array<{table:string;value:unknown}>=[];
- const client={from:(table:string)=>({
+ const client={rpc:async(name:string,args:Record<string,unknown>)=>{
+  if(name==="stripe_claim_event_v2")return {data:mode==="duplicate"?"completed":"claimed",error:null};
+  if(name==="stripe_fail_event_v2")return {data:true,error:null};
+  if(name==="stripe_apply_event_v2"){
+   updates.push({table:"companies",value:{subscription_status:args.p_status,tier:args.p_tier}});
+   return {data:"applied",error:null};
+  }
+  throw new Error("Unexpected RPC");
+ },from:(table:string)=>({
   insert:async()=>({error:mode==="duplicate"?{code:"23505"}:null}),
   upsert:async()=>({error:null}),
   select:()=>{
@@ -35,7 +44,7 @@ it.each(["current","historical","intermediate","expanded","unknown","ambiguous",
  const parsed=ts.createSourceFile("webhook.ts",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
  const isolated=ts.factory.updateSourceFile(parsed,parsed.statements.filter(statement=>!ts.isImportDeclaration(statement)));
  const javascript=ts.transpileModule(ts.createPrinter().printFile(isolated),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
- runInNewContext(javascript,{exports:{},Response,Request,console:{log:()=>{}},fetch:network,getSubscriptionTier,
+ runInNewContext(javascript,{exports:{},Response,Request,console:{log:()=>{}},fetch:network,getSubscriptionTier,claimStripeEventV2,applyStripeEventV2,failStripeEventV2,crypto,
   Deno:{env:{get:()=>"synthetic-only"}},serve:(callback:typeof handler)=>{handler=callback;},createClient:()=>client,
   Stripe:class{webhooks={constructEventAsync:async()=>{if(mode==="invalid-signature")throw new Error("Invalid signature");return event;}};subscriptions={retrieve:async()=>subscription};},
  });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SettingHelp } from './SettingHelp';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { getMessageEventVariables, validateMessageTemplate } from '@/lib/companyProductSettings';
@@ -75,16 +76,16 @@ export function WhatsAppSequenceEditor({ companyId, event, blocks, previewValues
           <div className="flex items-center justify-between gap-3"><h2 className="font-medium">Mensagem {index + 1}</h2>
             <Button type="button" variant="ghost" size="sm" aria-label={`Remover mensagem ${index + 1}`} disabled={blocks.length <= 1} onClick={() => { setError(''); onChange(blocks.filter(item => item.id !== block.id)); }}><Trash2 className="mr-1 h-4 w-4" />Remover</Button></div>
           <div className="grid gap-5 lg:grid-cols-2"><div className="space-y-4">
-            <div className="space-y-2"><Label htmlFor={`message-type-${block.id}`}>Tipo da mensagem {index + 1}</Label>
+            <div className="space-y-2"><Label htmlFor={`message-type-${block.id}`}>Tipo da mensagem {index + 1}</Label><SettingHelp label={`Tipo da mensagem ${index + 1}`} what="Formato deste bloco da sequência." edits="Texto, imagem, vídeo ou áudio. Trocar o tipo remove o anexo do rascunho." effect="Após salvar, vale para próximas ocorrências elegíveis. Não envia ao selecionar." />
               <select id={`message-type-${block.id}`} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={block.type} onChange={e => update(block.id, { type: e.target.value as MessageBlockType, media: undefined })}>
                 <option value="text">Texto</option><option value="image">Imagem</option><option value="video">Vídeo</option><option value="audio">Áudio</option>
               </select></div>
-            {block.type !== 'text' && <div className="space-y-2"><Label htmlFor={`attachment-${block.id}`}>Anexar arquivo à mensagem {index + 1}</Label>
+            {block.type !== 'text' && <div className="space-y-2"><Label htmlFor={`attachment-${block.id}`}>Anexar arquivo à mensagem {index + 1}</Label><SettingHelp label={`Anexar arquivo à mensagem ${index + 1}`} what="Arquivo privado usado neste bloco." edits={`Até ${MESSAGE_MEDIA_MAX_BYTES[block.type as Exclude<MessageBlockType, 'text'>] / 1024 / 1024} MB; formatos permitidos: ${MESSAGE_MEDIA_MIME_TYPES[block.type as Exclude<MessageBlockType, 'text'>].join(', ')}.`} effect="O arquivo é carregado ao anexar; a sequência precisa ser salva. A prévia não envia ao destinatário." />
               <input id={`attachment-${block.id}`} type="file" className="block w-full min-w-0 text-sm" accept={MESSAGE_MEDIA_MIME_TYPES[block.type].join(',')} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; void attach(block, file); }} />
               <p className="text-xs text-muted-foreground">Até {MESSAGE_MEDIA_MAX_BYTES[block.type] / 1024 / 1024} MB. {uploading === block.id ? 'Anexando arquivo…' : block.media?.fileName}</p>
               {block.media && <Button type="button" size="sm" variant="ghost" onClick={() => update(block.id, { media: undefined })}>Remover anexo</Button>}
             </div>}
-            <div className="space-y-2"><Label htmlFor={textId}>{block.type === 'text' ? (index === 0 ? 'Mensagem' : `Texto da mensagem ${index + 1}`) : `Legenda opcional da mensagem ${index + 1}`}</Label>
+            <div className="space-y-2"><Label htmlFor={textId}>{block.type === 'text' ? (index === 0 ? 'Mensagem' : `Texto da mensagem ${index + 1}`) : `Legenda opcional da mensagem ${index + 1}`}</Label><SettingHelp label={block.type === 'text' ? (index === 0 ? 'Mensagem' : `Texto da mensagem ${index + 1}`) : `Legenda opcional da mensagem ${index + 1}`} what="Texto ou legenda deste bloco." edits="Até 6000 caracteres com as variáveis permitidas abaixo. Texto é obrigatório em blocos de texto e opcional nas mídias." effect={block.type === 'audio' ? 'Após salvar, o texto opcional do áudio segue como mensagem de texto separada após o áudio nas próximas ocorrências elegíveis. A prévia não garante entrega.' : 'Após salvar, usado em próximas ocorrências elegíveis, na ordem dos blocos. A prévia não garante entrega.'} />
               <Textarea id={textId} className="min-h-32" maxLength={6000} value={block.text} onChange={e => update(block.id, { text: e.target.value })} /></div>
             <div aria-label={`Variáveis da mensagem ${index + 1}`} className="flex flex-wrap gap-1.5">{getMessageEventVariables(event).map(key => <Button key={key} type="button" variant="outline" size="sm" onClick={() => update(block.id, { text: `${block.text}{{${key}}}` })}>{`{{${key}}}`}</Button>)}</div>
           </div><div className="space-y-3 rounded-md bg-muted/30 p-4"><h3 className="text-sm font-medium">Prévia · mensagem {index + 1}</h3>

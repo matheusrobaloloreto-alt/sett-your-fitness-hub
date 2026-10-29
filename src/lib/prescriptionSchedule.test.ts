@@ -514,3 +514,37 @@ describe("prescriptionSchedule", () => {
       .toEqual([canonical.id, imported.id]);
   });
 });
+
+describe('contract validity regressions (synthetic)', () => {
+  const enrollment = { id: 'enrollment-1', status: 'active', start_date: '2026-01-01', end_date: '2026-12-31', training_start_date: '2025-01-01' };
+  it('uses actual enrollment dates instead of nominal plan count; history does not consume slots', () => {
+    const history = cycle(18, '2025-01-01', '2025-02-11', { has_workouts: true });
+    const schedule = Array.from({ length: 9 }, (_, index) => {
+      const start = new Date(Date.UTC(2026, 0, 1 + index * 42));
+      const end = new Date(Math.min(Date.UTC(2026, 11, 31), +start + 41 * 86400000));
+      return cycle(index + 20, start.toISOString().slice(0, 10), end.toISOString().slice(0, 10));
+    });
+    const result = selectCurrentPlanCycleWindow([history, ...schedule], 168, 42, { enrollment });
+    expect(result.map(item => item.id)).toEqual(schedule.map(item => item.id));
+    expect(result.at(-1)?.end_date).toBe(enrollment.end_date);
+  });
+  it('selects the dated current enrollment over stale active and future renewal', () => {
+    expect(selectPrescriptionEnrollment([
+      { id: 'old', status: 'active', start_date: '2025-01-01', end_date: '2025-12-31' },
+      { ...enrollment, status: 'awaiting_training' },
+      { id: 'future', status: 'active', start_date: '2027-01-01', end_date: '2027-12-31' },
+    ], { today: new Date(2026, 5, 1) })?.id).toBe(enrollment.id);
+  });
+  it('preserves offline history outside the term without consuming current agenda', () => {
+    const offline = cycle(5, '2025-01-01', '2025-02-11', { prescribed_offline_at: '2025-01-01T12:00:00Z' });
+    const current = cycle(20, '2026-01-01', '2026-02-11');
+    expect(selectCyclesForProgramHistory([offline, current], 168, 42, { enrollment }).map(item => item.id)).toContain(offline.id);
+  });
+  it('uses an explicit sequence phase independently from the presentation label', () => {
+    expect(longitudinalPhase(5, { sequence_phase: 'acumulacao', sequence_number: 18 })).toBe('acumulacao');
+  });
+});
+it('selects a current commercial enrollment even while its training start is delayed', () => {
+ const delayed = { id: 'delayed', status: 'active', start_date: '2026-01-01', end_date: '2026-12-31', training_start_date: '2026-03-01' };
+ expect(selectPrescriptionEnrollment([delayed], { today: '2026-02-01' })?.id).toBe('delayed');
+});

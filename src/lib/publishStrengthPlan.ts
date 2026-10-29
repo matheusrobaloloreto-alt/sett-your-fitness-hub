@@ -3,7 +3,7 @@
 // então gerar a prescrição NÃO basta: é preciso materializar o plano nessas tabelas. Este helper faz isso
 // client-side (RLS permite insert de admin/master escopado por empresa):
 //   1) acha a matrícula ATIVA do aluno (ou cria uma);
-//   2) usa o ciclo agendado ou cria um ciclo avulso;
+//   2) exige alvo explícito quando existe agenda; só cria o primeiro ciclo sem agenda;
 //   3) materializa uma nova revisão, preservando IDs históricos quando o ciclo já começou.
 import { supabase } from "@/integrations/supabase/client";
 import { businessDateYmd } from "@/lib/businessDate";
@@ -203,6 +203,55 @@ export async function publishStrengthPlanToStudent(opts: {
   if (workouts.length === 0) throw new Error("O plano de força não tem treinos para publicar.");
   const durationWeeks = Number(plan?.duration_weeks) > 0 ? Number(plan.duration_weeks) : 6;
 
+  const today = new Date();
+  const todayYmd = ymd(today);
+  const end = new Date(today);
+  end.setDate(end.getDate() + durationWeeks * 7 - 1);
+  const selectCycleMessage = "Selecione o ciclo da agenda antes de publicar; confira a matrícula e a vigência.";
+
+  // Resolve ownership, agenda and replacement consent before changing any bundle or row.
+  let targetCycle: any = null;
+  if (opts.targetCycleId) {
+    const { data, error } = await db.from("training_cycles")
+      .select("id,enrollment_id,student_id,company_id,cycle_number,start_date,end_date,status,prescribed_offline_at,prescribed_offline_by,prescribed_offline_note")
+      .eq("id", opts.targetCycleId).eq("company_id", companyId).eq("student_id", studentId).maybeSingle();
+    if (error) throw new Error(`Falha ao consultar ciclo agendado: ${error.message}`);
+    if (!data || data.status === "superseded" || !data.enrollment_id) throw new Error(selectCycleMessage);
+    targetCycle = data;
+  }
+  let enrollmentQuery = db.from("enrollments").select("id,company_id,student_id,status,start_date,end_date")
+    .eq("student_id", studentId).eq("company_id", companyId);
+  if (targetCycle) enrollmentQuery = enrollmentQuery.eq("id", targetCycle.enrollment_id);
+  const { data: enrollmentRows, error: enrollmentError } = await enrollmentQuery;
+  if (enrollmentError) throw new Error(`Falha ao consultar matrícula: ${enrollmentError.message}`);
+  const eligible = (enrollmentRows || []).filter((row: any) =>
+    ["active", "awaiting_training", "awaiting_renewal"].includes(row.status));
+  const current = targetCycle ? eligible : eligible.filter((row: any) =>
+    row.start_date && row.end_date && row.start_date <= todayYmd && row.end_date >= todayYmd);
+  if (current.length > 1 || (targetCycle && current.length !== 1)
+    || (!targetCycle && !current.length && (enrollmentRows || []).length)) throw new Error(selectCycleMessage);
+  let enrollmentId: string | undefined = current[0]?.id;
+  if (!targetCycle && enrollmentId) {
+    const { data: agenda, error } = await db.from("training_cycles").select("id")
+      .eq("enrollment_id", enrollmentId).eq("company_id", companyId).eq("student_id", studentId);
+    if (error) throw new Error(`Falha ao consultar agenda: ${error.message}`);
+    if (agenda?.length) throw new Error(selectCycleMessage);
+  }
+  let previousWorkoutList: PreviousWorkoutRow[] = [];
+  if (targetCycle) {
+    const { data, error } = await db.from("workouts").select("id,updated_at,sort_order,title,name,exercises")
+      .eq("cycle_id", targetCycle.id).is("superseded_at", null).order("sort_order");
+    if (error) throw new Error(`Falha ao consultar treinos do ciclo: ${error.message}`);
+    previousWorkoutList = data || [];
+    if ((filterMaterializedWorkouts(previousWorkoutList).length || targetCycle.prescribed_offline_at || targetCycle.prescribed_offline_by || targetCycle.prescribed_offline_note)
+      && opts.replaceTargetCycle !== true) throw new Error("Este ciclo já tem prescrição. Confirme a substituição para publicar novamente.");
+  }
+  if (opts.bundleId) {
+    const { data: bundle, error } = await db.from("prescription_bundles").select("id")
+      .eq("id", opts.bundleId).eq("company_id", companyId).eq("student_id", studentId).maybeSingle();
+    if (error || !bundle) throw new Error("O pacote não pertence a este aluno/empresa ou não está disponível.");
+  }
+  let createdEnrollment = false;
   let bundleId = opts.bundleId ?? null;
   if (!bundleId) {
     bundleId = crypto.randomUUID();
@@ -230,104 +279,32 @@ export async function publishStrengthPlanToStudent(opts: {
   }
 
   try {
-  const today = new Date();
-  const todayYmd = ymd(today);
-  const end = new Date(today);
-  end.setDate(end.getDate() + durationWeeks * 7 - 1);
-
-  let targetCycle: any = null;
-  if (opts.targetCycleId) {
-    const { data, error: targetError } = await db.from("training_cycles")
-      .select("id, enrollment_id, student_id, company_id, cycle_number, start_date, end_date, status")
-      .eq("id", opts.targetCycleId)
-      .maybeSingle();
-    if (targetError) throw new Error(`Falha ao consultar ciclo agendado: ${targetError.message}`);
-    if (!data || data.student_id !== studentId || data.company_id !== companyId) {
-      throw new Error("O ciclo agendado não pertence a este aluno/empresa.");
-    }
-    targetCycle = data;
-  }
-
-  // 1) Matrícula ativa (mais recente) ou cria uma.
-  const enrollmentLookup = targetCycle
-    ? { data: { id: targetCycle.enrollment_id }, error: null }
-    : await db
-      .from("enrollments")
-      .select("id")
-      .eq("student_id", studentId)
-      .eq("status", "active")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-  if (enrollmentLookup.error) throw new Error(`Falha ao consultar matrícula: ${enrollmentLookup.error.message}`);
-
-  let enrollmentId: string | undefined = enrollmentLookup.data?.id;
-  let createdEnrollment = false;
   if (!enrollmentId) {
-    const { data: createdEnr, error: enrErr } = await db
-      .from("enrollments")
-      .insert({
-        company_id: companyId,
-        student_id: studentId,
-        status: "active",
-        start_date: ymd(today),
-        end_date: ymd(end),
-        training_start_date: ymd(today),
-        notes: "Criada automaticamente ao publicar prescrição do Studio.",
-      })
-      .select("id")
-      .single();
-    if (enrErr) throw new Error(`Falha ao criar matrícula: ${enrErr.message}`);
-    enrollmentId = createdEnr.id;
-    createdEnrollment = true;
+    const { data, error } = await db.from("enrollments").insert({
+      company_id: companyId, student_id: studentId, status: "active", start_date: todayYmd,
+      end_date: ymd(end), training_start_date: todayYmd,
+      notes: "Criada automaticamente ao publicar prescrição do Studio.",
+    }).select("id").single();
+    if (error) throw new Error(`Falha ao criar matrícula: ${error.message}`);
+    enrollmentId = data.id; createdEnrollment = true;
   }
-
-  // 2) Usa o bloco agendado quando informado. O caminho legado continua
-  // criando um novo ciclo de 6 semanas para publicações avulsas.
   let cycle: any = targetCycle;
   if (!cycle) {
-    const { data: maxc, error: cycleLookupError } = await db
-      .from("training_cycles")
-      .select("cycle_number")
-      .eq("enrollment_id", enrollmentId)
-      .neq("status", "superseded")
-      .order("cycle_number", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (cycleLookupError) throw new Error(`Falha ao consultar ciclos: ${cycleLookupError.message}`);
-    const cycleNumber = (Number(maxc?.cycle_number) || 0) + 1;
-    const { data: createdCycle, error: cycErr } = await db
-      .from("training_cycles")
-      .insert({
-        enrollment_id: enrollmentId,
-        cycle_number: cycleNumber,
-        start_date: todayYmd,
-        end_date: ymd(end),
-        company_id: companyId,
-        student_id: studentId,
-        ...buildTrainingCycleMetadata(plan, durationWeeks, cycleNumber, "pending"),
-      })
-      .select("id, enrollment_id, cycle_number, start_date, end_date, status")
-      .single();
-    if (cycErr) throw new Error(`Falha ao criar ciclo: ${cycErr.message}`);
-    cycle = createdCycle;
+    // Enrollment creation may trigger agenda generation. Never append over those slots.
+    const { data: generatedAgenda, error: agendaError } = await db.from("training_cycles").select("id")
+      .eq("enrollment_id", enrollmentId).eq("company_id", companyId).eq("student_id", studentId);
+    if (agendaError) throw new Error(`Falha ao conferir agenda: ${agendaError.message}`);
+    if (generatedAgenda?.length) throw new Error(selectCycleMessage);
+    // A first publication is allowed only after proving there is no existing agenda.
+    const { data, error } = await db.from("training_cycles").insert({
+      enrollment_id: enrollmentId, cycle_number: 1, start_date: todayYmd, end_date: ymd(end),
+      company_id: companyId, student_id: studentId,
+      ...buildTrainingCycleMetadata(plan, durationWeeks, 1, "pending"),
+    }).select("id,enrollment_id,cycle_number,start_date,end_date,status").single();
+    if (error) throw new Error(`Falha ao criar ciclo: ${error.message}`);
+    cycle = data;
   }
-
-  // 3) Treinos (um por sessão do plano).
-  const rows = buildWorkoutRows(plan, cycle.id, companyId).map((r) =>
-    createdBy ? { ...r, created_by: createdBy } : r,
-  );
-  const { data: previousWorkoutRows, error: previousWorkoutsError } = await db.from("workouts")
-    .select("id, updated_at, sort_order, title, name, exercises")
-    .eq("cycle_id", cycle.id)
-    .is("superseded_at", null)
-    .order("sort_order");
-  if (previousWorkoutsError) throw new Error(`Falha ao consultar treinos do ciclo: ${previousWorkoutsError.message}`);
-  const previousWorkoutList = (previousWorkoutRows || []) as PreviousWorkoutRow[];
-  const previousWorkouts = filterMaterializedWorkouts(previousWorkoutList);
-  if (previousWorkouts?.length && opts.replaceTargetCycle === false) {
-    throw new Error("Este ciclo já tem treinos. Confirme a substituição para publicar novamente.");
-  }
+  const rows = buildWorkoutRows(plan, cycle.id, companyId).map((row) => createdBy ? { ...row, created_by: createdBy } : row);
   await saveCycleWorkoutRevision(db, {
     cycleId: cycle.id,
     expectedRows: previousWorkoutList.map((workout) => ({
@@ -344,7 +321,7 @@ export async function publishStrengthPlanToStudent(opts: {
 
   const { error: bundleLinkError } = await db.from("prescription_bundles")
     .update({ training_cycle_id: cycle.id, generation_error: null })
-    .eq("id", bundleId);
+    .eq("id", bundleId).eq("company_id", companyId).eq("student_id", studentId);
   if (bundleLinkError) throw new Error(`Treino publicado, mas falhou ao vincular o pacote: ${bundleLinkError.message}`);
 
   const { error: bundleItemError } = await db.from("prescription_bundle_items").insert({
@@ -376,7 +353,7 @@ export async function publishStrengthPlanToStudent(opts: {
 
   const { error: bundleFinalizeError } = await db.from("prescription_bundles")
     .update({ status: cycleIsCurrent ? "active" : "scheduled", generation_error: null })
-    .eq("id", bundleId);
+    .eq("id", bundleId).eq("company_id", companyId).eq("student_id", studentId);
   if (bundleFinalizeError) throw new Error(`Treino publicado, mas falhou ao finalizar o pacote: ${bundleFinalizeError.message}`);
 
   return { enrollmentId: enrollmentId!, cycleId: cycle.id, bundleId, workoutsCreated: rows.length, createdEnrollment };
@@ -384,7 +361,7 @@ export async function publishStrengthPlanToStudent(opts: {
     await db.from("prescription_bundles").update({
       status: "failed",
       generation_error: (error instanceof Error ? error.message : String(error)).slice(0, 1000),
-    }).eq("id", bundleId);
+    }).eq("id", bundleId).eq("company_id", companyId).eq("student_id", studentId);
     throw error;
   }
 }

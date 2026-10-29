@@ -1,3 +1,4 @@
+import { projectPrescriptionCoverage } from '@/lib/prescriptionCoverage';
 // ============================================================================
 // PrescriptionStudio.tsx — BN Performance Training
 // Página PRINCIPAL do treinador. Junta tudo:
@@ -59,6 +60,7 @@ import { updateBundleRunningPlanPointer } from "@/lib/prescriptionBundleIntegrit
 import {
   describeLongitudinalPhase,
   isCycleCurrent,
+  hasActivePrescriptionContent,
   longitudinalPhase,
   scheduleSpanWeeks,
   isPrescriptionHistoryBeforeTarget,
@@ -66,7 +68,7 @@ import {
   selectPreviousPrescriptionCycle,
   selectPrescriptionEnrollment,
   selectPrescriptionTargets,
-  selectSequentialScheduleCycles,
+  type PrescriptionEnrollment,
   type PrescriptionScheduleCycle,
   type PrescriptionScheduleMode,
 } from "@/lib/prescriptionSchedule";
@@ -125,6 +127,20 @@ const MODALITIES: { id: Modality; icon: any; label: string; sub: string }[] = [
   { id: "ciclismo",   icon: Bike,     label: "Ciclismo",   sub: "Potência + zonas" },
   { id: "nutricao",   icon: Apple,    label: "Nutrição",   sub: "Dicas práticas" },
 ];
+
+type StudioEnrollment = PrescriptionEnrollment & { plans?: { duration_days?: number | null; duration_weeks?: number | null; cycle_duration_days?: number | null } | null };
+export function selectStudioEnrollment(rows: StudioEnrollment[], studentId: string, companyId: string, day = businessDateYmd()) {
+  if (!studentId || !companyId) throw new Error('Selecione aluno e empresa antes de consultar a agenda.');
+  return selectPrescriptionEnrollment(rows, { today: day, expectedStudentId: studentId, expectedCompanyId: companyId });
+}
+export function projectStudioSchedule(enrollment: StudioEnrollment, cycles: PrescriptionScheduleCycle[], studentId: string, companyId: string, day = businessDateYmd()) {
+  if (enrollment.student_id !== studentId || enrollment.company_id !== companyId) throw new Error('Agenda fora do escopo do aluno ou empresa.');
+  const result = projectPrescriptionCoverage({ enrollment, cycles, today: day, expectedStudentId: studentId, expectedCompanyId: companyId,
+    cycleDurationDays: enrollment.plans?.cycle_duration_days || 42,
+    planDurationDays: enrollment.plans?.duration_days || (enrollment.plans?.duration_weeks || 6) * 7 });
+  if (!result.reliable) throw new Error('Vigência da matrícula inválida.');
+  return result;
+}
 
 interface PrescriptionStudioProps {
   embeddedStudentId?: string;
@@ -228,6 +244,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   const [activeBundleId, setActiveBundleId] = useState<string | null>(null);
   const [resultCycleId, setResultCycleId] = useState<string | null>(null);
   const [scheduleCycles, setScheduleCycles] = useState<PrescriptionScheduleCycle[]>([]);
+  const [scheduleCoverage, setScheduleCoverage] = useState<ReturnType<typeof projectStudioSchedule> | null>(null);
   const [scheduleMode, setScheduleMode] = useState<PrescriptionScheduleMode>("single");
   const [selectedCycleId, setSelectedCycleId] = useState<string>("");
   const [scheduleLoading, setScheduleLoading] = useState(false);
@@ -391,7 +408,8 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   }, [studentId, companyId, student?.phone, student?.whatsapp]);
 
   useEffect(() => {
-    if (!studentId) {
+    if (!studentId || !companyId) {
+      setScheduleCoverage(null);
       setScheduleCycles([]);
       setSelectedCycleId("");
       setScheduleLoadError("");
@@ -401,6 +419,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
     let active = true;
     (async () => {
       setScheduleLoading(true);
+      setScheduleCoverage(null);
       setScheduleLoadError("");
       setHasCurrentEnrollment(false);
       setScheduleCycles([]);
@@ -408,14 +427,14 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
       setScheduledSummaries([]);
       try {
         let enrollmentQuery = db.from("enrollments")
-          .select("id, status, created_at")
+          .select("*, plans(duration_days, duration_weeks, cycle_duration_days)")
           .eq("student_id", studentId)
           .in("status", ["active", "awaiting_training", "awaiting_renewal"])
           .order("created_at", { ascending: false });
         if (companyId) enrollmentQuery = enrollmentQuery.eq("company_id", companyId);
         const { data: enrollmentRows, error: enrollmentError } = await enrollmentQuery;
         if (enrollmentError) throw enrollmentError;
-        const currentEnrollment = selectPrescriptionEnrollment(enrollmentRows || []);
+        const currentEnrollment = selectStudioEnrollment(enrollmentRows || [], studentId, companyId);
         if (!active) return;
         setHasCurrentEnrollment(Boolean(currentEnrollment));
         if (!currentEnrollment) {
@@ -425,10 +444,8 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
         }
 
         let cycleQuery = db.from("training_cycles")
-          .select("id, enrollment_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id")
+          .select("*")
           .eq("enrollment_id", currentEnrollment.id)
-          .neq("status", "superseded")
-          .is("superseded_by_cycle_id", null)
           .order("start_date", { ascending: true })
           .order("cycle_number", { ascending: true });
         if (companyId) cycleQuery = cycleQuery.eq("company_id", companyId);
@@ -472,11 +489,14 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
         let rows: PrescriptionScheduleCycle[] = ((cycleRows || []) as PrescriptionScheduleCycle[]).map((cycle) => ({
           ...cycle,
           has_workouts: workoutCycleIds.has(cycle.id),
+          has_usable_workouts: !cycle.prescription_cleared_at && workoutCycleIds.has(cycle.id),
           has_bundle: bundleCycleIds.has(cycle.id),
         }));
-        rows = selectSequentialScheduleCycles(rows);
+        const coverage = projectStudioSchedule(currentEnrollment, rows, studentId, companyId);
+        rows = coverage.cycles;
+        setScheduleCoverage(coverage);
         setScheduleCycles(rows);
-        const preferred = selectDefaultPrescriptionScheduleCycle(rows);
+        const preferred = selectDefaultPrescriptionScheduleCycle(rows, new Date(`${businessDateYmd()}T12:00:00`));
         setSelectedCycleId(preferred?.id || "");
       } catch (loadError) {
         const safeError = loadError && typeof loadError === "object"
@@ -708,9 +728,9 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
     try {
       for (let cycleIndex = 0; cycleIndex < scheduleTargets.length; cycleIndex += 1) {
         const cycle = scheduleTargets[cycleIndex];
-        const phase = longitudinalPhase(cycle.cycle_number);
+        const phase = longitudinalPhase(cycle.cycle_number, cycle);
         const programSequence = {
-          sequence_number: cycle.cycle_number,
+          sequence_number: cycle.sequence_number ?? cycle.cycle_number,
           total_cycles: scheduleCycles.length,
           start_date: cycle.start_date,
           end_date: cycle.end_date,
@@ -784,7 +804,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
             fitness_level: fitnessLevel,
             experience_months: experienceMonths,
             days_per_week: Number(a.days_per_week_strength) || 3, duration_weeks: 6,
-            equipment: a.equipment, block_number: cycle.cycle_number,
+            equipment: a.equipment, block_number: cycle.sequence_number ?? cycle.cycle_number,
             is_endurance_athlete: a.is_endurance_athlete, restrictions: a.injuries, notes: a.notes,
             running_days_context: cardioDays > 0 ? { days_per_week: cardioDays, sport: a.sport } : null,
             assessment_context: assessmentCtx, anamnese_context: a,
@@ -818,8 +838,8 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
             anamnese_id: a.id, sport: sportMap[modality], goal: a.cardio_goal || "Melhora de performance",
             duration_weeks: 6, days_per_week: Number(a.days_per_week_cardio) || 3,
             session_duration: Number(a.endurance_session_duration_min ?? a.session_duration_min) || 60,
-            current_volume: cycle.cycle_number === 1 ? a.current_volume_weekly : null,
-            current_volume_unit: cycle.cycle_number === 1 ? a.current_volume_unit : null,
+            current_volume: (cycle.sequence_number ?? cycle.cycle_number) === 1 ? a.current_volume_weekly : null,
+            current_volume_unit: (cycle.sequence_number ?? cycle.cycle_number) === 1 ? a.current_volume_unit : null,
             fcmax: a.fcmax, fcrep: a.fcrep, experience_months: a.experience_months, injuries: a.injuries,
             strength_plan_context: strengthPlan ? {
               days_per_week: Number(a.days_per_week_strength) || 3,
@@ -834,7 +854,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
             prescription_integration: integrationCtx, bnito_orchestration: orchestrationCtx,
             bundle_id: bundleId, training_cycle_id: cycle.id,
             previous_plan_id: prior?.id || null, previous_plan_context: prior || null,
-            block_number: cycle.cycle_number, program_sequence: programSequence,
+            block_number: cycle.sequence_number ?? cycle.cycle_number, program_sequence: programSequence,
           } });
           if (edgeError || data?.error) throw new Error((await readEdgeError(edgeError, data)) || `Falha em ${modality} no ciclo ${cycle.cycle_number}.`);
           if (!data?.id) throw new Error(`A prescrição de ${modality} foi gerada sem ID persistido.`);
@@ -879,7 +899,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
             anamnese_context: a, prescription_integration: integrationCtx, bnito_orchestration: orchestrationCtx,
             bundle_id: bundleId, training_cycle_id: cycle.id,
             previous_plan_id: previousNutrition?.id || null, previous_plan_context: previousNutrition || null,
-            block_number: cycle.cycle_number, program_sequence: programSequence,
+            block_number: cycle.sequence_number ?? cycle.cycle_number, program_sequence: programSequence,
           } });
           if (edgeError || data?.error) throw new Error((await readEdgeError(edgeError, data)) || `Falha na nutrição do ciclo ${cycle.cycle_number}.`);
           if (!data?.id) throw new Error("A nutrição foi gerada sem ID persistido.");
@@ -1775,6 +1795,13 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                   </button>
                 </div>
 
+                {scheduleCoverage && <section aria-label="Cobertura contratual do Studio" className="mb-3 space-y-2 text-xs">
+                  <p>Contrato: {formatCycleDate(scheduleCoverage.term!.contract_start_date)} a {formatCycleDate(scheduleCoverage.term!.end_date)}. Início operacional: {formatCycleDate(scheduleCoverage.term!.start_date)}. Agenda não equivale a treino entregue.</p>
+                  {scheduleCoverage.notStarted && <p>Treinamento ainda não iniciado. Preparação futura, sem antecipar a liberação.</p>}
+                  {scheduleCoverage.slots.map(slot => <p key={slot.position}>Período {slot.position}: {formatCycleDate(slot.start_date)} a {formatCycleDate(slot.end_date)} · {slot.state === 'missing' ? 'Lacuna de agenda' : slot.state === 'review' ? 'Revisar sobreposição' : slot.state === 'scheduled' ? 'Pendente de treino' : slot.state === 'offline' ? 'Prescrição fora do app' : 'Conteúdo preparado'}</p>)}
+                  {scheduleCoverage.historyCycles.length > 0 && <details><summary>Histórico anterior e fora da vigência ({scheduleCoverage.historyCycles.length})</summary>{scheduleCoverage.historyCycles.map(cycle => <p key={cycle.id}>Ciclo {cycle.cycle_number} · {formatCycleDate(cycle.start_date)} a {formatCycleDate(cycle.end_date)}</p>)}</details>}
+                </section>}
+
                 {scheduleLoading ? (
                   <div className="flex min-h-16 items-center justify-center gap-2 text-sm text-slate-500">
                     <Loader2 className="h-4 w-4 animate-spin" /> Carregando vigência
@@ -1801,7 +1828,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                         >
                           {scheduleCycles.map((cycle) => (
                             <option key={cycle.id} value={cycle.id}>
-                              Ciclo {cycle.cycle_number} · {formatCycleDate(cycle.start_date)} a {formatCycleDate(cycle.end_date)}{cycle.has_workouts || cycle.has_bundle ? " · prescrito" : ""}
+                              Ciclo {cycle.cycle_number} · {formatCycleDate(cycle.start_date)} a {formatCycleDate(cycle.end_date)}{cycle.prescription_cleared_at ? " · prescrição removida" : cycle.prescribed_offline_at ? " · fora do app" : cycle.has_workouts ? " · treino preparado" : cycle.has_bundle ? " · rascunho preparado" : " · pendente"}
                             </option>
                           ))}
                         </select>
@@ -1810,11 +1837,11 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
 
                     <div className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
                       {scheduleCycles.map((cycle) => {
-                        const prepared = Boolean(cycle.has_workouts || cycle.has_bundle);
+                        const prepared = hasActivePrescriptionContent(cycle);
                         const current = isCycleCurrent(cycle);
                         const completed = cycle.end_date < businessDateYmd();
                         const selected = scheduleMode === "single" ? cycle.id === selectedCycleId : scheduleTargets.some((target) => target.id === cycle.id);
-                        const statusLabel = prepared ? "Prescrito" : completed ? "Concluído" : current ? "Atual" : "Pendente";
+                        const statusLabel = cycle.prescription_cleared_at ? "Prescrição removida" : cycle.prescribed_offline_at ? "Prescrito fora do app" : cycle.has_workouts ? "Treino preparado" : cycle.has_bundle ? "Rascunho preparado" : completed ? "Sem treino no período encerrado" : current ? "Atual · sem treino" : "Pendente";
                         return (
                           <button
                             key={cycle.id}
@@ -1826,7 +1853,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                               {cycle.cycle_number}
                             </span>
                             <span className="min-w-0">
-                              <span className="block truncate text-sm font-medium text-slate-800">{describeLongitudinalPhase(longitudinalPhase(cycle.cycle_number))}</span>
+                              <span className="block truncate text-sm font-medium text-slate-800">{describeLongitudinalPhase(longitudinalPhase(cycle.cycle_number, cycle))}</span>
                               <span className="block font-mono-data text-[11px] text-slate-500">{formatCycleDate(cycle.start_date)} — {formatCycleDate(cycle.end_date)}</span>
                             </span>
                             <span className={`text-xs font-medium ${prepared ? "text-emerald-700" : current ? "text-[#8B7355]" : "text-slate-500"}`}>{statusLabel}</span>

@@ -21,7 +21,6 @@ import {
   BrainCircuit,
   KeyRound,
   Images,
-  Activity,
 
 
 } from "lucide-react";
@@ -86,9 +85,6 @@ const masterItems = [
 
 const baseAdminItems: typeof managementItems = [
   { title: "Configurações", url: "/admin/settings", icon: Settings },
-  { title: "Administração", url: "/admin/governance", icon: Building2 },
-  { title: "Operação e relatórios", url: "/admin/operations", icon: ClipboardList },
-  { title: "Diagnóstico", url: "/suporte", icon: Activity },
 ];
 
 const managementItems = [
@@ -110,11 +106,9 @@ const whatsappSubItems = [
   { title: "Conversas", url: "/admin/whatsapp-chat", icon: MessageSquare },
   { title: "Templates", url: "/admin/whatsapp-templates", icon: FileText },
   { title: "Automação", url: "/admin/whatsapp-automation", icon: Zap },
-  { title: "Configurações", url: "/admin/whatsapp", icon: Settings },
 ];
 
 const coordinatorAllItems = [
-  { title: "Diagnóstico", url: "/suporte", icon: Activity },
   { title: "Dashboard", url: "/coordinator", icon: LayoutDashboard },
   { title: "Carteira", url: "/coordinator/carteira", icon: Briefcase },
   { title: "Interessados", url: "/coordinator/registration", icon: UserPlus },
@@ -130,18 +124,15 @@ const coordinatorWhatsappSubItems = [
   { title: "Conversas", url: "/coordinator/whatsapp-chat", icon: MessageSquare },
   { title: "Templates", url: "/coordinator/whatsapp-templates", icon: FileText },
   { title: "Automação", url: "/coordinator/whatsapp-automation", icon: Zap },
-  { title: "Configurações", url: "/coordinator/whatsapp", icon: Settings },
 ];
 
 const trainerWhatsappSubItems = [
   { title: "Conversas", url: "/trainer/whatsapp-chat", icon: MessageSquare },
   { title: "Templates", url: "/trainer/whatsapp-templates", icon: FileText },
   { title: "Automação", url: "/trainer/whatsapp-automation", icon: Zap },
-  { title: "Configurações", url: "/trainer/whatsapp", icon: Settings },
 ];
 
 const trainerAllItems = [
-  { title: "Diagnóstico", url: "/suporte", icon: Activity },
   { title: "Dashboard", url: "/trainer", icon: LayoutDashboard },
   { title: "Carteira", url: "/trainer/carteira", icon: Briefcase },
   { title: "Interessados", url: "/trainer/registration", icon: UserPlus },
@@ -205,6 +196,10 @@ export function AppSidebar() {
     });
   };
 
+  const staffSettingsItems = isCoordinator || isTrainer
+    ? [{ title: "Configurações", url: `/${role}/settings`, icon: Settings }]
+    : [];
+
   const items = showAdminView
     ? adminItems
     : isMaster
@@ -212,9 +207,9 @@ export function AppSidebar() {
       : isAdmin
         ? adminItems
         : isCoordinator
-          ? filterByPermission(coordinatorAllItems)
+          ? [...filterByPermission(coordinatorAllItems), ...staffSettingsItems]
           : isTrainer
-            ? filterByPermission(trainerAllItems)
+            ? [...filterByPermission(trainerAllItems), ...staffSettingsItems]
             : [];
 
   const isWhatsAppActive = location.pathname.includes("/whatsapp");
@@ -286,7 +281,7 @@ export function AppSidebar() {
                 const isRoot = item.url.split("/").length <= 2;
                 const isActive = isRoot
                   ? location.pathname === item.url
-                  : location.pathname === item.url || location.pathname.startsWith(item.url + "/");
+                  : location.pathname === item.url.split("?")[0] || location.pathname.startsWith(item.url.split("?")[0] + "/");
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild>

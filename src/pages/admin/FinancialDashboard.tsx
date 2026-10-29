@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -97,6 +97,10 @@ export default function FinancialDashboard() {
   const [syncing, setSyncing] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   const loadRequestId = useRef(0);
+  const currentCompany = useRef(effectiveCompanyId);
+  currentCompany.current = effectiveCompanyId;
+  const [loadedCompany, setLoadedCompany] = useState<string | null | undefined>();
+  const [loadError, setLoadError] = useState(false);
 
   // Filters
   const [filterStatus, setFilterStatus] = useState("all");
@@ -106,12 +110,24 @@ export default function FinancialDashboard() {
   const [filterDateTo, setFilterDateTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
-  useEffect(() => { loadData(); }, [effectiveCompanyId]);
+  const invalidateLoad = useCallback(() => { ++loadRequestId.current; }, []);
+  useEffect(() => {
+    void loadData();
+    return invalidateLoad;
+  }, [effectiveCompanyId, invalidateLoad]);
 
   const loadData = async () => {
+    if (currentCompany.current !== effectiveCompanyId) return;
     const requestId = ++loadRequestId.current;
-    const isStale = () => requestId !== loadRequestId.current;
+    const isStale = () => requestId !== loadRequestId.current || currentCompany.current !== effectiveCompanyId;
     setLoading(true);
+    setLoadError(false);
+    if (!effectiveCompanyId) {
+      setLoadedCompany(effectiveCompanyId);
+      setLoading(false);
+      return;
+    }
+    try {
     const now = new Date();
     const currentMonthKey = format(now, "yyyy-MM");
     const prevMonthKey = format(subMonths(now, 1), "yyyy-MM");
@@ -125,9 +141,9 @@ export default function FinancialDashboard() {
       confirmedQuery = confirmedQuery.eq("company_id", effectiveCompanyId);
     }
     const [
-      { data: paymentsAll },
-      { count: totalPayments },
-      { count: confirmedCount },
+      paymentsResult,
+      totalResult,
+      confirmedResult,
       projectionResult,
     ] = await Promise.all([
       paymentsQuery,
@@ -141,16 +157,27 @@ export default function FinancialDashboard() {
     ]);
     if (isStale()) return;
 
-    const all = (paymentsAll || []) as any[];
+    if (paymentsResult.error || totalResult.error || confirmedResult.error
+      || !Array.isArray(paymentsResult.data) || typeof totalResult.count !== "number" || typeof confirmedResult.count !== "number") {
+      throw new Error("Financial reads unavailable");
+    }
+    const { data: paymentsAll } = paymentsResult;
+    const { count: totalPayments } = totalResult;
+    const { count: confirmedCount } = confirmedResult;
+    const all = paymentsAll as any[];
     const billingStatuses = ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"];
     const cashStatuses = ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"];
 
+    if (!projectionResult.error && (!projectionResult.data || !Array.isArray(projectionResult.data.entries)
+      || !Array.isArray(projectionResult.data.unresolved) || projectionResult.data.companyId !== effectiveCompanyId)) {
+      projectionResult.error = new Error("Financial projection unavailable");
+    }
     const projection = projectionResult.error ? null : projectionResult.data as FinancialProjectionSnapshot | null;
     if (isStale()) return;
     setFinancialProjectionUnavailable(Boolean(projectionResult.error));
     const reconciledEntries = projection?.entries || [];
     const localCreditCardPayments = all.filter((p) => p.billing_type === "CREDIT_CARD");
-    const unavailableCreditCards = Boolean(projectionResult.error && localCreditCardPayments.length > 0);
+    const unavailableCreditCards = Boolean(projectionResult.error);
     const unreconciledCards = projectionResult.error
       ? localCreditCardPayments.length
       : unresolvedCreditCardCount(projection?.unresolved || []);
@@ -350,10 +377,12 @@ export default function FinancialDashboard() {
 
     // Revenue by Plan
     const planMap: Record<string, number> = {};
-    const { data: studentsWithPlans } = await supabase
+    const { data: studentsWithPlans, error: studentsError } = await supabase
       .from("students")
-      .select("id, selected_plan_id, plans(name)");
+      .select("id, selected_plan_id, plans(name)")
+      .eq("company_id", effectiveCompanyId);
     if (isStale()) return;
+    if (studentsError || !studentsWithPlans) throw new Error("Financial plan read unavailable");
     const studentPlanMap: Record<string, string> = {};
     (studentsWithPlans || []).forEach((s: any) => {
       if (s.selected_plan_id && s.plans?.name) {
@@ -439,10 +468,19 @@ export default function FinancialDashboard() {
     if (isStale()) return;
     setAllPayments(sorted as RecentPayment[]);
     setCurrentPage(1);
-    setLoading(false);
+    setLoadedCompany(effectiveCompanyId);
+    } catch {
+      if (isStale()) return;
+      setLoadError(true);
+      setLoadedCompany(effectiveCompanyId);
+    } finally {
+      if (!isStale()) setLoading(false);
+    }
   };
 
   const handleIssueInvoice = async (asaasPaymentId: string) => {
+    const operationCompany = effectiveCompanyId;
+    if (!operationCompany) return;
     // P3 — valida o cadastro antes de emitir sem exigir documentos brasileiros de residentes estrangeiros.
     const pay: any = allPayments.find((p) => p.asaas_payment_id === asaasPaymentId);
     if (pay && pay.invoice_action_available === false) {
@@ -456,9 +494,16 @@ export default function FinancialDashboard() {
     if (pay?.student_id) {
       let s: any = null;
       try {
-        const { data } = await supabase.from("students").select("cpf, cep, address, country_code").eq("id", pay.student_id).maybeSingle();
+        const { data, error } = await supabase.from("students").select("cpf, cep, address, country_code")
+          .eq("id", pay.student_id).eq("company_id", operationCompany).maybeSingle();
+        if (currentCompany.current !== operationCompany) return;
+        if (error || !data) throw new Error("Fiscal read unavailable");
         s = data;
-      } catch { s = null; }
+      } catch {
+        if (currentCompany.current !== operationCompany) return;
+        toast({ title: "Não foi possível verificar o cadastro fiscal", description: "A consulta está indisponível. Tente novamente antes de solicitar a nota.", variant: "destructive" });
+        return;
+      }
       if (s) {
         if (!isBrazilianCountry(s.country_code)) {
           toast({
@@ -480,17 +525,20 @@ export default function FinancialDashboard() {
         }
       }
     }
+    if (currentCompany.current !== operationCompany) return;
     setIssuingInvoice(asaasPaymentId);
     try {
       const { data, error } = await supabase.functions.invoke("asaas-integration", {
         body: { action: "create-invoice", paymentId: asaasPaymentId },
       });
+      if (currentCompany.current !== operationCompany) return;
       if (error) throw error;
       toast({ title: "Nota fiscal emitida!", description: "A NFS-e foi solicitada com sucesso." });
       setAllPayments(prev => prev.map(p =>
         p.asaas_payment_id === asaasPaymentId ? { ...p, invoice_status: data?.status || "SCHEDULED" } : p
       ));
     } catch (err: any) {
+      if (currentCompany.current !== operationCompany) return;
       const msg = err.message || "";
       if (msg.includes("já existe") || msg.includes("already")) {
         setAllPayments(prev => prev.map(p =>
@@ -501,7 +549,7 @@ export default function FinancialDashboard() {
         toast({ title: "Erro ao emitir nota", description: msg || "Tente novamente.", variant: "destructive" });
       }
     } finally {
-      setIssuingInvoice(null);
+      if (currentCompany.current === operationCompany) setIssuingInvoice(null);
     }
   };
 
@@ -637,15 +685,19 @@ export default function FinancialDashboard() {
   };
 
   const handleSync = async (syncAll: boolean) => {
+    const operationCompany = effectiveCompanyId;
+    if (!operationCompany) return;
     if (syncAll) setSyncingAll(true); else setSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke("asaas-integration", {
         body: { action: "sync-payments", companyId: effectiveCompanyId, syncAll },
       });
+      if (currentCompany.current !== operationCompany) return;
       if (error) throw error;
       toast({ title: "Sincronização concluída", description: data?.message || "Dados atualizados." });
       await loadData();
     } catch (err: any) {
+      if (currentCompany.current !== operationCompany) return;
       toast({ title: "Erro ao sincronizar", description: err.message, variant: "destructive" });
     } finally {
       setSyncing(false);
@@ -653,7 +705,11 @@ export default function FinancialDashboard() {
     }
   };
 
-  if (loading) {
+  if (!effectiveCompanyId) {
+    return <p role="status">Selecione uma empresa para consultar o financeiro.</p>;
+  }
+
+  if (loading || loadedCompany !== effectiveCompanyId) {
     return (
       <>
         <div className="flex items-center justify-center h-64">
@@ -661,6 +717,13 @@ export default function FinancialDashboard() {
         </div>
       </>
     );
+  }
+
+  if (loadError) {
+    return <div role="alert" className="space-y-3 p-6">
+      <p>Não foi possível carregar o financeiro. Os dados estão indisponíveis.</p>
+      <Button variant="outline" onClick={() => void loadData()}>Tentar novamente</Button>
+    </div>;
   }
 
   return (
@@ -706,6 +769,7 @@ export default function FinancialDashboard() {
               <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-amber-700 font-sans">Financeiro parcialmente conciliado</p>
+                {financialProjectionUnavailable && <Button variant="outline" onClick={() => void loadData()}>Tentar novamente</Button>}
                 <p className="text-xs text-muted-foreground font-sans">
                   {financialProjectionUnavailable
                     ? "Cartões não puderam ser conciliados agora. Indicadores com cartão ficam indisponíveis; valores não cartão continuam separados."

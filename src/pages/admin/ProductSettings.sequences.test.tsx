@@ -1,4 +1,6 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactElement } from 'react';
+import { act, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_COMPANY_PRODUCT_SETTINGS, type SettingsRecord } from '@/lib/companyProductSettings';
 import type { MessageMedia, SequenceSettings } from '@/lib/companyMessageSequences';
@@ -51,18 +53,28 @@ describe('WhatsApp event sequences in company settings', () => {
 
   it('adds below the blocks, keeps per-block variables, removes and enforces 1–10 parts', async () => {
     render(<ProductSettings />); await screen.findByLabelText('Mensagem');
-    expect(screen.getByRole('button', { name: 'Remover mensagem 1' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Adicionar mensagem' }));
+    const first = screen.getByRole('region', { name: 'Mensagem 1' });
+    expect(within(first).getByRole('button', { name: 'Remover mensagem 1' })).toBeDisabled();
+    // This control stays mounted while blocks grow. Reuse the accessible query result:
+    // repeating a document-wide role/name search measures every block's buttons and help.
+    const addMessage = screen.getByRole('button', { name: 'Adicionar mensagem' });
+    fireEvent.click(addMessage);
     const second = screen.getByRole('region', { name: 'Mensagem 2' });
     fireEvent.change(within(second).getByLabelText('Texto da mensagem 2'), { target: { value: 'Segundo ' } });
     fireEvent.click(within(second).getByRole('button', { name: '{{primeiro_nome}}' }));
     expect(within(second).getByLabelText('Texto da mensagem 2')).toHaveValue('Segundo {{primeiro_nome}}');
     expect(within(second).queryByRole('button', { name: '{{link}}' })).not.toBeInTheDocument();
-    for (let count = 2; count < 10; count++) fireEvent.click(screen.getByRole('button', { name: 'Adicionar mensagem' }));
-    expect(screen.getAllByRole('region', { name: /^Mensagem \d+$/ })).toHaveLength(10);
-    expect(screen.getByRole('button', { name: 'Adicionar mensagem' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Remover mensagem 10' }));
-    expect(screen.getByRole('button', { name: 'Adicionar mensagem' })).toBeEnabled();
+    for (let count = 2; count < 10; count++) fireEvent.click(addMessage);
+    const blocks = screen.getAllByRole('region', { name: /^Mensagem \d+$/ });
+    expect(blocks).toHaveLength(10);
+    expect(addMessage).toBeDisabled();
+    // A disabled add cannot create an eleventh block.
+    fireEvent.click(addMessage);
+    expect(screen.queryByRole('region', { name: 'Mensagem 11' })).not.toBeInTheDocument();
+    fireEvent.click(within(blocks[9]).getByRole('button', { name: 'Remover mensagem 10' }));
+    expect(addMessage).toBeEnabled();
+    expect(screen.getAllByRole('region', { name: /^Mensagem \d+$/ })).toHaveLength(9);
+    expect(within(second).getByLabelText('Texto da mensagem 2')).toHaveValue('Segundo {{primeiro_nome}}');
   });
 
   it('saves and reloads ordered text/media with optional caption and stable IDs, preserving other copy', async () => {
@@ -178,3 +190,5 @@ describe('WhatsApp event sequences in company settings', () => {
     expect(screen.getByLabelText('Tipo da mensagem 1')).toHaveValue('image');
   });
 });
+
+function render(ui: ReactElement) { return rtlRender(ui, { wrapper: MemoryRouter }); }
