@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
@@ -12,9 +12,11 @@ import { ClipboardCheck, Copy, Check, Link2, Loader2, MessageCircle, Pencil, Arr
 import { toast } from "sonner";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import FormFieldEditor from "@/components/FormFieldEditor";
+import FormDefinitionManager from '@/components/admin/FormDefinitionManager';
 import { useNavigate } from "react-router-dom";
-import { openStudentChat } from "@/lib/studentChat";
+import { openStudentChat, draftCompanyEventMessage } from "@/lib/studentChat";
 import { anamnesisInviteUrl, preRegistrationUrl } from "@/lib/publicFlowLinks";
+import { prepareCompanyPreRegistrationDraft } from '@/lib/companyInvitationDraft';
 
 // Anamnese ÚNICA (estúdio integrado). A aba Anamnese seleciona o aluno, gera o link da
 // anamnese estruturada e envia direto no WhatsApp dele (ou copia o link).
@@ -42,6 +44,7 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
   const { user, companyId: authCompanyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : authCompanyId ?? null;
+  const companyRef=useRef(effectiveCompanyId);companyRef.current=effectiveCompanyId;
   const navigate = useNavigate();
   const chatRoutePrefix = role === "master" ? "admin" : role || "admin";
 
@@ -107,7 +110,8 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
     const url = await createInvite();
     if (!url) return;
     const nome = (student?.full_name || "").trim().split(/\s+/)[0] || "";
-    const msg = `Oi, ${nome}! Pra eu montar seu plano do jeito certo, responde essa anamnese rapidinha (leva uns minutos): ${url}`;
+    const fallback = `Oi, ${nome}! Pra eu montar seu plano do jeito certo, responde essa anamnese rapidinha (leva uns minutos): ${url}`;
+    const msg = effectiveCompanyId ? await draftCompanyEventMessage(effectiveCompanyId,'anamnesis_invite',{primeiro_nome:nome,nome:student?.full_name||'',link:url},fallback) : fallback;
     await openStudentChat({
       navigate,
       routePrefix: chatRoutePrefix,
@@ -151,12 +155,18 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
       toast.error("Informe um WhatsApp válido para enviar o pré-cadastro.");
       return;
     }
+    if(!effectiveCompanyId)return;
+    const target=effectiveCompanyId;
+    let message:string;
+    try{message=await prepareCompanyPreRegistrationDraft(target,globalLink);}
+    catch{toast.error('Não foi possível preparar o convite da empresa. Tente novamente.');return;}
+    if(companyRef.current!==target)return;
     await openStudentChat({
       navigate,
       routePrefix: chatRoutePrefix,
       studentId: null,
       phone,
-      message: `Oi! Para começar seu atendimento com a BN, preencha este pré-cadastro: ${globalLink}\n\nAo enviar, seu cadastro entra em Interessados e nossa equipe continua o atendimento por este WhatsApp.`,
+      message,
       onNoChat: () => {
         void navigator.clipboard?.writeText(globalLink);
         toast.success("Link global copiado para envio.");
@@ -171,12 +181,12 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
         <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
           <ArrowLeft className="mr-1.5 h-4 w-4" /> Voltar ao envio
         </Button>
-        <FormFieldEditor
+        {effectiveCompanyId ? <FormDefinitionManager companyId={effectiveCompanyId} /> : <FormFieldEditor
           formType="anamnesis"
           title="EDITAR ANAMNESE"
           subtitle="Adicione perguntas suas à anamnese. As perguntas padrão são fixas e não podem ser removidas."
           publicPath="/anamnese-convite"
-        />
+        />}
       </div>
     );
   }

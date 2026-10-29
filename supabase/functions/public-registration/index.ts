@@ -1,8 +1,12 @@
+import { atomicRegistration } from '../_shared/atomic-registration.ts';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { resolveAnamnesisDurations } from "../_shared/anamnesis-duration.ts";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
+import { companyOperationTransitionAllowed, type OperationalStage } from "../_shared/company-operation-transitions.ts";
 import { preRegistrationFollowUpNotice } from "../_shared/pre-registration-confirmation.ts";
 import { validatePreRegistrationSubmission } from "../_shared/pre-registration-validation.ts";
+import { loadPublishedForm, prepareVersionedPreRegistration, type FormReadClient } from "../_shared/published-forms.ts";
 import { countryAwareFiscalFields, fiscalRegistrationValidation, normalizeCountryCode, normalizeFiscalDocument, supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
 import {
   buildPreRegistrationConfirmationMessage,
@@ -238,6 +242,7 @@ async function requireStaff(req: Request, studentId: unknown) {
   const roleError = roles.find((result) => result.error)?.error;
   if (roleError) throw new HttpError(503, `Falha ao validar função: ${roleError.message}`);
   if (!roles.some((result) => result.data === true)) throw new HttpError(403, "Forbidden");
+  await requireCompanyFeature(supabase, tenant.companyId, "hasRegistration");
   return tenant;
 }
 
@@ -266,14 +271,17 @@ async function requireCompanyStaff(req: Request, companyId: unknown) {
   const roleError = roleResults.find((result) => result.error)?.error;
   if (roleError) throw new HttpError(503, `Falha ao validar função: ${roleError.message}`);
   if (!roleResults.some((result) => result.data === true)) throw new HttpError(403, "Forbidden");
+  await requireCompanyFeature(supabase, tenant.companyId, "hasRegistration");
   return { userId, companyId: tenant.companyId };
 }
 
 async function preRegister(body: Record<string, unknown>) {
   const whatsappConfirmed = body.whatsappConfirmed === true;
   if (!whatsappConfirmed) throw new HttpError(422, "Confirme o número de WhatsApp antes de enviar o pré-cadastro.");
-  const validated = validatePreRegistrationSubmission(body);
   const company = await resolvePreRegistrationCompany(body);
+  await requireCompanyFeature(supabase, company.id, "hasRegistration");
+  const versioned = await prepareVersionedPreRegistration(supabase as unknown as FormReadClient, company.id, body);
+  const validated = validatePreRegistrationSubmission(versioned?.legacyBody ?? body, versioned?.customFields ?? []);
   const { fullName, phone, budgetRange, preferredContactPeriod, answers } = validated;
 
   const submittedAt = new Date().toISOString();
@@ -285,7 +293,7 @@ async function preRegister(body: Record<string, unknown>) {
     stage: "interested",
     budget_range: budgetRange,
     preferred_contact_period: preferredContactPeriod,
-    pre_registration_answers: answers,
+    pre_registration_answers: versioned ? { ...answers, __form: versioned.snapshot } : answers,
     submitted_at: submittedAt,
     updated_at: submittedAt,
   };
@@ -362,8 +370,15 @@ async function loadLeadForStaff(req: Request, leadId: unknown) {
   return { lead, tenant };
 }
 
+async function requireOperationalTransition(companyId: string, source: unknown, target: OperationalStage, status?: unknown) {
+  if (!await companyOperationTransitionAllowed(supabase, companyId, source, target, status)) {
+    throw new HttpError(403, 'Transição operacional indisponível.');
+  }
+}
+
 async function markLeadContacted(req: Request, leadId: unknown, outcome: unknown = "in_conversation") {
   const { lead, tenant } = await loadLeadForStaff(req, leadId);
+  await requireOperationalTransition(tenant.companyId, lead.stage, 'contacted');
   const contactOutcome = cleanText(outcome) || "in_conversation";
   if (!["in_conversation", "no_response", "follow_up", "qualified", "not_fit"].includes(contactOutcome)) {
     throw new HttpError(422, "Classificação de contato inválida.");
@@ -510,77 +525,27 @@ function anamnesisFromLead(lead: Record<string, unknown>, studentId: string) {
   };
 }
 
-async function convertLeadToFiscal(req: Request, leadId: unknown) {
+async function convertLeadToFiscal(req: Request, leadId: unknown, phoneCountry: unknown, phoneFormat: unknown, confirmedPhone: unknown) {
   const { lead, tenant } = await loadLeadForStaff(req, leadId);
-  let studentId = lead.converted_to_student_id as string | null;
-  if (!studentId) {
-    const phone = onlyDigits(lead.phone);
-    const { data: matchingStudent } = await supabase.from("students")
-      .select("id")
-      .eq("company_id", tenant.companyId)
-      .or(`phone.eq.${phone},whatsapp.eq.${phone}`)
-      .limit(1)
-      .maybeSingle();
-    studentId = matchingStudent?.id || null;
-    if (!studentId) {
-      const created = await supabase.from("students").insert({
-        company_id: tenant.companyId,
-        full_name: lead.full_name,
-        phone,
-        whatsapp: phone,
-        status: "interested",
-        sales_stage: "fiscal_registration_pending",
-      }).select("id").single();
-      if (created.error || !created.data) throw new HttpError(500, `Falha ao iniciar cadastro fiscal: ${created.error?.message || "erro desconhecido"}`);
-      studentId = created.data.id;
-    }
-    if (!studentId) throw new HttpError(500, "Falha ao identificar o aluno.");
-    const answers = lead.pre_registration_answers && typeof lead.pre_registration_answers === "object"
-      ? lead.pre_registration_answers as Record<string, unknown>
-      : {};
-    const demographics: Record<string, unknown> = {};
-    const gender = cleanText(answers.gender).toUpperCase();
-    if (["M", "F"].includes(gender)) demographics.gender = gender;
-    const weightKg = numberOrNull(answers.weight_kg);
-    const heightCm = numberOrNull(answers.height_cm);
-    if (weightKg != null) demographics.weight_kg = weightKg;
-    if (heightCm != null) demographics.height_cm = heightCm;
-    if (Object.keys(demographics).length) {
-      const demographicUpdate = await supabase.from("students")
-        .update(demographics)
-        .eq("id", studentId)
-        .eq("company_id", tenant.companyId);
-      if (demographicUpdate.error) {
-        throw new HttpError(500, `Falha ao integrar dados físicos: ${demographicUpdate.error.message}`);
-      }
-    }
-    const anamnesis = await supabase.from("student_anamneses")
-      .upsert(anamnesisFromLead(lead, studentId), { onConflict: "student_id" });
-    if (anamnesis.error) throw new HttpError(500, `Falha ao integrar pré-cadastro: ${anamnesis.error.message}`);
-  }
-  if (!studentId) throw new HttpError(500, "Falha ao identificar o aluno.");
-
-  const now = new Date().toISOString();
-  const leadUpdate = await supabase.from("leads").update({
-    stage: "fiscal_registration",
-    contact_outcome: "qualified",
-    converted_to_student_id: studentId,
-    fiscal_invited_at: now,
-    updated_at: now,
-  }).eq("id", lead.id).eq("company_id", tenant.companyId);
-  if (leadUpdate.error) throw new HttpError(500, `Falha ao avançar interessado: ${leadUpdate.error.message}`);
-
-  // Conversion only prepares the fiscal registration. Sending is a separate,
-  // explicit action so a Kanban move or profile open can never contact a lead.
-  const registration = await createRegistrationLink(req, studentId);
-  const registrationUrl = `${APP_URL}/cadastro-fiscal/${registration.token}`;
+  const answers = lead.pre_registration_answers && typeof lead.pre_registration_answers === 'object'
+    ? lead.pre_registration_answers as Record<string, unknown> : {};
+  const demographics: Record<string, unknown> = {};
+  const gender = cleanText(answers.gender).toUpperCase();
+  if (['M', 'F'].includes(gender)) demographics.gender = gender;
+  const weight = numberOrNull(answers.weight_kg), height = numberOrNull(answers.height_cm);
+  if (weight !== null) demographics.weight_kg = weight;
+  if (height !== null) demographics.height_cm = height;
+  // Authenticated actor and captured lead version are rechecked inside one SQL
+  // transaction; no student/anamnesis/link/stage writes happen over separate HTTP calls.
+  const result = await atomicRegistration(supabase, 'convert_lead_to_fiscal_atomic', {
+    _lead_id: lead.id, _actor_id: tenant.userId, _expected_updated_at: lead.updated_at,
+    _anamnesis: anamnesisFromLead(lead, lead.id), _demographics: demographics,
+    _phone_country: cleanText(phoneCountry).toUpperCase(), _phone_format: cleanText(phoneFormat), _confirmed_phone: cleanText(confirmedPhone),
+  }, tenant.companyId);
   return {
-    leadId: lead.id,
-    studentId,
-    token: registration.token,
-    expiresAt: registration.expires_at,
-    registrationUrl,
-    messageSent: false,
+    leadId: result.leadId, studentId: result.studentId, token: result.token,
+    expiresAt: result.expires_at, registrationUrl: `${APP_URL}/cadastro-fiscal/${result.token}`,
+    messageSent: false, phoneDigits: result.confirmedPhone,
   };
 }
 
@@ -615,54 +580,9 @@ async function resolveRegistrationToken(token: unknown): Promise<RegistrationLin
 
 async function createRegistrationLink(req: Request, studentId: unknown) {
   const tenant = await requireStaff(req, studentId);
-  const { data: student, error: studentError } = await supabase
-    .from("students")
-    .select("id, full_name, status, sales_stage, phone, whatsapp, country_code")
-    .eq("id", studentId)
-    .eq("company_id", tenant.companyId)
-    .maybeSingle();
-  if (studentError) throw new HttpError(500, `Falha ao carregar interessado: ${studentError.message}`);
-  if (!student) throw new HttpError(404, "Interessado não encontrado.");
-
-  const now = new Date().toISOString();
-  const { data: existing, error: existingError } = await supabase
-    .from("public_registration_links")
-    .select("id, token, company_id, expires_at")
-    .eq("student_id", student.id)
-    .eq("company_id", tenant.companyId)
-    .is("revoked_at", null)
-    .is("completed_at", null)
-    .gt("expires_at", now)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (existingError) throw new HttpError(500, `Falha ao consultar link: ${existingError.message}`);
-
-  let link = existing;
-  if (!link) {
-    const created = await supabase.from("public_registration_links").insert({
-      student_id: student.id,
-      company_id: tenant.companyId,
-      created_by: tenant.userId,
-    }).select("id, token, company_id, expires_at").single();
-    if (created.error || !created.data) {
-      throw new HttpError(500, `Falha ao criar link: ${created.error?.message || "erro desconhecido"}`);
-    }
-    link = created.data;
-  }
-
-  const activeStudent = ["active", "awaiting_renewal"].includes(student.status || "");
-  const update: Record<string, unknown> = activeStudent
-    ? {}
-    : { sales_stage: "fiscal_registration_pending", status: "interested" };
-  if (Object.keys(update).length === 0) return { ...link, student };
-  const { error: updateError } = await supabase.from("students")
-    .update(update)
-    .eq("id", student.id)
-    .eq("company_id", tenant.companyId);
-  if (updateError) throw new HttpError(500, `Falha ao atualizar interessado: ${updateError.message}`);
-
-  return { ...link, student };
+  return await atomicRegistration(supabase, 'prepare_registration_link_atomic', {
+    _student_id: studentId, _actor_id: tenant.userId,
+  }, tenant.companyId);
 }
 
 async function sendRegistrationLink(req: Request, studentId: unknown, attemptId?: unknown) {
@@ -688,6 +608,7 @@ async function sendRegistrationLink(req: Request, studentId: unknown, attemptId?
     phone: phoneCandidates[0] || null,
     countryCode: student.country_code,
     text: buildFiscalRegistrationMessage(student.full_name, registrationUrl),
+    templateValues: { link: registrationUrl },
     eventType: "fiscal_registration_link_sent",
     eventKey: `fiscal_registration_link_sent:${eventAttempt}`,
     payload: {
@@ -801,6 +722,7 @@ async function completeFiscalRegistration(link: RegistrationLink, studentInput: 
     phone,
     countryCode: String(payload.country_code || currentStudent.country_code || "BR"),
     text: buildPaymentLinkMessage(currentStudent.full_name, paymentUrl),
+    templateValues: { link: paymentUrl },
     eventType: "payment_link_sent",
     eventKey: `payment_link_sent:${paymentLink.id}`,
     payload: { payment_link_id: paymentLink.id },
@@ -847,7 +769,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "convert-lead") {
-      return json(await convertLeadToFiscal(req, body.leadId));
+      return json(await convertLeadToFiscal(req, body.leadId, body.phoneCountry, body.phoneFormat, body.confirmedPhone));
     }
 
     if (action === "context") {
@@ -869,7 +791,8 @@ Deno.serve(async (req) => {
 
       const company = await resolveCompany(body.slug ?? null);
       if (!company) throw new HttpError(404, "Empresa não encontrada.");
-      return json({ mode: "public", company, branding: await getBranding(company.id) });
+      return json({ mode: "public", company, branding: await getBranding(company.id),
+        form_definition: await loadPublishedForm(supabase as unknown as FormReadClient, company.id, 'pre_registration') });
     }
 
     if (action === "complete") {

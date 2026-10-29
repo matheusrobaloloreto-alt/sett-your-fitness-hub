@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { canonicalMuscleSlug, normalizeExerciseCategories } from "../_shared/exerciseTaxonomy.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantAccess, HttpError } from "../_shared/tenant-auth.ts";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import { buildCatalogVolumeSummary, canonicalCatalogTargets } from "../_shared/prescription/catalogVolume.ts";
 import { fetchExerciseRelations } from "../_shared/prescription/catalogRows.ts";
 import { getVolumeRangeForGroup, reviewWeeklyVolume } from "../_shared/prescription/volumeRules.ts";
@@ -471,6 +472,7 @@ serve(async (req) => {
     const body = await req.json();
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     const companyId = await resolveValidationCompanyId(supabase, claims, body);
+    await requireCompanyFeature(supabase, companyId || "", "hasPrescription");
     const [catalog, trustedLegacyExerciseIds] = await Promise.all([
       loadExerciseCatalog(supabase, companyId),
       loadTrustedLegacyExerciseIds(supabase, body.cycle_id, companyId),

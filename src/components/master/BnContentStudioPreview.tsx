@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { BnContentSpec } from "@/lib/bnContentStudio";
 import { bnSlideDimensions, renderBnContentSlide } from "@/lib/bnContentRenderer";
+import { useBnContentBrand } from "@/lib/bnContentBrand";
 
 export function BnContentStudioPreview({ spec, index, assets }: { spec: BnContentSpec; index: number; assets: Record<string, string> }) {
+  const identity=useBnContentBrand();
   const [preview, setPreview] = useState<{ url?: string; error?: string }>({});
   const backgroundPath = spec.slides[index]?.background_path;
   const backgroundUrl = backgroundPath ? assets[backgroundPath] : undefined;
@@ -16,7 +18,7 @@ export function BnContentStudioPreview({ spec, index, assets }: { spec: BnConten
       setPreview({ error: "A imagem expirou ou está indisponível. Atualize o Studio." });
       return;
     }
-    void renderBnContentSlide(spec, index, { backgroundUrl, logoUrl }).then(blob => {
+    void renderBnContentSlide(spec, index, { backgroundUrl, logoUrl:identity?identity.logoUrl:logoUrl,brand:identity?.brand }).then(blob => {
       if (!active) return;
       objectUrl = URL.createObjectURL(blob);
       setPreview({ url: objectUrl });
@@ -27,7 +29,7 @@ export function BnContentStudioPreview({ spec, index, assets }: { spec: BnConten
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [spec, index, backgroundPath, backgroundUrl, logoUrl]);
+  }, [spec, index, backgroundPath, backgroundUrl, logoUrl,identity]);
 
   return <div className="flex min-w-0 items-center justify-center bg-muted/30 p-3">
     <div className={`relative flex w-full max-w-[360px] items-center justify-center overflow-hidden ${bnSlideDimensions(spec.format).height === 1920 ? "aspect-[9/16]" : "aspect-[4/5]"}`}>

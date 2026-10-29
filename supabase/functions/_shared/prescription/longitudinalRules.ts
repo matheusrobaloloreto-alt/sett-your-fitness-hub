@@ -1,5 +1,6 @@
 import { normalizeText } from "./presets.ts";
 import { DELOAD_RULES } from "./methodology.ts";
+import { shouldHoldProgression } from "./progressionRules.ts";
 import type { PrescriptionExplanation, PrescriptionInput, TrainingWorkout } from "./types.ts";
 
 export type LongitudinalPhase = "base" | "acumulacao" | "intensificacao" | "consolidacao";
@@ -83,8 +84,10 @@ function previousExerciseMetrics(input: PrescriptionInput) {
 export function applyLongitudinalProgression(workouts: TrainingWorkout[], input: PrescriptionInput) {
   const sequenceNumber = resolveSequenceNumber(input);
   const plannedPhase = resolveLongitudinalPhase(input);
-  const hold = performanceRequiresHold(input);
-  const phase: LongitudinalPhase = input.deload || hold ? "consolidacao" : plannedPhase;
+  const feedbackHold = performanceRequiresHold(input);
+  const hold = feedbackHold || shouldHoldProgression(input);
+  const mode = input.companyPolicy?.progression_mode ?? 'wave';
+  const phase: LongitudinalPhase = input.deload || hold ? "consolidacao" : mode === 'wave' ? plannedPhase : 'base';
   const nextWorkouts = cloneWorkouts(workouts);
   const previousMetrics = previousExerciseMetrics(input);
   let reusedMetrics = 0;
@@ -105,6 +108,14 @@ export function applyLongitudinalProgression(workouts: TrainingWorkout[], input:
         exercise.rir = DELOAD_RULES.rir;
         exercise.tempo = "3110";
         exercise.biomechanical_note = `${exercise.biomechanical_note} Deload: manter o orçamento reduzido e a execução técnica.`;
+      } else if (!hold && mode !== 'wave') {
+        if (mode === 'reps_only' && main && previous) {
+          const match = /^(\d+)(?:-(\d+))?$/.exec(exercise.reps);
+          if (match) exercise.reps = match[2]
+            ? `${Math.min(30, Number(match[1]) + 1)}-${Math.min(30, Number(match[2]) + 1)}`
+            : String(Math.min(30, Number(match[1]) + 1));
+        }
+        exercise.biomechanical_note = `${exercise.biomechanical_note} Política da empresa: ${mode === 'maintain' ? 'manter dose entre ciclos' : 'progredir somente repetições entre ciclos'}; sem aumento automático de séries ou intensidade.`;
       } else if (phase === "acumulacao" && main) {
         exercise.sets += 1;
         exercise.rir = "2-3";
@@ -137,7 +148,7 @@ export function applyLongitudinalProgression(workouts: TrainingWorkout[], input:
   const explanation: PrescriptionExplanation = {
     rule_id: ruleId,
     category: phase === "consolidacao" ? "deload" : "progressao",
-    source: hold ? "feedback_aluno" : "objetivo",
+    source: feedbackHold ? "feedback_aluno" : hold ? "anamnese" : "objetivo",
     target: `ciclo_${sequenceNumber}`,
     action: input.deload
       ? `Manter o orçamento global reduzido e RIR ${DELOAD_RULES.rir} em todo o ciclo.`

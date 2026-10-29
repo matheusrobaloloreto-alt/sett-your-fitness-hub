@@ -7,6 +7,8 @@ import { useNavigate } from "react-router-dom";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 import { cn } from "@/lib/utils";
+import { useCompanyExperiencePolicy } from '@/hooks/useCompanyExperiencePolicy';
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS, fetchCompanyProductSettings } from '@/lib/companyProductSettings';
 
 interface PanelData {
   expiringContracts: any[];
@@ -16,13 +18,14 @@ interface PanelData {
 }
 
 async function fetchRenewalsAndCycles(effectiveCompanyId: string | null | undefined): Promise<PanelData> {
-  const thirtyDaysFromNow = format(addDays(new Date(), 30), "yyyy-MM-dd");
+  const experience = effectiveCompanyId ? (await fetchCompanyProductSettings(effectiveCompanyId)).settings.experience : DEFAULT_COMPANY_PRODUCT_SETTINGS.experience;
+  const renewalDate = format(addDays(new Date(), experience.renewal_notice_days), "yyyy-MM-dd");
 
   let expiringQuery = supabase
     .from("enrollments")
     .select("*, trainer_id, students(full_name, status), plans(name)")
     .eq("status", "active")
-    .lte("end_date", thirtyDaysFromNow)
+    .lte("end_date", renewalDate)
     .order("end_date", { ascending: true });
 
   let awaitingRenewalQuery = supabase
@@ -114,6 +117,7 @@ interface Props {
 }
 
 export function RenewalsAndCyclesPanel({ effectiveCompanyId, routePrefix, readOnly = false, renewalsOnly, cyclesOnly }: Props) {
+  const { policy, isPending: policyPending, error: policyError } = useCompanyExperiencePolicy(effectiveCompanyId);
   const navigate = useNavigate();
   const snapshot = useDashboardSnapshot();
   const renewalSnapshot = snapshot?.renewals;
@@ -123,11 +127,11 @@ export function RenewalsAndCyclesPanel({ effectiveCompanyId, routePrefix, readOn
     cycleCountdowns: renewalSnapshot?.cycleCountdowns || [],
     trainerMap: renewalSnapshot?.trainerMap || {},
   } : null;
-  const { data: queriedData } = useQuery({
-    queryKey: ["renewals-cycles", effectiveCompanyId ?? "all"],
+  const { data: queriedData, error: loadError } = useQuery({
+    queryKey: ["renewals-cycles", effectiveCompanyId ?? "all", policy.renewal_notice_days],
     queryFn: () => fetchRenewalsAndCycles(effectiveCompanyId),
     staleTime: 60_000,
-    enabled: !readOnly,
+    enabled: !readOnly && Boolean(effectiveCompanyId) && !policyPending,
   });
   const data = snapshotData ?? queriedData;
 
@@ -135,6 +139,7 @@ export function RenewalsAndCyclesPanel({ effectiveCompanyId, routePrefix, readOn
   const awaitingRenewal = data?.awaitingRenewal || [];
   const cycleCountdowns = data?.cycleCountdowns || [];
   const trainerMap = data?.trainerMap || {};
+  if (policyError || loadError) return <p role="alert" className="text-sm text-destructive">Nao foi possivel carregar a politica de renovacao.</p>;
   const openStudent = (studentId: string | null | undefined) => {
     if (readOnly || !studentId) return;
     navigate(`/${routePrefix}/students/${studentId}`);
@@ -227,7 +232,7 @@ export function RenewalsAndCyclesPanel({ effectiveCompanyId, routePrefix, readOn
                     )}
                   </div>
                   <span className={`text-xs font-sans font-medium px-2 py-1 rounded ${
-                    daysLeft <= 7 ? "bg-destructive/20 text-destructive" :
+                    daysLeft <= policy.renewal_notice_days ? "bg-destructive/20 text-destructive" :
                     daysLeft <= 15 ? "bg-warning/20 text-warning" : "bg-primary/20 text-primary"
                   }`}>
                     {daysLeft}d restantes
@@ -284,7 +289,7 @@ export function RenewalsAndCyclesPanel({ effectiveCompanyId, routePrefix, readOn
                 </div>
                 <span className={`text-xs font-sans font-medium px-2 py-1 rounded ${
                   m.days_left <= 0 ? "bg-destructive/20 text-destructive" :
-                  m.days_left <= 7 ? "bg-warning/20 text-warning" : "bg-primary/20 text-primary"
+                  m.days_left <= policy.renewal_notice_days ? "bg-warning/20 text-warning" : "bg-primary/20 text-primary"
                 }`}>
                   {m.days_left <= 0 ? "Vencido!" : `${m.days_left}d para troca`}
                 </span>

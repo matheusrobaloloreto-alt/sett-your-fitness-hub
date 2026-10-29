@@ -12,6 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { useMaster } from "@/contexts/MasterContext";
 import { INFLUENCER_PLAN_KIND, STANDARD_PLAN_KIND, type PlanKind } from "@/lib/influencerPlan";
+import { fetchCompanyCommercialSettings,DEFAULT_COMPANY_COMMERCIAL_SETTINGS } from "@/lib/companyCommercialSettings";
 
 interface Plan {
   id: string;
@@ -38,6 +39,7 @@ export default function PlansManager() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Plan | null>(null);
   const [form, setForm] = useState({ ...emptyPlanForm });
+  const [influencerPolicy,setInfluencerPolicy]=useState(DEFAULT_COMPANY_COMMERCIAL_SETTINGS.influencer);
   const { toast } = useToast();
   const { companyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
@@ -45,9 +47,11 @@ export default function PlansManager() {
 
   useEffect(() => {
     loadPlans();
+    let current=true;setInfluencerPolicy(DEFAULT_COMPANY_COMMERCIAL_SETTINGS.influencer);if(effectiveCompanyId)void fetchCompanyCommercialSettings(effectiveCompanyId).then(value=>{if(current)setInfluencerPolicy(value.settings.influencer);},()=>{if(current)setInfluencerPolicy({enabled:false,max_active_students:0});});return()=>{current=false;};
   }, [effectiveCompanyId]);
 
   const loadPlans = async () => {
+    if(!effectiveCompanyId){setPlans([]);return;}
     let query = supabase.from("plans").select("*").order("created_at", { ascending: false });
     if (effectiveCompanyId) query = query.eq("company_id", effectiveCompanyId);
     const { data } = await query;
@@ -55,7 +59,9 @@ export default function PlansManager() {
   };
 
   const handleSave = async () => {
+    if(!effectiveCompanyId){toast({title:"Selecione uma empresa",variant:"destructive"});return;}
     const isInfluencer = form.plan_kind === INFLUENCER_PLAN_KIND;
+    if(isInfluencer && !editing && !influencerPolicy.enabled){toast({title:"Novos planos de influenciador estão desabilitados",variant:"destructive"});return;}
     const name = isInfluencer ? "Influenciador(a)" : form.name.trim();
     if (!name || (!isInfluencer && !form.duration_weeks)) return;
     const payload = {
@@ -72,7 +78,7 @@ export default function PlansManager() {
       const { error } = await supabase
         .from("plans")
         .update(payload)
-        .eq("id", editing.id);
+        .eq("id", editing.id).eq("company_id",effectiveCompanyId);
       if (error) {
         toast({ title: "Erro", description: error.message, variant: "destructive" });
         return;
@@ -96,7 +102,8 @@ export default function PlansManager() {
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("plans").delete().eq("id", id);
+    if(!effectiveCompanyId)return;
+    const { error } = await supabase.from("plans").delete().eq("id", id).eq("company_id",effectiveCompanyId);
     if (error) {
       toast({ title: "Erro", description: error.message, variant: "destructive" });
       return;
@@ -153,7 +160,7 @@ export default function PlansManager() {
                     <SelectTrigger className="bg-secondary border-border"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value={STANDARD_PLAN_KIND}>Plano com matrícula e pagamento</SelectItem>
-                      <SelectItem value={INFLUENCER_PLAN_KIND}>Influenciador(a) — sem matrícula/pagamento</SelectItem>
+                      <SelectItem value={INFLUENCER_PLAN_KIND} disabled={!editing && !influencerPolicy.enabled}>Influenciador(a) — sem matrícula/pagamento</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

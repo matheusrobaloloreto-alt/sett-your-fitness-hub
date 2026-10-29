@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertBundleAccess, assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import { buildCardioProgram, assertCardioPlanComplete, normalizeCardioSport } from "../_shared/prescription/cardio/cardioEngine.ts";
 import { businessDateYmd } from "../_shared/business-date.ts";
 
@@ -411,6 +412,7 @@ serve(async (req) => {
       requireStaff: true,
     });
     const authorizedCompanyId = authz.companyId;
+    await requireCompanyFeature(supabase, authorizedCompanyId, "hasPrescription");
     const authorizedBundleId = await assertBundleAccess(supabase, bundle_id, authorizedCompanyId, student_id);
     let cycleContext: any = null;
     if (training_cycle_id != null && training_cycle_id !== "") {

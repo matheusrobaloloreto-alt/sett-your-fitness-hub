@@ -53,7 +53,8 @@ describe("registration funnel safety contracts", () => {
       "type RegistrationLink",
     );
 
-    expect(convertSource).toContain("createRegistrationLink(req, studentId)");
+    expect(convertSource).toContain("'convert_lead_to_fiscal_atomic'");
+    expect(convertSource).not.toMatch(/\.from\(|\.insert\(|\.update\(|\.upsert\(/);
     expect(convertSource).not.toContain("sendRegistrationLink(");
     expect(convertSource).toContain("messageSent: false");
   });

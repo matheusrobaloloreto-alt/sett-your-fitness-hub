@@ -2,6 +2,9 @@
 // Persistimos primeiro em workout_feedback; WhatsApp é só espelho opcional.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {preparePublishedWorkoutFeedback} from '../_shared/workout-feedback-form.ts';
+import type {FormReadClient} from '../_shared/published-forms.ts';
+import {HttpError} from '../_shared/tenant-auth.ts';
 import {
   buildWorkoutFeedbackMessage,
   buildWorkoutFeedbackRecord,
@@ -37,13 +40,15 @@ serve(async (req) => {
     const body = await req.json();
     const { student_id } = body;
     if (!student_id) return json({ error: "student_id obrigatório" }, 400);
-    const payload = normalizeWorkoutFeedbackPayload(body);
 
     const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     const { data: student } = await db.from("students").select("id, company_id, user_id, full_name, whatsapp, phone").eq("id", student_id).maybeSingle();
     if (!student) return json({ error: "Aluno não encontrado" }, 404);
     if (student.user_id !== sub) return json({ error: "Forbidden" }, 403); // só o próprio aluno
+
+    const versioned=await preparePublishedWorkoutFeedback(db as unknown as FormReadClient,student.company_id,body);
+    const payload=versioned?.payload??normalizeWorkoutFeedbackPayload(body);
 
     const firstName = String(student.full_name || "Aluno").split(/\s+/)[0];
     const content = buildWorkoutFeedbackMessage({ firstName, payload });
@@ -56,7 +61,7 @@ serve(async (req) => {
     // Persist first. WhatsApp is an optional delivery channel, never the source of truth.
     const savedFeedback = await persistWorkoutFeedbackOnce({
       db,
-      record: feedbackRecord,
+      record: versioned ? {...feedbackRecord,form_definition_id:versioned.formDefinitionId,instrument_answers:versioned.answers} : feedbackRecord,
     });
     if (savedFeedback.duplicate) {
       return json({
@@ -98,6 +103,6 @@ serve(async (req) => {
 
     return json({ ok: true, persisted: true, delivered: delivery.delivered, feedback_id: savedFeedback.id });
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : "Erro inesperado" }, 500);
+    return json({ error: e instanceof Error ? e.message : "Erro inesperado" }, e instanceof HttpError ? e.status : 500);
   }
 });

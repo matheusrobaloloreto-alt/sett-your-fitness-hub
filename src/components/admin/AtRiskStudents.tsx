@@ -1,7 +1,7 @@
 // Central de Atenção ("semáforo BNITO"): unifica os sinais de atenção por aluno usando a máquina
 // de status única (studentStatus) + dor relatada na anamnese, com PRÓXIMA MELHOR AÇÃO:
 // mensagem pronta + atalho para a conversa interna. Componente standalone do dashboard.
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, AlertTriangle, MessageSquare } from "lucide-react";
@@ -12,9 +12,10 @@ import { useMaster } from "@/contexts/MasterContext";
 import { deriveStudentStatus, riskReasons, STUDENT_STATUS_LABELS, STUDENT_STATUS_COLORS, type StudentStatus } from "@/lib/studentStatus";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { openStudentChat } from "@/lib/studentChat";
+import { createPlansLink, openStudentChat } from "@/lib/studentChat";
 import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
+import { useCompanyExperiencePolicy } from '@/hooks/useCompanyExperiencePolicy';
 
 interface RiskRow {
   id: string;
@@ -25,6 +26,7 @@ interface RiskRow {
   pain?: string | null;      // "joelho (moderada)" — dor relatada na anamnese
   message: string;           // próxima melhor ação: mensagem pronta pro aluno
   tone: "red" | "amber";     // semáforo
+  cycleEndsInDays?: number | null;
 }
 const PAID = ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"];
 
@@ -53,10 +55,13 @@ export function AtRiskStudents({ readOnly = false, routePrefix = "admin" }: { re
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
   const snapshot = useDashboardSnapshot();
+  const { policy, error: policyError } = useCompanyExperiencePolicy(effectiveCompanyId);
   const [rows, setRows] = useState<RiskRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     if (readOnly) {
       setRows((snapshot?.atRiskStudents || []) as RiskRow[]);
       setLoading(false);
@@ -107,18 +112,18 @@ export function AtRiskStudents({ readOnly = false, routePrefix = "admin" }: { re
           baseStatus: s.status, hasAnamnesis: true, hasAssessment: true, hasActiveWorkout: activeCycle.has(s.id),
           daysSinceLastTraining: daysSince, paymentOverdue: overdue.has(s.id), cycleEndsInDays,
         };
-        const status = deriveStudentStatus(signals);
+        const status = deriveStudentStatus(signals, policy);
         const pain = painByStudent[s.id] ?? null;
         // Reavaliação devida: aluno ativo com ciclo, última avaliação > 60 dias (base p/ renovar com evidência).
         const la = lastAssessment[s.id];
         const reassessDue = activeCycle.has(s.id) && la && (now - new Date(la).getTime()) / 86400000 > 60;
         // Entra no painel: risco/renovação (como antes) OU dor relatada OU reavaliação devida (mesmo "ativo").
         if (status === "risco" || status === "renovacao" || ((pain || reassessDue) && status === "ativo")) {
-          const reasons = riskReasons(signals);
+          const reasons = riskReasons(signals, policy);
           if (reassessDue) reasons.unshift(`Reavaliação devida (última há ${Math.floor((now - new Date(la).getTime()) / 86400000)}d)`);
           if (pain) reasons.unshift(`Dor: ${pain}`);
           out.push({
-            id: s.id, name: s.full_name, status, reasons, chatId: chatByStudent[s.id], pain,
+            id: s.id, name: s.full_name, status, reasons, chatId: chatByStudent[s.id], pain, cycleEndsInDays,
             message: buildMessage(s.full_name, status, reasons, pain),
             tone: pain || status === "risco" ? "red" : "amber",
           });
@@ -126,30 +131,40 @@ export function AtRiskStudents({ readOnly = false, routePrefix = "admin" }: { re
       }
       // Semáforo: vermelho (dor/risco) primeiro, depois âmbar (renovação).
       out.sort((a, b) => (a.tone === "red" ? -1 : 1) - (b.tone === "red" ? -1 : 1));
-      setRows(out);
+      if (generation === loadGeneration.current) setRows(out);
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [effectiveCompanyId, readOnly, snapshot]);
+  }, [effectiveCompanyId, readOnly, snapshot, policy]);
 
   useEffect(() => { load(); }, [load]);
 
   const openConversation = async (row: RiskRow) => {
-    if (readOnly) return;
-    await openStudentChat({
+    if (readOnly || !effectiveCompanyId) return;
+    try {
+      const renewal = row.status === 'renovacao' && !row.pain;
+      const link = renewal ? await createPlansLink(row.id) : '';
+      await openStudentChat({
       navigate,
       routePrefix,
       chatId: row.chatId,
       studentId: row.id,
       message: row.message,
+      ...(renewal ? {
+        companyId: effectiveCompanyId,
+        messageEvent: typeof row.cycleEndsInDays === 'number' && row.cycleEndsInDays <= 0 ? 'renewal_overdue' as const : 'renewal_due' as const,
+        messageValues: { nome: row.name, primeiro_nome: row.name.trim().split(/\s+/)[0], link, prazo: typeof row.cycleEndsInDays === 'number' ? String(row.cycleEndsInDays) : '' },
+      } : {}),
       onNoChat: () => toast.error("Esse aluno ainda não tem telefone ou conversa cadastrada."),
-    });
+      });
+    } catch (failure) { toast.error(failure instanceof Error ? failure.message : 'Nao foi possivel preparar o rascunho.'); }
   };
   const openStudent = (studentId: string) => {
     if (readOnly) return;
     navigate(`/${routePrefix}/students/${studentId}`);
   };
 
+  if (policyError) return <p role="alert" className="text-sm text-destructive">Nao foi possivel carregar a politica de risco.</p>;
   return (
     <Card className="bg-card border-border">
       <CardContent className="p-4">

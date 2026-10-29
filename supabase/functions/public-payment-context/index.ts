@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
+import { getCompanyProductSettings, type SettingsReadClient } from "../_shared/company-product-settings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -292,7 +293,11 @@ Deno.serve(async (req) => {
       ]);
       if (plansError) throw new HttpError(500, `Falha ao carregar planos: ${plansError.message}`);
       if (enrollmentError) throw new HttpError(500, `Falha ao carregar matrícula: ${enrollmentError.message}`);
-      return json({ student, plans: plans ?? [], isRenewal: !!enrollment, branding, expiresAt: link.expires_at });
+      const productSettings = await getCompanyProductSettings(supabase as unknown as SettingsReadClient, link.company_id);
+      const { data: company, error: companyError } = await supabase.from("companies").select("name,slug").eq("id",link.company_id).single();
+      if (companyError || !company) throw new HttpError(503,"Identidade da empresa indisponível.");
+      // Only brand and business policy are public checkout data; never expose internal templates.
+      return json({ student, plans: plans ?? [], isRenewal: !!enrollment, branding, company, business: productSettings.business, publicBrand: { company_name: productSettings.brand.company_name, terms_url: productSettings.brand.terms_url, privacy_url: productSettings.brand.privacy_url, support_email: productSettings.brand.support_email, support_whatsapp: productSettings.brand.support_whatsapp }, expiresAt: link.expires_at });
     }
 
     if (action === "select-plan") {

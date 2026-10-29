@@ -4,6 +4,8 @@
 // schema inconsistente). Idempotente: se o plano já tem meals, devolve o que existe.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
+import { HttpError } from "../_shared/tenant-auth.ts";
 import { buildExternalNutritionDocument, sanitizeExternalMeals } from "./external-plan.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
@@ -91,6 +93,7 @@ serve(async (req) => {
       allowed = !!isMaster || (!!userCompany && userCompany === student.company_id);
     }
     if (!allowed) return json({ error: "Forbidden" }, 403);
+    await requireCompanyFeature(db, student.company_id, "hasPrescription");
 
     // Anamnese (nº de refeições, horários, treino).
     const { data: anamnese } = await (db as any)
@@ -269,6 +272,6 @@ Retorne APENAS JSON válido, sem texto extra:
     await db.from("nutrition_plans").update({ meals: safeMeals }).eq("id", (plan as any).id);
     return json({ meals: safeMeals, cached: false });
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : "Erro inesperado" }, 500);
+    return json({ error: e instanceof Error ? e.message : "Erro inesperado" }, e instanceof HttpError ? e.status : 500);
   }
 });

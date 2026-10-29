@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { assertInstallmentCountAllowed, maxInstallmentsForPlanDuration } from "../../supabase/functions/_shared/payment-installments";
 
 const uiSource = readFileSync("src/pages/PublicPayment.tsx", "utf8");
 const edgeSource = readFileSync("supabase/functions/asaas-integration/index.ts", "utf8");
@@ -95,10 +96,21 @@ describe("public credit-card checkout contract", () => {
     expect(uiSource).toContain('disabled={loading || billingCountryCode !== "BR"}');
   });
 
-  it("enforces 1x, 6x and 12x limits on the server from the plan duration", () => {
-    expect(edgeSource).toContain("maxInstallmentsForPlanDuration");
+  it("enforces the typed company installment policy from the authoritative plan duration", () => {
+    expect(edgeSource).toContain("assertInstallmentCountAllowed");
+    expect(edgeSource).toContain("getCompanyProductSettings(supabaseAdmin as unknown as SettingsReadClient, student.company_id)");
     expect(edgeSource).toContain("plan.duration_weeks");
     expect(installmentSource).toContain("Quantidade de parcelas não permitida para este plano");
+    for (const [weeks,limit] of [[6,1],[24,6],[48,12]]) {
+      expect(maxInstallmentsForPlanDuration(weeks)).toBe(limit);
+      expect(assertInstallmentCountAllowed(limit,weeks)).toBe(limit);
+      expect(() => assertInstallmentCountAllowed(limit+1,weeks)).toThrow();
+    }
+    const policy = { installments_short:1,installments_medium:3,installments_long:8 };
+    expect(assertInstallmentCountAllowed(3,24,policy)).toBe(3);
+    expect(() => assertInstallmentCountAllowed(4,24,policy)).toThrow();
+    expect(() => assertInstallmentCountAllowed(9,48,policy)).toThrow();
+    expect(maxInstallmentsForPlanDuration(12,policy)).toBe(1);
   });
 
   it("uses the authoritative total for installments and never trusts a client installment value", () => {

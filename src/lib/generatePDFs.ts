@@ -25,7 +25,8 @@ export interface PDFMeta {
   date: string;
   professional?: string;
   cref?: string;
-  company?: string; // P18 — nome da empresa no rodapé (multitenancy); default "BN Performance Training".
+  company?: string;
+  logoDataUrl?: string;
 }
 
 // ── Helpers genéricos ──────────────────────────────────────────────────────
@@ -73,7 +74,12 @@ function header(doc: jsPDF, title: string, subtitle: string, meta: PDFMeta) {
   doc.roundedRect(MARGIN, 9, 16, 16, 2, 2, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold"); doc.setFontSize(11);
-  doc.text("BN", MARGIN + 8, 19.5, { align: "center" });
+  if (meta.logoDataUrl && /^data:image\/(png|jpeg);base64,/i.test(meta.logoDataUrl)) {
+    try { doc.addImage(meta.logoDataUrl, MARGIN, 9, 16, 16); } catch { /* Invalid logo never changes document identity. */ }
+  } else {
+    const initials = (meta.company || 'SETT').split(/\s+/).filter(Boolean).map(word => word[0]).join('').slice(0, 3).toUpperCase();
+    doc.text(initials, MARGIN + 8, 19.5, { align: "center" });
+  }
   doc.setFontSize(13);
   doc.text(title, MARGIN + 22, 15);
   doc.setFont("helvetica", "normal"); doc.setFontSize(8);
@@ -92,7 +98,8 @@ function stampFooters(doc: jsPDF, meta: PDFMeta) {
     doc.setDrawColor(...LIGHT); doc.setLineWidth(0.3);
     doc.line(MARGIN, h - 14, w - MARGIN, h - 14);
     doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(...GRAY);
-    doc.text(`${meta.professional || "Matheus Loreto"}  ·  ${meta.cref || "CREF 040718-G/SC"}  ·  ${meta.company || "BN Performance Training"}`, MARGIN, h - 9);
+    const identity = [meta.professional, meta.cref, meta.company].filter(Boolean).join('  ·  ');
+    doc.text(sanitize(identity), MARGIN, h - 9, { maxWidth: w - MARGIN * 2 - 15 });
     doc.text(`${p}/${pages}`, w - MARGIN, h - 9, { align: "right" });
   }
 }
@@ -853,8 +860,8 @@ export function generateAssessmentPDF(data: any, meta: PDFMeta, frameImages?: st
   const nExpected = expected.length || nVistas || 1;
   const totalComp = json?.total_compensacoes ?? vistas.reduce((s: number, v: any) => s + (Array.isArray(v?.compensacoes) ? v.compensacoes.length : 0), 0);
   const coverage = Math.min(100, Math.round((nVistas / nExpected) * 100));
-  const prof = meta.professional || "Matheus Loreto";
-  const cref = meta.cref || "040718-G/SC";
+  const prof = sanitize(meta.professional || '');
+  const cref = sanitize(meta.cref || '');
 
   // ── Cabeçalho da capa ──
   let y = 18;
@@ -863,7 +870,10 @@ export function generateAssessmentPDF(data: any, meta: PDFMeta, frameImages?: st
   doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...NAVY);
   doc.text(prof, pageW - MARGIN, y, { align: "right" });
   doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...BEGE);
-  doc.text(`CREF ${cref}`, pageW - MARGIN, y + 4.5, { align: "right" });
+  doc.text(cref ? (/^CREF\b/i.test(cref) ? cref : `CREF ${cref}`) : '', pageW - MARGIN, y + 4.5, { align: "right" });
+  if (meta.logoDataUrl && /^data:image\/(png|jpeg);base64,/i.test(meta.logoDataUrl)) {
+    try { doc.addImage(meta.logoDataUrl, pageW - MARGIN - 14, 2, 12, 12); } catch { /* Keep text identity when the logo is invalid. */ }
+  }
   y += 8;
   doc.setFont("helvetica", "bold"); doc.setFontSize(24); doc.setTextColor(...NAVY);
   doc.text("Avaliação Funcional", MARGIN, y);

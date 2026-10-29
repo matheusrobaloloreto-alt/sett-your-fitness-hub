@@ -5,8 +5,9 @@ import {
   resolveAsaasApiConfig,
 } from "../_shared/asaas-environment.ts";
 import { businessDateYmd } from "../_shared/business-date.ts";
+import { getCompanyProductSettings,type SettingsReadClient } from "../_shared/company-product-settings.ts";
+import { assessmentDeadline } from "../_shared/assessment-deadline.ts";
 import {
-  addBusinessDays,
   buildAssessmentOnboardingMessage,
   claimFunnelEvent,
   completeFunnelEvent,
@@ -210,7 +211,8 @@ Deno.serve(async (req) => {
 
     // Handle status transitions
     if (isConfirmed) {
-      const dueDate = addBusinessDays(new Date(), 5);
+      const productSettings=await getCompanyProductSettings(supabaseAdmin as unknown as SettingsReadClient,companyId);
+      const dueDate = assessmentDeadline(new Date(),productSettings.business.assessment_sla_business_days);
       const { data: lifecycleRows, error: lifecycleError } = await supabaseAdmin.rpc(
         "apply_paid_payment_lifecycle",
         {

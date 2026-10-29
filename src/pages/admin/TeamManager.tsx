@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { canRoleUseModule } from "@/lib/rolePermissionPolicy";
+import CompanyOperatorConsole from "@/components/master/CompanyOperatorConsole";
 import {
   buildManualSessionSummary,
   resolveManualPerformanceTrainerId,
@@ -153,6 +154,9 @@ export default function TeamManager() {
   const { user, companyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
+  const teamScope=useRef({companyId:effectiveCompanyId,generation:0,alive:true});
+  if(teamScope.current.companyId!==effectiveCompanyId){teamScope.current.alive=false;teamScope.current={companyId:effectiveCompanyId,generation:teamScope.current.generation+1,alive:true};}
+  const [loadedTeamCompany,setLoadedTeamCompany]=useState<string|null>(null);
   // Aba Atividade: só admin/master enxergam entradas/saídas/tempo online dos colaboradores.
   const isAdminViewer = role === "admin" || role === "master";
   const [activityRows, setActivityRows] = useState<Array<{ user_id: string; full_name: string; sessions: number; totalMinutes: number; last_activity: string | null }>>([]);
@@ -200,18 +204,24 @@ export default function TeamManager() {
   const { isEnabled, togglePermission, loading: permLoading } = useManageRolePermissions(effectiveCompanyId);
 
   useEffect(() => {
+    const scope=teamScope.current;scope.alive=true;setMembers([]);setAvailableUsers([]);setLoadedTeamCompany(null);
     if (effectiveCompanyId) loadTeam();
+    return()=>{scope.alive=false;scope.generation++;};
   }, [effectiveCompanyId]);
 
   const loadTeam = async () => {
     if (!effectiveCompanyId) return;
+    const scope=teamScope.current,generation=scope.generation;
+    const current=()=>scope===teamScope.current && scope.alive && scope.generation===generation;
 
     const { data: teamData, error: teamError } = await supabase.functions.invoke("manage-team-member", {
       body: { action: "list-members", company_id: effectiveCompanyId },
     });
+    if(!current())return;
 
     if (!teamError && teamData && Array.isArray(teamData.members)) {
       setMembers(teamData.members);
+      setLoadedTeamCompany(effectiveCompanyId);
       setAvailableUsers(Array.isArray(teamData.available_users) ? teamData.available_users : []);
       return;
     }
@@ -225,6 +235,7 @@ export default function TeamManager() {
       .from("company_members")
       .select("user_id")
       .eq("company_id", effectiveCompanyId);
+    if(!current())return;
 
     if (!companyMembers || companyMembers.length === 0) {
       setMembers([]);
@@ -239,7 +250,7 @@ export default function TeamManager() {
       .select("user_id, role")
       .in("user_id", companyUserIds);
 
-    if (!roles) return;
+    if (!roles || !current()) return;
 
     const userIds = [...new Set(roles.map((r) => r.user_id))];
     const { data: profiles } = await supabase
@@ -310,7 +321,8 @@ export default function TeamManager() {
       }
     }
 
-    setMembers(membersList);
+    if(!current())return;
+    setMembers(membersList);setLoadedTeamCompany(effectiveCompanyId);
 
     // Available users: only from this company
     const { data: companyProfiles } = await supabase
@@ -318,7 +330,7 @@ export default function TeamManager() {
       .select("user_id, full_name")
       .in("user_id", companyUserIds);
 
-    if (companyProfiles) setAvailableUsers(companyProfiles);
+    if (companyProfiles && current()) setAvailableUsers(companyProfiles);
   };
 
   // Compute months in selected range
@@ -1200,6 +1212,7 @@ export default function TeamManager() {
 
           {/* ====== TAB: Permissões ====== */}
           <TabsContent value="permissions">
+            {effectiveCompanyId && <CompanyOperatorConsole key={effectiveCompanyId} companyId={effectiveCompanyId} canManage={isAdminViewer} members={loadedTeamCompany===effectiveCompanyId?members:[]} />}
             <Card className="bg-card border-border">
               <CardContent className="pt-6">
                 <p className="text-sm text-muted-foreground font-sans mb-6">

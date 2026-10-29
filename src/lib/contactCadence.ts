@@ -1,6 +1,7 @@
 // Cadência de Contatos — formatação do tempo desde a última mensagem RECEBIDA.
 // "5h" até 23h; a partir de 24h vira dias: "1 dia", "7 dias".
 
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS, type CompanyProductSettings } from '../../supabase/functions/_shared/company-product-settings';
 export type CadenceTone = "ok" | "warn" | "late";
 
 export function formatCadence(hoursSince: number): string {
@@ -12,10 +13,10 @@ export function formatCadence(hoursSince: number): string {
 }
 
 /** Tom do alerta: verde <24h · âmbar 1–3 dias · vermelho >3 dias. */
-export function cadenceTone(hoursSince: number): CadenceTone {
+export function cadenceTone(hoursSince: number, policy: Pick<CompanyProductSettings['experience'], 'cadence_warning_hours' | 'cadence_critical_hours'> = DEFAULT_COMPANY_PRODUCT_SETTINGS.experience): CadenceTone {
   const safeHours = Math.max(0, Number.isFinite(hoursSince) ? hoursSince : 0);
-  if (safeHours < 24) return "ok";
-  if (safeHours < 72) return "warn";
+  if (safeHours < policy.cadence_warning_hours) return "ok";
+  if (safeHours < policy.cadence_critical_hours) return "warn";
   return "late";
 }
 

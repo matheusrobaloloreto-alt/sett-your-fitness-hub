@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CalendarClock, ClipboardList, XCircle } from "lucide-react";
+import { CalendarClock, ClipboardList, Copy, XCircle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import {usePublishedInstrument} from '@/hooks/usePublishedInstrument';
+import {intercycleScheduleDate,canIssueManualIntercycle} from '@/lib/formInstrumentPolicy';
+import {businessDateYmd} from '@/lib/businessDate';
 import {
   canManuallyCancelIntercycle,
   canManuallyScheduleIntercycle,
   intercycleStatusLabel,
-  isIntercycleWindow,
+  intercycleAnamnesisPath,
   type DeliveryIntercycleStatus,
   type IntercycleStatus,
 } from "@/lib/intercycleAnamnesis";
@@ -44,16 +47,21 @@ type TypedQuery<Row> = PromiseLike<QueryResult<Row>> & {
 const db = supabase as unknown as { from: <Row>(table: string) => TypedQuery<Row> };
 
 export function IntercycleAnamnesisControls({ studentId, companyId, initial }: { studentId: string; companyId: string; initial?: boolean }) {
+  const definition=usePublishedInstrument(companyId,'intercycle');
+  const scheduledDay=definition?.definition.policy.intercycle_day??29;
   const [enabled, setEnabled] = useState(!!initial); const [saving, setSaving] = useState(false); const [cycle, setCycle] = useState<Cycle | null>(null); const [delivery, setDelivery] = useState<Delivery | null>(null);
   const load = useCallback(async () => { const cycles = await db.from<Cycle>("training_cycles").select("id,start_date,cycle_number").eq("student_id", studentId).eq("company_id", companyId).is("superseded_at", null).or("status.is.null,status.not.in.(cancelled,superseded)").order("start_date", { ascending: false }).limit(1); const next = cycles.data?.[0] || null; setCycle(next); if (!next) { setDelivery(null); return; } const result = await db.from<Delivery>("intercycle_anamnesis_deliveries").select("id,status,scheduled_for,training_cycle_id,retry_count,last_error_code").eq("training_cycle_id", next.id).maybeSingle(); setDelivery(result.data || null); }, [studentId, companyId]);
   useEffect(() => { setEnabled(!!initial); void load(); }, [initial, load]);
   const invoke = async (body: Record<string, unknown>) => { const { error } = await supabase.functions.invoke("intercycle-anamnesis", { body: { company_id: companyId, student_id: studentId, ...body } }); if (error) throw error; await load(); };
   const toggle = async (next: boolean) => { setSaving(true); try { await invoke({ action: "opt-in", enabled: next }); setEnabled(next); toast.success(next ? "Anamnese interciclos agendada para todos os ciclos" : "Agendamento interciclos desativado"); } catch { toast.error("Não foi possível atualizar o agendamento"); } finally { setSaving(false); } };
-  const nextDate = cycle?.start_date ? new Date(`${cycle.start_date}T00:00:00`).getTime() + 28 * 86_400_000 : null;
+  const nextDate = cycle?.start_date ? new Date(`${intercycleScheduleDate(cycle.start_date,scheduledDay)}T12:00:00`).getTime() : null;
   const status: IntercycleStatus = enabled ? (delivery?.status || "opted_in") : "disabled";
-  const canScheduleNow = enabled && cycle && isIntercycleWindow(cycle.start_date) && canManuallyScheduleIntercycle(delivery?.status);
-  const canCancel = delivery && canManuallyCancelIntercycle(delivery.status);
-  return <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-3"><CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-3"><label htmlFor={`intercycle-${studentId}`} className="text-sm font-medium">Anamnese interciclos</label><Switch id={`intercycle-${studentId}`} checked={enabled} disabled={saving} onCheckedChange={toggle} /></div><p className="mt-0.5 text-xs text-muted-foreground">Opt-in para ciclos futuros. Um delivery real só nasce na janela operacional do ciclo, a partir do dia 29; o botão manual só agenda quando essa janela já abriu.</p><div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><Badge variant="outline">{intercycleStatusLabel(status)}</Badge>{cycle && <span>Ciclo {cycle.cycle_number || "—"}</span>}{nextDate && <span>Janela prevista: {format(new Date(nextDate), "dd/MM", { locale: ptBR })}</span>}{delivery?.status === "failed" && <span className="text-destructive">Tentativas: {delivery.retry_count}</span>}{delivery?.status === "sending" && <span className="text-amber-700">Envio assumido; aguarde confirmação.</span>}{canScheduleNow && <Button size="sm" variant="outline" onClick={() => void invoke({ action: "schedule-now", training_cycle_id: cycle.id }).catch(() => toast.error("Não foi possível agendar"))}><ClipboardList className="mr-1 h-3.5 w-3.5" /> {delivery?.status === "cancelled" ? "Reabrir nesta janela" : "Agendar nesta janela"}</Button>}{canCancel && <Button size="sm" variant="ghost" onClick={() => void invoke({ action: "cancel", delivery_id: delivery.id }).catch(() => toast.error("Não foi possível cancelar"))}><XCircle className="mr-1 h-3.5 w-3.5" /> Cancelar</Button>}</div></div></div>;
+  const uncertain = delivery?.last_error_code === 'dispatch_uncertain';
+  const canScheduleNow = !uncertain && enabled && cycle?.start_date && businessDateYmd()>=intercycleScheduleDate(cycle.start_date,scheduledDay) && canManuallyScheduleIntercycle(delivery?.status);
+  const canCancel = !uncertain && delivery && canManuallyCancelIntercycle(delivery.status);
+  const canCreateLink=!uncertain && canIssueManualIntercycle(cycle?.start_date??null,businessDateYmd(),!['sending','responded'].includes(delivery?.status??''));
+  const copyManualLink=async()=>{setSaving(true);try{const {data,error}=await supabase.functions.invoke('intercycle-anamnesis',{body:{action:'create-link',company_id:companyId,student_id:studentId}});if(error||!data?.token)throw error??new Error('Link indisponivel');await navigator.clipboard.writeText(`${window.location.origin}${intercycleAnamnesisPath(data.token)}`);toast.success('Link interciclos copiado');await load();}catch{toast.error('Nao foi possivel gerar e copiar o link.');}finally{setSaving(false);}};
+  return <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-3"><CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-3"><label htmlFor={`intercycle-${studentId}`} className="text-sm font-medium">Anamnese interciclos</label><Switch id={`intercycle-${studentId}`} checked={enabled} disabled={saving} onCheckedChange={toggle} /></div><p className="mt-0.5 text-xs text-muted-foreground">Opt-in para ciclos futuros. Um delivery real só nasce na janela operacional do ciclo, conforme a politica da empresa; o botão manual só agenda quando essa janela já abriu.</p><div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><Badge variant="outline">{intercycleStatusLabel(status)}</Badge>{cycle && <span>Ciclo {cycle.cycle_number || "—"}</span>}{nextDate && <span>Janela prevista: {format(new Date(nextDate), "dd/MM", { locale: ptBR })}</span>}{uncertain && <span role="status" className="text-destructive">Entrega não confirmada; reenvio suspenso para revisão técnica.</span>}{delivery?.status === "failed" && <span className="text-destructive">Tentativas: {delivery.retry_count}</span>}{delivery?.status === "sending" && <span className="text-amber-700">Envio assumido; aguarde confirmação.</span>}{canCreateLink && <Button size="sm" variant="outline" disabled={saving} onClick={()=>void copyManualLink()}><Copy className="mr-1 h-3.5 w-3.5" />Gerar e copiar link</Button>}{canScheduleNow && <Button size="sm" variant="outline" onClick={() => void invoke({ action: "schedule-now", training_cycle_id: cycle.id }).catch(() => toast.error("Não foi possível agendar"))}><ClipboardList className="mr-1 h-3.5 w-3.5" /> {delivery?.status === "cancelled" ? "Reabrir nesta janela" : "Agendar nesta janela"}</Button>}{canCancel && <Button size="sm" variant="ghost" onClick={() => void invoke({ action: "cancel", delivery_id: delivery.id }).catch(() => toast.error("Não foi possível cancelar"))}><XCircle className="mr-1 h-3.5 w-3.5" /> Cancelar</Button>}</div></div></div>;
 }
 
 export function IntercycleAnamnesisTimeline({ studentId, companyId }: { studentId: string; companyId: string }) {

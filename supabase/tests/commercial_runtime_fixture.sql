@@ -1,0 +1,88 @@
+-- Only for the isolated local QA stack. Entire test is rolled back.
+begin;
+create temporary table commercial_qa_ids(name text primary key,id uuid not null default gen_random_uuid());
+insert into commercial_qa_ids(name) values('a'),('b'),('admin_a'),('admin_b'),('master'),('support'),('plan_a');
+create function pg_temp.commercial_id(_name text) returns uuid language sql as $$ select id from commercial_qa_ids where name=_name $$;
+insert into auth.users(id,email) select id,'synthetic-commercial-'||id::text||'@qa.invalid' from commercial_qa_ids where name in ('admin_a','admin_b','master','support');
+insert into public.companies(id,name,slug,tier) select id,'Synthetic Commercial '||name,'synthetic-commercial-'||id::text,'basic' from commercial_qa_ids where name in ('a','b');
+insert into public.company_members(user_id,company_id) values(pg_temp.commercial_id('admin_a'),pg_temp.commercial_id('a')),(pg_temp.commercial_id('admin_b'),pg_temp.commercial_id('b'));
+insert into public.company_members(user_id,company_id) values(pg_temp.commercial_id('support'),pg_temp.commercial_id('a'));
+insert into public.user_roles(user_id,role) values(pg_temp.commercial_id('admin_a'),'admin'),(pg_temp.commercial_id('admin_b'),'admin'),(pg_temp.commercial_id('master'),'master');
+insert into public.user_roles(user_id,role) values(pg_temp.commercial_id('support'),'trainer');
+create function pg_temp.commercial_expect_error(_statement text,_code text) returns void language plpgsql as $$
+declare actual text;
+begin begin execute _statement;exception when others then get stacked diagnostics actual=returned_sqlstate;end;
+ if actual is distinct from _code then raise exception 'Expected %, got %',_code,actual;end if;
+end $$;
+grant select on commercial_qa_ids to authenticated,anon;
+select set_config('request.jwt.claim.sub',pg_temp.commercial_id('admin_a')::text,true);
+set local role authenticated;
+select public.save_company_commercial_settings(pg_temp.commercial_id('a'),'{}',0);
+select pg_temp.commercial_expect_error('update public.company_commercial_settings set version=99999','42501');
+select pg_temp.commercial_expect_error(format('select public.save_company_commercial_settings(%L,''{}'',0)',pg_temp.commercial_id('b')),'42501');
+select pg_temp.commercial_expect_error(format('select public.save_company_commercial_settings(%L,''{}'',0)',pg_temp.commercial_id('a')),'PT409');
+select pg_temp.commercial_expect_error(format('select public.save_company_commercial_settings(%L,%L,1)',pg_temp.commercial_id('a'),'{"funnel_labels":{"bypass_payment":"skip"}}'),'22023');
+select pg_temp.commercial_expect_error(format('select public.save_company_commercial_settings(%L,%L,1)',pg_temp.commercial_id('a'),'{"pages":{"termos":{"title":"Bad","sections":[{"heading":"","body":"<script>bad</script>"}]}}}'),'22023');
+select public.save_company_commercial_settings(pg_temp.commercial_id('a'),'{"pages":{"termos":{"title":"Provided terms","sections":[{"heading":"Scope","body":"Approved synthetic text"}]}}}',1);
+set local role anon;
+do $$ begin assert public.get_public_company_information('synthetic-commercial-'||pg_temp.commercial_id('a'))#>'{documents,termos}' is null;end $$;
+set local role authenticated;
+select public.publish_company_public_page(pg_temp.commercial_id('a'),'termos',2);
+select public.save_company_commercial_settings(pg_temp.commercial_id('a'),'{"pages":{"termos":{"title":"Unpublished draft","sections":[]}},"influencer":{"enabled":true,"max_active_students":1}}',2);
+set local role anon;
+do $$ begin
+ assert public.get_public_company_information('synthetic-commercial-'||pg_temp.commercial_id('a'))#>>'{documents,termos,title}'='Provided terms';
+ assert public.get_public_company_information('synthetic-commercial-'||pg_temp.commercial_id('b'))#>'{documents,termos}' is null;
+end $$;
+reset role;
+insert into public.plans(id,company_id,name,plan_kind) values(pg_temp.commercial_id('plan_a'),pg_temp.commercial_id('a'),'Synthetic influencer','influencer');
+insert into public.students(id,company_id,full_name,status,selected_plan_id) values(gen_random_uuid(),pg_temp.commercial_id('a'),'Synthetic influencer 1','active',pg_temp.commercial_id('plan_a'));
+select pg_temp.commercial_expect_error(format('insert into public.students(id,company_id,full_name,status,selected_plan_id) values(gen_random_uuid(),%L,''Synthetic rejected'',''active'',%L)',pg_temp.commercial_id('a'),pg_temp.commercial_id('plan_a')),'23514');
+select set_config('request.jwt.claim.sub',pg_temp.commercial_id('master')::text,true);
+set local role authenticated;
+do $$ declare config jsonb;version integer;begin
+ select settings,p.version into config,version from public.platform_product_settings p where id='default';
+ config:=jsonb_set(config,'{tiers,basic,active_student_limit}','1');
+ config:=jsonb_set(config,'{tiers,basic,limits_enabled}','false');
+ config:=jsonb_set(config,'{editorial,tone}','"Editorial only does not enable limits"');
+ perform public.save_platform_product_settings(config,version);
+end $$;
+reset role;
+insert into public.students(id,company_id,full_name,status) values(gen_random_uuid(),pg_temp.commercial_id('a'),'Synthetic editorial no opt-in','active');
+set local role authenticated;
+do $$ declare config jsonb;version integer;begin
+ select settings,p.version into config,version from public.platform_product_settings p where id='default';
+ config:=jsonb_set(config,'{tiers,basic,limits_enabled}','true');
+ perform public.save_platform_product_settings(config,version);
+ perform public.set_company_limit_source(pg_temp.commercial_id('a'),'tier',0,true);
+ perform pg_temp.commercial_expect_error(format('select public.save_platform_product_settings(%L,%s)',jsonb_set(config,'{tiers,basic,limits_enabled}','"true"'),version+1),'22023');
+end $$;
+reset role;
+select pg_temp.commercial_expect_error(format('insert into public.students(id,company_id,full_name,status) values(gen_random_uuid(),%L,''Synthetic over cap'',''active'')',pg_temp.commercial_id('a')),'23514');
+insert into public.students(id,company_id,full_name,status) values(gen_random_uuid(),pg_temp.commercial_id('b'),'Synthetic independent B','active');
+update public.students set status='awaiting_renewal' where company_id=pg_temp.commercial_id('a');
+-- Dedicated support capability: scope, TTL, revocation and allowlisted non-PII status.
+select set_config('request.jwt.claim.sub',pg_temp.commercial_id('support')::text,true);
+set local role authenticated;
+select pg_temp.commercial_expect_error(format('select public.company_operator_status(%L)',pg_temp.commercial_id('a')),'42501');
+select set_config('request.jwt.claim.sub',pg_temp.commercial_id('admin_a')::text,true);
+select public.set_company_support_access(pg_temp.commercial_id('a'),pg_temp.commercial_id('support'),true);
+select set_config('request.jwt.claim.sub',pg_temp.commercial_id('support')::text,true);
+do $$ declare value jsonb;begin
+ value:=public.company_operator_status(pg_temp.commercial_id('a'));
+ assert (select array_agg(key order by key) from jsonb_object_keys(value) key)=array['company_active','settings_updated_at','settings_version'];
+ assert (select expires_at<=now()+interval '24 hours' from public.company_support_access where user_id=auth.uid());
+end $$;
+select pg_temp.commercial_expect_error(format('select public.company_operator_status(%L)',pg_temp.commercial_id('b')),'42501');
+reset role;
+update public.company_support_access set expires_at=now()-interval '1 second' where user_id=pg_temp.commercial_id('support');
+set local role authenticated;
+select pg_temp.commercial_expect_error(format('select public.company_operator_status(%L)',pg_temp.commercial_id('a')),'42501');
+select set_config('request.jwt.claim.sub',pg_temp.commercial_id('admin_a')::text,true);
+select public.set_company_support_access(pg_temp.commercial_id('a'),pg_temp.commercial_id('support'),true);
+select public.set_company_support_access(pg_temp.commercial_id('a'),pg_temp.commercial_id('support'),false);
+select set_config('request.jwt.claim.sub',pg_temp.commercial_id('support')::text,true);
+select pg_temp.commercial_expect_error(format('select public.company_operator_status(%L)',pg_temp.commercial_id('a')),'42501');
+reset role;
+select 'commercial_runtime_assertions_passed';
+rollback;

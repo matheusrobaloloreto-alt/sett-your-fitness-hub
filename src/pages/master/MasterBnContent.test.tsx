@@ -8,6 +8,7 @@ import type { BnContentSpec, BnStudioBootstrap } from "@/lib/bnContentStudio";
 
 const { invoke, storageFrom, renderer, downloadBlob } = vi.hoisted(() => ({ invoke: vi.fn(), storageFrom: vi.fn(), renderer: vi.fn(), downloadBlob: vi.fn() }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { functions: { invoke }, storage: { from: storageFrom } } }));
+vi.mock("@/lib/platformSettingsClient",async()=>{const actual=await vi.importActual<typeof import("@/lib/platformSettingsClient")>("@/lib/platformSettingsClient");return {...actual,fetchPlatformProductSettings:async()=>({settings:actual.DEFAULT_PLATFORM_PRODUCT_SETTINGS,version:1})};});
 vi.mock("@/lib/bnContentRenderer", () => ({ renderBnContentSlide: renderer, downloadBnContentBlob: downloadBlob, bnSlideDimensions: (format: string) => ({ width: 1080, height: ["story", "reels"].includes(format) ? 1920 : 1350 }) }));
 import MasterBnContent from "./MasterBnContent";
 

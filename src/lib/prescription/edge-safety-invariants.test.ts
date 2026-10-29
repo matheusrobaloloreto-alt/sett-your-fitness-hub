@@ -106,7 +106,11 @@ describe("ORDEM 045 — edge safety invariants (estático)", () => {
   });
 
   it("nenhum .limit(<1000) no carregamento de catálogo", () => {
-    const limits = [...src.matchAll(/\.limit\(\s*(\d+)\s*\)/g)].map((m) => Number(m[1]));
+    // Scope to the catalog loader: the separate latest-form snapshot query
+    // legitimately uses limit(1), without restricting the exercise library.
+    const catalogSource = src.slice(src.indexOf('async function loadExerciseCatalog('), src.indexOf('function formatExerciseCatalog('));
+    expect(catalogSource).toMatch(/\.from\(["']exercise_library["']\)/);
+    const limits = [...catalogSource.matchAll(/\.limit\(\s*(\d+)\s*\)/g)].map((m) => Number(m[1]));
     expect(limits.every((n) => n >= 1000)).toBe(true);
     const pageSize = Number((src.match(/CATALOG_PAGE_SIZE\s*=\s*(\d+)/) || [])[1] || 0);
     expect(pageSize).toBeGreaterThanOrEqual(1000);

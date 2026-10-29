@@ -1,0 +1,52 @@
+import {act,fireEvent,render,screen,waitFor} from '@testing-library/react';
+import {beforeEach,describe,expect,it,vi} from 'vitest';
+import FormDefinitionManager from './FormDefinitionManager';
+import {defaultFormDefinition} from '@/lib/formDefinitions';
+import {toast} from 'sonner';
+const {fetchForm,publish}=vi.hoisted(()=>({fetchForm:vi.fn(),publish:vi.fn()}));
+vi.mock('@/lib/formDefinitions',async()=>{const actual=await vi.importActual<typeof import('@/lib/formDefinitions')>('@/lib/formDefinitions');return {...actual,defaultFormDefinition:(kind:Parameters<typeof actual.defaultFormDefinition>[0])=>{const form=actual.defaultFormDefinition(kind);return {...form,fields:form.fields.slice(0,1)};},fetchFormDefinition:fetchForm,publishFormDefinition:publish};});
+vi.mock('sonner',()=>({toast:{error:vi.fn(),success:vi.fn()}}));
+describe('FormDefinitionManager tenant request lifecycle',()=>{
+  beforeEach(()=>{fetchForm.mockReset();publish.mockReset();vi.mocked(toast.error).mockClear();});
+  it.each(['PT409','40001'])('preserves the dirty draft and version on CAS conflict %s',async code=>{
+    const form=defaultFormDefinition('initial');
+    fetchForm.mockResolvedValue({id:'a-v1',version:1,definition:form});
+    publish.mockRejectedValue({code,message:'form_version_conflict'});
+    render(<FormDefinitionManager companyId="a"/>);
+    const title=screen.getByLabelText('Titulo');
+    await waitFor(()=>expect(title).toBeEnabled());
+    fireEvent.change(title,{target:{value:'Rascunho ainda nao publicado'}});
+    fireEvent.click(screen.getByRole('button',{name:'Publicar versao'}));
+    await waitFor(()=>expect(toast.error).toHaveBeenCalledWith('Conflito de versao. Rascunho mantido; recarregue antes de publicar.'));
+    expect(title).toHaveValue('Rascunho ainda nao publicado');
+    expect(screen.getByText('Versao 1')).toBeInTheDocument();
+    expect(title).toBeEnabled();
+    expect(publish).toHaveBeenCalledOnce();
+    expect(fetchForm).toHaveBeenCalledOnce();
+  });
+  it('discards an earlier company delayed publication response after context changes',async()=>{
+    const a=defaultFormDefinition('initial');a.title='Empresa A';
+    const b=defaultFormDefinition('initial');b.title='Empresa B';
+    fetchForm.mockImplementation((company:string)=>Promise.resolve({id:company,version:1,definition:company==='a'?a:b}));
+    let resolveSave:(value:unknown)=>void=()=>{};
+    publish.mockReturnValue(new Promise(resolve=>{resolveSave=resolve;}));
+    const {rerender}=render(<FormDefinitionManager companyId="a" />);
+    await waitFor(()=>expect(screen.getByLabelText('Titulo')).toHaveValue('Empresa A'));
+    fireEvent.click(screen.getByRole('button',{name:'Publicar versao'}));
+    rerender(<FormDefinitionManager companyId="b" />);
+    await waitFor(()=>expect(screen.getByLabelText('Titulo')).toHaveValue('Empresa B'));
+    await act(async()=>resolveSave({id:'a-v2',version:2,definition:{...a,title:'A atrasada'}}));
+    expect(screen.getByLabelText('Titulo')).toHaveValue('Empresa B');
+    expect(screen.getByText('Versao 1')).toBeInTheDocument();
+  });
+  it('blocks every editing control and publication when loading fails',async()=>{
+    fetchForm.mockRejectedValue(new Error('offline'));
+    render(<FormDefinitionManager companyId="a" />);
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Recarregar'})).toBeEnabled());
+    expect(screen.getByRole('button',{name:'Publicar versao'})).toBeDisabled();
+    expect(screen.getByLabelText('Titulo')).toBeDisabled();
+    for(const input of document.querySelectorAll('section input')) expect(input).toBeDisabled();
+    for(const button of screen.getAllByRole('button'))if(button.textContent!=='Recarregar')expect(button).toBeDisabled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+});

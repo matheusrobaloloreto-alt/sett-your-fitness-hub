@@ -159,15 +159,21 @@ export function normalizeLevel(level: unknown): "iniciante" | "intermediario" | 
   return "iniciante";
 }
 
-export function resolveSplit(input: Pick<PrescriptionInput, "daysPerWeek" | "fitnessLevel" | "objective" | "restrictions" | "assessmentContext">) {
+export function resolveSplit(input: Pick<PrescriptionInput, "daysPerWeek" | "fitnessLevel" | "objective" | "restrictions" | "assessmentContext" | "companyPolicy">) {
   const requested = Math.min(6, Math.max(2, Number(input.daysPerWeek) || 3)) as 2 | 3 | 4 | 5 | 6;
   const level = normalizeLevel(input.fitnessLevel);
   const split = SPLIT_TABLE[requested][level];
+  const preference = input.companyPolicy?.preferred_split;
+  const structuredDays = split.maxStructuredDays;
+  // Preferences never raise the existing level/frequency allowance.
+  const preferredDays = preference === 'full_body' ? Array.from({ length: structuredDays }, () => 'Full Body')
+    : preference === 'upper_lower' && structuredDays >= 4 ? Array.from({ length: structuredDays }, (_, index) => index % 2 ? 'Upper' : 'Lower')
+    : preference === 'push_pull_legs' && level === 'avancado' && structuredDays >= 3 ? Array.from({ length: structuredDays }, (_, index) => ['Push', 'Pull', 'Legs'][index % 3]) : null;
   return {
     requestedDays: requested,
     structuredDays: split.maxStructuredDays,
-    label: split.label,
-    days: [...split.days],
+    label: preferredDays ? preferredDays.join(' / ') : split.label,
+    days: preferredDays || [...split.days],
     downgraded: Boolean("downgrade" in split && split.downgrade),
   };
 }

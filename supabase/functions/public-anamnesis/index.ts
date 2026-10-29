@@ -7,6 +7,8 @@ import {
   resolvePublicAnamnesisAccess,
 } from "../_shared/public-anamnesis-access.ts";
 import { resolveAnamnesisDurations } from "../_shared/anamnesis-duration.ts";
+import { loadPublishedForm, assertPublishedAnswers, publishedCustomFields, type FormReadClient } from "../_shared/published-forms.ts";
+import { projectFormAnswers } from "../_shared/form-definitions.ts";
 import {
   consumeValidatedAnamnesisInvite,
   type RequiredAnamnesisField,
@@ -21,6 +23,7 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const supabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+const formClient=supabase as unknown as FormReadClient;
 
 const ALLOWED_FIELDS = [
   "modalities","training_days","available_days","session_duration","training_location",
@@ -425,7 +428,11 @@ Deno.serve(async (req) => {
     if (action === "context") {
       const branding = await getBranding(student.company_id);
       const customFields = access.invite ? await getCustomFields(student.company_id) : [];
+      const pinned = access.invite ? await supabase.from('anamnese_invites').select('form_definition_id').eq('id',access.invite.id).single() : null;
+      if (pinned?.error) throw new HttpError(503,'Versao do convite indisponivel.');
+      const formDefinition = pinned?.data?.form_definition_id ? await loadPublishedForm(formClient,student.company_id,'initial',pinned.data.form_definition_id) : null;
       return new Response(JSON.stringify({
+        form_definition: formDefinition,
         invite: access.invite ?? undefined,
         student: {
           id: student.id,
@@ -441,6 +448,13 @@ Deno.serve(async (req) => {
     }
 
     if (action === "submit") {
+      const pinned = access.invite ? await supabase.from('anamnese_invites').select('form_definition_id').eq('id',access.invite.id).single() : null;
+      if (pinned?.error) throw new HttpError(503,'Versao do convite indisponivel.');
+      const formDefinition = pinned?.data?.form_definition_id ? await loadPublishedForm(formClient,student.company_id,'initial',pinned.data.form_definition_id) : null;
+      if (formDefinition) {
+        assertPublishedAnswers(formDefinition,body.form_definition_id,body.versioned_answers);
+        Object.assign(body,projectFormAnswers(formDefinition.definition,body.versioned_answers));
+      } else if (body.form_definition_id) throw new HttpError(409,'Versao do convite divergente.');
       const payload: Record<string, any> = {
         student_id: student.id,
         company_id: student.company_id,
@@ -454,11 +468,14 @@ Deno.serve(async (req) => {
       );
       if (access.invite) {
         const token = typeof body.accessKey === "string" ? body.accessKey : body.token;
-        const requiredCustomFields = await getCustomFields(student.company_id) as RequiredAnamnesisField[];
+        const requiredCustomFields = formDefinition ? publishedCustomFields(formDefinition) : await getCustomFields(student.company_id) as RequiredAnamnesisField[];
         const { data, error } = await consumeValidatedAnamnesisInvite(
           body,
           requiredCustomFields,
-          async () => await submitInviteAtomic(token, studentPatch, studioPayload, buildInviteEffects(body)),
+          async () => formDefinition ? await supabase.rpc('submit_versioned_initial_form', {
+            _token:token,_definition_id:formDefinition.id,_answers:body.versioned_answers,
+            _student_patch:studentPatch,_anamnese:studioPayload,_effects:buildInviteEffects(body),
+          }) : await submitInviteAtomic(token, studentPatch, studioPayload, buildInviteEffects(body)),
         );
         if (error) throw new HttpError(409, error.message);
         return new Response(JSON.stringify({ ok: true, student_anamnese_id: data?.student_anamnese_id ?? null }), {

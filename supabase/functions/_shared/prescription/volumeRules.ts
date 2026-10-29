@@ -57,7 +57,9 @@ function enduranceDaysPerWeek(input?: PrescriptionInput) {
 
 function enduranceFactorForGroup(group: unknown, input?: PrescriptionInput) {
   if (enduranceDaysPerWeek(input) < 3) return 1;
-  return MMII_GROUPS.includes(normalizeMuscleGroup(group) || "") ? 0.8 : 1; // -20% só em MMII
+  const configured = input?.companyPolicy?.endurance_strength_multiplier;
+  const factor = typeof configured === 'number' && Number.isFinite(configured) ? Math.max(0.5, Math.min(0.8, configured)) : 0.8;
+  return MMII_GROUPS.includes(normalizeMuscleGroup(group) || "") ? factor : 1;
 }
 
 function objectiveMultiplier(input: PrescriptionInput) {
@@ -87,7 +89,10 @@ export function getVolumeRangeForGroup(group: unknown, level: unknown, input?: P
   const rawMrv = base.mrv * smallFactor * safetyFactor * enduranceFactor;
   const technicalMinimum = objectiveFactor <= 0.5 ? (isSmallGroup(group) ? 3 : 4) : (isSmallGroup(group) ? 4 : 6);
   const levelCap = VOLUME_RULES.hardCapsByLevel[normalizedLevel(level)];
-  const hardCap = Math.min(
+  const configuredCap = input?.companyPolicy?.beginner_max_weekly_sets;
+  const companyCap = normalizedLevel(level) === 'iniciante' && typeof configuredCap === 'number' && Number.isFinite(configuredCap)
+    ? Math.max(1, Math.min(21, Math.floor(configuredCap))) : 21;
+  const hardCap = Math.min(companyCap,
     levelCap,
     isSmallGroup(group) ? Math.ceil(levelCap * VOLUME_RULES.smallGroupFactor) : levelCap,
   );
@@ -95,7 +100,7 @@ export function getVolumeRangeForGroup(group: unknown, level: unknown, input?: P
     mev: Math.max(technicalMinimum, Math.round(rawMev)),
     mavMin: Math.max(technicalMinimum, Math.round(base.mavMin * smallFactor * safetyFactor * enduranceFactor)),
     mavMax: Math.max(technicalMinimum, Math.round(rawMav)),
-    mrv: Math.max(technicalMinimum, Math.min(hardCap, Math.round(rawMrv))),
+    mrv: Math.min(companyCap, Math.max(technicalMinimum, Math.min(hardCap, Math.round(rawMrv)))),
     isSmall: isSmallGroup(group),
   };
 }

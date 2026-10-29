@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
+import { HttpError } from "../_shared/tenant-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -78,6 +80,13 @@ Deno.serve(async (req) => {
       // admin (or any non-master): always their own company, never trust body
       return callerCompanyId;
     };
+
+    // Gate before auth-admin calls: a DB membership guard after user creation is too late.
+    // Master account maintenance without company context keeps its existing contract.
+    const featureCompanyId = resolveTargetCompanyId(body.company_id);
+    if (!isMaster || action === "create" || action === "list-members" || body.company_id) {
+      await requireCompanyFeature(adminClient, featureCompanyId || "", "hasTeam");
+    }
 
     // Helper: ensure a target user belongs to the caller's company (admins only).
     // Master bypasses. Returns true if allowed.
@@ -439,7 +448,7 @@ Deno.serve(async (req) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro interno";
     return new Response(JSON.stringify({ error: message }), {
-      status: 500,
+      status: err instanceof HttpError ? err.status : 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }

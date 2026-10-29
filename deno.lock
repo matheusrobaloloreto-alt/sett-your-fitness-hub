@@ -54,6 +54,7 @@
     "npm:eslint-plugin-react-hooks@^5.2.0": "5.2.0_eslint@9.39.5",
     "npm:eslint-plugin-react-refresh@~0.4.20": "0.4.26_eslint@9.39.5",
     "npm:eslint@^9.32.0": "9.39.5",
+    "npm:fflate@~0.8.3": "0.8.3",
     "npm:framer-motion@^12.40.0": "12.43.0_react@18.3.1_react-dom@18.3.1__react@18.3.1",
     "npm:globals@^15.15.0": "15.15.0",
     "npm:input-otp@^1.4.2": "1.4.2_react@18.3.1_react-dom@18.3.1__react@18.3.1",

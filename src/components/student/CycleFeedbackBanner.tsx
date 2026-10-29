@@ -6,6 +6,9 @@ import { CalendarClock, X, Loader2, CheckCircle2 } from "lucide-react";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import {usePublishedInstrumentState} from '@/hooks/usePublishedInstrument';
+import VersionedFormFields from '@/components/VersionedFormFields';
+import {validateFormAnswers} from '@/lib/formDefinitions';
 
 interface Props {
   studentId: string;
@@ -20,7 +23,15 @@ const DONE_KEY = (id: string) => `cycle_feedback_done_${id}`;
 
 // Banner de fim de ciclo → anamnese RÁPIDA + NPS (item 3). Grava em cycle_feedback;
 // o professor vê na hora de liberar a próxima prescrição (liberação manual).
-export function CycleFeedbackBanner({ studentId, companyId, enrollmentId, enrollmentEndDate, cycleId }: Props) {
+export function CycleFeedbackBanner(props: Props) {
+  const instrument = usePublishedInstrumentState(props.companyId, 'cycle_feedback');
+  const contextKey = JSON.stringify([props.companyId, props.studentId, props.enrollmentId, props.cycleId, instrument.published?.id ?? null]);
+  return <CycleFeedbackForm key={contextKey} {...props} published={instrument.published} loaded={instrument.loaded} error={instrument.error} />;
+}
+
+function CycleFeedbackForm({ studentId, companyId, enrollmentId, enrollmentEndDate, cycleId, published, loaded, error: definitionError }: Props & Pick<ReturnType<typeof usePublishedInstrumentState>, 'published' | 'loaded' | 'error'>) {
+  const [instrumentAnswers,setInstrumentAnswers]=useState<Record<string,unknown>>({});
+  const [instrumentError,setInstrumentError]=useState('');
   const [dismissed, setDismissed] = useState(false);
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -37,9 +48,10 @@ export function CycleFeedbackBanner({ studentId, companyId, enrollmentId, enroll
     setDone(localStorage.getItem(DONE_KEY(enrollmentId)) === "1");
   }, [enrollmentId]);
 
-  if (!enrollmentId || !enrollmentEndDate || dismissed || done) return null;
+  if (!loaded || !enrollmentId || !enrollmentEndDate || dismissed || done) return null;
+  if(definitionError)return <p role="alert" className="text-sm text-muted-foreground">{definitionError}</p>;
   const daysLeft = differenceInCalendarDays(parseISO(enrollmentEndDate), new Date());
-  if (daysLeft < 0 || daysLeft > 7) return null;
+  if (daysLeft < 0 || daysLeft > (published?.definition.policy.cycle_feedback_days??7)) return null;
 
   const dismiss = () => { localStorage.setItem(DISMISS_KEY(enrollmentId), "1"); setDismissed(true); };
 
@@ -49,7 +61,7 @@ export function CycleFeedbackBanner({ studentId, companyId, enrollmentId, enroll
     if (!canSubmit) return;
     setSubmitting(true);
     const { error } = await (supabase as any).from("cycle_feedback").insert({
-      company_id: companyId, student_id: studentId, cycle_id: cycleId ?? null,
+      company_id: companyId, student_id: studentId, enrollment_id: enrollmentId, cycle_id: cycleId ?? null,
       nps, goals_aligned: goalsAligned, wants_adjustment: wantsAdjustment,
       adjustment_notes: wantsAdjustment ? adjustmentNotes.trim() : null,
       answers: { nps, goals_aligned: goalsAligned, wants_adjustment: wantsAdjustment, adjustment: adjustmentNotes.trim() || null },
@@ -72,6 +84,8 @@ export function CycleFeedbackBanner({ studentId, companyId, enrollmentId, enroll
       ))}
     </div>
   );
+
+  if(published)return <Card><CardContent className="p-4"><form className="space-y-4" onSubmit={async e=>{e.preventDefault();const invalid=validateFormAnswers(published.definition,instrumentAnswers);if(invalid.length){setInstrumentError(`Revise: ${invalid.join(', ')}`);return;}setSubmitting(true);try{const result=await (supabase as any).from('cycle_feedback').insert({company_id:companyId,student_id:studentId,enrollment_id:enrollmentId,cycle_id:cycleId??null,nps:Number(instrumentAnswers.nps),goals_aligned:instrumentAnswers.goals_aligned,wants_adjustment:instrumentAnswers.wants_adjustment,adjustment_notes:instrumentAnswers.wants_adjustment?instrumentAnswers.adjustment_notes:null,answers:{...instrumentAnswers,adjustment:instrumentAnswers.adjustment_notes??null},form_definition_id:published.id});if(result.error)throw result.error;localStorage.setItem(DONE_KEY(enrollmentId),'1');setDone(true);}catch{setInstrumentError('Nao foi possivel registrar o feedback.');}finally{setSubmitting(false);}}}><h2 className="text-sm font-semibold">{published.definition.title}</h2>{instrumentError&&<p role="alert" className="text-sm text-destructive">{instrumentError}</p>}<fieldset disabled={submitting}><VersionedFormFields definition={published.definition} answers={instrumentAnswers} onChange={(key,value)=>setInstrumentAnswers(a=>({...a,[key]:value}))} /></fieldset><Button type="submit" disabled={submitting}>Enviar feedback</Button></form></CardContent></Card>;
 
   return (
     <Card className="border-primary/30 bg-primary/5">

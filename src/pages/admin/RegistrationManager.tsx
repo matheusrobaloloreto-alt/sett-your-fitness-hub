@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { LeadFiscalConfirmation, type LeadPhoneConfirmation } from "@/components/admin/LeadFiscalConfirmation";
+import { assertCompanyOperationalTransition } from "@/lib/companyOperationsStore";
+import { useCompanyFeatures } from '@/hooks/useCompanyFeatures';
+import { useEffect, useMemo, useRef, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,7 +33,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import { createPlansLink, openStudentChat } from "@/lib/studentChat";
+import { createPlansLink, openStudentChat, draftCompanyEventMessage } from "@/lib/studentChat";
+import { fetchCompanyProductSettings } from "@/lib/companyProductSettings";
+import { fetchCompanyCommercialSettings,DEFAULT_COMPANY_COMMERCIAL_SETTINGS } from "@/lib/companyCommercialSettings";
+import { prepareCompanyPreRegistrationDraft } from '@/lib/companyInvitationDraft';
+import type { MessageEvent } from "../../../supabase/functions/_shared/company-product-settings";
 import { loadStudentPreRegistration } from "@/lib/preRegistrationData";
 import {
   fiscalRegistrationUrl,
@@ -39,7 +46,7 @@ import {
 import { cn } from "@/lib/utils";
 import { intercycleAnamnesisPath } from "@/lib/intercycleAnamnesis";
 import {
-  FUNNEL_STAGE_META,
+  FUNNEL_STAGE_META as CANONICAL_FUNNEL_STAGE_META,
   FUNNEL_STAGE_ORDER,
   type FunnelStageKey,
   canMoveOperationalStudentToStage,
@@ -52,6 +59,8 @@ import {
   stageActionLabel,
   stageNextAction,
 } from "@/lib/salesFunnelView";
+import { useCompanyOperations } from "@/components/admin/operations/OperationsConsumers";
+import { operationalTransitionAllowed, visibleOperationStages } from "@/lib/companyOperations";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 const BUDGET_LABELS: Record<string, string> = {
@@ -464,6 +473,12 @@ export default function RegistrationManager() {
   const { companyId, role, user } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId ?? null;
+  const invitationCompanyRef=useRef(effectiveCompanyId);invitationCompanyRef.current=effectiveCompanyId;
+  const operationsFeatures = useCompanyFeatures();
+  const operations = useCompanyOperations(effectiveCompanyId, !operationsFeatures.loading && operationsFeatures.hasRegistration);
+  const [commercialSettings,setCommercialSettings]=useState(DEFAULT_COMPANY_COMMERCIAL_SETTINGS);
+  useEffect(()=>{let current=true;setCommercialSettings(DEFAULT_COMPANY_COMMERCIAL_SETTINGS);if(effectiveCompanyId)void fetchCompanyCommercialSettings(effectiveCompanyId).then(value=>{if(current)setCommercialSettings(value.settings);},()=>{if(current)toast.error("Configuração comercial indisponível.");});return()=>{current=false;};},[effectiveCompanyId]);
+  const FUNNEL_STAGE_META=useMemo(()=>Object.fromEntries(FUNNEL_STAGE_ORDER.map(key=>[key,{...CANONICAL_FUNNEL_STAGE_META[key],...((operations.data?.version ? operations.data.settings.stages.find(s=>s.code===key)?.label : commercialSettings.funnel_labels[key]) ? {label:operations.data?.version ? operations.data.settings.stages.find(s=>s.code===key)!.label : commercialSettings.funnel_labels[key],shortLabel:operations.data?.version ? operations.data.settings.stages.find(s=>s.code===key)!.label : commercialSettings.funnel_labels[key]}:{})}])) as typeof CANONICAL_FUNNEL_STAGE_META,[commercialSettings,operations.data]);
   const navigate = useNavigate();
   const chatRoutePrefix = role === "master" ? "admin" : role || "admin";
   const currentTrainerName = useMemo(() => {
@@ -475,6 +490,17 @@ export default function RegistrationManager() {
   const [generalLink, setGeneralLink] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedLead, setSelectedLead] = useState<Student | null>(null);
+  const [firstContactPreview, setFirstContactPreview] = useState("");
+  const [firstContactPreviewError, setFirstContactPreviewError] = useState("");
+  useEffect(() => {
+    let current = true;
+    setFirstContactPreview(""); setFirstContactPreviewError("");
+    if (!selectedLead || !effectiveCompanyId) return;
+    void draftCompanyEventMessage(effectiveCompanyId, "first_contact", { nome: selectedLead.full_name, primeiro_nome: firstName(selectedLead.full_name), profissional: currentTrainerName }, buildLeadFirstContactMessage(selectedLead,currentTrainerName)).then(message => {
+      if (current) setFirstContactPreview(message);
+    }, () => { if (current) setFirstContactPreviewError("Não foi possível preparar o roteiro da empresa."); });
+    return () => { current = false; };
+  }, [selectedLead,effectiveCompanyId,currentTrainerName]);
   const [phone, setPhone] = useState("");
   const [fiscalStudentId, setFiscalStudentId] = useState("");
   const [fiscalPhone, setFiscalPhone] = useState("");
@@ -488,6 +514,13 @@ export default function RegistrationManager() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preparedFiscal, setPreparedFiscal] = useState<PreparedFiscalAction | null>(null);
+  const [leadFiscalConfirmation, setLeadFiscalConfirmation] = useState<{ student: StudentWithStage; scope: number } | null>(null);
+  const conversionScopeKey = `${user?.id ?? ''}:${role}:${effectiveCompanyId}`;
+  const conversionScope = useRef({ key: conversionScopeKey, generation: 0, mounted: true });
+  if (conversionScope.current.key !== conversionScopeKey) conversionScope.current = { key: conversionScopeKey, generation: conversionScope.current.generation + 1, mounted: true };
+  const conversionPending = useRef(false);
+  useEffect(() => { conversionScope.current.mounted = true; return () => { conversionScope.current.mounted = false; conversionScope.current.generation++; }; }, []);
+  useEffect(() => { setLeadFiscalConfirmation(null); setPreparedFiscal(null); }, [conversionScopeKey]);
   const [activeStage, setActiveStage] = useState<FunnelStageKey | "all">("all");
   const [mobileStage, setMobileStage] = useState<FunnelStageKey>("interested");
   const [budgetFilter, setBudgetFilter] = useState("all");
@@ -502,6 +535,8 @@ export default function RegistrationManager() {
 
   const loadPipeline = async () => {
     if (!effectiveCompanyId) return;
+    const generation = conversionScope.current.generation;
+    const current = () => conversionScope.current.mounted && conversionScope.current.generation === generation;
     setLoading(true);
     setLoadError(null);
     try {
@@ -514,6 +549,7 @@ export default function RegistrationManager() {
         throw companyResult.error || new Error("Empresa sem slug público configurado.");
       }
       const companyLink = preRegistrationUrl(window.location.origin, companyResult.data.slug);
+      if (!current()) return;
       setGeneralLink(companyLink);
 
       const loadRows = async (query: () => any) => {
@@ -593,6 +629,7 @@ export default function RegistrationManager() {
       }));
       const ids = baseStudents.map((student) => student.id);
       if (ids.length === 0) {
+        if (!current()) return;
         setStudents(leads);
         return;
       }
@@ -635,6 +672,7 @@ export default function RegistrationManager() {
       const anamnesisStudents = new Set(anamnesisResult.map((row: any) => row.student_id));
       const assessedStudents = new Set(assessmentResult.map((row: any) => row.student_id));
 
+      if (!current()) return;
       setStudents([...leads, ...baseStudents.map((student) => ({
         ...student,
         hasAnamnesis: anamnesisStudents.has(student.id),
@@ -643,10 +681,9 @@ export default function RegistrationManager() {
       }))]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Nao foi possivel carregar os cadastros.";
-      setStudents([]);
-      setLoadError(message);
+      if (current()) { setStudents([]); setLoadError(message); }
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   };
 
@@ -742,8 +779,10 @@ export default function RegistrationManager() {
     return grouped;
   }, [stagedStudents]);
 
-  const desktopStages = activeStage === "all" ? CLOSING_FUNNEL_STAGES : CLOSING_FUNNEL_STAGES.filter((stage) => stage === activeStage);
-  const mobileSelectedStage = activeStage === "all" ? mobileStage : activeStage;
+  const configuredStages = operations.data?.version ? visibleOperationStages(operations.data.settings, Object.fromEntries(stageCounts)).map(s=>s.code) : CLOSING_FUNNEL_STAGES;
+  const desktopStages = activeStage === "all" ? configuredStages : configuredStages.filter((stage) => stage === activeStage);
+  const requestedMobileStage = activeStage === "all" ? mobileStage : activeStage;
+  const mobileSelectedStage = configuredStages.includes(requestedMobileStage) ? requestedMobileStage : configuredStages[0];
 
   const cardIdFor = (student: Pick<StudentWithStage, "entityType" | "id" | "leadId">) =>
     `${student.entityType}:${student.leadId || student.id}`;
@@ -751,6 +790,8 @@ export default function RegistrationManager() {
   const moveCardToStage = async (student: StudentWithStage, targetStage: FunnelStageKey) => {
     if (!effectiveCompanyId || movingCardId) return;
     if (student.stage === targetStage) return;
+    if (operationsFeatures.loading || !operationsFeatures.hasRegistration || !operations.data || operations.error) { toast.error("Política operacional indisponível. Recarregue antes de mover."); return; }
+    if (!operationalTransitionAllowed(operations.data.settings, student.stage, targetStage)) { toast.error("Transição desabilitada pela empresa."); return; }
     if (targetStage === "lost" && !canTransformRegistrationToLead(student)) {
       toast.error("Aluno em acompanhamento não pode ser transformado em lead. Revise a matrícula no perfil.");
       return;
@@ -932,7 +973,12 @@ export default function RegistrationManager() {
     }
   };
 
-  const openChatWithStudent = async (student: Student, message = "") => {
+  const openChatWithStudent = async (student: Student, message = "", event?: MessageEvent, values: Record<string, string> = {}) => {
+    if (event) {
+      if (!effectiveCompanyId) throw new Error("Selecione uma empresa antes de preparar a mensagem.");
+      const { settings } = await fetchCompanyProductSettings(effectiveCompanyId);
+      message = await draftCompanyEventMessage(effectiveCompanyId, event, { nome: student.full_name, primeiro_nome: firstName(student.full_name), profissional: currentTrainerName, prazo: String(settings.business.assessment_sla_business_days), ...values }, message);
+    }
     const digits = waDigits(student.whatsapp || student.phone || phone);
     await openStudentChat({
       navigate,
@@ -969,37 +1015,47 @@ export default function RegistrationManager() {
     });
   };
 
-  const showPreparedFiscalAction = (params: {
+  const showPreparedFiscalAction = async (params: {
     studentId: string;
     fullName: string;
     phone: string | null;
     token: string;
-  }) => {
+  }, isCurrent: () => boolean = () => true) => {
     const link = fiscalRegistrationUrl(window.location.origin, params.token);
+    if (!effectiveCompanyId) throw new Error("Selecione uma empresa antes de preparar o cadastro.");
+    const message = await draftCompanyEventMessage(effectiveCompanyId, "fiscal_invite", { nome: params.fullName, primeiro_nome: firstName(params.fullName), link }, `Oi, ${firstName(params.fullName)}! Complete os dados fiscais e escolha seu plano neste link: ${link}`);
+    if (!isCurrent()) return;
     setPreparedFiscal({
       studentId: params.studentId,
       fullName: params.fullName,
       phone: params.phone,
       link,
-      message: `Oi, ${firstName(params.fullName)}! Vamos seguir com seu cadastro BN. Complete os dados fiscais e escolha seu plano neste link: ${link}`,
+      message,
     });
   };
 
-  const prepareFiscalForLead = async (student: StudentWithStage) => {
-    const { data, error } = await supabase.functions.invoke("public-registration", {
-      body: { action: "convert-lead", leadId: student.leadId || student.id },
-    });
-    if (error || !data?.token || !data?.studentId) {
-      throw new Error(data?.error || error?.message || "Não foi possível preparar o cadastro fiscal.");
-    }
-    showPreparedFiscalAction({
-      studentId: data.studentId,
-      fullName: student.full_name,
-      phone: waDigits(student.whatsapp || student.phone),
-      token: data.token,
-    });
-    toast.success("Cadastro preparado. Escolha se quer copiar ou abrir a conversa.");
-    await loadPipeline();
+  const prepareFiscalForLead = async (student: StudentWithStage, confirmation: LeadPhoneConfirmation, dialogCurrent: () => boolean) => {
+    if (!effectiveCompanyId) throw new Error("Empresa obrigatória.");
+    if (conversionPending.current) throw new Error("Já existe um cadastro sendo preparado. Aguarde a conclusão.");
+    const generation = conversionScope.current.generation;
+    const isCurrent = () => dialogCurrent() && conversionScope.current.mounted && conversionScope.current.generation === generation;
+    if (!isCurrent()) return;
+    conversionPending.current = true;
+    try {
+      await assertCompanyOperationalTransition(effectiveCompanyId, student.stage, "fiscal_registration_pending");
+      if (!isCurrent()) return;
+      const { data, error } = await supabase.functions.invoke("public-registration", {
+        body: { action: "convert-lead", leadId: student.leadId || student.id, phoneCountry: confirmation.phoneCountry, phoneFormat: confirmation.phoneFormat, confirmedPhone: confirmation.phoneDigits },
+      });
+      if (!isCurrent()) return;
+      if (error || !data?.token || !data?.studentId) throw new Error(data?.error || error?.message || "Não foi possível preparar o cadastro fiscal.");
+      if (data.phoneDigits !== confirmation.phoneDigits) throw new Error("O telefone confirmado diverge do cadastro preparado. Confira o Lead antes de tentar novamente.");
+      await showPreparedFiscalAction({ studentId: data.studentId, fullName: student.full_name, phone: data.phoneDigits, token: data.token }, isCurrent);
+      if (!isCurrent()) return;
+      setLeadFiscalConfirmation(null);
+      toast.success("Cadastro preparado. Escolha se quer copiar ou abrir a conversa.");
+      await loadPipeline();
+    } finally { conversionPending.current = false; }
   };
 
   const prepareFiscalForStudent = async (student: StudentWithStage) => {
@@ -1009,7 +1065,7 @@ export default function RegistrationManager() {
     if (error || !data?.token) {
       throw new Error(data?.error || error?.message || "Não foi possível preparar o cadastro fiscal.");
     }
-    showPreparedFiscalAction({
+    await showPreparedFiscalAction({
       studentId: student.id,
       fullName: student.full_name,
       phone: waDigits(student.whatsapp || student.phone),
@@ -1024,12 +1080,14 @@ export default function RegistrationManager() {
         return;
       }
       if (student.entityType === "lead" && student.stage === "interested") {
+        if (!effectiveCompanyId) throw new Error("Empresa obrigatória.");
+        await assertCompanyOperationalTransition(effectiveCompanyId, student.stage, "contacted");
         const { data, error } = await supabase.functions.invoke("public-registration", {
           body: { action: "mark-lead-contacted", leadId: student.leadId || student.id, outcome: "in_conversation" },
         });
         if (error || !data?.id) throw new Error(data?.error || error?.message || "Não foi possível registrar o contato.");
         await loadPipeline();
-        await openChatWithStudent(student, buildLeadFirstContactMessage(student, currentTrainerName));
+        await openChatWithStudent(student, buildLeadFirstContactMessage(student, currentTrainerName), "first_contact");
         toast.success("Contato registrado. A conversa foi aberta com o roteiro em rascunho.");
         return;
       }
@@ -1038,7 +1096,7 @@ export default function RegistrationManager() {
         student.entityType === "lead"
         && (student.stage === "contacted" || student.stage === "fiscal_registration_pending")
       ) {
-        await prepareFiscalForLead(student);
+        if (!conversionPending.current) setLeadFiscalConfirmation({ student, scope: conversionScope.current.generation });
         return;
       }
 
@@ -1052,6 +1110,7 @@ export default function RegistrationManager() {
         await openChatWithStudent(
           student,
           `Oi, ${firstName(student.full_name)}! Seu cadastro fiscal esta concluido. Agora escolha seu plano e faca o pagamento com Pix pelo Asaas: ${paymentLink}\n\nDepois da confirmacao, voce passa para aluno ativo e recebe as instrucoes finais da Avaliacao de Movimento. O prazo para avaliacao e inicio do treino e de ate 5 dias uteis.`,
+          "payment_link", { link: paymentLink },
         );
         return;
       }
@@ -1059,10 +1118,11 @@ export default function RegistrationManager() {
       if (student.stage === "active_onboarding") {
         const due = student.assessment_due_at
           ? format(new Date(`${student.assessment_due_at}T00:00:00`), "dd/MM/yyyy", { locale: ptBR })
-          : "em ate 5 dias uteis";
+          : "a confirmar";
         await openChatWithStudent(
           student,
           `Oi, ${firstName(student.full_name)}! Pagamento confirmado. O proximo passo e a avaliacao de movimento. Me envie os videos/fotos conforme as instrucoes; o prazo para avaliacao e inicio do treino e ${due}.`,
+          "assessment_onboarding", { data: due },
         );
         return;
       }
@@ -1083,12 +1143,18 @@ export default function RegistrationManager() {
       toast.error("Digite um WhatsApp para enviar o link universal.");
       return;
     }
+    if(!effectiveCompanyId){toast.error('Selecione uma empresa.');return;}
+    const target=effectiveCompanyId;
+    let message:string;
+    try{message=await prepareCompanyPreRegistrationDraft(target,generalLink);}
+    catch{toast.error('Não foi possível preparar o convite da empresa. Tente novamente.');return;}
+    if(invitationCompanyRef.current!==target)return;
     await openStudentChat({
       navigate,
       routePrefix: chatRoutePrefix,
       studentId: null,
       phone: digits,
-      message: `Oi! Para aplicar para o acompanhamento da BN, preencha este pré-cadastro rapidinho: ${generalLink}\n\nDepois que voce enviar, seu perfil entra na nossa lista de interessados e a equipe chama voce por aqui para seguir com cadastro, plano, pagamento Asaas e avaliacao de movimento.`,
+      message,
       onNoChat: () => toast.error("Informe um telefone valido para abrir a conversa interna."),
     });
   };
@@ -1118,6 +1184,7 @@ export default function RegistrationManager() {
         routePrefix: chatRoutePrefix,
         studentId: selected.id,
         phone: waDigits(fiscalPhone || selected.whatsapp || selected.phone),
+        companyId:effectiveCompanyId || undefined,messageEvent:"fiscal_invite",messageValues:{nome:selected.full_name,primeiro_nome:firstName(selected.full_name),link:targetLink},
         message: `Oi, ${firstName(selected.full_name)}! Agora vamos completar seu cadastro com os dados fiscais que o Asaas precisa. Depois você escolhe o plano e faz o pagamento por aqui: ${targetLink}`,
         onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
       });
@@ -1422,7 +1489,7 @@ export default function RegistrationManager() {
               <Label>Enviar para um WhatsApp avulso</Label>
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(DDD) 9 xxxx-xxxx" inputMode="tel" />
             </div>
-            <Button disabled={!generalLink} onClick={sendPreRegistrationLink} className="self-end bg-[#25D366] text-white hover:bg-[#25D366]/90">
+            <Button disabled={!generalLink} onClick={()=>void sendPreRegistrationLink().catch(cause=>toast.error(cause instanceof Error?cause.message:"Não foi possível preparar o convite."))} className="self-end bg-[#25D366] text-white hover:bg-[#25D366]/90">
               <MessageCircle className="mr-2 h-4 w-4" />
               Abrir conversa
             </Button>
@@ -1555,6 +1622,7 @@ export default function RegistrationManager() {
               </Button>
             </div>
             {renewalLink && <p className="break-all rounded-xl border border-border bg-secondary/35 p-3 font-mono-data text-xs text-muted-foreground">{renewalLink}</p>}
+            <Button variant="outline" disabled={!renewalStudentId || renewalLoading || !effectiveCompanyId} onClick={()=>void (async()=>{const student=students.find(item=>item.id===renewalStudentId && item.entityType==="student");if(!student || !effectiveCompanyId)return;const link=renewalLink || await createRenewalLink();await openStudentChat({navigate,routePrefix:chatRoutePrefix,studentId:student.id,phone:waDigits(student.whatsapp || student.phone),companyId:effectiveCompanyId,messageEvent:student.status==="awaiting_renewal"?"renewal_overdue":"renewal_due",messageValues:{nome:student.full_name,primeiro_nome:firstName(student.full_name),link},message:`Oi, ${firstName(student.full_name)}! Renove seu plano: ${link}`});})().catch(cause=>toast.error(cause instanceof Error?cause.message:"Não foi possível preparar a renovação."))}><MessageCircle className="mr-2 h-4 w-4"/>Abrir com roteiro de renovação</Button>
           </CardContent>
         </Card>
       )}
@@ -1576,7 +1644,7 @@ export default function RegistrationManager() {
               >
                 Todos ({stageFilteredStudents.length})
               </Button>
-              {CLOSING_FUNNEL_STAGES.map((stage) => (
+              {configuredStages.map((stage) => (
                 <Button
                   key={stage}
                   variant={activeStage === stage ? "default" : "outline"}
@@ -1639,7 +1707,7 @@ export default function RegistrationManager() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {CLOSING_FUNNEL_STAGES.map((stage) => (
+                    {configuredStages.map((stage) => (
                       <SelectItem key={stage} value={stage}>
                         {FUNNEL_STAGE_META[stage].label} ({stageCounts.get(stage) || 0})
                       </SelectItem>
@@ -1689,7 +1757,7 @@ export default function RegistrationManager() {
           {selectedLead && (() => {
             const summary = leadSummaryRows(selectedLead);
             const answers = leadAnswerEntries(selectedLead);
-            const firstContactMessage = buildLeadFirstContactMessage(selectedLead, currentTrainerName);
+            const firstContactMessage = firstContactPreview;
             return (
               <>
                 <DialogHeader className="pr-6">
@@ -1741,6 +1809,7 @@ export default function RegistrationManager() {
                         variant="outline"
                         size="sm"
                         className="rounded-full"
+                        disabled={!firstContactMessage}
                         onClick={async () => {
                           await navigator.clipboard?.writeText(firstContactMessage);
                           toast.success("Roteiro copiado.");
@@ -1751,7 +1820,7 @@ export default function RegistrationManager() {
                       </Button>
                     </div>
                     <div className="mt-3 whitespace-pre-wrap rounded-2xl border border-border bg-secondary/30 p-3 text-sm leading-relaxed text-foreground">
-                      {firstContactMessage}
+                      {firstContactPreviewError || firstContactMessage || "Carregando roteiro..."}
                     </div>
                   </div>
 
@@ -1779,6 +1848,7 @@ export default function RegistrationManager() {
                     </Button>
                     <Button
                       type="button"
+                      disabled={!firstContactMessage}
                       onClick={() => {
                         const message = firstContactMessage;
                         setSelectedLead(null);
@@ -1796,6 +1866,13 @@ export default function RegistrationManager() {
         </DialogContent>
       </Dialog>
 
+      {leadFiscalConfirmation && leadFiscalConfirmation.scope === conversionScope.current.generation && <LeadFiscalConfirmation
+        key={`${conversionScopeKey}:${leadFiscalConfirmation.student.id}`}
+        name={leadFiscalConfirmation.student.full_name}
+        phone={leadFiscalConfirmation.student.phone}
+        onClose={() => setLeadFiscalConfirmation(null)}
+        onConfirm={(confirmation, isCurrent) => prepareFiscalForLead(leadFiscalConfirmation.student, confirmation, isCurrent)}
+      />}
       <Dialog open={Boolean(preparedFiscal)} onOpenChange={(open) => !open && setPreparedFiscal(null)}>
         <DialogContent className="max-w-xl rounded-3xl border-border bg-card">
           {preparedFiscal && (

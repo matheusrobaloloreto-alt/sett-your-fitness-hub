@@ -5,7 +5,7 @@
 //
 // Props: studentId, companyId, onComplete(assessmentId)
 // ============================================================================
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { Loader2, Video, Camera, Plus, X, Save, Sparkles, RefreshCw, SkipBack, SkipForward, Eye, Maximize2 } from "lucide-react";
@@ -13,6 +13,8 @@ import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/lib/studioUi";
 import { toast } from "sonner";
 import { generateAssessmentPDF } from "@/lib/generatePDFs";
+import { loadCompanyPDFMeta } from '@/lib/prescription/pdfMeta';
+import { fetchCompanyAssessmentProtocol, defaultAssessmentProtocol, resolveAssessmentCapture, type AssessmentProtocolRecord } from '@/lib/prescription/companyAssessmentProtocol';
 import { saveStudentFile } from "@/lib/studentFiles";
 import { sendPdfToStudentWhatsApp } from "@/lib/sendStudentMedia";
 import type { WhatsAppAssessmentVideoHandoff } from "@/lib/whatsappAssessmentHandoff";
@@ -120,7 +122,7 @@ const PROTOCOL_PRESETS = {
     fractions: [0.12, 0.22, 0.34, 0.46, 0.58, 0.70, 0.82, 0.92],
   },
 } as const;
-type AutoProtocol = keyof typeof PROTOCOL_PRESETS;
+type AutoProtocol = keyof typeof PROTOCOL_PRESETS | 'company';
 type AnnotationTool = "line" | "circle";
 const VISTAS = Array.from(new Set([
   ...POSTURE_OHS_VISTAS,
@@ -326,6 +328,21 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
   const [aiReportText, setAiReportText] = useState("");
   const [aiFrameFindings, setAiFrameFindings] = useState<AiFrameFinding[]>([]);
   const [autoProtocol, setAutoProtocol] = useState<AutoProtocol>("posture_ohs");
+  const [companyProtocol, setCompanyProtocol] = useState<AssessmentProtocolRecord | null>(null);
+  const [protocolLoading, setProtocolLoading] = useState(true);
+  const [protocolError, setProtocolError] = useState('');
+  useEffect(() => {
+    let active = true;
+    setCompanyProtocol(null); setProtocolLoading(true); setProtocolError(''); setAutoProtocol('posture_ohs');
+    setFrames([]); setAiAnalysis(null); setAiReportText('');
+    void fetchCompanyAssessmentProtocol(companyId).then(record => {
+      if (!active) return;
+      setCompanyProtocol(record); if (record.version > 0) setAutoProtocol('company');
+    }).catch(reason => { if (active) setProtocolError(reason instanceof Error ? reason.message : 'Falha ao carregar protocolo da empresa.'); })
+      .finally(() => { if (active) setProtocolLoading(false); });
+    return () => { active = false; };
+  }, [companyId]);
+  const companyCapture = useMemo(() => resolveAssessmentCapture(companyProtocol?.protocol || defaultAssessmentProtocol()), [companyProtocol]);
   const [previewFrame, setPreviewFrame] = useState<Frame | null>(null);
   const [annotationTool, setAnnotationTool] = useState<AnnotationTool>("line");
   const annotationCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -334,7 +351,9 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
   const annotationDrawingRef = useRef(false);
   const annotationStartRef = useRef<{ x: number; y: number } | null>(null);
   const initialVideoRequestRef = useRef(0);
-  const activeProtocol = PROTOCOL_PRESETS[autoProtocol];
+  const activeProtocol = autoProtocol === 'company' ? companyCapture : PROTOCOL_PRESETS[autoProtocol];
+  const isCompanyView = (vista: string) => autoProtocol === 'company' && companyCapture.vistas.includes(vista);
+  const companyViewLabel = (vista: string) => isCompanyView(vista) ? companyCapture.labels[companyCapture.vistas.indexOf(vista)] : vista;
   // Entrega do laudo: popup "enviar para o aluno" após salvar a avaliação.
   const [deliverOpen, setDeliverOpen] = useState(false);
   const [deliverBlob, setDeliverBlob] = useState<Blob | null>(null);
@@ -618,10 +637,11 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
 
   async function handleProtocolChange(nextProtocol: AutoProtocol) {
     setAutoProtocol(nextProtocol);
+    invalidateStructuredAnalysis();
     setError("");
     const video = videoRef.current;
     if (!videoLoaded || !video?.src) return;
-    await extractAutoFrames(video, PROTOCOL_PRESETS[nextProtocol]);
+    await extractAutoFrames(video, nextProtocol === 'company' ? companyCapture : PROTOCOL_PRESETS[nextProtocol]);
   }
 
   function clampFrameTime(time: number, video: HTMLVideoElement) {
@@ -786,6 +806,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
           frames: images,
           assessment_source: "video_full_assessment",
           protocol_hint: activeProtocol.hint,
+          ...(autoProtocol === 'company' ? { company_protocol_version: companyProtocol?.version ?? 0 } : {}),
           expected_movements: activeProtocol.vistas,
           frame_findings: frames.map((frame) => ({
             frameId: frame.id,
@@ -881,6 +902,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
       : fr));
   }
   function removeFrame(id: string) {
+    if (frames.some(frame => frame.id === id && isCompanyView(frame.vista))) return;
     invalidateStructuredAnalysis();
     setFrames(prev => prev.filter(fr => fr.id !== id));
   }
@@ -973,7 +995,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
         }
         const pdf = generateAssessmentPDF(
           { report_text: resolvedReportText || fallbackReport, assessment_json: assessmentJson },
-          { studentName: name, date: new Date().toLocaleDateString("pt-BR") },
+          await loadCompanyPDFMeta(companyId, { studentName: name, date: new Date().toLocaleDateString("pt-BR") }),
           imgs,
         );
         const blob = pdf.output("blob") as Blob;
@@ -1029,12 +1051,14 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
             <Select value={autoProtocol} onValueChange={v => void handleProtocolChange(v as AutoProtocol)} disabled={extracting}>
               <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {Object.entries(PROTOCOL_PRESETS).map(([key, preset]) => (
+                {companyProtocol && <SelectItem value="company">Protocolo da empresa · v{companyProtocol.version}</SelectItem>}
+                {(!companyProtocol?.version ? Object.entries(PROTOCOL_PRESETS) : []).map(([key, preset]) => (
                   <SelectItem key={key} value={key}>{preset.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <p className="text-xs text-slate-500">{activeProtocol.description}</p>
+            {protocolError && <p role="alert" className="text-xs text-destructive">{protocolError}</p>}
           </div>
 
           <video ref={videoRef} muted playsInline controls
@@ -1064,7 +1088,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
                 <span className="font-semibold text-slate-600">Clique ou arraste o vídeo da avaliação</span>
                 <span className="text-xs text-slate-400">MP4 · {activeProtocol.label.toLowerCase()} vira cortes automáticos para a IA</span>
               </div>
-              <input type="file" accept="video/*" onChange={handleVideo}
+              <input type="file" accept="video/*" onChange={handleVideo} disabled={protocolLoading}
                 style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
             </div>
           )}
@@ -1137,6 +1161,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
                       </span>
                     </button>
                     <button type="button" onClick={() => removeFrame(fr.id)}
+                      disabled={isCompanyView(fr.vista)} aria-label={`Excluir ${companyViewLabel(fr.vista)}`}
                       className="absolute top-1 right-1 bg-slate-900/70 rounded-full h-5 w-5 text-white text-xs flex items-center justify-center">
                       <X className="h-3 w-3" />
                     </button>
@@ -1145,8 +1170,9 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
 
                   {/* Edição */}
                   <div className="flex-1 space-y-2">
+                    {isCompanyView(fr.vista) && <div className="text-sm"><p className="font-medium">{companyViewLabel(fr.vista)}</p><p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">{companyCapture.instructions[companyCapture.vistas.indexOf(fr.vista)]}</p></div>}
                     <div className="flex items-center gap-2">
-                      <Select value={fr.vista} onValueChange={v => updateFrame(fr.id, { vista: v })}>
+                      <Select value={fr.vista} onValueChange={v => updateFrame(fr.id, { vista: v })} disabled={isCompanyView(fr.vista)}>
                         <SelectTrigger className="h-8 text-sm w-auto"><SelectValue /></SelectTrigger>
                         <SelectContent>{VISTAS.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
                       </Select>

@@ -36,6 +36,9 @@ export interface ExerciseCatalogEntry {
 }
 
 export interface PrescriptionInput {
+  companyPolicy?: import('../company-product-settings.ts').CompanyProductSettings['prescription'];
+  sessionDurationMinutes?: number;
+  availableDays?: number[];
   studentName?: unknown;
   objective?: PrescriptionObjective;
   fitnessLevel?: FitnessLevel;
@@ -226,6 +229,9 @@ export interface TrainingProgram {
     sequence_phase?: string;
     previous_plan_used?: boolean;
     previous_metrics_reused?: number;
+    company_policy?: import('../company-product-settings.ts').CompanyProductSettings['prescription'];
+    company_policy_precedence?: string;
+    clinical_context?: Pick<PrescriptionInput, 'restrictions' | 'injuries' | 'painReports' | 'painEva' | 'assessmentContext' | 'anamneseContext' | 'prescriptionIntegration' | 'techniqueBreakdown'>;
   };
   cycle_name: string;
   objective: string;

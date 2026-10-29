@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
+import { HttpError } from "../_shared/tenant-auth.ts";
 import { formatSignedWhatsAppMessage, normalizeWhatsAppSignatureName } from "../_shared/whatsappSignature.ts";
 import {
   directWhatsAppJidVariants,
@@ -366,6 +368,7 @@ Deno.serve(async (req) => {
     if (!hasMaster && resolvedCompanyId !== userCompanyId) {
       return json({ error: "Forbidden: company mismatch" }, 403);
     }
+    await requireCompanyFeature(adminClient, resolvedCompanyId, "hasWhatsApp");
 
     // SECURITY (IDOR): when a chatId is supplied, ensure it belongs to this company
     // before any read/update/delete touches it (service-role bypasses RLS).
@@ -2261,6 +2264,7 @@ Deno.serve(async (req) => {
 
     return json({ error: "Unknown action" }, 400);
   } catch (err) {
+    if (err instanceof HttpError) return json({ error: err.message }, err.status);
     console.error("whatsapp-manager error:", err);
     return json({ error: "Internal error", details: String(err) }, 500);
   }

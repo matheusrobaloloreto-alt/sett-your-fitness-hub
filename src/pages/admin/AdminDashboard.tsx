@@ -1,3 +1,4 @@
+import { CompanyOperationsReports } from "@/components/admin/operations/OperationsConsumers";
 import { lazy, Suspense, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +23,8 @@ import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { RenewalsAndCyclesPanel } from "@/components/dashboard/RenewalsAndCyclesPanel";
 import { DashboardSnapshotContext, type CompanyDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 import { parseCompanyDashboardSnapshot } from "@/lib/companyDashboardSnapshot";
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS, fetchCompanyProductSettings } from '@/lib/companyProductSettings';
+import { useCompanyExperiencePolicy } from '@/hooks/useCompanyExperiencePolicy';
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 const LazyChart = lazy(() => import("recharts").then(mod => ({
@@ -54,7 +57,8 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
   // diretamente e não chama a RPC administrativa com um JWT de usuário.
   const today = businessDateYmd();
   const businessToday = parseISO(today);
-  const sevenDaysFromNow = format(addDays(businessToday, 7), "yyyy-MM-dd");
+  const experience = effectiveCompanyId ? (await fetchCompanyProductSettings(effectiveCompanyId)).settings.experience : DEFAULT_COMPANY_PRODUCT_SETTINGS.experience;
+  const renewalDate = format(addDays(businessToday, experience.renewal_notice_days), "yyyy-MM-dd");
 
   let studentQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "active");
   let interestedQuery = (supabase as any).from("leads").select("*", { count: "exact", head: true })
@@ -65,7 +69,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
   let inactiveQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "inactive");
   let enrollQuery = supabase.from("enrollments").select("plan_id, plans(name)");
   let expiringQuery = supabase.from("enrollments").select("id, student_id, end_date, trainer_id, students(full_name, status), plans(name)")
-    .in("status", ["active", "awaiting_renewal"]).lte("end_date", sevenDaysFromNow)
+    .in("status", ["active", "awaiting_renewal"]).lte("end_date", renewalDate)
     .order("end_date", { ascending: false });
 
   if (effectiveCompanyId) {
@@ -170,7 +174,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     // dashboard is an operational queue, not a snapshot that drops overdue work.
     const currentCycleCandidates = Array.from(
       allCycles
-        .filter((cycle: any) => cycle.start_date <= today && cycle.end_date <= sevenDaysFromNow)
+        .filter((cycle: any) => cycle.start_date <= today && cycle.end_date <= renewalDate)
         .reduce((map: Map<string, any>, cycle: any) => {
           const current = map.get(cycle.enrollment_id);
           if (!current || Number(cycle.cycle_number) > Number(current.cycle_number)) map.set(cycle.enrollment_id, cycle);
@@ -217,7 +221,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     activeCycles.forEach((c: any) => {
       const info = enrollInfoMap[c.enrollment_id];
       const daysLeft = differenceInCalendarDays(parseISO(c.end_date), businessToday);
-      if (daysLeft > 7) return;
+      if (daysLeft > experience.renewal_notice_days) return;
       const nextCycle = nextCycles.find((candidate: any) => candidate.enrollment_id === c.enrollment_id);
       const nextReady = Boolean(nextCycle && preparedNextCycles.has(nextCycle.id));
       if (nextReady) return;
@@ -301,9 +305,10 @@ export default function AdminDashboard({
   const [cycleFilter, setCycleFilter] = useState<"all" | "pending" | "overdue">("all");
   const routePrefix = routePrefixOverride ?? (role === "master" && isViewingCompany ? "admin" : role);
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
+  const { policy, isPending: policyPending, error: policyError } = useCompanyExperiencePolicy(effectiveCompanyId);
 
   const { data: snapshotData, error: snapshotError, isLoading: snapshotLoading } = useQuery({
-    queryKey: ["company-dashboard-snapshot", effectiveCompanyId ?? "none"],
+    queryKey: ["company-dashboard-snapshot", effectiveCompanyId ?? "none", policy.risk_no_workout_days, policy.renewal_notice_days],
     queryFn: async () => {
       if (!effectiveCompanyId) return null;
       const { data, error } = await supabase.rpc("get_company_dashboard_snapshot", { _company_id: effectiveCompanyId });
@@ -315,13 +320,13 @@ export default function AdminDashboard({
   });
 
   const { data: liveData, error: liveDashboardError, isLoading: liveDashboardLoading } = useQuery({
-    queryKey: ["admin-dashboard", effectiveCompanyId ?? "all"],
+    queryKey: ["admin-dashboard", effectiveCompanyId ?? "all", policy.renewal_notice_days],
     queryFn: () => fetchDashboardData(effectiveCompanyId),
     staleTime: 60_000,
-    enabled: !readOnly,
+    enabled: !readOnly && Boolean(effectiveCompanyId) && !policyPending,
   });
   const data = readOnly ? dashboardDataFromSnapshot(snapshotData) : liveData;
-  const dashboardError = readOnly ? snapshotError : liveDashboardError;
+  const dashboardError = policyError ?? (readOnly ? snapshotError : liveDashboardError);
   const dashboardLoading = readOnly ? snapshotLoading : liveDashboardLoading;
 
   // Mapa aluno→conversa para os botões "Renovar agora" (abre o chat com a mensagem pronta).
@@ -338,7 +343,7 @@ export default function AdminDashboard({
   };
 
   const handleRenew = async (studentId: string, fullName?: string, planName?: string, daysLeft?: number) => {
-    if (readOnly) return;
+    if (readOnly || !effectiveCompanyId) return;
     try {
       const paymentLink = await createPlansLink(studentId);
       const message = renewalMessage({ fullName, planName, daysLeft, paymentLink, overdue: typeof daysLeft === "number" && daysLeft <= 0 });
@@ -348,6 +353,9 @@ export default function AdminDashboard({
         chatId: studentChatMap?.[studentId],
         studentId,
         message,
+        companyId: effectiveCompanyId,
+        messageEvent: typeof daysLeft === 'number' && daysLeft <= 0 ? 'renewal_overdue' : 'renewal_due',
+        messageValues: { nome: fullName ?? '', primeiro_nome: (fullName ?? '').trim().split(/\s+/)[0], link: paymentLink, prazo: typeof daysLeft === 'number' ? String(daysLeft) : '' },
         onNoChat: (m) => { void navigator.clipboard?.writeText(m); toast.success("Aluno sem WhatsApp — mensagem de renovação copiada."); },
       });
     } catch (error) {
@@ -399,6 +407,8 @@ export default function AdminDashboard({
             </p>
           )}
         </div>
+
+        {!readOnly && effectiveCompanyId && <CompanyOperationsReports companyId={effectiveCompanyId}/>}
 
         {dashboardError && (
           <Card className="border-destructive/40 bg-destructive/5">

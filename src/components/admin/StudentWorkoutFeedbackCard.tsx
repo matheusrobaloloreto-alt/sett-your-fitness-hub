@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Loader2, MessageSquareReply } from "lucide-react";
@@ -7,8 +7,11 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import {defaultFormDefinition,type FormDefinition} from '@/lib/formDefinitions';
 
 interface WorkoutFeedback {
+  instrument_answers?:Record<string,unknown>|null;
+  form_definition?:{definition:FormDefinition}|null;
   id: string;
   created_at: string;
   workout_title: string | null;
@@ -31,13 +34,24 @@ export function StudentWorkoutFeedbackCard({ studentId }: { studentId: string })
   const [loading, setLoading] = useState(true);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const activeStudent = useRef(studentId);
+  activeStudent.current = studentId;
+  const confirmedReplies = useRef(new Map<string, WorkoutFeedback>());
+  const pendingReplies = useRef(new Map<string, symbol>());
+
+  const reconcileReply = (item: WorkoutFeedback, targetStudent: string) => {
+    const confirmed = confirmedReplies.current.get(`${targetStudent}:${item.id}`);
+    if (!confirmed || (item.trainer_replied_at && item.trainer_replied_at > (confirmed.trainer_replied_at ?? ''))) return item;
+    return { ...item, ...confirmed };
+  };
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setSavingId(null);
     supabase
       .from("workout_feedback")
-      .select("id, created_at, workout_title, notes, trainer_reply, trainer_replied_at, trainer_reply_author_name")
+      .select("id, created_at, workout_title, notes, trainer_reply, trainer_replied_at, trainer_reply_author_name, instrument_answers, form_definition:company_form_definitions(definition)")
       .eq("student_id", studentId)
       .order("created_at", { ascending: false })
       .limit(5)
@@ -47,7 +61,7 @@ export function StudentWorkoutFeedbackCard({ studentId }: { studentId: string })
           toast({ title: "Erro ao carregar feedbacks de treino", description: error.message, variant: "destructive" });
           setFeedbacks([]);
         } else {
-          setFeedbacks((data as WorkoutFeedback[]) || []);
+          setFeedbacks(((data as unknown as WorkoutFeedback[]) || []).map(item => reconcileReply(item, studentId)));
         }
         setLoading(false);
       });
@@ -57,23 +71,34 @@ export function StudentWorkoutFeedbackCard({ studentId }: { studentId: string })
   const saveReply = async (feedback: WorkoutFeedback) => {
     const reply = (drafts[feedback.id] || "").trim();
     if (!reply) return;
+    const contextKey = `${studentId}:${feedback.id}`;
+    const request = Symbol(contextKey);
+    pendingReplies.current.set(contextKey, request);
     setSavingId(feedback.id);
-    const { data, error } = await supabase.rpc("reply_to_workout_feedback", {
-      _feedback_id: feedback.id,
-      _trainer_reply: reply,
-    });
-    if (error || !data) {
-      toast({
-        title: "Resposta não salva",
-        description: error?.message || "Tente novamente em instantes.",
-        variant: "destructive",
+    try {
+      const { data, error } = await supabase.rpc("reply_to_workout_feedback", {
+        _feedback_id: feedback.id,
+        _trainer_reply: reply,
       });
-    } else {
-      setFeedbacks((current) => current.map((item) => item.id === feedback.id ? { ...item, ...(data as WorkoutFeedback) } : item));
-      setDrafts((current) => ({ ...current, [feedback.id]: "" }));
-      toast({ title: "Resposta registrada", description: "O aluno verá sua resposta no histórico do treino." });
+      if (error || !data) throw new Error(error?.message || "Tente novamente em instantes.");
+      const candidate = { ...feedback, ...(data as WorkoutFeedback) };
+      const confirmed = reconcileReply(candidate, studentId);
+      confirmedReplies.current.set(contextKey, confirmed);
+      if (activeStudent.current === studentId) setFeedbacks((current) => current.map((item) => item.id === feedback.id ? { ...item, ...confirmed } : item));
+      if (pendingReplies.current.get(contextKey) === request && activeStudent.current === studentId) {
+        setDrafts((current) => ({ ...current, [feedback.id]: "" }));
+        toast({ title: "Resposta registrada", description: "O aluno verá sua resposta no histórico do treino." });
+      }
+    } catch (error) {
+      if (pendingReplies.current.get(contextKey) === request && activeStudent.current === studentId) {
+        toast({ title: "Resposta não salva", description: error instanceof Error ? error.message : "Tente novamente em instantes.", variant: "destructive" });
+      }
+    } finally {
+      if (pendingReplies.current.get(contextKey) === request) {
+        pendingReplies.current.delete(contextKey);
+        if (activeStudent.current === studentId) setSavingId(current => current === feedback.id ? null : current);
+      }
     }
-    setSavingId(null);
   };
 
   return (
@@ -107,6 +132,12 @@ export function StudentWorkoutFeedbackCard({ studentId }: { studentId: string })
                 </div>
               </div>
               {notes.body && <p className="whitespace-pre-wrap text-sm text-foreground font-sans">{notes.body}</p>}
+              {feedback.form_definition?.definition.fields.filter(field=>!field.hidden&&!defaultFormDefinition('workout_feedback').fields.some(core=>core.key===field.key)&&feedback.instrument_answers?.[field.key]!==undefined).map(field=>{
+                const answer=feedback.instrument_answers?.[field.key];
+                const labels=new Map(field.options.map(option=>[option.value,option.label]));
+                const display=(value:unknown)=>typeof value==='boolean'?(value?'Sim':'Nao'):labels.get(String(value))??String(value??'');
+                return <p key={field.key} className="text-sm break-words"><span className="font-medium">{field.label}: </span>{Array.isArray(answer)?answer.map(display).join(', '):display(answer)}</p>;
+              })}
               {feedback.trainer_reply ? (
                 <div className="rounded-md border border-primary/20 bg-primary/5 p-2">
                   <p className="text-xs font-semibold text-primary font-sans">

@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantAccess, HttpError } from "../_shared/tenant-auth.ts";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
+import { assertAssessmentFrameCoverage, readCompanyAssessmentProtocol, resolveAssessmentCapture, type AssessmentProtocolReader } from '../_shared/prescription/assessmentProtocol.ts';
 import {
   buildDeterministicAssessmentJson as buildAssessmentEngineJson,
   normalizeAssessmentJson as normalizeAssessmentEngineJson,
@@ -1036,6 +1038,7 @@ serve(async (req) => {
       observacoes_tecnicas = "",
       assessment_source = "",
       protocol_hint = "",
+      company_protocol_version,
       expected_movements = [],
       frame_findings = [],
     } = await req.json();
@@ -1047,6 +1050,18 @@ serve(async (req) => {
       requireStaff: true,
     });
     const authorizedCompanyId = authz.companyId;
+    await requireCompanyFeature(supabaseAdmin, authorizedCompanyId, "hasPrescription");
+    const companyProtocolCandidate = protocol_hint === 'company_approved_v1' || (Array.isArray(frames) && frames.length > 0)
+      || [image_postura_frente, image_postura_lado, image_postura_costas, image_squat_frente, image_squat_lado, image_squat_costas].some(Boolean)
+      ? await readCompanyAssessmentProtocol(supabaseAdmin as unknown as AssessmentProtocolReader, authorizedCompanyId)
+      : null;
+    const companyProtocol = companyProtocolCandidate && (companyProtocolCandidate.version > 0 || protocol_hint === 'company_approved_v1') ? companyProtocolCandidate : null;
+    if (companyProtocol) {
+      if (!Number.isSafeInteger(company_protocol_version) || company_protocol_version !== companyProtocol.version) throw new HttpError(409, 'O protocolo da empresa mudou. Recarregue a avaliacao e refaca os cortes.');
+      try { assertAssessmentFrameCoverage(frames, companyProtocol.protocol); }
+      catch (error) { throw new HttpError(400, error instanceof Error ? error.message : 'Triagem obrigatoria incompleta.'); }
+    }
+    const effectiveExpectedMovements = companyProtocol ? resolveAssessmentCapture(companyProtocol.protocol).vistas : expected_movements;
 
     // Monta o conteúdo de imagens, rotulando cada uma com vista + frameId
     const imageContent: any[] = [];
@@ -1121,7 +1136,7 @@ Perímetros/dobras/outros dados de composição: ${clean(perimetros || "não inf
 Observações técnicas do professor: ${clean(observacoes_tecnicas || "nenhuma")}
 Origem da avaliação: ${clean(assessment_source || "não informada")}
 Pista de protocolo: ${clean(protocol_hint || "não informada")}
-Movimentos esperados no vídeo: ${Array.isArray(expected_movements) ? expected_movements.map(clean).join(", ") : clean(expected_movements || "não informado")}
+Movimentos esperados no vídeo: ${Array.isArray(effectiveExpectedMovements) ? effectiveExpectedMovements.map(clean).join(", ") : clean(effectiveExpectedMovements || "não informado")}
 
 ${imageContent.length > 0
   ? "Analise TODAS as imagens acima e retorne o JSON conforme instruído, incluindo um item em frame_findings para CADA imagem (use o frameId rotulado)."
@@ -1171,12 +1186,19 @@ ${imageContent.length > 0
         observacoes_tecnicas,
         assessment_source,
         protocol_hint,
-        expected_movements,
+        expected_movements: effectiveExpectedMovements,
         frame_findings: frameMetricContext,
         reason: AI_FIRST ? (ANTHROPIC_API_KEY ? "vision_unavailable" : "anthropic_key_missing") : "deterministic_first",
       });
       rawText = JSON.stringify(assessmentJson);
     }
+    if (companyProtocol) assessmentJson.company_protocol_provenance = {
+      company_id: authorizedCompanyId, version: companyProtocol.version,
+      protocol: companyProtocol.protocol,
+      capture: resolveAssessmentCapture(companyProtocol.protocol),
+      updated_at: companyProtocol.updated_at, updated_by: companyProtocol.updated_by,
+      criteria_source: 'existing_immutable_assessment_engine',
+    };
     reportText = assessmentJson.relatorio_para_aluno || "";
     resumoPrescricao = assessmentJson.resumo_para_prescricao || "";
     frameFindings = assessmentJson.frame_findings || [];

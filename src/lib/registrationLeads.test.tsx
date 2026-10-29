@@ -1,5 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defaultOperations } from '@/lib/companyOperations';
+// Legacy lead lifecycle tests isolate the newly integrated policy reader; its
+// save/readback/query behavior has separate OperationsDesigner integration tests.
+vi.mock("@/hooks/useCompanyFeatures", () => ({ useCompanyFeatures: () => ({ loading: false, hasRegistration: true }) }));
+vi.mock("@/components/admin/operations/OperationsConsumers", () => ({
+  useCompanyOperations: () => ({ data: { version: 0, settings: defaultOperations() }, error: null }),
+}));
 import RegistrationManager from "@/pages/admin/RegistrationManager";
 
 const db = vi.hoisted(() => ({

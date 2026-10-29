@@ -31,6 +31,7 @@ import { useWakeLock } from "@/hooks/useWakeLock";
 import { WeeklyBar } from "@/components/student/WeeklyBar";
 import { AnnouncementsBell } from "@/components/student/AnnouncementsBell";
 import { StudentHome } from "@/components/student/StudentHome";
+import { StudentHistory } from "@/components/student/StudentHistory";
 import { EditorialPageHeader } from "@/components/EditorialPageHeader";
 import { PersonalThemeIconToggle } from "@/components/PersonalThemeToggle";
 import { businessDateYmd } from "@/lib/businessDate";
@@ -42,6 +43,9 @@ import { StudentWeekSelector } from "@/components/student/StudentWeekSelector";
 import { collectTrainedDaysForWeek, mergeTrainingLogsForDisplay, upsertCompletedWorkoutSession } from "@/lib/studentWeek";
 
 import { CycleFeedbackBanner } from "@/components/student/CycleFeedbackBanner";
+import {usePublishedInstrumentState} from '@/hooks/usePublishedInstrument';
+import VersionedFormFields from '@/components/VersionedFormFields';
+import {validateFormAnswers} from '@/lib/formDefinitions';
 import { calculateStreak } from "@/lib/streakCalculator";
 import type { Gender } from "@/components/student/BodyMeasurements";
 import { Megaphone, Activity } from "lucide-react";
@@ -270,6 +274,8 @@ export default function StudentPortal() {
   const [feedbackWorkoutTitle, setFeedbackWorkoutTitle] = useState("");
   const [feedbackSessionId, setFeedbackSessionId] = useState<string | null>(null);
   const [sendingFeedback, setSendingFeedback] = useState(false);
+  const {published:feedbackDefinition,loaded:feedbackDefinitionLoaded,error:feedbackDefinitionError}=usePublishedInstrumentState(companyId,'workout_feedback');
+  const [feedbackInstrumentAnswers,setFeedbackInstrumentAnswers]=useState<Record<string,unknown>>({});
   const [loading, setLoading] = useState(true);
   const [contentLoading, setContentLoading] = useState(true);
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
@@ -1075,6 +1081,7 @@ export default function StudentPortal() {
     setFeedbackWorkoutTitle(selectedWorkout.title);
     setFeedbackText("");
     setFeedbackRating(null);
+    setFeedbackInstrumentAnswers({});
     setFeedbackSessionId(finishedSession.id);
     setFeedbackOpen(true);
     } finally {
@@ -1085,6 +1092,8 @@ export default function StudentPortal() {
 
   const sendWorkoutFeedback = async () => {
     if (!studentId) return;
+    if(!feedbackDefinitionLoaded||feedbackDefinitionError)return;
+    if(feedbackDefinition){const invalid=validateFormAnswers(feedbackDefinition.definition,feedbackInstrumentAnswers);if(invalid.length){toast({title:'Revise o feedback',description:invalid.join(', '),variant:'destructive'});return;}}
     setSendingFeedback(true);
     try {
       const { data, error } = await supabase.functions.invoke("student-workout-feedback", {
@@ -1094,6 +1103,7 @@ export default function StudentPortal() {
           perception: feedbackRating,
           workout_title: feedbackWorkoutTitle,
           workout_session_id: feedbackSessionId,
+          ...(feedbackDefinition?{form_definition_id:feedbackDefinition.id,versioned_answers:feedbackInstrumentAnswers}:{}),
         },
       });
       if (error || !data?.ok || !data?.persisted) {
@@ -1651,6 +1661,7 @@ export default function StudentPortal() {
 
         {/* CALENDARIO VIEW */}
         {activeView === "calendario" && selectedCycle && (
+          <div className="space-y-6">
           <StudentCalendar
             workouts={cycles.flatMap(c => c.workouts)}
             trainedDays={trainedDays}
@@ -1662,6 +1673,13 @@ export default function StudentPortal() {
             workoutSessions={workoutSessions}
             goals={studentGoals}
           />
+          <StudentHistory
+            allLogs={displayLogs}
+            workouts={cycles.flatMap(c => c.workouts)}
+            sessions={workoutSessions}
+            feedbacks={workoutFeedbacks}
+          />
+          </div>
         )}
 
         {/* ATIVIDADES VIEW */}
@@ -1691,12 +1709,13 @@ export default function StudentPortal() {
 
       {/* Feedback pós-treino: app como fonte de verdade, WhatsApp apenas como aviso opcional. */}
       <Dialog open={feedbackOpen} onOpenChange={(o) => { if (!o) setFeedbackOpen(false); }}>
-        <DialogContent className="bg-card border-border max-w-sm">
+        <DialogContent className="bg-card border-border max-w-sm max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-primary">Como foi o treino?</DialogTitle>
+            <DialogTitle className="text-primary">{feedbackDefinition?.definition.title??'Como foi o treino?'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">Sua resposta fica registrada no painel da equipe. WhatsApp é só um aviso extra quando estiver conectado.</p>
+            {!feedbackDefinitionLoaded?<p className="text-sm text-muted-foreground">Carregando formulario...</p>:feedbackDefinitionError?<p role="alert" className="text-sm text-destructive">{feedbackDefinitionError}</p>:feedbackDefinition?<VersionedFormFields definition={feedbackDefinition.definition} answers={feedbackInstrumentAnswers} onChange={(key,value)=>{setFeedbackInstrumentAnswers(a=>({...a,[key]:value}));if(key==='perception')setFeedbackRating(typeof value==='string'&&value?value:null);if(key==='reflection')setFeedbackText(String(value??''));}} />:<>
             <p className="text-sm font-medium text-foreground">Qual foi sua percepção geral?</p>
             <div className="flex gap-2">
               {[{ e: "😮‍💨", l: "Difícil" }, { e: "👍", l: "Bom" }, { e: "🔥", l: "Ótimo" }].map((o) => (
@@ -1717,9 +1736,10 @@ export default function StudentPortal() {
               placeholder="O que você quer que seu treinador saiba? (opcional)"
               className="min-h-[90px]"
             />
+            </>}
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setFeedbackOpen(false)} disabled={sendingFeedback}>Pular</Button>
-              <Button className="flex-1" onClick={sendWorkoutFeedback} disabled={sendingFeedback || (!feedbackRating && !feedbackText.trim())}>
+              <Button className="flex-1" onClick={sendWorkoutFeedback} disabled={sendingFeedback || !feedbackDefinitionLoaded || !!feedbackDefinitionError || (!feedbackRating && !feedbackText.trim())}>
                 {sendingFeedback ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar ao treinador"}
               </Button>
             </div>

@@ -1,6 +1,6 @@
 // Cadência de Contatos — quem está ficando pra trás sem resposta (leads + alunos ativos).
 // Mostra o tempo desde a ÚLTIMA MENSAGEM RECEBIDA no WhatsApp; botão "inativar" tira do countdown.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { requestWhatsAppChatPanel } from "@/lib/whatsappChatPanel";
 import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
+import { useCompanyExperiencePolicy } from '@/hooks/useCompanyExperiencePolicy';
 
 const TONE_CLASS: Record<string, string> = {
   ok: "bg-emerald-500/15 text-emerald-600",
@@ -29,11 +30,14 @@ const TONE_CLASS: Record<string, string> = {
 export function ContactCadenceCard({ companyId, routePrefix, readOnly = false }: { companyId: string | null | undefined; routePrefix?: string; readOnly?: boolean }) {
   const navigate = useNavigate();
   const snapshot = useDashboardSnapshot();
+  const { policy, error: policyError } = useCompanyExperiencePolicy(companyId);
   const [rows, setRows] = useState<CadenceRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [windowDays, setWindowDays] = useState<CadenceWindowDays>(90);
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     if (readOnly) {
       setRows((snapshot?.contactCadence || []) as CadenceRow[]);
       setLoaded(true);
@@ -41,6 +45,7 @@ export function ContactCadenceCard({ companyId, routePrefix, readOnly = false }:
     }
     if (!companyId) { setRows([]); setLoaded(true); return; }
     const { data, error } = await (supabase as any).rpc("contact_cadence", { _company_id: companyId });
+    if (generation !== loadGeneration.current) return;
     if (error) { setRows([]); setLoaded(true); return; } // RPC ainda não migrada → card se esconde
     setRows((data || []) as CadenceRow[]);
     setLoaded(true);
@@ -56,6 +61,7 @@ export function ContactCadenceCard({ companyId, routePrefix, readOnly = false }:
     toast.success(`${cadenceDisplayName(row)} saiu da cadência de contatos.`);
   };
 
+  if (policyError) return <p role="alert" className="text-sm text-destructive">Nao foi possivel carregar a politica de contatos.</p>;
   if (!loaded) return null;
   const filteredRows = filterCadenceByWindow(rows, windowDays);
   const leads = filteredRows.filter((r) => r.kind === "lead").length;
@@ -86,7 +92,7 @@ export function ContactCadenceCard({ companyId, routePrefix, readOnly = false }:
         <div className="space-y-1.5 max-h-80 overflow-y-auto">
           {filteredRows.slice(0, 20).map((r) => (
             <div key={r.chat_id} className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">
-              <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold font-mono-data shrink-0", TONE_CLASS[cadenceTone(r.hours_since)])}>
+              <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold font-mono-data shrink-0", TONE_CLASS[cadenceTone(r.hours_since, policy)])}>
                 {formatCadence(r.hours_since)}
               </span>
               <div className="min-w-0 flex-1">

@@ -19,6 +19,7 @@ import { canonicalCategorySlug, canonicalMuscleSlug, categoryLabel, muscleLabel,
 import { useMaster } from "@/contexts/MasterContext";
 import { buildExerciseTargetPayload, replaceExerciseMuscleTargets } from "@/lib/exerciseTargetConfig";
 import { resolveExerciseUploadScope } from "@/lib/exerciseUploadScope";
+import { prepareExerciseMetadata, saveExerciseMetadata, type ExerciseMetadataDraft, type MetadataWriteClient } from '@/lib/prescription/exerciseMetadata';
 
 interface Exercise {
   id: string;
@@ -133,6 +134,37 @@ export default function ExerciseLibrary() {
   const [visibleCount, setVisibleCount] = useState(EXERCISES_PER_PAGE);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Exercise | null>(null);
+  const [metadataExercise, setMetadataExercise] = useState<Exercise | null>(null);
+  const [metadataDraft, setMetadataDraft] = useState<ExerciseMetadataDraft>({ contraindications: '', regressions: '', equivalent_substitutes: [] });
+  const [metadataBusy, setMetadataBusy] = useState(false);
+  const [metadataError, setMetadataError] = useState('');
+  const metadataRequest = useRef(0);
+  const canEditMetadata = (exercise: Exercise) => ['admin', 'coordinator', 'master'].includes(role || '') && !!effectiveCompanyId && exercise.company_id === effectiveCompanyId && !exercise.is_global;
+  const openMetadata = async (exercise: Exercise) => {
+    if (!canEditMetadata(exercise)) return;
+    const request = ++metadataRequest.current;
+    setMetadataExercise(exercise); setMetadataBusy(true); setMetadataError('');
+    try {
+      const { data, error } = await supabase.from('exercise_metadata').select('contraindications, regressions, equivalent_substitutes').eq('exercise_id', exercise.id).maybeSingle();
+      if (error) throw error;
+      if (request === metadataRequest.current) setMetadataDraft({ contraindications: (data?.contraindications || []).join('\n'), regressions: (data?.regressions || []).join('\n'), equivalent_substitutes: data?.equivalent_substitutes || [] });
+    } catch (error) {
+      if (request === metadataRequest.current) setMetadataError(error instanceof Error ? error.message : 'Falha ao carregar contexto tecnico.');
+    } finally { if (request === metadataRequest.current) setMetadataBusy(false); }
+  };
+  const persistMetadata = async () => {
+    if (!metadataExercise || metadataBusy || metadataError) return;
+    setMetadataBusy(true);
+    try {
+      const payload = prepareExerciseMetadata(metadataExercise, effectiveCompanyId, role, exercises, metadataDraft);
+      await saveExerciseMetadata(supabase as unknown as MetadataWriteClient, payload);
+      const { data, error } = await supabase.from('exercise_metadata').select('contraindications, regressions, equivalent_substitutes').eq('exercise_id', payload.exercise_id).single();
+      if (error) throw error;
+      if (JSON.stringify(data) !== JSON.stringify({ contraindications: payload.contraindications, regressions: payload.regressions, equivalent_substitutes: payload.equivalent_substitutes })) throw new Error('A leitura nao confirmou o contexto salvo.');
+      toast({ title: 'Contexto tecnico salvo' }); setMetadataExercise(null);
+    } catch (error) { toast({ title: 'Nao foi possivel salvar', description: error instanceof Error ? error.message : 'Revise os criterios.', variant: 'destructive' }); }
+    finally { setMetadataBusy(false); }
+  };
   const [videoModal, setVideoModal] = useState<{ type: "path" | "url"; value: string } | null>(null);
   const [form, setForm] = useState({
     name: "", description: "", muscle_group: "",
@@ -835,6 +867,7 @@ export default function ExerciseLibrary() {
                         )}
                       </div>
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {canEditMetadata(ex) && <Button variant="ghost" size="icon" className="h-7 w-7" title="Contexto tecnico" aria-label={`Contexto tecnico de ${ex.name}`} onClick={() => void openMetadata(ex)}><Dumbbell className="h-4 w-4" /></Button>}
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(ex)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -969,6 +1002,21 @@ export default function ExerciseLibrary() {
       </Dialog>
 
       {/* Create/Edit Dialog */}
+      <Dialog open={!!metadataExercise} onOpenChange={(value) => { if (!value) { metadataRequest.current += 1; setMetadataExercise(null); } }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Contexto tecnico: {metadataExercise?.name}</DialogTitle></DialogHeader>
+          {metadataError && <p role="alert" className="text-sm text-destructive">{metadataError}</p>}
+          <Label htmlFor="exercise-contraindications">Contraindicacoes</Label>
+          <Textarea id="exercise-contraindications" disabled={metadataBusy || !!metadataError} value={metadataDraft.contraindications} onChange={event => setMetadataDraft({ ...metadataDraft, contraindications: event.target.value })} />
+          <Label htmlFor="exercise-regressions">Regressoes</Label>
+          <Textarea id="exercise-regressions" disabled={metadataBusy || !!metadataError} value={metadataDraft.regressions} onChange={event => setMetadataDraft({ ...metadataDraft, regressions: event.target.value })} />
+          <Label>Substituicoes equivalentes</Label>
+          <div className="max-h-52 overflow-y-auto space-y-2">
+            {exercises.filter(target => target.id !== metadataExercise?.id && (target.is_global || target.company_id === effectiveCompanyId)).map(target => <label key={target.id} className="flex items-center gap-2 text-sm"><Checkbox disabled={metadataBusy || !!metadataError} checked={metadataDraft.equivalent_substitutes.includes(target.id)} onCheckedChange={checked => setMetadataDraft({ ...metadataDraft, equivalent_substitutes: checked ? [...metadataDraft.equivalent_substitutes, target.id] : metadataDraft.equivalent_substitutes.filter(id => id !== target.id) })} />{target.name}</label>)}
+          </div>
+          <Button disabled={metadataBusy || !!metadataError} onClick={() => void persistMetadata()}>{metadataBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar contexto tecnico'}</Button>
+        </DialogContent>
+      </Dialog>
       <Dialog open={open} onOpenChange={(o) => { if (!o) resetForm(); else setOpen(true); }}>
         <DialogContent className="bg-card border-border max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,13 +8,99 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter
 } from "@/components/ui/dialog";
 import { Plus, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
 import { FlowCanvas } from "@/components/flow-builder/FlowCanvas";
+import { requireDeletedAutomationFlow } from "@/lib/automationGraph";
+import { parseReconciliationRows, type ReconciliationRow } from '../../../supabase/functions/_shared/dispatch-reconciliation';
+
+const reconciliationClient = supabase as unknown as {
+  rpc(name: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: { code?: string } | null }>;
+};
+
+export function DispatchReconciliationPanel({ companyId }: { companyId: string }) {
+  const [rows, setRows] = useState<ReconciliationRow[]>([]);
+  const [selected, setSelected] = useState<ReconciliationRow | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState('');
+  const generation = useRef(0);
+  const acting = useRef(false);
+  const load = useCallback(async () => {
+    const request = ++generation.current;
+    setLoading(true);
+    try {
+      const result = await reconciliationClient.rpc('inspect_company_dispatch_reconciliation', { _company_id: companyId });
+      if (request !== generation.current) return;
+      if (result.error) throw new Error('dispatch_status_unavailable');
+      setRows(parseReconciliationRows(result.data));
+    } catch {
+      if (request === generation.current) { setRows([]); setFailure('Não foi possível consultar os envios. Atualize para tentar novamente.'); }
+    } finally { if (request === generation.current) setLoading(false); }
+  }, [companyId]);
+  const invalidate = useCallback(() => { generation.current++; }, []);
+  useEffect(() => { void load(); return invalidate; }, [load, invalidate]);
+  const act = async (action: 'review' | 'cancel') => {
+    if (!selected || acting.current) return;
+    acting.current = true; setBusy(true); setFailure('');
+    const request = generation.current;
+    try {
+      const result = await reconciliationClient.rpc('review_company_dispatch_reconciliation', {
+        _company_id: companyId, _source: selected.source, _owner_id: selected.id,
+        _expected_revision: selected.revision, _expected_updated_at: selected.updated_at, _action: action,
+      });
+      if (request !== generation.current) return;
+      if (result.error) {
+        if (result.error.code === 'PT409' || result.error.code === '40001') {
+          setSelected(null); await load();
+          setFailure('Este caso mudou. Confira o estado atualizado antes de decidir.');
+          return;
+        }
+        throw new Error('dispatch_review_unavailable');
+      }
+      const ack = result.data as { revision?: number; action?: string; provider_resolution?: string } | null;
+      if (ack?.revision !== selected.revision + 1 || ack.action !== action || ack.provider_resolution !== 'pending_technical') {
+        throw new Error('dispatch_review_ack_invalid');
+      }
+      setSelected(null); await load();
+    } catch {
+      if (request === generation.current) setFailure('Não foi possível confirmar a ação. Atualize e confira o histórico antes de tentar novamente.');
+    } finally { acting.current = false; setBusy(false); }
+  };
+  if (!loading && !failure && rows.length === 0) return null;
+  return <section aria-label="Reconciliação de envios" className="mx-4 mb-3 border border-border rounded-md p-3 text-sm">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 className="font-medium">Entregas em revisão {rows.length ? `(${rows.length}${rows.length === 50 ? '+' : ''})` : ''}</h2>
+      <Button size="sm" variant="outline" disabled={loading || busy} onClick={() => { setFailure(''); setSelected(null); void load(); }}>Atualizar envios</Button>
+    </div>
+    <p className="text-muted-foreground">Resultado de envio incerto. Confirmação técnica pendente; reenvio automático suspenso.</p>
+    {loading && <p role="status">Consultando envios...</p>}
+    {failure && <p role="alert">{failure}</p>}
+    <ul className="mt-2 max-h-48 overflow-y-auto space-y-2">{rows.map(row => <li key={`${row.source}:${row.id}`} className="flex flex-wrap justify-between items-center gap-2">
+      <span className="break-words">{row.name}{row.last_action === 'cancel' ? ' — envio suspenso' : row.last_action === 'review' ? ' — revisão registrada' : ''}</span>
+      <Button size="sm" variant="outline" disabled={loading || busy} onClick={() => { setSelected(row); setFailure(''); }}>Inspecionar</Button>
+    </li>)}</ul>
+    <Dialog open={Boolean(selected)} onOpenChange={open => { if (!open && !busy) setSelected(null); }}>
+      <DialogContent><DialogHeader><DialogTitle>Revisar entrega</DialogTitle><DialogDescription>Inspecione os registros antes de suspender ou registrar a revisão.</DialogDescription></DialogHeader>
+        {selected && <>
+          <p>{selected.name}</p>
+          <p>Recibos registrados: {selected.ack_count}. Tentativas sem confirmação: {selected.unknown_count}.</p>
+          <p>A revisão registra a necessidade de evidência técnica. Suspender impede a continuidade deste envio e não confirma a entrega.</p>
+          {selected.source === 'intercycle' && <p>O link interciclos existente continua válido para resposta, dentro do seu prazo e das permissões originais.</p>}
+          {failure && <p role="alert">{failure}</p>}
+          <DialogFooter>
+            <Button variant="outline" disabled={busy || selected.last_action === 'review'} onClick={() => void act('review')}>Registrar revisão</Button>
+            <Button variant="destructive" disabled={busy || selected.last_action === 'cancel'} onClick={() => void act('cancel')}>Suspender envio</Button>
+          </DialogFooter>
+        </>}
+      </DialogContent>
+    </Dialog>
+  </section>;
+}
 
 type Flow = {
   id: string;
@@ -27,7 +113,8 @@ type Flow = {
 
 const triggerLabels: Record<string, string> = {
   manual: "Manual",
-  new_student: "Novo Aluno",
+  new_student: "Primeiro contato (nao aluno)",
+  weekly_contact: "Contato semanal (com consentimento)",
   no_workout_7d: "Sem Treino (7 dias)",
   payment_pending: "Pagamento Pendente",
 };
@@ -45,6 +132,7 @@ export default function WhatsAppAutomation() {
   const [newFlowTrigger, setNewFlowTrigger] = useState("manual");
 
   const loadFlows = useCallback(async () => {
+    if (!effectiveCompanyId) { setFlows([]); return; }
     let query = supabase
       .from("automation_flows")
       .select("*");
@@ -98,9 +186,14 @@ export default function WhatsAppAutomation() {
   };
 
   const handleDeleteFlow = async (flowId: string) => {
-    let query = supabase.from("automation_flows").delete().eq("id", flowId);
-    if (effectiveCompanyId) query = query.eq("company_id", effectiveCompanyId);
-    await query;
+    if (!effectiveCompanyId) { toast.error("Selecione uma empresa para excluir fluxo"); return; }
+    try {
+      const result = await supabase.from("automation_flows").delete().eq("id", flowId).eq("company_id", effectiveCompanyId).select("id");
+      requireDeletedAutomationFlow(result, flowId);
+    } catch {
+      toast.error("Não foi possível confirmar a exclusão do fluxo");
+      return;
+    }
     if (selectedFlowId === flowId) { setSelectedFlowId(null); }
     loadFlows();
     toast.success("Fluxo excluído");
@@ -146,6 +239,7 @@ export default function WhatsAppAutomation() {
           </Dialog>
         </div>
 
+        {effectiveCompanyId && <DispatchReconciliationPanel key={effectiveCompanyId} companyId={effectiveCompanyId} />}
         <div className="flex flex-1 border border-border rounded-lg overflow-hidden bg-card min-h-0">
           {/* Flows list */}
           <div className="w-72 border-r border-border flex flex-col shrink-0">
@@ -203,7 +297,7 @@ export default function WhatsAppAutomation() {
                   </div>
                 </div>
 
-                <FlowCanvas flowId={selectedFlow.id} companyId={selectedFlow.company_id} />
+                <FlowCanvas flowId={selectedFlow.id} companyId={selectedFlow.company_id} triggerType={selectedFlow.trigger_type} />
               </>
             )}
           </div>

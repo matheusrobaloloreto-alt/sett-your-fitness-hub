@@ -114,7 +114,8 @@ describe("SETT-CYCLE-UPDATE-01 contracts", () => {
     expect(registrationManager).toContain("navigator.clipboard.writeText(link)");
     expect(intercycleEdge).toContain('action === "create-link"');
     expect(intercycleEdge).toContain('status: "ready"');
-    expect(intercycleEdge).toContain('from("intercycle_anamnesis_invites").upsert');
+    expect(intercycleEdge).toContain('previousInvite.data.form_definition_id');
+    expect(intercycleEdge).toContain(".is('consumed_at',null)");
     expect(intercycleMigrations).toContain("'ready'");
     expect(intercycleMigrations).toContain("old.status = 'ready'");
   });
@@ -122,7 +123,8 @@ describe("SETT-CYCLE-UPDATE-01 contracts", () => {
   it("allows manual links at any point while preserving the automatic delivery window", () => {
     expect(createLinkBlock).not.toContain("dia 29");
     expect(createLinkBlock).not.toContain("A janela desta anamnese interciclos já encerrou.");
-    expect(scheduleNowBlock).toContain("dia 29");
+    expect(scheduleNowBlock).toContain('definition?.definition.policy.intercycle_day??29');
+    expect(scheduleNowBlock).toContain('datePlusDays(cycle.start_date, scheduledDay-1)');
     expect(manualAnytimeMigration).toContain("v_delivery.last_error_code is distinct from 'intercycle_manual_link_ready'");
     expect(manualAnytimeMigration).toContain("intercycle_submit_window_closed");
     expect(manualAnytimeMigration).toMatch(/v_today < v_cycle\.start_date \+ 28/);

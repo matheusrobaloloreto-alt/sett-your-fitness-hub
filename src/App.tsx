@@ -37,6 +37,7 @@ const WhatsAppSettings = lazy(() => import("./pages/admin/WhatsAppSettings"));
 const WhatsAppAutomation = lazy(() => import("./pages/admin/WhatsAppAutomation"));
 const WhatsAppTemplates = lazy(() => import("./pages/admin/WhatsAppTemplates"));
 const AppearanceSettings = lazy(() => import("./pages/admin/AppearanceSettings"));
+const ProductSettings = lazy(() => import("./pages/admin/ProductSettings"));
 const ExerciseLibrary = lazy(() => import("./pages/admin/ExerciseLibrary"));
 const WorkoutBuilder = lazy(() => import("./pages/admin/WorkoutBuilder"));
 const WorkoutLibrary = lazy(() => import("./pages/admin/WorkoutLibrary"));
@@ -57,6 +58,12 @@ const CompaniesManager = lazy(() => import("./pages/master/CompaniesManager"));
 const MasterAds = lazy(() => import("./pages/master/MasterAds"));
 const MasterAccount = lazy(() => import("./pages/master/MasterAccount"));
 const MasterBnContent = lazy(() => import("./pages/master/MasterBnContent"));
+const PlatformProductSettings = lazy(() => import("./pages/master/PlatformProductSettings"));
+const CompanyGovernance = lazy(() => import("./pages/admin/CompanyGovernance"));
+const OperationsWorkspace = lazy(() => import("./pages/admin/OperationsWorkspace"));
+const PlatformContentManager = lazy(() => import("./pages/master/PlatformContentManager"));
+const PublicCompanyInformation = lazy(() => import("./pages/PublicCompanyInformation"));
+const CompanySupportConsole = lazy(() => import("./pages/CompanySupportConsole"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const PublicRegistration = lazy(() => import("./pages/PublicRegistration"));
 const PublicAnamnesis = lazy(() => import("./pages/PublicAnamnesis"));
@@ -203,22 +210,29 @@ const App = () => (
           <Route path="/anamnese-convite/:token" element={<RouteTransition><PublicAnamnesis /></RouteTransition>} />
           <Route path="/anamnese-interciclos/:token" element={<RouteTransition><PublicIntercycleAnamnesis /></RouteTransition>} />
           <Route path="/pagamento/:token" element={<RouteTransition><PublicPayment /></RouteTransition>} />
+          <Route path="/empresa/:slug/:page" element={<RouteTransition><PublicCompanyInformation /></RouteTransition>} />
           <Route path="/aluno/treino/:studentId" element={<ProtectedRoute allowedRoles={["student", "admin", "coordinator", "trainer", "master"]}><StudentWorkoutAccessGuard><RouteTransition><StudentWorkout /></RouteTransition></StudentWorkoutAccessGuard></ProtectedRoute>} />
           <Route path="/aluno" element={<ProtectedRoute allowedRoles={["student"]}><RouteTransition><StudentPortal /></RouteTransition></ProtectedRoute>} />
           <Route path="/" element={<RouteTransition><RootRoute /></RouteTransition>} />
 
           {/* Persistent dashboard shell (sidebar + header) */}
           <Route element={<AppLayout />}>
+          <Route path="/suporte" element={<ProtectedRoute allowedRoles={["admin", "coordinator", "trainer", "master"]}><CompanySupportConsole /></ProtectedRoute>} />
           {/* Master Routes */}
           <Route path="/master" element={<ProtectedRoute allowedRoles={["master"]}><MasterDashboard /></ProtectedRoute>} />
           <Route path="/master/companies" element={<ProtectedRoute allowedRoles={["master"]}><CompaniesManager /></ProtectedRoute>} />
           <Route path="/master/ads" element={<ProtectedRoute allowedRoles={["master"]}><MasterAds /></ProtectedRoute>} />
           <Route path="/master/account" element={<ProtectedRoute allowedRoles={["master"]}><MasterAccount /></ProtectedRoute>} />
+          <Route path="/master/settings" element={<ProtectedRoute allowedRoles={["master"]}><PlatformProductSettings /></ProtectedRoute>} />
+          <Route path="/master/content" element={<ProtectedRoute allowedRoles={["master"]}><PlatformContentManager /></ProtectedRoute>} />
           <Route path="/master/bn-content" element={<ProtectedRoute allowedRoles={["master"]}><MasterBnContent /></ProtectedRoute>} />
           <Route path="/master/exercises" element={<ProtectedRoute allowedRoles={["master"]}><ExerciseLibrary /></ProtectedRoute>} />
           <Route path="/master/biblioteca" element={<ProtectedRoute allowedRoles={["master"]}><Biblioteca /></ProtectedRoute>} />
 
           {/* Admin Routes */}
+          <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={["admin"]}><ProductSettings /></ProtectedRoute>} />
+          <Route path="/admin/governance" element={<ProtectedRoute allowedRoles={["admin"]}><CompanyGovernance /></ProtectedRoute>} />
+          <Route path="/admin/operations" element={<ProtectedRoute allowedRoles={["admin"]}><OperationsWorkspace /></ProtectedRoute>} />
           <Route path="/admin" element={<FeatureRoute allowedRoles={["admin"]} requiredFeature="hasDashboard"><AdminDashboard /></FeatureRoute>} />
           <Route path="/admin/registration" element={<FeatureRoute allowedRoles={["admin"]} requiredFeature="hasRegistration"><RegistrationManager /></FeatureRoute>} />
           <Route path="/admin/anamnesis" element={<FeatureRoute allowedRoles={["admin"]} requiredFeature="hasAnamnesis"><AnamnesisManager /></FeatureRoute>} />

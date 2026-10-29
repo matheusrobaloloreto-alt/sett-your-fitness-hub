@@ -83,7 +83,22 @@ function weekRules(input: PrescriptionInput): WeekRule[] {
     { week: 5, block: "intensificacao", stimulus: "Elevar densidade sem sacrificar execução", rir: "2", volume_percent: 105, tempo_focus: "2-0-1-0", method_focus: "Agrupamento e intensidade controlada", instruction: "Execute os métodos sinalizados e preserve a técnica nas duas séries finais." },
     { week: 6, block: "intensificacao", stimulus: "Consolidar o bloco com intensidade controlada", rir: "2", volume_percent: 100, tempo_focus: "2-0-1-0", method_focus: "Variação final de método", instruction: "Consolide o bloco e registre o desempenho para orientar a renovação." },
   ];
-  return rules.slice(0, duration);
+  const configuredRules = rules.slice(0, duration).map(rule => {
+    const configured = input.companyPolicy?.weekly_rules?.find(item => item.week === rule.week);
+    if (!configured) return rule;
+    const rir = configured.rir_min === configured.rir_max ? String(configured.rir_min) : `${configured.rir_min}-${configured.rir_max}`;
+    return { ...rule, block: configured.phase, rir, volume_percent: configured.volume_percent,
+      stimulus: `Fase ${configured.phase} com dose definida pela empresa`,
+      method_focus: 'Métodos permitidos somente quando elegíveis para o exercício',
+      instruction: `Semana ${rule.week}: fase ${configured.phase}, RIR ${rir}; respeite o volume seguro, as restrições e a técnica.`,
+    };
+  });
+  return configuredRules.map(rule => input.companyPolicy ? {
+    ...rule,
+    tempo_focus: input.companyPolicy.default_cadence.split('').join('-'),
+    volume_percent: rule.week === 1 ? Math.min(input.companyPolicy.weekly_rules?.find(item => item.week === 1)?.volume_percent ?? 100, Math.round(input.companyPolicy.first_week_volume_multiplier * 100)) : rule.volume_percent,
+    instruction: `Cadencia ${input.companyPolicy.default_cadence.split('').join('-')}. ${rule.week === 1 ? 'Calibre cargas e preserve tecnica.' : rule.instruction}`,
+  } : rule);
 }
 
 const LOW_VOLUME_PHASES = new Set(["mobilidade", "autoliberacao", "alongamento", "fisioterapia"]);
@@ -309,10 +324,11 @@ export function buildWeeklyPeriodization(
             equipment: String(input.equipment || ""),
             sessionKey: `w${workoutIndex + 1}`,
           });
-      prescriptions.set(
-        rule.week,
-        planned,
-      );
+      const allowed = input.companyPolicy?.allowed_methods;
+      prescriptions.set(rule.week, planned.map(exercise =>
+        allowed && exercise.method && !allowed.includes(exercise.method)
+          ? { ...exercise, method: null, group_id: null, method_seconds: null, method_reason: null }
+          : exercise));
     }
 
     const setsByWeek = new Map(rules.map((rule) => [rule.week, allocateWeeklySets(methodReadyExercises, rule, input)]));

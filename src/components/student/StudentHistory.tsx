@@ -31,9 +31,10 @@ interface SessionGroup {
   workoutTitle: string;
   workoutId: string;
   workoutSessionId: string | null;
-  totalVolume: number;
-  totalSets: number;
+  totalVolume: number | null;
+  totalSets: number | null;
   durationSeconds: number | null;
+  unassignedLogs?: boolean;
 }
 
 function feedbackBody(notes: string | null) {
@@ -65,24 +66,42 @@ export function StudentHistory({ allLogs, workouts, sessions, feedbacks = [] }: 
       groups[key].logs.push(log);
     });
 
-    const result: SessionGroup[] = Object.values(groups).map(g => {
+    const result: SessionGroup[] = [];
+    Object.values(groups).forEach(g => {
       const totalVolume = g.logs.reduce((sum: number, l: any) =>
         sum + (Number(l.weight) || 0) * (Number(l.reps_done) || 0), 0
       );
       const totalSets = g.logs.length;
 
       // Find matching workout_session for duration
-      const ws = sessions.find((s: any) => s.workout_id === g.workoutId && s.session_date === g.date);
-
-      return {
+      const matching = sessions.filter((s: any) => s.workout_id === g.workoutId && s.session_date === g.date);
+      const unassignedLogs = matching.length > 1 && matching.every(session => session.total_volume == null && session.total_sets_completed == null);
+      if (matching.length === 0 || unassignedLogs) result.push({
         date: g.date,
         workoutTitle: workoutMap[g.workoutId] || "Treino",
         workoutId: g.workoutId,
-        workoutSessionId: ws?.id || null,
+        workoutSessionId: null,
         totalVolume,
         totalSets,
-        durationSeconds: ws?.duration_seconds || null,
-      };
+        durationSeconds: null,
+        unassignedLogs,
+      });
+    });
+    // Concrete sessions remain visible without set logs and keep their own replies.
+    sessions.forEach((session: any) => {
+      if (!session.session_date || !session.workout_id) return;
+      const group = groups[`${session.session_date}-${session.workout_id}`];
+      if (!group && session.status !== 'completed' && !session.completed_at) return;
+      const onlySession = sessions.filter((s: any) => s.workout_id === session.workout_id && s.session_date === session.session_date).length === 1;
+      result.push({
+        date: session.session_date,
+        workoutTitle: workoutMap[session.workout_id] || 'Treino',
+        workoutId: session.workout_id,
+        workoutSessionId: session.id,
+        totalVolume: session.total_volume ?? (onlySession && group ? group.logs.reduce((sum: number, log: any) => sum + (Number(log.weight) || 0) * (Number(log.reps_done) || 0), 0) : null),
+        totalSets: session.total_sets_completed ?? (onlySession && group ? group.logs.length : null),
+        durationSeconds: session.duration_seconds || null,
+      });
     });
 
     return result.sort((a, b) => b.date.localeCompare(a.date));
@@ -138,7 +157,7 @@ export function StudentHistory({ allLogs, workouts, sessions, feedbacks = [] }: 
             const feedback = s.workoutSessionId ? feedbackBySession[s.workoutSessionId] : null;
             const replyAuthor = feedback?.trainer_reply_author_name || "treinador";
             return (
-            <Card key={`${s.date}-${s.workoutId}-${i}`} className="bg-card border-border">
+            <Card key={s.workoutSessionId || `${s.date}-${s.workoutId}-${i}`} className="bg-card border-border">
               <CardContent className="space-y-3 p-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -147,6 +166,7 @@ export function StudentHistory({ allLogs, workouts, sessions, feedbacks = [] }: 
                     </div>
                     <div>
                       <p className="text-sm font-medium text-foreground font-sans">{s.workoutTitle}</p>
+                      {s.unassignedLogs && <p className="text-xs text-muted-foreground">Registros de séries sem sessão identificada</p>}
                       <p className="text-xs text-muted-foreground font-mono-data">
                         {format(parseISO(s.date), "dd/MM/yyyy (EEEE)", { locale: ptBR })}
                       </p>
@@ -159,7 +179,7 @@ export function StudentHistory({ allLogs, workouts, sessions, feedbacks = [] }: 
                         {formatDuration(s.durationSeconds)}
                       </Badge>
                     )}
-                    {s.totalVolume > 0 && (
+                    {s.totalVolume !== null && s.totalVolume > 0 && (
                       <Badge variant="outline" className="text-[10px] font-mono-data border-primary/30 text-primary">
                         {(s.totalVolume / 1000).toFixed(1)}t
                       </Badge>

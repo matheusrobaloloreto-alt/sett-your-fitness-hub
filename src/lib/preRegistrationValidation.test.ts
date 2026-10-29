@@ -25,10 +25,12 @@ describe("pre-registration server contract", () => {
     const start = edge.indexOf("async function preRegister");
     const end = edge.indexOf("async function loadLeadForStaff", start);
     const handler = edge.slice(start, end);
-    const validationOffset = handler.indexOf("validatePreRegistrationSubmission(body)");
+    const validationOffset = handler.indexOf("validatePreRegistrationSubmission(versioned?.legacyBody ?? body");
     expect(validationOffset).toBeGreaterThan(0);
-    expect(validationOffset).toBeLessThan(handler.indexOf("resolvePreRegistrationCompany(body)"));
+    expect(handler.indexOf("resolvePreRegistrationCompany(body)")).toBeLessThan(handler.indexOf("prepareVersionedPreRegistration("));
+    expect(handler.indexOf("prepareVersionedPreRegistration(")).toBeLessThan(validationOffset);
     expect(validationOffset).toBeLessThan(handler.indexOf('.from("leads")'));
+    expect(handler).toContain('__form: versioned.snapshot');
   });
 
   it("accepts the complete real form contract", () => {
@@ -50,6 +52,21 @@ describe("pre-registration server contract", () => {
       ...complete,
       whatsapp: "+123 456 789 012 345",
     }).phone).toBe("123456789012345");
+  });
+
+  it('accepts additional answers only with their validated published definition', () => {
+    const extra = { id: 'extra_preference', label: 'Preferencia', is_required: true, field_type: 'select', options: ['morning', 'evening'] };
+    const body = { ...complete, answers: { ...completeAnswers, custom_answers: { extra_preference: { label: 'Preferencia', value: 'morning' } } } };
+    expect(() => validatePreRegistrationSubmission(body)).toThrow(/adicionais/);
+    expect(validatePreRegistrationSubmission(body, [extra]).answers.custom_answers).toEqual(body.answers.custom_answers);
+    expect(() => validatePreRegistrationSubmission({ ...body, answers: { ...body.answers, custom_answers: { extra_preference: { label: 'Preferencia', value: 'injetada' } } } }, [extra])).toThrow(/Preferencia/);
+  });
+
+  it('accepts a defined multiselect extra without permitting arbitrary nested objects', () => {
+    const extra = { id: 'extra_goals', label: 'Metas adicionais', is_required: true, field_type: 'checkbox', options: ['forca', 'mobilidade'] };
+    const body = { ...complete, answers: { ...completeAnswers, custom_answers: { extra_goals: { label: extra.label, value: ['forca', 'mobilidade'] } } } };
+    expect(validatePreRegistrationSubmission(body, [extra]).answers.custom_answers).toEqual(body.answers.custom_answers);
+    expect(() => validatePreRegistrationSubmission({ ...body, answers: { ...body.answers, custom_answers: { extra_goals: { label: extra.label, value: { nested: true } } } } }, [extra])).toThrow(/limites permitidos/);
   });
 
   it.each([

@@ -7,7 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Plus, CreditCard, ExternalLink, LogIn } from "lucide-react";
+import { Building2, Plus, CreditCard, ExternalLink, LogIn, Pencil } from "lucide-react";
+import { usePlatformCatalog } from "@/hooks/usePlatformCatalog";
+import { saveCompanyPublicProfile } from "@/lib/companyPublicProfile";
+import CompanyAdmissionPolicy from "@/components/master/CompanyAdmissionPolicy";
+import CompanyFeaturePolicy from "@/components/master/CompanyFeaturePolicy";
+import type {CompanyLimitSource} from "@/lib/companyAdmissionPolicy";
 import { toast } from "sonner";
 import { useMaster } from "@/contexts/MasterContext";
 import { useNavigate } from "react-router-dom";
@@ -22,25 +27,9 @@ interface Company {
   created_at: string;
   subscription_status: string | null;
   has_subscription?: boolean;
+  company_limit_source?:CompanyLimitSource;
+  company_limit_policy_version?:number;
 }
-
-const tierLabel: Record<string, string> = { 
-  basic: "Básico", 
-  intermediate: "Intermediário", 
-  advanced: "Avançado" 
-};
-
-const tierPrice: Record<string, string> = {
-  basic: "R$ 199/mês",
-  intermediate: "R$ 400/mês",
-  advanced: "R$ 799/mês",
-};
-
-const tierFeatures: Record<string, string[]> = {
-  basic: ["Prescrição de Treino", "Biblioteca de Exercícios"],
-  intermediate: ["Tudo do Básico", "+ Dashboard", "+ Cadastro", "+ Anamnese", "+ Alunos", "+ Agenda", "+ Equipe", "+ Financeiro"],
-  advanced: ["Tudo do Intermediário", "+ WhatsApp CRM", "+ Automação"],
-};
 
 const subscriptionStatusLabel: Record<string, string> = {
   active: "Ativa",
@@ -57,6 +46,14 @@ const subscriptionStatusVariant: Record<string, "default" | "secondary" | "destr
 };
 
 export default function CompaniesManager() {
+  const catalog = usePlatformCatalog();
+  const catalogReady=!!catalog.data && !catalog.isError && !catalog.isPending;
+  const tierLabel = Object.fromEntries(Object.entries(catalog.data?.tiers || {}).map(([id,tier]) => [id,tier.name]));
+  const tierPrice = Object.fromEntries(Object.entries(catalog.data?.tiers || {}).map(([id,tier]) => [id, `${tier.monthly_price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/mês`]));
+  const tierFeatures = Object.fromEntries(Object.entries(catalog.data?.tiers || {}).map(([id,tier]) => [id,[tier.description]]));
+  const [editing, setEditing] = useState<Company | null>(null);
+  const [identity, setIdentity] = useState({ name: "", slug: "" });
+  const [savingIdentity, setSavingIdentity] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -92,19 +89,9 @@ export default function CompaniesManager() {
   const handleCreate = async () => {
     if (!form.name) { toast.error("Nome é obrigatório"); return; }
 
-    let ownerUserId = "";
-    if (form.owner_email) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("user_id")
-        .ilike("full_name", `%${form.owner_email}%`)
-        .limit(1)
-        .maybeSingle();
-      if (profile) ownerUserId = profile.user_id;
-    }
-
-    if (!ownerUserId) {
-      toast.error("Não foi possível encontrar o proprietário. Verifique o nome.");
+    const ownerUserId = form.owner_email.trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ownerUserId)) {
+      toast.error("Informe o identificador exato do proprietário verificado.");
       return;
     }
 
@@ -150,6 +137,7 @@ export default function CompaniesManager() {
   };
 
   const handleCreateCheckout = async (companyId: string, tier: string) => {
+    if(!catalogReady || !catalog.data?.tiers[tier as keyof typeof catalog.data.tiers])return;
     setProcessingCheckout(companyId);
     try {
       const { data, error } = await supabase.functions.invoke("create-company-checkout", {
@@ -207,8 +195,19 @@ export default function CompaniesManager() {
     setCompanies(prev => prev.map(c => c.id === companyId ? { ...c, is_active: !isActive } : c));
   };
 
+  const saveIdentity = async () => {
+    if (!editing || savingIdentity) return;
+    setSavingIdentity(true);
+    try {
+      await saveCompanyPublicProfile(editing,identity);
+      toast.success("Identidade atualizada."); setEditing(null); await fetchCompanies();
+    } catch(cause) { toast.error(cause instanceof Error?cause.message:"Não foi possível salvar a identidade."); }
+    finally { setSavingIdentity(false); }
+  };
+
   return (
     <>
+      <Dialog open={!!editing} onOpenChange={open => { if (!open && !savingIdentity) setEditing(null); }}><DialogContent><DialogHeader><DialogTitle>Identidade da empresa</DialogTitle></DialogHeader><Label htmlFor="company-name">Nome</Label><Input id="company-name" value={identity.name} maxLength={120} onChange={e => setIdentity(v => ({ ...v,name:e.target.value }))} /><Label htmlFor="company-slug">Slug</Label><Input id="company-slug" value={identity.slug} maxLength={80} onChange={e => setIdentity(v => ({ ...v,slug:e.target.value }))} /><p className="text-sm text-muted-foreground">Transferência de proprietário exige um fluxo separado com verificação de identidade.</p><Button disabled={savingIdentity} onClick={saveIdentity}>Salvar identidade</Button></DialogContent></Dialog>
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -233,8 +232,8 @@ export default function CompaniesManager() {
                   <Input value={form.slug} onChange={e => setForm(f => ({ ...f, slug: e.target.value }))} placeholder="studio-fitness" />
                 </div>
                 <div>
-                  <Label>Nome do Proprietário (busca no perfil)</Label>
-                  <Input value={form.owner_email} onChange={e => setForm(f => ({ ...f, owner_email: e.target.value }))} placeholder="Nome do profissional" />
+                  <Label>Identificador exato do proprietário</Label>
+                  <Input value={form.owner_email} onChange={e => setForm(f => ({ ...f, owner_email: e.target.value }))} placeholder="UUID do usuário verificado" />
                 </div>
                 <div>
                   <Label>Tier Inicial</Label>
@@ -271,21 +270,22 @@ export default function CompaniesManager() {
           <div className="grid gap-4">
             {companies.map((company) => (
               <Card key={company.id}>
-                <CardContent className="py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <CardContent className="py-4 min-w-0">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className="h-10 w-10 shrink-0 rounded-lg bg-primary/10 flex items-center justify-center">
                         <Building2 className="h-5 w-5 text-primary" />
                       </div>
-                      <div>
-                        <p className="font-medium text-foreground">{company.name}</p>
-                        <p className="text-xs text-muted-foreground font-sans">
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground break-words">{company.name}</p>
+                        <p className="text-xs text-muted-foreground font-sans break-all">
                           {company.slug || "sem slug"} • Criada em {new Date(company.created_at).toLocaleDateString("pt-BR")}
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button size="icon" variant="outline" title="Editar identidade" aria-label={`Editar ${company.name}`} onClick={() => { setEditing(company); setIdentity({ name: company.name, slug: company.slug || "" }); }}><Pencil className="h-4 w-4" /></Button>
                       <Badge variant={company.is_active ? "default" : "secondary"}>
                         {company.is_active ? "Ativa" : "Inativa"}
                       </Badge>
@@ -309,19 +309,22 @@ export default function CompaniesManager() {
                     </div>
                   </div>
 
+                  <CompanyAdmissionPolicy key={`${company.id}:${company.company_limit_policy_version || 0}`} companyId={company.id} name={company.name} source={company.company_limit_source || "legacy"} version={company.company_limit_policy_version || 0} onSaved={value=>setCompanies(current=>current.map(item=>item.id===company.id?{...item,...value}:item))}/>
                   {/* Subscription Section */}
-                  <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
-                    <div className="flex items-center gap-4">
+                  <CompanyFeaturePolicy companyId={company.id} name={company.name}/>
+                  <div className="mt-4 pt-4 border-t border-border flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-wrap items-center gap-4">
                       <div>
-                        <p className="text-sm font-medium text-foreground">Plano: {tierLabel[company.tier]}</p>
+                        <p className="text-sm font-medium text-foreground">Plano: {tierLabel[company.tier] || company.tier}</p>
                         <p className="text-xs text-muted-foreground">{tierPrice[company.tier]}</p>
+                        {!catalogReady && <p role={catalog.isError?"alert":"status"} className="text-xs text-muted-foreground">{catalog.isError?"Catálogo indisponível. Recarregue antes de criar uma assinatura.":"Carregando catálogo de assinaturas..."}</p>}
                       </div>
                       <Badge variant={subscriptionStatusVariant[company.subscription_status || "inactive"]}>
                         {subscriptionStatusLabel[company.subscription_status || "inactive"]}
                       </Badge>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {/* Manual tier change */}
                       <Select
                         value={company.tier}
@@ -354,7 +357,7 @@ export default function CompaniesManager() {
                             <Button
                               variant="default"
                               size="sm"
-                              disabled={processingCheckout === company.id}
+                              disabled={!catalogReady || processingCheckout === company.id}
                             >
                               <CreditCard className="h-4 w-4 mr-1" />
                               Assinar
@@ -365,7 +368,7 @@ export default function CompaniesManager() {
                               <DialogTitle>Escolher Plano para {company.name}</DialogTitle>
                             </DialogHeader>
                             <div className="space-y-3">
-                              {(["basic", "intermediate", "advanced"] as const).map((tier) => (
+                              {(catalogReady ? (["basic", "intermediate", "advanced"] as const) : []).map((tier) => (
                                 <Card 
                                   key={tier} 
                                   className={`cursor-pointer hover:border-primary transition-colors ${company.tier === tier ? "border-primary" : ""}`}
@@ -376,7 +379,7 @@ export default function CompaniesManager() {
                                       <div>
                                         <p className="font-medium">{tierLabel[tier]}</p>
                                         <p className="text-xs text-muted-foreground">
-                                          {tierFeatures[tier].slice(0, 3).join(" • ")}
+                                          {tierFeatures[tier]?.slice(0, 3).join(" • ")}
                                         </p>
                                       </div>
                                       <p className="font-bold text-primary">{tierPrice[tier]}</p>

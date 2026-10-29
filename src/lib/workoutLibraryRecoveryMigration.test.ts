@@ -87,7 +87,18 @@ let createdDatabase = false;
 
 describe.skipIf(!container)("local PostgreSQL workout recovery", () => {
   beforeAll(async () => {
-    if (!container || !/^supabase_db_[a-zA-Z0-9_-]+$/.test(container)) throw new Error("Only a local Supabase Docker container is allowed.");
+    const isLocalSupabase = container && /^supabase_db_[a-zA-Z0-9_-]+$/.test(container);
+    const isIsolatedQaServer = container && /^sett-self-service-xp-isolated-20261026(?:-supabase)?$/.test(container);
+    if (!isLocalSupabase && !isIsolatedQaServer) throw new Error("Only an approved local PostgreSQL Docker container is allowed.");
+    if (isIsolatedQaServer) {
+      await execAsync("docker", ["exec", container!, "psql", "-X", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", `
+        do $$ begin
+          if not exists(select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
+          if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
+          if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role nologin; end if;
+        end $$;
+      `], { timeout: 60000 });
+    }
     createdDatabase = true;
     await execAsync("docker", ["exec", container, "createdb", "-U", "postgres", "-T", "template0", database], { timeout: 60000 });
     await query(readFileSync(`${process.cwd()}/supabase/tests/workout_library_recovery_fixture.sql`, "utf8"));

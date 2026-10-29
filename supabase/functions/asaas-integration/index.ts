@@ -1,14 +1,17 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
 import { effectiveBillingCountryCode, supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
-import { assertInstallmentCountAllowed, maxInstallmentsForPlanDuration } from "../_shared/payment-installments.ts";
+import { assertInstallmentCountAllowed } from "../_shared/payment-installments.ts";
+import { getCompanyProductSettings, type SettingsReadClient } from "../_shared/company-product-settings.ts";
+import { assessmentDeadline } from "../_shared/assessment-deadline.ts";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
+import { HttpError as FeatureHttpError } from "../_shared/tenant-auth.ts";
 import {
   asaasApiUrl,
   type AsaasApiConfig,
   resolveAsaasApiConfig,
 } from "../_shared/asaas-environment.ts";
 import {
-  addBusinessDays,
   buildAssessmentOnboardingMessage,
   claimFunnelEvent,
   completeFunnelEvent,
@@ -636,6 +639,7 @@ async function createCardPayment(body: any) {
   const allowedInstallmentCount = assertInstallmentCountAllowed(
     installmentCount,
     Number(plan.duration_weeks || 0),
+    (await getCompanyProductSettings(supabaseAdmin as unknown as SettingsReadClient, student.company_id)).business,
   );
   const checkoutRequestKey = body.checkoutToken
     ? `checkout:${body.checkoutToken}:plan:${plan.id}:CREDIT_CARD:${allowedInstallmentCount}`
@@ -924,7 +928,8 @@ async function applyPaymentStatusEffects(
     const lifecycleEventKey = asaasPaymentId ? `payment_lifecycle:${asaasPaymentId}` : null;
     try {
     if (!asaasPaymentId) throw new Error("Pagamento confirmado sem identificador do provedor.");
-    const dueDate = addBusinessDays(new Date(), 5);
+    const productSettings = await getCompanyProductSettings(supabaseAdmin as unknown as SettingsReadClient, companyId);
+    const dueDate = assessmentDeadline(new Date(), productSettings.business.assessment_sla_business_days);
     const { data: lifecycleRows, error: lifecycleError } = await supabaseAdmin.rpc(
       "apply_paid_payment_lifecycle",
       {
@@ -1541,6 +1546,7 @@ Deno.serve(async (req) => {
     if (adminActions.has(action)) {
       const tenant = await requireAdminTenant(req, body);
       body.companyId = body.companyId || tenant.companyId;
+      await requireCompanyFeature(supabaseAdmin, tenant.companyId, "hasFinancial");
     } else if (checkoutActions.has(action)) {
       if (body.checkoutToken) {
         await requireCheckoutToken(body, action);
@@ -1598,7 +1604,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({ error: message }),
       {
-        status: error instanceof HttpError ? error.status : 400,
+        status: error instanceof HttpError || error instanceof FeatureHttpError ? error.status : 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );

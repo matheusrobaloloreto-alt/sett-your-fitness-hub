@@ -17,6 +17,7 @@ type Line = TextRun[];
 const WIDTH = 1080;
 const MARGIN = 82;
 const BRAND = { navy: "#0D1B3E", ink: "#111214", paper: "#F4F2ED", sand: "#C8A876" };
+export type BnRenderBrand=typeof BRAND & {name:string;handle:string};
 
 export function bnSlideDimensions(format: string) {
   return { width: WIDTH, height: ["story", "reels"].includes(format) ? 1920 : 1350 };
@@ -72,7 +73,7 @@ export function wrapBnText(ctx: CanvasRenderingContext2D, text: string, size: nu
   return lines;
 }
 
-function drawLines(ctx: CanvasRenderingContext2D, lines: Line[], x: number, y: number, size: number, color: string, serif: boolean, centered = false) {
+function drawLines(ctx: CanvasRenderingContext2D, lines: Line[], x: number, y: number, size: number, color: string, serif: boolean, centered = false,accentColor=BRAND.sand) {
   const lineHeight = Math.ceil(size * 1.3);
   for (const line of lines) {
     const lineWidth = line.reduce((sum, run) => {
@@ -82,7 +83,7 @@ function drawLines(ctx: CanvasRenderingContext2D, lines: Line[], x: number, y: n
     let cursor = centered ? (WIDTH - lineWidth) / 2 : x;
     for (const run of line) {
       setFont(ctx, size, run, serif);
-      ctx.fillStyle = run.accent ? BRAND.sand : color;
+      ctx.fillStyle = run.accent ? accentColor : color;
       ctx.fillText(run.text, cursor, y);
       cursor += ctx.measureText(run.text).width;
     }
@@ -109,7 +110,8 @@ function cover(ctx: CanvasRenderingContext2D, image: HTMLImageElement, height: n
   ctx.drawImage(image, (WIDTH - width) / 2, (height - scaledHeight) / 2, width, scaledHeight);
 }
 
-export async function renderBnContentSlide(spec: RenderableBnSpec, index: number, options: { backgroundUrl?: string; logoUrl?: string } = {}): Promise<Blob> {
+export async function renderBnContentSlide(spec: RenderableBnSpec, index: number, options: { backgroundUrl?: string; logoUrl?: string|null;brand?:BnRenderBrand; companyMedia?: boolean } = {}): Promise<Blob> {
+  const brand=options.brand || {...BRAND,name:"BN Performance Training",handle:"@bnperformancetraining"};
   const slide = spec.slides[index];
   if (!slide) throw new Error("Slide não encontrado.");
   const { width, height } = bnSlideDimensions(spec.format);
@@ -120,29 +122,30 @@ export async function renderBnContentSlide(spec: RenderableBnSpec, index: number
   if (!ctx) throw new Error("Este navegador não conseguiu abrir a prévia do slide.");
   ctx.textBaseline = "top";
 
-  const light = spec.aesthetic === "l1_educativo" && slide.role === "conteudo";
+  const light = !(options.companyMedia && options.backgroundUrl) && spec.aesthetic === "l1_educativo" && slide.role === "conteudo";
   const serif = /l2_|l3_|l4_/.test(spec.aesthetic);
   const centered = slide.role === "cta" || spec.aesthetic === "l4_evento_teaser";
-  const background = light ? BRAND.paper : spec.aesthetic === "l3_aviso" ? BRAND.ink : BRAND.navy;
+  const background = light ? brand.paper : spec.aesthetic === "l3_aviso" ? brand.ink : brand.navy;
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, width, height);
-  if (options.backgroundUrl && slide.role !== "cta" && !light && spec.aesthetic !== "l3_aviso") {
+  if (options.backgroundUrl && (options.companyMedia || (slide.role !== "cta" && !light && spec.aesthetic !== "l3_aviso"))) {
     const image = await imageFromUrl(options.backgroundUrl);
     cover(ctx, image, height);
-    ctx.fillStyle = "rgba(13,27,62,0.70)";
+    ctx.fillStyle = `${brand.navy}B3`;
     ctx.fillRect(0, 0, width, height);
   }
-  const logo = await imageFromUrl(options.logoUrl || "/bn-content/logo.png");
+  const logo = options.logoUrl===null ? null : await imageFromUrl(options.logoUrl || "/bn-content/logo.png");
   const logoHeight = 64;
-  const logoWidth = Math.min(100, logoHeight * logo.naturalWidth / logo.naturalHeight);
-  ctx.drawImage(logo, MARGIN, 62, logoWidth, logoHeight);
-  const foreground = light ? BRAND.ink : "#FFFFFF";
+  const logoWidth = logo ? Math.min(100, logoHeight * logo.naturalWidth / logo.naturalHeight):0;
+  const drawnLogoHeight = options.companyMedia && logo ? logo.naturalHeight * logoWidth / logo.naturalWidth : logoHeight;
+  if(logo)ctx.drawImage(logo, MARGIN, 62, logoWidth, drawnLogoHeight);
+  const foreground = light ? brand.ink : "#FFFFFF";
   ctx.fillStyle = foreground;
   ctx.font = "700 25px Arial";
-  ctx.fillText("BN Performance Training", MARGIN + logoWidth + 18, 68);
+  ctx.fillText(brand.name, MARGIN + logoWidth + 18, 68,WIDTH-MARGIN*2-logoWidth-18);
   ctx.font = "400 21px Arial";
-  ctx.fillStyle = light ? BRAND.navy : BRAND.sand;
-  ctx.fillText("@bnperformancetraining", MARGIN + logoWidth + 18, 106);
+  ctx.fillStyle = light ? brand.navy : brand.sand;
+  ctx.fillText(brand.handle, MARGIN + logoWidth + 18, 106,WIDTH-MARGIN*2-logoWidth-18);
   if (light) {
     ctx.fillStyle = "#D8D5CE";
     ctx.fillRect(MARGIN, 177, WIDTH - MARGIN * 2, 2);
@@ -167,17 +170,17 @@ export async function renderBnContentSlide(spec: RenderableBnSpec, index: number
     bodySize = Math.max(24, bodySize - 1);
   }
   let y = slide.role === "capa" || centered ? Math.max(235, height - textHeight - 170) : 235;
-  ctx.fillStyle = BRAND.sand;
+  ctx.fillStyle = brand.sand;
   ctx.fillRect(centered ? (WIDTH - 88) / 2 : MARGIN, y - 26, 88, 6);
-  y = drawLines(ctx, titleLines, MARGIN, y, titleSize, foreground, serif, centered) + 36;
+  y = drawLines(ctx, titleLines, MARGIN, y, titleSize, foreground, serif, centered,brand.sand) + 36;
   for (const lines of bodyLines) {
-    y = drawLines(ctx, lines, MARGIN, y, bodySize, light ? "#25272B" : "#E3E0D9", false, centered) + 24;
+    y = drawLines(ctx, lines, MARGIN, y, bodySize, light ? brand.ink : "#E3E0D9", false, centered,brand.sand) + 24;
   }
-  ctx.fillStyle = light ? BRAND.navy : "#FFFFFF";
+  ctx.fillStyle = light ? brand.navy : "#FFFFFF";
   ctx.font = "400 24px Arial";
-  ctx.fillText("@bnperformancetraining", MARGIN, height - 78);
+  ctx.fillText(brand.handle, MARGIN, height - 78,WIDTH-MARGIN*2-100);
   const count = `${String(index + 1).padStart(2, "0")}/${String(spec.slides.length).padStart(2, "0")}`;
-  ctx.fillStyle = BRAND.sand;
+  ctx.fillStyle = brand.sand;
   ctx.fillText(count, WIDTH - MARGIN - ctx.measureText(count).width, height - 78);
   return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Não foi possível exportar este slide.")), "image/png"));
 }

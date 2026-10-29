@@ -1,4 +1,7 @@
 import { normalizeWhatsAppPhoneKey } from "./whatsappIdentity.ts";
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS, readCompanyProductSettings } from "./company-product-settings.ts";
+import { eventMessage, messageValues } from "./communication-policy.ts";
+import { requireCompanyFeature, type FeatureEntitlementClient } from "./company-feature-entitlements.ts";
 
 type SupabaseAdmin = {
   from: (table: string) => any;
@@ -43,7 +46,7 @@ export function buildPaymentLinkMessage(fullName: string, paymentUrl: string): s
 
 export function buildFiscalRegistrationMessage(fullName: string, registrationUrl: string): string {
   return [
-    `Oi, ${firstName(fullName)}! Vamos seguir com seu cadastro na BN Performance Training.`,
+    `Oi, ${firstName(fullName)}! Vamos seguir com seu cadastro com a nossa equipe.`,
     `Neste link você completa os dados fiscais necessários para a nota e escolhe seu plano: ${registrationUrl}`,
     "Depois, o pagamento é feito com segurança pelo Pix do Asaas. Assim que ele confirmar, você recebe as instruções da Avaliação de Movimento e o prazo para avaliação e início do treino é de até 5 dias úteis.",
   ].join("\n\n");
@@ -51,7 +54,7 @@ export function buildFiscalRegistrationMessage(fullName: string, registrationUrl
 
 export function buildPreRegistrationConfirmationMessage(fullName: string, followUpNotice: string): string {
   return [
-    `Oi, ${firstName(fullName)}! Recebemos seu pré-cadastro na BN Performance Training.`,
+    `Oi, ${firstName(fullName)}! Recebemos seu pré-cadastro.`,
     "Estamos com uma procura alta neste momento.",
     followUpNotice,
   ].join("\n\n");
@@ -160,11 +163,17 @@ export async function sendFunnelWhatsAppMessage(args: {
   eventType: string;
   eventKey: string;
   payload?: Record<string, unknown>;
+  templateValues?: Record<string, string>;
 }): Promise<FunnelMessageResult> {
   const claimed = await claimFunnelEvent(args.admin, args);
   if (!claimed) return { sent: true, reason: "already_processed" };
 
   try {
+    await requireCompanyFeature(args.admin as unknown as FeatureEntitlementClient, args.companyId, "hasWhatsApp");
+    const event = ({ fiscal_registration_link_sent: 'fiscal_invite', payment_link_sent: 'payment_link', assessment_instructions_sent: 'assessment_onboarding' } as Record<string, string>)[args.eventType];
+    const envelope = event ? await readCompanyProductSettings(args.admin, args.companyId) : { settings: DEFAULT_COMPANY_PRODUCT_SETTINGS, version: 0 };
+    const values = messageValues({ nome: args.fullName, prazo: envelope.settings.business.assessment_sla_business_days, data: args.payload?.assessment_due_at || '', ...args.templateValues }, envelope.settings.brand.company_name);
+    const text = event && envelope.version > 0 ? eventMessage(envelope.settings.messages, event, values, args.text) : args.text;
     const remoteJid = normalizeFunnelRemoteJid(args.phone || "", args.countryCode);
     if (!remoteJid) throw new Error("Aluno sem WhatsApp válido.");
 
@@ -213,10 +222,11 @@ export async function sendFunnelWhatsAppMessage(args: {
       }).eq("id", chatResult.data.id);
     }
 
+    await requireCompanyFeature(args.admin as unknown as FeatureEntitlementClient, args.companyId, "hasWhatsApp");
     const response = await fetch(`${evoUrl}/message/sendText/${instance.instance_name}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: evoKey },
-      body: JSON.stringify({ number: remoteJid.replace(/@.*$/, ""), text: args.text }),
+      body: JSON.stringify({ number: remoteJid.replace(/@.*$/, ""), text }),
     });
     if (!response.ok) {
       throw new Error(`Falha no provedor WhatsApp (status ${response.status}).`);
@@ -226,7 +236,7 @@ export async function sendFunnelWhatsAppMessage(args: {
     const messageResult = await args.admin.from("whatsapp_messages").insert({
       chat_id: chatResult.data.id,
       company_id: args.companyId,
-      content: args.text,
+      content: text,
       source: "outgoing",
       type: "text",
       is_from_me: true,
@@ -236,7 +246,7 @@ export async function sendFunnelWhatsAppMessage(args: {
     });
     if (messageResult.error) throw messageResult.error;
     await args.admin.from("whatsapp_chats").update({
-      last_message: args.text,
+      last_message: text,
       last_message_at: sentAt,
       updated_at: sentAt,
       unread_count: 0,
@@ -298,6 +308,9 @@ export async function sendPreRegistrationConfirmation(args: {
   };
 
   try {
+    await requireCompanyFeature(args.admin as unknown as FeatureEntitlementClient, args.companyId, "hasWhatsApp");
+    const envelope = await readCompanyProductSettings(args.admin, args.companyId);
+    const text = envelope.version > 0 ? eventMessage(envelope.settings.messages, 'pre_registration_confirmation', messageValues({ nome: args.fullName }, envelope.settings.brand.company_name), args.text) : args.text;
     const remoteJid = normalizeFunnelRemoteJid(args.phone, args.countryCode);
     if (!remoteJid) throw new Error("WhatsApp inválido para confirmação.");
     const instanceResult = await args.admin.from("whatsapp_instances")
@@ -342,10 +355,11 @@ export async function sendPreRegistrationConfirmation(args: {
     const evoUrl = readEdgeEnv("EVOLUTION_API_URL");
     const evoKey = readEdgeEnv("EVOLUTION_API_KEY");
     if (!evoUrl || !evoKey) throw new Error("Evolution API não configurada.");
+    await requireCompanyFeature(args.admin as unknown as FeatureEntitlementClient, args.companyId, "hasWhatsApp");
     const response = await fetch(`${evoUrl}/message/sendText/${instance.instance_name}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: evoKey },
-      body: JSON.stringify({ number: remoteJid.replace(/@.*$/, ""), text: args.text }),
+      body: JSON.stringify({ number: remoteJid.replace(/@.*$/, ""), text }),
     });
     if (!response.ok) throw new Error(`Falha no provedor WhatsApp (status ${response.status}).`);
     const providerPayload = await response.json().catch(() => ({}));
@@ -353,7 +367,7 @@ export async function sendPreRegistrationConfirmation(args: {
     const messageResult = await args.admin.from("whatsapp_messages").insert({
       chat_id: chatResult.data.id,
       company_id: args.companyId,
-      content: args.text,
+      content: text,
       source: "outgoing",
       type: "text",
       is_from_me: true,
@@ -364,7 +378,7 @@ export async function sendPreRegistrationConfirmation(args: {
     if (messageResult.error) throw messageResult.error;
     await args.admin.from("whatsapp_chats").update({
       contact_name: args.fullName,
-      last_message: args.text,
+      last_message: text,
       last_message_at: sentAt,
       updated_at: sentAt,
       unread_count: 0,

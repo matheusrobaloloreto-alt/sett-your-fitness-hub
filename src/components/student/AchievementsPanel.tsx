@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
+import { useStudentGamification } from '@/hooks/useStudentGamification';
+import { fetchStudentAchievementCatalog } from '@/lib/gamification';
 import {
   Trophy, Flame, Dumbbell, Medal, Bike, Route, CheckCircle, Crown, Lock,
 } from "lucide-react";
@@ -32,23 +34,29 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 export function AchievementsPanel({ studentId }: Props) {
+  const { enabled } = useStudentGamification({ studentId });
   const [xp, setXp] = useState(0);
   const [rank, setRank] = useState<{ rank_position: number; total_students: number } | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     let alive = true;
+    if (!enabled) { setXp(0); setRank(null); setAchievements([]); setUnlocked(new Set()); return; }
+    setLoading(true);
+    setLoadError(false);
     (async () => {
       const [xpRes, rankRes, achRes, unlockedRes] = await Promise.all([
         supabase.from("xp_events").select("xp_amount").eq("student_id", studentId),
         supabase.rpc("get_student_rank", { _student_id: studentId }),
-        supabase.from("achievements").select("*").eq("is_active", true).order("criteria_value"),
+        fetchStudentAchievementCatalog(studentId),
         supabase.from("student_achievements").select("achievement_id").eq("student_id", studentId),
       ]);
 
       if (!alive) return;
+      if (xpRes.error || rankRes.error || unlockedRes.error) throw new Error('Historico de conquistas indisponivel.');
 
       const total = (xpRes.data ?? []).reduce((s, e: { xp_amount: number }) => s + (e.xp_amount ?? 0), 0);
       setXp(total);
@@ -56,14 +64,14 @@ export function AchievementsPanel({ studentId }: Props) {
       const r = Array.isArray(rankRes.data) ? rankRes.data[0] : null;
       if (r) setRank({ rank_position: Number(r.rank_position), total_students: Number(r.total_students) });
 
-      setAchievements((achRes.data as Achievement[]) ?? []);
+      setAchievements(achRes as Achievement[]);
       setUnlocked(new Set((unlockedRes.data ?? []).map((u: { achievement_id: string }) => u.achievement_id)));
       setLoading(false);
-    })();
+    })().catch(() => { if (alive) { setAchievements([]); setLoading(false); setLoadError(true); } });
     return () => { alive = false; };
-  }, [studentId]);
+  }, [studentId, enabled]);
 
-  if (loading) return null;
+  if (!enabled || loading || loadError) return null;
 
   // Compacto: uma linha só — XP + contagem + rank + faixa de ícones de desbloqueio (rolável).
   return (

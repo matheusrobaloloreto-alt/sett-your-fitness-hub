@@ -18,6 +18,7 @@ import { Briefcase, Loader2, Eye, Pencil, Trash2, CalendarDays, UserRoundCog, Us
 import { format, parseISO, differenceInDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { cadenceTone, formatCadence } from "@/lib/contactCadence";
+import { useCompanyExperiencePolicy } from '@/hooks/useCompanyExperiencePolicy';
 import { StudentChatButton } from "@/components/admin/StudentChatButton";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
@@ -78,6 +79,7 @@ export default function Portfolio() {
   const { toast } = useToast();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId ?? null;
+  const { policy, error: policyError } = useCompanyExperiencePolicy(effectiveCompanyId);
   const canManageCompanyStudents = Boolean(user?.id && effectiveCompanyId)
     && ["trainer", "coordinator", "admin", "master"].includes(role || "");
   const canPickOthers = role === "admin" || role === "master";
@@ -538,6 +540,7 @@ export default function Portfolio() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
+      {policyError && <p role="alert" className="text-sm text-destructive">Nao foi possivel carregar a politica de contatos e renovacao.</p>}
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="flex items-center gap-2 text-xl font-semibold text-primary">
           <Briefcase className="h-5 w-5" /> Carteira
@@ -650,14 +653,14 @@ export default function Portfolio() {
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                         <Badge className={cn("text-[10px]", STATUS_CLASS[s.status] || "bg-muted")}>{STATUS_LABEL[s.status] || s.status}</Badge>
                         {s.hours_since_contact != null && (
-                          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-mono-data font-bold", CAD_CLASS[cadenceTone(s.hours_since_contact)])}>
+                          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-mono-data font-bold", CAD_CLASS[cadenceTone(s.hours_since_contact, policy)])}>
                             sem resposta há {formatCadence(s.hours_since_contact)}
                           </span>
                         )}
                         {s.cycle_end && (
-                          <span className={cn("flex items-center gap-1 text-[11px]", days != null && days <= 7 ? "text-orange-600" : "text-muted-foreground")}>
+                          <span className={cn("flex items-center gap-1 text-[11px]", days != null && days <= policy.renewal_notice_days ? "text-orange-600" : "text-muted-foreground")}>
                             <CalendarDays className="h-3 w-3" /> ciclo até {format(parseISO(s.cycle_end), "dd/MM")}
-                            {days != null && days >= 0 && days <= 7 ? ` (${days}d)` : ""}
+                            {days != null && days >= 0 && days <= policy.renewal_notice_days ? ` (${days}d)` : ""}
                           </span>
                         )}
                       </div>

@@ -6,6 +6,7 @@ import { Building2, Users, DollarSign, Activity, HardDrive, Info, LogOut, Images
 import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
 import { useMaster } from "@/contexts/MasterContext";
+import { fetchPublicPlatformCatalog } from "@/lib/platformSettingsClient";
 
 interface CompanyRow {
   id: string;
@@ -29,12 +30,6 @@ interface StorageInfo {
   videoCount: number;
 }
 
-const TIER_MONTHLY_PRICE: Record<string, number> = {
-  basic: 49.90,
-  intermediate: 400,
-  advanced: 799,
-};
-
 export default function MasterDashboard() {
   const [companies, setCompanies] = useState<CompanyRow[]>([]);
   const [metrics, setMetrics] = useState<Metrics>({ totalCompanies: 0, activeCompanies: 0, totalStudents: 0, monthlyRevenue: 0 });
@@ -57,8 +52,9 @@ export default function MasterDashboard() {
       const activeCompanies = companiesList.filter(c => c.is_active);
       const activeStudents = (studentsRes.data || []).filter((s: any) => s.status === "active").length;
 
+      const catalog = await fetchPublicPlatformCatalog().catch(() => null);
       const monthlyRevenue = activeCompanies.reduce((sum, c) => {
-        return sum + (TIER_MONTHLY_PRICE[c.tier] || 0);
+        return sum + (catalog?.tiers[c.tier as keyof typeof catalog.tiers]?.monthly_price || 0);
       }, 0);
 
       setMetrics({
@@ -165,7 +161,7 @@ export default function MasterDashboard() {
           {[
             { label: "Empresas", value: metrics.totalCompanies, sub: `${metrics.activeCompanies} ativas`, icon: Building2 },
             { label: "Alunos Ativos", value: metrics.totalStudents, sub: "em todas as instâncias", icon: Users },
-            { label: "Faturamento Mensal", value: `R$ ${metrics.monthlyRevenue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, sub: "receita de assinaturas", icon: DollarSign },
+            { label: "Referência Mensal", value: `R$ ${metrics.monthlyRevenue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, sub: "estimativa pelo catálogo; não é receita recebida", icon: DollarSign },
             { label: "Status", value: metrics.activeCompanies, sub: "instâncias ativas", icon: Activity },
             { label: "Vídeos Armazenados", value: totalVideos, sub: `em ${storageInfo.length} origens`, icon: HardDrive },
           ].map((m) => (

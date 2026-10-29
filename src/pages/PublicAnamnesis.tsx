@@ -81,6 +81,9 @@ const STEP_COPY: Record<AnamnesisStepId, { title: string; kicker: string; descri
   finish: { title: "Objetivos e contato", kicker: "Finalização", description: "Expectativas e melhor momento para a nossa equipe falar com você." },
 };
 
+import VersionedPublicAnamnesis from '@/components/VersionedPublicAnamnesis';
+import { parsePublishedForm, type PublishedForm } from '@/lib/formDefinitions';
+
 interface PublicAnamnesisProps {
   mode?: "student" | "pre-registration";
 }
@@ -117,6 +120,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [preferredContactPeriod, setPreferredContactPeriod] = useState("");
   const [deadlineMessage, setDeadlineMessage] = useState("");
   const [customFields, setCustomFields] = useState<CustomAnamnesisField[]>([]);
+  const [publishedForm,setPublishedForm]=useState<PublishedForm|null>(null);
+  const [contextLoaded,setContextLoaded]=useState(false);
   const [customAnswers, setCustomAnswers] = useState<Record<string, string | string[]>>({});
 
   // Fields
@@ -210,13 +215,16 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
   const [giSensitivities, setGiSensitivities] = useState("");
 
   useEffect(() => {
+    let active=true;setPublishedForm(null);setContextLoaded(false);setNotFound(false);
     const init = async () => {
       if (isPreRegistration) {
         const { data, error } = await supabase.functions.invoke("public-registration", {
           body: { action: "context", slug: slug ?? null },
         });
+        if(!active)return;
         if (error || !data?.company) { setNotFound(true); return; }
         setCompanyId(data.company.id);
+        try { setPublishedForm(parsePublishedForm(data.form_definition??null)); } catch { setNotFound(true); return; }
         setTitleText("PRÉ-CADASTRO");
         if (data.branding) {
           if (data.branding.logo_url) setLogoSrc(data.branding.logo_url);
@@ -228,6 +236,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
       const { data, error } = await supabase.functions.invoke("public-anamnesis", {
         body: { action: "context", accessKey },
       });
+      if(!active)return;
       if (error || !data?.student) { setNotFound(true); return; }
       setStudentName(data.student.full_name);
       if (data.student.gender) setGender(data.student.gender);
@@ -238,6 +247,7 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         if (Number.isFinite(years) && years > 0) setAge(String(years));
       }
       setCustomFields(Array.isArray(data.custom_fields) ? data.custom_fields : []);
+      try { setPublishedForm(parsePublishedForm(data.form_definition??null)); } catch { setNotFound(true); return; }
       setCompanyId(null); // backend handles company scoping
       if (data.branding) {
         if (data.branding.logo_url) setLogoSrc(data.branding.logo_url);
@@ -245,7 +255,8 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
         applyTheme(data.branding);
       }
     };
-    init();
+    void init().catch(()=>{if(active)setNotFound(true);}).finally(()=>{if(active)setContextLoaded(true);});
+    return()=>{active=false;};
   }, [accessKey, isPreRegistration, slug]);
 
   const toggleArrayItem = (arr: string[], item: string, setter: (v: string[]) => void) => {
@@ -587,6 +598,9 @@ export default function PublicAnamnesis({ mode = "student" }: PublicAnamnesisPro
     }
     setDone(true);
   };
+
+  if(!contextLoaded&&!notFound)return <main className="mx-auto max-w-xl px-5 py-10"><p className="text-sm text-muted-foreground">Carregando formulario...</p></main>;
+  if (publishedForm && !notFound) return <VersionedPublicAnamnesis key={`${accessKey??slug}:${publishedForm.id}`} form={publishedForm} accessKey={accessKey} companyId={companyId} slug={slug} />;
 
   if (notFound) {
     return (

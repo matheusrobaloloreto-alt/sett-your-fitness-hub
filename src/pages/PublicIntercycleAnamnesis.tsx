@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import VersionedFormFields from '@/components/VersionedFormFields';
+import { parsePublishedForm, validateFormAnswers, type PublishedForm } from '@/lib/formDefinitions';
 
 const DAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
@@ -29,11 +31,25 @@ type IntercycleForm = {
 export default function PublicIntercycleAnamnesis() {
   const { token = "" } = useParams<{ token: string }>();
   const [name, setName] = useState(""); const [error, setError] = useState(""); const [done, setDone] = useState(false); const [saving, setSaving] = useState(false);
+  const [published,setPublished]=useState<PublishedForm|null>(null);
+  const [answers,setAnswers]=useState<Record<string,unknown>>({});
+  const [contextReady,setContextReady]=useState(false);
+  const [unavailable,setUnavailable]=useState(false);
   const [form, setForm] = useState<IntercycleForm>({ prescription_evaluation: "", goals_continue: true, availability_changed: false, available_days: [], pain_present: false, sensitive_consent: false });
-  useEffect(() => { void supabase.functions.invoke("intercycle-anamnesis", { body: { action: "context", token } }).then(({ data, error }) => { if (error) setError("Este link não está disponível."); else setName(data?.student?.full_name || ""); }); }, [token]);
+  useEffect(() => {
+    let active=true;setPublished(null);setAnswers({});setContextReady(false);setUnavailable(false);setError('');setDone(false);
+    void supabase.functions.invoke('intercycle-anamnesis',{body:{action:'context',token}}).then(({data,error})=>{
+      if(!active)return;
+      if(error||!data?.student){setUnavailable(true);return;}
+      setName(data.student.full_name||'');setPublished(parsePublishedForm(data.form_definition??null));
+    }).catch(()=>{if(active)setUnavailable(true);}).finally(()=>{if(active)setContextReady(true);});
+    return()=>{active=false;};
+  },[token]);
   const set = <Key extends keyof IntercycleForm>(key: Key, value: IntercycleForm[Key]) => setForm((current) => ({ ...current, [key]: value }));
   const submit = async (event: FormEvent) => { event.preventDefault(); setSaving(true); setError(""); const { error } = await supabase.functions.invoke("intercycle-anamnesis", { body: { action: "submit", token, ...form } }); setSaving(false); if (error) setError("Não foi possível registrar a atualização. Revise os campos e tente novamente."); else setDone(true); };
+  if(!contextReady||unavailable)return <main className="mx-auto max-w-xl px-5 py-10"><p className="text-sm text-muted-foreground">{unavailable?'Este link nao esta disponivel.':'Carregando formulario...'}</p></main>;
   if (done) return <main className="mx-auto min-h-screen max-w-xl px-5 py-20"><h1 className="text-3xl font-display text-primary">Atualização registrada</h1><p className="mt-3 text-muted-foreground">Obrigado. A equipe usará estas informações para orientar a próxima prescrição.</p></main>;
+  if(published) return <main className="mx-auto min-h-screen max-w-xl px-5 py-10"><h1 className="text-2xl font-semibold">{published.definition.title}</h1><p className="my-3 text-sm">{name}</p>{error&&<p role="alert" className="text-destructive">{error}</p>}<form className="space-y-6" onSubmit={async e=>{e.preventDefault();const invalid=validateFormAnswers(published.definition,answers);if(invalid.length){setError(`Revise: ${invalid.join(', ')}`);return;}setSaving(true);try{const result=await supabase.functions.invoke('intercycle-anamnesis',{body:{action:'submit',token,form_definition_id:published.id,versioned_answers:answers}});if(result.error||result.data?.error)throw new Error('Nao foi possivel registrar. Revise as respostas e a validade do link.');setDone(true);}catch(e){setError(e instanceof Error?e.message:'Falha ao registrar.');}finally{setSaving(false);}}}><fieldset disabled={saving} className="min-w-0"><VersionedFormFields definition={published.definition} answers={answers} onChange={(key,value)=>setAnswers(a=>({...a,[key]:value}))} /></fieldset><p className="text-xs text-muted-foreground">As respostas de saude e dor sao usadas somente para revisar seu treino e orientar a proxima prescricao. Nao substituem avaliacao profissional.</p><Button disabled={saving} type="submit">{saving?'Enviando...':'Enviar atualizacao'}</Button></form></main>;
   return <main className="mx-auto min-h-screen max-w-xl px-5 py-10"><p className="text-xs font-semibold tracking-widest text-primary">SETT</p><h1 className="mt-2 text-3xl font-display text-primary">Anamnese interciclos</h1><p className="mt-2 text-sm text-muted-foreground">{name ? `${name.split(" ")[0]}, ` : ""}é uma atualização rápida para orientar a próxima prescrição. Não substitui avaliação profissional.</p>{error && <p className="mt-4 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
     <form onSubmit={submit} className="mt-7 space-y-6 rounded-2xl border border-border bg-card p-5">
       <div><Label>Avaliação da última prescrição *</Label><select required className="mt-2 w-full rounded-md border bg-background p-2" value={form.prescription_evaluation} onChange={e => set("prescription_evaluation", e.target.value as IntercycleForm["prescription_evaluation"])}><option value="">Selecione</option><option value="better">Ajudou e encaixou bem</option><option value="same">Ficou parecido com o esperado</option><option value="worse">Algo piorou ou não encaixou</option><option value="not_completed">Não consegui completar</option></select></div>

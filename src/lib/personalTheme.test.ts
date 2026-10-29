@@ -105,7 +105,8 @@ describe("personal theme", () => {
   });
 
   it("derives the Supabase auth storage key from the current project URL", () => {
-    expect(supabaseAuthStorageKeyFromUrl("https://zshrcgbyhzxpnlccssyz.supabase.co")).toBe(SUPABASE_AUTH_STORAGE_KEY);
+    expect(supabaseAuthStorageKeyFromUrl("https://zshrcgbyhzxpnlccssyz.supabase.co")).toBe("sb-zshrcgbyhzxpnlccssyz-auth-token");
+    expect(supabaseAuthStorageKeyFromUrl(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PROJECT_ID)).toBe(SUPABASE_AUTH_STORAGE_KEY);
   });
 
   it("keeps the in-memory toggle safe when storage writes fail", () => {

@@ -53,6 +53,7 @@ describe("sales funnel", () => {
       eq: () => eventUpdate,
     };
     const admin = {
+      rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
       from(table: string) {
         if (table === "student_funnel_events") {
           return {
@@ -108,6 +109,7 @@ describe("sales funnel", () => {
     const failedEvents: Array<Record<string, unknown>> = [];
     const eventUpdate = { eq: () => eventUpdate };
     const admin = {
+      rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
       from(table: string) {
         if (table === "student_funnel_events") {
           return {
@@ -160,6 +162,7 @@ describe("sales funnel", () => {
     const eventUpdate = { eq: () => eventUpdate };
     const chatUpdate = { eq: () => chatUpdate };
     const admin = {
+      rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
       from(table: string) {
         if (table === "student_funnel_events") {
           return {

@@ -6,15 +6,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { X, Trash2, Plus } from "lucide-react";
 import type { Node } from "@xyflow/react";
+import { FLOW_CONDITION_FIELDS, FLOW_CONDITION_OPERATORS } from '../../../supabase/functions/_shared/automation-flow';
 
 interface NodeEditorProps {
   node: Node;
   onUpdate: (id: string, data: Record<string, any>) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
+  triggerType?: string;
 }
 
-export function NodeEditor({ node, onUpdate, onDelete, onClose }: NodeEditorProps) {
+export function NodeEditor({ node, onUpdate, onDelete, onClose, triggerType }: NodeEditorProps) {
   const data = node.data as Record<string, any>;
   const nodeType = node.type || "content";
 
@@ -44,6 +46,10 @@ export function NodeEditor({ node, onUpdate, onDelete, onClose }: NodeEditorProp
 
         {nodeType === "content" && (
           <>
+            {triggerType === 'weekly_contact' && <div className="flex items-center gap-2">
+              <Checkbox id="company-weekly-template" checked={data.use_company_template === 'weekly_contact'} onCheckedChange={checked => update('use_company_template', checked ? 'weekly_contact' : undefined)} />
+              <Label htmlFor="company-weekly-template">Usar mensagem semanal da empresa</Label>
+            </div>}
             <div className="space-y-1.5">
               <Label className="text-xs">Mensagem</Label>
               <Textarea
@@ -121,15 +127,20 @@ export function NodeEditor({ node, onUpdate, onDelete, onClose }: NodeEditorProp
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Descrição da condição</Label>
-              <Textarea
-                value={data.condition_description || ""}
-                onChange={e => update("condition_description", e.target.value)}
-                placeholder="Ex: Se aluno respondeu sim..."
-                className="min-h-[60px] text-sm"
-              />
-            </div>
+            {(data.conditions || []).map((rule: { field: string; operator: string; value: unknown }, i: number) => {
+              const change = (patch: Record<string, unknown>) => update('conditions', data.conditions.map((r: unknown, index: number) => index === i ? { ...rule, ...patch } : r));
+              return <div key={i} className="space-y-2 border-b pb-3">
+                <Label>Campo</Label>
+                <Select value={rule.field} onValueChange={field => change({ field, value: field === 'is_student' ? true : '' })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{FLOW_CONDITION_FIELDS.map(field => <SelectItem key={field} value={field}>{field}</SelectItem>)}</SelectContent></Select>
+                <Label>Operador</Label>
+                <Select value={rule.operator} onValueChange={operator => change({ operator })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{FLOW_CONDITION_OPERATORS.map(operator => <SelectItem key={operator} value={operator}>{operator}</SelectItem>)}</SelectContent></Select>
+                {rule.operator !== 'exists' && (rule.field === 'is_student'
+                  ? <Select value={String(rule.value)} onValueChange={value => change({ value: value === 'true' })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Sim</SelectItem><SelectItem value="false">Nao</SelectItem></SelectContent></Select>
+                  : <Input aria-label="Valor" value={String(rule.value ?? '')} onChange={e => change({ value: e.target.value })} />)}
+                <Button variant="ghost" size="icon" title="Remover regra" onClick={() => update('conditions', data.conditions.filter((_: unknown, j: number) => i !== j))}><Trash2 className="h-4 w-4" /></Button>
+              </div>;
+            })}
+            <Button variant="outline" size="sm" onClick={() => update('conditions', [...(data.conditions || []), { field: 'is_student', operator: 'eq', value: true }])}><Plus className="h-4 w-4" />Regra</Button>
           </>
         )}
 
@@ -190,10 +201,10 @@ export function NodeEditor({ node, onUpdate, onDelete, onClose }: NodeEditorProp
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="tag">Adicionar Tag</SelectItem>
-                <SelectItem value="notify">Notificar Equipe</SelectItem>
-                <SelectItem value="update_status">Atualizar Status</SelectItem>
               </SelectContent>
             </Select>
+            <Label>Nome da tag</Label>
+            <Input value={data.tag_name || ''} maxLength={80} onChange={e => update('tag_name', e.target.value)} />
           </div>
         )}
 

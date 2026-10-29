@@ -1,4 +1,6 @@
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo,useRef, useState } from "react";
+import { BnContentBrandContext } from "@/lib/bnContentBrand";
+import { fetchPlatformProductSettings,type PlatformProductSettings } from "@/lib/platformSettingsClient";
 import { UNSAFE_NavigationContext } from "react-router-dom";
 import { CalendarDays, Images, Loader2, PenLine, Plus, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -54,6 +56,7 @@ function useUnsavedDraftGuard(dirty: boolean, busy: boolean) {
 }
 
 export default function MasterBnContent() {
+  const [identity,setIdentity]=useState<PlatformProductSettings|null>(null);
   const [data, setData] = useState<BnStudioBootstrap | null>(null);
   const [draft, setDraft] = useState<BnContentDraft | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState("");
@@ -76,8 +79,9 @@ export default function MasterBnContent() {
     const run = ++generation.current;
     setLoading(true); setError("");
     try {
-      const next = await bootstrapBnContentStudio();
+      const [next,platform] = await Promise.all([bootstrapBnContentStudio(),fetchPlatformProductSettings()]);
       if (!mounted.current || run !== generation.current) return;
+      setIdentity(platform.settings);
       setData(current => ({ ...next, assets: { ...current?.assets, ...next.assets } }));
       if (!draftRef.current) {
         const initial = { brief: "", spec: newBnContentSpec(next.settings) };
@@ -149,13 +153,14 @@ export default function MasterBnContent() {
   const exportContent = () => {
     if (!draft || !data) return;
     void perform("Exportando…", async () => {
-      const logoUrl = Object.entries(data.assets).find(([path]) => /logo.*\.(png|webp)$/i.test(path))?.[1] || "/bn-content/logo.png";
+      if(!identity)throw new Error("Identidade editorial indisponível.");
+      const logoUrl = identity.visual.logo_url || (identity.editorial.brand_name==="BN Performance Training" ? Object.entries(data.assets).find(([path]) => /logo.*\.(png|webp)$/i.test(path))?.[1] || "/bn-content/logo.png" : null);
       // Prepare all slides before starting downloads so failed assets cannot produce a partial export.
       const slides: Blob[] = [];
       for (let index = 0; index < draft.spec.slides.length; index++) {
         const path = draft.spec.slides[index].background_path;
         if (path && !data.assets[path]) throw new BnContentStudioError("A imagem expirou. Atualize o Studio antes de exportar.");
-        slides.push(await renderBnContentSlide(draft.spec, index, { backgroundUrl: path ? data.assets[path] : undefined, logoUrl }));
+        slides.push(await renderBnContentSlide(draft.spec, index, { backgroundUrl: path ? data.assets[path] : undefined, logoUrl,brand:{...identity.visual,name:identity.editorial.brand_name} }));
       }
       if (!mounted.current) return;
       const filename = draft.post?.id || "bn-conteudo";
@@ -166,7 +171,8 @@ export default function MasterBnContent() {
     });
   };
 
-  return <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6">
+  const visual=useMemo(()=>identity?{brand:{...identity.visual,name:identity.editorial.brand_name},logoUrl:identity.visual.logo_url || (identity.editorial.brand_name==="BN Performance Training" ? Object.entries(data?.assets || {}).find(([path])=>/logo.*\.(png|webp)$/i.test(path))?.[1] || "/bn-content/logo.png":null)}:null,[identity,data?.assets]);
+  return <BnContentBrandContext.Provider value={visual}><main className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6">
     <header className="flex flex-wrap items-center justify-between gap-3">
       <div><h1 className="text-2xl font-semibold">BN Content</h1><p className="text-xs text-muted-foreground">@bnperformancetraining</p></div>
       <div className="flex items-center gap-2"><Button size="icon" variant="outline" title="Atualizar Studio" aria-label="Atualizar Studio" disabled={loading || Boolean(busy)} onClick={() => void load()}><RefreshCw className={loading ? "animate-spin" : ""} /></Button><Button size="sm" disabled={!data || loading || Boolean(busy)} onClick={() => open()}><Plus />Novo rascunho</Button></div>
@@ -198,5 +204,5 @@ export default function MasterBnContent() {
       <TabsContent value="archive" className="min-w-0 pt-3"><BnContentStudioArchive /></TabsContent>
       <TabsContent value="calendar" className="min-w-0 pt-3">{data ? <BnContentStudioCalendar calendars={data.calendars} available={data.capabilities.text} onCreated={calendar => setData(current => current && { ...current, calendars: [calendar, ...current.calendars.filter(item => item.id !== calendar.id)] })} /> : <p className="text-sm text-muted-foreground">Calendário indisponível.</p>}</TabsContent>
     </Tabs>
-  </main>;
+  </main></BnContentBrandContext.Provider>;
 }

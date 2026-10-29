@@ -21,6 +21,7 @@ import {
   BrainCircuit,
   KeyRound,
   Images,
+  Activity,
 
 
 } from "lucide-react";
@@ -78,10 +79,17 @@ const masterItems = [
   { title: "Anúncios", url: "/master/ads", icon: Megaphone },
   { title: "Biblioteca", url: "/master/biblioteca", icon: Dumbbell },
   { title: "BN Content", url: "/master/bn-content", icon: Images },
+  { title: "Configurações", url: "/master/settings", icon: Settings },
+  { title: "Conteúdo e padrões", url: "/master/content", icon: FileText },
   { title: "Minha Conta", url: "/master/account", icon: KeyRound },
 ];
 
-const baseAdminItems: typeof managementItems = [];
+const baseAdminItems: typeof managementItems = [
+  { title: "Configurações", url: "/admin/settings", icon: Settings },
+  { title: "Administração", url: "/admin/governance", icon: Building2 },
+  { title: "Operação e relatórios", url: "/admin/operations", icon: ClipboardList },
+  { title: "Diagnóstico", url: "/suporte", icon: Activity },
+];
 
 const managementItems = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
@@ -106,6 +114,7 @@ const whatsappSubItems = [
 ];
 
 const coordinatorAllItems = [
+  { title: "Diagnóstico", url: "/suporte", icon: Activity },
   { title: "Dashboard", url: "/coordinator", icon: LayoutDashboard },
   { title: "Carteira", url: "/coordinator/carteira", icon: Briefcase },
   { title: "Interessados", url: "/coordinator/registration", icon: UserPlus },
@@ -132,6 +141,7 @@ const trainerWhatsappSubItems = [
 ];
 
 const trainerAllItems = [
+  { title: "Diagnóstico", url: "/suporte", icon: Activity },
   { title: "Dashboard", url: "/trainer", icon: LayoutDashboard },
   { title: "Carteira", url: "/trainer/carteira", icon: Briefcase },
   { title: "Interessados", url: "/trainer/registration", icon: UserPlus },

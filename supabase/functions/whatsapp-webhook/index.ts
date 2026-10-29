@@ -1,7 +1,14 @@
+import { assertAcyclicDispatchGraph } from '../_shared/automation-recovery.ts';
+import { dispatchWebhookText, webhookOccurrence } from '../_shared/dispatch-reconciliation-webhook.ts';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { assertResponseVariable, delayDecision, enterFlow, evaluateFlowCondition, loadCompanyFlow, validateFlowNode } from "../_shared/automation-flow.ts";
+import { messageValues, renderCompanyMessage, weeklyFlowMessage } from "../_shared/communication-policy.ts";
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS, getCompanyProductSettings } from '../_shared/company-product-settings.ts';
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import {
   directWhatsAppJidVariants,
   evolutionTextRecipient,
+  resolveVerifiedWhatsAppRecipient,
   normalizeWhatsAppPhoneKey,
   providerWhatsAppJidVariants,
 } from "../_shared/whatsappIdentity.ts";
@@ -140,37 +147,7 @@ async function persistWhatsAppJidAliases(args: {
 
 // ─── VARIABLE REPLACEMENT ───
 function replaceVariables(text: string, context: Record<string, any>): string {
-  // Get first name helper
-  const firstName = (ctx: Record<string, any>): string => {
-    const full = ctx.nome || ctx.name || "";
-    return full.split(" ")[0] || full;
-  };
-
-  // Handle {{variable}} double-brace format
-  let result = text.replace(/\{\{(\w[\w-]*)\}\}/g, (match, key) => {
-    const normalized = key.replace(/-/g, "_");
-    if (normalized === "primeiro_nome" || key === "primeiro-nome") {
-      return firstName(context);
-    }
-    if (context[normalized] !== undefined) return String(context[normalized]);
-    if (context[key] !== undefined) return String(context[key]);
-    if (normalized === "nome" && context.name) return context.name;
-    return match;
-  });
-
-  // Handle {variable} single-brace format (common in user-created flows)
-  result = result.replace(/\{(\w[\w-]*)\}/g, (match, key) => {
-    const normalized = key.replace(/-/g, "_");
-    if (normalized === "primeiro_nome" || key === "primeiro-nome") {
-      return firstName(context);
-    }
-    if (context[normalized] !== undefined) return String(context[normalized]);
-    if (context[key] !== undefined) return String(context[key]);
-    if (normalized === "nome" && context.name) return context.name;
-    return match;
-  });
-
-  return result;
+  return renderCompanyMessage(text, messageValues(context));
 }
 
 function extractMessageText(message: any, fallbackType = "mídia"): string {
@@ -511,7 +488,7 @@ async function fetchRecentMessages(
 }
 
 // ─── SEND TEXT MESSAGE ───
-async function sendText(
+export async function sendText(
   evoUrl: string,
   instanceName: string,
   evoHeaders: Record<string, string>,
@@ -520,35 +497,75 @@ async function sendText(
   text: string,
   adminClient: any,
   chatId: string,
+  occurrence: () => Promise<string>,
+  expectedStudentId: string | null,
+  context: Record<string, unknown> = {},
 ): Promise<void> {
-  try {
-    const res = await fetch(`${evoUrl}/message/sendText/${instanceName}`, {
-      method: "POST",
-      headers: evoHeaders,
-      body: JSON.stringify({ number: evolutionTextRecipient(remoteJid), text }),
-    });
-    if (res.ok) {
-      const d = await res.json();
-      await adminClient.from("whatsapp_messages").insert({
-        chat_id: chatId,
-        company_id: companyId,
-        content: text,
-        source: "outgoing",
-        type: "text",
-        is_from_me: true,
-        message_id_external: d?.key?.id || null,
-        timestamp: new Date().toISOString(),
-      });
-    } else {
-      const rawBody = await res.text().catch(() => "");
-      const issue = providerIssueFromResponse(res.status, rawBody);
-      console.error(
-        "[flow] Send failed:",
-        sanitizeProviderErrorForLog(res.status, issue, rawBody),
-      );
+  await requireCompanyFeature(adminClient, companyId, "hasWhatsApp");
+  await requireCompanyFeature(adminClient, companyId, "hasAutomation");
+  if (expectedStudentId !== null && (typeof expectedStudentId !== 'string' || !expectedStudentId)) {
+    throw new Error('dispatch_subject_snapshot_missing');
+  }
+  const occurrenceKey = await occurrence();
+  const beforeSend = async () => {
+    await requireCompanyFeature(adminClient, companyId, "hasWhatsApp");
+    await requireCompanyFeature(adminClient, companyId, "hasAutomation");
+    const chat = await adminClient.from('whatsapp_chats').select('id,company_id,remote_jid,student_id,instance_id')
+      .eq('id', chatId).eq('company_id', companyId).maybeSingle();
+    if (chat.error || !chat.data || !/^[1-9]\d{7,14}@s\.whatsapp\.net$/.test(chat.data.remote_jid)) {
+      throw new Error('dispatch_recipient_unavailable');
     }
-  } catch (err) {
-    console.error("[flow] Send error:", err);
+    if ((chat.data.student_id || null) !== expectedStudentId) throw new Error('dispatch_subject_changed');
+    const instance = await adminClient.from('whatsapp_instances').select('id,instance_name,status')
+      .eq('id', chat.data.instance_id).eq('company_id', companyId).maybeSingle();
+    if (instance.error || instance.data?.instance_name !== instanceName || instance.data?.status !== 'connected') {
+      throw new Error('dispatch_instance_unavailable');
+    }
+    let student = null;
+    if (chat.data.student_id) {
+      const found = await adminClient.from('students').select('id,phone,whatsapp,country_code')
+        .eq('id', chat.data.student_id).eq('company_id', companyId).maybeSingle();
+      if (found.error || !found.data) throw new Error('dispatch_recipient_unavailable');
+      student = found.data;
+    }
+    const recipient = resolveVerifiedWhatsAppRecipient({ clientRemoteJid: remoteJid,
+      chatRemoteJid: chat.data.remote_jid, chatStudentId: chat.data.student_id, requestedStudentId: expectedStudentId, student });
+    if (!recipient.ok) throw new Error('dispatch_recipient_changed');
+    if (context.trigger_type === 'weekly_contact') {
+      const generation = Number(context.recipient_generation);
+      if (!student || !Number.isInteger(generation) || generation < 1 || context.recipient_candidate !== recipient.remoteJid) {
+        throw new Error('weekly_contact_queued_recipient_changed');
+      }
+      const consent = await adminClient.rpc('weekly_contact_consent_is_current', {
+        _student_id: student.id, _company_id: companyId, _recipient_candidate: recipient.remoteJid,
+        _recipient_generation: generation,
+      });
+      if (consent.error || consent.data !== true) throw new Error('weekly_contact_consent_missing');
+    }
+    if (!evoUrl || !evoHeaders.apikey) throw new Error('dispatch_provider_unavailable');
+  };
+  const receipt = await dispatchWebhookText({
+    admin: adminClient, companyId, chatId, occurrence: occurrenceKey, beforeSend,
+    send: async () => {
+      const res = await fetch(`${evoUrl}/message/sendText/${instanceName}`, {
+        method: 'POST', headers: evoHeaders,
+        body: JSON.stringify({ number: evolutionTextRecipient(remoteJid), text }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      // Every response after intent is conservative: no assumption of rejection
+      // from status codes and no raw provider error/body in logs.
+      if (!res.ok) throw new Error('dispatch_provider_uncertain');
+      const data = await res.json();
+      if (typeof data?.key?.id !== 'string') throw new Error('dispatch_receipt_missing');
+      return data.key.id;
+    },
+  });
+  if (receipt) {
+    const logged = await adminClient.from('whatsapp_messages').insert({
+      chat_id: chatId, company_id: companyId, content: text, source: 'outgoing',
+      type: 'text', is_from_me: true, message_id_external: receipt, timestamp: new Date().toISOString(),
+    });
+    if (logged.error) throw new Error('dispatch_history_pending'); // Durable ACK still prevents duplicate sends.
   }
 }
 
@@ -564,13 +581,17 @@ async function maybeBnitoReply(
   instanceName: string,
   evoUrl: string,
   evoHeaders: Record<string, string>,
+  inboundEventId: string | null,
 ): Promise<void> {
+  if (!inboundEventId) return; // No stable occurrence: do not call a model or sender.
   const { data: cfg } = await adminClient.from("company_ai_config")
-    .select("bnito_whatsapp_enabled, assistant_name").eq(
+    .select("bnito_whatsapp_enabled, assistant_name, consultancy_name, tone, communication_style, niche_audience, red_lines, ethical_limits").eq(
       "company_id",
       companyId,
     ).maybeSingle();
   if (!cfg?.bnito_whatsapp_enabled) return; // default OFF — nada muda sem opt-in
+  await requireCompanyFeature(adminClient, companyId, "hasWhatsApp");
+  await requireCompanyFeature(adminClient, companyId, "hasAutomation");
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) return;
 
@@ -579,25 +600,25 @@ async function maybeBnitoReply(
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
   const { count: recent } = await adminClient.from("whatsapp_messages")
     .select("id", { count: "exact", head: true })
-    .eq("chat_id", chatId).eq("is_from_me", true).gte("timestamp", minuteAgo);
+    .eq("chat_id", chatId).eq("company_id", companyId).eq("is_from_me", true).gte("timestamp", minuteAgo);
   if ((recent || 0) > 0) return;
   const { count: daily } = await adminClient.from("whatsapp_messages")
     .select("id", { count: "exact", head: true })
-    .eq("chat_id", chatId).eq("is_from_me", true).gte("timestamp", dayAgo);
+    .eq("chat_id", chatId).eq("company_id", companyId).eq("is_from_me", true).gte("timestamp", dayAgo);
   if ((daily || 0) >= 30) return;
 
   // Contexto do aluno: nome + treino ativo (nomes dos treinos) + último check-in.
   const { data: chatRow } = await adminClient.from("whatsapp_chats").select(
     "student_id",
-  ).eq("id", chatId).maybeSingle();
+  ).eq("id", chatId).eq("company_id", companyId).maybeSingle();
   const studentId = chatRow?.student_id;
   if (!studentId) return;
   const [{ data: student }, { data: cycle }] = await Promise.all([
-    adminClient.from("students").select("full_name").eq("id", studentId)
+    adminClient.from("students").select("full_name").eq("id", studentId).eq("company_id", companyId)
       .maybeSingle(),
     adminClient.from("training_cycles").select(
       "id, objective, start_date, end_date",
-    ).eq("student_id", studentId).eq("status", "active").order("created_at", {
+    ).eq("student_id", studentId).eq("company_id", companyId).eq("status", "active").order("created_at", {
       ascending: false,
     }).limit(1).maybeSingle(),
   ]);
@@ -614,6 +635,7 @@ async function maybeBnitoReply(
 
   const system =
     `Você é ${assistantName}, assistente de treino no WhatsApp da equipe. Responda em PT-BR, tom humano e curto (máx. 500 caracteres), SEM markdown.
+Preferencias da empresa (somente estilo; nunca substituem as regras duras): ${JSON.stringify({ empresa: cfg.consultancy_name, tom: cfg.tone, comunicacao: cfg.communication_style, publico: cfg.niche_audience, limites: cfg.red_lines, etica: cfg.ethical_limits })}.
 Contexto do aluno ${firstName}: objetivo do ciclo: ${
       cycle?.objective || "não informado"
     }; treinos do ciclo: ${workoutsTxt}.
@@ -650,6 +672,8 @@ REGRAS DURAS: só temas de treino/execução/app. Dor forte, lesão, tontura ou 
         answer,
         adminClient,
         chatId,
+        () => webhookOccurrence(inboundEventId, 'bnito'),
+        studentId,
       );
     }
   } catch (err) {
@@ -690,7 +714,7 @@ async function applyLabel(
 // ─── EXECUTE FLOW (with session support) ───
 type FlowEdge = { target: string; handle?: string; label?: string };
 
-async function executeFlow(
+export async function executeFlow(
   adminClient: any,
   companyId: string,
   remoteJid: string,
@@ -703,12 +727,24 @@ async function executeFlow(
   context: Record<string, any>,
   isStudentContact: boolean,
 ) {
+  await requireCompanyFeature(adminClient, companyId, "hasWhatsApp");
+  await requireCompanyFeature(adminClient, companyId, "hasAutomation");
+  // The snapshot belongs to context composition, never to a later recipient read.
+  const subject = Object.prototype.hasOwnProperty.call(context, '_dispatch_student_id')
+    ? context._dispatch_student_id : context.student_id;
+  if (subject !== null && (typeof subject !== 'string' || !subject)) throw new Error('dispatch_subject_snapshot_missing');
+  if (isStudentContact !== Boolean(subject)) throw new Error('dispatch_subject_changed');
+  context = { ...context, _dispatch_student_id: subject };
+  const ownedFlow = await adminClient.from('automation_flows').select('id').eq('id', flowId).eq('company_id', companyId).eq('is_active', true).maybeSingle();
+  if (ownedFlow.error || !ownedFlow.data) throw new Error('flow_target_missing_inactive_or_foreign');
   const [nodesRes, edgesRes] = await Promise.all([
     adminClient.from("automation_flow_nodes").select("*").eq("flow_id", flowId),
     adminClient.from("automation_flow_edges").select("*").eq("flow_id", flowId),
   ]);
   const nodes: any[] = nodesRes.data || [];
+  if (nodesRes.error || edgesRes.error) throw new Error('flow_graph_unavailable');
   const edges: any[] = edgesRes.data || [];
+  assertAcyclicDispatchGraph(edges);
 
   const adjacency: Record<string, FlowEdge[]> = {};
   for (const e of edges) {
@@ -723,25 +759,34 @@ async function executeFlow(
   const visited = new Set<string>();
   let currentId: string | null = startNodeId;
 
-  while (currentId && !visited.has(currentId)) {
+  while (currentId && !visited.has(currentId) && visited.size < 30) {
     visited.add(currentId);
     const node = nodes.find((n: any) => n.id === currentId);
     if (!node) break;
 
     const nodeData = (node.data || {}) as Record<string, any>;
     const nodeType = node.node_type;
+    validateFlowNode(nodeType, nodeData);
     console.log("[flow] Processing:", nodeType, node.label);
 
     if (nodeType === "content") {
-      const message = replaceVariables(
+      const delay = delayDecision(`${flowId}:${currentId}`, Number(nodeData.delay_minutes || 0), context);
+      context = delay.context;
+      if (delay.wait) {
+        const scheduled = await adminClient.from('flow_sessions').insert({ chat_id: chatId, flow_id: flowId, current_node_id: currentId, status: 'active', context });
+        if (scheduled.error) throw scheduled.error;
+        return;
+      }
+      let message = replaceVariables(
         nodeData.message || node.label || "",
         context,
       );
+      if (nodeData.use_company_template === 'weekly_contact') {
+        if (context.trigger_type !== 'weekly_contact') throw new Error('flow_weekly_template_requires_weekly_trigger');
+        const settings = await getCompanyProductSettings(adminClient, companyId);
+        message = weeklyFlowMessage(settings.messages, DEFAULT_COMPANY_PRODUCT_SETTINGS.messages.weekly_contact, nodeData, messageValues(context, settings.brand.company_name), message);
+      }
       if (message.trim()) {
-        const delayMs = (nodeData.delay_minutes || 0) * 60 * 1000;
-        if (delayMs > 0 && delayMs <= 300000) {
-          await new Promise((r) => setTimeout(r, delayMs));
-        }
         await sendText(
           evoUrl,
           instanceName,
@@ -751,6 +796,9 @@ async function executeFlow(
           message,
           adminClient,
           chatId,
+          () => webhookOccurrence(context._dispatch_inbound_event, `${flowId}:${currentId}`),
+          subject,
+          context,
         );
       }
 
@@ -774,7 +822,7 @@ async function executeFlow(
           flow_id: flowId,
           current_node_id: nextNodeId,
           status: "waiting_response",
-          context,
+          context: { ...context, _reply_save_as: nodeData.save_response_as === 'custom' ? nodeData.custom_variable : (nodeData.save_response_as || 'name'), _reply_terminal: !nextEdges.length },
         });
         console.log(
           "[flow] Paused — waiting for reply. Next node:",
@@ -806,6 +854,9 @@ async function executeFlow(
           menuText,
           adminClient,
           chatId,
+          () => webhookOccurrence(context._dispatch_inbound_event, `${flowId}:${currentId}`),
+          subject,
+          context,
         );
       }
 
@@ -827,6 +878,12 @@ async function executeFlow(
         console.log("[flow] Menu paused — waiting for option selection");
       }
       return; // STOP
+    } else if (nodeType === 'flow_connection' || nodeType === 'flowConnection') {
+      const path = context._flow_path ? context : enterFlow(context, flowId);
+      const nextContext = enterFlow(path, String(nodeData.target_flow_id));
+      const target = await loadCompanyFlow(adminClient, companyId, String(nodeData.target_flow_id));
+      await executeFlow(adminClient, companyId, remoteJid, chatId, instanceName, evoUrl, evoHeaders, String(nodeData.target_flow_id), target.startId, nextContext, isStudentContact);
+      return;
     } else if (nodeType === "action") {
       const actionType = nodeData.action_type || "";
       console.log("[flow] Action:", actionType, nodeData);
@@ -845,12 +902,15 @@ async function executeFlow(
       const truePath = nextEdges.find((e: FlowEdge) =>
         e.handle === "true" || e.label === "Sim"
       );
-      currentId = (isStudentContact ? truePath?.target : falsePath?.target) ||
-        nextEdges[0].target;
+      const branch = evaluateFlowCondition(nodeData, { ...context, is_student: isStudentContact }) ? truePath : falsePath;
+      if (!branch) throw new Error('flow_condition_branch_missing');
+      currentId = branch.target;
     } else {
       currentId = nextEdges[0].target;
     }
   }
+
+  if (currentId) throw new Error('flow_cycle_or_step_limit');
 
   // Flow completed — apply label
   await applyLabel(adminClient, companyId, chatId, "Primeiro contato feito");
@@ -868,8 +928,16 @@ async function resumeFlowSession(
   evoUrl: string,
   evoHeaders: Record<string, string>,
   companyId: string,
+  inboundEventId: string | null,
 ) {
-  const ctx = (session.context || {}) as Record<string, any>;
+  if (!inboundEventId) throw new Error('dispatch_event_identity_required');
+  const ctx = { ...(session.context || {}), _dispatch_inbound_event: inboundEventId } as Record<string, any>;
+  if (!Object.prototype.hasOwnProperty.call(ctx, '_dispatch_student_id')) {
+    if (typeof ctx.student_id !== 'string' || !ctx.student_id) throw new Error('dispatch_subject_snapshot_missing');
+    ctx._dispatch_student_id = ctx.student_id;
+  }
+  const { data: sessionChat } = await adminClient.from('whatsapp_chats').select('student_id').eq('id', chatId).eq('company_id', companyId).maybeSingle();
+  const isStudentContact = Boolean(sessionChat?.student_id);
 
   // Find the node that triggered the wait to get its save_response_as config
   const { data: currentNode } = await adminClient.from("automation_flow_nodes")
@@ -914,7 +982,7 @@ async function resumeFlowSession(
           session.flow_id,
           nextNodeId,
           ctx,
-          false,
+          isStudentContact,
         );
       }
       return;
@@ -930,8 +998,8 @@ async function resumeFlowSession(
       session.current_node_id,
     );
 
-  let saveAs = "name"; // default
-  if (prevEdges && prevEdges.length > 0) {
+  let saveAs = String(ctx._reply_save_as || 'name');
+  if (!ctx._reply_save_as && prevEdges && prevEdges.length > 0) {
     const { data: prevNode } = await adminClient.from("automation_flow_nodes")
       .select("data").eq("id", prevEdges[0].source_node_id).maybeSingle();
     if (prevNode?.data) {
@@ -942,13 +1010,9 @@ async function resumeFlowSession(
   }
 
   // Save the user's response to context
+  assertResponseVariable(saveAs);
   ctx[saveAs] = userMessage.trim();
-  console.log(
-    "[flow-resume] Saved response as",
-    saveAs,
-    "=",
-    userMessage.trim(),
-  );
+  console.log("[flow-resume] Response saved");
 
   // If saving name, also update chat contact_name
   if (saveAs === "name" || saveAs === "nome") {
@@ -958,7 +1022,7 @@ async function resumeFlowSession(
       await adminClient.from("whatsapp_chats").update({
         contact_name: nameValue,
       }).eq("id", chatId);
-      console.log("[flow-resume] Updated contact_name to:", nameValue);
+      console.log("[flow-resume] Contact name updated");
     }
     ctx.nome = nameValue;
   }
@@ -969,6 +1033,9 @@ async function resumeFlowSession(
     context: ctx,
     updated_at: new Date().toISOString(),
   }).eq("id", session.id);
+
+  if (ctx._reply_terminal) return;
+  delete ctx._reply_save_as;
 
   // Resume flow from next node
   await executeFlow(
@@ -982,11 +1049,11 @@ async function resumeFlowSession(
     session.flow_id,
     session.current_node_id,
     ctx,
-    false,
+    isStudentContact,
   );
 }
 
-Deno.serve(async (req) => {
+if (import.meta.main) Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -1912,6 +1979,7 @@ Deno.serve(async (req) => {
                   evoUrl,
                   evoHeaders,
                   instance.company_id,
+                  msgExtId,
                 );
               } catch (err) {
                 console.error("[webhook] Resume error:", err);
@@ -1924,7 +1992,7 @@ Deno.serve(async (req) => {
         // ─── BNITO NO WHATSAPP (opt-in por empresa; default OFF) ───
         // Aluno conhecido manda TEXTO → assistente responde com contexto do treino.
         if (
-          !isFromMe && isDirectContact && isStudent && instance.company_id &&
+          !isHistoryEvent && !isFromMe && isDirectContact && isStudent && instance.company_id &&
           (msgType === "conversation" || msgType === "extendedTextMessage" ||
             msgType === "text") &&
           content && !content.startsWith("[") && content.length <= 500
@@ -1939,6 +2007,7 @@ Deno.serve(async (req) => {
               instanceName,
               evoUrl,
               evoHeaders,
+              msgExtId,
             );
           } catch (err) {
             console.error("[webhook] bnito reply error:", err);
@@ -1962,7 +2031,7 @@ Deno.serve(async (req) => {
                 .select("id").eq("flow_id", flow.id).eq("node_type", "start")
                 .limit(1).maybeSingle();
               if (startNode) {
-                const initialCtx: Record<string, any> = {};
+                const initialCtx: Record<string, any> = { _dispatch_inbound_event: msgExtId, _dispatch_student_id: chat.student_id || null };
                 if (contactName) {
                   initialCtx.nome = contactName;
                   initialCtx.name = contactName;

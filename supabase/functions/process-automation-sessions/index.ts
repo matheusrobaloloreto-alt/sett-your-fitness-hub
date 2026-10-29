@@ -1,4 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS, getCompanyProductSettings, readCompanyProductSettings } from "../_shared/company-product-settings.ts";
+import { eventMessage, messageValues, renderCompanyMessage, weeklyFlowMessage } from "../_shared/communication-policy.ts";
+import { delayDecision, enterFlow, evaluateFlowCondition, loadCompanyFlow, validateFlowNode } from "../_shared/automation-flow.ts";
+import { acknowledgeDispatch, assertAcyclicDispatchGraph, authorizeDispatch, beginDispatch, DispatchUncertain, fencedDispatchUpdate, type DispatchAttempt } from "../_shared/automation-recovery.ts";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import {
   providerErrorDetails,
   sanitizeProviderErrorForLog,
@@ -14,6 +19,7 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
 type FlowEdge = { target: string; handle?: string; label?: string };
 type FlowSession = {
   id: string;
+  dispatch_lease_token?: string | null;
   flow_id: string;
   chat_id: string;
   current_node_id: string;
@@ -59,23 +65,8 @@ function safeEqual(left: string, right: string) {
   return diff === 0;
 }
 
-function firstName(context: Record<string, unknown>) {
-  const fullName = String(context.nome || context.name || context.student_name || "").trim();
-  return fullName.split(/\s+/)[0] || "atleta";
-}
-
 function replaceVariables(text: string, context: Record<string, unknown>) {
-  const replace = (match: string, rawKey: string) => {
-    const key = rawKey.replace(/-/g, "_");
-    if (key === "primeiro_nome") return firstName(context);
-    if (context[key] != null) return String(context[key]);
-    if (context[rawKey] != null) return String(context[rawKey]);
-    if (key === "nome" && context.name != null) return String(context.name);
-    return match;
-  };
-  return text
-    .replace(/\{\{(\w[\w-]*)\}\}/g, replace)
-    .replace(/\{(\w[\w-]*)\}/g, replace);
+  return renderCompanyMessage(text, messageValues(context));
 }
 
 function weeklyContactMessage(context: Record<string, unknown>) {
@@ -148,6 +139,7 @@ async function resolveCurrentSessionRecipient(
   if (chatResult.error) throw chatResult.error;
   if (!chatResult.data?.remote_jid) throw new Error("weekly_contact_recipient_missing");
   const currentChat = chatResult.data;
+  if (String(currentChat.student_id || '') !== expectedStudentId) throw new Error('dispatch_subject_changed');
   let student: { id: string; phone: string | null; whatsapp: string | null; country_code?: unknown } | null = null;
   if (expectedStudentId) {
     const studentResult = await admin.from("students")
@@ -190,7 +182,7 @@ async function verifyWeeklyRecipientImmediatelyBeforeSend(
   return verifiedRemoteJid;
 }
 
-async function sendText(args: {
+export async function sendText(args: {
   admin: any;
   evoUrl: string;
   evoKey: string;
@@ -199,37 +191,62 @@ async function sendText(args: {
   chatId: string;
   companyId: string;
   text: string;
+  attempt: DispatchAttempt;
+  prepare?: () => Promise<void>;
 }) {
-  const response = await fetch(`${args.evoUrl}/message/sendText/${args.instanceName}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", apikey: args.evoKey },
-    body: JSON.stringify({ number: evolutionTextRecipient(args.remoteJid), text: args.text }),
-  });
-  if (!response.ok) {
-    await response.text().catch(() => "");
-    const providerCode = providerSendCode(response.status);
-    console.error("automation WhatsApp send failed", sanitizeProviderErrorForLog(response.status, providerCode));
-    throw new Error(providerErrorDetails(response.status, providerCode));
+  await requireCompanyFeature(args.admin, args.companyId, "hasAutomation");
+  await requireCompanyFeature(args.admin, args.companyId, "hasWhatsApp");
+  if (await beginDispatch(args.admin, args.attempt) === "acked") return;
+  let receipt: string | null = null;
+  // Once the durable send boundary is crossed, even a 503 may follow acceptance.
+  // Never turn an unknown provider outcome into an automatic retry.
+  try {
+    await args.prepare?.();
+    await requireCompanyFeature(args.admin, args.companyId, "hasAutomation");
+    await requireCompanyFeature(args.admin, args.companyId, "hasWhatsApp");
+    await authorizeDispatch(args.admin, args.attempt);
+    const response = await fetch(`${args.evoUrl}/message/sendText/${args.instanceName}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: args.evoKey },
+      body: JSON.stringify({ number: evolutionTextRecipient(args.remoteJid), text: args.text }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) {
+      await response.text().catch(() => "");
+      const providerCode = providerSendCode(response.status);
+      console.error("automation WhatsApp send failed", sanitizeProviderErrorForLog(response.status, providerCode));
+      throw new Error(providerErrorDetails(response.status, providerCode));
+    }
+    const payload = await response.json();
+    receipt = typeof payload?.key?.id === "string" ? payload.key.id.trim() : null;
+    if (!receipt || receipt.length > 200 || Array.from(receipt).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) throw new DispatchUncertain();
+    await acknowledgeDispatch(args.admin, args.attempt, receipt);
+  } catch (error) {
+    if (error instanceof Error && ["company_feature_denied", "company_feature_unavailable"].includes(error.message)) throw error;
+    throw new DispatchUncertain();
   }
-  const payload = await response.json().catch(() => ({}));
   const sentAt = new Date().toISOString();
-  const { error: messageError } = await args.admin.from("whatsapp_messages").insert({
-    chat_id: args.chatId,
-    company_id: args.companyId,
-    content: args.text,
-    source: "outgoing",
-    type: "text",
-    is_from_me: true,
-    message_id_external: payload?.key?.id || null,
-    origin: "automation",
-    timestamp: sentAt,
-  });
-  if (messageError) console.error("automation message log failed", messageError.message);
-  await args.admin.from("whatsapp_chats").update({
-    last_message: args.text,
-    last_message_at: sentAt,
-    updated_at: sentAt,
-  }).eq("id", args.chatId);
+  try {
+    const { error: messageError } = await args.admin.from("whatsapp_messages").insert({
+      chat_id: args.chatId,
+      company_id: args.companyId,
+      content: args.text,
+      source: "outgoing",
+      type: "text",
+      is_from_me: true,
+      message_id_external: receipt,
+      origin: "automation",
+      timestamp: sentAt,
+    });
+    if (messageError) console.error("automation message log failed", messageError.message);
+    await args.admin.from("whatsapp_chats").update({
+      last_message: args.text,
+      last_message_at: sentAt,
+      updated_at: sentAt,
+    }).eq("id", args.chatId);
+  } catch {
+    console.error("automation acknowledged message projection unavailable");
+  }
 }
 
 async function sha256Hex(value: string) {
@@ -299,6 +316,7 @@ export async function processIntercycleAnamnesisDeliveries(args: {
       if (!enrollment || String(enrollment.status || "") === "completed") {
         throw new Error("intercycle_enrollment_completed_or_missing");
       }
+      await requireCompanyFeature(args.admin, delivery.company_id, "hasAutomation");
       const chatResult = await args.admin.from("whatsapp_chats")
         .select("id, remote_jid, student_id, instance_id")
         .eq("company_id", delivery.company_id).eq("student_id", delivery.student_id)
@@ -319,47 +337,61 @@ export async function processIntercycleAnamnesisDeliveries(args: {
       const token = opaqueToken();
       const tokenHash = await sha256Hex(token);
       const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-      const invite = await args.admin.from("intercycle_anamnesis_invites").upsert({
-        delivery_id: delivery.id, company_id: delivery.company_id, student_id: delivery.student_id,
-        enrollment_id: delivery.enrollment_id, training_cycle_id: delivery.training_cycle_id,
-        token_sha256: tokenHash, expires_at: expiresAt, consumed_at: null,
-      }, { onConflict: "delivery_id" });
-      if (invite.error) throw new Error("intercycle_invite_unavailable");
       const origin = (Deno.env.get("PUBLIC_APP_ORIGIN") || "https://www.settapp.com.br").replace(/\/+$/, "");
       const firstName = String(student.full_name || "").trim().split(/\s+/)[0] || "tudo bem";
       const link = `${origin}/anamnese-interciclos/${token}`;
+      const { settings, version } = await readCompanyProductSettings(args.admin, delivery.company_id);
       await sendText({
         admin: args.admin, evoUrl: args.provider.url, evoKey: args.provider.key,
         instanceName: instanceResult.data.instance_name, remoteJid: recipient.remoteJid,
         chatId: chat.id, companyId: delivery.company_id,
-        text: `Oi, ${firstName}! Estamos chegando ao fim deste ciclo. Você pode responder uma atualização rápida para orientar a próxima prescrição? ${link}`,
+        attempt: { kind: "intercycle", owner: delivery, key: "invite" },
+        prepare: async () => {
+          const invite = await args.admin.from("intercycle_anamnesis_invites").upsert({
+            delivery_id: delivery.id, company_id: delivery.company_id, student_id: delivery.student_id,
+            enrollment_id: delivery.enrollment_id, training_cycle_id: delivery.training_cycle_id,
+            token_sha256: tokenHash, expires_at: expiresAt, consumed_at: null,
+          }, { onConflict: "delivery_id" });
+          if (invite.error) throw new Error("intercycle_invite_unavailable");
+        },
+        text: version > 0 ? eventMessage(settings.messages, 'intercycle_invite', messageValues({ nome: student.full_name, link }, settings.brand.company_name), '') : `Oi, ${firstName}! Estamos chegando ao fim deste ciclo. Você pode responder uma atualização rápida para orientar a próxima prescrição? ${link}`,
       });
-      const saved = await args.admin.from("intercycle_anamnesis_deliveries").update({
-        status: "sent", sent_at: new Date().toISOString(), last_error_code: null, next_attempt_at: null, updated_at: new Date().toISOString(),
-      }).eq("id", delivery.id).eq("status", "sending");
-      if (saved.error) throw new Error("intercycle_delivery_ledger_unavailable");
+      // The ACK RPC atomically completes this delivery before best-effort logs.
       sent += 1;
     } catch (error) {
       failed += 1;
       const retryCount = Number(delivery.retry_count || 0) + 1;
       const code = String(error instanceof Error ? error.message : "intercycle_dispatch_failed").replace(/[^a-z0-9_]/gi, "_").slice(0, 120);
+      if (code === "company_feature_denied" || code === "company_feature_unavailable") {
+        await fencedDispatchUpdate(args.admin, "intercycle", delivery, {
+          status: "failed", last_error_code: code, next_attempt_at: null, updated_at: new Date().toISOString(),
+        }).catch(() => {});
+        continue;
+      }
+      if (error instanceof DispatchUncertain) {
+        await fencedDispatchUpdate(args.admin, "intercycle", delivery, {
+          status: "failed", last_error_code: "dispatch_uncertain", next_attempt_at: null,
+          updated_at: new Date().toISOString(),
+        }).catch(() => {}); // A stale owner leaves recovery to the claim RPC.
+        continue;
+      }
       if (code === "intercycle_cycle_cancelled_or_rescoped" || code === "intercycle_enrollment_completed_or_missing") {
-        await args.admin.from("intercycle_anamnesis_deliveries").update({
+        await fencedDispatchUpdate(args.admin, "intercycle", delivery, {
           status: "cancelled",
           cancelled_at: new Date().toISOString(),
           last_error_code: code,
           updated_at: new Date().toISOString(),
-        }).eq("id", delivery.id).eq("status", "sending");
+        });
         continue;
       }
       const retryMinutes = code === "intercycle_provider_not_configured"
         ? 360
         : Math.min(360, Math.max(5, 2 ** Math.min(retryCount, 8)));
-      await args.admin.from("intercycle_anamnesis_deliveries").update({
+      await fencedDispatchUpdate(args.admin, "intercycle", delivery, {
         status: "failed", retry_count: retryCount, last_error_code: code,
         next_attempt_at: new Date(Date.now() + retryMinutes * 60_000).toISOString(),
         updated_at: new Date().toISOString(),
-      }).eq("id", delivery.id).eq("status", "sending");
+      });
     }
   }
   return { scheduled: Number(scheduled.data || 0), claimed: rows.length, sent, failed };
@@ -395,8 +427,13 @@ export async function processSession(admin: any, session: FlowSession, provider:
   if (!chatResult.data) throw new Error("weekly_contact_recipient_missing");
   const chat = chatResult.data;
   if (!chat.remote_jid) throw new Error("weekly_contact_recipient_missing");
-  const expectedStudentId = String(session.context?.student_id || "").trim();
-  const identityStudentId = expectedStudentId || chat.student_id || "";
+  const savedContext = session.context || {};
+  const subject = Object.prototype.hasOwnProperty.call(savedContext, '_dispatch_student_id')
+    ? savedContext._dispatch_student_id : savedContext.student_id;
+  if (subject !== null && (typeof subject !== 'string' || !subject)) throw new Error('dispatch_subject_snapshot_missing');
+  const expectedStudentId = String(subject || '');
+  if (String(chat.student_id || '') !== expectedStudentId) throw new Error('dispatch_subject_changed');
+  const identityStudentId = expectedStudentId;
   if (session.context?.trigger_type === "weekly_contact" && !identityStudentId) {
     throw new Error("weekly_contact_recipient_missing");
   }
@@ -427,6 +464,7 @@ export async function processSession(admin: any, session: FlowSession, provider:
   await assertCurrentWeeklyContactConsent(
     admin,session.context,identityStudentId,chat.company_id,verifiedRemoteJid,
   );
+  await requireCompanyFeature(admin, chat.company_id, "hasAutomation");
 
   let instanceQuery = admin.from("whatsapp_instances")
     .select("instance_name, status")
@@ -438,6 +476,8 @@ export async function processSession(admin: any, session: FlowSession, provider:
   if (!instance?.instance_name || instance.status !== "connected") {
     throw new Error("WhatsApp da empresa não está conectado.");
   }
+  const ownedFlow = await admin.from('automation_flows').select('id').eq('id', session.flow_id).eq('company_id', chat.company_id).eq('is_active', true).maybeSingle();
+  if (ownedFlow.error || !ownedFlow.data) throw new Error('flow_target_missing_inactive_or_foreign');
 
   const [nodesResult, edgesResult] = await Promise.all([
     admin.from("automation_flow_nodes").select("*").eq("flow_id", session.flow_id),
@@ -445,19 +485,14 @@ export async function processSession(admin: any, session: FlowSession, provider:
   ]);
   if (nodesResult.error) throw nodesResult.error;
   if (edgesResult.error) throw edgesResult.error;
-  const nodes = nodesResult.data || [];
-  const edges = edgesResult.data || [];
-  const adjacency: Record<string, FlowEdge[]> = {};
-  for (const edge of edges) {
-    (adjacency[edge.source_node_id] ||= []).push({
-      target: edge.target_node_id,
-      handle: edge.source_handle || undefined,
-      label: edge.label || undefined,
-    });
-  }
+  let nodes = nodesResult.data || [];
+  let edges = edgesResult.data || [];
+  assertAcyclicDispatchGraph(edges);
+  const settings = await getCompanyProductSettings(admin, chat.company_id);
+  let flowId = session.flow_id;
 
   const context: Record<string, unknown> = { ...(session.context || {}) };
-  delete context.next_dispatch_at;
+  context._dispatch_student_id = subject;
   delete context.dispatch_error;
   const visited = new Set<string>();
   let currentId: string | null = session.current_node_id;
@@ -470,12 +505,40 @@ export async function processSession(admin: any, session: FlowSession, provider:
     if (!node) throw new Error(`Nó ${currentId} não encontrado no fluxo.`);
     const nodeData = (node.data || {}) as Record<string, any>;
     const nodeType = node.node_type || node.type;
-    const nextEdges: FlowEdge[] = adjacency[currentId] || [];
+    validateFlowNode(nodeType, nodeData);
+    const nextEdges: FlowEdge[] = edges.filter((e: any) => e.source_node_id === currentId).map((e: any) => ({ target: e.target_node_id, handle: e.source_handle, label: e.label }));
+
+    if (nodeType === 'flowConnection' || nodeType === 'flow_connection') {
+      const nextFlowId = String(nodeData.target_flow_id);
+      const pathContext = context._flow_path ? context : enterFlow(context, flowId);
+      Object.assign(context, enterFlow(pathContext, nextFlowId));
+      const target = await loadCompanyFlow(admin, chat.company_id, nextFlowId);
+      flowId = nextFlowId;
+      nodes = target.nodes;
+      edges = target.edges;
+      assertAcyclicDispatchGraph(edges);
+      currentId = target.startId;
+      continue;
+    }
 
     if (nodeType === "content") {
-      let message = replaceVariables(nodeData.message || node.label || "", context);
-      if (context.trigger_type === "weekly_contact") message = weeklyContactMessage(context);
-      if (message.trim()) {
+      const contentKey = `${flowId}:${currentId}`;
+      const alreadyAcknowledged = context._dispatch_content_ack === contentKey;
+      const delay = alreadyAcknowledged
+        ? { wait: false, context }
+        : delayDecision(contentKey, Number(nodeData.delay_minutes || 0), context);
+      Object.keys(context).forEach(key => { if (!(key in delay.context)) delete context[key]; });
+      Object.assign(context, delay.context);
+      if (delay.wait) {
+        await fencedDispatchUpdate(admin, "flow", session, { flow_id: flowId, current_node_id: currentId, status: 'active', context, updated_at: new Date().toISOString() });
+        return 'scheduled';
+      }
+      if (nodeData.use_company_template && context.trigger_type !== 'weekly_contact') throw new Error('flow_weekly_template_requires_weekly_trigger');
+      const fallback = nodeData.message || (context.trigger_type === 'weekly_contact' ? (nodeData.use_company_template ? weeklyContactMessage(context) : '') : node.label || '');
+      const message = context.trigger_type === 'weekly_contact'
+        ? weeklyFlowMessage(settings.messages, DEFAULT_COMPANY_PRODUCT_SETTINGS.messages.weekly_contact, nodeData, messageValues(context, settings.brand.company_name), fallback)
+        : replaceVariables(fallback, context);
+      if (message.trim() && !alreadyAcknowledged) {
         const currentVerifiedRemoteJid = await verifyWeeklyRecipientImmediatelyBeforeSend(
           admin,context,chat.id,identityStudentId,chat.company_id,
         );
@@ -488,18 +551,39 @@ export async function processSession(admin: any, session: FlowSession, provider:
           chatId: chat.id,
           companyId: chat.company_id,
           text: message.trim(),
+          attempt: { kind: "flow", owner: session, key: contentKey },
+          prepare: async () => {
+            const recipient = await verifyWeeklyRecipientImmediatelyBeforeSend(
+              admin,context,chat.id,identityStudentId,chat.company_id,
+            );
+            if (!sameWhatsAppRecipient(recipient, currentVerifiedRemoteJid)) throw new Error('dispatch_recipient_changed');
+          },
         });
       }
       const nextId: string | null = nextEdges[0]?.target || null;
+      // Keep acknowledged progress when a later node fails. Terminal/reply nodes
+      // retain their cursor plus a marker so retrying their final DB work cannot
+      // resend the content. This does not resolve an ambiguous provider ACK.
+      context._dispatch_content_ack = contentKey;
+      const checkpointNodeId = nodeData.wait_for_reply ? currentId : nextId || currentId;
+      await fencedDispatchUpdate(admin, "flow", session, {
+        flow_id: flowId,
+        current_node_id: checkpointNodeId,
+        context,
+        updated_at: new Date().toISOString(),
+      });
+      session.flow_id = flowId;
+      session.current_node_id = checkpointNodeId;
+      session.context = { ...context };
       if (nodeData.wait_for_reply) {
-        const updated = await admin.from("flow_sessions").update({
+        await fencedDispatchUpdate(admin, "flow", session, {
+          flow_id: flowId,
           current_node_id: nextId || currentId,
           status: "waiting_response",
-          context,
+          context: { ...context, _reply_save_as: nodeData.save_response_as === 'custom' ? nodeData.custom_variable : (nodeData.save_response_as || 'name'), _reply_terminal: !nextId },
           last_activity_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        }).eq("id", session.id);
-        if (updated.error) throw updated.error;
+        });
         return "waiting_response";
       }
       currentId = nextId;
@@ -524,15 +608,22 @@ export async function processSession(admin: any, session: FlowSession, provider:
         chatId: chat.id,
         companyId: chat.company_id,
         text: message.trim(),
+        attempt: { kind: "flow", owner: session, key: `${flowId}:${currentId}` },
+        prepare: async () => {
+          const recipient = await verifyWeeklyRecipientImmediatelyBeforeSend(
+            admin,context,chat.id,identityStudentId,chat.company_id,
+          );
+          if (!sameWhatsAppRecipient(recipient, currentVerifiedRemoteJid)) throw new Error('dispatch_recipient_changed');
+        },
       });
-      const updated = await admin.from("flow_sessions").update({
+      await fencedDispatchUpdate(admin, "flow", session, {
+        flow_id: flowId,
         current_node_id: currentId,
         status: "waiting_response",
         context: { ...context, _menu_node: true },
         last_activity_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      }).eq("id", session.id);
-      if (updated.error) throw updated.error;
+      });
       return "waiting_response";
     }
 
@@ -541,11 +632,12 @@ export async function processSession(admin: any, session: FlowSession, provider:
     }
 
     if (nodeType === "condition") {
-      const isStudent = Boolean(chat.student_id);
-      const preferred = nextEdges.find((edge: FlowEdge) => isStudent
+      const matches = evaluateFlowCondition(nodeData, { ...context, is_student: Boolean(chat.student_id) });
+      const preferred = nextEdges.find((edge: FlowEdge) => matches
         ? edge.handle === "true" || edge.label === "Sim"
         : edge.handle === "false" || edge.label === "Não");
-      currentId = preferred?.target || nextEdges[0]?.target || null;
+      if (!preferred) throw new Error('flow_condition_branch_missing');
+      currentId = preferred.target;
     } else {
       currentId = nextEdges[0]?.target || null;
     }
@@ -555,14 +647,14 @@ export async function processSession(admin: any, session: FlowSession, provider:
     throw new Error("Fluxo interrompido por ciclo ou excesso de etapas.");
   }
   await applyLabel(admin, chat.company_id, chat.id, "Primeiro contato feito");
-  const completed = await admin.from("flow_sessions").update({
+  await fencedDispatchUpdate(admin, "flow", session, {
+    flow_id: flowId,
     current_node_id: null,
     status: "completed",
     context,
     last_activity_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  }).eq("id", session.id);
-  if (completed.error) throw completed.error;
+  });
   return "completed";
 }
 
@@ -604,7 +696,7 @@ export async function handleAutomationRequest(
     const retryAt = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
     for (const session of sessions) {
       const context = { ...(session.context || {}), dispatch_error: "WhatsApp provider not configured", next_dispatch_at: retryAt };
-      await admin.from("flow_sessions").update({ status: "active", context, updated_at: new Date().toISOString() }).eq("id", session.id);
+      await fencedDispatchUpdate(admin, "flow", session, { status: "active", context, updated_at: new Date().toISOString() });
     }
     return json({ processed: 0, deferred: sessions.length, reason: "provider_not_configured", intercycle, triggers: triggerResult.data || null });
   }
@@ -620,6 +712,20 @@ export async function handleAutomationRequest(
     } catch (error) {
       failed += 1;
       const errorCode = error instanceof Error ? error.message : "Unknown dispatcher error";
+      if (["company_feature_denied", "company_feature_unavailable", "flow_graph_cycle_unsupported"].includes(errorCode)) {
+        await fencedDispatchUpdate(admin, "flow", session, {
+          status: "failed", context: { ...(session.context || {}), dispatch_error: errorCode, next_dispatch_at: null },
+          updated_at: new Date().toISOString(),
+        }).catch(() => {});
+        continue;
+      }
+      if (error instanceof DispatchUncertain) {
+        await fencedDispatchUpdate(admin, "flow", session, {
+          status: "failed", context: { ...(session.context || {}), dispatch_error: "dispatch_uncertain", next_dispatch_at: null },
+          updated_at: new Date().toISOString(),
+        }).catch(() => {});
+        continue;
+      }
       if (
         session.context?.trigger_type === "weekly_contact" &&
         PERMANENT_WEEKLY_CONTACT_ERROR_CODES.has(errorCode)
@@ -630,11 +736,11 @@ export async function handleAutomationRequest(
           next_dispatch_at: null,
         };
         delete context.dispatch_retries;
-        await admin.from("flow_sessions").update({
+        await fencedDispatchUpdate(admin, "flow", session, {
           status: "failed",
           context,
           updated_at: new Date().toISOString(),
-        }).eq("id", session.id);
+        }).catch(() => {});
         continue;
       }
       const previousRetries = Number(session.context?.dispatch_retries || 0);
@@ -645,7 +751,7 @@ export async function handleAutomationRequest(
         dispatch_error: errorCode.slice(0, 300),
         next_dispatch_at: new Date(Date.now() + retryMinutes * 60 * 1000).toISOString(),
       };
-      await admin.from("flow_sessions").update({ status: "active", context, updated_at: new Date().toISOString() }).eq("id", session.id);
+      await fencedDispatchUpdate(admin, "flow", session, { status: "active", context, updated_at: new Date().toISOString() }).catch(() => {});
     }
   }
 

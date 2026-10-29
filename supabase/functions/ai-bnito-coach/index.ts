@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantAccess, HttpError } from "../_shared/tenant-auth.ts";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 
 type BnitoAction = "review" | "ask" | "contextual";
 
@@ -537,6 +538,7 @@ serve(async (req) => {
         requireStaff: true,
       });
     }
+    await requireCompanyFeature(createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY), companyId || "", "hasPrescription");
     const picked = pickModel(action, question, body.context || "");
     const aiConfig = await loadCompanyAiConfig(companyId);
 

@@ -32,3 +32,10 @@ docs/project/gravacao/_staging/
 # Supabase local/temp
 supabase/.temp/
 supabase/.branches/
+
+# Disposable local QA includes synthetic credentials and service runtime state.
+/output/self-service-local-*/
+/output/postgres-diagnosis*/
+
+# Local next-stage candidate, compiled artifacts and private review evidence
+output/self-service-next-candidate/

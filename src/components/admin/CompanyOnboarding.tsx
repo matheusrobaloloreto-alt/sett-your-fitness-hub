@@ -1,12 +1,14 @@
 // Central de IA (white-label): questionário que molda a "IA-coração" ao professor/dono da unidade.
-// O que é respondido aqui vira a persona/metodologia/regras que o BNITO e as edge functions de IA usam
-// (prescrição, avaliação, conversa com o aluno).
+// Identidade e notas contextuais. Politicas executaveis de geracao usam parametros tipados.
 import { useEffect, useState, type ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Switch } from '@/components/ui/switch';
+import AssessmentProtocolEditor from '@/lib/prescription/AssessmentProtocolEditor';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from "sonner";
 import { Loader2, Sparkles } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -29,21 +31,32 @@ export default function CompanyOnboarding() {
   const [form, setForm] = useState<CompanyAiConfig>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const canManageWhatsApp = role === 'admin' || role === 'master';
+  const [whatsAppEnabled, setWhatsAppEnabled] = useState(false);
+  const [whatsAppError, setWhatsAppError] = useState('');
 
   useEffect(() => {
     let on = true;
     setLoading(true);
-    fetchCompanyAiConfig(effectiveCompanyId).then((c) => {
+    setWhatsAppEnabled(false); setWhatsAppError('');
+    fetchCompanyAiConfig(effectiveCompanyId).then(async (c) => {
+      if (effectiveCompanyId && canManageWhatsApp) {
+        const { data, error } = await supabase.from('company_ai_config').select('bnito_whatsapp_enabled').eq('company_id', effectiveCompanyId).maybeSingle();
+        if (!on) return;
+        if (error) setWhatsAppError('Nao foi possivel carregar a permissao do WhatsApp.');
+        else setWhatsAppEnabled(data?.bnito_whatsapp_enabled === true);
+      }
       // garante strings nos campos (evita null no input controlado)
       if (on) { setForm({ ...EMPTY, ...c }); setLoading(false); }
-    });
+    }).catch(() => { if (on) { setWhatsAppError('Nao foi possivel carregar a configuracao.'); setLoading(false); } });
     return () => { on = false; };
-  }, [effectiveCompanyId]);
+  }, [effectiveCompanyId, canManageWhatsApp]);
 
   const set = (k: keyof CompanyAiConfig, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   const save = async (complete: boolean) => {
     if (!effectiveCompanyId) { toast.error("Empresa não identificada"); return; }
+    if (canManageWhatsApp && whatsAppError) { toast.error(whatsAppError); return; }
     const t = (v: string | null) => (typeof v === "string" ? v.trim() : "") || null;
     setSaving(true);
     const { error } = await saveCompanyAiConfig(effectiveCompanyId, {
@@ -64,10 +77,17 @@ export default function CompanyOnboarding() {
       ethical_limits: t(form.ethical_limits),
       plans_payment: t(form.plans_payment),
       onboarding_completed: complete,
+      ...(canManageWhatsApp ? { bnito_whatsapp_enabled: whatsAppEnabled } : {}),
     });
     setSaving(false);
     if (error) toast.error("Erro ao salvar", { description: error });
-    else toast.success(complete ? "Configuração concluída!" : "Rascunho salvo");
+    else {
+      if (canManageWhatsApp) {
+        const { data, error: readError } = await supabase.from('company_ai_config').select('bnito_whatsapp_enabled').eq('company_id', effectiveCompanyId).maybeSingle();
+        if (readError || data?.bnito_whatsapp_enabled !== whatsAppEnabled) { toast.error('Nao foi possivel confirmar a permissao salva do WhatsApp.'); return; }
+      }
+      toast.success(complete ? "Configuração concluída!" : "Rascunho salvo");
+    }
   };
 
   if (!effectiveCompanyId) {
@@ -107,7 +127,7 @@ export default function CompanyOnboarding() {
           <Sparkles className="h-5 w-5 text-primary" /> Molde sua IA assistente
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Quanto mais completo, mais a IA prescreve, avalia e conversa com seus alunos do SEU jeito — não de um jeito genérico.
+          Identidade e contexto profissional da sua consultoria.
         </p>
       </div>
 
@@ -137,9 +157,9 @@ export default function CompanyOnboarding() {
       </>)}
 
       {section("Metodologia de prescrição", <>
-        {ta("methodology", "Como funciona sua metodologia de treino?",
+        {ta("methodology", "Referencias de metodologia de treino",
           "Filosofia: básicos x isoladores, frequência, divisão (full body/ABC/push-pull), faixas de séries/reps por objetivo, descanso, cardio.",
-          "O núcleo da prescrição — a IA monta os treinos seguindo isto.", 130)}
+          undefined, 130)}
         {ta("exercise_preferences", "Exercícios e padrões que você prefere (e os que evita)",
           "Ex: priorizo agachamento livre, terra, supino, remada; gosto de unilaterais; evito leg press pesado p/ joelho sensível.")}
         {ta("progression_model", "Como você faz a progressão de carga e evolução?",
@@ -147,29 +167,33 @@ export default function CompanyOnboarding() {
       </>)}
 
       {section("Periodização & integração entre modalidades", <>
-        {ta("periodization_doctrine", "Como você periodiza o plano ao longo das semanas?",
+        {ta("periodization_doctrine", "Notas de periodizacao",
           "Ex: base/força nas primeiras semanas → blocos ordinários reduzindo o volume da musculação e subindo o da modalidade; microciclos (ordinário/choque/regenerativo) e troca de estímulo (séries/reps/sistema) a cada 2 semanas; deload na semana 4/6.",
-          "A IA usa isto para ordenar as fases e os microciclos de TODAS as modalidades.", 130)}
-        {ta("strength_endurance_integration", "Como integrar força + corrida/natação/ciclismo sem overtraining?",
+          undefined, 130)}
+        {ta("strength_endurance_integration", "Notas de integracao entre modalidades",
           "Ex: quando o volume da modalidade sobe, reduzo o volume-load da musculação; nada de Z4/Z5 na véspera de perna pesada; deload sincronizado entre força e cardio.",
-          "Regra anti-overtraining — sincroniza o pico de uma modalidade com o recuo da outra.", 110)}
+          undefined, 110)}
       </>)}
 
       {section("Avaliação & acompanhamento", <>
         {ta("assessment_protocol", "Como você avalia o aluno e acompanha a evolução?",
-          "Ex: anamnese (histórico, lesões, sono, rotina), mobilidade, medidas/fotos, força em exercícios-chave; reavalio a cada 4-6 semanas.",
-          "O que a IA deve perguntar/medir e reavaliar ao longo do tempo.")}
+          "Ex: anamnese (histórico, lesões, sono, rotina), mobilidade, medidas/fotos, força em exercícios-chave; reavalio a cada 4-6 semanas.")}
+        {canManageWhatsApp && <AssessmentProtocolEditor key={effectiveCompanyId} companyId={effectiveCompanyId} />}
       </>)}
 
       {section("Como a IA fala com o aluno", <>
+        {canManageWhatsApp && <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="bnito-whatsapp-enabled">Assistente no WhatsApp</Label>
+          <Switch id="bnito-whatsapp-enabled" checked={whatsAppEnabled} onCheckedChange={setWhatsAppEnabled} disabled={saving || !!whatsAppError} />
+        </div>}
+        {canManageWhatsApp && whatsAppError && <p role="alert" className="text-sm text-destructive">{whatsAppError}</p>}
         {ta("communication_style", "Regras de conversa no dia a dia",
           "Ex: respostas curtas no WhatsApp, sempre explicar o 'porquê' de forma simples, motivar sem pressionar, 1-2 dicas práticas por dúvida.")}
       </>)}
 
       {section("Segurança & limites", <>
         {ta("red_lines", "Linhas vermelhas e contraindicações (quando NÃO prescrever)",
-          "Ex: dor aguda/lesão recente = não prescreve e encaminha; gestante só com liberação; cardiopata sem alta = encaminha.",
-          "Limites de segurança inegociáveis — a IA para e encaminha em vez de improvisar.")}
+          "Ex: dor aguda/lesão recente = não prescreve e encaminha; gestante só com liberação; cardiopata sem alta = encaminha.")}
         <div className="space-y-1.5">
           <Label>Até onde a IA vai em nutrição/suplementação?</Label>
           <select

@@ -2,6 +2,8 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { createBnContentHandler, StudioError } from "./handler.ts";
 import { createGeminiProvider } from "./provider.ts";
 import { createStudioStore } from "./store.ts";
+import { getPlatformProductSettings, type PlatformSettingsClient } from "../_shared/platform-product-settings.ts";
+import { withEditorialIdentity } from "./prompts.ts";
 
 export function createRuntimeHandler(
   env: (name: string) => string | undefined,
@@ -52,8 +54,20 @@ export function createRuntimeHandler(
       text: key.trim().length > 0,
       images: key.trim().length > 0,
     }),
-    text: provider.text,
-    image: provider.image,
+    text: async (prompt) => {
+      const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
+      if (!url || !serviceKey) throw new StudioError(503, "settings_unavailable");
+      const client = createClient(url, serviceKey, { auth: { persistSession: false }, global: { fetch: fetcher } });
+      const { settings } = await getPlatformProductSettings(client as unknown as PlatformSettingsClient);
+      return provider.text(withEditorialIdentity(prompt, settings.editorial));
+    },
+    image: async(prompt,aspect)=>{
+      const serviceKey=env("SUPABASE_SERVICE_ROLE_KEY");if(!url || !serviceKey)throw new StudioError(503,"settings_unavailable");
+      const client=createClient(url,serviceKey,{auth:{persistSession:false},global:{fetch:fetcher}});
+      const {settings}=await getPlatformProductSettings(client as unknown as PlatformSettingsClient);
+      const palette={navy:settings.visual.navy,ink:settings.visual.ink,paper:settings.visual.paper,sand:settings.visual.sand};
+      return provider.image(`${prompt}\nPaleta da marca (dados de cor, mantendo os guardrails): ${JSON.stringify(palette)}`,aspect);
+    },
     uuid: () => crypto.randomUUID(),
   });
 }

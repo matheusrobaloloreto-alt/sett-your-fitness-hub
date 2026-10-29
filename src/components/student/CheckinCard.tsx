@@ -5,6 +5,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle2, HeartPulse } from "lucide-react";
 import { businessDateYmd } from "@/lib/businessDate";
+import {usePublishedInstrumentState} from '@/hooks/usePublishedInstrument';
+import VersionedFormFields from '@/components/VersionedFormFields';
+import {Button} from '@/components/ui/button';
+import {validateFormAnswers} from '@/lib/formDefinitions';
 
 interface Props { studentId: string; companyId: string | null; }
 
@@ -13,6 +17,9 @@ const STRESS = [["Muito baixo", 1], ["Baixo", 2], ["Moderado", 3], ["Alto", 4], 
 const PAIN = [0, 2, 4, 6, 8] as const;
 
 export function CheckinCard({ studentId, companyId }: Props) {
+  const {published,loaded,error:definitionError}=usePublishedInstrumentState(companyId,'checkin');
+  const [instrumentAnswers,setInstrumentAnswers]=useState<Record<string,unknown>>({});
+  const [instrumentError,setInstrumentError]=useState('');
   const todayStr = businessDateYmd();
   const [done, setDone] = useState<boolean | null>(null);
   const [sleep, setSleep] = useState<number | null>(null);
@@ -37,7 +44,8 @@ export function CheckinCard({ studentId, companyId }: Props) {
     if (!error) setDone(true);
   };
 
-  if (done === null) return null;
+  if (done === null || !loaded) return null;
+  if(definitionError)return <p role="alert" className="text-sm text-muted-foreground">{definitionError}</p>;
   if (done) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
@@ -45,6 +53,8 @@ export function CheckinCard({ studentId, companyId }: Props) {
       </div>
     );
   }
+
+  if(published) return <Card><CardContent className="p-4"><form className="space-y-4" onSubmit={async e=>{e.preventDefault();const invalid=validateFormAnswers(published.definition,instrumentAnswers);if(invalid.length){setInstrumentError(`Revise: ${invalid.join(', ')}`);return;}setSaving(true);try{const result=await (supabase as any).from('student_checkins').upsert({student_id:studentId,company_id:companyId,checkin_date:todayStr,sleep_quality:Number(instrumentAnswers.sleep_quality),stress:Number(instrumentAnswers.stress),pain:Number(instrumentAnswers.pain),form_definition_id:published.id,instrument_answers:instrumentAnswers},{onConflict:'student_id,checkin_date'});if(result.error)throw result.error;setDone(true);}catch{setInstrumentError('Nao foi possivel salvar o check-in.');}finally{setSaving(false);}}}><h2 className="text-sm font-semibold">{published.definition.title}</h2>{instrumentError&&<p role="alert" className="text-sm text-destructive">{instrumentError}</p>}<fieldset disabled={saving}><VersionedFormFields definition={published.definition} answers={instrumentAnswers} onChange={(key,value)=>setInstrumentAnswers(a=>({...a,[key]:value}))} /></fieldset><Button type="submit" disabled={saving}>Registrar check-in</Button></form></CardContent></Card>;
 
   return (
     <Card className="bg-card border-border">

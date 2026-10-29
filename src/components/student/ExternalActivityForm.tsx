@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { businessDateYmd } from "@/lib/businessDate";
+import { awardCompanyXp } from '@/lib/gamification';
 
 export const ACTIVITY_TYPES = [
   { value: "corrida", label: "Corrida", hasDistance: true },
@@ -95,17 +96,13 @@ export function ExternalActivityForm({ open, onClose, studentId, companyId, exis
     // Gamification: award XP only on new activities; check achievements either way.
     try {
       if (!existing && saved?.id) {
-        await supabase.rpc("award_xp", {
-          _student_id: studentId,
-          _event_type: "external_activity",
-          _xp_amount: 30,
-          _source_id: saved.id,
-          _notes: activityType,
-        });
+        await awardCompanyXp(studentId, 'external_activity', saved.id);
       }
-      await supabase.rpc("check_and_unlock_achievements", { _student_id: studentId });
+      const { error: achievementError } = await supabase.rpc("check_and_unlock_achievements", { _student_id: studentId });
+      if (achievementError) throw achievementError;
     } catch (e) {
       console.warn("XP/achievements grant failed", e);
+      toast({ title: 'Atividade salva; pontos pendentes', description: 'Nao foi possivel atualizar os pontos agora.', variant: 'destructive' });
     }
 
     toast({ title: existing ? "Atividade atualizada" : "Atividade registrada" });

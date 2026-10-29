@@ -7,6 +7,7 @@ import { Crown, Medal, Loader2, Trophy } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { useStudentGamification } from '@/hooks/useStudentGamification';
 
 interface LbEntry { display_name: string; xp: number; rank: number; }
 interface CallerInfo { rank: number | null; xp: number; total_participantes: number; }
@@ -18,13 +19,14 @@ const PODIUM = [
 ];
 
 export function MonthlyLeaderboard({ companyId }: { companyId: string | null }) {
+  const { enabled } = useStudentGamification({ companyId });
   const [top3, setTop3] = useState<LbEntry[]>([]);
   const [caller, setCaller] = useState<CallerInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let on = true;
-    if (!companyId) { setLoading(false); return; }
+    if (!companyId || !enabled) { setTop3([]); setCaller(null); setLoading(false); return; }
     (async () => {
       setLoading(true);
       const { data } = await (supabase as any).rpc("get_monthly_leaderboard", { _company_id: companyId });
@@ -35,9 +37,9 @@ export function MonthlyLeaderboard({ companyId }: { companyId: string | null }) 
       setLoading(false);
     })();
     return () => { on = false; };
-  }, [companyId]);
+  }, [companyId, enabled]);
 
-  if (!companyId) return null;
+  if (!companyId || !enabled) return null;
 
   const monthLabel = format(new Date(), "MMMM", { locale: ptBR });
   const callerInPodium = caller?.rank != null && caller.rank <= 3;

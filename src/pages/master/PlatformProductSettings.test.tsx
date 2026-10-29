@@ -1,0 +1,42 @@
+import { act,cleanup,fireEvent,render,screen } from "@testing-library/react";
+import { QueryClient,QueryClientProvider } from "@tanstack/react-query";
+import { afterEach,expect,it,vi } from "vitest";
+const mocks=vi.hoisted(()=>({role:"master",fetch:vi.fn(),save:vi.fn()}));
+vi.mock("@/hooks/useAuth",()=>({useAuth:()=>({role:mocks.role})}));
+vi.mock("@/lib/platformSettingsClient",async()=>({...await vi.importActual("@/lib/platformSettingsClient"),fetchPlatformProductSettings:mocks.fetch,savePlatformProductSettings:mocks.save}));
+import PlatformProductSettings from "./PlatformProductSettings";
+import { DEFAULT_PLATFORM_PRODUCT_SETTINGS } from "@/lib/platformSettingsClient";
+afterEach(()=>{cleanup();mocks.role="master";vi.clearAllMocks();});
+it("preserves the master draft on version conflict without retrying",async()=>{
+ mocks.fetch.mockResolvedValue({settings:structuredClone(DEFAULT_PLATFORM_PRODUCT_SETTINGS),version:1});
+ mocks.save.mockRejectedValue(new Error("Configuração alterada por outro master. Recarregue antes de salvar."));
+ const client=new QueryClient();render(<QueryClientProvider client={client}><PlatformProductSettings/></QueryClientProvider>);
+ fireEvent.change(await screen.findByLabelText("Tom"),{target:{value:"Master draft retained"}});
+ fireEvent.click(screen.getByRole("button",{name:"Salvar"}));
+ expect(await screen.findByRole("alert")).toHaveTextContent("Recarregue");
+ expect(screen.getByLabelText("Tom")).toHaveValue("Master draft retained");
+ expect(mocks.save).toHaveBeenCalledTimes(1);
+});
+it("saves editorial changes without implicitly enabling limits, and offers explicit opt-in",async()=>{
+ mocks.fetch.mockResolvedValue({settings:structuredClone(DEFAULT_PLATFORM_PRODUCT_SETTINGS),version:1});
+ mocks.save.mockImplementation(async settings=>({settings,version:2}));
+ const client=new QueryClient();render(<QueryClientProvider client={client}><PlatformProductSettings/></QueryClientProvider>);
+ await screen.findByLabelText("Tom");fireEvent.change(screen.getByLabelText("Tom"),{target:{value:"Editorial change only"}});
+ fireEvent.click(screen.getByRole("button",{name:"Salvar"}));
+ await screen.findByRole("status");
+ expect(mocks.save.mock.calls[0][0].tiers.basic.limits_enabled).toBe(false);
+ fireEvent.click(screen.getByRole("checkbox",{name:"Aplicar limite a novas ativações: Básico"}));
+ fireEvent.click(screen.getByRole("button",{name:"Salvar"}));
+ await act(async()=>{});
+ expect(mocks.save.mock.calls[1][0].tiers.basic.limits_enabled).toBe(true);
+});
+it("ignores a late master save after role loss without cache invalidation",async()=>{
+ mocks.fetch.mockResolvedValue({settings:DEFAULT_PLATFORM_PRODUCT_SETTINGS,version:1});
+ let resolve!:(value:unknown)=>void;mocks.save.mockReturnValue(new Promise(done=>{resolve=done;}));
+ const client=new QueryClient();const invalidation=vi.spyOn(client,"invalidateQueries");
+ const view=()=> <QueryClientProvider client={client}><PlatformProductSettings/></QueryClientProvider>;
+ const {rerender}=render(view());await screen.findByLabelText("Nome",{selector:"#basic-name"});
+ fireEvent.click(screen.getByRole("button",{name:"Salvar"}));mocks.role="student";rerender(view());
+ await act(async()=>resolve({settings:DEFAULT_PLATFORM_PRODUCT_SETTINGS,version:2}));
+ expect(invalidation).not.toHaveBeenCalled();expect(screen.getByRole("alert")).toHaveTextContent("Acesso exclusivo");
+});

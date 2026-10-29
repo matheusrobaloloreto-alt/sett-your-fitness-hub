@@ -1,5 +1,5 @@
 import { HttpError } from "./tenant-auth.ts";
-import { validateInviteAnamnesis } from "./public-anamnesis-validation.ts";
+import { validateInviteAnamnesis, type RequiredAnamnesisField } from "./public-anamnesis-validation.ts";
 
 const INVESTMENT_RANGES = new Set(["200_300", "300_400", "400_500"]);
 const CONTACT_PERIODS = new Set(["morning", "afternoon", "evening"]);
@@ -35,6 +35,8 @@ const digits = (value: unknown) => typeof value === "string" ? value.replace(/\D
 
 function payloadDepth(value: unknown, depth = 0): number {
   if (!value || typeof value !== "object") return depth;
+  // A multiselect is a leaf value; nested objects still count toward the limit.
+  if (Array.isArray(value) && value.every(entry => entry === null || typeof entry !== 'object')) return depth;
   const values = Array.isArray(value) ? value : Object.values(value as Record<string, unknown>);
   return values.reduce((max, entry) => Math.max(max, payloadDepth(entry, depth + 1)), depth + 1);
 }
@@ -51,7 +53,7 @@ export interface ValidatedPreRegistration {
   answers: Record<string, unknown>;
 }
 
-export function validatePreRegistrationSubmission(body: Record<string, unknown>): ValidatedPreRegistration {
+export function validatePreRegistrationSubmission(body: Record<string, unknown>, customFields: RequiredAnamnesisField[] = []): ValidatedPreRegistration {
   let serialized = "";
   try { serialized = JSON.stringify(body); } catch { throw new HttpError(422, "Pré-cadastro inválido."); }
   if (new TextEncoder().encode(serialized).length > MAX_BODY_BYTES || payloadDepth(body) > MAX_DEPTH) {
@@ -90,7 +92,7 @@ export function validatePreRegistrationSubmission(body: Record<string, unknown>)
   if (answers.budget_range !== budgetRange) {
     throw new HttpError(422, "A faixa de investimento está inconsistente.");
   }
-  const invalid = validateInviteAnamnesis(answers, []);
+  const invalid = validateInviteAnamnesis(answers, customFields);
   if (invalid.length > 0) {
     throw new HttpError(422, `Pré-cadastro incompleto ou inválido: ${invalid.join(", ")}.`);
   }

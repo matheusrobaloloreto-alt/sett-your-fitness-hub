@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -41,6 +42,7 @@ Deno.serve(async (req) => {
     if (lookupError) throw new HttpError(503, "Falha ao carregar a prescrição.");
     if (!existing) return json(404, { error: "Plano não encontrado." });
     await assertTenantAccess(admin, { sub: userData.user.id }, { studentId: existing.student_id, companyId: existing.company_id, requireStaff: true });
+    await requireCompanyFeature(admin, existing.company_id, "hasPrescription");
     if (existing.updated_at !== body.expected_updated_at) return json(409, { error: "Este plano foi atualizado em outra sessão. Recarregue antes de salvar." });
 
     const { data: updated, error: updateError } = await admin.from("ai_strength_plans")

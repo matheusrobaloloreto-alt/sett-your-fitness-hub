@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle, Copy, CreditCard, QrCode, Loader2, Check, ShieldCheck, Lock } from "lucide-react";
-import bnLogo from "@/assets/bn-logo.png";
+import { maxInstallmentsForPlanDuration } from "../../supabase/functions/_shared/payment-installments";
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS } from "@/lib/companyProductSettings";
+import { safePublicUrl } from "@/lib/platformSettingsClient";
 import { applyTheme } from "@/contexts/ThemeContext";
 import { formatCPF, formatCEP, formatPhone } from "@/lib/masks";
 
@@ -36,12 +38,6 @@ interface PlanOption {
   price: number;
   duration_weeks: number;
   description: string | null;
-}
-
-function getMaxInstallments(durationWeeks: number): number {
-  if (durationWeeks <= 6) return 1;
-  if (durationWeeks <= 24) return 6;
-  return 12;
 }
 
 function formatBRL(value: number): string {
@@ -78,6 +74,10 @@ export default function PublicPayment() {
 
   const [student, setStudent] = useState<any>(null);
   const [logoSrc, setLogoSrc] = useState<string | null>(null);
+  const [business, setBusiness] = useState(DEFAULT_COMPANY_PRODUCT_SETTINGS.business);
+  const [companyName, setCompanyName] = useState("");
+  const [companySlug, setCompanySlug] = useState("");
+  const [publicLinks, setPublicLinks] = useState({ terms_url: "", privacy_url: "" });
   const [notFound, setNotFound] = useState(false);
   const [step, setStep] = useState<Step>("select_plan");
   const [loading, setLoading] = useState(false);
@@ -160,6 +160,10 @@ export default function PublicPayment() {
       });
       if (error || !data?.student) { setNotFound(true); setLoadingPlans(false); return; }
       const s = data.student;
+      setBusiness(data.business || DEFAULT_COMPANY_PRODUCT_SETTINGS.business);
+      setCompanyName(data.publicBrand?.company_name || data.company?.name || "");
+      setCompanySlug(/^[a-z0-9]+(-[a-z0-9]+)*$/.test(data.company?.slug || "") ? data.company.slug : "");
+      setPublicLinks({ terms_url: safePublicUrl(data.publicBrand?.terms_url) || "", privacy_url: safePublicUrl(data.publicBrand?.privacy_url) || "" });
       setStudent(s);
       setBillingCountryCode(String(s.billing_country_code || s.country_code || "").toUpperCase());
       const isBrazilianBilling = String(s.billing_country_code || s.country_code || "").toUpperCase() === "BR";
@@ -233,7 +237,8 @@ export default function PublicPayment() {
     }
   };
 
-  const maxInstallments = getMaxInstallments(planDurationWeeks);
+  const maxInstallments = maxInstallmentsForPlanDuration(planDurationWeeks, business);
+  useEffect(() => { setInstallments(1); }, [maxInstallments, selectedPlanOptionId]);
 
   const saveBrazilianBillingProfile = async () => {
     const cpfDigits = cardForm.cpfCnpj.replace(/\D/g, "");
@@ -498,7 +503,7 @@ export default function PublicPayment() {
             </p>
             {!isRenewal && (
               <p className="text-xs text-muted-foreground font-sans">
-                A avaliação e o início do treino serão conduzidos em até 5 dias úteis.
+                A avaliação e o início do treino serão conduzidos em até {business.assessment_sla_business_days} dias úteis.
               </p>
             )}
           </CardContent>
@@ -527,7 +532,8 @@ export default function PublicPayment() {
     <div className="min-h-screen bg-background">
       <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
         <div className="text-center space-y-3">
-          <img src={logoSrc || bnLogo} alt="Logo" className="h-16 mx-auto object-contain" />
+          {logoSrc ? <img src={logoSrc} alt={companyName || "Logo"} className="h-16 mx-auto object-contain" /> : <p className="text-xl font-semibold">{companyName}</p>}
+          <nav className="flex flex-wrap justify-center gap-4 text-sm">{publicLinks.terms_url ? <a href={publicLinks.terms_url} target="_blank" rel="noopener noreferrer">Termos</a> : companySlug && <Link to={`/empresa/${companySlug}/termos`}>Termos</Link>}{publicLinks.privacy_url ? <a href={publicLinks.privacy_url} target="_blank" rel="noopener noreferrer">Privacidade</a> : companySlug && <Link to={`/empresa/${companySlug}/privacidade`}>Privacidade</Link>}{companySlug && <Link to={`/empresa/${companySlug}/suporte`}>Suporte</Link>}</nav>
           <h1 className="text-4xl text-primary">
             {isRenewal ? "RENOVAÇÃO" : "PAGAMENTO"}
           </h1>

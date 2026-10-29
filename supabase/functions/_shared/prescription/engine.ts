@@ -18,6 +18,8 @@ import type {
 } from "./types.ts";
 import { prescriptionRiskText } from "./clinicalContext.ts";
 import { isPrescriptionCatalogEligible } from "./catalogEligibility.ts";
+import { normalizeCompanyProductSettings } from '../company-product-settings.ts';
+import { inheritClinicalContext } from './companyPolicy.ts';
 
 type ExerciseSpec = {
   phase: string;
@@ -178,7 +180,7 @@ function exerciseToTrainingExercise(exercise: ExerciseCatalogEntry, spec: Exerci
     load_percent_1rm: null,
     rir: input.deload ? DELOAD_RULES.rir : spec.rir,
     rest_seconds: input.deload ? Math.max(90, spec.rest) : spec.rest,
-    tempo: spec.tempo || "3010",
+    tempo: input.companyPolicy?.default_cadence || spec.tempo || "3010",
     exercise_order: order,
     cues: spec.cue,
     biomechanical_note: spec.note,
@@ -440,7 +442,7 @@ function buildWorkouts(input: PrescriptionInput) {
   const usedIds = new Set<string>();
   const restrictions = deriveRestrictionRules(input);
   const split = resolveSplit(input);
-  const daySlots = distributeDays(split.structuredDays);
+  const daySlots = input.availableDays?.slice(0, split.structuredDays) || distributeDays(split.structuredDays);
   const gaps: string[] = [];
   const advancedTemplateEligible = canUseAdvancedMethodTemplates(input);
   if (advancedTemplateEligible && isAdvancedLevel(input) && isHypertrophyObjective(input) && split.structuredDays >= 4
@@ -456,7 +458,7 @@ function buildWorkouts(input: PrescriptionInput) {
     gaps.push(...picked.gaps);
     return {
       name: template.name,
-      day_of_week: daySlots[index] || index + 1,
+      day_of_week: daySlots[index] ?? index + 1,
       duration_min: 50,
       split_focus: template.focus,
       exercises: picked.exercises,
@@ -465,7 +467,9 @@ function buildWorkouts(input: PrescriptionInput) {
         : input.isEnduranceAthlete || input.runningDaysContext
         ? "Conservador; volume de MMII reduzido por endurance; usar RIR 2-3."
         : "Conservador; usar RIR 2-4 e dor <= 3.",
-      notes: "Gerado pelo BN Prescription Engine v1. Revisar casos clínicos complexos antes de publicar.",
+      notes: input.companyPolicy
+        ? 'Revisar casos clinicos complexos antes de publicar.'
+        : "Gerado pelo BN Prescription Engine v1. Revisar casos clínicos complexos antes de publicar.",
     };
   });
   return { workouts, gaps };
@@ -495,7 +499,8 @@ function applyDeloadVolumeBudget(workouts: TrainingWorkout[], input: Prescriptio
 
 export function generateTrainingProgram(input: PrescriptionInput): TrainingProgram {
   const normalizedInput: PrescriptionInput = {
-    ...input,
+    ...inheritClinicalContext(input),
+    companyPolicy: input.companyPolicy ? normalizeCompanyProductSettings({ prescription: input.companyPolicy }).prescription : undefined,
     catalog: normalizeCatalog(input.catalog),
     daysPerWeek: clampDays(input.daysPerWeek),
     durationWeeks: resolveDurationWeeks(input),
@@ -521,7 +526,10 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
     return merged;
   }, new Map<string, (typeof capped.adjustments)[number]>());
   const weekly = buildWeeklyPeriodization(workouts, normalizedInput);
-  const periodization = buildPeriodizationBlocks(normalizedInput);
+  const periodization = normalizedInput.companyPolicy ? weekly.weeks.map(week => ({
+    weeks: String(week.week), stimulus: `${week.block}: ${week.volume_percent}% do volume seguro`,
+    methods: week.methods, progression_rule: `RIR ${week.rir}; ${week.instruction}`,
+  })) : buildPeriodizationBlocks(normalizedInput);
   const split = resolveSplit(normalizedInput);
   const explanations = [
     ...explanationsFromRestrictions(restrictions),
@@ -621,8 +629,18 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
       sequence_phase: longitudinal.phase,
       previous_plan_used: Boolean(normalizedInput.previousPlanContext),
       previous_metrics_reused: longitudinal.reusedMetrics,
+      clinical_context: JSON.parse(JSON.stringify({
+        restrictions: normalizedInput.restrictions, injuries: normalizedInput.injuries,
+        painReports: normalizedInput.painReports, painEva: normalizedInput.painEva,
+        assessmentContext: normalizedInput.assessmentContext, anamneseContext: normalizedInput.anamneseContext,
+        prescriptionIntegration: normalizedInput.prescriptionIntegration, techniqueBreakdown: normalizedInput.techniqueBreakdown,
+      })),
+      ...(normalizedInput.companyPolicy ? {
+        company_policy: JSON.parse(JSON.stringify(normalizedInput.companyPolicy)),
+        company_policy_precedence: 'clinical > library > conservative_caps > company_preferences; notes_context_only',
+      } : {}),
     },
-    cycle_name: `Plano BN Engine - ${clean(normalizedInput.studentName || "Aluno")} - Ciclo ${longitudinal.sequenceNumber}`,
+    cycle_name: `${normalizedInput.companyPolicy ? 'Plano de Forca' : 'Plano BN Engine'} - ${clean(normalizedInput.studentName || "Aluno")} - Ciclo ${longitudinal.sequenceNumber}`,
     objective: clean(normalizedInput.objective || "base tecnica e consistencia"),
     duration_weeks: durationWeeks,
     block: String(resolveSequenceNumber(normalizedInput)),
@@ -654,7 +672,7 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
     periodization_blocks: periodization,
     weekly_periodization: weekly.weeks,
     weekly_structure: `${workouts.length} sessões/semana (${split.label}) distribuídas em dias alternados quando possível.`,
-    progression_protocol: `${progressionProtocol(normalizedInput)} Continuidade entre ciclos: ${longitudinal.phase}; o próximo bloco deve partir deste resultado e do feedback real do aluno.`,
+    progression_protocol: `${progressionProtocol(normalizedInput)} ${normalizedInput.companyPolicy?.progression_mode === 'maintain' ? 'Entre ciclos: manter a dose anterior, respeitando ajustes clínicos.' : normalizedInput.companyPolicy?.progression_mode === 'reps_only' ? 'Entre ciclos: progredir somente repetições, respeitando ajustes clínicos.' : ''} Continuidade entre ciclos: ${longitudinal.phase}; o próximo bloco deve partir deste resultado e do feedback real do aluno.`,
     warnings: [
       ...(gaps.length ? ["Biblioteca incompleta para alguns padrões; nenhum exercício foi inventado."] : []),
       ...(deloadBudget.allocation?.constrainedByMinimum
@@ -694,6 +712,26 @@ export function generateTrainingProgram(input: PrescriptionInput): TrainingProgr
     catalog: normalizedInput.catalog,
     corrections,
   });
+  if (normalizedInput.sessionDurationMinutes) {
+    for (const workout of program.workouts) {
+      // Include the busiest prescribed week, rest and a conservative transition allowance.
+      const minutes = Math.ceil(workout.exercises.reduce((total, exercise) => {
+        const weeks = exercise.weekly_prescription || [];
+        const seconds = Math.max(...weeks.map(week => {
+          const reps = Math.max(...(String(week.reps).match(/\d+/g) || ['10']).map(Number));
+          const cadence = String(week.tempo || '3010').split('').reduce((sum, digit) => sum + Number(digit || 0), 0);
+          const effort = /s\b|seg/i.test(String(week.reps)) ? reps : reps * Math.max(2, cadence);
+          return week.sets * (effort + week.rest_seconds);
+        }), 0);
+        return total + seconds + 30;
+      }, 0) / 60);
+      workout.duration_min = minutes;
+      if (minutes > normalizedInput.sessionDurationMinutes) {
+        program.validator.pre_save.blockers.push({ code: 'session_duration_exceeded', severity: 'blocker', source: 'anamnese', message: `${workout.name}: estimativa ${minutes} min excede disponibilidade de ${normalizedInput.sessionDurationMinutes} min.`, recommendation: 'Revisar a sessao com o profissional antes de publicar.' });
+        program.validator.pre_save.status = 'blocked';
+      }
+    }
+  }
   program.validation = program.validator.pre_save;
   program.explanations.push(...program.validator.pre_save.blockers.map((blocker) => ({
     rule_id: blocker.code,

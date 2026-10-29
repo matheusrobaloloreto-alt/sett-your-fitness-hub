@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import {
   CardioPlanValidationError,
   normalizeCardioPlanUpdate,
@@ -73,6 +74,7 @@ Deno.serve(async (req) => {
       companyId: existing.company_id,
       requireStaff: true,
     });
+    await requireCompanyFeature(adminClient, existing.company_id, "hasPrescription");
     if (!(["corrida", "natacao", "ciclismo"] as string[]).includes(existing.sport)) {
       return json(409, { error: "Este plano não pertence a uma modalidade editável." });
     }

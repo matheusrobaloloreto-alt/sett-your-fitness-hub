@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { canonicalMuscleSlug, normalizeExerciseCategories } from "../_shared/exerciseTaxonomy.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
+import { HttpError } from "../_shared/tenant-auth.ts";
 
 import { canonicalCatalogTargets } from "../_shared/prescription/catalogVolume.ts";
 import { fetchExerciseRelations } from "../_shared/prescription/catalogRows.ts";
@@ -389,6 +391,9 @@ serve(async (req) => {
     let strengthCatalog: StrengthCatalog | null = null;
     let strengthInstructions = "";
     let companyId = await loadUserCompanyId(user);
+    // Tenant comes from the authenticated membership, never a submitted flag/tier.
+    const entitlementClient = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    await requireCompanyFeature(entitlementClient, companyId || "", "hasPrescription");
 
     if (body.modality === "strength") {
       strengthCatalog = await loadStrengthCatalog(user);
@@ -490,6 +495,6 @@ REGRAS GERAIS:
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
-    return jsonResponse({ error: message }, 500);
+    return jsonResponse({ error: message }, error instanceof HttpError ? error.status : 500);
   }
 });

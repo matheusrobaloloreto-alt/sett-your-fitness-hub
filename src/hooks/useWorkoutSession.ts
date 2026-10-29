@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { awardCompanyXp } from '@/lib/gamification';
+import { toast } from 'sonner';
 
 interface ActiveSession {
   id: string;
@@ -224,16 +226,12 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     // Completion is already confirmed; gamification must not keep its timer open.
     void (async () => {
       try {
-        await supabase.rpc("award_xp", {
-          _student_id: studentId,
-          _event_type: "workout",
-          _xp_amount: 50,
-          _source_id: result.id,
-          _notes: null,
-        });
-        await supabase.rpc("check_and_unlock_achievements", { _student_id: studentId });
+        await awardCompanyXp(studentId, 'workout', result.id);
+        const { error } = await supabase.rpc("check_and_unlock_achievements", { _student_id: studentId });
+        if (error) throw error;
       } catch (e) {
         console.warn("XP/achievements grant failed", e);
+        toast.error('Treino salvo. Nao foi possivel atualizar os pontos agora.');
       }
     })();
     return result;

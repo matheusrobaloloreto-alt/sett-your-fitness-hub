@@ -1,16 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { getSubscriptionTier,type StripeCatalogClient } from "../_shared/stripe-catalog-policy.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature",
-};
-
-const PRODUCT_TO_TIER: Record<string, string> = {
-  "prod_U76LIOQ0o1AQKR": "basic",
-  "prod_U76MUDoCG8wBz9": "intermediate",
-  "prod_U76MWcqIAGGYpm": "advanced",
 };
 
 const logStep = (step: string, details?: any) => {
@@ -102,19 +97,22 @@ serve(async (req) => {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         const companyId = session.metadata?.company_id;
-        const tier = session.metadata?.tier;
         const subscriptionId = session.subscription as string;
 
         if (companyId && subscriptionId && UUID_RE.test(companyId)) {
+          const subscription=await stripe.subscriptions.retrieve(subscriptionId);
+          if(subscription.metadata?.company_id!==companyId)throw new Error("Subscription company mismatch");
+          const tier=await getSubscriptionTier(supabaseClient as unknown as StripeCatalogClient,subscription.items.data);
           logStep("Processing checkout completion", { companyId, tier, subscriptionId });
 
-          await supabaseClient
+          const {error:companyError}=await supabaseClient
             .from("companies")
             .update({
-              subscription_status: "active",
-              tier: tier || "basic",
+              subscription_status: subscription.status,
+              tier,
             })
             .eq("id", companyId);
+          if(companyError)throw new Error("Unable to update company subscription");
 
           await supabaseClient
             .from("company_billing")
@@ -133,18 +131,18 @@ serve(async (req) => {
         const companyId = subscription.metadata?.company_id;
 
         if (companyId && UUID_RE.test(companyId)) {
-          const productId = subscription.items.data[0]?.price?.product as string;
-          const tier = PRODUCT_TO_TIER[productId] || "basic";
+          const tier = await getSubscriptionTier(supabaseClient as unknown as StripeCatalogClient,subscription.items.data);
 
-          logStep("Processing subscription update", { companyId, productId, tier, status: subscription.status });
+          logStep("Processing subscription update", { companyId, tier, status: subscription.status });
 
-          await supabaseClient
+          const {error:companyError}=await supabaseClient
             .from("companies")
             .update({
               subscription_status: subscription.status,
               tier: tier,
             })
             .eq("id", companyId);
+          if(companyError)throw new Error("Unable to update company subscription");
 
           logStep("Company subscription updated", { companyId, tier });
         }
@@ -156,6 +154,8 @@ serve(async (req) => {
         const companyId = subscription.metadata?.company_id;
 
         if (companyId && UUID_RE.test(companyId)) {
+          // Unknown/ambiguous billing prices require reconciliation, including cancellation events.
+          await getSubscriptionTier(supabaseClient as unknown as StripeCatalogClient,subscription.items.data);
           logStep("Processing subscription cancellation", { companyId });
 
           await supabaseClient

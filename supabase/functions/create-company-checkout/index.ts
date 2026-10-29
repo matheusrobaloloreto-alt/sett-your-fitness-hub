@@ -1,23 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { getPlatformProductSettings, companyTiers, type CompanyTier, type PlatformSettingsClient } from "../_shared/platform-product-settings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
-
-// Mapping between tiers and Stripe price IDs
-const TIER_PRICES = {
-  basic: "price_1T8s8n0JX9nASSiUNWHuxTYM",
-  intermediate: "price_1T8s9P0JX9nASSiUERk7XYh2",
-  advanced: "price_1T8s9k0JX9nASSiUC8Fx1K2K",
-};
-
-const TIER_PRODUCTS = {
-  "prod_U76LIOQ0o1AQKR": "basic",
-  "prod_U76MUDoCG8wBz9": "intermediate",
-  "prod_U76MWcqIAGGYpm": "advanced",
 };
 
 class HttpError extends Error {
@@ -74,7 +62,9 @@ serve(async (req) => {
     const { companyId, tier } = await req.json();
     if (!companyId || !tier) throw new HttpError(400, "companyId and tier are required");
     if (!UUID_RE.test(companyId)) throw new HttpError(400, "Invalid companyId");
-    if (!TIER_PRICES[tier as keyof typeof TIER_PRICES]) throw new HttpError(400, "Invalid tier");
+    if (!companyTiers.includes(tier)) throw new HttpError(400, "Invalid tier");
+    const catalog = await getPlatformProductSettings(supabaseClient as unknown as PlatformSettingsClient);
+    const tierDefinition = catalog.settings.tiers[tier as CompanyTier];
     logStep("Request parsed", { companyId, tier });
 
     // Get company info
@@ -93,6 +83,10 @@ serve(async (req) => {
     if (!ownerEmail) throw new Error("Company owner email not found");
 
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const price = await stripe.prices.retrieve(tierDefinition.stripe_price_id);
+    if (!price.active || price.currency !== "brl" || price.recurring?.interval !== "month" || price.recurring.interval_count !== 1 || price.unit_amount !== Math.round(tierDefinition.monthly_price * 100)) {
+      throw new HttpError(422, "Preço Stripe incompatível com o catálogo. Revise o ID e o valor mensal.");
+    }
 
     // Find or create Stripe customer (billing data lives in restricted company_billing table)
     const { data: billing } = await supabaseClient
@@ -125,7 +119,7 @@ serve(async (req) => {
 
     const requestOrigin = req.headers.get("origin") || "";
     const origin = ALLOWED_ORIGINS.has(requestOrigin) ? requestOrigin : "https://www.settapp.com.br";
-    const priceId = TIER_PRICES[tier as keyof typeof TIER_PRICES];
+    const priceId = tierDefinition.stripe_price_id;
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,

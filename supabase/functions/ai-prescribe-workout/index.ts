@@ -2,9 +2,12 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { canonicalMuscleSlug, normalizeExerciseCategories } from "../_shared/exerciseTaxonomy.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertBundleAccess, assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import { buildPrescriptionInputFromEdgePayload } from "../_shared/prescription/adapters/inputAdapter.ts";
 import { adaptTrainingProgramForAiStrengthPlan } from "../_shared/prescription/adapters/outputAdapter.ts";
 import { generateTrainingProgram } from "../_shared/prescription/engine.ts";
+import { getCompanyProductSettings, type SettingsReadClient } from '../_shared/company-product-settings.ts';
+import { projectIntercycleInputs, projectAdditionalPrescriptionAnswers } from '../_shared/prescription/companyPolicy.ts';
 import { isPrescriptionCatalogEligible } from "../_shared/prescription/catalogEligibility.ts";
 import { clinicalRiskText, prescriptionRiskText } from "../_shared/prescription/clinicalContext.ts";
 import { buildCatalogVolumeSummary, canonicalCatalogTargets } from "../_shared/prescription/catalogVolume.ts";
@@ -191,6 +194,8 @@ interface CompanyAiConfig {
   communication_style: string | null;
   nutrition_scope: string | null;
   ethical_limits: string | null;
+  periodization_doctrine: string | null;
+  strength_endurance_integration: string | null;
 }
 
 interface AiDecisionLogInput {
@@ -217,6 +222,8 @@ const BN_AI_CONFIG: CompanyAiConfig = {
   communication_style: null,
   nutrition_scope: null,
   ethical_limits: null,
+  periodization_doctrine: null,
+  strength_endurance_integration: null,
 };
 
 const METHODOLOGY_PRESETS = {
@@ -307,7 +314,7 @@ async function loadCompanyAiConfig(supabase: any, companyId: string | null | und
   if (!companyId) return BN_AI_CONFIG;
   const { data } = await supabase
     .from("company_ai_config")
-    .select("assistant_name, consultancy_name, methodology, plans_payment, tone, onboarding_completed, owner_credentials, niche_audience, exercise_preferences, progression_model, assessment_protocol, red_lines, communication_style, nutrition_scope, ethical_limits")
+    .select("assistant_name, consultancy_name, methodology, plans_payment, tone, onboarding_completed, owner_credentials, niche_audience, exercise_preferences, progression_model, assessment_protocol, red_lines, communication_style, nutrition_scope, ethical_limits, periodization_doctrine, strength_endurance_integration")
     .eq("company_id", companyId)
     .maybeSingle();
   return data ? { ...BN_AI_CONFIG, ...data } : BN_AI_CONFIG;
@@ -1388,6 +1395,7 @@ serve(async (req) => {
       requireStaff: true,
     });
     const authorizedCompanyId = authz.companyId;
+    await requireCompanyFeature(supabase, authorizedCompanyId, "hasPrescription");
     const authorizedBundleId = await assertBundleAccess(supabase, bundle_id, authorizedCompanyId, student_id);
     const cycleContext: any = await resolveCycleContext(supabase, {
       explicitCycleId: training_cycle_id,
@@ -1476,6 +1484,16 @@ serve(async (req) => {
       authorizedPreviousPlanId = previous.id;
       effectivePreviousPlan = previous.plan;
     }
+    if (cycleContext && intercycleContext?.prior_cycle_id) {
+      const { data: priorStrength, error: priorStrengthError } = await supabase.from('ai_strength_plans')
+        .select('id, plan').eq('company_id', authorizedCompanyId).eq('student_id', student_id)
+        .eq('training_cycle_id', intercycleContext.prior_cycle_id).maybeSingle();
+      if (priorStrengthError) throw new HttpError(503, 'Falha ao carregar o contexto clinico do ciclo anterior.');
+      if (priorStrength) {
+        authorizedPreviousPlanId = priorStrength.id;
+        effectivePreviousPlan = priorStrength.plan;
+      }
+    }
     const effectiveProgramSequence = {
       ...(program_sequence && typeof program_sequence === "object" ? program_sequence : {}),
       sequence_number: cycleContext?.cycle_number ?? program_sequence?.sequence_number ?? block_number ?? 1,
@@ -1484,6 +1502,7 @@ serve(async (req) => {
     };
     const aiConfig = await loadCompanyAiConfig(supabase, authorizedCompanyId);
     const exerciseCatalog = await loadExerciseCatalog(supabase, authorizedCompanyId);
+    const productSettings = await getCompanyProductSettings(supabase as unknown as SettingsReadClient, authorizedCompanyId);
     const adaptedPrescription = buildPrescriptionInputFromEdgePayload({
       payload: {
         student_name,
@@ -1508,6 +1527,20 @@ serve(async (req) => {
       },
       catalog: exerciseCatalog.exercises as any,
     });
+    try {
+      if (productSettings.prescription.answer_mappings.length) {
+        const { data: snapshot, error: snapshotError } = await supabase.from('company_form_responses')
+          .select('answers').eq('company_id', authorizedCompanyId).eq('student_id', student_id)
+          .eq('source_kind', 'initial').order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (snapshotError) throw new Error('Não foi possível ler as respostas adicionais salvas.');
+        adaptedPrescription.input = projectAdditionalPrescriptionAnswers(adaptedPrescription.input, snapshot?.answers, productSettings.prescription);
+      }
+      // A completed intercycle update is newer than the initial questionnaire.
+      adaptedPrescription.input = projectIntercycleInputs(adaptedPrescription.input, intercycleContext);
+      adaptedPrescription.input.companyPolicy = productSettings.prescription;
+    } catch (error) {
+      throw new HttpError(409, error instanceof Error ? error.message : 'Atualizacao interciclos exige revisao profissional.');
+    }
     const effectiveFitnessLevel = adaptedPrescription.input.fitnessLevel;
     const effectiveExperienceMonths = adaptedPrescription.input.experienceMonths;
     const presetKey = selectMethodologyPreset(
@@ -1611,6 +1644,13 @@ INSTRUÇÕES:
       }
       const engineOutput = adaptTrainingProgramForAiStrengthPlan({ program });
       planJson = engineOutput.plan;
+      planJson.company_methodology_context = {
+        application: 'context_notes_only',
+        periodization_doctrine: aiConfig.periodization_doctrine,
+        strength_endurance_integration: aiConfig.strength_endurance_integration,
+        methodology_notes: productSettings.prescription.methodology_notes,
+        periodization_notes: productSettings.prescription.periodization_notes,
+      };
       planJson.enrichment = {
         status: AI_FIRST && ANTHROPIC_API_KEY ? "deterministic_primary_ai_text_available" : "deterministic_only",
         generator: "bn_prescription_engine_v1",
@@ -1618,6 +1658,8 @@ INSTRUÇÕES:
       };
       fallbackReason = "bn_prescription_engine_v1";
     } catch (engineError) {
+      // A fallback must not discard company policy, availability or clinical gates.
+      if (adaptedPrescription.input.companyPolicy) throw new HttpError(409, 'Geracao segura indisponivel. Revise a politica e os dados com o profissional.');
       fallbackReason = `engine_v1_error: ${engineError instanceof Error ? engineError.message : String(engineError)}`;
       console.warn("ai-prescribe-workout legacy fallback", fallbackReason);
       planJson = buildEmergencyFallbackPlan({

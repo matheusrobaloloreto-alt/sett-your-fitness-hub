@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
+import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
+import { HttpError } from "../_shared/tenant-auth.ts";
 import {
   isFreshScoredMetric,
   sanitizeWearablesForPrompt,
@@ -924,6 +926,8 @@ serve(async (req) => {
         generated_at: new Date().toISOString(),
       });
     }
+    // Clinical pain reporting and local safety responses above remain available.
+    await requireCompanyFeature(createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY), studentContext.student?.company_id || "", "hasPrescription");
     if (!ANTHROPIC_API_KEY) {
       return jsonResponse({
         result: localActionFallback(action, studentContext, body.page_context, identity.assistant_name),
@@ -1085,7 +1089,7 @@ ${OUTPUT_SCHEMA}
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
-    const status = /Aluno nao encontrado/.test(message) ? 403 : 500;
+    const status = error instanceof HttpError ? error.status : /Aluno nao encontrado/.test(message) ? 403 : 500;
     return jsonResponse({ error: message }, status);
   }
 });

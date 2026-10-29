@@ -107,9 +107,11 @@ describe("WhatsApp recipient safety contracts", () => {
     expect(webhookSource).not.toContain(
       'console.error("[flow] Send failed:", await res.text())',
     );
-    expect(webhookSource).toContain(
-      "sanitizeProviderErrorForLog(res.status, issue, rawBody)",
-    );
+    const sender = webhookSource.slice(webhookSource.indexOf('export async function sendText('), webhookSource.indexOf('async function maybeBnitoReply('));
+    expect(sender).toContain("export async function sendText");
+    expect(sender).toContain("throw new Error('dispatch_provider_uncertain')");
+    expect(sender).not.toMatch(/console\.(?:error|log)|res\.text\(/);
+    expect(sender).toContain("dispatchWebhookText");
   });
 
   it("validates a new conversation against the student's registered phone", () => {

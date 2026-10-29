@@ -79,6 +79,10 @@ function validCustomAnswer(value: unknown, field: RequiredAnamnesisField) {
       return hasText(answer, 200) && (!options.size || options.has(answer as string));
     case "number":
       return isFiniteNumber(answer, -1_000_000, 1_000_000);
+    case "boolean":
+      return typeof answer === "boolean";
+    case "consent":
+      return typeof answer === 'boolean' && (!field.is_required || answer === true);
     case "date":
       return validDate(answer);
     default:

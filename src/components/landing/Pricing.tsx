@@ -1,60 +1,11 @@
 import { Link } from "react-router-dom";
 import { Check } from "lucide-react";
-
-const tiers = [
-  {
-    name: "Básico",
-    price: "R$ 49,90",
-    period: "/ mês",
-    label: "Personal Solo",
-    description: "Para quem está construindo a operação. Biblioteca, prescrição e log essenciais.",
-    features: [
-      "Até 30 alunos ativos",
-      "Biblioteca de exercícios com vídeo",
-      "Prescrição por ciclo (42 dias)",
-      "Log de carga e repetição",
-      "Dashboard de evolução",
-    ],
-    cta: "Começar",
-    featured: false,
-  },
-  {
-    name: "Intermediário",
-    price: "R$ 400",
-    period: "/ mês",
-    label: "Consultoria em crescimento",
-    description: "Para times pequenos. Gestão de sub-treinadores e financeiro integrado.",
-    features: [
-      "Alunos ilimitados",
-      "Gestão de equipe (sub-treinadores)",
-      "Anamnese digital",
-      "Agenda integrada",
-      "Financeiro básico",
-      "Suporte prioritário",
-    ],
-    cta: "Falar com vendas",
-    featured: true,
-  },
-  {
-    name: "Avançado",
-    price: "R$ 799",
-    period: "/ mês",
-    label: "Escala & automação",
-    description: "Para consultorias em escala. Cobrança e CRM no automático.",
-    features: [
-      "Tudo do Intermediário",
-      "Integração Asaas (cobrança auto)",
-      "WhatsApp CRM completo",
-      "Notificações automáticas",
-      "Automações por gatilho",
-      "Onboarding dedicado",
-    ],
-    cta: "Falar com vendas",
-    featured: false,
-  },
-];
+import { usePlatformCatalog } from "@/hooks/usePlatformCatalog";
+import { FEATURE_LABELS } from "@/lib/platformSettingsClient";
 
 export function Pricing() {
+  const catalog = usePlatformCatalog();
+  const tiers = Object.entries(catalog.data?.tiers || {}).map(([key, tier]) => ({ name: tier.name, price: tier.monthly_price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), period: "/ mês", label: tier.name, description: tier.description, features: [tier.limits_enabled && tier.active_student_limit>0?`Até ${tier.active_student_limit} alunos ativos`:"Alunos ativos sem limite de tier",...Object.entries(tier.features).filter(([,enabled]) => enabled).map(([feature]) => FEATURE_LABELS[feature as keyof typeof FEATURE_LABELS])], cta: "Começar", featured: key === "intermediate" }));
   return (
     <section id="planos" className="border-b border-line bg-paper-warm">
       <div className="container py-20 md:py-28">
@@ -64,11 +15,12 @@ export function Pricing() {
             Três <em className="italic font-normal text-navy">planos</em>. Sem mais.
           </h2>
           <p className="text-lg text-muted-foreground leading-relaxed">
-            Você escolhe pelo tamanho da operação, não por feature que talvez use. Toda
-            funcionalidade técnica está em todos os planos.
+            Escolha os recursos adequados à sua operação.
           </p>
         </div>
 
+        {catalog.isLoading && <p role="status">Carregando catálogo...</p>}
+        {catalog.isError && <p role="alert">Catálogo indisponível. Tente novamente mais tarde.</p>}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-line border border-line">
           {tiers.map((tier) => (
             <div

@@ -1,5 +1,8 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {consumeValidatedAnamnesisInvite} from '../../supabase/functions/_shared/public-anamnesis-validation';
+import {assertPublishedAnswers} from '../../supabase/functions/_shared/published-forms';
+import {defaultFormDefinition,projectFormAnswers} from '../../supabase/functions/_shared/form-definitions';
 
 describe("atomic anamnesis invite submission", () => {
   const edge = readFileSync("supabase/functions/public-anamnesis/index.ts", "utf8");
@@ -45,10 +48,29 @@ describe("atomic anamnesis invite submission", () => {
 
   it("validates invite submissions before the atomic consume callback", () => {
     const validationOffset = edge.indexOf("consumeValidatedAnamnesisInvite(");
-    const consumeOffset = edge.indexOf("async () => await submitInviteAtomic(", validationOffset);
+    const versionedConsumeOffset = edge.indexOf("supabase.rpc('submit_versioned_initial_form'", validationOffset);
+    const consumeOffset = edge.indexOf("submitInviteAtomic(token, studentPatch, studioPayload, buildInviteEffects(body))", validationOffset);
     expect(validationOffset).toBeGreaterThan(0);
+    expect(versionedConsumeOffset).toBeGreaterThan(validationOffset);
     expect(consumeOffset).toBeGreaterThan(validationOffset);
+    const publishedValidationOffset=edge.indexOf('assertPublishedAnswers(formDefinition,body.form_definition_id,body.versioned_answers)');
+    const projectionOffset=edge.indexOf('Object.assign(body,projectFormAnswers(formDefinition.definition,body.versioned_answers))');
+    expect(publishedValidationOffset).toBeGreaterThan(0);
+    expect(projectionOffset).toBeGreaterThan(publishedValidationOffset);
+    expect(validationOffset).toBeGreaterThan(projectionOffset);
     expect(edge).toContain("getCustomFields(student.company_id)");
+  });
+
+  it('does not reach either atomic consumer for invalid legacy or versioned clinical answers',async()=>{
+    const consume=vi.fn();
+    await expect(consumeValidatedAnamnesisInvite({objective:'Sintetico',custom_answers:{}},[],consume)).rejects.toThrow();
+    const definition=defaultFormDefinition('initial');
+    const form={id:'synthetic-version-1',version:1,definition};
+    expect(()=>assertPublishedAnswers(form,'synthetic-version-2',{})).toThrow();
+    expect(()=>assertPublishedAnswers(form,form.id,{objective:'Sintetico'})).toThrow();
+    const canonical=projectFormAnswers(definition,{objective:'Sintetico',clin_chest_pain:'invalid'});
+    await expect(consumeValidatedAnamnesisInvite(canonical,[],consume)).rejects.toThrow();
+    expect(consume).not.toHaveBeenCalled();
   });
 
   it("persists pain and race effects before consuming the invite", () => {

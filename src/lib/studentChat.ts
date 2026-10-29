@@ -7,6 +7,14 @@ import type { NavigateFunction } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { paymentUrl } from "@/lib/publicFlowLinks";
 import { requestWhatsAppChatPanel } from "@/lib/whatsappChatPanel";
+import { fetchCompanyProductSettings } from "@/lib/companyProductSettings";
+import type { MessageEvent } from '../../supabase/functions/_shared/company-product-settings';
+import { eventMessage, messageValues } from '../../supabase/functions/_shared/communication-policy';
+
+export async function draftCompanyEventMessage(companyId: string, event: MessageEvent, values: Record<string, string>, fallback: string): Promise<string> {
+  const { settings, version } = await fetchCompanyProductSettings(companyId);
+  return version > 0 ? eventMessage(settings.messages, event, messageValues({ profissional: settings.brand.professional_name, email: settings.brand.support_email, ...values }, settings.brand.company_name), fallback) : fallback;
+}
 
 // Mapa student_id -> chat_id (whatsapp_chats), escopo por empresa quando informado.
 export async function buildStudentChatMap(companyId?: string | null): Promise<Record<string, string>> {
@@ -46,9 +54,17 @@ export async function openStudentChat(opts: {
   countryCode?: string | null;
   contactName?: string | null;
   message: string;
+  companyId?: string;
+  messageEvent?: MessageEvent;
+  messageValues?: Record<string, string>;
   onNoChat?: (message: string) => void;
 }): Promise<void> {
-  const { navigate, routePrefix, studentId, message, onNoChat } = opts;
+  const { navigate, routePrefix, studentId, onNoChat } = opts;
+  let message = opts.message;
+  if (opts.messageEvent) {
+    if (!opts.companyId) throw new Error('company_id_required_for_message_template');
+    message = await draftCompanyEventMessage(opts.companyId, opts.messageEvent, opts.messageValues || {}, message);
+  }
   let resolvedChatId = opts.chatId ?? null;
   let resolvedPhone = opts.phone ?? null;
   let resolvedCountryCode = opts.countryCode ?? null;

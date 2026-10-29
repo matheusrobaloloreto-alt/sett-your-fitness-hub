@@ -24,6 +24,7 @@ import { StudentGoalsManager } from "@/components/admin/StudentGoalsManager";
 import { StudentTimeline } from "@/components/admin/StudentTimeline";
 import { StudentFilesPanel } from "@/components/admin/StudentFilesPanel";
 import { WeeklyContactToggle } from "@/components/admin/WeeklyContactToggle";
+import { StudentWorkoutFeedbackCard } from "@/components/admin/StudentWorkoutFeedbackCard";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { IntercycleAnamnesisControls, IntercycleAnamnesisTimeline } from "@/components/admin/IntercycleAnamnesisControls";
 import { useToast } from "@/hooks/use-toast";
@@ -2326,6 +2327,7 @@ export default function StudentDetail() {
           {/* ===== ANÁLISES ===== */}
           <TabsContent value="analytics" className="space-y-4">
             {renderWorkoutCycles()}
+            <StudentWorkoutFeedbackCard studentId={student.id} />
             <Suspense fallback={<TabFallback />}>
               <TrainerWeeklyBar studentId={id!} />
               <WorkoutAnalysis studentId={id!} />

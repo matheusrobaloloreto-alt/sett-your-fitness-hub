@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
+import { deniedCompanyFeatures, fetchCompanyEntitlements, unrestrictedMasterFeatures } from "@/lib/companyFeatureEntitlements";
 
 export type CompanyTier = "basic" | "intermediate" | "advanced";
 
@@ -26,58 +26,22 @@ export interface CompanyFeatures {
   hasAutomation: boolean;
 }
 
-const TIER_FEATURES: Record<CompanyTier, Omit<CompanyFeatures, "tier" | "loading">> = {
-  basic: {
-    hasPrescription: true,
-    hasDashboard: true,
-    hasRegistration: true,
-    hasAnamnesis: true,
-    hasStudents: true,
-    hasAgenda: true,
-    hasTeam: false,
-    hasPlans: true,
-    hasAppearance: false,
-    hasFinancial: false,
-    hasWhatsApp: false,
-    hasAutomation: false,
-  },
-  intermediate: {
-    hasPrescription: true,
-    hasDashboard: true,
-    hasRegistration: true,
-    hasAnamnesis: true,
-    hasStudents: true,
-    hasAgenda: true,
-    hasTeam: true,
-    hasPlans: true,
-    hasAppearance: true,
-    hasFinancial: true,
-    hasWhatsApp: false,
-    hasAutomation: false,
-  },
-  advanced: {
-    hasPrescription: true,
-    hasDashboard: true,
-    hasRegistration: true,
-    hasAnamnesis: true,
-    hasStudents: true,
-    hasAgenda: true,
-    hasTeam: true,
-    hasPlans: true,
-    hasAppearance: true,
-    hasFinancial: true,
-    hasWhatsApp: true,
-    hasAutomation: true,
-  },
-};
-
 export function useCompanyFeatures(): CompanyFeatures {
-  const { user, role } = useAuth();
+  const { user, role, companyId } = useAuth();
   const { viewingCompany, contextLoading } = useMaster();
   const [tier, setTier] = useState<CompanyTier>("basic");
   const [loading, setLoading] = useState(true);
+  const [features, setFeatures] = useState(deniedCompanyFeatures);
+  const target = role === "master" ? viewingCompany?.id : companyId;
+  const scope = `${user?.id ?? "none"}:${role}:${target ?? "none"}`;
+  const [loadedScope, setLoadedScope] = useState("");
 
   useEffect(() => {
+    let current = true;
+    let requestVersion = 0;
+    setTier("basic");
+    setLoading(true);
+    setFeatures(deniedCompanyFeatures);
     if (!user) {
       setLoading(false);
       return;
@@ -85,33 +49,46 @@ export function useCompanyFeatures(): CompanyFeatures {
 
     if (role === "master") {
       if (contextLoading) return;
-      const companyTier = viewingCompany?.tier as CompanyTier | undefined;
-      setTier(companyTier && companyTier in TIER_FEATURES ? companyTier : "advanced");
-      setLoading(false);
-      return;
+      if (!target) {
+        setTier("advanced");
+        setFeatures(unrestrictedMasterFeatures);
+        setLoadedScope(scope);
+        setLoading(false);
+        return;
+      }
     }
 
     const fetchTier = async () => {
-      const { data } = await supabase
-        .from("company_members")
-        .select("company_id, companies(tier)")
-        .eq("user_id", user.id)
-        .limit(1)
-        .maybeSingle();
-
-      if (data?.companies) {
-        const companyTier = (data.companies as any).tier as CompanyTier;
-        setTier(companyTier || "basic");
+      const request = ++requestVersion;
+      setLoading(true);
+      try {
+        const result = target ? await fetchCompanyEntitlements(target) : null;
+        if (!current || request !== requestVersion) return;
+        setTier(result?.tier ?? "basic");
+        setFeatures(result?.features ?? deniedCompanyFeatures);
+      } catch {
+        if (!current || request !== requestVersion) return;
+        setFeatures(deniedCompanyFeatures);
       }
+      if (!current || request !== requestVersion) return;
+      setLoadedScope(scope);
       setLoading(false);
     };
 
-    fetchTier();
-  }, [contextLoading, role, user, viewingCompany]);
+    void fetchTier();
+    const refresh = () => { void fetchTier(); };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("company-feature-policy-changed", refresh);
+    return () => {
+      current = false;
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("company-feature-policy-changed", refresh);
+    };
+  }, [contextLoading, role, user, target, scope]);
 
   return {
-    tier,
-    loading,
-    ...TIER_FEATURES[tier],
+    tier: loadedScope === scope ? tier : "basic",
+    loading: !!user && (loading || loadedScope !== scope),
+    ...(user && loadedScope === scope && !(role === "master" && contextLoading) ? features : deniedCompanyFeatures),
   };
 }

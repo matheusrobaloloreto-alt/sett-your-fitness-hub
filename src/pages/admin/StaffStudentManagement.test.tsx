@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => mocks.auth }));
 vi.mock("@/contexts/MasterContext", () => ({ useMaster: () => mocks.master }));
+vi.mock("@/hooks/useCompanyExperiencePolicy", async () => {
+  const { DEFAULT_COMPANY_PRODUCT_SETTINGS } = await import('../../../supabase/functions/_shared/company-product-settings');
+  return { useCompanyExperiencePolicy: () => ({ policy: DEFAULT_COMPANY_PRODUCT_SETTINGS.experience, error: null, isPending: false }) };
+});
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock("react-router-dom", () => ({
   useNavigate: () => mocks.navigate,

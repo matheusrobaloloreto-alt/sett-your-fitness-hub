@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import VideoAssessment from "@/components/VideoAssessment";
 import { generateAllPDFs, generateAssessmentPDF } from "@/lib/generatePDFs";
+import { loadCompanyPDFMeta } from '@/lib/prescription/pdfMeta';
+import { CompanyMethodologyContext } from '@/lib/prescription/companyMethodologyContext';
 import { sendPdfToStudentWhatsApp } from "@/lib/sendStudentMedia";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Tabs, TabsContent, TabsList, TabsTrigger } from "@/lib/studioUi";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
@@ -1024,7 +1026,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
       if (!scheduledForFuture) {
         // #5 Push — avisa o aluno no celular somente quando o bloco já está vigente.
         supabase.functions.invoke("push-send", {
-          body: { action: "notify", student_ids: [studentId], title: "Prescrição nova no app", body: "Seu novo ciclo de treino já está disponível.", url: "/aluno" },
+          body: { action: "notify", event: 'new_workout', student_ids: [studentId], title: "Prescrição nova no app", body: "Seu novo ciclo de treino já está disponível.", url: "/aluno" },
         }).catch(() => {});
       }
       // P14 — trilha de decisão desta publicação (best-effort; não bloqueia).
@@ -1325,13 +1327,11 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   };
 
   // ── Avaliação funcional: baixar PDF / enviar no WhatsApp ──────────────────
-  function assessmentMeta() {
-    return {
+  async function assessmentMeta() {
+    return loadCompanyPDFMeta(companyId!, {
       studentName: student?.name || "Aluno",
       date: new Date(assessment?.created_at || Date.now()).toLocaleDateString("pt-BR"),
-      professional: "Matheus Loreto",
-      cref: "040718-G/SC",
-    };
+    });
   }
   function assessmentFileName() {
     return `avaliacao-funcional-${(student?.name || "aluno").replace(/\s+/g, "-").toLowerCase()}.pdf`;
@@ -1377,7 +1377,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
     setSendingAssess(true);
     try {
       const imgs = await loadFrameImages();
-      generateAssessmentPDF(assessment, assessmentMeta(), imgs).save(assessmentFileName());
+      generateAssessmentPDF(assessment, await assessmentMeta(), imgs).save(assessmentFileName());
     } catch (e: any) {
       toast.error("Não consegui gerar o PDF: " + (e?.message || "erro"));
     }
@@ -1388,7 +1388,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
     setSendingAssess(true);
     try {
       const imgs = await loadFrameImages();
-      const blob = generateAssessmentPDF(assessment, assessmentMeta(), imgs).output("blob");
+      const blob = generateAssessmentPDF(assessment, await assessmentMeta(), imgs).output("blob");
       await sendPdfToStudentWhatsApp({
         companyId, studentId, blob, fileName: assessmentFileName(),
         caption: `${(student?.name || "").split(" ")[0] || "Olá"}, segue sua avaliação funcional 💪`,
@@ -1401,15 +1401,19 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   }
 
   // ── Gera os PDFs separados ──────────────────────────────────────────────
-  function downloadPDFs() {
-    const meta = {
+  async function downloadPDFs() {
+    try {
+    const meta = await loadCompanyPDFMeta(companyId!, {
       studentName: student?.name || "Aluno",
       date: new Date().toLocaleDateString("pt-BR"),
-    };
+    });
     const generated = generateAllPDFs(results, meta);
     setPdfs(generated);
     // Baixa todos
     generated.forEach(g => g.doc.save(g.filename));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Nao foi possivel carregar a identidade da empresa.');
+    }
   }
 
   const statusIcon = (s: GenStatus) => {
@@ -1977,6 +1981,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  <CompanyMethodologyContext plan={results.musculacao} />
                   {Object.keys(results).map(mod => {
                     const meta = MODALITIES.find(x => x.id === mod);
                     return (

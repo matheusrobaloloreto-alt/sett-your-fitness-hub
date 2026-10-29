@@ -9,6 +9,33 @@ const directJid = (area: string, digit: string) => `${directDigits(area, digit)}
 const formattedMobile = (area: string, digit: string) => `+55 (${area}) 9${digit.repeat(4)}-${digit.repeat(4)}`;
 const verifiedJid = directJid("48", "7");
 
+function withCompanySettings<T extends { from: (table: string) => unknown; rpc: (...args: any[]) => unknown }>(admin: T) {
+  return { ...admin, rpc(name: string, ...args: any[]) {
+    if (name === 'service_company_feature_allowed') return Promise.resolve({ data: true, error: null });
+    return admin.rpc(name, ...args);
+  }, from(table: string) {
+    if (table === 'company_product_settings') return resultQuery({ data: null, error: null });
+    if (table === 'automation_flows') return resultQuery({ data: { id: 'flow-a' }, error: null });
+    return admin.from(table);
+  } };
+}
+
+function fencedResult() {
+  const q = { eq: () => q, gt: () => q, select: () => q,
+    maybeSingle: () => Promise.resolve({ data: { id: 'synthetic-owner' }, error: null }) };
+  return q;
+}
+
+function withRecoveryCheckpoints(admin: any) {
+  return { ...admin, rpc(name: string,args: Record<string,any>) {
+    if (name==='checkpoint_automation_dispatch') {
+      const table=args._kind==='flow'?'flow_sessions':'intercycle_anamnesis_deliveries';
+      return admin.from(table).update(args._patch).eq('id',args._owner_id).select('id').maybeSingle();
+    }
+    return admin.rpc(name,args);
+  } };
+}
+
 function resultQuery(result: { data: unknown; error: unknown }) {
   const query = {
     select: () => query,
@@ -73,7 +100,7 @@ Deno.test("weekly automation blocks a phone-mismatched chat before provider fetc
     let blocked = false;
     try {
       await processSession(
-        admin,
+        withCompanySettings(admin),
         {
           id: "session-a",
           flow_id: "flow-a",
@@ -113,6 +140,8 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
   const queries: Array<{ table: string; filters: Record<string, unknown> }> = [];
   const admin = {
     rpc: (name: string) => {
+      if (name === "begin_automation_dispatch") return Promise.resolve({ data: "in_flight", error: null });
+      if (name === "authorize_automation_dispatch") return Promise.resolve({ data: null, error: null });
       if (name === "weekly_contact_consent_is_current") return Promise.resolve({ data: true, error: null });
       return Promise.resolve({ data: null, error: new Error(`unexpected rpc ${name}`) });
     },
@@ -197,9 +226,10 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
     let message = "";
     try {
       await processSession(
-        admin,
+        withCompanySettings(admin),
         {
           id: "session-a",
+          dispatch_lease_token: "synthetic-lease",
           flow_id: "flow-a",
           chat_id: "chat-safe",
           current_node_id: "content-a",
@@ -215,7 +245,7 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
-    if (!message.includes("provider_status_502:whatsapp_provider_failure")) {
+    if (message !== "dispatch_uncertain") {
       throw new Error(`missing sanitized provider status: ${message}`);
     }
     for (const leaked of [verifiedJid.slice(4, 9), "@s.whatsapp.net", "raw-token", "secret"]) {
@@ -317,7 +347,7 @@ Deno.test("weekly automation blocks a revocation that lands after claim but befo
     let code = "";
     try {
       await processSession(
-        admin,
+        withCompanySettings(admin),
         {
           id: "session-a",
           flow_id: "flow-a",
@@ -450,7 +480,7 @@ Deno.test("weekly automation re-resolves and blocks a recipient change immediate
     let code = "";
     try {
       await processSession(
-        admin,
+        withCompanySettings(admin),
         {
           id: "session-a",
           flow_id: "flow-a",
@@ -492,6 +522,7 @@ function permanentWeeklyHandlerAdmin(
   const changedJid = directJid("48", "8");
   const session = {
     id: `session-${expectedCode}`,
+    dispatch_lease_token: "synthetic-lease",
     flow_id: "flow-a",
     chat_id: "chat-a",
     current_node_id: "content-a",
@@ -522,7 +553,7 @@ function permanentWeeklyHandlerAdmin(
         return {
           update(payload: Record<string, unknown>) {
             updates.push(payload);
-            return { eq: () => Promise.resolve({ error: null }) };
+            return fencedResult();
           },
         };
       }
@@ -608,7 +639,7 @@ Deno.test("handler terminalizes every permanent weekly recipient error without p
           method: "POST",
           headers: { "x-cron-secret": "synthetic-cron-secret" },
         }),
-        { admin: permanentWeeklyHandlerAdmin(code, updates) },
+        { admin: withRecoveryCheckpoints(permanentWeeklyHandlerAdmin(code, updates)) },
       );
       const body = await response.json();
       if (response.status !== 200 || body.failed !== 1) {
@@ -641,6 +672,7 @@ Deno.test("handler retries a transient weekly consent RPC failure without provid
   const queuedJid = directJid("48", "7");
   const session = {
     id: "session-transient-consent-rpc",
+    dispatch_lease_token: "synthetic-lease",
     flow_id: "flow-a",
     chat_id: "chat-a",
     current_node_id: "content-a",
@@ -667,7 +699,7 @@ Deno.test("handler retries a transient weekly consent RPC failure without provid
         return {
           update(payload: Record<string, unknown>) {
             updates.push(payload);
-            return { eq: () => Promise.resolve({ error: null }) };
+            return fencedResult();
           },
         };
       }
@@ -723,7 +755,7 @@ Deno.test("handler retries a transient weekly consent RPC failure without provid
         method: "POST",
         headers: { "x-cron-secret": "synthetic-cron-secret" },
       }),
-      { admin },
+      { admin: withRecoveryCheckpoints(admin) },
     );
     const body = await response.json();
     if (response.status !== 200 || body.failed !== 1) throw new Error("handler did not report the transient failure");
@@ -757,6 +789,7 @@ Deno.test("intercycle dispatcher audits provider-off deliveries without exposing
         return Promise.resolve({
           data: [{
             id: "delivery-a",
+            dispatch_lease_token: "synthetic-lease",
             company_id: "company-a",
             student_id: "student-a",
             enrollment_id: "enrollment-a",
@@ -773,7 +806,7 @@ Deno.test("intercycle dispatcher audits provider-off deliveries without exposing
       const query = {
         update: (payload: Record<string, unknown>) => {
           updates.push(payload);
-          return { eq: () => ({ eq: () => Promise.resolve({ error: null }) }) };
+          return fencedResult();
         },
       };
       return query;
@@ -785,7 +818,7 @@ Deno.test("intercycle dispatcher audits provider-off deliveries without exposing
   }) as typeof fetch;
 
   try {
-    const result = await processIntercycleAnamnesisDeliveries({ admin });
+    const result = await processIntercycleAnamnesisDeliveries({ admin: withRecoveryCheckpoints(admin) });
     if (result.failed !== 1 || result.sent !== 0) throw new Error(`unexpected result ${JSON.stringify(result)}`);
     if (updates[0]?.last_error_code !== "intercycle_provider_not_configured") throw new Error("missing provider-off audit code");
     const serialized = JSON.stringify(updates);
@@ -807,6 +840,7 @@ Deno.test("intercycle dispatcher cancels a rescoped cycle before token creation 
         return Promise.resolve({
           data: [{
             id: "delivery-a",
+            dispatch_lease_token: "synthetic-lease",
             company_id: "company-a",
             student_id: "student-a",
             enrollment_id: "enrollment-a",
@@ -827,7 +861,7 @@ Deno.test("intercycle dispatcher cancels a rescoped cycle before token creation 
         limit: () => query,
         update: (payload: Record<string, unknown>) => {
           updates.push(payload);
-          return { eq: () => ({ eq: () => Promise.resolve({ error: null }) }) };
+          return fencedResult();
         },
         maybeSingle: async () => {
           if (table === "students") {
@@ -869,7 +903,7 @@ Deno.test("intercycle dispatcher cancels a rescoped cycle before token creation 
 
   try {
     const result = await processIntercycleAnamnesisDeliveries({
-      admin,
+      admin: withRecoveryCheckpoints(admin),
       provider: { url: "https://provider.invalid", key: "redacted" },
     });
     if (result.failed !== 1 || result.sent !== 0) throw new Error(`unexpected result ${JSON.stringify(result)}`);
@@ -894,6 +928,7 @@ Deno.test("intercycle dispatcher cancels completed renewal-history enrollment be
         return Promise.resolve({
           data: [{
             id: "delivery-a",
+            dispatch_lease_token: "synthetic-lease",
             company_id: "company-a",
             student_id: "student-a",
             enrollment_id: "enrollment-old",
@@ -914,7 +949,7 @@ Deno.test("intercycle dispatcher cancels completed renewal-history enrollment be
         limit: () => query,
         update: (payload: Record<string, unknown>) => {
           updates.push(payload);
-          return { eq: () => ({ eq: () => Promise.resolve({ error: null }) }) };
+          return fencedResult();
         },
         maybeSingle: async () => {
           if (table === "students") {
@@ -959,7 +994,7 @@ Deno.test("intercycle dispatcher cancels completed renewal-history enrollment be
 
   try {
     const result = await processIntercycleAnamnesisDeliveries({
-      admin,
+      admin: withRecoveryCheckpoints(admin),
       provider: { url: "https://provider.invalid", key: "redacted" },
     });
     if (result.failed !== 1 || result.sent !== 0) throw new Error(`unexpected result ${JSON.stringify(result)}`);
@@ -984,6 +1019,7 @@ Deno.test("intercycle dispatcher retries enrollment lookup errors instead of can
         return Promise.resolve({
           data: [{
             id: "delivery-a",
+            dispatch_lease_token: "synthetic-lease",
             company_id: "company-a",
             student_id: "student-a",
             enrollment_id: "enrollment-a",
@@ -1004,7 +1040,7 @@ Deno.test("intercycle dispatcher retries enrollment lookup errors instead of can
         limit: () => query,
         update: (payload: Record<string, unknown>) => {
           updates.push(payload);
-          return { eq: () => ({ eq: () => Promise.resolve({ error: null }) }) };
+          return fencedResult();
         },
         maybeSingle: async () => {
           if (table === "students") {
@@ -1049,7 +1085,7 @@ Deno.test("intercycle dispatcher retries enrollment lookup errors instead of can
 
   try {
     const result = await processIntercycleAnamnesisDeliveries({
-      admin,
+      admin: withRecoveryCheckpoints(admin),
       provider: { url: "https://provider.invalid", key: "redacted" },
     });
     if (result.failed !== 1 || result.sent !== 0) throw new Error(`unexpected result ${JSON.stringify(result)}`);

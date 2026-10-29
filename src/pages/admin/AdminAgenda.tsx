@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { AgendaAvailabilityLayer } from "@/components/admin/operations/AgendaAvailabilityLayer";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
@@ -6,7 +7,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, CalendarDays, RefreshCw, ClipboardList, CheckCircle, ChevronLeft, ChevronRight, Flag } from "lucide-react";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, isBefore } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, isBefore, addDays, parseISO } from "date-fns";
+import { useCompanyExperiencePolicy } from '@/hooks/useCompanyExperiencePolicy';
 import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
@@ -17,7 +19,7 @@ import { agendaEventBelongsToTrainer, uniqueAgendaTrainerIds } from "@/lib/agend
 interface AgendaEvent {
   id: string;
   date: string;
-  type: "contract_renewal" | "prescription_pending" | "prescription_done" | "goal";
+  type: "contract_renewal" | "contract_notice" | "prescription_pending" | "prescription_done" | "goal";
   label: string;
   studentName: string;
   studentId?: string;
@@ -28,6 +30,7 @@ interface AgendaEvent {
 }
 
 const typeConfig = {
+  contract_notice: { icon: RefreshCw, label: "Aviso de renovação", color: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
   goal: { icon: Flag, label: "Prova/Meta", color: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
   contract_renewal: { icon: RefreshCw, label: "Renovação", color: "bg-red-500/15 text-red-600 border-red-500/30" },
   prescription_pending: { icon: ClipboardList, label: "Prescrever", color: "bg-yellow-500/15 text-yellow-600 border-yellow-500/30" },
@@ -35,6 +38,7 @@ const typeConfig = {
 };
 
 const dotColors: Record<string, string> = {
+  contract_notice: "bg-amber-500",
   goal: "bg-amber-500",
   contract_renewal: "bg-red-500",
   prescription_pending: "bg-yellow-500",
@@ -47,6 +51,8 @@ export default function AdminAgenda() {
   const { viewingCompany, isViewingCompany } = useMaster();
   const { toast } = useToast();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
+  const { policy, error: policyError, isPending: policyPending } = useCompanyExperiencePolicy(effectiveCompanyId);
+  const loadGeneration = useRef(0);
   const rolePrefix = role === "coordinator" ? "/coordinator" : role === "trainer" ? "/trainer" : "/admin";
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [events, setEvents] = useState<AgendaEvent[]>([]);
@@ -57,6 +63,9 @@ export default function AdminAgenda() {
   const [agendaScope, setAgendaScope] = useState<"all" | "mine">("all");
 
   const loadEvents = useCallback(async () => {
+    const generation = ++loadGeneration.current;
+    if (!effectiveCompanyId || policyPending) { setEvents([]); setLoading(Boolean(effectiveCompanyId)); return; }
+    if (policyError) { setEvents([]); setLoading(false); setLoadError('Nao foi possivel carregar a politica de renovacao.'); return; }
     setLoading(true);
     setLoadError(null);
     const monthStart = format(startOfMonth(currentMonth), "yyyy-MM-dd");
@@ -70,13 +79,13 @@ export default function AdminAgenda() {
       .select("id, end_date, status, student_id, trainer_id, students(full_name, assigned_trainer_id), plans(name)")
       .eq("status", "active")
       .gte("end_date", monthStart)
-      .lte("end_date", monthEnd);
+      .lte("end_date", format(addDays(endOfMonth(currentMonth), policy.renewal_notice_days), 'yyyy-MM-dd'));
     if (effectiveCompanyId) enrollQuery = enrollQuery.eq("company_id", effectiveCompanyId);
     const { data: enrollments, error: enrollmentsError } = await enrollQuery;
     if (enrollmentsError) failedSources.push("renovações");
 
     (enrollments || []).forEach((e: any) => {
-      collected.push({
+      const renewal: AgendaEvent = {
         id: `enr-${e.id}`,
         date: e.end_date,
         type: "contract_renewal",
@@ -84,7 +93,12 @@ export default function AdminAgenda() {
         studentName: e.students?.full_name || "—",
         studentId: e.student_id,
         trainerIds: uniqueAgendaTrainerIds(e.trainer_id, e.students?.assigned_trainer_id),
-      });
+      };
+      if (e.end_date <= monthEnd) collected.push(renewal);
+      const noticeDate = format(addDays(parseISO(e.end_date), -policy.renewal_notice_days), 'yyyy-MM-dd');
+      if (noticeDate >= monthStart && noticeDate <= monthEnd) {
+        collected.push({ ...renewal, id: `notice-${e.id}`, type: 'contract_notice', date: noticeDate, meta: `Vence em ${policy.renewal_notice_days} dias` });
+      }
     });
 
     // Training cycles — filter by start_date in month, include completed status
@@ -182,6 +196,7 @@ export default function AdminAgenda() {
       });
     }
 
+    if (generation !== loadGeneration.current) return;
     setEvents(collected.map((event) => ({
       ...event,
       trainerIds: uniqueAgendaTrainerIds(
@@ -193,7 +208,7 @@ export default function AdminAgenda() {
       setLoadError(`Não foi possível carregar: ${[...new Set(failedSources)].join(", ")}.`);
     }
     setLoading(false);
-  }, [currentMonth, effectiveCompanyId]);
+  }, [currentMonth, effectiveCompanyId, policy.renewal_notice_days, policyError, policyPending]);
 
   useEffect(() => { void loadEvents(); }, [loadEvents]);
 
@@ -205,7 +220,7 @@ export default function AdminAgenda() {
   const getEventsForDay = (day: Date) => visibleEvents.filter((e) => isSameDay(new Date(e.date + "T12:00:00"), day));
   const selectedEvents = selectedDate ? getEventsForDay(selectedDate) : [];
   // Sort: renewals first, then overdue, pending, done
-  const typePriority: Record<string, number> = { goal: 0, contract_renewal: 1, prescription_pending: 2, prescription_done: 3 };
+  const typePriority: Record<string, number> = { goal: 0, contract_renewal: 1, contract_notice: 1, prescription_pending: 2, prescription_done: 3 };
   const sortedEvents = [...visibleEvents].sort((a, b) => {
     const pa = typePriority[a.type] ?? 9;
     const pb = typePriority[b.type] ?? 9;
@@ -269,6 +284,8 @@ export default function AdminAgenda() {
             </div>
           )}
         </div>
+
+        {effectiveCompanyId && <AgendaAvailabilityLayer companyId={effectiveCompanyId} month={format(currentMonth, "yyyy-MM")} selectedDate={selectedDate ? format(selectedDate, "yyyy-MM-dd") : null}/>}
 
         {/* Legend */}
         <div className="flex flex-wrap gap-2 sm:gap-3">

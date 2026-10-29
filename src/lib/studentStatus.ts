@@ -2,6 +2,8 @@
 // do mesmo jeito (evita cada tela interpretar diferente).
 // Fluxo: lead -> anamnese pendente -> avaliação pendente -> aguardando prescrição -> ativo -> risco -> renovação.
 
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS, type CompanyProductSettings } from '../../supabase/functions/_shared/company-product-settings';
+type RiskPolicy = Pick<CompanyProductSettings['experience'], 'risk_no_workout_days' | 'renewal_notice_days'>;
 export type StudentStatus =
   | "lead"
   | "anamnese_pendente"
@@ -48,7 +50,7 @@ export interface StudentSignals {
  * Deriva o status canônico a partir dos sinais. Ordem de prioridade pensada para o
  * painel do professor: bloqueios de cadastro primeiro, depois risco/renovação, depois ativo.
  */
-export function deriveStudentStatus(s: StudentSignals): StudentStatus {
+export function deriveStudentStatus(s: StudentSignals, policy: RiskPolicy = DEFAULT_COMPANY_PRODUCT_SETTINGS.experience): StudentStatus {
   if (s.baseStatus === "inactive") return "inativo";
   if (s.baseStatus === "interested") return "lead";
 
@@ -61,18 +63,19 @@ export function deriveStudentStatus(s: StudentSignals): StudentStatus {
   if (typeof s.cycleEndsInDays === "number" && s.cycleEndsInDays <= 0) return "renovacao";
 
   if (s.paymentOverdue) return "risco";
-  if (typeof s.daysSinceLastTraining === "number" && s.daysSinceLastTraining >= 10) return "risco";
+  if (typeof s.daysSinceLastTraining === "number" && s.daysSinceLastTraining >= policy.risk_no_workout_days) return "risco";
+  if (typeof s.cycleEndsInDays === "number" && s.cycleEndsInDays <= policy.renewal_notice_days) return "renovacao";
 
   return "ativo";
 }
 
 /** Lista os motivos que levaram ao status de risco/renovação (para o dashboard de evasão). */
-export function riskReasons(s: StudentSignals): string[] {
+export function riskReasons(s: StudentSignals, policy: RiskPolicy = DEFAULT_COMPANY_PRODUCT_SETTINGS.experience): string[] {
   const reasons: string[] = [];
   if (s.paymentOverdue) reasons.push("Pagamento em atraso");
-  if (typeof s.daysSinceLastTraining === "number" && s.daysSinceLastTraining >= 10)
+  if (typeof s.daysSinceLastTraining === "number" && s.daysSinceLastTraining >= policy.risk_no_workout_days)
     reasons.push(`Sem treinar há ${s.daysSinceLastTraining} dias`);
-  if (typeof s.cycleEndsInDays === "number" && s.cycleEndsInDays <= 7)
+  if (typeof s.cycleEndsInDays === "number" && s.cycleEndsInDays <= policy.renewal_notice_days)
     reasons.push(s.cycleEndsInDays <= 0 ? "Ciclo vencido" : `Ciclo vence em ${s.cycleEndsInDays} dias`);
   if (!s.hasActiveWorkout) reasons.push("Sem treino ativo");
   return reasons;
