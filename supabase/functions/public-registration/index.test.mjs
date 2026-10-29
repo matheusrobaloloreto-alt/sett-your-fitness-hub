@@ -13,7 +13,7 @@ const baseInput = { country_code:'BR', email:'fixture@example.invalid', phone:'1
 
 function fixture(options={}) {
   const effects = { updates:[], linkCompleted:0, paymentReads:0, sends:[], auditUses:0 };
-  const student = { id:ids.student, company_id:ids.company, full_name:'Synthetic student', status:'active', phone:'11988880000', whatsapp:'11988880000', country_code:'BR', updated_at:'2026-10-29T10:00:00.000Z', ...options.student };
+  const student = { id:ids.student, company_id:ids.company, full_name:'Synthetic student', status:'active', phone:'11999990000', whatsapp:'11999990000', country_code:'BR', updated_at:'2026-10-29T10:00:00.000Z', ...options.student };
   const link = { id:ids.link, student_id:ids.student, company_id:ids.company, expires_at:'2999-01-01T00:00:00Z', completed_at:null, revoked_at:null };
   let handler;
   const db = { from(table) {
@@ -22,13 +22,14 @@ function fixture(options={}) {
     const result = () => {
       if (table==='public_registration_links') {
         if(operation==='read') return {data:{...link},error:null};
-        if(payload.last_used_at) { effects.auditUses++; return {data:null,error:null}; }
+        if(payload.last_used_at && !payload.completed_at) { effects.auditUses++; return {data:null,error:null}; }
         if(options.linkReject) throw new TypeError('synthetic link offline');
         const currentLink={...link,...options.linkConcurrent};
         if(!filters.every(([op,key,value])=>op==='is'?currentLink[key]==null:op==='gt'?Date.parse(currentLink[key])>Date.parse(value):currentLink[key]===value)) return {data:null,error:null};
         if(options.linkError) return {data:null,error:{code:'42501',message:'synthetic denied'}};
         if(options.linkEmpty) return {data:null,error:null};
         effects.linkCompleted++;
+        if(payload.last_used_at) effects.auditUses++;
         return {data:selected?{...link,...payload}:null,error:null};
       }
       if(table==='students') {
@@ -119,7 +120,7 @@ for(const [input,expected] of [
   [{phone:'02111999990000',whatsapp:'11999990000'},'5511999990000'],
 ]) {
   test('single/equivalent direct input persists one contact and preserves country: '+JSON.stringify(input),async()=>{
-    const f=fixture();const r=await f.complete(input);assert.equal(r.status,200);
+    const f=fixture({student:{phone:null,whatsapp:null}});const r=await f.complete(input);assert.equal(r.status,200);
     const payload=f.effects.updates[0].payload;
     assert.equal(payload.phone,expected);assert.equal(payload.whatsapp,expected);
     assert.equal(payload.country_code,input.country_code||'BR');
@@ -153,4 +154,42 @@ test('cross-company concurrent reassignment cannot be overwritten',async()=>{
 test('explicit foreign calling code is not silently recast as BR',async()=>{
   const f=fixture();const r=await f.complete({country_code:'BR',phone:'+351912345678',whatsapp:'+351912345678'});
   assert.equal(r.status,422);assert.equal(f.effects.updates.length,0);noEffects(f);
+});
+
+for(const student of [
+  {phone:'11988880000',whatsapp:'11988880000',updated_at:'2026-10-29T12:00:00Z'},
+  {phone:'11999990000',whatsapp:'11988880000',updated_at:'2026-10-29T12:00:00Z'},
+  {phone:'invalid',whatsapp:null,updated_at:'2026-10-29T12:00:00Z'},
+]) {
+  test('stale public form cannot replace a corrected or unresolved official contact before request: '+JSON.stringify(student),async()=>{
+    const f=fixture({student});const r=await f.complete();
+    assert.equal(r.status,409);
+    assert.equal(f.effects.updates.length,0);
+    assert.equal(f.effects.auditUses,0);
+    noEffects(f);
+  });
+}
+for(const [student,input,country,expected] of [
+  [{phone:'+55 11 99999-0000',whatsapp:'1199990000',country_code:'BR'}, {phone:'11999990000',whatsapp:'+55 11 99999-0000',country_code:'US'}, 'BR','5511999990000'],
+  [{phone:'351912345678',whatsapp:'351912345678',country_code:'PT'}, {phone:'+351912345678',whatsapp:'351912345678',country_code:'US'}, 'PT','351912345678'],
+]) {
+  test('equivalent recipient preserves official country despite stale client label: '+country,async()=>{
+    const f=fixture({student});const r=await f.complete(input);assert.equal(r.status,200);
+    assert.equal(f.effects.updates[0].payload.country_code,country);
+    assert.equal(f.effects.updates[0].payload.phone,expected);
+    assert.equal(f.effects.updates[0].payload.whatsapp,expected);
+  });
+}
+test('stale non-BR label cannot bypass current official BR fiscal requirements',async()=>{
+  const f=fixture();const r=await f.complete({country_code:'US',phone:'+5511999990000',whatsapp:'+5511999990000',cpf:'',cep:''});
+  assert.equal(r.status,422);assert.equal(f.effects.updates.length,0);assert.equal(f.effects.auditUses,0);noEffects(f);
+});
+test('valid stale foreign recipient cannot replace a corrected BR official contact',async()=>{
+  const f=fixture();const r=await f.complete({country_code:'PT',phone:'+351912345678',whatsapp:'+351912345678'});
+  assert.equal(r.status,409);assert.equal(f.effects.updates.length,0);assert.equal(f.effects.auditUses,0);noEffects(f);
+});
+test('same international recipient keeps official PT label even if client says BR',async()=>{
+  const f=fixture({student:{country_code:'PT',phone:'351912345678',whatsapp:'351912345678'}});
+  const r=await f.complete({country_code:'BR',phone:'+351912345678',whatsapp:'351912345678'});
+  assert.equal(r.status,200);assert.equal(f.effects.updates[0].payload.country_code,'PT');
 });

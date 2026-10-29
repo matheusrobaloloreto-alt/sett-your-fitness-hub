@@ -558,7 +558,7 @@ type RegistrationLink = {
   completed_at: string | null;
 };
 
-async function resolveRegistrationToken(token: unknown): Promise<RegistrationLink> {
+async function resolveRegistrationToken(token: unknown, recordUsage = true): Promise<RegistrationLink> {
   if (!isUuid(token)) throw new HttpError(404, "Link de cadastro inválido.");
   const { data, error } = await supabase
     .from("public_registration_links")
@@ -573,9 +573,11 @@ async function resolveRegistrationToken(token: unknown): Promise<RegistrationLin
   if (data.completed_at) {
     throw new HttpError(410, "Este cadastro já foi concluído. Solicite um novo link para alterar os dados.");
   }
-  await supabase.from("public_registration_links")
-    .update({ last_used_at: new Date().toISOString() })
-    .eq("id", data.id);
+  if (recordUsage) {
+    await supabase.from("public_registration_links")
+      .update({ last_used_at: new Date().toISOString() })
+      .eq("id", data.id);
+  }
   return data;
 }
 
@@ -719,10 +721,6 @@ function billingPayloadForRegistration(student: Record<string, unknown>, fallbac
 }
 
 async function completeFiscalRegistration(link: RegistrationLink, studentInput: Record<string, unknown>) {
-  const normalizedInput = { ...studentInput, ...fiscalPayload(studentInput) };
-  const missing = fiscalRegistrationValidation(normalizedInput);
-  if (missing.length) throw new HttpError(422, `Complete os dados fiscais: ${missing.join(", ")}.`);
-
   const { data: currentStudent, error: studentError } = await supabase.from("students")
     .select("id, full_name, status, whatsapp, phone, country_code, updated_at")
     .eq("id", link.student_id)
@@ -733,6 +731,40 @@ async function completeFiscalRegistration(link: RegistrationLink, studentInput: 
   if (typeof currentStudent.updated_at !== "string" || !currentStudent.updated_at) {
     throw new HttpError(503, "Não foi possível verificar a versão do cadastro. Tente novamente.");
   }
+
+  // The token binds the profile, not a browser's old contact snapshot. Staff
+  // edits made BEFORE this request must not be overwritten by a fresh read-CAS.
+  let contactInput = studentInput;
+  if (cleanText(currentStudent.phone) || cleanText(currentStudent.whatsapp)) {
+    let officialContact: string;
+    try {
+      officialContact = registrationContact(currentStudent);
+    } catch {
+      throw new HttpError(409, "O contato oficial precisa de revisão pela equipe antes de concluir o cadastro.");
+    }
+    const officialCountry = normalizeCountryCode(currentStudent.country_code);
+    contactInput = { ...studentInput, country_code: officialCountry };
+    let incomingContact: string;
+    try {
+      incomingContact = registrationContact(contactInput);
+    } catch (contactError) {
+      // A valid old international contact may be invalid under the corrected
+      // official country. That is a stale-contact conflict, not permission to
+      // reinterpret it as a new official recipient.
+      let oldClientContact: string | null = null;
+      try { oldClientContact = registrationContact(studentInput); } catch { /* invalid direct input */ }
+      if (oldClientContact && oldClientContact !== officialContact) {
+        throw new HttpError(409, "O contato oficial mudou. Solicite à equipe a atualização dos dados antes de continuar.");
+      }
+      throw contactError;
+    }
+    if (incomingContact !== officialContact) {
+      throw new HttpError(409, "O contato oficial mudou. Solicite à equipe a atualização dos dados antes de continuar.");
+    }
+  }
+  const normalizedInput = { ...contactInput, ...fiscalPayload(contactInput) };
+  const missing = fiscalRegistrationValidation(normalizedInput);
+  if (missing.length) throw new HttpError(422, `Complete os dados fiscais: ${missing.join(", ")}.`);
 
   const completedAt = new Date().toISOString();
   const activeStudent = ["active", "awaiting_renewal"].includes(currentStudent.status || "");
@@ -761,7 +793,7 @@ async function completeFiscalRegistration(link: RegistrationLink, studentInput: 
   }
 
   const { data: completedLink, error: linkError } = await supabase.from("public_registration_links")
-    .update({ completed_at: completedAt })
+    .update({ completed_at: completedAt, last_used_at: completedAt })
     .eq("id", link.id)
     .eq("student_id", currentStudent.id)
     .eq("company_id", link.company_id)
@@ -861,7 +893,8 @@ Deno.serve(async (req) => {
     }
 
     if (action === "complete") {
-      const link = await resolveRegistrationToken(body.token);
+      // No token-use write before the official-contact and fiscal preflight.
+      const link = await resolveRegistrationToken(body.token, false);
       return json(await completeFiscalRegistration(link, body.student || {}));
     }
 
