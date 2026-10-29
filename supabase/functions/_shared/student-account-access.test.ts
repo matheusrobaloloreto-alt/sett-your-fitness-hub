@@ -1,3 +1,8 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  issueStudentLoginToken,
+  loadStudentLoginSnapshot,
+} from "./student-login-credentials.ts";
 import { handleStudentLoginCredentials } from "../student-login-credentials/index.ts";
 import { handleActivateStudentAccess } from "../activate-student-access/index.ts";
 
@@ -55,6 +60,8 @@ async function runFixture(
   Deno.env.set("SUPABASE_ANON_KEY", "fixture-anon");
   Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "fixture-service");
   const calls: Call[] = [];
+  let currentLinked = opts.linked === false ? null : accountId;
+  const chatId = "60000000-0000-4000-8000-000000000001";
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), {
       status,
@@ -75,6 +82,21 @@ async function runFixture(
     calls.push({ url, method, body, headers: new Headers(init?.headers) });
     if (url.pathname === "/auth/v1/user") {
       return json({ id: callerId, aud: "authenticated" });
+    }
+    if (
+      [
+        "/rest/v1/rpc/claim_student_login_generation_v1",
+        "/rest/v1/rpc/complete_student_login_claim_v1",
+      ].includes(url.pathname)
+    ) return json(true);
+    if (url.pathname === "/rest/v1/whatsapp_chats" && method === "GET") {
+      return json({
+        id: chatId,
+        company_id: companyId,
+        student_id: studentId,
+        remote_jid: "12025550123@s.whatsapp.net",
+        instance_id: null,
+      });
     }
     if (url.pathname === "/rest/v1/rpc/has_role") {
       return json(opts.callerRole === "master");
@@ -100,11 +122,27 @@ async function runFixture(
       );
     }
     if (url.pathname === "/rest/v1/students" && method === "GET") {
+      if (
+        !url.searchParams.has("id") && !url.searchParams.has("user_id") &&
+        url.searchParams.has("company_id")
+      ) {
+        return json([{
+          id: studentId,
+          company_id: companyId,
+          phone: "+12025550123",
+          whatsapp: "+12025550123",
+          country_code: "US",
+        }]);
+      }
       if (url.searchParams.has("id")) {
         return json({
           id: studentId,
           company_id: companyId,
-          user_id: opts.linked === false ? null : accountId,
+          user_id: currentLinked,
+          phone: "+12025550123",
+          whatsapp: "+12025550123",
+          country_code: "US",
+          updated_at: "2026-10-29T10:00:00Z",
           full_name: "Fixture Student",
           email,
         });
@@ -187,6 +225,7 @@ async function runFixture(
     }
     if (url.pathname === "/rest/v1/students" && method === "PATCH") {
       if (opts.writeError === "link") return failed();
+      if (!opts.emptyLink) currentLinked = newAccountId;
       return json(
         opts.emptyLink ? [] : { id: studentId, user_id: newAccountId },
       );
@@ -201,11 +240,36 @@ async function runFixture(
       }.fixture`
       : token;
     if (!opts.anonymous) headers.set("Authorization", `Bearer ${callerToken}`);
+    const body: Record<string, unknown> = { student_id: studentId };
+    if (handler === handleStudentLoginCredentials) {
+      const destination = {
+        companyId,
+        studentId,
+        chatId,
+        remoteJid: "12025550123@s.whatsapp.net",
+      };
+      const snapshot = await loadStudentLoginSnapshot(
+        createClient("https://fixture.supabase.invalid", "fixture-service"),
+        destination,
+      );
+      const issued = await issueStudentLoginToken(
+        snapshot,
+        callerId,
+        "fixture-service",
+      );
+      Object.assign(body, {
+        action: "generate-login-credentials",
+        company_id: companyId,
+        chat_id: chatId,
+        remote_jid: destination.remoteJid,
+        preflight_token: issued.token,
+      });
+    }
     const response = await handler(
       new Request("https://edge.invalid", {
         method: "POST",
         headers,
-        body: JSON.stringify({ student_id: studentId }),
+        body: JSON.stringify(body),
       }),
     );
     return { status: response.status, body: await response.json(), calls };
@@ -468,7 +532,7 @@ Deno.test("credentials: existing exact student resets only after complete identi
     ]
   ) {
     assert(
-      result.calls.findLastIndex((call) =>
+      result.calls.findIndex((call) =>
         call.url.pathname === path && call.method === "GET"
       ) < result.calls.indexOf(writes[0]),
       "effect preceded validation",

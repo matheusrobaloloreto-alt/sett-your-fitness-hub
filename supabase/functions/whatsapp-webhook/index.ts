@@ -45,6 +45,33 @@ type WhatsAppChatRow = {
   remote_jid: string;
 };
 
+// Canonical identity only: legacy divergent phone/WhatsApp must never auto-link.
+// Keep the conversation JID intact and expose the link locally only after exact ACK.
+export async function autoLinkCanonicalStudent(args: {
+  adminClient:any;companyId:string;instanceId:string;chat:WhatsAppChatRow;remoteJid:string;
+}):Promise<string|null>{
+  const {adminClient,companyId,instanceId,chat,remoteJid}=args;
+  if(chat.student_id||!normalizeWhatsAppPhoneKey(remoteJid)||remoteJid.includes("@g.us"))return null;
+  const students:any[]=[];
+  for(let offset=0;;offset+=500){
+    const page=await adminClient.from("students").select("id,company_id,phone,whatsapp,country_code")
+      .eq("company_id",companyId).order("id",{ascending:true}).range(offset,offset+499);
+    if(page.error||!Array.isArray(page.data))return null;
+    students.push(...page.data);
+    if(page.data.length<500)break;
+  }
+  const matches=students.filter((student:any)=>student.company_id===companyId&&resolveVerifiedWhatsAppRecipient({
+    student,requestedStudentId:student.id,clientRemoteJid:remoteJid,chatRemoteJid:chat.remote_jid,
+  }).ok);
+  if(matches.length!==1)return null;
+  const {data:linked,error:linkError}=await adminClient.from("whatsapp_chats")
+    .update({student_id:matches[0].id}).eq("id",chat.id).eq("company_id",companyId)
+    .eq("instance_id",instanceId).eq("remote_jid",chat.remote_jid).is("student_id",null)
+    .select("id,student_id,remote_jid").maybeSingle();
+  if(linkError||linked?.id!==chat.id||linked?.student_id!==matches[0].id||linked?.remote_jid!==chat.remote_jid)return null;
+  return linked.student_id;
+}
+
 const CHAT_LOOKUP_COLUMNS =
   "id, student_id, contact_name, last_message_at, remote_jid";
 
@@ -1389,22 +1416,9 @@ if (import.meta.main) Deno.serve(async (req) => {
           }).eq("id", chat.id);
         }
 
-        const phoneKey = normalizeWhatsAppPhoneKey(remoteJid);
-        if (phoneKey && !remoteJid.includes("@g.us") && !chat.student_id) {
-          const { data: students } = await adminClient.from("students")
-            .select("id, phone, whatsapp")
-            .eq("company_id", instance.company_id);
-          const matches = (students || []).filter((student: any) => (
-            normalizeWhatsAppPhoneKey(student.whatsapp) === phoneKey ||
-            normalizeWhatsAppPhoneKey(student.phone) === phoneKey
-          ));
-          if (matches.length === 1) {
-            await adminClient.from("whatsapp_chats").update({
-              student_id: matches[0].id,
-            }).eq("id", chat.id);
-            chat.student_id = matches[0].id;
-          }
-        }
+        const linkedStudentId=await autoLinkCanonicalStudent({adminClient,
+          companyId:instance.company_id,instanceId:instance.id,chat,remoteJid});
+        if(linkedStudentId)chat.student_id=linkedStudentId;
 
         if (msgExtId) {
           const { data: existing } = await adminClient
@@ -1829,33 +1843,11 @@ if (import.meta.main) Deno.serve(async (req) => {
           jidVariants,
         });
 
-        // Link student (supports both @s.whatsapp.net and @lid)
-        let isStudent = !!chat.student_id;
-        const phoneKey = normalizeWhatsAppPhoneKey(remoteJid);
-        if (phoneKey && !remoteJid.includes("@g.us") && !chat.student_id) {
-          const { data: companyStudents } = await adminClient.from("students")
-            .select("id, phone, whatsapp")
-            .eq("company_id", instance.company_id);
-          const matchingStudents = (companyStudents || []).filter((
-            student: any,
-          ) => (
-            normalizeWhatsAppPhoneKey(student.whatsapp) === phoneKey ||
-            normalizeWhatsAppPhoneKey(student.phone) === phoneKey
-          ));
-          if (matchingStudents.length === 1) {
-            isStudent = true;
-            chat.student_id = matchingStudents[0].id;
-            await adminClient.from("whatsapp_chats").update({
-              student_id: matchingStudents[0].id,
-            }).eq("id", chat.id);
-            console.log(
-              "[webhook] Auto-linked student",
-              matchingStudents[0].id,
-              "to chat",
-              chat.id,
-            );
-          }
-        }
+        // Never infer identity from either legacy phone independently.
+        const linkedStudentId=await autoLinkCanonicalStudent({adminClient,
+          companyId:instance.company_id,instanceId:instance.id,chat,remoteJid});
+        if(linkedStudentId)chat.student_id=linkedStudentId;
+        const isStudent=!!chat.student_id;
 
         // Deduplicate
         if (msgExtId) {

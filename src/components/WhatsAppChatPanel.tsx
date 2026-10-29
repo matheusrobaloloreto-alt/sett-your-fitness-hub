@@ -8,7 +8,7 @@ import { useCompanyFeatures } from "@/hooks/useCompanyFeatures";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useMaster } from "@/contexts/MasterContext";
 import {
-  WHATSAPP_CHAT_PANEL_EVENT,
+  WHATSAPP_CHAT_PANEL_EVENT, clearTransientLoginNavigation,
   type WhatsAppChatPanelRequest,
 } from "@/lib/whatsappChatPanel";
 import { WhatsAppChatPanelContext } from "@/components/WhatsAppChatPanelContext";
@@ -17,8 +17,8 @@ const WhatsAppChat = lazy(() => import("@/pages/admin/WhatsAppChat"));
 
 export function WhatsAppChatPanelProvider({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const { role } = useAuth();
-  const { isViewingCompany } = useMaster();
+  const { role, companyId, user } = useAuth();
+  const { isViewingCompany, viewingCompany } = useMaster();
   const features = useCompanyFeatures();
   const { canAccess, loading: permissionsLoading } = useRolePermissions();
   const [isOpen, setIsOpen] = useState(false);
@@ -41,7 +41,11 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
     return true;
   }, [canUseWhatsApp]);
 
-  const closeChatPanel = useCallback(() => setIsOpen(false), []);
+  const closeChatPanel = useCallback(() => {
+    setIsOpen(false);
+    setRequest(current => current.loginAccess || current.loginDraftId ? {} : current);
+  }, []);
+  useEffect(() => { setRequest({}); setIsOpen(false); return () => clearTransientLoginNavigation(); }, [companyId, viewingCompany?.id, user?.id]);
 
   useEffect(() => {
     const handleOpen = (event: Event) => {
@@ -53,8 +57,8 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
   }, [openChatPanel]);
 
   useEffect(() => {
-    if (!canUseWhatsApp) setIsOpen(false);
-  }, [canUseWhatsApp]);
+    if (!canUseWhatsApp) closeChatPanel();
+  }, [canUseWhatsApp, closeChatPanel]);
 
   const value = useMemo(
     () => ({ isAvailable: canUseWhatsApp, openChatPanel, closeChatPanel, isChatPanelOpen: isOpen }),
@@ -79,7 +83,7 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
               <span className="hidden min-[360px]:inline">Conversas</span>
             </Button>
           )}
-          <Sheet open={isOpen} onOpenChange={setIsOpen}>
+          <Sheet open={isOpen} onOpenChange={open => open ? setIsOpen(true) : closeChatPanel()}>
             <SheetContent
               side="right"
               className="flex h-dvh !w-full !max-w-none flex-col gap-0 overflow-hidden border-l bg-white p-0 dark:border-[#2a3942] dark:bg-[#0b141a] sm:!w-[min(96vw,1100px)] sm:!max-w-none"

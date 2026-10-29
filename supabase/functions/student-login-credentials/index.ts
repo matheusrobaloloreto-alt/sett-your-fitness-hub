@@ -2,9 +2,21 @@
 // Gera/redefine a credencial de acesso do ALUNO e devolve {email, password} para o professor
 // copiar/enviar (WhatsApp). Funciona tanto para conta nova quanto para aluno já vinculado
 // (nesse caso REDEFINE a senha para um valor conhecido). Autorização por empresa (staff/master).
+import {
+  claimStudentLoginGeneration,
+  completeStudentLoginClaim,
+  issueStudentLoginToken,
+  loadStudentLoginSnapshot,
+  LoginPreflightError,
+  verifyStudentLoginToken,
+} from "../_shared/student-login-credentials.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantAccess, HttpError } from "../_shared/tenant-auth.ts";
-import { createStudentAccount, ensureStudentAccountMembership, getLinkedStudentAccount } from "../_shared/student-account-access.ts";
+import {
+  createStudentAccount,
+  ensureStudentAccountMembership,
+  getLinkedStudentAccount,
+} from "../_shared/student-account-access.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,7 +25,14 @@ const corsHeaders = {
 };
 
 const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
+  });
 
 // senha forte, legível e fácil de digitar no celular (sem caracteres ambíguos)
 function generatePassword(): string {
@@ -25,10 +44,15 @@ function generatePassword(): string {
 }
 
 export async function handleStudentLoginCredentials(req: Request) {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+  if (req.method !== "POST") return json(405, { error: "Method not allowed" });
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) return json(401, { error: "Unauthorized" });
+    if (!authHeader?.startsWith("Bearer ")) {
+      return json(401, { error: "Unauthorized" });
+    }
 
     const anonClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -36,8 +60,12 @@ export async function handleStudentLoginCredentials(req: Request) {
       { global: { headers: { Authorization: authHeader } } },
     );
     const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims || claimsData.claims.is_anonymous === true) return json(401, { error: "Unauthorized" });
+    const { data: claimsData, error: claimsError } = await anonClient.auth
+      .getClaims(token);
+    if (
+      claimsError || !claimsData?.claims ||
+      claimsData.claims.is_anonymous === true
+    ) return json(401, { error: "Unauthorized" });
     const callerId = claimsData.claims.sub as string;
 
     const adminClient = createClient(
@@ -45,45 +73,125 @@ export async function handleStudentLoginCredentials(req: Request) {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const { student_id } = await req.json().catch(() => ({}));
-    if (!student_id) return json(400, { error: "student_id required" });
+    const body = await req.json().catch(() => ({}));
+    const { student_id, company_id, chat_id, remote_jid, preflight_token } =
+      body;
+    if (
+      body.action !== "generate-login-credentials" || !student_id ||
+      !company_id || !preflight_token
+    ) {
+      return json(400, {
+        error: "Confirme a geração do acesso após validar o contato.",
+        code: "student_login_preflight_required",
+      });
+    }
 
     // Autorização por empresa (master ou staff da mesma empresa do aluno)
-    const tenant = await assertTenantAccess(adminClient, claimsData.claims, { studentId: student_id, requireStaff: true });
-    const { data: callerRoles, error: callerRolesError } = await adminClient.from("user_roles").select("role").eq("user_id", callerId);
-    if (callerRolesError || !Array.isArray(callerRoles)) return json(503, { error: "Unable to validate staff role" });
+    const tenant = await assertTenantAccess(adminClient, claimsData.claims, {
+      studentId: student_id,
+      companyId: company_id,
+      requireStaff: true,
+    });
+    const { data: callerRoles, error: callerRolesError } = await adminClient
+      .from("user_roles").select("role").eq("user_id", callerId);
+    if (callerRolesError || !Array.isArray(callerRoles)) {
+      return json(503, { error: "Unable to validate staff role" });
+    }
     const roles = (callerRoles || []).map((r: any) => r.role);
-    if (!roles.some((r: string) => ["admin", "master", "coordinator", "trainer"].includes(r))) {
+    if (
+      !roles.some((r: string) =>
+        ["admin", "master", "coordinator", "trainer"].includes(r)
+      )
+    ) {
       return json(403, { error: "Forbidden" });
     }
 
-    const { data: student, error: studentError } = await adminClient
-      .from("students")
-      .select("id, email, full_name, user_id, company_id")
-      .eq("id", student_id)
-      .eq("company_id", tenant.companyId)
-      .single();
-    if (studentError || !student) return json(404, { error: "Student not found" });
-    if (!student.email) return json(400, { error: "Aluno precisa ter um email cadastrado" });
-
-    const password = generatePassword();
+    const destination = {
+      companyId: tenant.companyId,
+      studentId: student_id,
+      chatId: chat_id ?? null,
+      remoteJid: remote_jid ?? null,
+    };
+    const snapshot = await loadStudentLoginSnapshot(adminClient, destination);
+    const secret = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+    const state = await verifyStudentLoginToken(
+      preflight_token,
+      snapshot,
+      callerId,
+      secret,
+    );
+    const student = snapshot.student;
+    // Account identity lookups are reads. Do not repair membership or mutate Auth before
+    // durable nonce consumption and a second, fresh destination comparison.
     const identity = await getLinkedStudentAccount(adminClient, student);
+    const fresh = await loadStudentLoginSnapshot(adminClient, destination);
+    await verifyStudentLoginToken(preflight_token, fresh, callerId, secret);
+    await claimStudentLoginGeneration(adminClient, fresh, state);
+    const password = generatePassword();
     let userId: string;
     if (identity) {
       await ensureStudentAccountMembership(adminClient, student, identity);
-      const { data, error } = await adminClient.auth.admin.updateUserById(identity.userId, { password, email_confirm: true });
+      const immediatelyBeforeReset = await loadStudentLoginSnapshot(
+        adminClient,
+        destination,
+      );
+      await verifyStudentLoginToken(
+        preflight_token,
+        immediatelyBeforeReset,
+        callerId,
+        secret,
+      );
+      const { data, error } = await adminClient.auth.admin.updateUserById(
+        identity.userId,
+        { password, email_confirm: true },
+      );
       if (error || data?.user?.id !== identity.userId) {
-        return json(503, { error: "Nao foi possivel redefinir o acesso do aluno" });
+        return json(503, {
+          error: "Nao foi possivel redefinir o acesso do aluno",
+        });
       }
       userId = identity.userId;
     } else {
       userId = await createStudentAccount(adminClient, student, password);
     }
 
-    return json(200, { email: student.email, password, user_id: userId });
+    const after = await loadStudentLoginSnapshot(adminClient, destination);
+    if (
+      after.contactHash !== fresh.contactHash ||
+      after.student.user_id !== userId
+    ) {
+      throw new LoginPreflightError(
+        "student_login_state_changed_after_generation",
+      );
+    }
+    await completeStudentLoginClaim(adminClient, after, state);
+    const send = await issueStudentLoginToken(after, callerId, secret, "send");
+    return json(200, {
+      email: student.email,
+      password,
+      user_id: userId,
+      companyId: after.companyId,
+      studentId: after.studentId,
+      chatId: after.chatId,
+      remoteJid: after.remoteJid,
+      stateFingerprint: after.stateHash,
+      loginSendToken: send.token,
+      expiresAt: send.expiresAt,
+    });
   } catch (err) {
+    if (err instanceof LoginPreflightError) {
+      return json(err.status, {
+        error:
+          "O contato ou o pedido de acesso mudou. Valide novamente antes de gerar ou enviar.",
+        code: err.code,
+      });
+    }
     const status = err instanceof HttpError ? (err as HttpError).status : 500;
-    return json(status, { error: err instanceof HttpError ? err.message : "Nao foi possivel liberar o acesso do aluno" });
+    return json(status, {
+      error: err instanceof HttpError
+        ? err.message
+        : "Nao foi possivel liberar o acesso do aluno",
+    });
   }
 }
 

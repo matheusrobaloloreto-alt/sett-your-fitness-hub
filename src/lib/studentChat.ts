@@ -1,3 +1,5 @@
+import { sameWhatsAppRecipient } from '../../supabase/functions/_shared/whatsappIdentity';
+import { readEdgeError } from '@/lib/edgeError';
 // Primitivo compartilhado: "abrir o chat do aluno com uma mensagem pronta (rascunho)".
 // Usado pelos botões de Aniversário, Renovação e Envio de anamnese. NÃO envia sozinho — só pré-preenche
 // o painel persistente do WhatsApp, que consome cada pedido com um nonce. A rota só é fallback
@@ -6,7 +8,7 @@
 import type { NavigateFunction } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { paymentUrl } from "@/lib/publicFlowLinks";
-import { requestWhatsAppChatPanel, type CompanyEventDraft } from "@/lib/whatsappChatPanel";
+import { requestWhatsAppChatPanel, transientLoginNavigation, type CompanyEventDraft } from "@/lib/whatsappChatPanel";
 import { fetchCompanyProductSettings } from "@/lib/companyProductSettings";
 import { WHATSAPP_EVENTS, type MessageEvent, type WhatsAppEvent } from '../../supabase/functions/_shared/company-product-settings';
 import { eventMessage, eventMessageSequence, messageValues } from '../../supabase/functions/_shared/communication-policy';
@@ -59,6 +61,87 @@ export function normalizeStudentChatPhone(phone?: string | null, countryCode?: s
   return d;
 }
 
+/** Compare already-normalized destinations, including the supported Brazilian ninth-digit variant. */
+export function sameStudentContactRecipient(left: string | null, right: string | null): boolean {
+  return Boolean(left && right && sameWhatsAppRecipient(`${left}@s.whatsapp.net`, `${right}@s.whatsapp.net`));
+}
+
+export function studentContactErrorMessage(error: { code?: string; message?: string } | null): string {
+  const messages: Record<string, string> = {
+    contact_version_conflict: 'O cadastro mudou desde que você abriu esta edição. Recarregue o aluno, confira os dados atuais e tente novamente.',
+    contact_ownership_conflict: 'Este WhatsApp já está associado a outro aluno da empresa. Verifique a identidade e o vínculo antes de confirmar o contato.',
+    contact_chat_ownership_conflict: 'A conversa deste WhatsApp está vinculada a outro aluno. Verifique a identidade e o vínculo da conversa antes de alterar o contato.',
+    contact_confirmation_required: 'Confira a identidade do aluno e marque a confirmação do WhatsApp atual antes de salvar.',
+    contact_reconciliation_confirmation_required: 'Os contatos antigos divergem. Confira a identidade e confirme explicitamente o WhatsApp atual para reconciliar.',
+    contact_not_authorized: 'Você não tem permissão para alterar este aluno nesta empresa. Confira a empresa selecionada e seu acesso.',
+    contact_country_invalid: 'O país do contato não está confirmado no cadastro. Confira o país antes de alterar o WhatsApp.',
+    contact_profile_name_required: 'Informe o nome do aluno antes de salvar.',
+    contact_profile_patch_invalid: 'Não foi possível validar os dados da edição. Recarregue o cadastro e tente novamente.',
+  };
+  const key = Object.keys(messages).find(code => error?.message?.split(/[^a-z_]+/).includes(code));
+  if (key) return messages[key];
+  if (error?.code === '42501') return messages.contact_not_authorized;
+  if (error?.code === 'PT409') return messages.contact_version_conflict;
+  if (error?.code === '22023') return 'Confira o WhatsApp, o país e os dados informados antes de salvar novamente.';
+  return 'Não foi possível confirmar a atualização do cadastro. Recarregue o aluno e tente novamente.';
+}
+
+export interface StudentContactSnapshot {
+  whatsapp?: string | null; phone?: string | null; country_code?: string | null;
+}
+export function studentCanonicalContact(student: StudentContactSnapshot) {
+  const whatsapp = normalizeStudentChatPhone(student.whatsapp, student.country_code);
+  const phone = normalizeStudentChatPhone(student.phone, student.country_code);
+  const divergent = Boolean(student.whatsapp?.trim() && student.phone?.trim() && (!whatsapp || !phone
+    || !sameStudentContactRecipient(whatsapp, phone)));
+  return { whatsapp, phone, divergent, ready: Boolean(whatsapp) && !divergent,
+    reason: divergent ? 'Contatos legados divergentes. Confira a identidade e reconcilie o WhatsApp confirmado antes de preparar o acesso.'
+      : !whatsapp ? 'Confirme um WhatsApp válido no cadastro antes de preparar o acesso.' : '' };
+}
+export interface StudentLoginAccessReady {
+  ready: true; companyId: string; studentId: string; chatId: string | null; remoteJid: string;
+  preflightToken: string; stateFingerprint: string; expiresAt: string;
+}
+export interface GeneratedStudentLoginAccess {
+  email: string; password: string; studentId: string; companyId: string; chatId: string | null;
+  remoteJid: string; loginSendToken: string; stateFingerprint: string; expiresAt: string;
+}
+export type StudentLoginAccessInput = { companyId: string; studentId: string; chatId?: string | null; remoteJid?: string | null };
+function validAccessIdentity(data: { companyId?: unknown; studentId?: unknown; chatId?: unknown; remoteJid?: unknown; stateFingerprint?: unknown; expiresAt?: unknown }, input: StudentLoginAccessInput) {
+  return data.companyId === input.companyId && data.studentId === input.studentId
+    && (data.chatId === null || typeof data.chatId === 'string')
+    && (input.chatId === undefined || data.chatId === input.chatId)
+    && typeof data.remoteJid === 'string' && /^\d{8,15}@s\.whatsapp\.net$/.test(data.remoteJid)
+    && (!input.remoteJid || sameWhatsAppRecipient(input.remoteJid, data.remoteJid))
+    && typeof data.stateFingerprint === 'string' && data.stateFingerprint.length > 0
+    && typeof data.expiresAt === 'string' && Number.isFinite(Date.parse(data.expiresAt)) && Date.parse(data.expiresAt) > Date.now();
+}
+/** Server read only: never requests credentials, a connection, or an outbound message. */
+export async function preflightStudentLoginAccess(input: StudentLoginAccessInput): Promise<StudentLoginAccessReady> {
+  if (!input.companyId || !input.studentId) throw new Error('Empresa e aluno são obrigatórios para verificar o acesso.');
+  const { data, error } = await supabase.functions.invoke('whatsapp-manager', { body: { action: 'preflight-student-login', ...input } });
+  if (error || data?.error) throw new Error(await readEdgeError(error, data) || 'Não foi possível verificar o destinatário.');
+  if (!data || data.ready !== true || !validAccessIdentity(data, input) || typeof data.preflightToken !== 'string' || !data.preflightToken) {
+    throw new Error('O servidor não confirmou identidade, cadastro e conversa. Nenhuma credencial foi solicitada.');
+  }
+  return data as StudentLoginAccessReady;
+}
+/** Call only from an explicit generate/reset action. A blocked preflight never invokes credentials. */
+export async function generateStudentLoginAccess(input: StudentLoginAccessInput): Promise<GeneratedStudentLoginAccess> {
+  const ready = await preflightStudentLoginAccess(input);
+  const { data, error } = await supabase.functions.invoke('student-login-credentials', { body: {
+    action: 'generate-login-credentials', student_id: ready.studentId, company_id: ready.companyId,
+    chat_id: ready.chatId, remote_jid: ready.remoteJid, preflight_token: ready.preflightToken,
+  } });
+  if (error || data?.error) throw new Error(await readEdgeError(error, data) || 'Não foi possível gerar o acesso.');
+  if (!data || !validAccessIdentity(data, { ...input, chatId: ready.chatId, remoteJid: ready.remoteJid })
+    || typeof data.email !== 'string' || !data.email.trim() || typeof data.password !== 'string' || !data.password
+    || typeof data.loginSendToken !== 'string' || !data.loginSendToken) {
+    throw new Error('O servidor não confirmou a geração do acesso. Não reutilize uma resposta incompleta.');
+  }
+  return data as GeneratedStudentLoginAccess;
+}
+
 // Abre o chat interno do aluno com a mensagem pronta. Sem conversa vinculada, a tela
 // interna recebe o telefone e prepara uma nova conversa. Sem telefone, usa onNoChat.
 export async function openStudentChat(opts: {
@@ -75,8 +158,16 @@ export async function openStudentChat(opts: {
   messageValues?: Record<string, string>;
   eventDraft?: CompanyEventDraft;
   onNoChat?: (message: string) => void;
+  verifiedLoginAccess?: StudentLoginAccessReady;
+  loginAccess?: { studentId: string; preflightToken: string };
 }): Promise<void> {
   const { navigate, routePrefix, studentId, onNoChat } = opts;
+  const verified = opts.verifiedLoginAccess;
+  if (verified && (!opts.companyId || !studentId || !validAccessIdentity(verified, { companyId: opts.companyId, studentId, chatId: opts.chatId })
+    || (opts.phone && !sameWhatsAppRecipient(`${normalizeStudentChatPhone(opts.phone, opts.countryCode)}@s.whatsapp.net`, verified.remoteJid)))) {
+    throw new Error('O destinatário do acesso mudou. Verifique novamente antes de abrir a conversa.');
+  }
+  if (opts.loginAccess && (!verified || opts.loginAccess.studentId !== studentId || !opts.loginAccess.preflightToken)) throw new Error('access_draft_preflight_required');
   let message = opts.message;
   let eventDraft = opts.eventDraft;
   if (eventDraft && (!opts.companyId || eventDraft.companyId !== opts.companyId)) throw new Error('message_draft_company_mismatch');
@@ -85,12 +176,12 @@ export async function openStudentChat(opts: {
     eventDraft = await draftCompanyEventSequence(opts.companyId, opts.messageEvent, opts.messageValues || {}, message);
     message = eventDraft.parts.length === 1 && eventDraft.parts[0].type === 'text' ? eventDraft.parts[0].text : '';
   }
-  let resolvedChatId = opts.chatId ?? null;
-  let resolvedPhone = opts.phone ?? null;
+  let resolvedChatId = verified ? verified.chatId : opts.chatId ?? null;
+  let resolvedPhone = verified ? verified.remoteJid.replace('@s.whatsapp.net', '') : opts.phone ?? null;
   let resolvedCountryCode = opts.countryCode ?? null;
   let contactName: string | null = opts.contactName ?? null;
 
-  if (!resolvedChatId && studentId) {
+  if (!verified && !resolvedChatId && studentId) {
     let chatQuery = supabase
       .from("whatsapp_chats")
       .select("id")
@@ -104,7 +195,7 @@ export async function openStudentChat(opts: {
     resolvedChatId = linkedChat?.id ?? null;
   }
 
-  if ((!resolvedPhone || !contactName || !resolvedCountryCode) && studentId) {
+  if (!verified && (!resolvedPhone || !contactName || !resolvedCountryCode) && studentId) {
     let studentQuery = supabase
       .from("students")
       .select("full_name, whatsapp, phone, country_code")
@@ -130,6 +221,7 @@ export async function openStudentChat(opts: {
   }
 
   const request = {
+    ...(opts.loginAccess ? { loginAccess: opts.loginAccess } : {}),
     ...(opts.companyId ? { companyId: opts.companyId } : {}),
     ...(eventDraft ? { eventDraft } : {}),
     chatId: resolvedChatId,
@@ -143,7 +235,7 @@ export async function openStudentChat(opts: {
   // The app shell consumes this request and keeps the current page behind the
   // chat. The old route is intentionally retained as a compatibility fallback.
   if (!requestWhatsAppChatPanel(request)) {
-    navigate(`/${routePrefix}/whatsapp-chat`, { state: request });
+    navigate(`/${routePrefix}/whatsapp-chat`, { state: opts.loginAccess ? transientLoginNavigation(request) : request });
   }
 }
 

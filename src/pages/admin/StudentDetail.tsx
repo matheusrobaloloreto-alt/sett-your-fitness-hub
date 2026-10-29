@@ -57,7 +57,8 @@ function safeFormatDate(value: string | null | undefined, fmt: string, opts?: Pa
 import { formatCPF, formatCEP, formatPhoneForCountry } from "@/lib/masks";
 import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { isBrazilianCountry } from "@/lib/fiscalRegistration";
-import { createPlansLink, openStudentChat } from "@/lib/studentChat";
+import { readEdgeError } from "@/lib/edgeError";
+import { createPlansLink, openStudentChat, studentCanonicalContact, sameStudentContactRecipient, studentContactErrorMessage, preflightStudentLoginAccess, generateStudentLoginAccess, type GeneratedStudentLoginAccess } from "@/lib/studentChat";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { selectPrescriptionEnrollment, selectCurrentPlanCycleWindow, selectCyclesForProgramHistory, selectPreferredVisibleCycle, type PrescriptionEnrollment, type PrescriptionScheduleCycle } from "@/lib/prescriptionSchedule";
 import { isInfluencerPlan, planOperationalRequirements } from "@/lib/influencerPlan";
@@ -118,6 +119,8 @@ interface Student {
   selected_plan_id: string | null;
   assigned_trainer_id: string | null;
   company_id: string | null;
+  updated_at?: string | null;
+  user_id?: string | null;
 }
 
 interface Enrollment extends PrescriptionEnrollment {
@@ -392,6 +395,8 @@ export default function StudentDetail() {
 
   // Edit student dialog state
   const [editStudentOpen, setEditStudentOpen] = useState(false);
+  const [contactConfirmed, setContactConfirmed] = useState(false);
+  const profileSaveBusy = useRef(false);
   const [studentForm, setStudentForm] = useState({
     full_name: "", email: "", phone: "", birth_date: "", cpf: "", cep: "", address: "",
     address_number: "", neighborhood: "", city: "", state: "",
@@ -413,7 +418,12 @@ export default function StudentDetail() {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const [loginCreds, setLoginCreds] = useState<{ email: string; password: string } | null>(null);
+  const [loginCreds, setLoginCreds] = useState<GeneratedStudentLoginAccess | null>(null);
+  const loginBusy = useRef(false);
+  const loginScopeRef = useRef("");
+  const loginScopeKey = JSON.stringify([id, student?.id, student?.user_id, session?.user?.id, role, effectiveCompanyId, student?.updated_at, student?.email, student?.whatsapp, student?.phone, student?.country_code]);
+  loginScopeRef.current = loginScopeKey;
+  useEffect(() => { setLoginCreds(null); setCopiedLogin(false); }, [loginScopeKey]);
   const [loadingLogin, setLoadingLogin] = useState(false);
   const [copiedLogin, setCopiedLogin] = useState(false);
   const [activeTab, setActiveTab] = useState<StudentProgramPrimaryTabValue>("overview");
@@ -453,14 +463,6 @@ export default function StudentDetail() {
   // ===== Acesso do app: gerar/copiar/enviar login do aluno =====
   const studentLoginUrl = `${window.location.origin}/auth?as=student`;
 
-  const waDigits = (phone?: string | null): string | null => {
-    if (!phone) return null;
-    let d = phone.replace(/\D/g, "");
-    if (!d) return null;
-    if (d.length <= 11) d = "55" + d; // assume Brasil se vier sem DDI
-    return d;
-  };
-
   const buildLoginMessage = (creds: { email: string; password: string }) => {
     const first = (student?.full_name || "").trim().split(/\s+/)[0] || "";
     return (
@@ -472,69 +474,72 @@ export default function StudentDetail() {
     );
   };
 
-  // Gera/redefine a senha no servidor e devolve as credenciais (cacheia no estado).
-  const fetchLoginCreds = async (): Promise<{ email: string; password: string } | null> => {
-    if (loginCreds) return loginCreds;
-    if (!student?.id) return null;
-    if (!student.email) {
-      toast({ title: "Sem e-mail", description: "Cadastre um e-mail no aluno para gerar o acesso.", variant: "destructive" });
-      return null;
-    }
-    setLoadingLogin(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("student-login-credentials", {
-        body: { student_id: student.id },
-      });
-      if (error || (data as any)?.error) {
-        toast({ title: "Erro", description: (data as any)?.error || error?.message || "Falha ao gerar acesso", variant: "destructive" });
-        return null;
-      }
-      const creds = { email: (data as any).email, password: (data as any).password };
-      setLoginCreds(creds);
-      return creds;
-    } catch (err: any) {
-      toast({ title: "Erro ao gerar acesso", description: err?.message, variant: "destructive" });
-      return null;
-    } finally {
-      setLoadingLogin(false);
-    }
+  const loginInput = () => {
+    if (!student || student.id !== id || !effectiveCompanyId || !canManageStudent) throw new Error('Selecione um aluno da sua empresa com permissão de atendimento.');
+    const contact = studentCanonicalContact(student);
+    if (!contact.ready) throw new Error(contact.reason);
+    return { studentId: student.id, companyId: effectiveCompanyId, remoteJid: `${contact.whatsapp}@s.whatsapp.net` };
   };
+  const loginFailure = (failure: unknown) => toast({ title: 'Acesso não preparado', description: failure instanceof Error ? failure.message : 'Não foi possível confirmar o acesso.', variant: 'destructive' });
 
+  // ONLY this explicit action can request generation/reset. Opening or copying never calls it.
+  const fetchLoginCreds = async () => {
+    if (loginBusy.current) return;
+    loginBusy.current = true; setLoadingLogin(true);
+    const scope = loginScopeRef.current;
+    setLoginCreds(null); setCopiedLogin(false);
+    try {
+      const generated = await generateStudentLoginAccess(loginInput());
+      if (scope !== loginScopeRef.current) return;
+      setLoginCreds(generated);
+      toast({ title: 'Acesso gerado', description: 'O servidor confirmou a geração. Revise antes de copiar ou abrir a conversa.' });
+    } catch (failure) { if (scope === loginScopeRef.current) loginFailure(failure); }
+    finally { loginBusy.current = false; setLoadingLogin(false); }
+  };
+  const verifiedLoginDestination = async () => {
+    const scope = loginScopeRef.current;
+    const ready = await preflightStudentLoginAccess(loginInput());
+    if (scope !== loginScopeRef.current) throw new Error('O aluno ou cadastro mudou durante a verificação.');
+    if (loginCreds && (loginCreds.stateFingerprint !== ready.stateFingerprint || loginCreds.remoteJid !== ready.remoteJid
+      || loginCreds.chatId !== ready.chatId || Date.parse(loginCreds.expiresAt) <= Date.now())) {
+      setLoginCreds(null);
+      throw new Error('O cadastro, contato ou validade do acesso mudou. Gere o acesso novamente por ação explícita.');
+    }
+    return ready;
+  };
   const copyStudentLogin = async () => {
-    const creds = await fetchLoginCreds();
-    if (!creds) return;
-    const msg = buildLoginMessage(creds);
+    if (!loginCreds || loginBusy.current) return;
+    loginBusy.current = true; setLoadingLogin(true);
     try {
-      await navigator.clipboard.writeText(msg);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = msg; ta.style.position = "fixed"; ta.style.left = "-9999px";
-      document.body.appendChild(ta); ta.focus(); ta.select();
-      document.execCommand("copy"); document.body.removeChild(ta);
-    }
-    setCopiedLogin(true);
-    setTimeout(() => setCopiedLogin(false), 1800);
-    toast({ title: "Login copiado!", description: "Email, senha e link prontos pra colar no chat do aluno." });
+      await verifiedLoginDestination();
+      const msg = buildLoginMessage(loginCreds);
+      try { await navigator.clipboard.writeText(msg); }
+      catch {
+        const ta = document.createElement('textarea'); ta.value = msg; ta.style.position = 'fixed'; ta.style.left = '-9999px'; document.body.appendChild(ta);
+        let copied = false;
+        try { ta.focus(); ta.select(); copied = document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+        if (!copied) throw new Error('Não foi possível copiar. Nenhuma cópia foi confirmada.');
+      }
+      setCopiedLogin(true); setTimeout(() => setCopiedLogin(false), 1800);
+      toast({ title: 'Login copiado!', description: 'Cópia confirmada. Nenhuma mensagem foi enviada.' });
+    } catch (failure) { loginFailure(failure); }
+    finally { loginBusy.current = false; setLoadingLogin(false); }
   };
-
   const sendStudentLoginWhatsApp = async () => {
-    if (!waDigits(student?.whatsapp || student?.phone)) {
-      toast({ title: "Sem WhatsApp", description: "Cadastre o WhatsApp do aluno para enviar.", variant: "destructive" });
-      return;
-    }
-    const creds = await fetchLoginCreds();
-    if (!creds) return;
-    await openStudentChat({
-      navigate,
-      routePrefix: role === "master" ? "admin" : role || "admin",
-      studentId: student?.id,
-      phone: student?.whatsapp || student?.phone,
-      message: buildLoginMessage(creds),
-      onNoChat: (message) => {
-        void navigator.clipboard?.writeText(message);
-        toast({ title: "Mensagem copiada", description: "O aluno não possui telefone válido cadastrado." });
-      },
-    });
+    if (loginBusy.current) return;
+    loginBusy.current = true; setLoadingLogin(true);
+    try {
+      const ready = await verifiedLoginDestination();
+      await openStudentChat({
+        navigate, routePrefix: role === 'master' ? 'admin' : role || 'admin',
+        companyId: ready.companyId, studentId: ready.studentId, chatId: ready.chatId,
+        phone: ready.remoteJid.replace('@s.whatsapp.net', ''), countryCode: student?.country_code, contactName: student?.full_name,
+        verifiedLoginAccess: ready,
+        ...(loginCreds ? { loginAccess: { studentId: ready.studentId, preflightToken: loginCreds.loginSendToken } } : {}),
+        message: loginCreds ? buildLoginMessage(loginCreds) : '',
+      });
+    } catch (failure) { loginFailure(failure); }
+    finally { loginBusy.current = false; setLoadingLogin(false); }
   };
 
   // CEP ↔ endereço automático no editar aluno
@@ -1031,6 +1036,11 @@ export default function StudentDetail() {
   };
 
   // ---- EDIT STUDENT ----
+  const formatContactInput = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    const fullBrazilian = isBrazilianCountry(student?.country_code) && /^55\d{10,11}$/.test(digits);
+    return formatPhoneForCountry(fullBrazilian ? `+${digits}` : value, student?.country_code);
+  };
   const openEditStudent = () => {
     if (!student) return;
     const brazilian = isBrazilianCountry(student.country_code);
@@ -1040,49 +1050,74 @@ export default function StudentDetail() {
       cep: student.cep ? (brazilian ? formatCEP(student.cep) : student.cep) : "", address: student.address || "",
       address_number: student.address_number || "", neighborhood: student.neighborhood || "",
       city: student.city || "", state: student.state || "",
-      whatsapp: student.whatsapp ? formatPhoneForCountry(student.whatsapp, student.country_code) : "", status: student.status, notes: student.notes || "",
+      whatsapp: student.whatsapp ? formatContactInput(student.whatsapp) : "", status: student.status, notes: student.notes || "",
     });
+    setContactConfirmed(false);
     setEditStudentOpen(true);
   };
 
+  const editedContact = studentCanonicalContact({ whatsapp: studentForm.whatsapp, country_code: student?.country_code });
+  const contactChanged = Boolean(student && editedContact.whatsapp !== studentCanonicalContact(student).whatsapp);
+  const contactNeedsConfirmation = Boolean(student && (studentCanonicalContact(student).divergent || contactChanged || !student.country_code));
   const handleSaveStudent = async () => {
-    if (!id || !studentForm.full_name.trim()) return;
-    const brazilian = isBrazilianCountry(student?.country_code);
-    setSaving(true);
-    const { error } = await supabase.from("students").update({
+    if (!id || !student || !studentForm.full_name.trim() || profileSaveBusy.current) return;
+    if (!canManageStudent || !effectiveCompanyId || student.company_id !== effectiveCompanyId) return;
+    if ((contactChanged && !contactConfirmed) || (contactConfirmed && !editedContact.whatsapp)) {
+      toast({ title: "Confirme o contato", description: "Confira a identidade do aluno e confirme o WhatsApp informado antes de salvar.", variant: "destructive" });
+      return;
+    }
+    const reconcileContact = contactNeedsConfirmation && contactConfirmed;
+    const brazilian = isBrazilianCountry(student.country_code);
+    const patch = {
       full_name: studentForm.full_name.trim(), email: studentForm.email.trim() || null,
-      phone: studentForm.phone.trim() || null, birth_date: studentForm.birth_date || null,
+      birth_date: studentForm.birth_date || null,
       cpf: (brazilian ? studentForm.cpf.replace(/\D/g, "") : studentForm.cpf.trim()) || null,
       cep: (brazilian ? studentForm.cep.replace(/\D/g, "") : studentForm.cep.trim()) || null,
       address: studentForm.address.trim() || null, address_number: studentForm.address_number.trim() || null,
       neighborhood: studentForm.neighborhood.trim() || null, city: studentForm.city.trim() || null,
-      state: studentForm.state.trim() || null,
-      whatsapp: studentForm.whatsapp.replace(/\D/g, "") || null,
-      status: studentForm.status, notes: studentForm.notes.trim() || null,
-    }).eq("id", id);
-    setSaving(false);
-    if (error) { toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" }); return; }
-    // Sync address to Asaas only for the Brazilian fiscal flow.
-    if (brazilian) {
-      try {
-        await supabase.functions.invoke("asaas-integration", {
-          body: {
-            action: "update-customer", studentId: id,
-            name: studentForm.full_name.trim(), email: studentForm.email.trim() || undefined,
-            mobilePhone: studentForm.whatsapp.replace(/\D/g, "") || undefined,
-            postalCode: studentForm.cep.replace(/\D/g, "") || undefined,
-            address: studentForm.address.trim() || undefined,
-            addressNumber: studentForm.address_number.trim() || undefined,
-            province: studentForm.neighborhood.trim() || undefined,
-          },
-        });
-      } catch (e) {
-        console.error("Erro ao sincronizar com Asaas:", e);
+      state: studentForm.state.trim() || null, status: studentForm.status, notes: studentForm.notes.trim() || null,
+    };
+    profileSaveBusy.current = true;
+    setSaving(true);
+    try {
+      const { data, error } = await (supabase as any).rpc('update_student_contact', {
+        _student_id: id, _company_id: effectiveCompanyId,
+        _expected_updated_at: student.updated_at ?? null,
+        _expected_phone: student.phone ?? null, _expected_whatsapp: student.whatsapp ?? null,
+        _contact: reconcileContact ? studentForm.whatsapp : student.whatsapp,
+        _country_code: reconcileContact ? (student.country_code ?? 'BR') : (student.country_code ?? null), _confirmed_contact: reconcileContact,
+        _profile_patch: patch,
+      });
+      if (error) throw new Error(studentContactErrorMessage(error));
+      if (!data || data.id !== id || data.company_id !== effectiveCompanyId || !data.updated_at
+        || data.updated_at === student.updated_at || !Object.keys(patch).every(key => data[key] === patch[key as keyof typeof patch])
+        || (reconcileContact && (!studentCanonicalContact(data).ready
+          || !sameStudentContactRecipient(studentCanonicalContact(data).whatsapp, editedContact.whatsapp) || data.phone !== data.whatsapp))) {
+        throw new Error('O servidor não confirmou os dados salvos. Recarregue o cadastro antes de tentar novamente.');
       }
+      setLoginCreds(null);
+      if (brazilian) {
+        const sync = await supabase.functions.invoke('asaas-integration', { body: {
+          action: 'update-customer', studentId: id, name: patch.full_name, email: patch.email || undefined,
+          mobilePhone: studentForm.whatsapp.replace(/\D/g, '') || undefined,
+          postalCode: studentForm.cep.replace(/\D/g, '') || undefined, address: patch.address || undefined,
+          addressNumber: patch.address_number || undefined, province: patch.neighborhood || undefined,
+        } });
+        if (sync.error || sync.data?.error) {
+          setEditStudentOpen(false);
+          await loadData(id);
+          throw new Error('Cadastro salvo; sincronização de cobrança não confirmada. ' + (await readEdgeError(sync.error, sync.data)));
+        }
+      }
+      toast({ title: "Dados atualizados!" });
+      setEditStudentOpen(false);
+      await loadData(id);
+    } catch (error) {
+      toast({ title: "Erro ao salvar", description: error instanceof Error ? error.message : "Não foi possível confirmar a atualização.", variant: "destructive" });
+    } finally {
+      profileSaveBusy.current = false;
+      setSaving(false);
     }
-    toast({ title: "Dados atualizados!" });
-    setEditStudentOpen(false);
-    loadData(id);
   };
 
   // ---- FINANCIAL ----
@@ -1890,10 +1925,14 @@ export default function StudentDetail() {
                 <IntercycleAnamnesisControls studentId={id} companyId={student.company_id} initial={(student as { intercycle_anamnesis_enabled?: boolean })?.intercycle_anamnesis_enabled} />
               </div>
             )}
+                {studentCanonicalContact(student).divergent && <div role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm">
+                  <p>Contatos legados divergentes. Confira a identidade e confirme o WhatsApp atual no cadastro antes de preparar o acesso.</p>
+                  <Button type="button" variant="outline" size="sm" onClick={openEditStudent}>Conferir contato</Button>
+                </div>}
             {/* Acesso do app: copiar login (email+senha+link) ou enviar no WhatsApp */}
             <CollapsibleCard title="ACESSO DO APP" icon={<KeyRound className="h-4 w-4" />} className="mb-4" contentClassName="space-y-3">
                 <p className="text-xs text-muted-foreground font-sans">
-                  Abra a conversa interna com o login pronto ou copie a mensagem. Ao gerar, uma senha nova é definida.
+                  Abrir a conversa apenas verifica o destinatário. Gerar/redefinir acesso é uma ação separada que define uma nova senha e pode substituir a anterior.
                 </p>
                 {loginCreds && (
                   <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-1.5 text-sm font-mono-data break-all">
@@ -1903,6 +1942,7 @@ export default function StudentDetail() {
                   </div>
                 )}
                 <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" disabled={loadingLogin} onClick={() => void fetchLoginCreds()}>Gerar/redefinir acesso</Button>
                   <Button
                     size="sm"
                     onClick={sendStudentLoginWhatsApp}
@@ -1912,7 +1952,7 @@ export default function StudentDetail() {
                     <MessageCircle className="h-4 w-4 mr-1.5" />
                     {loadingLogin ? "Gerando..." : "Abrir conversa"}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={copyStudentLogin} disabled={loadingLogin}>
+                  <Button size="sm" variant="outline" onClick={copyStudentLogin} disabled={loadingLogin || !loginCreds}>
                     {copiedLogin ? <Check className="h-4 w-4 mr-1.5 text-green-600" /> : <Copy className="h-4 w-4 mr-1.5" />}
                     {loadingLogin ? "Gerando..." : "Copiar login"}
                   </Button>
@@ -2016,7 +2056,7 @@ export default function StudentDetail() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm font-sans">
                       {student.birth_date && <div className="flex items-center gap-2 text-muted-foreground"><Cake className="h-4 w-4" />{safeFormatDate(student.birth_date, "dd/MM/yyyy")}</div>}
                       {student.cpf && <div className="flex items-center gap-2 text-muted-foreground"><CreditCard className="h-4 w-4" />{isBrazilianCountry(student.country_code) ? formatCPF(student.cpf) : student.cpf}</div>}
-                      {student.phone && <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" />{formatPhoneForCountry(student.phone, student.country_code)}</div>}
+                      {student.whatsapp && <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" />WhatsApp: {formatContactInput(student.whatsapp)}</div>}
                       {student.cep && <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-4 w-4" />{isBrazilianCountry(student.country_code) ? `CEP: ${formatCEP(student.cep)}` : `Código postal: ${student.cep}`}</div>}
                     </div>
                     {(student.address || student.neighborhood || student.city) && (
@@ -2717,7 +2757,15 @@ export default function StudentDetail() {
               <div className="space-y-2"><Label className="font-sans">Nome completo *</Label><Input value={studentForm.full_name} onChange={e => setStudentForm({ ...studentForm, full_name: e.target.value })} className="bg-secondary border-border" /></div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label className="font-sans">Email</Label><Input value={studentForm.email} onChange={e => setStudentForm({ ...studentForm, email: e.target.value })} className="bg-secondary border-border" /></div>
-                <div className="space-y-2"><Label className="font-sans">WhatsApp</Label><Input value={studentForm.whatsapp} onChange={e => setStudentForm({ ...studentForm, whatsapp: formatPhoneForCountry(e.target.value, student?.country_code) })} className="bg-secondary border-border" placeholder={isBrazilianCountry(student?.country_code) ? "(00) 00000-0000" : "+351912345678"} /></div>
+                {student && studentCanonicalContact(student).divergent && <div role="alert" className="text-sm text-destructive col-span-full">
+                  Contatos legados divergentes. WhatsApp visível: {student.whatsapp}. Telefone legado: {student.phone}. Confira a identidade antes de reconciliar. Nenhuma conversa será alterada automaticamente.
+                </div>}
+                <div className="space-y-2"><Label htmlFor="student-contact-whatsapp" className="font-sans">WhatsApp</Label><Input id="student-contact-whatsapp" value={studentForm.whatsapp} onChange={e => { setContactConfirmed(false); setStudentForm({ ...studentForm, whatsapp: formatContactInput(e.target.value) }); }} className="bg-secondary border-border" placeholder={isBrazilianCountry(student?.country_code) ? "(00) 00000-0000" : "+351912345678"} /></div>
+                {contactNeedsConfirmation && <label className="flex items-start gap-2 text-sm col-span-full">
+                  <input type="checkbox" checked={contactConfirmed} onChange={e => setContactConfirmed(e.target.checked)} />
+                  Conferi a identidade do aluno e confirmo este WhatsApp como contato atual. O telefone de compatibilidade será atualizado para o mesmo número. {!student?.country_code && "País desta confirmação: Brasil (BR)."}
+                </label>}
+
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label className="font-sans">CPF {isBrazilianCountry(student?.country_code) ? "" : "(opcional)"}</Label><Input value={studentForm.cpf} onChange={e => setStudentForm({ ...studentForm, cpf: isBrazilianCountry(student?.country_code) ? formatCPF(e.target.value) : e.target.value.slice(0, 32) })} className="bg-secondary border-border" placeholder={isBrazilianCountry(student?.country_code) ? "000.000.000-00" : "Documento fiscal, se houver"} /></div>

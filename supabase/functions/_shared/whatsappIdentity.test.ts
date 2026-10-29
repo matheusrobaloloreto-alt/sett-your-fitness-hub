@@ -48,12 +48,16 @@ Deno.test("normalizes North American E.164 numbers without forcing country code 
 });
 
 Deno.test("preserves explicit E.164 destinations outside Brazil and NANP", () => {
-  for (const [input, expected] of [
-    ["+61 416 060 587", "61416060587"],
-    ["+351 912 345 678", "351912345678"],
-    ["+44 7700 900123", "447700900123"],
-  ]) {
-    if (normalizeWhatsAppPhoneKey(input) !== expected) throw new Error(`did not preserve ${input}`);
+  for (
+    const [input, expected] of [
+      ["+61 416 060 587", "61416060587"],
+      ["+351 912 345 678", "351912345678"],
+      ["+44 7700 900123", "447700900123"],
+    ]
+  ) {
+    if (normalizeWhatsAppPhoneKey(input) !== expected) {
+      throw new Error(`did not preserve ${input}`);
+    }
     const result = resolveVerifiedWhatsAppRecipient({
       clientRemoteJid: `${expected}@s.whatsapp.net`,
       chatRemoteJid: `${expected}@s.whatsapp.net`,
@@ -133,7 +137,11 @@ Deno.test("accepts a stored E.164 number without plus when its non-BR country co
       },
     });
     if (ambiguous.ok || ambiguous.code !== "whatsapp_student_phone_missing") {
-      throw new Error(`ambiguous international recipient accepted for ${countryCode || "missing country"}`);
+      throw new Error(
+        `ambiguous international recipient accepted for ${
+          countryCode || "missing country"
+        }`,
+      );
     }
   }
 });
@@ -253,7 +261,9 @@ Deno.test("preserves the verified provider JID for a Brazilian legacy chat", () 
     student: { id: "student-legacy-br", whatsapp: "+55 (11) 99999-9999" },
   });
   if (!result.ok || result.remoteJid !== "551199999999@s.whatsapp.net") {
-    throw new Error("verified provider JID was replaced by a reconstructed alias");
+    throw new Error(
+      "verified provider JID was replaced by a reconstructed alias",
+    );
   }
 });
 
@@ -380,7 +390,10 @@ Deno.test("preserves only the exact persisted recipient for an unlinked group ch
     requestedStudentId: null,
     student: null,
   });
-  if (!accepted.ok || accepted.remoteJid !== groupJid || accepted.studentId !== null) {
+  if (
+    !accepted.ok || accepted.remoteJid !== groupJid ||
+    accepted.studentId !== null
+  ) {
     throw new Error("exact persisted group recipient was not preserved");
   }
 
@@ -393,5 +406,56 @@ Deno.test("preserves only the exact persisted recipient for an unlinked group ch
   });
   if (rejected.ok || rejected.code !== "whatsapp_recipient_mismatch") {
     throw new Error("different unlinked group recipient was accepted");
+  }
+});
+
+for (
+  const [country, digits] of [["PT", "351912345678"], ["GB", "447700900123"], [
+    "HK",
+    "85291234567",
+  ], ["US", "12975550123"]] as const
+) {
+  Deno.test(`stored ${country} E.164 digits and plus resolve identically without Brazilian prefix`, () => {
+    for (const stored of [digits, "+" + digits]) {
+      const result = resolveVerifiedWhatsAppRecipient({
+        clientRemoteJid: digits + "@s.whatsapp.net",
+        requestedStudentId: "synthetic-international",
+        student: {
+          id: "synthetic-international",
+          country_code: country,
+          phone: stored,
+          whatsapp: stored,
+        },
+      });
+      if (!result.ok || result.remoteJid !== digits + "@s.whatsapp.net") {
+        throw Error("persisted E.164 was rewritten");
+      }
+      const wrong = resolveVerifiedWhatsAppRecipient({
+        clientRemoteJid: "55" + digits + "@s.whatsapp.net",
+        requestedStudentId: "synthetic-international",
+        student: {
+          id: "synthetic-international",
+          country_code: country,
+          whatsapp: stored,
+        },
+      });
+      if (wrong.ok) throw Error("incorrect Brazilian prefix accepted");
+    }
+  });
+}
+Deno.test("explicit non-BR country does not guess a national destination into full E.164", () => {
+  const result = resolveVerifiedWhatsAppRecipient({
+    clientRemoteJid: "351912345678@s.whatsapp.net",
+    requestedStudentId: "synthetic-national",
+    student: {
+      id: "synthetic-national",
+      country_code: "PT",
+      whatsapp: "912345678",
+    },
+  });
+  if (result.ok) {
+    throw Error(
+      "national input guessed into a different full international recipient",
+    );
   }
 });

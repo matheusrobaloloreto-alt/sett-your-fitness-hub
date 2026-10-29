@@ -1,4 +1,5 @@
 import { atomicRegistration } from '../_shared/atomic-registration.ts';
+import { normalizeWhatsAppPhoneKey } from '../_shared/whatsappIdentity.ts';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { resolveAnamnesisDurations } from "../_shared/anamnesis-duration.ts";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
@@ -653,6 +654,42 @@ const allowedStudentFields = [
   "neighborhood", "city", "state", "whatsapp", "country_code",
 ] as const;
 
+// Use the shared phase-one equivalence rules, with explicit country context.
+// Neither a second input nor the fiscal country may silently choose a recipient.
+function registrationContact(student: Record<string, unknown>) {
+  const country = normalizeCountryCode(student.country_code);
+  if (!country) throw new HttpError(422, "Informe um país válido para o contato.");
+  const key = (value: unknown): string | null => {
+    const raw = cleanText(value);
+    if (!raw) return null;
+    if (raw.includes("@")) throw new HttpError(422, "Informe um telefone de contato válido.");
+    const digits = onlyDigits(raw);
+    if (country === "BR") {
+      const local = normalizeWhatsAppPhoneKey(raw);
+      if (!local || !/^[1-9][0-9]{9,10}$/.test(local)
+        || (local.length === 11 && local[2] !== "9")
+        || (raw.startsWith("+") && !digits.startsWith("55"))) {
+        throw new HttpError(422, "Informe um WhatsApp brasileiro válido.");
+      }
+      return `55${local}`;
+    }
+    // Non-BR inputs are fully qualified digits, as in the existing fiscal
+    // contract. Preserve them; never infer a calling code or truncate to BR.
+    if (!/^[1-9][0-9]{7,14}$/.test(digits)) throw new HttpError(422, "Informe um contato internacional válido.");
+    const normalized = normalizeWhatsAppPhoneKey(`+${digits}`);
+    if (!normalized) throw new HttpError(422, "Informe um contato internacional válido.");
+    return digits.startsWith("55") && (digits.length === 12 || digits.length === 13)
+      ? `55${normalized}` : normalized;
+  };
+  const phone = key(student.phone);
+  const whatsapp = key(student.whatsapp);
+  if (phone && whatsapp && phone !== whatsapp) {
+    throw new HttpError(422, "Os telefones informados são distintos. Confirme um único contato.");
+  }
+  if (!phone && !whatsapp) throw new HttpError(422, "Informe o contato de WhatsApp.");
+  return phone || whatsapp!;
+}
+
 function fiscalPayload(student: Record<string, unknown>) {
   const payload: Record<string, unknown> = {};
   for (const key of allowedStudentFields) {
@@ -660,8 +697,9 @@ function fiscalPayload(student: Record<string, unknown>) {
   }
   payload.email = normalizeEmail(student.email);
   Object.assign(payload, countryAwareFiscalFields(student));
-  payload.whatsapp = onlyDigits(student.whatsapp || student.phone);
-  payload.phone = onlyDigits(student.phone || student.whatsapp);
+  const contact = registrationContact(student);
+  payload.whatsapp = contact;
+  payload.phone = contact;
   return payload;
 }
 
@@ -681,35 +719,62 @@ function billingPayloadForRegistration(student: Record<string, unknown>, fallbac
 }
 
 async function completeFiscalRegistration(link: RegistrationLink, studentInput: Record<string, unknown>) {
-  const missing = fiscalRegistrationValidation(studentInput);
+  const normalizedInput = { ...studentInput, ...fiscalPayload(studentInput) };
+  const missing = fiscalRegistrationValidation(normalizedInput);
   if (missing.length) throw new HttpError(422, `Complete os dados fiscais: ${missing.join(", ")}.`);
 
   const { data: currentStudent, error: studentError } = await supabase.from("students")
-    .select("id, full_name, status, whatsapp, phone, country_code")
+    .select("id, full_name, status, whatsapp, phone, country_code, updated_at")
     .eq("id", link.student_id)
     .eq("company_id", link.company_id)
     .maybeSingle();
   if (studentError) throw new HttpError(500, `Falha ao carregar cadastro: ${studentError.message}`);
   if (!currentStudent) throw new HttpError(404, "Cadastro não encontrado.");
+  if (typeof currentStudent.updated_at !== "string" || !currentStudent.updated_at) {
+    throw new HttpError(503, "Não foi possível verificar a versão do cadastro. Tente novamente.");
+  }
 
   const completedAt = new Date().toISOString();
   const activeStudent = ["active", "awaiting_renewal"].includes(currentStudent.status || "");
   const payload: Record<string, unknown> = {
-    ...fiscalPayload(studentInput),
-    ...billingPayloadForRegistration(studentInput, currentStudent.full_name),
+    ...fiscalPayload(normalizedInput),
+    ...billingPayloadForRegistration(normalizedInput, currentStudent.full_name),
     status: activeStudent ? currentStudent.status : "pending",
     sales_stage: activeStudent ? "active" : "payment_pending",
     fiscal_completed_at: completedAt,
   };
-  const { error: updateError } = await supabase.from("students")
+  // The canonical-contact trigger guards direct writers. This public token
+  // flow must not impersonate a staff actor to use the authenticated editor RPC.
+  const { data: savedStudent, error: updateError } = await supabase.from("students")
     .update(payload)
     .eq("id", currentStudent.id)
-    .eq("company_id", link.company_id);
-  if (updateError) throw new HttpError(500, `Falha ao salvar cadastro: ${updateError.message}`);
+    .eq("company_id", link.company_id)
+    .eq("updated_at", currentStudent.updated_at)
+    .select("id, company_id, phone, whatsapp, country_code")
+    .maybeSingle();
+  if (updateError) throw new HttpError(updateError.code === "PT409" ? 409 : 503, "Não foi possível confirmar a atualização do cadastro. Recarregue e tente novamente.");
+  if (!savedStudent) throw new HttpError(409, "O cadastro foi alterado. Recarregue antes de continuar.");
+  if (savedStudent.id !== currentStudent.id || savedStudent.company_id !== link.company_id
+    || savedStudent.phone !== payload.phone || savedStudent.whatsapp !== payload.whatsapp
+    || savedStudent.country_code !== payload.country_code) {
+    throw new HttpError(503, "A atualização do contato não foi confirmada. Recarregue antes de continuar.");
+  }
 
-  await supabase.from("public_registration_links")
-    .update({ completed_at: link.completed_at || completedAt })
-    .eq("id", link.id);
+  const { data: completedLink, error: linkError } = await supabase.from("public_registration_links")
+    .update({ completed_at: completedAt })
+    .eq("id", link.id)
+    .eq("student_id", currentStudent.id)
+    .eq("company_id", link.company_id)
+    .is("completed_at", null)
+    .is("revoked_at", null)
+    .gt("expires_at", completedAt)
+    .select("id, student_id, company_id, completed_at")
+    .maybeSingle();
+  if (linkError) throw new HttpError(503, "Não foi possível confirmar a conclusão do cadastro. Tente novamente.");
+  if (!completedLink || completedLink.id !== link.id || completedLink.student_id !== currentStudent.id
+    || completedLink.company_id !== link.company_id || completedLink.completed_at !== completedAt) {
+    throw new HttpError(409, "O link de cadastro mudou ou expirou. Solicite um novo link.");
+  }
 
   const paymentLink = await createPaymentLink(currentStudent.id, link.company_id);
   const paymentUrl = `${APP_URL}/pagamento/${paymentLink.token}`;

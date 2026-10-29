@@ -1,3 +1,4 @@
+import { sameWhatsAppRecipient } from '../../supabase/functions/_shared/whatsappIdentity';
 import { normalizeWhatsAppPhoneKey } from "@/lib/whatsappMessages";
 import type { CompanyEventDraft, WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
 import { validateRenderedMessageParts } from '../../supabase/functions/_shared/company-product-settings';
@@ -18,7 +19,18 @@ export type ResolvedWhatsAppChatRequest = {
   } | null;
   prefillMessage: string;
   eventDraft?: CompanyEventDraft;
+  loginDraft?: StudentLoginDraft;
 };
+
+export type StudentLoginTarget = { companyId: string | null | undefined; studentId: string | null; chatId: string | null; remoteJid: string };
+export type StudentLoginDraft = StudentLoginTarget & { companyId: string; studentId: string; preflightToken: string };
+export function studentLoginSendPayload(draft: StudentLoginDraft, target: StudentLoginTarget, content: string) {
+  if (!draft.preflightToken || draft.companyId !== target.companyId || draft.studentId !== target.studentId
+    || draft.chatId !== target.chatId || !sameWhatsAppRecipient(draft.remoteJid, target.remoteJid) || !content.trim()) {
+    throw new Error('O destinatário do acesso mudou. Gere e confira o acesso novamente no perfil.');
+  }
+  return { action: 'send-message', ...target, content, loginAccess: { studentId: draft.studentId, preflightToken: draft.preflightToken } };
+}
 
 export function manualSequencePayload(draft: CompanyEventDraft, target: { companyId: string; chatId: string | null; studentId: string | null; remoteJid: string }, signMessages: boolean) {
   if (draft.companyId !== target.companyId) throw new Error('message_draft_company_mismatch');
@@ -67,7 +79,16 @@ export function resolveWhatsAppChatRequest(
   if (matchedChat && digits && normalizeWhatsAppPhoneKey(matchedChat.remote_jid) !== phoneKey) throw new Error('message_draft_phone_mismatch');
   if (matchedChat && request.studentId && matchedChat.student_id && matchedChat.student_id !== request.studentId) throw new Error('message_draft_recipient_mismatch');
 
+  let loginDraft: StudentLoginDraft | undefined;
+  if (request.loginAccess) {
+    if (!request.companyId || !companyId || !request.studentId || request.loginAccess.studentId !== request.studentId
+      || typeof request.loginAccess.preflightToken !== 'string' || !request.loginAccess.preflightToken || !digits || request.eventDraft
+      || (request.chatId ?? null) !== (matchedChat?.id ?? null)) throw new Error('student_login_draft_invalid');
+    loginDraft = { companyId, studentId: request.studentId, chatId: matchedChat?.id ?? null,
+      remoteJid: matchedChat?.remote_jid || `${digits}@s.whatsapp.net`, preflightToken: request.loginAccess.preflightToken };
+  }
   return {
+    ...(loginDraft ? { loginDraft } : {}),
     chatId: matchedChat?.id ?? null,
     draftRecipient: !matchedChat && digits
       ? {

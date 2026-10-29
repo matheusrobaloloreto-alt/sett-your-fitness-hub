@@ -5,8 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   auth: { role: "trainer" as string | null, companyId: "company-a" as string | null, session: { user: { id: "actor" } } },
   master: { viewingCompany: null as { id: string } | null, isViewingCompany: false },
-  from: vi.fn(), rpc: vi.fn(), toast: vi.fn(), navigate: vi.fn(), studentCompany: "company-a",
+  from: vi.fn(), rpc: vi.fn(), invoke: vi.fn(), openChat: vi.fn(), toast: vi.fn(), navigate: vi.fn(), studentCompany: "company-a",
   studentTrainer: "profile-trainer",
+  studentCountry: "BR" as string | null,
+  studentPhone: "48999990001",
+  studentWhatsApp: "48999990001",
   cycles: [] as Array<Record<string, unknown>>,
   cycleReadError: false,
   reassignError: null as { message: string; code: string } | null,
@@ -23,7 +26,7 @@ vi.mock("react-router-dom", () => ({
   useParams: () => ({ id: "student-a" }), useNavigate: () => mocks.navigate,
   useLocation: () => ({ pathname: "/admin/students/student-a", search: "?tab=program", state: null }),
 }));
-vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: mocks.from, rpc: mocks.rpc } }));
+vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: mocks.from, rpc: mocks.rpc, functions: { invoke: mocks.invoke } } }));
 vi.mock("@/components/ui/select", async () => {
   const React = await import("react");
   return {
@@ -61,6 +64,7 @@ vi.mock('@/components/admin/StudentWorkoutFeedbackCard', () => ({ StudentWorkout
 vi.mock('@/components/trainer/WorkoutAnalysis', () => ({ WorkoutAnalysis: () => null }));
 vi.mock('@/components/trainer/TrainerWeeklyBar', () => ({ TrainerWeeklyBar: () => null }));
 vi.mock('@/components/trainer/StudentVolumePanel', () => ({ StudentVolumePanel: () => null }));
+vi.mock('@/lib/studentChat', async original => ({ ...await original<typeof import('@/lib/studentChat')>(), openStudentChat: mocks.openChat }));
 import StudentDetail from "./StudentDetail";
 
 beforeEach(() => {
@@ -69,6 +73,10 @@ beforeEach(() => {
   mocks.master = { viewingCompany: null, isViewingCompany: false };
   mocks.studentCompany = "company-a";
   mocks.studentTrainer = "profile-trainer";
+  mocks.studentCountry = "BR";
+  mocks.studentPhone = "48999990001"; mocks.studentWhatsApp = "48999990001";
+  mocks.openChat.mockReset().mockResolvedValue(undefined);
+  mocks.invoke.mockReset().mockImplementation(async (name: string) => name === "student-login-credentials" ? { data: { email: "student@example.invalid", password: "synthetic-only" }, error: null } : { data: { error: "whatsapp_student_phone_ambiguous" }, error: null });
   mocks.reassignError = null;
   mocks.cycles = []; mocks.cycleReadError = false;
   mocks.enrollments = [
@@ -112,7 +120,8 @@ beforeEach(() => {
         const companyMatches = !filters.company_id || filters.company_id === mocks.studentCompany;
         return { data: companyMatches ? {
           id: "student-a", company_id: mocks.studentCompany, full_name: "Fixture Student", status: "active",
-          assigned_trainer_id: mocks.studentTrainer, country_code: "BR",
+          assigned_trainer_id: mocks.studentTrainer, country_code: mocks.studentCountry,
+          email: "student@example.invalid", phone: mocks.studentPhone, whatsapp: mocks.studentWhatsApp, updated_at: "2026-10-29T10:00:00Z",
         } : null, error: null };
       },
       then: (resolve: (result: object) => unknown) => {
@@ -253,4 +262,188 @@ it('shows an explicit coverage read error instead of claiming an empty schedule'
   fireEvent.mouseDown(screen.getByRole('tab', { name: 'Análise' }), { button: 0, ctrlKey: false });
   expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível confirmar a cobertura');
   expect(mocks.writes).toEqual([]);
+});
+
+it('opening access conversation preflights identity and never generates credentials on a blocked read', async () => {
+ render(<StudentDetail />);
+ fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Visão geral' }), { button: 0, ctrlKey: false });
+ fireEvent.click(await screen.findByRole('button', { name: /ACESSO DO APP/ }));
+ fireEvent.click(await screen.findByRole('button', { name: 'Abrir conversa' }));
+ await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('whatsapp-manager', expect.objectContaining({ body: expect.objectContaining({ action: 'preflight-student-login' }) })));
+ expect(mocks.invoke.mock.calls.some(([name]) => name === 'student-login-credentials')).toBe(false);
+ expect(mocks.openChat).not.toHaveBeenCalled();
+});
+
+it('shows legacy contact ambiguity explicitly without selecting a hidden number', async () => {
+ mocks.studentPhone = '48988880002';
+ render(<StudentDetail />);
+ fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Visão geral' }), { button: 0, ctrlKey: false });
+ fireEvent.click(await screen.findByRole('button', { name: /ACESSO DO APP/ }));
+ expect(await screen.findByText(/Contatos legados divergentes/)).toBeInTheDocument();
+ expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+
+async function openAccessPanel() {
+ fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Visão geral' }), { button: 0, ctrlKey: false });
+ fireEvent.click(await screen.findByRole('button', { name: /ACESSO DO APP/ }));
+}
+const accessAck = () => ({ ready: true, companyId: 'company-a', studentId: 'student-a', chatId: null,
+ remoteJid: '5548999990001@s.whatsapp.net', preflightToken: 'synthetic-preflight', stateFingerprint: 'snapshot', expiresAt: new Date(Date.now() + 120000).toISOString() });
+it('opening an access panel and a verified empty conversation never generates or resets', async () => {
+ mocks.invoke.mockResolvedValue({ data: accessAck(), error: null });
+ render(<StudentDetail />); await openAccessPanel();
+ expect(mocks.invoke).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button', { name: 'Abrir conversa' }));
+ await waitFor(() => expect(mocks.openChat).toHaveBeenCalledWith(expect.objectContaining({ message: '', verifiedLoginAccess: expect.objectContaining({ studentId: 'student-a' }) })));
+ expect(mocks.invoke.mock.calls.map(([name]) => name)).toEqual(['whatsapp-manager']);
+});
+it('explicit generation then copy revalidates the post-generation snapshot without a second reset', async () => {
+ mocks.invoke.mockImplementation(async (name: string) => ({ data: name === 'whatsapp-manager' ? { ...accessAck(), stateFingerprint: mocks.invoke.mock.calls.length > 2 ? 'after' : 'snapshot' } : { ...accessAck(), stateFingerprint: 'after', email: 'student@example.invalid', password: 'synthetic-only', loginSendToken: 'send-proof' }, error: null }));
+ Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
+ render(<StudentDetail />); await openAccessPanel();
+ fireEvent.click(screen.getByRole('button', { name: 'Gerar/redefinir acesso' }));
+ await screen.findByText('synthetic-only');
+ fireEvent.click(screen.getByRole('button', { name: 'Copiar login' }));
+ await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+ expect(mocks.invoke.mock.calls.map(([name]) => name)).toEqual(['whatsapp-manager', 'student-login-credentials', 'whatsapp-manager']);
+});
+it('changed snapshot blocks cached credentials from a conversation and never resets silently', async () => {
+ mocks.invoke.mockImplementation(async (name: string) => ({ data: name === 'whatsapp-manager' ? accessAck() : { ...accessAck(), stateFingerprint: 'after', email: 'student@example.invalid', password: 'synthetic-only', loginSendToken: 'send-proof' }, error: null }));
+ render(<StudentDetail />); await openAccessPanel();
+ fireEvent.click(screen.getByRole('button', { name: 'Gerar/redefinir acesso' }));
+ await screen.findByText('synthetic-only');
+ fireEvent.click(screen.getByRole('button', { name: 'Abrir conversa' }));
+ await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining('cadastro, contato ou validade') })));
+ expect(mocks.openChat).not.toHaveBeenCalled();
+ expect(mocks.invoke.mock.calls.filter(([name]) => name === 'student-login-credentials')).toHaveLength(1);
+});
+it('requires explicit confirmed reconciliation and submits the original snapshot atomically', async () => {
+ mocks.studentPhone = '48988880002';
+ const originalRpc = mocks.rpc.getMockImplementation()!;
+ mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => name === 'update_student_contact' ? { data: { id: 'student-a', company_id: 'company-a', updated_at: '2026-10-29T12:00:00Z', phone: '5548999990001', whatsapp: '5548999990001', country_code: 'BR', ...(args._profile_patch as object) }, error: null } : originalRpc(name, args));
+ mocks.invoke.mockResolvedValue({ data: { success: true }, error: null });
+ render(<StudentDetail />);
+ fireEvent.click(await screen.findByRole('button', { name: 'Editar aluno' }));
+ const dialog = await screen.findByRole('dialog');
+ fireEvent.click(within(dialog).getByRole('checkbox', { name: /Conferi a identidade/ }));
+ fireEvent.click(within(dialog).getByRole('button', { name: /Salvar/ }));
+ await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Dados atualizados!' })));
+ expect(mocks.rpc).toHaveBeenCalledWith('update_student_contact', expect.objectContaining({ _student_id: 'student-a', _company_id: 'company-a', _expected_phone: '48988880002', _expected_whatsapp: '48999990001', _expected_updated_at: '2026-10-29T10:00:00Z', _confirmed_contact: true, _profile_patch: expect.objectContaining({ full_name: 'Fixture Student' }) }));
+ expect(mocks.writes).toEqual([]);
+});
+it.each([null, { id: 'other', company_id: 'company-a', updated_at: '2026-10-29T12:00:00Z' }])('never claims profile success without a matching ACK %j', async ack => {
+ const originalRpc = mocks.rpc.getMockImplementation()!;
+ mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => name === 'update_student_contact' ? { data: ack, error: null } : originalRpc(name, args));
+ render(<StudentDetail />);
+ fireEvent.click(await screen.findByRole('button', { name: 'Editar aluno' }));
+ fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /Salvar/ }));
+ await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Erro ao salvar', description: expect.stringContaining('não confirmou') })));
+ expect(mocks.invoke).not.toHaveBeenCalled();
+ expect(screen.getByRole('dialog')).toBeInTheDocument();
+});
+
+
+it('CAS conflict preserves the edit draft and never invokes downstream synchronization', async () => {
+ const originalRpc = mocks.rpc.getMockImplementation()!;
+ mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => name === 'update_student_contact' ? { data: null, error: { code: 'PT409', message: 'synthetic contact changed: reload' } } : originalRpc(name, args));
+ render(<StudentDetail />);
+ fireEvent.click(await screen.findByRole('button', { name: 'Editar aluno' }));
+ fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /Salvar/ }));
+ await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Erro ao salvar', description: expect.stringContaining('Recarregue o aluno') })));
+ expect(screen.getByRole('dialog')).toBeInTheDocument();
+ expect(mocks.invoke).not.toHaveBeenCalled();
+ expect(mocks.writes).toEqual([]);
+});
+
+
+it('changing the visible contact cannot save without identity confirmation', async () => {
+ render(<StudentDetail />);
+ fireEvent.click(await screen.findByRole('button', { name: 'Editar aluno' }));
+ const dialog = await screen.findByRole('dialog');
+ fireEvent.change(within(dialog).getByLabelText('WhatsApp'), { target: { value: '48988880002' } });
+ fireEvent.click(within(dialog).getByRole('button', { name: /Salvar/ }));
+ await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Confirme o contato' })));
+ expect(mocks.rpc.mock.calls.some(([name]) => name === 'update_student_contact')).toBe(false);
+ expect(mocks.invoke).not.toHaveBeenCalled();
+});
+it('metadata edit does not silently reconcile legacy divergence', async () => {
+ mocks.studentPhone = '48988880002';
+ const originalRpc = mocks.rpc.getMockImplementation()!;
+ mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => name === 'update_student_contact' ? { data: null, error: { message: 'synthetic stop after capture' } } : originalRpc(name, args));
+ render(<StudentDetail />);
+ fireEvent.click(await screen.findByRole('button', { name: 'Editar aluno' }));
+ fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /Salvar/ }));
+ await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('update_student_contact', expect.objectContaining({ _confirmed_contact: false, _contact: '48999990001', _expected_phone: '48988880002' })));
+ expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+
+it.each(['554899990001', '5548999990001'])('accepts BR9 semantic contact ACK %s only when both stored mirrors agree', async stored => {
+ mocks.studentPhone = '48988880002';
+ const originalRpc = mocks.rpc.getMockImplementation()!;
+ mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => name === 'update_student_contact' ? { data: { id: 'student-a', company_id: 'company-a', updated_at: '2026-10-29T12:00:00Z', phone: stored, whatsapp: stored, country_code: 'BR', ...(args._profile_patch as object) }, error: null } : originalRpc(name, args));
+ mocks.invoke.mockResolvedValue({ data: { success: true }, error: null });
+ render(<StudentDetail />);
+ fireEvent.click(await screen.findByRole('button', { name: 'Editar aluno' }));
+ const dialog = await screen.findByRole('dialog');
+ fireEvent.click(within(dialog).getByRole('checkbox', { name: /Conferi a identidade/ }));
+ fireEvent.click(within(dialog).getByRole('button', { name: /Salvar/ }));
+ await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Dados atualizados!' })));
+ expect(mocks.rpc).toHaveBeenCalledWith('update_student_contact', expect.objectContaining({ _contact: '(48) 99999-0001', _confirmed_contact: true }));
+});
+
+
+it.each([{ phone: '5548999990001', whatsapp: '554899990001' }, { phone: '5548988880002', whatsapp: '5548988880002' }])('rejects a BR9 ACK without identical mirrors or matching recipient %j', async returned => {
+ mocks.studentPhone = '48988880002';
+ const originalRpc = mocks.rpc.getMockImplementation()!;
+ mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => name === 'update_student_contact' ? { data: { id: 'student-a', company_id: 'company-a', updated_at: '2026-10-29T12:00:00Z', ...returned, country_code: 'BR', ...(args._profile_patch as object) }, error: null } : originalRpc(name, args));
+ render(<StudentDetail />);
+ fireEvent.click(await screen.findByRole('button', { name: 'Editar aluno' }));
+ const dialog = await screen.findByRole('dialog');
+ fireEvent.click(within(dialog).getByRole('checkbox', { name: /Conferi a identidade/ }));
+ fireEvent.click(within(dialog).getByRole('button', { name: /Salvar/ }));
+ await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Erro ao salvar', description: expect.stringContaining('não confirmou') })));
+ expect(mocks.invoke).not.toHaveBeenCalled();
+});
+
+
+it('reopens a persisted full Brazilian WhatsApp without truncating or changing it on metadata save', async () => {
+ mocks.studentPhone = '5548999990001'; mocks.studentWhatsApp = '5548999990001';
+ const originalRpc = mocks.rpc.getMockImplementation()!;
+ mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => name === 'update_student_contact' ? { data: null, error: { code: 'PT409', message: 'contact_version_conflict' } } : originalRpc(name, args));
+ render(<StudentDetail />);
+ fireEvent.click(await screen.findByRole('button', { name: 'Editar aluno' }));
+ const dialog = await screen.findByRole('dialog');
+ expect(within(dialog).getByLabelText('WhatsApp')).toHaveValue('+5548999990001');
+ expect(within(dialog).queryByRole('checkbox', { name: /Conferi a identidade/ })).not.toBeInTheDocument();
+ fireEvent.click(within(dialog).getByRole('button', { name: /Salvar/ }));
+ await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('update_student_contact', expect.objectContaining({ _contact: '5548999990001', _confirmed_contact: false })));
+ await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining('Recarregue o aluno') })));
+});
+
+
+it('distinguishes an acknowledged profile save from an unconfirmed billing synchronization', async () => {
+ const originalRpc = mocks.rpc.getMockImplementation()!;
+ mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => name === 'update_student_contact' ? { data: { id: 'student-a', company_id: 'company-a', updated_at: '2026-10-29T12:00:00Z', phone: '48999990001', whatsapp: '48999990001', country_code: 'BR', ...(args._profile_patch as object) }, error: null } : originalRpc(name, args));
+ mocks.invoke.mockResolvedValue({ data: { error: 'synthetic provider unavailable' }, error: null });
+ render(<StudentDetail />);
+ fireEvent.click(await screen.findByRole('button', { name: 'Editar aluno' }));
+ fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /Salvar/ }));
+ await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Erro ao salvar', description: expect.stringContaining('Cadastro salvo; sincronização de cobrança não confirmada.') })));
+ expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Dados atualizados!' }));
+});
+
+
+it.each([false, true])('preserves legacy NULL country unless contact confirmation explicitly uses labeled BR (%s)', async confirm => {
+ mocks.studentCountry = null;
+ const originalRpc = mocks.rpc.getMockImplementation()!;
+ mocks.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => name === 'update_student_contact' ? { data: null, error: { code: 'PT409', message: 'contact_version_conflict' } } : originalRpc(name, args));
+ render(<StudentDetail />);
+ fireEvent.click(await screen.findByRole('button', { name: 'Editar aluno' }));
+ const dialog = await screen.findByRole('dialog');
+ const confirmation = within(dialog).getByRole('checkbox', { name: /País desta confirmação: Brasil/ });
+ if (confirm) fireEvent.click(confirmation);
+ fireEvent.click(within(dialog).getByRole('button', { name: /Salvar/ }));
+ await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('update_student_contact', expect.objectContaining({ _country_code: confirm ? 'BR' : null, _confirmed_contact: confirm })));
 });

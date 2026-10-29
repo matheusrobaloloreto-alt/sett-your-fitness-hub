@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,8 @@ import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { preRegistrationUrl } from "@/lib/publicFlowLinks";
 import { fiscalRegistrationValidation, isBrazilianCountry, normalizeCountryCode, normalizeFiscalDocument } from "@/lib/fiscalRegistration";
 import { isInfluencerPlan } from "@/lib/influencerPlan";
+
+import { generateStudentLoginAccess, studentCanonicalContact } from "@/lib/studentChat";
 
 interface Student {
   id: string;
@@ -79,12 +81,6 @@ const statusColors: Record<string, string> = {
 };
 
 const emptyForm = { full_name: "", email: "", phone: "", status: "interested", notes: "", birth_date: "", cpf: "", cep: "", address: "", address_number: "", neighborhood: "", city: "", state: "", whatsapp: "", country_code: "BR" };
-
-type StudentCredentialsResponse = {
-  email?: unknown;
-  password?: unknown;
-  error?: unknown;
-};
 
 const normalizeEmail = (value: string | null | undefined) => (value || "").trim().toLowerCase();
 const onlyDigits = (value: string | null | undefined) => (value || "").replace(/\D/g, "");
@@ -415,6 +411,9 @@ export default function StudentsManager() {
     loadData();
   };
 
+  const accessBusy = useRef(false);
+  const accessCompanyRef = useRef(effectiveCompanyId);
+  accessCompanyRef.current = effectiveCompanyId;
   const studentLoginUrl = `${window.location.origin}/auth?as=student`;
 
   const copyText = async (text: string) => {
@@ -426,10 +425,10 @@ export default function StudentsManager() {
       ta.style.position = "fixed";
       ta.style.left = "-9999px";
       document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
+      let copied = false;
+      try { ta.focus(); ta.select(); copied = document.execCommand("copy"); }
+      finally { document.body.removeChild(ta); }
+      if (!copied) throw new Error("Não foi possível copiar o acesso. A senha já foi gerada; confira o cadastro antes de tentar novamente.");
     }
   };
 
@@ -451,34 +450,34 @@ export default function StudentsManager() {
       return null;
     }
 
-    const { data, error } = await supabase.functions.invoke<StudentCredentialsResponse>("student-login-credentials", {
-      body: { student_id: student.id },
-    });
-    if (error || data?.error) {
-      throw new Error(errorMessage(data?.error || error, "Falha ao gerar acesso"));
-    }
-    if (typeof data?.email !== "string" || typeof data?.password !== "string") {
-      throw new Error("Resposta inválida ao gerar acesso");
-    }
-    return { email: data.email, password: data.password };
+    const contact = studentCanonicalContact(student);
+    if (!contact.ready) throw new Error(contact.reason);
+    if (!effectiveCompanyId || student.company_id !== effectiveCompanyId) throw new Error("Empresa do aluno não confirmada.");
+    return generateStudentLoginAccess({ studentId: student.id, companyId: effectiveCompanyId,
+      remoteJid: `${contact.whatsapp}@s.whatsapp.net` });
   };
 
   const handleGenerateStudentAccess = async (student: Student) => {
+    if (accessBusy.current) return;
+    accessBusy.current = true;
+    const accessCompany = effectiveCompanyId;
     setAccessLoadingId(student.id);
     try {
       const creds = await requestStudentCredentials(student);
-      if (!creds) return;
+      if (!creds || accessCompanyRef.current !== accessCompany) return;
       await copyText(buildLoginMessage(student, creds));
       toast({ title: "Login copiado!", description: "Email, senha e link prontos pra colar no chat do aluno." });
       await loadData();
     } catch (err: unknown) {
       toast({ title: "Erro ao gerar acesso", description: errorMessage(err, "Tente novamente."), variant: "destructive" });
     } finally {
+      accessBusy.current = false;
       setAccessLoadingId(null);
     }
   };
 
   const handleGenerateBatchAccess = async () => {
+    if (accessBusy.current) return;
     const targets = activeWithoutAccessWithEmail;
     if (targets.length === 0) {
       toast({ title: "Nenhum aluno elegível", description: "Os ativos sem acesso precisam ter e-mail cadastrado." });
@@ -491,10 +490,13 @@ export default function StudentsManager() {
     );
     if (!proceed) return;
 
+    accessBusy.current = true;
     setBatchAccessLoading(true);
+    const accessCompany = effectiveCompanyId;
     const messages: string[] = [];
     const failures: string[] = [];
     for (const student of targets) {
+      if (accessCompanyRef.current !== accessCompany) break;
       setAccessLoadingId(student.id);
       try {
         const creds = await requestStudentCredentials(student);
@@ -505,8 +507,20 @@ export default function StudentsManager() {
     }
     setAccessLoadingId(null);
 
+    if (accessCompanyRef.current !== accessCompany) {
+      accessBusy.current = false;
+      setBatchAccessLoading(false);
+      return;
+    }
     if (messages.length > 0) {
-      await copyText(messages.join("\n\n---\n\n"));
+      try {
+        await copyText(messages.join("\n\n---\n\n"));
+      } catch (err) {
+        toast({ title: "Acessos gerados, cópia não confirmada", description: errorMessage(err, "Falha ao copiar."), variant: "destructive" });
+        accessBusy.current = false;
+        setBatchAccessLoading(false);
+        return;
+      }
     }
     if (failures.length > 0) {
       toast({
@@ -517,6 +531,7 @@ export default function StudentsManager() {
     } else {
       toast({ title: "Acessos gerados!", description: `${messages.length} mensagem(ns) copiadas para envio.` });
     }
+    accessBusy.current = false;
     setBatchAccessLoading(false);
     await loadData();
   };
@@ -638,7 +653,7 @@ export default function StudentsManager() {
                         variant="ghost"
                         size="icon"
                         aria-label={`Gerar login de ${s.full_name}`}
-                        title={s.email ? `Gerar login de ${s.full_name}` : "Cadastre e-mail para gerar login"}
+                        title={s.email ? `Gerar/redefinir senha de ${s.full_name}` : "Cadastre e-mail para gerar login"}
                         disabled={batchAccessLoading || accessLoadingId === s.id || !s.email}
                         onClick={() => handleGenerateStudentAccess(s)}
                       >

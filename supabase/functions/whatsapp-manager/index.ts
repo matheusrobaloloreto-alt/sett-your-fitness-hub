@@ -1,3 +1,4 @@
+import { completeStudentLoginClaim, claimStudentLoginGeneration, issueStudentLoginToken, loadStudentLoginSnapshot, LoginPreflightError, verifyStudentLoginToken } from "../_shared/student-login-credentials.ts";
 import { dispatchMessageSequence } from "../_shared/message-sequence.ts";
 import { validateRenderedMessageParts, type MessagePart } from "../_shared/company-product-settings.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -52,7 +53,7 @@ const corsHeaders = {
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 }
 
@@ -291,7 +292,7 @@ Deno.serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
     const { data: claimsData, error: claimsError } = await anonClient.auth
       .getClaims(token);
-    if (claimsError || !claimsData?.claims) {
+    if (claimsError || !claimsData?.claims || claimsData.claims.is_anonymous === true) {
       return json({ error: "Unauthorized" }, 401);
     }
 
@@ -325,6 +326,9 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const { action, companyId: bodyCompanyId } = body;
+    if (body.loginAccess != null && action !== "send-message") {
+      throw new LoginPreflightError("student_login_preflight_required",400);
+    }
 
     // Restrict instance/admin actions to admin/master only
     const adminOnlyActions = new Set([
@@ -370,7 +374,16 @@ Deno.serve(async (req) => {
     if (!hasMaster && resolvedCompanyId !== userCompanyId) {
       return json({ error: "Forbidden: company mismatch" }, 403);
     }
-    await requireCompanyFeature(adminClient, resolvedCompanyId, "hasWhatsApp");
+    // Access/contact preflight has no messaging effect and remains available for
+    // explicit copy/generation even without a WhatsApp provider/entitlement.
+    if(action !== "preflight-student-login") {
+      await requireCompanyFeature(adminClient, resolvedCompanyId, "hasWhatsApp");
+    }
+    if((action === "preflight-student-login" || body.loginAccess != null) && !hasMaster) {
+      const member=await adminClient.rpc("is_company_staff",{_user_id:userId,_company_id:resolvedCompanyId});
+      if(member.error)throw new LoginPreflightError("student_login_preflight_unavailable",503);
+      if(member.data!==true)return json({error:"Forbidden"},403);
+    }
 
     // SECURITY (IDOR): when a chatId is supplied, ensure it belongs to this company
     // before any read/update/delete touches it (service-role bypasses RLS).
@@ -426,6 +439,20 @@ Deno.serve(async (req) => {
         student,
       });
     };
+
+    // This action is read-only and deliberately precedes all provider configuration,
+    // connection probes, message writes and credential generation.
+    if (action === "preflight-student-login") {
+      const snapshot = await loadStudentLoginSnapshot(adminClient, {
+        companyId: resolvedCompanyId, studentId: body.studentId,
+        chatId: body.chatId ?? null, remoteJid: body.remoteJid ?? null,
+      });
+      const issued = await issueStudentLoginToken(snapshot, userId,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "");
+      return json({ready:true,companyId:snapshot.companyId,studentId:snapshot.studentId,
+        chatId:snapshot.chatId,remoteJid:snapshot.remoteJid,stateFingerprint:snapshot.stateHash,
+        preflightToken:issued.token,expiresAt:issued.expiresAt});
+    }
 
     // Read/unread is application state and must not depend on the external
     // WhatsApp provider being online. The service-role update is safe only
@@ -1087,6 +1114,24 @@ Deno.serve(async (req) => {
         };
       }
 
+      let loginSendClaim: {snapshot:Awaited<ReturnType<typeof loadStudentLoginSnapshot>>;state:Awaited<ReturnType<typeof verifyStudentLoginToken>>}|null=null;
+      if (body.loginAccess != null) {
+        if (!body.loginAccess || typeof body.loginAccess !== "object" ||
+            !studentId || body.loginAccess.studentId !== studentId) {
+          throw new LoginPreflightError("student_login_preflight_required",400);
+        }
+        const current = await loadStudentLoginSnapshot(adminClient, {
+          companyId: resolvedCompanyId, studentId, chatId:chatId??null, remoteJid: effectiveRemoteJid,
+        });
+        const sendState = await verifyStudentLoginToken(body.loginAccess.preflightToken, current, userId,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "", "send");
+        if (current.chat && current.chat.instance_id !== instanceRow?.id) {
+          throw new LoginPreflightError("student_login_preflight_stale");
+        }
+        await claimStudentLoginGeneration(adminClient,current,sendState);
+        loginSendClaim={snapshot:current,state:sendState};
+      }
+
       const sendRes = await fetch(
         `${evoUrl}/message/sendText/${instanceName}`,
         {
@@ -1116,6 +1161,10 @@ Deno.serve(async (req) => {
 
       const sendData = await sendRes.json();
       const externalMessageId = extractExternalMessageId(sendData);
+      if(loginSendClaim) {
+        if(!externalMessageId) throw new LoginPreflightError("student_login_send_uncertain",503);
+        await completeStudentLoginClaim(adminClient,loginSendClaim.snapshot,loginSendClaim.state);
+      }
       let persistenceWarning = false;
 
       let persistedChatId = chatId || null;
@@ -2350,6 +2399,7 @@ Deno.serve(async (req) => {
 
     return json({ error: "Unknown action" }, 400);
   } catch (err) {
+    if (err instanceof LoginPreflightError) return json(verifiedRecipientError(err.code),err.status);
     if (err instanceof HttpError) return json({ error: err.message }, err.status);
     console.error("whatsapp-manager error:", err);
     return json({ error: "Internal error", details: String(err) }, 500);

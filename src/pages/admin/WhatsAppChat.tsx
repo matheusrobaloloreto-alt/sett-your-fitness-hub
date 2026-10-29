@@ -67,8 +67,8 @@ import {
   normalizeEditedMessageText,
   shouldApplyWhatsAppMessageEditResult,
 } from "@/lib/whatsappMessageEdit";
-import type { CompanyEventDraft, WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
-import { manualSequencePayload, manualSequenceResult, resolveWhatsAppChatRequest } from "@/lib/whatsappChatRequest";
+import { consumeTransientLoginNavigation, type CompanyEventDraft, type WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
+import { manualSequencePayload, manualSequenceResult, resolveWhatsAppChatRequest, studentLoginSendPayload, type StudentLoginDraft, type StudentLoginTarget } from "@/lib/whatsappChatRequest";
 import { prepareEmojiWhatsAppSticker, prepareWhatsAppSticker, QUICK_STICKER_EMOJIS } from "@/lib/whatsappSticker";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 
@@ -466,6 +466,31 @@ export default function WhatsAppChat({
   useEffect(() => { chatsRef.current = chats; }, [chats]);
   const historySyncAttemptsRef = useRef(new Set<string>());
   const [newMessage, setNewMessage] = useState("");
+  const loginDraftRef = useRef<StudentLoginDraft | null>(null);
+  const loginSendBusyRef = useRef(false);
+  useEffect(() => () => { loginDraftRef.current = null; }, []);
+  const loginOwnerRef = useRef<string | undefined>(undefined);
+  const loginTargetRef = useRef<StudentLoginTarget>({ companyId: null, studentId: null, chatId: null, remoteJid: '' });
+  const loginChat = chats.find(chat => chat.id === selectedChatId && chat.company_id === effectiveCompanyId);
+  loginTargetRef.current = { companyId: effectiveCompanyId, studentId: loginChat?.student_id || draftRecipient?.studentId || null,
+    chatId: selectedChatId, remoteJid: loginChat?.remote_jid || (draftRecipient ? `${draftRecipient.remoteJid}@s.whatsapp.net` : '') };
+  const invalidateLoginDraft = useCallback(() => {
+    const previous = loginDraftRef.current;
+    loginDraftRef.current = null;
+    if (previous) {
+      templateDraftsRef.current.delete(`${previous.companyId}:${previous.chatId}`);
+      setNewMessage(''); setReplyingTo(null);
+    }
+  }, []);
+  useEffect(() => { setPendingNavigationRequest(null); invalidateLoginDraft(); }, [user?.id, invalidateLoginDraft]);
+  useEffect(() => {
+    if (!loginDraftRef.current) return;
+    try {
+      if (loginOwnerRef.current !== user?.id) throw new Error('scope changed');
+      studentLoginSendPayload(loginDraftRef.current, loginTargetRef.current, 'scope check');
+    } catch { invalidateLoginDraft(); }
+  }, [effectiveCompanyId, user?.id, selectedChatId, draftRecipient, chats, invalidateLoginDraft]);
+
   const [sending, setSending] = useState(false);
   const [editingMessage, setEditingMessage] = useState<{
     message: Message;
@@ -542,7 +567,7 @@ export default function WhatsAppChat({
   }, []);
   useEffect(() => {
     const key = `${effectiveCompanyId}:${selectedChatId}`;
-    if (sending || editingMessage || visibleTemplateDraftKeyRef.current !== key || !templateDraftsRef.current.has(key)) return;
+    if (loginDraftRef.current || sending || editingMessage || visibleTemplateDraftKeyRef.current !== key || !templateDraftsRef.current.has(key)) return;
     if (!newMessage.trim() && templateAttachments.length === 0) {
       templateDraftsRef.current.delete(key);
     } else {
@@ -1218,6 +1243,8 @@ export default function WhatsAppChat({
   };
 
   useEffect(() => {
+    invalidateLoginDraft();
+    setPendingNavigationRequest(null);
     studentDataRequestRef.current += 1;
     chatsLoadedRef.current = false;
     setChatsLoaded(false);
@@ -1225,7 +1252,7 @@ export default function WhatsAppChat({
     setSelectedChatId(null);
     setDraftRecipient(null);
     historySyncAttemptsRef.current.clear();
-  }, [effectiveCompanyId]);
+  }, [effectiveCompanyId, invalidateLoginDraft]);
   useEffect(() => { loadChats(); loadSenderNames(); loadTemplates(); loadCategories(); loadAvailableLabels(); loadTeamMembers(); }, [loadChats, loadSenderNames, loadTemplates, loadCategories, loadAvailableLabels, loadTeamMembers]);
   useEffect(() => () => {
     if (chatRefreshTimerRef.current) clearTimeout(chatRefreshTimerRef.current);
@@ -1258,22 +1285,34 @@ export default function WhatsAppChat({
       navigationState.phone ?? "",
       navigationState.prefillMessage ?? "",
       navigationState.eventDraft?.draftId ?? "",
+      navigationState.loginDraftId ?? navigationState.loginAccess?.preflightToken ?? "",
     ].join("|"));
     if (consumedNavigationRequestRef.current === requestKey) return;
     consumedNavigationRequestRef.current = requestKey;
-    setPendingNavigationRequest(navigationState);
+    invalidateLoginDraft();
+    let next = navigationState;
+    try { if (navigationState.loginDraftId) next = consumeTransientLoginNavigation(navigationState.loginDraftId); }
+    catch (error) { setPendingNavigationRequest(null); setNewMessage(''); toast.error(getErrorMessage(error, 'Rascunho de acesso indisponível.')); return; }
+    loginOwnerRef.current = user?.id;
+    setPendingNavigationRequest(next);
     setEditingMessage(null);
     setEditingSaving(false);
     setReplyingTo(null);
     setShowTemplates(false);
-    setNewMessage(navigationState.eventDraft ? '' : navigationState.prefillMessage ?? "");
-  }, [navigationState]);
+    setNewMessage(next.eventDraft || next.loginAccess ? '' : next.prefillMessage ?? "");
+  }, [navigationState, invalidateLoginDraft, user?.id]);
   // Pré-seleciona uma conversa existente ou prepara uma nova conversa interna.
   useEffect(() => {
     if (!chatsLoaded || !pendingNavigationRequest) return;
+    if (pendingNavigationRequest.loginAccess && loginOwnerRef.current !== user?.id) {
+      setPendingNavigationRequest(null); setNewMessage(''); return;
+    }
     let resolved;
     try { resolved = resolveWhatsAppChatRequest(chats, pendingNavigationRequest, effectiveCompanyId); }
-    catch { toast.error('Não foi possível confirmar a empresa e o destinatário do rascunho.'); setPendingNavigationRequest(null); return; }
+    catch { invalidateLoginDraft(); setNewMessage(''); toast.error(pendingNavigationRequest.loginAccess ? 'A conversa ou o contato mudou. Confira o aluno e gere o acesso novamente por ação explícita no perfil.' : 'Não foi possível confirmar a empresa e o destinatário do rascunho.'); setPendingNavigationRequest(null); return; }
+    loginDraftRef.current = resolved.loginDraft || null;
+    loginOwnerRef.current = user?.id;
+    if (resolved.loginDraft) templateDraftsRef.current.delete(`${resolved.loginDraft.companyId}:${resolved.loginDraft.chatId}`);
     setSelectedChatId(resolved.chatId);
     setDraftRecipient(resolved.draftRecipient);
     setNewMessage(resolved.eventDraft ? '' : resolved.prefillMessage);
@@ -1289,19 +1328,19 @@ export default function WhatsAppChat({
       }]);
     }
     setPendingNavigationRequest(null);
-  }, [chats, chatsLoaded, pendingNavigationRequest, effectiveCompanyId, eventDraftOwner, setEventDrafts]);
+  }, [chats, chatsLoaded, pendingNavigationRequest, effectiveCompanyId, eventDraftOwner, setEventDrafts, invalidateLoginDraft, user?.id]);
   useEffect(() => {
     setMediaFallbacks({});
     setFailedMediaFetches({});
     const key = `${effectiveCompanyId}:${selectedChatId}`;
     const previousKey = visibleTemplateDraftKeyRef.current;
     visibleTemplateDraftKeyRef.current = key;
-    const draft = templateDraftsRef.current.get(key);
+    const draft = loginDraftRef.current ? undefined : templateDraftsRef.current.get(key);
     setTemplateAttachments(draft?.attachments || []);
     if (draft) {
       setNewMessage(draft.text);
       setReplyingTo(draft.reply);
-    } else if (templateDraftsRef.current.has(previousKey)) {
+    } else if (!loginDraftRef.current && templateDraftsRef.current.has(previousKey)) {
       setNewMessage("");
       setReplyingTo(null);
     }
@@ -1383,9 +1422,10 @@ export default function WhatsAppChat({
   }, [effectiveCompanyId, scheduleChatsRefresh]);
 
   const handleSend = async () => {
-    if (activeEventDraft || sequenceSendingRef.current) return;
+    if (activeEventDraft || sequenceSendingRef.current || loginSendBusyRef.current) return;
     if (sending || sendingAttachment || templateSendingRef.current) return;
     if (templateAttachments.length > 0) {
+      if (loginDraftRef.current) { toast.error('Envie o acesso como texto protegido, sem anexos ou templates.'); return; }
       await handleSendTemplateDraft();
       return;
     }
@@ -1393,6 +1433,11 @@ export default function WhatsAppChat({
     const chat = chats.find((c) => c.id === selectedChatId);
     if (!chat && !draftRecipient) return;
     const content = newMessage.trim();
+    const protectedDraft = loginDraftRef.current;
+    let protectedPayload: ReturnType<typeof studentLoginSendPayload> | null = null;
+    try { if (protectedDraft) protectedPayload = studentLoginSendPayload(protectedDraft, loginTargetRef.current, content); }
+    catch (error) { invalidateLoginDraft(); toast.error(getErrorMessage(error, 'Confira novamente o acesso no perfil.')); return; }
+    if (protectedDraft) loginSendBusyRef.current = true;
     const reply = replyingTo;
     const tempId = `temp-${Date.now()}`;
     if (selectedChatId) {
@@ -1426,6 +1471,10 @@ export default function WhatsAppChat({
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Sessão expirada");
+      if (protectedDraft) {
+        if (loginDraftRef.current !== protectedDraft || loginOwnerRef.current !== user?.id) throw new Error('O contexto do acesso mudou. Confira novamente o perfil.');
+        studentLoginSendPayload(protectedDraft, loginTargetRef.current, content);
+      }
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
@@ -1440,6 +1489,7 @@ export default function WhatsAppChat({
           chatId: selectedChatId || undefined,
           studentId: chat?.student_id || draftRecipient?.studentId || undefined,
           contactName: chat ? getContactName(chat) : draftRecipient?.contactName,
+          ...(protectedPayload || {}),
           ...(reply?.message_id_external ? {
             quotedMessageDbId: reply.id,
             quotedMessageId: reply.message_id_external,
@@ -1450,12 +1500,13 @@ export default function WhatsAppChat({
         }),
       });
       const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      if (!res.ok || (protectedDraft && (payload?.success !== true || !payload?.messageId))) {
         if (selectedChatId && shouldOfferWhatsAppRecipientReview(payload?.code)) {
           setRecipientReviewChatId(selectedChatId);
         }
-        throw new Error(payload?.error || "Erro ao enviar");
+        throw new Error(payload?.error || (protectedDraft ? "O envio do acesso não foi confirmado. Confira o histórico e gere um novo acesso explicitamente antes de tentar novamente." : "Erro ao enviar"));
       }
+      if (protectedDraft && loginDraftRef.current === protectedDraft) invalidateLoginDraft();
       if (payload?.message && selectedChatId) {
         setMessages((prev) => {
           const hydrated = prev.map((msg) => (msg.id === tempId ? payload.message as Message : msg));
@@ -1479,10 +1530,10 @@ export default function WhatsAppChat({
       }
     } catch (error: unknown) {
       if (selectedChatId) setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
-      setNewMessage(content);
-      setReplyingTo(reply);
+      if (protectedDraft) { if (loginDraftRef.current === protectedDraft) invalidateLoginDraft(); }
+      else { setNewMessage(content); setReplyingTo(reply); }
       toast.error(getErrorMessage(error, "Erro ao enviar mensagem"));
-    } finally { setSending(false); }
+    } finally { loginSendBusyRef.current = false; setSending(false); }
   };
 
   const cancelMessageEdit = () => {
@@ -1493,6 +1544,7 @@ export default function WhatsAppChat({
   };
 
   const beginMessageEdit = (msg: Message) => {
+    if (loginDraftRef.current) { toast.error("Conclua ou descarte o rascunho de acesso antes de editar mensagens."); return; }
     if (!selectedChatId || sending || sendingAttachment || isRecording) {
       toast.error("Conclua a ação atual antes de editar a mensagem.");
       return;
@@ -1649,6 +1701,7 @@ export default function WhatsAppChat({
   };
 
   const handleSendTemplateDraft = async () => {
+    if (loginDraftRef.current) return;
     const chat = chats.find((item) => item.id === selectedChatId);
     if (!chat || !effectiveCompanyId || sending || sendingAttachment || bulkSending || isRecording || templateSendingRef.current || editingMessage) return;
     const draftKey = `${effectiveCompanyId}:${chat.id}`;
@@ -1874,6 +1927,7 @@ export default function WhatsAppChat({
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (loginDraftRef.current) { toast.error("Envie o acesso como texto protegido, sem anexos."); return; }
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
@@ -1915,6 +1969,7 @@ export default function WhatsAppChat({
   };
 
   const handleComposerPaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (loginDraftRef.current) { event.preventDefault(); toast.error("Envie o acesso como texto protegido, sem anexos."); return; }
     const file = Array.from(event.clipboardData.files || [])[0];
     if (!file) return;
     event.preventDefault();
@@ -1961,6 +2016,7 @@ export default function WhatsAppChat({
 
   // ─── Audio Recording ───
   const startRecording = async () => {
+    if (loginDraftRef.current) { toast.error("Envie o acesso como texto protegido, sem anexos."); return; }
     if (sending || sendingAttachment || templateSendingRef.current) return;
     if (editingMessage) {
       toast.error("Cancele a edição antes de gravar um áudio.");
@@ -3007,6 +3063,7 @@ export default function WhatsAppChat({
                     <p className="text-xs">A mensagem só será enviada quando você confirmar abaixo.</p>
                   </div>
                 </div>
+                {loginDraftRef.current && <div role="status" className="p-2 text-xs">Rascunho de acesso protegido. Trocar o destino descarta este acesso. <Button type="button" variant="ghost" size="sm" onClick={invalidateLoginDraft}>Descartar acesso</Button></div>}
                 {eventSequenceReview}
                 <div className={cn("border-t p-2 sm:p-3", whatsappDark.border, whatsappDark.composer, activeEventDraft && "hidden", !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
                   <label className="mb-2 flex w-fit min-w-0 items-center gap-2 text-xs text-muted-foreground">
@@ -3474,6 +3531,7 @@ export default function WhatsAppChat({
                     </div>
                   </div>
                 )}
+                {loginDraftRef.current && <div role="status" className="p-2 text-xs">Rascunho de acesso protegido. Trocar o destino descarta este acesso. <Button type="button" variant="ghost" size="sm" onClick={invalidateLoginDraft}>Descartar acesso</Button></div>}
                 {eventSequenceReview}
                 <div data-testid="whatsapp-composer" className={cn("border-t p-2 sm:p-3", whatsappDark.border, whatsappDark.composer, activeEventDraft && "hidden", !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
                   <label className="mb-2 flex w-fit min-w-0 items-center gap-2 text-xs text-muted-foreground">
@@ -3591,6 +3649,7 @@ export default function WhatsAppChat({
                                     disabled={sending || sendingAttachment}
                                     className="w-full text-left px-3 py-2 hover:bg-muted/50 transition-colors border-b border-border last:border-b-0"
                                     onClick={() => {
+                                      if (loginDraftRef.current) { toast.error("Descarte o rascunho de acesso antes de usar templates."); return; }
                                       let attachments: MessageTemplateAttachment[];
                                       try { attachments = scopedMessageTemplateAttachments(t.attachments, effectiveCompanyId, t.id); }
                                       catch (error) { toast.error(getErrorMessage(error, "Anexos inválidos")); return; }

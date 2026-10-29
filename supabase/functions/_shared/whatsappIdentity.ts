@@ -31,7 +31,10 @@ export function normalizeWhatsAppPhoneKey(value: unknown): string | null {
   if (!digits) return null;
 
   if (isUnambiguousNorthAmericanE164(digits)) return digits;
-  if (hasExplicitNonBrazilianCountryCode(value) && digits.length >= 8 && digits.length <= 15) {
+  if (
+    hasExplicitNonBrazilianCountryCode(value) && digits.length >= 8 &&
+    digits.length <= 15
+  ) {
     return digits;
   }
 
@@ -146,38 +149,26 @@ export type VerifiedWhatsAppRecipient =
 
 function canonicalStudentDirectJid(
   student: WhatsAppStudentIdentity,
-  trustedChatRemoteJid?: unknown,
 ): VerifiedWhatsAppRecipient {
   const countryCode = String(student.country_code || "BR").trim().toUpperCase();
-  const trustedChat = rawPhoneCandidate(trustedChatRemoteJid);
-  const trustedChatDigits = trustedChat?.replace(/\D/g, "") || "";
   const directJids = new Set(
     [student.whatsapp, student.phone]
       .map((value) => {
-        let phoneKey = normalizeWhatsAppPhoneKey(value);
-        let providerConfirmedBareInternational = false;
-        let countryConfirmedBareInternational = false;
-        if (!phoneKey && /^[A-Z]{2}$/.test(countryCode) && countryCode !== "BR") {
-          const candidate = rawPhoneCandidate(value);
-          const digits = candidate?.replace(/\D/g, "") || "";
-          // Registration persists international destinations in E.164 digits,
-          // while country_code is stored separately. The explicit non-BR
-          // country therefore makes that otherwise ambiguous bare value safe
-          // to preserve for a new chat as well as an already linked chat.
-          countryConfirmedBareInternational = /^\d{8,15}$/.test(digits) &&
-            !digits.startsWith("0");
-          providerConfirmedBareInternational = Boolean(
-            countryConfirmedBareInternational &&
-              trustedChatDigits === digits &&
-              String(trustedChatRemoteJid || "").trim().endsWith(DIRECT_JID_SUFFIX),
-          );
-          if (countryConfirmedBareInternational) phoneKey = digits;
+        // The registration/contact contract stores full E.164 digits for an
+        // explicit non-BR country. Handle that contract BEFORE BR heuristics:
+        // a 12-digit PT/GB number (or a NANP/BR-shaped 11-digit number) can already
+        // have a truthy phoneKey, but must never acquire an extra 55 prefix.
+        // Preserve the stored destination; do not guess/add a national DDI.
+        if (/^[A-Z]{2}$/.test(countryCode) && countryCode !== "BR") {
+          const stored = rawPhoneCandidate(value)?.replace(/[\s().-]/g, "") ||
+            "";
+          if (!/^\+?[1-9]\d{7,14}$/.test(stored)) return null;
+          return `${stored.replace(/^\+/, "")}${DIRECT_JID_SUFFIX}`;
         }
+        const phoneKey = normalizeWhatsAppPhoneKey(value);
         if (!phoneKey) return null;
         const international = hasExplicitNonBrazilianCountryCode(value) ||
-          isUnambiguousNorthAmericanE164(phoneKey) ||
-          countryConfirmedBareInternational ||
-          providerConfirmedBareInternational;
+          isUnambiguousNorthAmericanE164(phoneKey);
         return `${
           international ? phoneKey : `55${phoneKey}`
         }${DIRECT_JID_SUFFIX}`;
@@ -195,6 +186,20 @@ function canonicalStudentDirectJid(
     remoteJid: [...directJids][0],
     studentId: student.id,
   };
+}
+
+// In a country-confirmed international identity, BR aliases must not make
+// e.g. 55 + a NANP number equal to that NANP number itself.
+function sameFullInternationalRecipient(
+  left: unknown,
+  right: unknown,
+): boolean {
+  const digits = (value: unknown) => {
+    const raw = rawPhoneCandidate(value)?.replace(/[\s().-]/g, "") || "";
+    return /^\+?[1-9]\d{7,14}$/.test(raw) ? raw.replace(/^\+/, "") : null;
+  };
+  const a = digits(left), b = digits(right);
+  return a !== null && b !== null && a === b;
 }
 
 /**
@@ -227,18 +232,23 @@ export function resolveVerifiedWhatsAppRecipient(args: {
     if (!args.student || args.student.id !== expectedStudentId) {
       return { ok: false, code: "whatsapp_student_not_found" };
     }
-    const canonical = canonicalStudentDirectJid(
-      args.student,
-      chatRemoteJid,
-    );
+    const canonical = canonicalStudentDirectJid(args.student);
     if (!canonical.ok) return canonical;
+    const country = String(args.student.country_code || "BR").trim()
+      .toUpperCase();
+    const compare = (/^[A-Z]{2}$/.test(country) && country !== "BR") ||
+        [args.student.whatsapp, args.student.phone].some(
+          hasExplicitNonBrazilianCountryCode,
+        )
+      ? sameFullInternationalRecipient
+      : sameWhatsAppRecipient;
     if (
       chatRemoteJid &&
-      !sameWhatsAppRecipient(chatRemoteJid, canonical.remoteJid)
+      !compare(chatRemoteJid, canonical.remoteJid)
     ) {
       return { ok: false, code: "whatsapp_stored_recipient_mismatch" };
     }
-    if (!sameWhatsAppRecipient(clientRemoteJid, canonical.remoteJid)) {
+    if (!compare(clientRemoteJid, canonical.remoteJid)) {
       return { ok: false, code: "whatsapp_recipient_mismatch" };
     }
     // A direct JID persisted from the provider is the routable identity. Once

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  requestWhatsAppChatPanel,
+  requestWhatsAppChatPanel, transientLoginNavigation, consumeTransientLoginNavigation,
   WHATSAPP_CHAT_PANEL_EVENT,
   type WhatsAppChatPanelRequest,
 } from "./whatsappChatPanel";
@@ -37,7 +37,7 @@ describe("persistent WhatsApp panel requests", () => {
     expect(routesSource).toContain('path="/coordinator/whatsapp-chat" element={<FeatureRoute allowedRoles={["coordinator"]} requiredFeature="hasWhatsApp" requiredModule="whatsapp"><WhatsAppChatRoute fallbackPath="/coordinator" /></FeatureRoute>}');
     expect(routesSource).toContain('path="/trainer/whatsapp-chat" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasWhatsApp" requiredModule="whatsapp"><WhatsAppChatRoute fallbackPath="/trainer" /></FeatureRoute>}');
     expect(chatSource).toContain("consumedNavigationRequestRef");
-    expect(chatSource).toContain("setPendingNavigationRequest(navigationState)");
+    expect(chatSource).toContain("setPendingNavigationRequest(next)");
     expect(chatSource).toContain("resolveWhatsAppChatRequest(chats, pendingNavigationRequest, effectiveCompanyId)");
   });
 
@@ -46,4 +46,14 @@ describe("persistent WhatsApp panel requests", () => {
     expect(panelSource).toContain("!w-full !max-w-none");
     expect(panelSource).toContain("sm:!w-[min(96vw,1100px)] sm:!max-w-none");
   });
+});
+
+
+it('keeps passwords and proofs out of route history, consuming only a transient handle once', () => {
+ const request = { companyId: 'company-a', studentId: 'student-a', phone: '5548999990001', prefillMessage: 'synthetic-password', loginAccess: { studentId: 'student-a', preflightToken: 'synthetic-signed-proof' } };
+ const navigation = transientLoginNavigation(request);
+ expect(JSON.stringify(navigation)).not.toContain('synthetic-password');
+ expect(JSON.stringify(navigation)).not.toContain('synthetic-signed-proof');
+ expect(consumeTransientLoginNavigation(navigation.loginDraftId!)).toEqual(request);
+ expect(() => consumeTransientLoginNavigation(navigation.loginDraftId!)).toThrow('expirou');
 });

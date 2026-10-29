@@ -194,3 +194,57 @@ it("keeps a failed directory closed instead of falling back to globally queried 
   expect(mocks.from).not.toHaveBeenCalledWith("user_roles");
   expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Erro ao carregar equipe", description: "directory denied" }));
 });
+
+
+describe('StudentsManager explicit access generation', () => {
+  const ready = () => ({ ready: true, companyId: 'company-a', studentId: 'student-a', chatId: null,
+    remoteJid: '351912345678@s.whatsapp.net', preflightToken: 'synthetic-preflight', stateFingerprint: 'snapshot', expiresAt: new Date(Date.now() + 120000).toISOString() });
+  beforeEach(() => {
+    mocks.rows = [{ ...fixture(), user_id: null, whatsapp: '+351912345678', phone: '+351912345678' }];
+    mocks.invoke.mockReset();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
+  });
+  it('blocked read-only preflight never reaches credentials or clipboard', async () => {
+    mocks.invoke.mockResolvedValue({ data: { error: 'whatsapp_student_phone_ambiguous' }, error: null });
+    render(<StudentsManager />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Gerar login de Fixture Student' }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' })));
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    expect(mocks.invoke).toHaveBeenCalledWith('whatsapp-manager', expect.objectContaining({ body: expect.objectContaining({ action: 'preflight-student-login' }) }));
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+  });
+  it('explicit generation uses the verified token and copies only acknowledged credentials', async () => {
+    mocks.invoke.mockImplementation(async (name: string) => ({ data: name === 'whatsapp-manager' ? ready() : {
+      ...ready(), email: 'fixture@example.invalid', password: 'synthetic-only', loginSendToken: 'synthetic-send', stateFingerprint: 'post-generation' }, error: null }));
+    render(<StudentsManager />);
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole('button', { name: 'Gerar login de Fixture Student' }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+    expect(mocks.invoke.mock.calls.map(([name]) => name)).toEqual(['whatsapp-manager', 'student-login-credentials']);
+    expect(mocks.invoke.mock.calls[1][1].body).toMatchObject({ action: 'generate-login-credentials', student_id: 'student-a', company_id: 'company-a', preflight_token: 'synthetic-preflight' });
+  });
+  it('does not generate or copy from a missing generation acknowledgement', async () => {
+    mocks.invoke.mockImplementation(async (name: string) => ({ data: name === 'whatsapp-manager' ? ready() : { email: 'fixture@example.invalid', password: 'synthetic-only' }, error: null }));
+    render(<StudentsManager />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Gerar login de Fixture Student' }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' })));
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+  });
+  it('legacy divergent contact blocks generation before any backend request', async () => {
+    mocks.rows[0].phone = '+351923456789';
+    render(<StudentsManager />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Gerar login de Fixture Student' }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining('Contatos legados divergentes') })));
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+});
+
+
+it('batch access preflights each student and never generates from blocked preflight', async () => {
+ mocks.rows = [{ ...fixture(), user_id: null, whatsapp: '+351912345678', phone: '+351912345678' }];
+ mocks.invoke.mockReset().mockResolvedValue({ data: { error: 'synthetic blocked preflight' }, error: null });
+ render(<StudentsManager />);
+ fireEvent.click(await screen.findByRole('button', { name: 'Gerar 1 acessos' }));
+ await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: '0 acesso(s) gerado(s), 1 falha(s)' })));
+ expect(mocks.invoke.mock.calls.map(([name]) => name)).toEqual(['whatsapp-manager']);
+});
