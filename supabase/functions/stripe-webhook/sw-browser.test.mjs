@@ -58,11 +58,11 @@ test("Chromium: production SW preserves healthy shell across 503/offline and act
     assert.equal(await page.evaluate(() => window.syntheticShell), true);
     const status = await page.evaluate(async () => {
       const names = await caches.keys();
-      const cache = await caches.open("sett-cache-v13");
+      const cache = await caches.open("sett-cache-v14");
       return { names, status: (await cache.match("/"))?.status };
     });
     assert.equal(status.status, 200);
-    assert.ok(status.names.includes("sett-cache-v13"));
+    assert.ok(status.names.includes("sett-cache-v14"));
   } finally {
     if (browser) await browser.close();
     await new Promise((resolve) => server.close(resolve));

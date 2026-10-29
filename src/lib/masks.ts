@@ -26,7 +26,17 @@ export function formatPhone(v: string) {
 }
 
 export function formatPhoneForCountry(v: string, countryCode: string | null | undefined) {
-  if (String(countryCode || "BR").toUpperCase() === "BR") return formatPhone(v);
+  if (String(countryCode || "BR").toUpperCase() === "BR") {
+    const input = v.trimStart();
+    if (input.startsWith("+")) return formatPhone(input);
+    const digits = input.replace(/\D/g, "");
+    // Remove the country code only from a complete Brazilian E.164 number.
+    // A national number whose DDD is 55 must retain its area code.
+    const fullBrazilian = /^55\d{10,11}$/.test(digits);
+    const national = fullBrazilian ? digits.slice(2) : digits;
+    if (national.length === 10) return `(${national.slice(0, 2)}) ${national.slice(2, 6)}-${national.slice(6)}`;
+    return formatPhone(national);
+  }
   const input = v.trimStart();
   const digits = input.replace(/\D/g, "").slice(0, 15);
   return input.startsWith("+") ? `+${digits}` : digits;

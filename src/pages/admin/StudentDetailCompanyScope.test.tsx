@@ -447,3 +447,15 @@ it.each([false, true])('preserves legacy NULL country unless contact confirmatio
  fireEvent.click(within(dialog).getByRole('button', { name: /Salvar/ }));
  await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('update_student_contact', expect.objectContaining({ _country_code: confirm ? 'BR' : null, _confirmed_contact: confirm })));
 });
+
+
+it('shows a persisted full thirteen-digit BR contact correctly in the header and edit prefill', async () => {
+ mocks.studentPhone = '5511981234567'; mocks.studentWhatsApp = '5511981234567';
+ render(<StudentDetail />);
+ expect(await screen.findByText('(11) 98123-4567')).toBeInTheDocument();
+ expect(screen.queryByText('(55) 11981-2345')).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button', { name: 'Editar aluno' }));
+ const dialog = await screen.findByRole('dialog');
+ expect(within(dialog).getByLabelText('WhatsApp')).toHaveValue('+5511981234567');
+ expect(within(dialog).queryByRole('checkbox', { name: /Conferi a identidade/ })).not.toBeInTheDocument();
+});
