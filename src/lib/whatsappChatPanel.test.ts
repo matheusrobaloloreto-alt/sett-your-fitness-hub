@@ -38,7 +38,7 @@ describe("persistent WhatsApp panel requests", () => {
     expect(routesSource).toContain('path="/trainer/whatsapp-chat" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasWhatsApp" requiredModule="whatsapp"><WhatsAppChatRoute fallbackPath="/trainer" /></FeatureRoute>}');
     expect(chatSource).toContain("consumedNavigationRequestRef");
     expect(chatSource).toContain("setPendingNavigationRequest(navigationState)");
-    expect(chatSource).toContain("resolveWhatsAppChatRequest(chats, pendingNavigationRequest)");
+    expect(chatSource).toContain("resolveWhatsAppChatRequest(chats, pendingNavigationRequest, effectiveCompanyId)");
   });
 
   it("overrides the compact sheet width so the list and active conversation remain visible", () => {

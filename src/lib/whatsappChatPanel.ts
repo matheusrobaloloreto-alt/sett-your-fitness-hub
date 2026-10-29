@@ -1,3 +1,14 @@
+import type { MessagePart, WhatsAppEvent } from '../../supabase/functions/_shared/company-product-settings';
+
+/** A detached, occurrence-specific snapshot. Opening it never authorizes delivery. */
+export type CompanyEventDraft = {
+  draftId: string;
+  companyId: string;
+  event: WhatsAppEvent;
+  settingsVersion: number;
+  parts: MessagePart[];
+};
+
 export type WhatsAppChatPanelRequest = {
   requestId?: number;
   chatId?: string | null;
@@ -6,6 +17,8 @@ export type WhatsAppChatPanelRequest = {
   contactName?: string | null;
   prefillMessage?: string | null;
   mode?: "draft";
+  companyId?: string;
+  eventDraft?: CompanyEventDraft;
 };
 
 export const WHATSAPP_CHAT_PANEL_EVENT = "sett:open-whatsapp-chat";

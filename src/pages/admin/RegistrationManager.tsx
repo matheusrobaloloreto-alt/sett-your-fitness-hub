@@ -33,8 +33,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import { createPlansLink, openStudentChat, draftCompanyEventMessage } from "@/lib/studentChat";
-import { fetchCompanyProductSettings } from "@/lib/companyProductSettings";
+import { createPlansLink, openStudentChat, draftCompanyEventSequence, eventDraftPreview } from "@/lib/studentChat";
 import { fetchCompanyCommercialSettings,DEFAULT_COMPANY_COMMERCIAL_SETTINGS } from "@/lib/companyCommercialSettings";
 import { prepareCompanyPreRegistrationDraft } from '@/lib/companyInvitationDraft';
 import type { MessageEvent } from "../../../supabase/functions/_shared/company-product-settings";
@@ -166,6 +165,7 @@ type PreparedFiscalAction = {
   phone: string | null;
   link: string;
   message: string;
+  eventDraft: import("@/lib/whatsappChatPanel").CompanyEventDraft;
 };
 
 const ANSWER_LABELS: Record<string, string> = {
@@ -496,8 +496,8 @@ export default function RegistrationManager() {
     let current = true;
     setFirstContactPreview(""); setFirstContactPreviewError("");
     if (!selectedLead || !effectiveCompanyId) return;
-    void draftCompanyEventMessage(effectiveCompanyId, "first_contact", { nome: selectedLead.full_name, primeiro_nome: firstName(selectedLead.full_name), profissional: currentTrainerName }, buildLeadFirstContactMessage(selectedLead,currentTrainerName)).then(message => {
-      if (current) setFirstContactPreview(message);
+    void draftCompanyEventSequence(effectiveCompanyId, "first_contact", { nome: selectedLead.full_name, primeiro_nome: firstName(selectedLead.full_name), profissional: currentTrainerName }, buildLeadFirstContactMessage(selectedLead,currentTrainerName)).then(message => {
+      if (current) setFirstContactPreview(eventDraftPreview(message));
     }, () => { if (current) setFirstContactPreviewError("Não foi possível preparar o roteiro da empresa."); });
     return () => { current = false; };
   }, [selectedLead,effectiveCompanyId,currentTrainerName]);
@@ -974,10 +974,10 @@ export default function RegistrationManager() {
   };
 
   const openChatWithStudent = async (student: Student, message = "", event?: MessageEvent, values: Record<string, string> = {}) => {
+    let eventDraft: import("@/lib/whatsappChatPanel").CompanyEventDraft | undefined;
     if (event) {
       if (!effectiveCompanyId) throw new Error("Selecione uma empresa antes de preparar a mensagem.");
-      const { settings } = await fetchCompanyProductSettings(effectiveCompanyId);
-      message = await draftCompanyEventMessage(effectiveCompanyId, event, { nome: student.full_name, primeiro_nome: firstName(student.full_name), profissional: currentTrainerName, prazo: String(settings.business.assessment_sla_business_days), ...values }, message);
+      eventDraft = await draftCompanyEventSequence(effectiveCompanyId, event, { nome: student.full_name, primeiro_nome: firstName(student.full_name), profissional: currentTrainerName, ...values }, message);
     }
     const digits = waDigits(student.whatsapp || student.phone || phone);
     await openStudentChat({
@@ -987,6 +987,8 @@ export default function RegistrationManager() {
       phone: digits,
       contactName: student.full_name,
       message,
+      companyId: effectiveCompanyId || undefined,
+      eventDraft,
       onNoChat: () => toast.error("Informe um telefone valido para abrir a conversa interna."),
     });
   };
@@ -1023,14 +1025,15 @@ export default function RegistrationManager() {
   }, isCurrent: () => boolean = () => true) => {
     const link = fiscalRegistrationUrl(window.location.origin, params.token);
     if (!effectiveCompanyId) throw new Error("Selecione uma empresa antes de preparar o cadastro.");
-    const message = await draftCompanyEventMessage(effectiveCompanyId, "fiscal_invite", { nome: params.fullName, primeiro_nome: firstName(params.fullName), link }, `Oi, ${firstName(params.fullName)}! Complete os dados fiscais e escolha seu plano neste link: ${link}`);
+    const eventDraft = await draftCompanyEventSequence(effectiveCompanyId, "fiscal_invite", { nome: params.fullName, primeiro_nome: firstName(params.fullName), link }, `Oi, ${firstName(params.fullName)}! Complete os dados fiscais e escolha seu plano neste link: ${link}`);
     if (!isCurrent()) return;
     setPreparedFiscal({
       studentId: params.studentId,
       fullName: params.fullName,
       phone: params.phone,
       link,
-      message,
+      message: eventDraftPreview(eventDraft),
+      eventDraft,
     });
   };
 
@@ -1850,9 +1853,8 @@ export default function RegistrationManager() {
                       type="button"
                       disabled={!firstContactMessage}
                       onClick={() => {
-                        const message = firstContactMessage;
                         setSelectedLead(null);
-                        void openChatWithStudent(selectedLead, message);
+                        void openChatWithStudent(selectedLead, buildLeadFirstContactMessage(selectedLead, currentTrainerName), "first_contact");
                       }}
                     >
                       <MessageCircle className="mr-2 h-4 w-4" />
@@ -1880,7 +1882,7 @@ export default function RegistrationManager() {
               <DialogHeader>
                 <DialogTitle className="font-display text-2xl text-primary">Cadastro fiscal preparado</DialogTitle>
                 <DialogDescription>
-                  Nada foi enviado. Copie a mensagem ou abra a conversa e decida quando enviar.
+                  Nada foi enviado. Copie o resumo em texto ou abra a conversa para revisar todas as mensagens e arquivos.
                 </DialogDescription>
               </DialogHeader>
 
@@ -1898,11 +1900,11 @@ export default function RegistrationManager() {
                     variant="outline"
                     onClick={async () => {
                       await navigator.clipboard?.writeText(preparedFiscal.message);
-                      toast.success("Mensagem copiada. Nada foi enviado.");
+                      toast.success("Resumo em texto copiado. Os arquivos continuam no rascunho. Nada foi enviado.");
                     }}
                   >
                     <Copy className="mr-2 h-4 w-4" />
-                    Copiar mensagem
+                    Copiar resumo em texto
                   </Button>
                   <Button
                     type="button"
@@ -1916,6 +1918,8 @@ export default function RegistrationManager() {
                         phone: current.phone,
                         contactName: current.fullName,
                         message: "",
+                        companyId: current.eventDraft.companyId,
+                        eventDraft: current.eventDraft,
                         onNoChat: () => toast.error("Informe um telefone válido para abrir a conversa interna."),
                       });
                     }}

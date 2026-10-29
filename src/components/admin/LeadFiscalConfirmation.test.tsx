@@ -34,7 +34,10 @@ vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ companyId: db.companyId, r
 vi.mock("@/contexts/MasterContext", () => ({ useMaster: () => ({ viewingCompany: null, isViewingCompany: false }) }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@/components/AthleticClubStar", () => ({ AthleticClubStar: () => null }));
-vi.mock("@/lib/studentChat", () => ({ createPlansLink: vi.fn(), openStudentChat: db.openChat, draftCompanyEventMessage: db.draft }));
+vi.mock("@/lib/studentChat", () => ({ createPlansLink: vi.fn(), openStudentChat: db.openChat,
+  draftCompanyEventSequence: async (...args: unknown[]) => ({ draftId: 'fiscal-occurrence', companyId: args[0], event: args[1], settingsVersion: 1, parts: [{ id: 'legacy', type: 'text', text: await db.draft(...args) }] }),
+  eventDraftPreview: (draft: { parts: Array<{ text: string }> }) => draft.parts.map(part => part.text).join('\n'),
+}));
 vi.mock("sonner", () => ({ toast: db.toast }));
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {

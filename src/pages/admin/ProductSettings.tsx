@@ -9,6 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import SettingsWorkspaceLinks from '@/components/admin/SettingsWorkspaceLinks';
 import { PrescriptionMethodologyEditor } from '@/components/admin/PrescriptionMethodologyEditor';
+import { WhatsAppSequenceEditor } from '@/components/admin/WhatsAppSequenceEditor';
+import { displayMessageSequence, editMessageSequence, isWhatsAppEvent, type SequenceSettings } from '@/lib/companyMessageSequences';
 import { renderCompanyMessage } from '../../../supabase/functions/_shared/communication-policy';
 import {
   fetchCompanyProductSettings, saveCompanyProductSettings, normalizeCompanyProductSettings,
@@ -83,20 +85,21 @@ export default function ProductSettings() {
   const saveEpoch = useRef(0);
   companyRef.current = companyId;
   const [record, setRecord] = useState<SettingsRecord | null>(null);
-  const [draft, setDraft] = useState<CompanyProductSettings | null>(null);
+  const [draft, setDraft] = useState<SequenceSettings | null>(null);
   const [loadedCompany, setLoadedCompany] = useState<string | null>(null);
   const [section, setSection] = useState<Section>('messages');
   const [event, setEvent] = useState<MessageEvent>('weekly_contact');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [saving, setSaving] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const dirty = Boolean(record && draft && JSON.stringify(record.settings) !== JSON.stringify(draft));
 
   useEffect(() => {
     let active = true;
     saveEpoch.current += 1;
-    setSaving(false);
+    setSaving(false); setUploadingMedia(false);
     setRecord(null); setDraft(null); setLoadedCompany(null); setError(''); setNotice('');
     if (!authorized || !companyId) return;
     void fetchCompanyProductSettings(companyId).then(result => {
@@ -117,7 +120,7 @@ export default function ProductSettings() {
     setError(''); setNotice('');
   }
   async function save() {
-    if (!draft || !record || !companyId || saving || loadedCompany !== companyId) return;
+    if (!draft || !record || !companyId || saving || uploadingMedia || loadedCompany !== companyId) return;
     const target = companyId;
     const epoch = ++saveEpoch.current;
     setSaving(true); setError(''); setNotice('');
@@ -160,9 +163,9 @@ export default function ProductSettings() {
       <div><h1 className="text-2xl font-semibold">Configurações da empresa</h1>
         <p className="mt-1 text-sm text-muted-foreground">{draft.brand.company_name || viewingCompany?.name || 'Minha empresa'} · <span>Versão {record.version}</span></p></div>
       <div className="flex items-center gap-2">
-        <Button size="icon" variant="outline" title="Recarregar" aria-label="Recarregar configurações" disabled={saving || dirty} onClick={() => setRefresh(v => v + 1)}><RefreshCw className="h-4 w-4" /></Button>
-        <Button size="icon" variant="outline" title="Descartar alterações" aria-label="Descartar alterações" disabled={!dirty || saving} onClick={() => { setDraft(structuredClone(record.settings)); setError(''); setNotice(''); }}><Undo2 className="h-4 w-4" /></Button>
-        <Button disabled={!dirty || saving} onClick={() => void save()}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Salvar</Button>
+        <Button size="icon" variant="outline" title="Recarregar" aria-label="Recarregar configurações" disabled={saving || uploadingMedia || dirty} onClick={() => setRefresh(v => v + 1)}><RefreshCw className="h-4 w-4" /></Button>
+        <Button size="icon" variant="outline" title="Descartar alterações" aria-label="Descartar alterações" disabled={!dirty || saving || uploadingMedia} onClick={() => { setDraft(structuredClone(record.settings)); setError(''); setNotice(''); }}><Undo2 className="h-4 w-4" /></Button>
+        <Button disabled={!dirty || saving || uploadingMedia} onClick={() => void save()}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Salvar</Button>
       </div>
     </header>
     <SettingsWorkspaceLinks />
@@ -170,14 +173,19 @@ export default function ProductSettings() {
       <Button key={key} variant={section === key ? 'secondary' : 'ghost'} aria-current={section === key ? 'page' : undefined} onClick={() => setSection(key)}>{label}</Button>)}</nav>
     {error && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
     {notice && <p role="status" className="text-sm text-green-700 dark:text-green-400">{notice}</p>}
-    <fieldset disabled={saving} className="min-w-0 space-y-6">
+    <fieldset disabled={saving || uploadingMedia} className="min-w-0 space-y-6">
     {section === 'integrations' && <Suspense fallback={<Loader2 className="h-5 w-5 animate-spin" />}><CompanyIntegrationCredentials key={companyId} companyId={companyId} /></Suspense>}
-    {section === 'messages' && <section className="grid gap-6 lg:grid-cols-2">
-      <div className="space-y-5"><div className="space-y-2"><Label htmlFor="message-event">Evento</Label><select id="message-event" className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={event} onChange={e => setEvent(e.target.value as MessageEvent)}>{Object.entries(MESSAGE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></div>
-        <div className="space-y-2"><Label htmlFor="event-message">Mensagem</Label><Textarea id="event-message" className="min-h-56" maxLength={6000} value={draft.messages[event]} onChange={e => change('messages', event, e.target.value)} /></div>
-        <div className="flex flex-wrap gap-1.5">{getMessageEventVariables(event).map(key => <Button key={key} variant="outline" size="sm" onClick={() => change('messages', event, `${draft.messages[event]}{{${key}}}`)}>{`{{${key}}}`}</Button>)}</div>
-      </div>
-      <div className="space-y-2"><h2 className="text-sm font-medium">Prévia</h2><div className="min-h-56 whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-4 text-sm leading-relaxed" data-testid="message-preview">{preview || '—'}</div></div>
+    {section === 'messages' && <section className="space-y-5">
+      <div className="max-w-xl space-y-2"><Label htmlFor="message-event">Evento</Label><select id="message-event" disabled={uploadingMedia} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={event} onChange={e => setEvent(e.target.value as MessageEvent)}>{Object.entries(MESSAGE_LABELS).map(([key, label]) => <option key={key} value={key}>{isWhatsAppEvent(key as MessageEvent) ? 'WhatsApp' : 'Push'} · {label}</option>)}</select></div>
+      {isWhatsAppEvent(event) ? <WhatsAppSequenceEditor key={`${companyId}-${event}`} companyId={companyId} event={event} blocks={displayMessageSequence(draft, event)} previewValues={previewValues} onBusyChange={setUploadingMedia} onChange={blocks => {
+        setDraft(current => current ? editMessageSequence(current, event, blocks) : current); setError(''); setNotice('');
+      }} /> : <div className="grid gap-6 lg:grid-cols-2">
+        <div className="space-y-5"><p className="text-sm text-muted-foreground">Canal: notificação push · somente texto.</p>
+          <div className="space-y-2"><Label htmlFor="event-message">Mensagem</Label><Textarea id="event-message" className="min-h-56" maxLength={6000} value={draft.messages[event]} onChange={e => change('messages', event, e.target.value)} /></div>
+          <div className="flex flex-wrap gap-1.5">{getMessageEventVariables(event).map(key => <Button key={key} variant="outline" size="sm" onClick={() => change('messages', event, `${draft.messages[event]}{{${key}}}`)}>{`{{${key}}}`}</Button>)}</div>
+        </div>
+        <div className="space-y-2"><h2 className="text-sm font-medium">Prévia</h2><div className="min-h-56 whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-4 text-sm leading-relaxed" data-testid="message-preview">{preview || '—'}</div></div>
+      </div>}
     </section>}
     {section === 'contact_policy' && <section className="space-y-6">{numbers('contact_policy', CONTACT_FIELDS)}
       <fieldset className="space-y-3"><legend className="text-sm font-medium">Dias de envio</legend><div className="flex flex-wrap gap-4">{['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((day, index) => <label key={day} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.contact_policy.weekdays.includes(index + 1)} onChange={e => change('contact_policy', 'weekdays', e.target.checked ? [...draft.contact_policy.weekdays, index + 1].sort() : draft.contact_policy.weekdays.filter(v => v !== index + 1))} />{day}</label>)}</div></fieldset>

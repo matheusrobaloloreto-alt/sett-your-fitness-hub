@@ -6,6 +6,40 @@ export const MESSAGE_EVENTS = [
   'new_workout_push_title', 'new_workout_push_body',
 ] as const;
 export type MessageEvent = typeof MESSAGE_EVENTS[number];
+export const WHATSAPP_EVENTS = MESSAGE_EVENTS.filter((event) => !['daily_reminder_title', 'daily_reminder_body', 'new_workout_push_title', 'new_workout_push_body'].includes(event)) as readonly WhatsAppEvent[];
+export type WhatsAppEvent = Exclude<MessageEvent, 'daily_reminder_title' | 'daily_reminder_body' | 'new_workout_push_title' | 'new_workout_push_body'>;
+export type MessagePart = { id: string; type: 'text' | 'image' | 'video' | 'audio'; text: string; media?: { bucket: string; path: string; mimeType: string; fileName: string } };
+export const MESSAGE_MEDIA_MIMES = { image: ['image/jpeg', 'image/png', 'image/webp'], video: ['video/mp4'], audio: ['audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/webm'] } as const;
+export const MESSAGE_MEDIA_PATH = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/message-settings\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.(?:jpg|jpeg|png|webp|mp4|mp3|m4a|ogg|webm)$/;
+function validateMessageSequencePayload(input: unknown, rendered: boolean): Partial<Record<WhatsAppEvent, MessagePart[]>> {
+  if (!object(input)) fail('message_sequences');
+  for (const [event, parts] of Object.entries(input)) {
+    if (!(WHATSAPP_EVENTS as readonly string[]).includes(event) || !Array.isArray(parts) || parts.length < 1 || parts.length > 10) fail('message_sequences.' + event);
+    const ids = new Set<string>();
+    for (const part of parts) {
+      if (!object(part) || Object.keys(part).some(k => !['id', 'type', 'text', 'media'].includes(k)) || typeof part.id !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(part.id) || ids.has(part.id)) fail('message_sequences.id');
+      ids.add(part.id);
+      if (typeof part.type !== 'string' || !['text', 'image', 'video', 'audio'].includes(part.type) || typeof part.text !== 'string') fail('message_sequences.part');
+      if (rendered) {
+        if (part.text.length > 6000 || secretLike.test(part.text) || (part.type === 'text' && !part.text.trim())) fail('message_sequences.text');
+      } else if (part.type === 'text' || part.text.trim()) validateMessageTemplate(part.text, event as MessageEvent);
+      else if (part.text.length > 6000) fail('message_sequences.text');
+      if (part.type === 'text') { if (Object.hasOwn(part, 'media')) fail('message_sequences.media'); }
+      else {
+        const media = part.media;
+        if (!object(media) || Object.keys(media).sort().join(',') !== 'bucket,fileName,mimeType,path' || media.bucket !== 'whatsapp-media' || typeof media.path !== 'string' || !MESSAGE_MEDIA_PATH.test(media.path) || typeof media.mimeType !== 'string' || !(MESSAGE_MEDIA_MIMES[part.type as keyof typeof MESSAGE_MEDIA_MIMES] as readonly string[]).includes(media.mimeType) || typeof media.fileName !== 'string' || !/^[^/\\\x00-\x1f\x7f]{1,180}$/.test(media.fileName) || (secretLike.test(media.fileName) || media.fileName.includes('{{') || media.fileName.includes('}}'))) fail('message_sequences.media');
+      }
+    }
+  }
+  return JSON.parse(JSON.stringify(input));
+}
+export function validateMessageSequences(input: unknown): Partial<Record<WhatsAppEvent, MessagePart[]>> {
+  return validateMessageSequencePayload(input, false);
+}
+/** Manual drafts are literal output: never parse braces or variables again. */
+export function validateRenderedMessageParts(parts: unknown): MessagePart[] {
+  return validateMessageSequencePayload({ first_contact: parts }, true).first_contact!;
+}
 export const TEMPLATE_VARIABLES = ['primeiro_nome', 'nome', 'empresa', 'link', 'prazo', 'profissional', 'email', 'data'] as const;
 type TemplateVariable = typeof TEMPLATE_VARIABLES[number];
 const BASE_MESSAGE_VARIABLES = ['primeiro_nome', 'nome', 'empresa'] as const;
@@ -38,6 +72,7 @@ export interface PrescriptionAnswerMapping {
 }
 export interface CompanyProductSettings {
   messages: Record<MessageEvent, string>;
+  message_sequences?: Partial<Record<WhatsAppEvent, MessagePart[]>>;
   contact_policy: {
     max_weekly_contacts: number; minimum_interval_hours: number; no_workout_days: number;
     no_workout_repeat_days: number; cart_abandonment_hours: number;
@@ -156,6 +191,7 @@ export function normalizeCompanyProductSettings(input: unknown = {}): CompanyPro
   if (!object(input)) fail('settings');
   const output = JSON.parse(JSON.stringify(DEFAULT_COMPANY_PRODUCT_SETTINGS)) as CompanyProductSettings;
   for (const section of Object.keys(input)) {
+    if (section === 'message_sequences') { output.message_sequences = validateMessageSequences(input[section]); continue; }
     if (!Object.hasOwn(output, section) || !object(input[section])) fail(section);
     const target = output[section as keyof CompanyProductSettings] as unknown as Record<string, unknown>;
     for (const [key, value] of Object.entries(input[section] as Record<string, unknown>)) {

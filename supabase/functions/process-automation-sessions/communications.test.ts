@@ -10,8 +10,15 @@ function fixture(nodes: Row[], edges: Row[] = [], settings: Row = {}) {
   const inserts: Row[] = [];
   const queries: Row[] = [];
   const attempts = new Map<string,string>();
+  let sequenceSnapshot: Row | null = null; const sequenceStates: string[] = [];
   const admin = {
     rpc: (name: string, args: Row = {}) => {
+      if (name === 'snapshot_company_message_sequence') {
+        if (!sequenceSnapshot) { sequenceSnapshot=structuredClone(args._snapshot); sequenceStates.push(...args._snapshot.parts.map(()=> 'pending')); }
+        return Promise.resolve({data:{id:'sequence',snapshot:sequenceSnapshot,states:[...sequenceStates]},error:null});
+      }
+      if (name === 'claim_company_message_part') { const i=args._index; if(sequenceStates[i]!=='pending')throw Error('duplicate claim'); sequenceStates[i]='in_flight'; return Promise.resolve({data:{state:'in_flight',token:'token'},error:null}); }
+      if (name === 'ack_company_message_part') sequenceStates[args._index]='acked';
       if(name==='checkpoint_automation_dispatch') {
         updates.push(args._patch);
         return Promise.resolve({data:null,error:null});
@@ -35,7 +42,7 @@ function fixture(nodes: Row[], edges: Row[] = [], settings: Row = {}) {
           whatsapp_chats: { id: 'chat', company_id: 'company-a', student_id: 'student', remote_jid: jid, instance_id: 'instance' },
           students: { id: 'student', phone: '+55 48 99999-9999', whatsapp: null, country_code: 'BR' },
           whatsapp_instances: { instance_name: 'synthetic', status: 'connected' },
-          company_product_settings: { settings, version: 1 },
+          company_product_settings: { settings, version: 1 }, company_message_sequences: sequenceSnapshot ? {id:'sequence'} : null, automation_dispatch_attempts: null, webhook_dispatch_owners: null,
           automation_flows: filters.id === '99999999-9999-9999-9999-999999999999' ? null : { id: filters.id, company_id: 'company-a', is_active: true },
           automation_flow_nodes: nodes.filter(n => !n.flow_id || n.flow_id === filters.flow_id),
           automation_flow_edges: edges.filter(e => !e.flow_id || e.flow_id === filters.flow_id),
@@ -192,4 +199,13 @@ Deno.test('delayed A-B-A graph is rejected before any provider send', async () =
     assert(reason==='flow_graph_cycle_unsupported','Cyclic graph was accepted');
     assert(texts.length===0,'Cyclic graph sent before rejection');
   });
+});
+
+Deno.test('weekly worker and webhook consume configured ordered parts only on central binding', async()=>{
+ const settings={ message_sequences: { weekly_contact: [{id:'a',type:'text',text:'Primeira {{nome}}'},{id:'b',type:'text',text:'Segunda {{primeiro_nome}}'}] } };
+ const nodes=[{id:'message',node_type:'content',data:{message:'Node',use_company_template:'weekly_contact'}}];
+ const f=fixture(nodes,[],settings);
+ await capture(async texts=>{await processSession(f.admin,f.session,provider);assert(texts.join('|')==='Primeira Ana|Segunda Ana','worker dropped/reordered parts');});
+ const g=fixture(nodes,[],settings);
+ await capture(async texts=>{await executeFlow(g.admin,'company-a',jid,'chat','synthetic','https://provider.invalid',{apikey:'synthetic','Content-Type':'application/json'},'flow-a','message',{...g.session.context,_dispatch_inbound_event:'inbound'},true);assert(texts.join('|')==='Primeira Ana|Segunda Ana','webhook dropped/reordered parts');});
 });

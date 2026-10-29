@@ -32,7 +32,8 @@ describe('company product settings screen', () => {
     fireEvent.change(editor, { target: { value: 'Ola, {{primeiro_nome}}! Como foi a semana?' } });
     fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
     await waitFor(() => expect(mocks.save).toHaveBeenCalledWith('company-a', expect.objectContaining({
-      messages: expect.objectContaining({ weekly_contact: 'Ola, {{primeiro_nome}}! Como foi a semana?' }),
+      messages: DEFAULT_COMPANY_PRODUCT_SETTINGS.messages,
+      message_sequences: expect.objectContaining({ weekly_contact: [expect.objectContaining({ type: 'text', text: 'Ola, {{primeiro_nome}}! Como foi a semana?' })] }),
     }), 7));
     expect(await screen.findByText('Versão 8')).toBeInTheDocument();
   });

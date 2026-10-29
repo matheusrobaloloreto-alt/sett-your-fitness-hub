@@ -1,3 +1,4 @@
+import { type CompanyProductSettings, type MessagePart, type WhatsAppEvent } from "./company-product-settings.ts";
 export const COMPANY_MESSAGE_VARIABLES = ['nome', 'primeiro_nome', 'empresa', 'link', 'prazo', 'profissional', 'email', 'data'] as const;
 
 /** A single pass prevents a supplied value from becoming another template. */
@@ -38,4 +39,11 @@ export function reminderSlot(now: Date, enabled: boolean, hour: number, timezone
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(now);
   const part = (name: string) => parts.find(p => p.type === name)?.value;
   return Number(part('hour')) === hour ? `${part('year')}-${part('month')}-${part('day')}` : null;
+}
+
+/** Ordered, detached and rendered once before durable snapshot creation. */
+export function eventMessageSequence(settings: CompanyProductSettings, event: WhatsAppEvent, values: Record<string, string>, fallback: string): MessagePart[] {
+  const configured = settings.message_sequences?.[event];
+  return configured ? configured.map(part => ({ ...structuredClone(part), text: renderCompanyMessage(part.text, values) }))
+    : [{ id: 'legacy', type: 'text', text: eventMessage(settings.messages, event, values, fallback) }];
 }

@@ -1,3 +1,19 @@
+# Estado atual — publicacao concluida em29/10/2026
+
+✅ https://www.settapp.com.br/admin/settings — deploy6ae2c3900e3c68eee93f5914.
+36migrations com ledger271,25Edge atualizadas, frontend oficial261arquivos verificados,
+QA independente de backend e frontend aprovado. Push canônico*/15 ativo para
+horarios empresariais; comandos preservados. Configuracoes da BN abertas em sessao
+real autenticada, sem escrita em dados reais. Detalhes e pendencias externas no
+SETT-AUTONOMIA-RELATORIO-FINAL.md. Os checkpoints de homologacao abaixo sao historicos.
+
+Implementacao publicada no escopo desta matriz nao e certificacao universal de
+provedores, todos os endpoints legados ou E2E mutante de producao. Gates comerciais
+validados sao os contratos selecionados e documentados; nao afirmar A25global100%.
+Financeiro/checkout novo adiado conforme decisao do usuario; legado continua ativo.
+
+---
+
 # SETT — entrega de autonomia
 
 Meta: configurar e operar o produto dentro do SETT, sem Codex para as tarefas
@@ -81,7 +97,7 @@ falha nova ou risco concreto ainda sem cobertura. Build final apos integracao.
 - ❌ Homologacao hospedada (em andamento): SETT Staging Free saudavel; Auth/Storage HTTP200, cofre real e compatibilidade minima ensaiados com rollback; candidato instalado apos ensaio e QA, aceite funcional com fixtures novas aprovado (core30/30, aliases16/16, Lead concorrente16/16; suites diferentes). Teste controlado WhatsApp autorizado no contato indicado; cobranca/IA paga nao fazem parte deste aceite.
 - ❌ Diagnostico historico PostgreSQL (bloqueado): causa nao demonstrada e rota
   anterior restrita; nao e uma frente executora desta entrega.
-- ❌ Producao (aguardando): entregar homologacao para Matheus testar e aguardar aceite; sem promocao automatica.
+- ✅ Producao: autorizada pelo Matheus e publicada em29/10; ver estado atual no topo e relatorio final.
 
 ## Rodada seguinte — fila executavel
 
@@ -110,3 +126,7 @@ falha nova ou risco concreto ainda sem cobertura. Build final apos integracao.
 - Nenhum envio real, cobranca, scheduler hospedado, IA paga ou publicacao em producao foi exercitado nesta rodada. ❌ Teste de provedor externo (aguardando): staging sem conexao dedicada; proxima acao e conectar homologacao dedicada ou teste controlado de release apos aceite, sem copiar credenciais nem competir com sessao de producao.
 
 Relatorio consolidado desta rodada: `docs/project/SETT-AUTONOMIA-RELATORIO-FINAL.md`.
+
+## Atualização — sequências multimídia (29/10/2026)
+
+✅ Implementação local/homologação e QA concluídos: sequências por evento, texto/imagem/vídeo/áudio, rascunhos e retomada protegida. ❌ Publicação e teste de recebimento real **(aguardando)** teste do Matheus e promoção coordenada. Detalhes e limites em [SETT-MENSAGENS-MULTIMIDIA-20261029.md](./SETT-MENSAGENS-MULTIMIDIA-20261029.md). A publicação anterior permanece como registro histórico; esta funcionalidade nova ainda não está em produção.

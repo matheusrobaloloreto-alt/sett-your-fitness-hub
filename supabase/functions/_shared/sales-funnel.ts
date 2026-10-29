@@ -1,6 +1,7 @@
+import { dispatchConfiguredMessageSequence } from "./message-sequence.ts";
 import { normalizeWhatsAppPhoneKey } from "./whatsappIdentity.ts";
-import { DEFAULT_COMPANY_PRODUCT_SETTINGS, readCompanyProductSettings } from "./company-product-settings.ts";
-import { eventMessage, messageValues } from "./communication-policy.ts";
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS, readCompanyProductSettings, type WhatsAppEvent } from "./company-product-settings.ts";
+import { eventMessage, eventMessageSequence, messageValues } from "./communication-policy.ts";
 import { requireCompanyFeature, type FeatureEntitlementClient } from "./company-feature-entitlements.ts";
 
 type SupabaseAdmin = {
@@ -223,6 +224,22 @@ export async function sendFunnelWhatsAppMessage(args: {
     }
 
     await requireCompanyFeature(args.admin as unknown as FeatureEntitlementClient, args.companyId, "hasWhatsApp");
+    const handledSequence = event && await dispatchConfiguredMessageSequence({
+      admin: args.admin, companyId: args.companyId, chatId: chatResult.data.id,
+      occurrence: `funnel:${args.studentId}:${args.eventKey}`,
+      configured: !!envelope.settings.message_sequences?.[event as WhatsAppEvent],
+      parts: eventMessageSequence(envelope.settings, event as WhatsAppEvent, values, args.text),
+      recipient: remoteJid, instanceName: instance.instance_name, evoUrl, evoKey,
+      metadata: { settingsVersion: envelope.version },
+      beforeSend: async () => {
+        const current = await args.admin.from('students').select('phone,whatsapp,country_code').eq('id', args.studentId).eq('company_id', args.companyId).maybeSingle();
+        if (current.error || !current.data || normalizeFunnelRemoteJid(current.data.whatsapp || current.data.phone || '', current.data.country_code) !== remoteJid) throw new Error('sequence_recipient_changed');
+        const chat = await args.admin.from('whatsapp_chats').select('student_id,remote_jid,instance_id').eq('id', chatResult.data.id).eq('company_id', args.companyId).maybeSingle();
+        const live = await args.admin.from('whatsapp_instances').select('instance_name,status').eq('id', instance.id).eq('company_id', args.companyId).maybeSingle();
+        if (chat.error || chat.data?.student_id !== args.studentId || chat.data?.remote_jid !== remoteJid || chat.data?.instance_id !== instance.id || live.error || live.data?.status !== 'connected' || live.data?.instance_name !== instance.instance_name) throw new Error('sequence_recipient_changed');
+      },
+    });
+    if (!handledSequence) {
     const response = await fetch(`${evoUrl}/message/sendText/${instance.instance_name}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: evoKey },
@@ -251,6 +268,7 @@ export async function sendFunnelWhatsAppMessage(args: {
       updated_at: sentAt,
       unread_count: 0,
     }).eq("id", chatResult.data.id);
+    }
     await completeFunnelEvent(args.admin, args.studentId, args.eventKey, "completed");
     return { sent: true, chatId: chatResult.data.id };
   } catch (error) {
@@ -356,6 +374,20 @@ export async function sendPreRegistrationConfirmation(args: {
     const evoKey = readEdgeEnv("EVOLUTION_API_KEY");
     if (!evoUrl || !evoKey) throw new Error("Evolution API não configurada.");
     await requireCompanyFeature(args.admin as unknown as FeatureEntitlementClient, args.companyId, "hasWhatsApp");
+    const handledSequence = await dispatchConfiguredMessageSequence({
+      admin: args.admin, companyId: args.companyId, chatId: chatResult.data.id,
+      occurrence: `lead:${args.leadId}:${eventKey}`, configured: !!envelope.settings.message_sequences?.pre_registration_confirmation,
+      parts: eventMessageSequence(envelope.settings, 'pre_registration_confirmation', messageValues({ nome: args.fullName }, envelope.settings.brand.company_name), args.text),
+      recipient: remoteJid, instanceName: instance.instance_name, evoUrl, evoKey,
+      metadata: { settingsVersion: envelope.version },
+      beforeSend: async () => {
+        const current = await args.admin.from('leads').select('phone').eq('id', args.leadId).eq('company_id', args.companyId).maybeSingle();
+        const chat = await args.admin.from('whatsapp_chats').select('student_id,remote_jid,instance_id').eq('id', chatResult.data.id).eq('company_id', args.companyId).maybeSingle();
+        const live = await args.admin.from('whatsapp_instances').select('instance_name,status').eq('id', instance.id).eq('company_id', args.companyId).maybeSingle();
+        if (current.error || !current.data || normalizeFunnelRemoteJid(current.data.phone || '', args.countryCode) !== remoteJid || chat.error || chat.data?.remote_jid !== remoteJid || (chat.data?.student_id || null) !== (chatResult.data.student_id || null) || chat.data?.instance_id !== instance.id || live.error || live.data?.status !== 'connected' || live.data?.instance_name !== instance.instance_name) throw new Error('sequence_recipient_changed');
+      },
+    });
+    if (!handledSequence) {
     const response = await fetch(`${evoUrl}/message/sendText/${instance.instance_name}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: evoKey },
@@ -383,6 +415,7 @@ export async function sendPreRegistrationConfirmation(args: {
       updated_at: sentAt,
       unread_count: 0,
     }).eq("id", chatResult.data.id).eq("company_id", args.companyId);
+    }
     await finish("completed");
     return { sent: true, chatId: chatResult.data.id };
   } catch (error) {

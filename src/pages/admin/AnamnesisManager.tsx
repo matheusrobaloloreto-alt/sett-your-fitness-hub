@@ -14,7 +14,7 @@ import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import FormFieldEditor from "@/components/FormFieldEditor";
 import FormDefinitionManager from '@/components/admin/FormDefinitionManager';
 import { useNavigate } from "react-router-dom";
-import { openStudentChat, draftCompanyEventMessage } from "@/lib/studentChat";
+import { openStudentChat } from "@/lib/studentChat";
 import { anamnesisInviteUrl, preRegistrationUrl } from "@/lib/publicFlowLinks";
 import { prepareCompanyPreRegistrationDraft } from '@/lib/companyInvitationDraft';
 
@@ -111,13 +111,16 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
     if (!url) return;
     const nome = (student?.full_name || "").trim().split(/\s+/)[0] || "";
     const fallback = `Oi, ${nome}! Pra eu montar seu plano do jeito certo, responde essa anamnese rapidinha (leva uns minutos): ${url}`;
-    const msg = effectiveCompanyId ? await draftCompanyEventMessage(effectiveCompanyId,'anamnesis_invite',{primeiro_nome:nome,nome:student?.full_name||'',link:url},fallback) : fallback;
+    if (!effectiveCompanyId) throw new Error("Selecione uma empresa antes de preparar a mensagem.");
     await openStudentChat({
       navigate,
       routePrefix: chatRoutePrefix,
       studentId,
       phone: student?.whatsapp || student?.phone,
-      message: msg,
+      message: fallback,
+      companyId: effectiveCompanyId,
+      messageEvent: "anamnesis_invite",
+      messageValues: { primeiro_nome: nome, nome: student?.full_name || "", link: url },
       onNoChat: () => {
         void navigator.clipboard?.writeText(url);
         toast.success("Aluno sem telefone cadastrado — link copiado.");

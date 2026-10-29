@@ -67,8 +67,8 @@ import {
   normalizeEditedMessageText,
   shouldApplyWhatsAppMessageEditResult,
 } from "@/lib/whatsappMessageEdit";
-import type { WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
-import { resolveWhatsAppChatRequest } from "@/lib/whatsappChatRequest";
+import type { CompanyEventDraft, WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
+import { manualSequencePayload, manualSequenceResult, resolveWhatsAppChatRequest } from "@/lib/whatsappChatRequest";
 import { prepareEmojiWhatsAppSticker, prepareWhatsAppSticker, QUICK_STICKER_EMOJIS } from "@/lib/whatsappSticker";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 
@@ -318,6 +318,55 @@ function StickerPickerButton({
   );
 }
 
+export function EventSequenceReview({ draft, recipient, locked, sending, uncertain, signatureEnabled, onChange, onSend, onClose }: {
+  draft: CompanyEventDraft; recipient: string; locked: boolean; sending: boolean; uncertain: boolean;
+  signatureEnabled?: boolean;
+  onChange: (draft: CompanyEventDraft) => void; onSend: () => void; onClose: () => void;
+}) {
+  const [previews, setPreviews] = useState<Record<string, string>>({});
+  const [previewError, setPreviewError] = useState('');
+  const previewEpoch = useRef(0);
+  useEffect(() => { const epoch = previewEpoch; epoch.current++; setPreviews({}); setPreviewError(''); return () => { epoch.current++; }; }, [draft.draftId, draft.companyId]);
+  const preview = async (part: CompanyEventDraft['parts'][number]) => {
+    const epoch = previewEpoch.current;
+    if (!part.media || part.media.bucket !== 'whatsapp-media' || !part.media.path.startsWith(`${draft.companyId}/message-settings/`)) {
+      setPreviewError('Arquivo fora da empresa deste rascunho.'); return;
+    }
+    const { data, error } = await supabase.storage.from(part.media.bucket).createSignedUrl(part.media.path, 300);
+    if (epoch !== previewEpoch.current) return;
+    if (error || !data?.signedUrl) { setPreviewError('Não foi possível abrir a prévia do arquivo.'); return; }
+    setPreviews(value => ({ ...value, [part.id]: data.signedUrl }));
+  };
+  return <section aria-label="Revisar sequência de mensagens" className="max-h-[55vh] overflow-y-auto border-t p-3 space-y-3">
+    <p className="text-sm font-semibold">Revisar {draft.parts.length} mensagens para {recipient}</p>
+    <p className="text-xs text-muted-foreground">Nada é enviado ao abrir. Confira a ordem, os textos e os arquivos antes de confirmar.</p>
+    {signatureEnabled !== undefined && <p className="text-xs text-muted-foreground">Assinatura do profissional: {signatureEnabled ? 'ativada' : 'desativada'}.</p>}
+    {draft.parts.map((part, index) => <div key={part.id} className="space-y-2 rounded-lg border p-2">
+      <p className="text-xs font-semibold">{index + 1}. {({ text: 'Texto', image: 'Imagem', video: 'Vídeo', audio: 'Áudio' })[part.type]}</p>
+      <Textarea aria-label={`Texto da mensagem ${index + 1}`} maxLength={6000} value={part.text} disabled={locked || sending} onChange={e => onChange({ ...draft, parts: draft.parts.map(p => p.id === part.id ? { ...p, text: e.target.value } : p) })} />
+      {part.type === 'audio' && part.text.trim() && <p className="text-xs text-muted-foreground">O texto será enviado logo após o áudio, como uma mensagem separada.</p>}
+      {part.media && <div className="space-y-2">
+        <p className="break-all text-xs">{part.media.fileName}</p>
+        <Button variant="outline" size="sm" onClick={() => void preview(part)}>Prévia do arquivo {index + 1}</Button>
+        {previews[part.id] && (part.type === 'image' ? <img alt={`Prévia da mensagem ${index + 1}`} src={previews[part.id]} className="max-h-48" /> : part.type === 'video' ? <video controls src={previews[part.id]} className="max-h-48" /> : <audio controls src={previews[part.id]} />)}
+      </div>}
+      <Button variant="ghost" size="sm" disabled={locked || sending} onClick={() => onChange({ ...draft, parts: draft.parts.filter(p => p.id !== part.id) })}>Remover mensagem {index + 1}</Button>
+    </div>)}
+    {previewError && <p role="alert" className="text-sm text-destructive">{previewError}</p>}
+    {locked && !uncertain && <p className="text-xs text-muted-foreground">Sequência iniciada e preservada. A retomada usa o mesmo envio e não repete partes já confirmadas.</p>}
+    {uncertain && <p role="alert" className="text-sm text-destructive">Envio sem confirmação. Confira o histórico e a conciliação antes de repetir; este rascunho permanece bloqueado para evitar duplicação.</p>}
+    <div className="flex gap-2">
+      <Button variant="outline" disabled={sending || locked} onClick={onClose}>Descartar rascunho</Button>
+      <Button disabled={sending || uncertain || !draft.parts.length || draft.parts.some(p => p.type === 'text' && !p.text.trim())} onClick={onSend}>{sending ? 'Enviando sequência…' : 'Confirmar envio da sequência'}</Button>
+    </div>
+  </section>;
+}
+
+type ReviewedEventDraft = { draft: CompanyEventDraft; chatId: string | null; remoteJid: string; studentId: string | null; contactName: string; locked: boolean; uncertain: boolean; signMessages?: boolean };
+// The sheet can unmount on close. Keep reviewed edits and delivery locks in memory,
+// partitioned by authenticated user, so reopening cannot create an editable retry.
+const reviewedEventDraftSessions = new Map<string, ReviewedEventDraft[]>();
+
 export default function WhatsAppChat({
   embedded = false,
   navigationState: panelNavigationState,
@@ -340,6 +389,18 @@ export default function WhatsAppChat({
   const consumedNavigationRequestRef = useRef<string | null>(null);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [draftRecipient, setDraftRecipient] = useState<DraftRecipient | null>(null);
+  const [, refreshEventDrafts] = useState(0);
+  const eventDraftOwner = user?.id || '';
+  const eventDrafts = reviewedEventDraftSessions.get(eventDraftOwner) || [];
+  const setEventDrafts = useCallback((update: (items: ReviewedEventDraft[]) => ReviewedEventDraft[]) => {
+    reviewedEventDraftSessions.set(eventDraftOwner, update(reviewedEventDraftSessions.get(eventDraftOwner) || []));
+    if (templateActiveRef.current) refreshEventDrafts(value => value + 1);
+  }, [eventDraftOwner]);
+  const sequenceSendingRef = useRef(false);
+  const sequenceScopeRef = useRef('');
+  sequenceScopeRef.current = `${user?.id}:${effectiveCompanyId}:${selectedChatId || draftRecipient?.remoteJid || ''}`;
+  const selectedSequenceRemote = chats.find(chat => chat.id === selectedChatId && chat.company_id === effectiveCompanyId)?.remote_jid || draftRecipient?.remoteJid;
+  const activeEventDraft = eventDrafts.find(item => item.draft.companyId === effectiveCompanyId && (item.chatId ? item.chatId === selectedChatId : Boolean(selectedSequenceRemote) && normalizeWhatsAppPhoneKey(item.remoteJid) === normalizeWhatsAppPhoneKey(selectedSequenceRemote!)));
   const [chatsLoaded, setChatsLoaded] = useState(false);
   const chatsLoadedRef = useRef(false);
   const [loadingChats, setLoadingChats] = useState(true);
@@ -1196,6 +1257,7 @@ export default function WhatsAppChat({
       navigationState.studentId ?? "",
       navigationState.phone ?? "",
       navigationState.prefillMessage ?? "",
+      navigationState.eventDraft?.draftId ?? "",
     ].join("|"));
     if (consumedNavigationRequestRef.current === requestKey) return;
     consumedNavigationRequestRef.current = requestKey;
@@ -1204,17 +1266,30 @@ export default function WhatsAppChat({
     setEditingSaving(false);
     setReplyingTo(null);
     setShowTemplates(false);
-    setNewMessage(navigationState.prefillMessage ?? "");
+    setNewMessage(navigationState.eventDraft ? '' : navigationState.prefillMessage ?? "");
   }, [navigationState]);
   // Pré-seleciona uma conversa existente ou prepara uma nova conversa interna.
   useEffect(() => {
     if (!chatsLoaded || !pendingNavigationRequest) return;
-    const resolved = resolveWhatsAppChatRequest(chats, pendingNavigationRequest);
+    let resolved;
+    try { resolved = resolveWhatsAppChatRequest(chats, pendingNavigationRequest, effectiveCompanyId); }
+    catch { toast.error('Não foi possível confirmar a empresa e o destinatário do rascunho.'); setPendingNavigationRequest(null); return; }
     setSelectedChatId(resolved.chatId);
     setDraftRecipient(resolved.draftRecipient);
-    setNewMessage(resolved.prefillMessage);
+    setNewMessage(resolved.eventDraft ? '' : resolved.prefillMessage);
+    if (resolved.eventDraft) {
+      const chat = chats.find(item => item.id === resolved.chatId);
+      const remoteJid = chat?.remote_jid || resolved.draftRecipient?.remoteJid;
+      const existingDraft = (reviewedEventDraftSessions.get(eventDraftOwner) || []).find(item => item.draft.companyId === resolved.eventDraft!.companyId && normalizeWhatsAppPhoneKey(item.remoteJid) === normalizeWhatsAppPhoneKey(remoteJid || ''));
+      if (existingDraft && existingDraft.draft.draftId !== resolved.eventDraft.draftId) toast.info('Já existe um rascunho preservado para este contato. Continue a revisão ou descarte-o antes de abrir outro.');
+      if (remoteJid) setEventDrafts(items => items.some(item => item.draft.companyId === resolved.eventDraft!.companyId && normalizeWhatsAppPhoneKey(item.remoteJid) === normalizeWhatsAppPhoneKey(remoteJid)) ? items : [...items, {
+        draft: resolved.eventDraft!, chatId: resolved.chatId, remoteJid,
+        studentId: pendingNavigationRequest.studentId || chat?.student_id || resolved.draftRecipient?.studentId || null,
+        contactName: pendingNavigationRequest.contactName || chat?.contact_name || remoteJid, locked: false, uncertain: false,
+      }]);
+    }
     setPendingNavigationRequest(null);
-  }, [chats, chatsLoaded, pendingNavigationRequest]);
+  }, [chats, chatsLoaded, pendingNavigationRequest, effectiveCompanyId, eventDraftOwner, setEventDrafts]);
   useEffect(() => {
     setMediaFallbacks({});
     setFailedMediaFetches({});
@@ -1308,6 +1383,7 @@ export default function WhatsAppChat({
   }, [effectiveCompanyId, scheduleChatsRefresh]);
 
   const handleSend = async () => {
+    if (activeEventDraft || sequenceSendingRef.current) return;
     if (sending || sendingAttachment || templateSendingRef.current) return;
     if (templateAttachments.length > 0) {
       await handleSendTemplateDraft();
@@ -2392,6 +2468,59 @@ export default function WhatsAppChat({
     );
   };
 
+  const handleSendEventSequence = async () => {
+    const item = activeEventDraft;
+    if (!item || !effectiveCompanyId || item.uncertain || sequenceSendingRef.current || sending || sendingAttachment || bulkSending || isRecording || templateSendingRef.current) return;
+    const scope = sequenceScopeRef.current;
+    let request: ReturnType<typeof manualSequencePayload>;
+    try { request = manualSequencePayload(item.draft, { companyId: effectiveCompanyId, chatId: item.chatId || selectedChatId, studentId: item.studentId, remoteJid: item.remoteJid }, item.signMessages ?? signMessages); }
+    catch (error) { toast.error(getErrorMessage(error, 'Confira as mensagens e os arquivos antes de enviar.')); return; }
+    const id = item.draft.draftId;
+    let requestStarted = false;
+    let resultClassified = false;
+    sequenceSendingRef.current = true;
+    setSending(true);
+    setEventDrafts(items => items.map(value => value.draft.draftId === id ? { ...value, locked: true, signMessages: request.signMessages } : value));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Sessão expirada. O rascunho permanece preservado.');
+      if (sequenceScopeRef.current !== scope || !templateActiveRef.current) throw new Error('Conversa ou empresa alterada. Envio interrompido.');
+      requestStarted = true;
+      const { data, error } = await supabase.functions.invoke('whatsapp-manager', { body: request });
+      const result = await manualSequenceResult(id, data, error);
+      resultClassified = true;
+      if (!result.complete) {
+        // Unknown outcome must not become an automatic retry or a new occurrence.
+        setEventDrafts(items => items.map(value => value.draft.draftId === id ? { ...value, uncertain: result.uncertain } : value));
+        throw new Error(result.message);
+      }
+      setEventDrafts(items => items.filter(value => value.draft.draftId !== id));
+      if (templateActiveRef.current && sequenceScopeRef.current === scope) {
+        setNewMessage('');
+        if (item.chatId) void loadMessages(item.chatId);
+        else if (result.chatId) {
+          await loadChats();
+          if (templateActiveRef.current && sequenceScopeRef.current === scope) { setDraftRecipient(null); setSelectedChatId(result.chatId); }
+        }
+        scheduleChatsRefresh();
+      }
+      toast.success('Sequência enviada.');
+    } catch (error) {
+      if (requestStarted && !resultClassified) setEventDrafts(items => items.map(value => value.draft.draftId === id ? { ...value, uncertain: true } : value));
+      toast.error(getErrorMessage(error, 'Não foi possível enviar a sequência. O rascunho foi preservado.'));
+    }
+    finally { sequenceSendingRef.current = false; if (templateActiveRef.current) setSending(false); }
+  };
+  const eventSequenceReview = activeEventDraft ? <EventSequenceReview
+    key={activeEventDraft.draft.draftId} draft={activeEventDraft.draft}
+    recipient={`${activeEventDraft.contactName} (+${activeEventDraft.remoteJid.replace(/@.*$/, '')})`}
+    locked={activeEventDraft.locked} uncertain={activeEventDraft.uncertain} sending={sending}
+    signatureEnabled={activeEventDraft.signMessages ?? signMessages}
+    onChange={draft => setEventDrafts(items => items.map(item => item.draft.draftId === draft.draftId && !item.locked ? { ...item, draft } : item))}
+    onClose={() => setEventDrafts(items => items.filter(item => item.draft.draftId !== activeEventDraft.draft.draftId || item.locked))}
+    onSend={() => void handleSendEventSequence()}
+  /> : null;
+
   return (
     <>
       <Dialog open={!!recipientReviewChatId} onOpenChange={(open) => { if (!open) setRecipientReviewChatId(null); }}>
@@ -2878,7 +3007,8 @@ export default function WhatsAppChat({
                     <p className="text-xs">A mensagem só será enviada quando você confirmar abaixo.</p>
                   </div>
                 </div>
-                <div className={cn("border-t p-2 sm:p-3", whatsappDark.border, whatsappDark.composer, !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
+                {eventSequenceReview}
+                <div className={cn("border-t p-2 sm:p-3", whatsappDark.border, whatsappDark.composer, activeEventDraft && "hidden", !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
                   <label className="mb-2 flex w-fit min-w-0 items-center gap-2 text-xs text-muted-foreground">
                     <Switch checked={signMessages} onCheckedChange={setSignMessages} disabled={sending || bulkSending || !user?.id || !effectiveCompanyId} aria-label="Assinar mensagens" />
                     <span>Assinar mensagens</span>
@@ -3344,7 +3474,8 @@ export default function WhatsAppChat({
                     </div>
                   </div>
                 )}
-                <div data-testid="whatsapp-composer" className={cn("border-t p-2 sm:p-3", whatsappDark.border, whatsappDark.composer, !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
+                {eventSequenceReview}
+                <div data-testid="whatsapp-composer" className={cn("border-t p-2 sm:p-3", whatsappDark.border, whatsappDark.composer, activeEventDraft && "hidden", !embedded && "pr-20 sm:pr-24 min-[1780px]:pr-3")}>
                   <label className="mb-2 flex w-fit min-w-0 items-center gap-2 text-xs text-muted-foreground">
                     <Switch checked={signMessages} onCheckedChange={setSignMessages} disabled={sending || sendingAttachment || isRecording || bulkSending || Boolean(editingMessage) || !user?.id || !effectiveCompanyId} aria-label="Assinar mensagens" />
                     <span>Assinar mensagens</span>

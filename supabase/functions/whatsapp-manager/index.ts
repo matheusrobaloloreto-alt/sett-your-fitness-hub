@@ -1,3 +1,5 @@
+import { dispatchMessageSequence } from "../_shared/message-sequence.ts";
+import { validateRenderedMessageParts, type MessagePart } from "../_shared/company-product-settings.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import { HttpError } from "../_shared/tenant-auth.ts";
@@ -465,11 +467,12 @@ Deno.serve(async (req) => {
 
     const outboundActions = new Set([
       "send-message",
+      "send-message-sequence",
       "send-media",
       "edit-message",
     ]);
     let signatureName: string | null = null;
-    if ((action === "send-message" || action === "send-media") && body.signMessages === true) {
+    if ((action === "send-message" || action === "send-media" || action === "send-message-sequence") && body.signMessages === true) {
       const { data: profile, error: profileError } = await adminClient.from("profiles")
         .select("full_name").eq("user_id", userId).maybeSingle();
       signatureName = normalizeWhatsAppSignatureName(profile?.full_name || "") || null;
@@ -1227,6 +1230,89 @@ Deno.serve(async (req) => {
         message: insertedMessage,
         persistenceWarning,
       });
+    }
+
+    // Explicit human action: authenticated tenant/chat checks above apply to the whole occurrence.
+    if (action === "send-message-sequence") {
+      if (typeof body.remoteJid !== 'string' || !/^[1-9]\d{7,14}@s\.whatsapp\.net$/.test(body.remoteJid) || typeof body.requestId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(body.requestId)) {
+        return json({ error: 'Valid remoteJid and stable requestId required', code: 'sequence_request_invalid' }, 400);
+      }
+      let parts: MessagePart[];
+      try {
+        // Manual drafts are already rendered. The shared validator still enforces shape, count and private refs.
+        parts = validateRenderedMessageParts(body.parts);
+      } catch { return json({ error: 'Invalid message sequence', code: 'sequence_parts_invalid' }, 400); }
+      if (signatureName) parts = parts.map(part => ({ ...part, text: formatSignedWhatsAppMessage(part.text, signatureName!) }));
+      const assertManualAccess = async () => {
+        const master = await adminClient.rpc('has_role', { _user_id: userId, _role: 'master' });
+        if (master.error) throw new Error('sequence_access_revoked');
+        if (master.data !== true) {
+          const member = await adminClient.rpc('is_company_staff', { _user_id: userId, _company_id: resolvedCompanyId });
+          if (member.error || member.data !== true) throw new Error('sequence_access_revoked');
+        }
+      };
+      // A new contact must acquire its durable, tenant/instance-scoped chat before snapshotting.
+      // Unique(instance_id,remote_jid) arbitrates simultaneous creation; never relink an existing chat.
+      if (!boundChat) {
+        try {
+          await assertManualAccess();
+          const live = await verifyLiveOutboundInstance();
+          if (!live.ok) throw new Error('sequence_instance_unavailable');
+          const recipient = await verifyOutboundRecipient(body.remoteJid, body.studentId);
+          if (!recipient.ok) return json(verifiedRecipientError(recipient.code), 409);
+          const columns = 'id,remote_jid,student_id,contact_name,instance_id';
+          const findChat = () => adminClient.from('whatsapp_chats').select(columns)
+            .eq('company_id', resolvedCompanyId).eq('instance_id', instanceRow!.id)
+            .in('remote_jid', directWhatsAppJidVariants(recipient.remoteJid)).maybeSingle();
+          let resolved = await findChat();
+          if (resolved.error) throw new Error('sequence_chat_unavailable');
+          if (!resolved.data) {
+            resolved = await adminClient.from('whatsapp_chats').insert({
+              company_id: resolvedCompanyId, instance_id: instanceRow!.id,
+              remote_jid: recipient.remoteJid, student_id: recipient.studentId,
+              contact_name: typeof body.contactName === 'string' ? body.contactName.slice(0, 200) : null,
+              unread_count: 0,
+            }).select(columns).single();
+            if (resolved.error?.code === '23505') resolved = await findChat();
+          }
+          if (resolved.error || !resolved.data?.id) throw new Error('sequence_chat_unavailable');
+          boundChat = resolved.data;
+        } catch {
+          return json({ success: false, sequenceComplete: false, code: 'sequence_not_completed',
+            error: 'Conversa não disponível; preserve o requestId para retomar.', chatId: boundChat?.id || null,
+          }, 422);
+        }
+      }
+      if (!boundChat) return json({ success: false, sequenceComplete: false, code: 'sequence_not_completed' }, 422);
+      const expectedStudent = boundChat.student_id || null;
+      // Pin the validated provider route after resolving a new or equivalent BR conversation.
+      // Subsequent checks remain exact against that route, so a real recipient change still fails.
+      const verifiedSequenceRecipient = await verifyOutboundRecipient(body.remoteJid, body.studentId);
+      if (!verifiedSequenceRecipient.ok) return json({ success: false, sequenceComplete: false, code: 'sequence_not_completed', chatId: boundChat.id, error: 'Destinatário da conversa não confirmado; revise o contato antes de retomar.' }, 422);
+      const sequenceRemoteJid = verifiedSequenceRecipient.remoteJid;
+      const beforeSend = async () => {
+        await assertManualAccess();
+        const chat = await adminClient.from('whatsapp_chats').select('remote_jid,student_id,instance_id').eq('id', boundChat!.id).eq('company_id', resolvedCompanyId).maybeSingle();
+        if (chat.error || !chat.data || chat.data.remote_jid !== sequenceRemoteJid || (chat.data.student_id || null) !== expectedStudent || chat.data.instance_id !== instanceRow?.id) throw new Error('sequence_recipient_changed');
+        const live = await verifyLiveOutboundInstance();
+        if (!live.ok) throw new Error('sequence_instance_unavailable');
+        const recipient = await verifyOutboundRecipient(sequenceRemoteJid, body.studentId);
+        if (!recipient.ok || recipient.remoteJid !== sequenceRemoteJid) throw new Error('sequence_recipient_changed');
+      };
+      try {
+        await beforeSend();
+        await dispatchMessageSequence({
+          admin: adminClient, companyId: resolvedCompanyId, chatId: boundChat.id,
+          occurrence: `manual:${boundChat.id}:${body.requestId}`, parts, recipient: sequenceRemoteJid,
+          instanceName, evoUrl, evoKey, beforeSend, metadata: { actorId: userId, signMessages: body.signMessages === true },
+        });
+        return json({ success: true, sequenceComplete: true, requestId: body.requestId, chatId: boundChat.id });
+      } catch (error) {
+        const ambiguous = error instanceof Error && error.message === 'dispatch_uncertain';
+        return json({ success: false, sequenceComplete: false, chatId: boundChat.id, code: ambiguous ? 'dispatch_uncertain' : 'sequence_not_completed',
+          error: ambiguous ? 'Resultado de envio incerto. Revise antes de reenviar.' : 'Sequência não concluída; preserve o requestId para retomar.',
+        }, ambiguous ? 409 : 422);
+      }
     }
 
     // ─── SEND MEDIA ───

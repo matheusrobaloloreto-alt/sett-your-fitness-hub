@@ -6,13 +6,29 @@
 import type { NavigateFunction } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { paymentUrl } from "@/lib/publicFlowLinks";
-import { requestWhatsAppChatPanel } from "@/lib/whatsappChatPanel";
+import { requestWhatsAppChatPanel, type CompanyEventDraft } from "@/lib/whatsappChatPanel";
 import { fetchCompanyProductSettings } from "@/lib/companyProductSettings";
-import type { MessageEvent } from '../../supabase/functions/_shared/company-product-settings';
-import { eventMessage, messageValues } from '../../supabase/functions/_shared/communication-policy';
+import { WHATSAPP_EVENTS, type MessageEvent, type WhatsAppEvent } from '../../supabase/functions/_shared/company-product-settings';
+import { eventMessage, eventMessageSequence, messageValues } from '../../supabase/functions/_shared/communication-policy';
+
+export function eventDraftPreview(draft: CompanyEventDraft): string {
+  return draft.parts.map((part, index) => `${index + 1}. ${part.type === 'text' ? part.text : `[${part.type}: ${part.media?.fileName || 'arquivo'}]${part.text ? `\n${part.text}` : ''}`}`).join('\n\n');
+}
+
+export async function draftCompanyEventSequence(companyId: string, event: MessageEvent, values: Record<string, string>, fallback: string): Promise<CompanyEventDraft> {
+  if (!companyId || !(WHATSAPP_EVENTS as readonly string[]).includes(event)) throw new Error('whatsapp_event_company_required');
+  const { settings, version } = await fetchCompanyProductSettings(companyId);
+  const renderedValues = messageValues({ profissional: settings.brand.professional_name, email: settings.brand.support_email, prazo: String(settings.business.assessment_sla_business_days), ...values }, settings.brand.company_name);
+  return {
+    draftId: crypto.randomUUID(), companyId, event: event as WhatsAppEvent, settingsVersion: version,
+    parts: version > 0 ? eventMessageSequence(settings, event as WhatsAppEvent, renderedValues, fallback) : [{ id: 'legacy', type: 'text', text: fallback }],
+  };
+}
 
 export async function draftCompanyEventMessage(companyId: string, event: MessageEvent, values: Record<string, string>, fallback: string): Promise<string> {
   const { settings, version } = await fetchCompanyProductSettings(companyId);
+  // Retained for old text callers. Never silently downgrade a configured sequence.
+  if (version > 0 && settings.message_sequences?.[event as WhatsAppEvent]) throw new Error('Use draftCompanyEventSequence para revisar todas as mensagens e arquivos.');
   return version > 0 ? eventMessage(settings.messages, event, messageValues({ profissional: settings.brand.professional_name, email: settings.brand.support_email, ...values }, settings.brand.company_name), fallback) : fallback;
 }
 
@@ -57,13 +73,17 @@ export async function openStudentChat(opts: {
   companyId?: string;
   messageEvent?: MessageEvent;
   messageValues?: Record<string, string>;
+  eventDraft?: CompanyEventDraft;
   onNoChat?: (message: string) => void;
 }): Promise<void> {
   const { navigate, routePrefix, studentId, onNoChat } = opts;
   let message = opts.message;
+  let eventDraft = opts.eventDraft;
+  if (eventDraft && (!opts.companyId || eventDraft.companyId !== opts.companyId)) throw new Error('message_draft_company_mismatch');
   if (opts.messageEvent) {
     if (!opts.companyId) throw new Error('company_id_required_for_message_template');
-    message = await draftCompanyEventMessage(opts.companyId, opts.messageEvent, opts.messageValues || {}, message);
+    eventDraft = await draftCompanyEventSequence(opts.companyId, opts.messageEvent, opts.messageValues || {}, message);
+    message = eventDraft.parts.length === 1 && eventDraft.parts[0].type === 'text' ? eventDraft.parts[0].text : '';
   }
   let resolvedChatId = opts.chatId ?? null;
   let resolvedPhone = opts.phone ?? null;
@@ -71,22 +91,28 @@ export async function openStudentChat(opts: {
   let contactName: string | null = opts.contactName ?? null;
 
   if (!resolvedChatId && studentId) {
-    const { data: linkedChat } = await supabase
+    let chatQuery = supabase
       .from("whatsapp_chats")
       .select("id")
-      .eq("student_id", studentId)
+      .eq("student_id", studentId);
+    if (opts.companyId) chatQuery = chatQuery.eq("company_id", opts.companyId);
+    const { data: linkedChat, error } = await chatQuery
       .order("last_message_at", { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle();
+    if (error) throw error;
     resolvedChatId = linkedChat?.id ?? null;
   }
 
   if ((!resolvedPhone || !contactName || !resolvedCountryCode) && studentId) {
-    const { data } = await supabase
+    let studentQuery = supabase
       .from("students")
       .select("full_name, whatsapp, phone, country_code")
-      .eq("id", studentId)
-      .maybeSingle();
+      .eq("id", studentId);
+    if (opts.companyId) studentQuery = studentQuery.eq("company_id", opts.companyId);
+    const { data, error } = await studentQuery.maybeSingle();
+    if (error) throw error;
+    if (opts.companyId && !data) throw new Error('student_company_mismatch');
     resolvedPhone = resolvedPhone || (data as any)?.whatsapp || (data as any)?.phone || null;
     contactName = (data as any)?.full_name || null;
     resolvedCountryCode = resolvedCountryCode || (data as any)?.country_code || null;
@@ -98,11 +124,14 @@ export async function openStudentChat(opts: {
       onNoChat(message);
       return;
     }
+    if (eventDraft) throw new Error('Informe um destinatário válido para revisar a sequência completa.');
     void navigator.clipboard?.writeText(message);
     return;
   }
 
   const request = {
+    ...(opts.companyId ? { companyId: opts.companyId } : {}),
+    ...(eventDraft ? { eventDraft } : {}),
     chatId: resolvedChatId,
     studentId: studentId ?? null,
     phone: digits,

@@ -1,6 +1,7 @@
+import { dispatchConfiguredMessageSequence } from "../_shared/message-sequence.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DEFAULT_COMPANY_PRODUCT_SETTINGS, getCompanyProductSettings, readCompanyProductSettings } from "../_shared/company-product-settings.ts";
-import { eventMessage, messageValues, renderCompanyMessage, weeklyFlowMessage } from "../_shared/communication-policy.ts";
+import { eventMessage, eventMessageSequence, messageValues, renderCompanyMessage, weeklyFlowMessage } from "../_shared/communication-policy.ts";
 import { delayDecision, enterFlow, evaluateFlowCondition, loadCompanyFlow, validateFlowNode } from "../_shared/automation-flow.ts";
 import { acknowledgeDispatch, assertAcyclicDispatchGraph, authorizeDispatch, beginDispatch, DispatchUncertain, fencedDispatchUpdate, type DispatchAttempt } from "../_shared/automation-recovery.ts";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
@@ -341,7 +342,43 @@ export async function processIntercycleAnamnesisDeliveries(args: {
       const firstName = String(student.full_name || "").trim().split(/\s+/)[0] || "tudo bem";
       const link = `${origin}/anamnese-interciclos/${token}`;
       const { settings, version } = await readCompanyProductSettings(args.admin, delivery.company_id);
-      await sendText({
+      const handledSequence = await dispatchConfiguredMessageSequence({
+        admin: args.admin, companyId: delivery.company_id, chatId: chat.id,
+        occurrence: `intercycle:${delivery.id}:invite`, configured: !!settings.message_sequences?.intercycle_invite,
+        parts: eventMessageSequence(settings, 'intercycle_invite', messageValues({ nome: student.full_name, link }, settings.brand.company_name), ''),
+        recipient: recipient.remoteJid, instanceName: instanceResult.data.instance_name, evoUrl: args.provider.url, evoKey: args.provider.key,
+        scope: { kind: 'intercycle', ownerId: delivery.id, leaseToken: delivery.dispatch_lease_token || '' },
+        metadata: { tokenHash, expiresAt, settingsVersion: version },
+        prepare: async metadata => {
+          if (typeof metadata.expiresAt !== 'string' || Date.parse(metadata.expiresAt) <= Date.now()) throw new Error('intercycle_invite_expired');
+          const invite = await args.admin.from('intercycle_anamnesis_invites').upsert({
+            delivery_id: delivery.id, company_id: delivery.company_id, student_id: delivery.student_id,
+            enrollment_id: delivery.enrollment_id, training_cycle_id: delivery.training_cycle_id,
+            token_sha256: metadata.tokenHash, expires_at: metadata.expiresAt,
+          }, { onConflict: 'delivery_id' });
+          if (invite.error) throw new Error('intercycle_invite_unavailable');
+        },
+        beforeSend: async () => {
+          await requireCompanyFeature(args.admin, delivery.company_id, 'hasAutomation');
+          const current = await args.admin.from('students').select('id,phone,whatsapp,country_code,intercycle_anamnesis_enabled').eq('id', delivery.student_id).eq('company_id', delivery.company_id).maybeSingle();
+          if (current.error || !current.data?.intercycle_anamnesis_enabled) throw new Error('intercycle_opt_in_missing');
+          const currentCycle = await args.admin.from('training_cycles').select('id,status,superseded_at').eq('id',delivery.training_cycle_id).eq('student_id',delivery.student_id).eq('company_id',delivery.company_id).eq('enrollment_id',delivery.enrollment_id).maybeSingle();
+          if (currentCycle.error || !currentCycle.data || currentCycle.data.superseded_at || ['cancelled','superseded'].includes(currentCycle.data.status)) throw new Error('intercycle_cycle_cancelled_or_rescoped');
+          const currentEnrollment = await args.admin.from('enrollments').select('id,status').eq('id',delivery.enrollment_id).eq('student_id',delivery.student_id).eq('company_id',delivery.company_id).maybeSingle();
+          if (currentEnrollment.error || !currentEnrollment.data || currentEnrollment.data.status==='completed') throw new Error('intercycle_enrollment_completed_or_missing');
+          const currentChat = await args.admin.from('whatsapp_chats').select('remote_jid,student_id,instance_id').eq('id', chat.id).eq('company_id', delivery.company_id).maybeSingle();
+          const verified = resolveVerifiedWhatsAppRecipient({ clientRemoteJid: recipient.remoteJid, chatRemoteJid: currentChat.data?.remote_jid, chatStudentId: currentChat.data?.student_id, requestedStudentId: delivery.student_id, student: current.data });
+          if (currentChat.error || currentChat.data?.instance_id !== chat.instance_id || !verified.ok) throw new Error('dispatch_recipient_changed');
+          const live = await args.admin.from('whatsapp_instances').select('instance_name,status').eq('id',chat.instance_id).eq('company_id',delivery.company_id).maybeSingle();
+          if (live.error || live.data?.status !== 'connected' || live.data?.instance_name !== instanceResult.data.instance_name) throw new Error('dispatch_instance_unavailable');
+        },
+      });
+      if (handledSequence) {
+        const completed = await args.admin.rpc('complete_intercycle_message_sequence', {
+          _owner_id: delivery.id, _lease_token: delivery.dispatch_lease_token,
+        });
+        if (completed.error) throw new DispatchUncertain();
+      } else await sendText({
         admin: args.admin, evoUrl: args.provider.url, evoKey: args.provider.key,
         instanceName: instanceResult.data.instance_name, remoteJid: recipient.remoteJid,
         chatId: chat.id, companyId: delivery.company_id,
@@ -368,7 +405,7 @@ export async function processIntercycleAnamnesisDeliveries(args: {
         }).catch(() => {});
         continue;
       }
-      if (error instanceof DispatchUncertain) {
+      if (error instanceof DispatchUncertain || (error instanceof Error && error.message === "dispatch_uncertain")) {
         await fencedDispatchUpdate(args.admin, "intercycle", delivery, {
           status: "failed", last_error_code: "dispatch_uncertain", next_attempt_at: null,
           updated_at: new Date().toISOString(),
@@ -488,7 +525,8 @@ export async function processSession(admin: any, session: FlowSession, provider:
   let nodes = nodesResult.data || [];
   let edges = edgesResult.data || [];
   assertAcyclicDispatchGraph(edges);
-  const settings = await getCompanyProductSettings(admin, chat.company_id);
+  const settingsEnvelope = await readCompanyProductSettings(admin, chat.company_id);
+  const settings = settingsEnvelope.settings;
   let flowId = session.flow_id;
 
   const context: Record<string, unknown> = { ...(session.context || {}) };
@@ -538,11 +576,27 @@ export async function processSession(admin: any, session: FlowSession, provider:
       const message = context.trigger_type === 'weekly_contact'
         ? weeklyFlowMessage(settings.messages, DEFAULT_COMPANY_PRODUCT_SETTINGS.messages.weekly_contact, nodeData, messageValues(context, settings.brand.company_name), fallback)
         : replaceVariables(fallback, context);
-      if (message.trim() && !alreadyAcknowledged) {
+      if ((message.trim() || nodeData.use_company_template === 'weekly_contact') && !alreadyAcknowledged) {
         const currentVerifiedRemoteJid = await verifyWeeklyRecipientImmediatelyBeforeSend(
           admin,context,chat.id,identityStudentId,chat.company_id,
         );
-        await sendText({
+        const handledSequence = nodeData.use_company_template === 'weekly_contact' && await dispatchConfiguredMessageSequence({
+          admin, companyId: chat.company_id, chatId: chat.id,
+          legacyAttempt: { kind: 'flow', ownerId: session.id, key: contentKey },
+          occurrence: `flow:${session.id}:${contentKey}`, configured: !!settings.message_sequences?.weekly_contact,
+          parts: eventMessageSequence(settings, 'weekly_contact', messageValues(context, settings.brand.company_name), fallback),
+          recipient: currentVerifiedRemoteJid, instanceName: instance.instance_name, evoUrl: provider.url, evoKey: provider.key,
+          metadata: { settingsVersion: settingsEnvelope.version },
+          scope: { kind: 'flow', ownerId: session.id, leaseToken: session.dispatch_lease_token || '' },
+          beforeSend: async () => {
+            await requireCompanyFeature(admin, chat.company_id, 'hasAutomation');
+            const live = await admin.from('whatsapp_instances').select('instance_name,status').eq('id', chat.instance_id).eq('company_id', chat.company_id).maybeSingle();
+            if (live.error || live.data?.status !== 'connected' || live.data?.instance_name !== instance.instance_name) throw new Error('dispatch_instance_unavailable');
+            const recipient = await verifyWeeklyRecipientImmediatelyBeforeSend(admin, context, chat.id, identityStudentId, chat.company_id);
+            if (!sameWhatsAppRecipient(recipient, currentVerifiedRemoteJid)) throw new Error('dispatch_recipient_changed');
+          },
+        });
+        if (!handledSequence) await sendText({
           admin,
           evoUrl: provider.url,
           evoKey: provider.key,
@@ -719,7 +773,7 @@ export async function handleAutomationRequest(
         }).catch(() => {});
         continue;
       }
-      if (error instanceof DispatchUncertain) {
+      if (error instanceof DispatchUncertain || (error instanceof Error && error.message === "dispatch_uncertain")) {
         await fencedDispatchUpdate(admin, "flow", session, {
           status: "failed", context: { ...(session.context || {}), dispatch_error: "dispatch_uncertain", next_dispatch_at: null },
           updated_at: new Date().toISOString(),

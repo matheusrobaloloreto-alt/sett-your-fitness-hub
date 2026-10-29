@@ -14,7 +14,7 @@ function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
 }
 
-function equal(actual: unknown, expected: unknown, label = "value") {
+export function equal(actual: unknown, expected: unknown, label = "value") {
   const canonical = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(canonical);
     if (value && typeof value === "object") {
@@ -113,6 +113,7 @@ class Query implements PromiseLike<DbResult> {
   limit(_count: number) {
     return this;
   }
+  in(key: string, values: unknown[]) { this.filters[key] = values; return this; }
   insert(payload: Row) {
     this.operation = "insert";
     this.payload = payload;
@@ -146,6 +147,17 @@ class Query implements PromiseLike<DbResult> {
     });
     const result = (data: unknown): DbResult => ({ data, error: null });
     if (this.operation === "insert") {
+      if (this.table === 'whatsapp_chats') {
+        equal(this.payload.company_id, COMPANY, 'new chat tenant');
+        equal(this.payload.instance_id, 'instance-qa', 'new chat instance');
+        if (f.failChatCreation) return {data:null,error:{code:'synthetic',message:'chat unavailable'}};
+        f.chatExists=true;
+        f.storedJid=String(this.payload.remote_jid);
+        f.chatStudentId=this.payload.student_id as string | null;
+        if (f.chatCreationRace) { f.chatCreationRace=false; return {data:null,error:{code:'23505',message:'concurrent insert'}}; }
+        f.writes.push({table:'whatsapp_chats',...this.payload});
+        return result({id:CHAT,...this.payload});
+      }
       assert(this.table === "whatsapp_messages", "Unexpected database insert");
       if (this.payload.message_id_external === "signature-id") {
         if (f.failure === "db-throw") {
@@ -176,21 +188,24 @@ class Query implements PromiseLike<DbResult> {
     }
     if (this.table === "whatsapp_chats") {
       return result(
-        this.filters.id === CHAT && this.filters.company_id === COMPANY
+        f.chatExists && (this.filters.id === CHAT || (f.newContact && !this.filters.id && this.filters.instance_id === 'instance-qa' && Array.isArray(this.filters.remote_jid) && this.filters.remote_jid.includes(f.storedJid || JID))) && this.filters.company_id === COMPANY
           ? {
             id: CHAT,
-            remote_jid: JID,
-            student_id: null,
+            remote_jid: f.storedJid || JID,
+            student_id: f.chatStudentId,
             contact_name: "Synthetic contact",
             instance_id: "instance-qa",
           }
           : null,
       );
     }
+    if (this.table === 'students') {
+      return result(f.studentId && this.filters.id===f.studentId && this.filters.company_id===COMPANY ? {id:f.studentId,phone:f.studentPhone,whatsapp:null,country_code:f.studentCountryCode} : null);
+    }
     if (this.table === "whatsapp_instances") {
       return result(
         f.connected && this.filters.company_id === COMPANY &&
-          this.filters.id === "instance-qa"
+          (this.filters.id === "instance-qa" || (f.newContact && !this.filters.id))
           ? {
             id: "instance-qa",
             instance_name: "qa-instance",
@@ -210,7 +225,7 @@ class Query implements PromiseLike<DbResult> {
   }
 }
 
-class Fixture {
+export class Fixture {
   name: string | null = "QA Operator";
   profileError = false;
   authenticated = true;
@@ -221,6 +236,19 @@ class Fixture {
   primaryFails = false;
   mimeType = "image/png";
   templateMissing = false;
+  newContact = false;
+  storedJid: string | null = null;
+  studentPhone = '+1 202 555 0123';
+  studentCountryCode = 'US';
+  chatExists = true;
+  failChatCreation = false;
+  chatCreationRace = false;
+  chatStudentId: string | null = null;
+  studentId: string | null = null;
+  master = false;
+  member = true;
+  sequenceSnapshot: any;
+  sequenceStates: string[] = [];
   signedUrls: string[] = [];
   calls: Call[] = [];
   writes: Row[] = [];
@@ -236,10 +264,24 @@ class Fixture {
         }),
     },
     rpc: (name: string, args: Row) => {
+      if (name === 'service_company_feature_allowed') return Promise.resolve({ data: true, error: null });
+      if (name === 'snapshot_company_message_sequence') {
+        if (!this.sequenceSnapshot) { this.sequenceSnapshot = structuredClone(args._snapshot); this.sequenceStates = this.sequenceSnapshot.parts.map(() => 'pending'); }
+        return Promise.resolve({ data: {id:'sequence',snapshot:this.sequenceSnapshot,states:[...this.sequenceStates]},error:null });
+      }
+      if (name === 'claim_company_message_part') {
+        const i = Number(args._index); const state=this.sequenceStates[i];
+        if (state==='acked') return Promise.resolve({data:{state:'acked'},error:null});
+        if (state!=='pending') return Promise.resolve({data:null,error:{message:'dispatch_uncertain'}});
+        this.sequenceStates[i]='in_flight'; return Promise.resolve({data:{state:'in_flight',token:'token'},error:null});
+      }
+      if (name === 'authorize_company_message_part') return Promise.resolve({data:null,error:null});
+      if (name === 'ack_company_message_part') {this.sequenceStates[Number(args._index)]='acked'; return Promise.resolve({data:null,error:null});}
       equal(args._user_id, USER, "authenticated RPC identity");
+      if (name === 'is_company_staff') return Promise.resolve({data:this.member,error:null});
       if (name === "has_role") {
         return Promise.resolve({
-          data: this.permitted && args._role === "trainer",
+          data: this.permitted && (args._role === "trainer" || (this.master && args._role === "master")),
           error: null,
         });
       }
@@ -284,7 +326,7 @@ class Fixture {
     }
     assert(url.pathname.startsWith("/message/"), "Unexpected provider route");
     equal(init?.method, "POST", "provider send method");
-    equal(body.number, NUMBER, "verified provider recipient");
+    equal(body.number, this.storedJid?.split('@')[0] || NUMBER, "verified provider recipient");
     const followup = url.pathname === "/message/sendText/qa-instance" &&
       this.calls.some((call) =>
         /sendWhatsAppAudio|sendSticker|sendMedia/.test(call.path)
@@ -712,4 +754,90 @@ Deno.test("signing cannot bypass media tenant path validation", async () => {
   equal(response.body.code, "whatsapp_media_scope_mismatch");
   equal(f.sends.length, 0);
   equal(f.writes.length, 0);
+});
+
+for (const signed of [true,false]) Deno.test(`manual sequence signed=${signed} keeps rendered braces, order and ACK replay`, async()=>{
+ const f=new Fixture();
+ const request={action:'send-message-sequence',requestId:'stable',signMessages:signed,parts:[{id:'one',type:'text',text:'Olá {Ana}'},{id:'two',type:'text',text:'https://example.test/{{literal}}'}]};
+ const result=await f.request(request);equal(result.status,200);equal(result.body.sequenceComplete,true);
+ equal(f.sends.map(x=>x.body.text),signed?['*QA Operator*\nOlá {Ana}','*QA Operator*\nhttps://example.test/{{literal}}']:['Olá {Ana}','https://example.test/{{literal}}']);
+ equal(f.writes.filter(x=>x.message_id_external).every(x=>x.sender_id===USER && x.origin==='panel_manual'),true);
+ const replay=await f.request({...request,parts:[{id:'edited',type:'text',text:'new'}]});equal(replay.status,200);equal(f.sends.length,2);
+});
+Deno.test('manual sequence permits a current global master without company staff membership',async()=>{
+ const f=new Fixture();f.master=true;f.member=false;
+ const result=await f.request({action:'send-message-sequence',requestId:'master-request',parts:[{id:'a',type:'text',text:'Hello'}]});
+ equal(result.status,200);equal(f.sends.length,1);
+});
+Deno.test('manual sequence rejects revoked company membership before message I/O',async()=>{
+ const f=new Fixture();f.member=false;
+ const result=await f.request({action:'send-message-sequence',requestId:'revoked',parts:[{id:'a',type:'text',text:'Hello'}]});
+ equal(result.status,422);equal(f.sends.length,0);
+});
+Deno.test('manual sequence ambiguous provider response cannot repeat parts',async()=>{
+ const f=new Fixture();f.primaryFails=true;
+ const request={action:'send-message-sequence',requestId:'uncertain',parts:[{id:'a',type:'text',text:'Hello'},{id:'b',type:'text',text:'Second'}]};
+ equal((await f.request(request)).status,409);equal((await f.request(request)).status,409);equal(f.sends.length,1);
+});
+
+Deno.test('manual new contact creates scoped chat before snapshot, returns chatId and reuses it on replay',async()=>{
+ const f=new Fixture();f.newContact=true;f.chatExists=false;
+ const request={action:'send-message-sequence',chatId:null,requestId:'first-contact',parts:[{id:'one',type:'text',text:'First'},{id:'two',type:'text',text:'Second'}]};
+ const result=await f.request(request);equal(result.status,200);equal(result.body.chatId,CHAT);equal(f.sends.length,2);
+ equal(f.writes.filter(x=>x.table==='whatsapp_chats' && x.remote_jid===JID).length,1);
+ equal((await f.request(request)).body.chatId,CHAT);equal(f.sends.length,2);
+ equal(f.writes.filter(x=>x.table==='whatsapp_chats' && x.remote_jid===JID).length,1);
+});
+Deno.test('manual new contact reuses exact tenant/instance recipient without creating a duplicate',async()=>{
+ const f=new Fixture();f.newContact=true;
+ const result=await f.request({action:'send-message-sequence',chatId:null,requestId:'existing-contact',parts:[{id:'one',type:'text',text:'First'}]});
+ equal(result.status,200);equal(result.body.chatId,CHAT);equal(f.sends.length,1);
+ equal(f.writes.filter(x=>x.table==='whatsapp_chats' && x.remote_jid===JID).length,0);
+ const lookup=f.queries.find(x=>x.table==='whatsapp_chats' && !x.filters.id);
+ equal(lookup?.filters.company_id,COMPANY);equal(lookup?.filters.instance_id,'instance-qa');
+});
+Deno.test('manual new contact handles unique creation race by reloading scoped chat',async()=>{
+ const f=new Fixture();f.newContact=true;f.chatExists=false;f.chatCreationRace=true;
+ const result=await f.request({action:'send-message-sequence',chatId:null,requestId:'raced-contact',parts:[{id:'one',type:'text',text:'First'}]});
+ equal(result.status,200);equal(result.body.chatId,CHAT);equal(f.sends.length,1);
+});
+Deno.test('manual new contact refuses persistence failure before snapshot/provider send',async()=>{
+ const f=new Fixture();f.newContact=true;f.chatExists=false;f.failChatCreation=true;
+ const result=await f.request({action:'send-message-sequence',chatId:null,requestId:'failed-create',parts:[{id:'one',type:'text',text:'First'}]});
+ equal(result.status,422);equal(result.body.code,'sequence_not_completed');equal(f.sends.length,0);equal(f.sequenceSnapshot,undefined);
+});
+Deno.test('manual new contact never relinks a reused conversation belonging to another student',async()=>{
+ const f=new Fixture();f.newContact=true;f.studentId='student-qa';f.chatStudentId='another-student';
+ const result=await f.request({action:'send-message-sequence',chatId:null,studentId:'student-qa',requestId:'mismatch',parts:[{id:'one',type:'text',text:'First'}]});
+ equal(result.status,422);equal(f.sends.length,0);equal(f.sequenceSnapshot,undefined);
+ equal(f.writes.filter(x=>x.table==='whatsapp_chats').length,0);
+});
+Deno.test('manual new contact rejects foreign student identity before creating conversation',async()=>{
+ const f=new Fixture();f.newContact=true;f.chatExists=false;
+ const result=await f.request({action:'send-message-sequence',chatId:null,studentId:'foreign-student',requestId:'foreign',parts:[{id:'one',type:'text',text:'First'}]});
+ equal(result.status,409);equal(f.sends.length,0);equal(f.writes.length,0);
+});
+
+Deno.test('manual new contact reuses equivalent legacy BR route and replays its ACK without sending again', async () => {
+ const canonical='5548999990001@s.whatsapp.net', legacy='554899990001@s.whatsapp.net';
+ const f=new Fixture();f.newContact=true;f.storedJid=legacy;
+ const request={action:'send-message-sequence',chatId:null,remoteJid:canonical,requestId:'qa-br-legacy-route',parts:[{id:'one',type:'text',text:'Synthetic independent QA'}]};
+ const result=await f.request(request);
+ equal(result.status,200);equal(result.body.sequenceComplete,true);equal(result.body.chatId,CHAT);
+ equal(f.sequenceSnapshot.recipient,legacy);equal(f.sends.length,1);equal(f.sends[0].body.number,legacy.split('@')[0]);
+ equal(f.writes.filter(x=>x.table==='whatsapp_chats' && x.remote_jid).length,0);
+ equal((await f.request(request)).status,200);equal(f.sends.length,1);
+});
+
+Deno.test('manual new student contact pins canonical BR route from equivalent legacy request and replays ACK', async () => {
+ const canonical='5548999990001@s.whatsapp.net', legacy='554899990001@s.whatsapp.net';
+ const f=new Fixture();f.newContact=true;f.chatExists=false;f.studentId='student-qa';
+ f.studentPhone='+55 48 99999 0001';f.studentCountryCode='BR';
+ const request={action:'send-message-sequence',chatId:null,studentId:'student-qa',remoteJid:legacy,requestId:'qa-br-student-route',parts:[{id:'one',type:'text',text:'Synthetic independent QA'}]};
+ const result=await f.request(request);
+ equal(result.status,200);equal(result.body.sequenceComplete,true);equal(result.body.chatId,CHAT);
+ equal(f.storedJid,canonical);equal(f.chatStudentId,'student-qa');equal(f.sequenceSnapshot.recipient,canonical);
+ equal(f.sends.length,1);equal(f.sends[0].body.number,canonical.split('@')[0]);
+ equal(f.writes.filter(x=>x.table==='whatsapp_chats' && x.remote_jid).length,1);
+ equal((await f.request(request)).status,200);equal(f.sends.length,1);
 });

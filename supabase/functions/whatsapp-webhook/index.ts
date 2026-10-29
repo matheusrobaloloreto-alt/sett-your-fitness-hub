@@ -1,9 +1,10 @@
+import { dispatchConfiguredMessageSequence } from "../_shared/message-sequence.ts";
 import { assertAcyclicDispatchGraph } from '../_shared/automation-recovery.ts';
 import { dispatchWebhookText, webhookOccurrence } from '../_shared/dispatch-reconciliation-webhook.ts';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertResponseVariable, delayDecision, enterFlow, evaluateFlowCondition, loadCompanyFlow, validateFlowNode } from "../_shared/automation-flow.ts";
-import { messageValues, renderCompanyMessage, weeklyFlowMessage } from "../_shared/communication-policy.ts";
-import { DEFAULT_COMPANY_PRODUCT_SETTINGS, getCompanyProductSettings } from '../_shared/company-product-settings.ts';
+import { eventMessageSequence, messageValues, renderCompanyMessage, weeklyFlowMessage } from "../_shared/communication-policy.ts";
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS, getCompanyProductSettings, readCompanyProductSettings, type MessagePart } from '../_shared/company-product-settings.ts';
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import {
   directWhatsAppJidVariants,
@@ -500,6 +501,7 @@ export async function sendText(
   occurrence: () => Promise<string>,
   expectedStudentId: string | null,
   context: Record<string, unknown> = {},
+  sequence?: { parts: MessagePart[]; configured: boolean; version: number },
 ): Promise<void> {
   await requireCompanyFeature(adminClient, companyId, "hasWhatsApp");
   await requireCompanyFeature(adminClient, companyId, "hasAutomation");
@@ -544,6 +546,11 @@ export async function sendText(
     }
     if (!evoUrl || !evoHeaders.apikey) throw new Error('dispatch_provider_unavailable');
   };
+  if (sequence && await dispatchConfiguredMessageSequence({
+    admin: adminClient, companyId, chatId, occurrence: `webhook:${occurrenceKey}`, legacyWebhookOccurrence: occurrenceKey,
+    parts: sequence.parts, configured: sequence.configured, metadata: { settingsVersion: sequence.version }, recipient: remoteJid,
+    instanceName, evoUrl, evoKey: evoHeaders.apikey, beforeSend,
+  })) return;
   const receipt = await dispatchWebhookText({
     admin: adminClient, companyId, chatId, occurrence: occurrenceKey, beforeSend,
     send: async () => {
@@ -777,16 +784,19 @@ export async function executeFlow(
         if (scheduled.error) throw scheduled.error;
         return;
       }
+      let sequence: { parts: MessagePart[]; configured: boolean; version: number } | undefined;
       let message = replaceVariables(
         nodeData.message || node.label || "",
         context,
       );
       if (nodeData.use_company_template === 'weekly_contact') {
         if (context.trigger_type !== 'weekly_contact') throw new Error('flow_weekly_template_requires_weekly_trigger');
-        const settings = await getCompanyProductSettings(adminClient, companyId);
+        const envelope = await readCompanyProductSettings(adminClient, companyId);
+        const settings = envelope.settings;
         message = weeklyFlowMessage(settings.messages, DEFAULT_COMPANY_PRODUCT_SETTINGS.messages.weekly_contact, nodeData, messageValues(context, settings.brand.company_name), message);
+        sequence = { version: envelope.version, configured: !!settings.message_sequences?.weekly_contact, parts: eventMessageSequence(settings, 'weekly_contact', messageValues(context, settings.brand.company_name), message) };
       }
-      if (message.trim()) {
+      if (message.trim() || sequence) {
         await sendText(
           evoUrl,
           instanceName,
@@ -799,6 +809,7 @@ export async function executeFlow(
           () => webhookOccurrence(context._dispatch_inbound_event, `${flowId}:${currentId}`),
           subject,
           context,
+          sequence,
         );
       }
 
