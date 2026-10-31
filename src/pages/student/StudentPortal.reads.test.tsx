@@ -36,10 +36,13 @@ let withPrescription: boolean;
 let longContract: boolean;
 let pendingSlot: boolean;
 let pendingOnly: boolean;
+let expiredEnrollment: boolean;
+let offlinePrescription: boolean;
 let overlappingPrescription: boolean;
 let sessionLogs: Array<SessionLog & { id: string; session_date: string }> = [];
 beforeEach(() => {
   mocks.user = { id: 'user-a' }; mocks.toast.mockReset(); mocks.start.mockReset(); mocks.abandon.mockReset(); mocks.event.mockReset(); mocks.rpc.mockReset(); mocks.finish.mockReset(); sessionLogs = [];
+  expiredEnrollment = false; offlinePrescription = false;
   failureTable = null; rejectRead = false; slowStudent = null; withPrescription = false; longContract = false; pendingSlot = false; pendingOnly = false; overlappingPrescription = false;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-29T15:00:00Z'));
@@ -47,7 +50,7 @@ beforeEach(() => {
   mocks.from.mockImplementation((table: string) => {
     let single = false;
     const query = {
-      select: () => query, eq: () => query, is: () => query, in: () => query, order: () => query, limit: () => query, range: () => query,
+      select: () => query, eq: () => query, is: () => query, lte: () => query, in: () => query, order: () => query, limit: () => query, range: () => query,
       maybeSingle: () => { single = true; return query; },
       then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) => {
         if (table === 'students' && slowStudent) return slowStudent.then(resolve, reject);
@@ -59,10 +62,15 @@ beforeEach(() => {
           enrollments: [{ id: 'enrollment-a', student_id: 'student-a', company_id: 'company-a', plan_id: 'plan-a', status: 'active', start_date: '2026-10-01', end_date: '2027-01-01' }],
           plans: { name: 'Fixture plan', duration_days: 92, cycle_duration_days: 42 },
           training_cycles: [{ id: 'cycle-a', enrollment_id: 'enrollment-a', student_id: 'student-a', company_id: 'company-a', cycle_number: 1, start_date: '2026-10-01', end_date: '2026-11-11', status: 'active', duration_weeks: 6, delivery_status: 'viewed' }],
-          workouts: [{ id: 'workout-a', title: 'Prescrição existente', cycle_id: 'cycle-a', exercises: [{ exercise_id: 'exercise-a', exercise_name: 'Fixture exercise', sets: '3', reps: '10', rest: '60' }] }],
+          workouts: [{ company_id: 'company-a', id: 'workout-a', title: 'Prescrição existente', cycle_id: 'cycle-a', exercises: [{ exercise_id: 'exercise-a', exercise_name: 'Fixture exercise', sets: '3', reps: '10', rest: '60' }] }],
           exercise_library: [],
           workout_logs: sessionLogs,
         };
+        if (expiredEnrollment) prescriptionRows.enrollments = [{ ...(prescriptionRows.enrollments as object[])[0], status: 'awaiting_renewal', end_date: '2026-09-13' }];
+        if (offlinePrescription) {
+          prescriptionRows.training_cycles = [{ ...(prescriptionRows.training_cycles as object[])[0], prescribed_offline_at: '2026-10-01T12:00:00Z' }];
+          prescriptionRows.workouts = [];
+        }
         if (overlappingPrescription) {
           prescriptionRows.training_cycles = [...(prescriptionRows.training_cycles as object[]), { ...(prescriptionRows.training_cycles as object[])[0], id: 'cycle-overlap' }];
           prescriptionRows.workouts = [...(prescriptionRows.workouts as object[]), { ...(prescriptionRows.workouts as object[])[0], id: 'workout-overlap', cycle_id: 'cycle-overlap' }];
@@ -124,7 +132,7 @@ describe('StudentPortal authoritative reads', () => {
     expect(await screen.findByText('Aguardando prescrição')).toBeInTheDocument();
     expect(screen.getByText(/ciclo 12, válido até 08\/10\/2026/)).toBeInTheDocument();
     expect(screen.queryByText('Treino anterior')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Ver histórico de treinos' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ver calendário e sessões' }));
     expect(await screen.findByRole('heading', { name: 'Histórico' })).toBeInTheDocument();
     expect(screen.getAllByText('Treino anterior').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: 'Test iniciar' })).not.toBeInTheDocument();
@@ -146,8 +154,32 @@ describe('StudentPortal authoritative reads', () => {
   it('keeps history accessible even without a selected cycle', async () => {
     render(<StudentPortal />);
     expect(await screen.findByText('Aguardando prescrição')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Ver histórico de treinos' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ver calendário e sessões' }));
     expect(await screen.findByRole('heading', { name: 'Histórico' })).toBeInTheDocument();
+  });
+  it('opens published prescription exercises even with no eligible enrollment, without acknowledging or starting a session', async () => {
+    withPrescription = true; expiredEnrollment = true;
+    render(<StudentPortal />);
+    await screen.findByText('Aguardando prescrição');
+    fireEvent.click(screen.getByRole('button', { name: 'Consultar prescrições publicadas' }));
+    expect(await screen.findByText('Prescrição existente')).toBeInTheDocument();
+    expect(screen.getByText('Fixture exercise')).toBeInTheDocument();
+    expect(screen.getByText(/renovação pendente/)).toBeInTheDocument();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+  it('distinguishes external prescription from missing digital publication', async () => {
+    withPrescription = true; offlinePrescription = true;
+    render(<StudentPortal />);
+    expect(await screen.findByText('Prescrição externa')).toBeInTheDocument();
+    expect(screen.queryByText('Aguardando prescrição')).toBeNull();
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+  it('does not offer prescription history to inactive profiles', async () => {
+    student = { ...(student as object), status: 'inactive' };
+    render(<StudentPortal />);
+    await screen.findByText('Portal carregado');
+    expect(screen.queryByRole('button', { name: 'Consultar prescrições publicadas' })).toBeNull();
   });
   it('distinguishes a successful no-profile response', async () => {
     student = null;

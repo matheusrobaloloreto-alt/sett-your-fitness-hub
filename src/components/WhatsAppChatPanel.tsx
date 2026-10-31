@@ -27,11 +27,13 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
 
   const isCompanyScopedMaster = role === "master" && isViewingCompany;
   const isPermittedRole = role === "admin" || role === "coordinator" || role === "trainer" || isCompanyScopedMaster;
-  const canUseWhatsApp = !features.loading
+  const canRetainWhatsApp = !features.loading
     && !permissionsLoading
     && isPermittedRole
     && features.hasWhatsApp
     && (role === "admin" || role === "master" || canAccess("whatsapp"));
+  const validationBlocked = features.refreshing || !!features.error;
+  const canUseWhatsApp = canRetainWhatsApp && !validationBlocked;
   const isWhatsAppChatRoute = /\/whatsapp-chat$/.test(location.pathname);
 
   const openChatPanel = useCallback((nextRequest: WhatsAppChatPanelRequest = {}) => {
@@ -45,7 +47,7 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
     setIsOpen(false);
     setRequest(current => current.loginAccess || current.loginDraftId ? {} : current);
   }, []);
-  useEffect(() => { setRequest({}); setIsOpen(false); return () => clearTransientLoginNavigation(); }, [companyId, viewingCompany?.id, user?.id]);
+  useEffect(() => { setRequest({}); setIsOpen(false); return () => clearTransientLoginNavigation(); }, [companyId, viewingCompany?.id, user?.id, role]);
 
   useEffect(() => {
     const handleOpen = (event: Event) => {
@@ -57,8 +59,8 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
   }, [openChatPanel]);
 
   useEffect(() => {
-    if (!canUseWhatsApp) closeChatPanel();
-  }, [canUseWhatsApp, closeChatPanel]);
+    if (!canRetainWhatsApp) { setRequest({}); closeChatPanel(); }
+  }, [canRetainWhatsApp, closeChatPanel]);
 
   const value = useMemo(
     () => ({ isAvailable: canUseWhatsApp, openChatPanel, closeChatPanel, isChatPanelOpen: isOpen }),
@@ -68,7 +70,7 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
   return (
     <WhatsAppChatPanelContext.Provider value={value}>
       {children}
-      {canUseWhatsApp && (
+      {canRetainWhatsApp && (
         <>
           {!isWhatsAppChatRoute && (
             <Button
@@ -91,9 +93,12 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
               <SheetHeader className="sr-only">
                 <SheetTitle>Conversas do WhatsApp</SheetTitle>
               </SheetHeader>
+              {validationBlocked && <div role="status">{features.error || "Validando acesso…"}{features.error && <Button onClick={features.retry}>Tentar novamente</Button>}</div>}
+              <fieldset {...(validationBlocked ? { inert: "" } : {})} disabled={validationBlocked} className="contents" aria-busy={validationBlocked}>
               <Suspense fallback={<div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Carregando conversas…</div>}>
                 <WhatsAppChat embedded navigationState={request} />
               </Suspense>
+              </fieldset>
             </SheetContent>
           </Sheet>
         </>

@@ -1,0 +1,54 @@
+
+ RUN  v3.2.6 /Users/macbookpro/Documents/Codex/2026-10-30/sett-joint-fix
+
+ ✓ src/hooks/useAuth.bootstrap-race.test.tsx (1 test) 317ms
+   ✓ AuthProvider bootstrap ordering > ignores a late getSession result after a newer auth event  314ms
+ ✓ src/hooks/useWorkoutSession.test.tsx (31 tests) 982ms
+   ✓ useWorkoutSession > retries a transient completion failure and clears the timer after server confirmation  509ms
+(node:72093) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/pages/Auth.recovery.test.tsx (8 tests) 647ms
+   ✓ password recovery > exposes forgot password without requiring the forgotten password and sends a neutral confirmation  303ms
+ ✓ src/hooks/useAuth.stale-request.test.tsx (1 test) 84ms
+ ✓ src/hooks/useAuth.recovery.test.tsx (2 tests) 219ms
+(node:72270) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/hooks/useAuth.user-switch.test.tsx (1 test) 146ms
+(node:72314) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/lib/weeklySchedule.test.ts (5 tests) 13ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/weeklyStrengthDraft.test.ts [ src/lib/weeklyStrengthDraft.test.ts ]
+Error: Missing Supabase environment variables. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in .env.local.
+ ❯ src/integrations/supabase/client.ts:9:9
+      7|
+      8| if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+      9|   throw new Error(
+       |         ^
+     10|     "Missing Supabase environment variables. Set VITE_SUPABASE_URL and…
+     11|   );
+ ❯ src/lib/publishStrengthPlan.ts:8:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/pages/student/StudentPortal.completion.test.ts [ src/pages/student/StudentPortal.completion.test.ts ]
+ FAIL  src/pages/student/StudentPortal.extraSets.test.tsx [ src/pages/student/StudentPortal.extraSets.test.tsx ]
+Error: Missing Supabase environment variables. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in .env.local.
+ ❯ src/integrations/supabase/client.ts:9:9
+      7|
+      8| if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+      9|   throw new Error(
+       |         ^
+     10|     "Missing Supabase environment variables. Set VITE_SUPABASE_URL and…
+     11|   );
+ ❯ src/components/student/PublishedPrescriptionHistory.tsx:6:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  3 failed | 7 passed (10)
+      Tests  49 passed (49)
+   Start at  22:15:22
+   Duration  15.92s (transform 867ms, setup 1.92s, collect 2.88s, tests 2.41s, environment 11.98s, prepare 2.05s)

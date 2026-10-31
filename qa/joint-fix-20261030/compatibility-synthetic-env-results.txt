@@ -1,0 +1,31 @@
+
+ RUN  v3.2.6 /Users/macbookpro/Documents/Codex/2026-10-30/sett-joint-fix
+
+(node:72862) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:72863) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/lib/weeklyStrengthDraft.test.ts (12 tests) 23ms
+(node:72881) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/pages/student/StudentPortal.extraSets.test.tsx (5 tests) 53ms
+ ✓ src/pages/student/StudentPortal.completion.test.ts (3 tests) 713ms
+   ✓ StudentPortal workout completion > does not finish or celebrate when saving logs fails  356ms
+   ✓ StudentPortal workout completion > retries a transient log RPC error before refusing to finish  352ms
+ ✓ src/hooks/useWorkoutSession.test.tsx (31 tests) 750ms
+   ✓ useWorkoutSession > retries a transient completion failure and clears the timer after server confirmation  506ms
+ ✓ src/pages/Auth.recovery.test.tsx (8 tests) 708ms
+   ✓ password recovery > exposes forgot password without requiring the forgotten password and sends a neutral confirmation  373ms
+ ✓ src/lib/workoutLogPersistence.test.ts (15 tests) 71ms
+ ✓ src/hooks/useAuth.bootstrap-race.test.tsx (1 test) 65ms
+ ✓ src/hooks/useAuth.recovery.test.tsx (2 tests) 253ms
+ ✓ src/hooks/useAuth.user-switch.test.tsx (1 test) 142ms
+ ✓ src/hooks/useAuth.stale-request.test.tsx (1 test) 80ms
+ ✓ src/lib/workoutLogBatch.test.ts (8 tests) 11ms
+ ✓ src/lib/weeklySchedule.test.ts (5 tests) 10ms
+ ✓ src/lib/workoutLogRequest.test.ts (5 tests) 8ms
+
+ Test Files  13 passed (13)
+      Tests  97 passed (97)
+   Start at  22:16:10
+   Duration  16.77s (transform 1.18s, setup 1.59s, collect 9.55s, tests 2.89s, environment 9.44s, prepare 2.01s)

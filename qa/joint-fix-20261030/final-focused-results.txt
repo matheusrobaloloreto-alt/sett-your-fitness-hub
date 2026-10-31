@@ -1,0 +1,86 @@
+
+ RUN  v3.2.6 /Users/macbookpro/Documents/Codex/2026-10-30/sett-joint-fix
+
+(node:77566) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | src/pages/student/StudentPortal.reads.test.tsx > StudentPortal PR baseline integration > uses only confirmed history and passes unknown baseline separately (historical completed=false)
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | src/pages/student/StudentPortal.reads.test.tsx > StudentPortal PR baseline integration > uses only confirmed history and passes unknown baseline separately (historical completed=null)
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | src/pages/student/StudentPortal.reads.test.tsx > StudentPortal PR baseline integration > uses only confirmed history and passes unknown baseline separately (historical completed=undefined)
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | src/pages/student/StudentPortal.reads.test.tsx > StudentPortal PR baseline integration > uses only confirmed history and passes unknown baseline separately (historical completed=true)
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+ ✓ src/pages/student/StudentPortal.reads.test.tsx (30 tests) 12141ms
+   ✓ StudentPortal authoritative reads > shows unavailable rather than empty after students RLS error, then retries  834ms
+   ✓ StudentPortal authoritative reads > shows unavailable rather than empty after nutrition_plans RLS error, then retries  346ms
+   ✓ StudentPortal authoritative reads > labels a restored empty slot as awaiting prescription and retains history without offering an expired workout  845ms
+   ✓ StudentPortal authoritative reads > keeps history accessible even without a selected cycle  648ms
+   ✓ StudentPortal authoritative reads > opens published prescription exercises even with no eligible enrollment, without acknowledging or starting a session  592ms
+   ✓ StudentPortal session acknowledgements > does not celebrate start failure and celebrates only a confirmed retry  1952ms
+   ✓ StudentPortal session acknowledgements > does not celebrate abandon failure and celebrates only a confirmed retry  820ms
+   ✓ StudentPortal PR baseline integration > uses only confirmed history and passes unknown baseline separately (historical completed=false)  795ms
+   ✓ StudentPortal PR baseline integration > uses only confirmed history and passes unknown baseline separately (historical completed=null)  972ms
+   ✓ StudentPortal PR baseline integration > uses only confirmed history and passes unknown baseline separately (historical completed=undefined)  905ms
+   ✓ StudentPortal PR baseline integration > uses only confirmed history and passes unknown baseline separately (historical completed=true)  1041ms
+ ✓ src/pages/admin/WhatsAppChat.loginAccess.test.tsx (11 tests) 13089ms
+   ✓ carries access metadata through the mounted chat to send-message only after explicit send  1382ms
+   ✓ clears password and proof after blocked/uncertain delivery and never retries as ordinary text  1264ms
+   ✓ company switch clears protected draft without sending  1017ms
+   ✓ rejects a recipient switch while session lookup is pending, before POST  1057ms
+   ✓ carries a no-chat proof as null until explicit first send without generating or creating a chat on open  608ms
+   ✓ blocks a no-chat proof if a linked chat now exists and asks for explicit regeneration  596ms
+   ✓ clears a protected draft on another student selection without sending it as a free message  2712ms
+   ✓ unmount while session lookup is pending cancels the protected POST  654ms
+   ✓ treats HTTP 200 without a provider ACK as uncertain and clears proof without a retry  746ms
+   ✓ consumes access proof on ACK so a later ordinary message does not inherit the token  2011ms
+   ✓ hydrates a password-free navigation handle in the real chat and sends its signed proof  1038ms
+ ✓ src/components/student/PublishedPrescriptionHistory.test.tsx (4 tests) 2785ms
+   ✓ read-only published prescription public UI > loads independently on demand and exposes full exercise metrics without session actions  1530ms
+   ✓ read-only published prescription public UI > renders dates, weekly metrics and series as student-facing text without technical payloads  418ms
+   ✓ read-only published prescription public UI > reports failure instead of empty history and retries  643ms
+ ✓ src/pages/admin/WhatsAppChat.focus.test.tsx (2 tests) 3584ms
+   ✓ captures a file returned during focus validation, blocks all sends, supports cancellation and explicit recovery  2129ms
+   ✓ cancels an ordinary suspended send across A -> B -> A without restoring the old draft  1452ms
+stderr | src/components/chat-focus-regression.test.tsx > must preserve the open attachment composer across focus and identical permission refresh
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stdout | src/components/chat-focus-regression.test.tsx > must preserve the open attachment composer across focus and identical permission refresh
+{"duringRefreshComposerPresent":true,"afterIdenticalRefreshComposerPresent":true,"unmounts":0}
+
+stderr | src/components/chat-focus-regression.test.tsx > deduplicates pending focus, blocks controls, preserves selected file and recovers from rejection
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | src/components/chat-focus-regression.test.tsx > times out and ignores a late successful ACK after retry revokes access
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | src/components/chat-focus-regression.test.tsx > discards composer on user change and ignores the old ACK
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | src/components/chat-focus-regression.test.tsx > discards composer on company change and ignores the old ACK
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | src/components/chat-focus-regression.test.tsx > discards composer on role change and ignores the old ACK
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | src/components/chat-focus-regression.test.tsx > discards composer on logout change and ignores the old ACK
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | src/components/chat-focus-regression.test.tsx > allows explicit cancel during validation without reopening on ACK
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+ ✓ src/components/chat-focus-regression.test.tsx (10 tests) 2854ms
+   ✓ must preserve the open attachment composer across focus and identical permission refresh  1371ms
+   ✓ deduplicates pending focus, blocks controls, preserves selected file and recovers from rejection  356ms
+ ✓ src/lib/studentPrescriptionHistory.test.ts (32 tests) 113ms
+ ✓ src/pages/admin/WhatsAppChat.sequence.test.tsx (4 tests) 1207ms
+   ✓ freezes text/removal/discard after start and blocks unknown delivery retries  583ms
+
+ Test Files  7 passed (7)
+      Tests  93 passed (93)
+   Start at  22:21:50
+   Duration  51.11s (transform 4.65s, setup 2.66s, collect 28.70s, tests 35.77s, environment 18.39s, prepare 3.78s)

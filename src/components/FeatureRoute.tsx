@@ -4,7 +4,7 @@ import { useCompanyFeatures, CompanyFeatures } from "@/hooks/useCompanyFeatures"
 import { useRolePermissions, type PermissionModule } from "@/hooks/useRolePermissions";
 import { useMaster } from "@/contexts/MasterContext";
 
-type FeatureKey = keyof Omit<CompanyFeatures, "tier" | "loading">;
+type FeatureKey = keyof Omit<CompanyFeatures, "tier" | "loading" | "refreshing" | "error" | "retry" | "canSendWhatsApp" | "waitForWhatsAppValidation">;
 
 interface FeatureRouteProps {
   children: React.ReactNode;
@@ -40,7 +40,10 @@ export function FeatureRoute({ children, allowedRoles, requiredFeature, required
   const isCompanyScopedRoute = isAdminRoute || isCoordinatorRoute || isTrainerRoute;
 
   if (isMaster && isAdminRoute && isViewingCompany) {
-    return <>{children}</>;
+    return <div className="contents">
+    {(features.refreshing || features.error) && <div role="status">{features.error || "Validando acesso…"}{features.error && <button onClick={features.retry}>Tentar novamente</button>}</div>}
+    <fieldset {...(features.refreshing || features.error ? { inert: "" } : {})} className="contents" disabled={features.refreshing || !!features.error}>{children}</fieldset>
+  </div>;
   }
 
   // Master accessing a company-scoped route without selecting a company → fallback
@@ -74,6 +77,10 @@ export function FeatureRoute({ children, allowedRoles, requiredFeature, required
       master: "/master",
     };
     return <Navigate to={dashboardMap[role] || "/"} replace />;
+  }
+
+  if (features.error && requiredFeature && !features[requiredFeature]) {
+    return <div role="alert">{features.error}<button onClick={features.retry}>Tentar novamente</button></div>;
   }
 
   // Check feature access (tier-based, master bypasses)
@@ -130,5 +137,8 @@ export function FeatureRoute({ children, allowedRoles, requiredFeature, required
     );
   }
 
-  return <>{children}</>;
+  return <div className="contents">
+    {(features.refreshing || features.error) && <div role="status">{features.error || "Validando acesso…"}{features.error && <button onClick={features.retry}>Tentar novamente</button>}</div>}
+    <fieldset {...(features.refreshing || features.error ? { inert: "" } : {})} className="contents" disabled={features.refreshing || !!features.error}>{children}</fieldset>
+  </div>;
 }

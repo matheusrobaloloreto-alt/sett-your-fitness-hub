@@ -1,0 +1,8 @@
+
+ RUN  v3.2.6 /Users/macbookpro/Documents/Codex/2026-10-30/sett-joint-fix
+
+ ✓ src/lib/studentProgramReorgContract.test.ts (6 tests) 20ms
+(node:71477) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:71507) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)

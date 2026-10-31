@@ -1,0 +1,91 @@
+{
+  "manifest_sha256": "d5ed6b01a4093a14917f2cf8e31281001ba08c50d56330c9dff41670819de257",
+  "base": "04c7cd3f7e1bbcf732c017b032f1a21a32b48a46",
+  "files": [
+    {
+      "path": "src/components/FeatureRoute.tsx",
+      "expected": "a0492285f4315e67e00496dbb10bf9943915306f6fb43b0bb7d7bf7ac64549ab",
+      "actual": "a0492285f4315e67e00496dbb10bf9943915306f6fb43b0bb7d7bf7ac64549ab",
+      "match": true
+    },
+    {
+      "path": "src/components/WhatsAppChatPanel.tsx",
+      "expected": "a1928b2f521d24176882ec49191e6313b64806589eb240252e8c0062c2f65dd2",
+      "actual": "a1928b2f521d24176882ec49191e6313b64806589eb240252e8c0062c2f65dd2",
+      "match": true
+    },
+    {
+      "path": "src/components/chat-focus-regression.test.tsx",
+      "expected": "cd6d22a21f6b170c133b464a6cb74b2b2327660d5938730365563a07e0556262",
+      "actual": "cd6d22a21f6b170c133b464a6cb74b2b2327660d5938730365563a07e0556262",
+      "match": true
+    },
+    {
+      "path": "src/components/student/PublishedPrescriptionHistory.test.tsx",
+      "expected": "7cf1b511297e4008aa6c10b73addf5b4fc14666960f0717821a0bcb818ea04d8",
+      "actual": "7cf1b511297e4008aa6c10b73addf5b4fc14666960f0717821a0bcb818ea04d8",
+      "match": true
+    },
+    {
+      "path": "src/components/student/PublishedPrescriptionHistory.tsx",
+      "expected": "3a7649944893310eb9c6a53c6df61641ded821cb0c8422c23bf48d5f1c5cc9c0",
+      "actual": "3a7649944893310eb9c6a53c6df61641ded821cb0c8422c23bf48d5f1c5cc9c0",
+      "match": true
+    },
+    {
+      "path": "src/hooks/useCompanyFeatures.tsx",
+      "expected": "01ac72976c883dda881922aef87af1e527bfa2bc6026bdd2f08e0aa1db88a5ae",
+      "actual": "01ac72976c883dda881922aef87af1e527bfa2bc6026bdd2f08e0aa1db88a5ae",
+      "match": true
+    },
+    {
+      "path": "src/lib/studentPrescriptionHistory.test.ts",
+      "expected": "8b2f95f96978e74be21c88fe74dd0ed7ed24d5d25ad9f6228439bc95ca5ba706",
+      "actual": "8b2f95f96978e74be21c88fe74dd0ed7ed24d5d25ad9f6228439bc95ca5ba706",
+      "match": true
+    },
+    {
+      "path": "src/lib/studentPrescriptionHistory.ts",
+      "expected": "d341b4c8f880039677ac0928f655f9d12d0c7203ecc266b019e531468ea164d4",
+      "actual": "d341b4c8f880039677ac0928f655f9d12d0c7203ecc266b019e531468ea164d4",
+      "match": true
+    },
+    {
+      "path": "src/lib/whatsappRecipientSafety.test.ts",
+      "expected": "f111f1d43809c62db485785f028e88909e94c4abd9efde474b00d8c5ddbc9314",
+      "actual": "f111f1d43809c62db485785f028e88909e94c4abd9efde474b00d8c5ddbc9314",
+      "match": true
+    },
+    {
+      "path": "src/pages/admin/WhatsAppChat.focus.test.tsx",
+      "expected": "b853c6e0142b3475bdf685fc9ec303f766a484f48b9c25e805f88820db74192e",
+      "actual": "b853c6e0142b3475bdf685fc9ec303f766a484f48b9c25e805f88820db74192e",
+      "match": true
+    },
+    {
+      "path": "src/pages/admin/WhatsAppChat.loginAccess.test.tsx",
+      "expected": "0033d62cb37fcd89b9eebc673578a753ea7e82557353b4ee89b1da6b69bfd746",
+      "actual": "0033d62cb37fcd89b9eebc673578a753ea7e82557353b4ee89b1da6b69bfd746",
+      "match": true
+    },
+    {
+      "path": "src/pages/admin/WhatsAppChat.tsx",
+      "expected": "93c7e6a4633f7b49d07f8d66af3f85aaafabe78530a69e0e4c1816e6446fa956",
+      "actual": "93c7e6a4633f7b49d07f8d66af3f85aaafabe78530a69e0e4c1816e6446fa956",
+      "match": true
+    },
+    {
+      "path": "src/pages/student/StudentPortal.reads.test.tsx",
+      "expected": "04636b9e5aa6d9783dc3ee9cdb433b60e992c4f3b42bcd119a9b81d3a36ce562",
+      "actual": "04636b9e5aa6d9783dc3ee9cdb433b60e992c4f3b42bcd119a9b81d3a36ce562",
+      "match": true
+    },
+    {
+      "path": "src/pages/student/StudentPortal.tsx",
+      "expected": "f0b4c39854f0cddf996ced759693a4630e9ee11ebc7d2a80133d742b954d09a8",
+      "actual": "f0b4c39854f0cddf996ced759693a4630e9ee11ebc7d2a80133d742b954d09a8",
+      "match": true
+    }
+  ],
+  "all_match": true
+}

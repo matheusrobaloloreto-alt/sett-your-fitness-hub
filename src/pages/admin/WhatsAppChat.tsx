@@ -1,3 +1,4 @@
+import { useCompanyFeatures } from "@/hooks/useCompanyFeatures";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
@@ -375,7 +376,30 @@ export default function WhatsAppChat({
   navigationState?: ChatNavigationState | null;
 }) {
   const { user, role: userRole, companyId } = useAuth();
+  const featureValidation = useCompanyFeatures();
+  const validationRef = useRef(featureValidation.canSendWhatsApp);
+  validationRef.current = featureValidation.canSendWhatsApp;
   const { viewingCompany, isViewingCompany } = useMaster();
+  const sendScope = JSON.stringify([user?.id, userRole, companyId, viewingCompany?.id]);
+  const sendScopeRef = useRef(sendScope);
+  sendScopeRef.current = sendScope;
+  const sendMountedRef = useRef(true);
+  useEffect(() => { sendMountedRef.current = true; return () => { sendMountedRef.current = false; }; }, [sendScope]);
+  const hasSendAccess = () => sendMountedRef.current && sendScopeRef.current === sendScope && validationRef.current();
+  const validationWaitRef = useRef(featureValidation.waitForWhatsAppValidation);
+  validationWaitRef.current = featureValidation.waitForWhatsAppValidation;
+  const assertSendAccess = async () => {
+    const assertRecipient = () => {
+      if (sendScopeRef.current !== sendScope || !sendMountedRef.current || recipientOperationRef.current.generation !== recipientGeneration) {
+        throw new Error("Conversa alterada ou encerrada. Envio interrompido.");
+      }
+    };
+    assertRecipient();
+    await validationWaitRef.current();
+    assertRecipient();
+    if (!hasSendAccess()) throw new Error("Aguarde a validação do acesso antes de enviar.");
+  };
+  const [pendingFocusFile, setPendingFocusFile] = useState<File | null>(null);
   const effectiveCompanyId = userRole === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
   const [signMessages, setSignMessages] = useWhatsAppSignature(user?.id, effectiveCompanyId);
   const [chats, setChats] = useState<Chat[]>([]);
@@ -388,7 +412,17 @@ export default function WhatsAppChat({
   const [pendingNavigationRequest, setPendingNavigationRequest] = useState<ChatNavigationState | null>(null);
   const consumedNavigationRequestRef = useRef<string | null>(null);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  useEffect(() => { setPendingFocusFile(null); }, [sendScope, selectedChatId]);
   const [draftRecipient, setDraftRecipient] = useState<DraftRecipient | null>(null);
+  // Fence every suspended operation, including A -> B -> A and new navigation
+  // requests to the same recipient. Compare again after each validation await.
+  const selectedRecipientIdentity = chats.find(chat => chat.id === selectedChatId && chat.company_id === effectiveCompanyId);
+  const recipientKey = JSON.stringify([sendScope, selectedChatId, selectedRecipientIdentity?.remote_jid, selectedRecipientIdentity?.student_id, draftRecipient?.remoteJid, draftRecipient?.studentId, navigationState?.requestId]);
+  const recipientOperationRef = useRef({ key: recipientKey, generation: 0 });
+  if (recipientOperationRef.current.key !== recipientKey) {
+    recipientOperationRef.current = { key: recipientKey, generation: recipientOperationRef.current.generation + 1 };
+  }
+  const recipientGeneration = recipientOperationRef.current.generation;
   const [, refreshEventDrafts] = useState(0);
   const eventDraftOwner = user?.id || '';
   const eventDrafts = reviewedEventDraftSessions.get(eventDraftOwner) || [];
@@ -467,6 +501,7 @@ export default function WhatsAppChat({
   const historySyncAttemptsRef = useRef(new Set<string>());
   const [newMessage, setNewMessage] = useState("");
   const loginDraftRef = useRef<StudentLoginDraft | null>(null);
+  const loginDraftGenerationRef = useRef(0);
   const loginSendBusyRef = useRef(false);
   useEffect(() => () => { loginDraftRef.current = null; }, []);
   const loginOwnerRef = useRef<string | undefined>(undefined);
@@ -476,6 +511,7 @@ export default function WhatsAppChat({
     chatId: selectedChatId, remoteJid: loginChat?.remote_jid || (draftRecipient ? `${draftRecipient.remoteJid}@s.whatsapp.net` : '') };
   const invalidateLoginDraft = useCallback(() => {
     const previous = loginDraftRef.current;
+    loginDraftGenerationRef.current++;
     loginDraftRef.current = null;
     if (previous) {
       templateDraftsRef.current.delete(`${previous.companyId}:${previous.chatId}`);
@@ -1310,6 +1346,7 @@ export default function WhatsAppChat({
     let resolved;
     try { resolved = resolveWhatsAppChatRequest(chats, pendingNavigationRequest, effectiveCompanyId); }
     catch { invalidateLoginDraft(); setNewMessage(''); toast.error(pendingNavigationRequest.loginAccess ? 'A conversa ou o contato mudou. Confira o aluno e gere o acesso novamente por ação explícita no perfil.' : 'Não foi possível confirmar a empresa e o destinatário do rascunho.'); setPendingNavigationRequest(null); return; }
+    loginDraftGenerationRef.current++;
     loginDraftRef.current = resolved.loginDraft || null;
     loginOwnerRef.current = user?.id;
     if (resolved.loginDraft) templateDraftsRef.current.delete(`${resolved.loginDraft.companyId}:${resolved.loginDraft.chatId}`);
@@ -1422,6 +1459,7 @@ export default function WhatsAppChat({
   }, [effectiveCompanyId, scheduleChatsRefresh]);
 
   const handleSend = async () => {
+    if (!hasSendAccess()) return;
     if (activeEventDraft || sequenceSendingRef.current || loginSendBusyRef.current) return;
     if (sending || sendingAttachment || templateSendingRef.current) return;
     if (templateAttachments.length > 0) {
@@ -1434,6 +1472,7 @@ export default function WhatsAppChat({
     if (!chat && !draftRecipient) return;
     const content = newMessage.trim();
     const protectedDraft = loginDraftRef.current;
+    const protectedGeneration = loginDraftGenerationRef.current;
     let protectedPayload: ReturnType<typeof studentLoginSendPayload> | null = null;
     try { if (protectedDraft) protectedPayload = studentLoginSendPayload(protectedDraft, loginTargetRef.current, content); }
     catch (error) { invalidateLoginDraft(); toast.error(getErrorMessage(error, 'Confira novamente o acesso no perfil.')); return; }
@@ -1474,6 +1513,15 @@ export default function WhatsAppChat({
       if (protectedDraft) {
         if (loginDraftRef.current !== protectedDraft || loginOwnerRef.current !== user?.id) throw new Error('O contexto do acesso mudou. Confira novamente o perfil.');
         studentLoginSendPayload(protectedDraft, loginTargetRef.current, content);
+      }
+      await assertSendAccess();
+      // The commercial validation can suspend after session/preflight checks.
+      // Discard, replacement and recipient navigation must cancel this operation.
+      if (protectedDraft) {
+        if (loginDraftGenerationRef.current !== protectedGeneration || loginDraftRef.current !== protectedDraft || loginOwnerRef.current !== user?.id) {
+          throw new Error('O contexto do acesso mudou. Confira novamente o perfil.');
+        }
+        protectedPayload = studentLoginSendPayload(protectedDraft, loginTargetRef.current, content);
       }
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
@@ -1531,7 +1579,7 @@ export default function WhatsAppChat({
     } catch (error: unknown) {
       if (selectedChatId) setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
       if (protectedDraft) { if (loginDraftRef.current === protectedDraft) invalidateLoginDraft(); }
-      else { setNewMessage(content); setReplyingTo(reply); }
+      else if (sendMountedRef.current && sendScopeRef.current === sendScope && recipientOperationRef.current.generation === recipientGeneration) { setNewMessage(content); setReplyingTo(reply); }
       toast.error(getErrorMessage(error, "Erro ao enviar mensagem"));
     } finally { loginSendBusyRef.current = false; setSending(false); }
   };
@@ -1569,6 +1617,7 @@ export default function WhatsAppChat({
   };
 
   const handleSaveMessageEdit = async () => {
+    if (!hasSendAccess()) return;
     if (!editingMessage || editingSaving) return;
     const editState = editingMessage;
     const editChatId = editState.chatId;
@@ -1603,6 +1652,7 @@ export default function WhatsAppChat({
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Sessão expirada");
+      await assertSendAccess();
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`,
         {
@@ -1656,6 +1706,7 @@ export default function WhatsAppChat({
   };
 
   const handleDeleteMessage = async (msg: Message) => {
+    if (!hasSendAccess()) return;
     if (!selectedChatId || !msg.message_id_external) {
       toast.error("Não é possível apagar esta mensagem");
       return;
@@ -1665,6 +1716,7 @@ export default function WhatsAppChat({
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { toast.error("Sessão expirada"); return; }
+      await assertSendAccess();
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
@@ -1701,6 +1753,7 @@ export default function WhatsAppChat({
   };
 
   const handleSendTemplateDraft = async () => {
+    if (!hasSendAccess()) return;
     if (loginDraftRef.current) return;
     const chat = chats.find((item) => item.id === selectedChatId);
     if (!chat || !effectiveCompanyId || sending || sendingAttachment || bulkSending || isRecording || templateSendingRef.current || editingMessage) return;
@@ -1721,6 +1774,10 @@ export default function WhatsAppChat({
       const send = async (body: Record<string, unknown>) => {
         if (!templateActiveRef.current || templateScopeRef.current !== draftKey || templateScopeVersionRef.current !== scopeVersion) {
           throw new Error("Envio interrompido ao trocar de conversa ou empresa. As partes pendentes continuam no rascunho original.");
+        }
+        await assertSendAccess();
+        if (!templateActiveRef.current || templateScopeRef.current !== draftKey || templateScopeVersionRef.current !== scopeVersion) {
+          throw new Error("Envio interrompido ao trocar de conversa ou empresa.");
         }
         const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
           method: "POST",
@@ -1823,6 +1880,7 @@ export default function WhatsAppChat({
       }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { toast.error("Sessão expirada"); return; }
+      await assertSendAccess();
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
@@ -1852,6 +1910,7 @@ export default function WhatsAppChat({
   };
 
   const sendFileAttachment = async (file: File, options?: { asSticker?: boolean }) => {
+    if (!hasSendAccess()) return;
     if (sending || sendingAttachment || templateSendingRef.current) return;
     if (editingMessage) {
       toast.error("Cancele a edição antes de anexar um arquivo.");
@@ -1872,6 +1931,7 @@ export default function WhatsAppChat({
         file,
         path: filePath,
         standardUpload: async (uploadFile, uploadPath, onProgress) => {
+          await assertSendAccess();
           const { error } = await supabase.storage.from("whatsapp-media").upload(uploadPath, uploadFile, {
             contentType: uploadFile.type || "application/octet-stream",
           });
@@ -1879,6 +1939,7 @@ export default function WhatsAppChat({
           onProgress?.(100);
         },
         resumableUpload: async (uploadFile, uploadPath, onProgress) => {
+          await assertSendAccess();
           await resumableWhatsAppUpload({
             file: uploadFile,
             path: uploadPath,
@@ -1892,6 +1953,7 @@ export default function WhatsAppChat({
       uploadedPath = filePath;
       const delivery = describeWhatsAppMediaDelivery(file, options);
       if (delivery.notice) toast.info(delivery.notice);
+      await assertSendAccess();
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
@@ -1935,6 +1997,7 @@ export default function WhatsAppChat({
       toast.error("Cancele a edição antes de anexar um arquivo.");
       return;
     }
+    if (!hasSendAccess()) { setPendingFocusFile(file); return; }
     await sendFileAttachment(file);
   };
 
@@ -1955,6 +2018,7 @@ export default function WhatsAppChat({
   };
 
   const handleQuickSticker = async (emoji: string) => {
+    if (!hasSendAccess()) return;
     if (sending || sendingAttachment || templateSendingRef.current) return;
     if (editingMessage) {
       toast.error("Cancele a edição antes de enviar uma figurinha.");
@@ -1977,6 +2041,7 @@ export default function WhatsAppChat({
       toast.error("Anexos não são permitidos durante a edição.");
       return;
     }
+    if (!hasSendAccess()) { setPendingFocusFile(file); return; }
     await sendFileAttachment(file);
   };
 
@@ -1986,6 +2051,7 @@ export default function WhatsAppChat({
     try {
       const { data: auth } = await supabase.auth.getSession();
       if (!auth.session) throw new Error("Sessão expirada");
+      await assertSendAccess();
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: {
@@ -2016,6 +2082,7 @@ export default function WhatsAppChat({
 
   // ─── Audio Recording ───
   const startRecording = async () => {
+    if (!hasSendAccess()) return;
     if (loginDraftRef.current) { toast.error("Envie o acesso como texto protegido, sem anexos."); return; }
     if (sending || sendingAttachment || templateSendingRef.current) return;
     if (editingMessage) {
@@ -2039,6 +2106,7 @@ export default function WhatsAppChat({
   };
 
   const stopAndSendRecording = async () => {
+    if (!hasSendAccess()) return;
     if (!mediaRecorderRef.current || !selectedChatId) return;
     const chat = chats.find((c) => c.id === selectedChatId);
     if (!chat) return;
@@ -2058,11 +2126,13 @@ export default function WhatsAppChat({
     let uploadedPath: string | null = null;
     try {
       const filePath = `${effectiveCompanyId}/${selectedChatId}/${Date.now()}.webm`;
+      await assertSendAccess();
       const { error: uploadError } = await supabase.storage.from("whatsapp-media").upload(filePath, blob, { contentType: "audio/webm" });
       if (uploadError) throw new Error("Erro ao fazer upload: " + uploadError.message);
       uploadedPath = filePath;
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Sessão expirada");
+      await assertSendAccess();
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
@@ -2309,6 +2379,7 @@ export default function WhatsAppChat({
   };
 
   const handleBulkSend = async () => {
+    if (!hasSendAccess()) return;
     if (sending || sendingAttachment || templateSendingRef.current) return;
     const text = bulkMessage.trim();
     if (!text) { toast.error("Digite uma mensagem para enviar"); return; }
@@ -2328,6 +2399,7 @@ export default function WhatsAppChat({
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-manager`;
       for (const [index, chat] of bulkRecipients.entries()) {
         const content = personalizeBulkMessage(text, chat);
+        await assertSendAccess();
         const res = await fetch(url, {
           method: "POST",
           headers,
@@ -2525,6 +2597,7 @@ export default function WhatsAppChat({
   };
 
   const handleSendEventSequence = async () => {
+    if (!hasSendAccess()) return;
     const item = activeEventDraft;
     if (!item || !effectiveCompanyId || item.uncertain || sequenceSendingRef.current || sending || sendingAttachment || bulkSending || isRecording || templateSendingRef.current) return;
     const scope = sequenceScopeRef.current;
@@ -2540,6 +2613,8 @@ export default function WhatsAppChat({
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Sessão expirada. O rascunho permanece preservado.');
+      if (sequenceScopeRef.current !== scope || !templateActiveRef.current) throw new Error('Conversa ou empresa alterada. Envio interrompido.');
+      await assertSendAccess();
       if (sequenceScopeRef.current !== scope || !templateActiveRef.current) throw new Error('Conversa ou empresa alterada. Envio interrompido.');
       requestStarted = true;
       const { data, error } = await supabase.functions.invoke('whatsapp-manager', { body: request });
@@ -3551,6 +3626,16 @@ export default function WhatsAppChat({
                       ))}
                     </div>
                   )}
+                  {pendingFocusFile && <div role="status">
+                    Arquivo selecionado: {pendingFocusFile.name}
+                    <Button disabled={featureValidation.refreshing || !!featureValidation.error} onClick={() => {
+                      if (!hasSendAccess()) return;
+                      const file = pendingFocusFile;
+                      setPendingFocusFile(null);
+                      void sendFileAttachment(file);
+                    }}>Enviar arquivo selecionado</Button>
+                    <Button onClick={() => setPendingFocusFile(null)}>Cancelar arquivo selecionado</Button>
+                  </div>}
                   <input
                     ref={fileInputRef}
                     type="file"

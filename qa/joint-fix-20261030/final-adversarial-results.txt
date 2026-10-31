@@ -1,0 +1,12 @@
+
+ RUN  v3.2.6 /Users/macbookpro/Documents/Codex/2026-10-30/sett-joint-fix
+
+ ✓ qa/joint-fix-20261030/adversarial.test.tsx (3 tests) 9391ms
+   ✓ QA: never carries a focus-delayed file into another recipient  4415ms
+   ✓ QA: discarding protected login during validation cancels the pending send  1984ms
+   ✓ QA: recipient navigation during validation cancels the protected send  2989ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  22:21:43
+   Duration  20.18s (transform 1.58s, setup 395ms, collect 7.46s, tests 9.39s, environment 1.57s, prepare 259ms)

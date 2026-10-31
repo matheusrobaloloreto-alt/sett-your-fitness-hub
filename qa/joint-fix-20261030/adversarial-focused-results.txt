@@ -1,0 +1,55 @@
+
+ RUN  v3.2.6 /Users/macbookpro/Documents/Codex/2026-10-30/sett-joint-fix
+
+ ❯ qa/joint-fix-20261030/adversarial.test.tsx (3 tests | 2 failed) 1361ms
+   ✓ QA: never carries a focus-delayed file into another recipient  601ms
+   × QA: discarding protected login during validation cancels the pending send 340ms
+     → expected [ { action: 'send-message', …(8) } ] to have a length of +0 but got 1
+   × QA: recipient navigation during validation cancels the protected send 416ms
+     → expected [ { action: 'send-message', …(8) } ] to have a length of +0 but got 1
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  qa/joint-fix-20261030/adversarial.test.tsx > QA: discarding protected login during validation cancels the pending send
+AssertionError: expected [ { action: 'send-message', …(8) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ qa/joint-fix-20261030/adversarial.test.tsx:72:18
+     70|  fireEvent.click(screen.getByText('Descartar acesso'));
+     71|  await act(async()=>validationFinish({data:{company_id:'company-a',tie…
+     72|  expect(sends()).toHaveLength(0);
+       |                  ^
+     73| });
+     74| it('QA: recipient navigation during validation cancels the protected s…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  qa/joint-fix-20261030/adversarial.test.tsx > QA: recipient navigation during validation cancels the protected send
+AssertionError: expected [ { action: 'send-message', …(8) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ qa/joint-fix-20261030/adversarial.test.tsx:88:18
+     86|  await screen.findByDisplayValue('recipient B');
+     87|  await act(async()=>validationFinish({data:{company_id:'company-a',tie…
+     88|  expect(sends()).toHaveLength(0);
+       |                  ^
+     89| });
+     90|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  22:15:56
+   Duration  5.00s (transform 790ms, setup 103ms, collect 2.31s, tests 1.36s, environment 606ms, prepare 131ms)

@@ -60,8 +60,21 @@ describe("WhatsApp recipient safety contracts", () => {
     expect(managerSource).toMatch(
       /await persistInstance\(\{\s*status: "disconnected",\s*phone_number: null,\s*qr_code: null,?\s*\}\)/,
     );
-    expect(managerSource.match(/await verifyLiveOutboundInstance\(\)/g))
-      .toHaveLength(3);
+    // Sequences add two checks: before creating a chat and before each part.
+    // Pin checks per action so a new safe path cannot mask a removed send guard.
+    for (const [action, expectedChecks] of [
+      ["send-message", 1],
+      ["send-message-sequence", 2],
+      ["send-media", 1],
+      ["edit-message", 1],
+    ] as const) {
+      const start = managerSource.indexOf(`if (action === "${action}") {`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const next = managerSource.indexOf('\n    if (action ===', start + 1);
+      const actionSource = managerSource.slice(start, next < 0 ? undefined : next);
+      expect(actionSource.match(/await verifyLiveOutboundInstance\(\)/g))
+        .toHaveLength(expectedChecks);
+    }
   });
 
   it("pins JWT verification for the manual WhatsApp manager deploy", () => {

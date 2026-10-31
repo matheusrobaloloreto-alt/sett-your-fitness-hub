@@ -1,3 +1,4 @@
+import { PublishedPrescriptionHistory } from "@/components/student/PublishedPrescriptionHistory";
 import { useEffect, useState, useCallback, useMemo, useRef, Fragment, Suspense, lazy } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -579,7 +580,7 @@ export default function StudentPortal() {
     // matrícula ativa, não há uma agenda corrente para exibir.
     if (enrollment) {
       // O cast mantém compatibilidade com o tipo local legado da tabela.
-      const cycleSelect = "id, enrollment_id, student_id, company_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, objective, duration_weeks, delivery_status, prescription_cleared_at";
+      const cycleSelect = "id, enrollment_id, student_id, company_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, objective, duration_weeks, delivery_status, prescription_cleared_at, prescribed_offline_at, prescribed_offline_by, prescribed_offline_note";
       const { data: cyclesData } = await read((supabase as any)
         .from("training_cycles")
         .select(cycleSelect)
@@ -1342,13 +1343,15 @@ export default function StudentPortal() {
   }
 
   const isSessionForCurrentWorkout = session.isActive && session.activeSession?.workoutId === selectedWorkout?.id;
+  const prescriptionHistory = !studentIsInactive && user?.id && studentId && companyId ? <PublishedPrescriptionHistory key={`${user.id}:${studentId}:${companyId}`} userId={user.id} studentId={studentId} companyId={companyId} today={todayStr} /> : null;
   const pendingPrescriptionNotice = (
     <Card className="border-border bg-card">
       <CardContent className="space-y-3 p-5" role="status">
-        <h2 className="font-semibold text-foreground">Aguardando prescrição</h2>
-        <p className="text-sm text-muted-foreground">Ainda não há treino publicado para o período atual. A existência de um ciclo na agenda não significa que o treino esteja pronto. Fale com sua equipe para acompanhar a prescrição.</p>
+        <h2 className="font-semibold text-foreground">{coverage?.hasCurrentOfflinePrescription ? "Prescrição externa" : "Aguardando prescrição"}</h2>
+        <p className="text-sm text-muted-foreground">{coverage?.hasCurrentOfflinePrescription ? "Sua equipe registrou uma prescrição externa ao aplicativo para este período. Consulte as orientações com sua equipe." : "Ainda não há treino publicado para o período atual. A existência de um ciclo na agenda não significa que o treino esteja pronto. Fale com sua equipe para acompanhar a prescrição."}</p>
         {lastPublishedCycle && <p className="text-sm text-muted-foreground">Último treino publicado: ciclo {lastPublishedCycle.cycle_number}, válido até {format(parseISO(lastPublishedCycle.end_date), "dd/MM/yyyy")}.</p>}
-        <Button variant="outline" onClick={() => setActiveView("calendario")}>Ver histórico de treinos</Button>
+        {prescriptionHistory}
+        <Button variant="outline" onClick={() => setActiveView("calendario")}>Ver calendário e sessões</Button>
         {session.isActive && <Button variant="outline" onClick={handleAbandonSession}>Encerrar sessão ativa</Button>}
       </CardContent>
     </Card>
@@ -1470,7 +1473,7 @@ export default function StudentPortal() {
           {user?.id && <PushBanner userId={user.id} companyId={companyId} />}
           {studentId && <CheckinCard studentId={studentId} companyId={companyId} />}
           <PlatformAdSlot audience="student" placement="dashboard_banner" companyId={companyId} />
-          {awaitingPrescription && pendingPrescriptionNotice}
+          {awaitingPrescription ? pendingPrescriptionNotice : prescriptionHistory}
           <StudentHome
             nameBadge={<AthleticClubStar studentId={studentId} />}
             studentName={studentName}

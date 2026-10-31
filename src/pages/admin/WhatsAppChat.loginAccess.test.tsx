@@ -12,6 +12,7 @@ vi.mock('@/lib/appPerformanceTelemetry', () => ({ recordAppPerformanceSample: vi
 vi.mock('@/lib/studentFiles', () => ({ listStudentFiles: vi.fn(async () => []) }));
 vi.mock('@/components/AthleticClubStar', () => ({ AthleticClubStar: () => null }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: api.from, auth: { getSession: api.session }, channel: () => { const c = { on: () => c, subscribe: () => c }; return c; }, removeChannel: vi.fn(), functions: { invoke: vi.fn(async () => ({ data: {}, error: null })) } } }));
+vi.mock('@/lib/companyFeatureEntitlements', async original => ({ ...await original<typeof import('@/lib/companyFeatureEntitlements')>(), fetchCompanyEntitlements: async () => ({ tier: 'advanced', features: { hasWhatsApp: true } }) }));
 const request = { requestId: 1, companyId: 'company-a', studentId: 'student-a', chatId: 'chat-a', phone: '5548999990001', prefillMessage: 'synthetic password draft', loginAccess: { studentId: 'student-a', preflightToken: 'signed-send-token' } };
 const chats = [
  { id: 'chat-a', company_id: 'company-a', student_id: 'student-a', remote_jid: '5548999990001@s.whatsapp.net', contact_name: 'Synthetic A', unread_count: 0, last_message_at: '2026-10-29T12:00:00Z', history_synced_at: '2026-10-29T12:00:00Z' },
