@@ -30,6 +30,24 @@ describe('company product settings screen', () => {
     mocks.save.mockImplementation(async (_id, settings) => ({ settings, version: 8 }));
   });
 
+  it('offers an explained expiry policy, persists it by company/version and reloads it', async () => {
+    render(<ProductSettings />);
+    await screen.findByLabelText('Mensagem');
+    fireEvent.click(screen.getByRole('button', { name: 'Prescrição' }));
+    const policy = screen.getByLabelText('Após o vencimento do treino');
+    expect(policy).toHaveValue('keep_until_replaced');
+    fireEvent.click(screen.getByRole('button', { name: 'Sobre Após o vencimento do treino' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent('histórico');
+    fireEvent.click(screen.getByRole('button', { name: 'Sobre Após o vencimento do treino' }));
+    fireEvent.change(policy, { target: { value: 'hide_on_expiry' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledWith('company-a', expect.objectContaining({ prescription: expect.objectContaining({ expired_workout_behavior: 'hide_on_expiry' }) }), 7));
+    expect(await screen.findByText('Versão 8')).toBeInTheDocument();
+    mocks.fetch.mockResolvedValue({ settings: { ...structuredClone(DEFAULT_COMPANY_PRODUCT_SETTINGS), prescription: { ...DEFAULT_COMPANY_PRODUCT_SETTINGS.prescription, expired_workout_behavior: 'hide_on_expiry' } }, version: 8 });
+    fireEvent.click(screen.getByRole('button', { name: 'Recarregar configurações' }));
+    await waitFor(() => expect(screen.getByLabelText('Após o vencimento do treino')).toHaveValue('hide_on_expiry'));
+  }, 30000);
+
   it('keeps drafts across URL tab changes and relocates the existing controls', async () => {
     render(<ProductSettings />);
     fireEvent.change(await screen.findByLabelText('Mensagem'), { target: { value: 'Rascunho preservado' } });

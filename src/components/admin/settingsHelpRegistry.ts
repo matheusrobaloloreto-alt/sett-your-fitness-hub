@@ -1,6 +1,11 @@
 import type { SettingHelpProps } from './SettingHelp';
 
 export const settingsHelpRegistry: Record<string, Omit<SettingHelpProps, 'label'>> = {
+  "expired-workout-behavior": {
+    "what": "Disponibilidade do último treino no app do aluno após a data final do ciclo.",
+    "edits": "Mantenha o último treino até o próximo ser publicado ou oculte-o automaticamente ao vencer. O padrão é manter.",
+    "effect": "Aplica-se aos alunos desta empresa quando o app carregar a configuração. Preserva datas da matrícula, ciclos e histórico; não publica treinos futuros."
+  },
   "max_weekly_contacts": {
     "what": "Teto de contatos automáticos de cadência em sete dias.",
     "edits": "Aceita de 1 a 2 contatos.",

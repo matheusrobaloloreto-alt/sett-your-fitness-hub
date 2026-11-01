@@ -70,6 +70,9 @@ export interface PrescriptionWeekRule {
 export interface PrescriptionAnswerMapping {
   source_key: string; answer: string; target: keyof typeof PRESCRIPTION_MAPPING_VALUES; value: string;
 }
+export const EXPIRED_WORKOUT_BEHAVIORS = ['keep_until_replaced', 'hide_on_expiry'] as const;
+export type ExpiredWorkoutBehavior = typeof EXPIRED_WORKOUT_BEHAVIORS[number];
+
 export interface CompanyProductSettings {
   messages: Record<MessageEvent, string>;
   message_sequences?: Partial<Record<WhatsAppEvent, MessagePart[]>>;
@@ -90,6 +93,7 @@ export interface CompanyProductSettings {
     weekly_consistency_xp: number; gamification_enabled: boolean;
   };
   prescription: {
+    expired_workout_behavior: ExpiredWorkoutBehavior;
     default_cadence: string; beginner_max_weekly_sets: number; first_week_volume_multiplier: number;
     endurance_strength_multiplier: number; preferred_split: 'auto' | 'full_body' | 'upper_lower' | 'push_pull_legs';
     methodology_notes: string; periodization_notes: string;
@@ -123,7 +127,7 @@ export const DEFAULT_COMPANY_PRODUCT_SETTINGS: CompanyProductSettings = {
   business: { assessment_sla_business_days: 5, installments_short: 1, installments_medium: 6, installments_long: 12 },
   notifications: { daily_reminder_enabled: true, daily_reminder_hour: 8, new_workout_enabled: true },
   experience: { cadence_warning_hours: 24, cadence_critical_hours: 72, risk_no_workout_days: 10, renewal_notice_days: 7, xp_workout: 50, xp_external_activity: 30, weekly_consistency_xp: 100, gamification_enabled: true },
-  prescription: { default_cadence: '2020', beginner_max_weekly_sets: 21, first_week_volume_multiplier: 0.8, endurance_strength_multiplier: 0.8, preferred_split: 'auto', methodology_notes: '', periodization_notes: '', weekly_rules: [], allowed_methods: [...PRESCRIPTION_METHODS], progression_mode: 'wave', answer_mappings: [] },
+  prescription: { expired_workout_behavior: 'keep_until_replaced', default_cadence: '2020', beginner_max_weekly_sets: 21, first_week_volume_multiplier: 0.8, endurance_strength_multiplier: 0.8, preferred_split: 'auto', methodology_notes: '', periodization_notes: '', weekly_rules: [], allowed_methods: [...PRESCRIPTION_METHODS], progression_mode: 'wave', answer_mappings: [] },
 };
 
 // Limits are mirrored in the SQL validator: extending this contract requires both validators.
@@ -219,6 +223,7 @@ export function normalizeCompanyProductSettings(input: unknown = {}): CompanyPro
           try { new Intl.DateTimeFormat('en-US', { timeZone: value }).format(); } catch { fail(path); }
         }
         if (key === 'default_cadence' && !/^[0-9]{4}$/.test(value)) fail(path);
+        if (key === 'expired_workout_behavior' && !(EXPIRED_WORKOUT_BEHAVIORS as readonly string[]).includes(value)) fail(path);
         if (key === 'preferred_split' && !['auto', 'full_body', 'upper_lower', 'push_pull_legs'].includes(value)) fail(path);
         if (key === 'support_email' && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) fail(path);
         if (key === 'support_whatsapp' && value && !/^\+?[0-9 ()-]{7,30}$/.test(value)) fail(path);
@@ -244,11 +249,19 @@ export interface SettingsReadClient {
 }
 export function parseSettingsRecord(data: unknown): SettingsRecord {
   if (!object(data) || !Number.isSafeInteger(data.version) || (data.version as number) < 0 || !object(data.settings)) fail('server envelope');
-  return { settings: normalizeCompanyProductSettings(data.settings), version: data.version as number };
+  const settings = normalizeCompanyProductSettings(data.settings);
+  // This policy is projected into the app contract, never persisted in settings JSON.
+  // Missing column in legacy envelopes retains continuity; a present invalid value fails closed.
+  if (Object.hasOwn(data, 'expired_workout_behavior')) {
+    const behavior = data.expired_workout_behavior;
+    if (typeof behavior !== 'string' || !(EXPIRED_WORKOUT_BEHAVIORS as readonly string[]).includes(behavior)) fail('expired_workout_behavior');
+    settings.prescription.expired_workout_behavior = behavior as ExpiredWorkoutBehavior;
+  }
+  return { settings, version: data.version as number };
 }
 export async function readCompanyProductSettings(client: SettingsReadClient, companyId: string): Promise<SettingsRecord> {
   if (!companyId?.trim()) fail('company_id');
-  const { data, error } = await client.from('company_product_settings').select('settings,version').eq('company_id', companyId).maybeSingle();
+  const { data, error } = await client.from('company_product_settings').select('settings,version,expired_workout_behavior').eq('company_id', companyId).maybeSingle();
   if (error && error.code !== '42P01' && error.code !== 'PGRST205') throw error;
   if (error || data === null) return { settings: normalizeCompanyProductSettings({}), version: 0 };
   return parseSettingsRecord(data);

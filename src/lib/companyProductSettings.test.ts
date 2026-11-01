@@ -135,6 +135,52 @@ describe('company product settings contract', () => {
     const sql = readFileSync('supabase/migrations/20261028090117_company_prescription_methodology.sql', 'utf8');
     const json = sql.match(/select '([\s\S]+?)'::jsonb;/)?.[1];
     expect(json).toBeDefined();
-    expect(JSON.parse(json!)).toEqual(defaults);
+    const persistedDefaults = structuredClone(defaults);
+    delete (persistedDefaults.prescription as Partial<typeof persistedDefaults.prescription>).expired_workout_behavior;
+    expect(JSON.parse(json!)).toEqual(persistedDefaults);
   });
+});
+
+
+describe('expired workout company policy', () => {
+  it('defaults old records and missing rows to keeping the last workout', async () => {
+    expect(normalize({}).prescription.expired_workout_behavior).toBe('keep_until_replaced');
+    respond({ settings: { prescription: { default_cadence: '2020' } }, version: 0 });
+    expect((await fetchCompanyProductSettings('company-a')).settings.prescription.expired_workout_behavior).toBe('keep_until_replaced');
+    respond(null);
+    expect((await fetchCompanyProductSettings('company-a')).version).toBe(0);
+    expect((await fetchCompanyProductSettings('company-a')).settings.prescription.expired_workout_behavior).toBe('keep_until_replaced');
+  });
+  it.each(['keep_until_replaced', 'hide_on_expiry'] as const)('persists and reloads %s with company and expected version', async behavior => {
+    const settings = normalize({ prescription: { expired_workout_behavior: behavior } });
+    const persisted = structuredClone(settings);
+    delete (persisted.prescription as Partial<typeof persisted.prescription>).expired_workout_behavior;
+    rpc.mockResolvedValue({ data: { settings: persisted, expired_workout_behavior: behavior, version: 1 }, error: null });
+    const saved = await saveCompanyProductSettings('company-a', settings, 0);
+    expect(rpc).toHaveBeenLastCalledWith('save_company_product_settings', { _company_id: 'company-a', _settings: settings, _expected_version: 0 });
+    respond({ settings: persisted, expired_workout_behavior: behavior, version: saved.version });
+    expect((await fetchCompanyProductSettings('company-a')).settings.prescription.expired_workout_behavior).toBe(behavior);
+  });
+  it.each(['', 'false', 'KEEP_UNTIL_REPLACED', 'unknown', null, false, 1, [], {}])('rejects malformed expiry behavior %j before RPC', async behavior => {
+    const calls = rpc.mock.calls.length;
+    expect(() => normalize({ prescription: { expired_workout_behavior: behavior } })).toThrow('prescription.expired_workout_behavior');
+    await expect(saveCompanyProductSettings('company-a', { ...defaults, prescription: { ...defaults.prescription, expired_workout_behavior: behavior } } as never, 0)).rejects.toThrow();
+    expect(rpc.mock.calls.length).toBe(calls);
+  });
+});
+
+
+it('projects the dedicated column without persisting it inside legacy settings JSON', async () => {
+  const legacy = structuredClone(defaults);
+  delete (legacy.prescription as Partial<typeof legacy.prescription>).expired_workout_behavior;
+  respond({ settings: legacy, expired_workout_behavior: 'hide_on_expiry', version: 4 });
+  expect((await fetchCompanyProductSettings('company-a')).settings.prescription.expired_workout_behavior).toBe('hide_on_expiry');
+});
+it.each([null, true, '', 'invalid'])('rejects an invalid dedicated policy column %j', async value => {
+  respond({ settings: {}, expired_workout_behavior: value, version: 1 });
+  await expect(fetchCompanyProductSettings('company-a')).rejects.toThrow('expired_workout_behavior');
+});
+it('does not turn a missing-column migration error into a default keep grant', async () => {
+  respond(null, { code: '42703' });
+  await expect(fetchCompanyProductSettings('company-a')).rejects.toMatchObject({ code: '42703' });
 });

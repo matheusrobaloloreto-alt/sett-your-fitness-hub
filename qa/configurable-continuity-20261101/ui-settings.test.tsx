@@ -1,0 +1,20 @@
+import {MemoryRouter} from 'react-router-dom';
+import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
+import {afterEach,beforeEach,describe,it,expect,vi} from 'vitest';
+const api=vi.hoisted(()=>({auth:{role:'admin',companyId:'company-a'},fetch:vi.fn(),save:vi.fn(),rows:new Map<string,any>()}));
+vi.mock('@/integrations/supabase/client',()=>({supabase:{}}));
+vi.mock('@/hooks/useAuth',()=>({useAuth:()=>api.auth}));
+vi.mock('@/contexts/MasterContext',()=>({useMaster:()=>({isViewingCompany:false,viewingCompany:null})}));
+vi.mock('@/lib/companyProductSettings',async original=>({...await original<typeof import('@/lib/companyProductSettings')>(),fetchCompanyProductSettings:api.fetch,saveCompanyProductSettings:api.save}));
+vi.mock('@/components/admin/CompanyAchievements',()=>({default:()=>null}));
+vi.mock('@/components/admin/CompanyCommercialSettings',()=>({default:()=>null}));
+vi.mock('@/components/admin/FormDefinitionManager',()=>({default:()=>null}));
+import {normalizeCompanyProductSettings} from '@/lib/companyProductSettings';
+import ProductSettings from '@/pages/admin/ProductSettings';
+const mount=()=>render(<MemoryRouter><ProductSettings/></MemoryRouter>);
+beforeEach(()=>{api.auth={role:'admin',companyId:'company-a'};api.fetch.mockReset();api.save.mockReset();api.rows=new Map([['company-a',{version:7,settings:normalizeCompanyProductSettings({})}],['company-b',{version:2,settings:normalizeCompanyProductSettings({prescription:{expired_workout_behavior:'keep_until_replaced'}})}]]);api.fetch.mockImplementation(async id=>structuredClone(api.rows.get(id)));api.save.mockImplementation(async(id,settings,version)=>{expect(version).toBe(api.rows.get(id).version);const row={settings:structuredClone(settings),version:version+1};api.rows.set(id,row);return structuredClone(row)});});
+afterEach(cleanup);
+describe('QA settings UI: real screen; persistence transport mock',()=>{
+ it('saves hide for company A, then remounts and reloads it without changing company B',async()=>{const view=mount();await screen.findByLabelText('Mensagem');fireEvent.click(screen.getByRole('button',{name:'Prescrição'}));fireEvent.change(screen.getByLabelText('Após o vencimento do treino'),{target:{value:'hide_on_expiry'}});fireEvent.click(screen.getByRole('button',{name:'Salvar'}));await screen.findByText('Versão 8');expect(api.save).toHaveBeenCalledWith('company-a',expect.objectContaining({prescription:expect.objectContaining({expired_workout_behavior:'hide_on_expiry'})}),7);view.unmount();mount();await screen.findByLabelText('Mensagem');fireEvent.click(screen.getByRole('button',{name:'Prescrição'}));expect(screen.getByLabelText('Após o vencimento do treino')).toHaveValue('hide_on_expiry');expect(api.rows.get('company-b').settings.prescription.expired_workout_behavior).toBe('keep_until_replaced');},30000);
+ it('a CAS conflict preserves the chosen hide draft without success or persistence',async()=>{api.save.mockRejectedValue({code:'PT409',message:'conflict'});mount();await screen.findByLabelText('Mensagem');fireEvent.click(screen.getByRole('button',{name:'Prescrição'}));fireEvent.change(screen.getByLabelText('Após o vencimento do treino'),{target:{value:'hide_on_expiry'}});fireEvent.click(screen.getByRole('button',{name:'Salvar'}));expect(await screen.findByRole('alert')).toHaveTextContent('Outra pessoa');expect(screen.getByLabelText('Após o vencimento do treino')).toHaveValue('hide_on_expiry');expect(api.rows.get('company-a').version).toBe(7);expect(screen.queryByText('Configurações salvas.')).toBeNull();});
+});

@@ -1,13 +1,21 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { PropsWithChildren } from 'react';
+import { act, cleanup, fireEvent, render as renderWithTestingLibrary, screen } from '@testing-library/react';
+import type { PropsWithChildren, ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { calculateSessionMetrics, type SessionLog } from '@/lib/sessions/metrics';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ user: { id: 'user-a' }, from: vi.fn(), toast: vi.fn(), start: vi.fn(), abandon: vi.fn(), event: vi.fn(), rpc: vi.fn(), finish: vi.fn() }));
+const queryClients: QueryClient[] = [];
+function render(ui: ReactNode) {
+ const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+ queryClients.push(client);
+ return renderWithTestingLibrary(ui, { wrapper: ({ children }: PropsWithChildren) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+}
+
+const mocks = vi.hoisted(() => ({ user: { id: 'user-a' }, from: vi.fn(), toast: vi.fn(), start: vi.fn(), abandon: vi.fn(), event: vi.fn(), rpc: vi.fn(), finish: vi.fn(), active: null as null | { id: string; workoutId: string; startedAt: number } }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: mocks.user, signOut: vi.fn() }) }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: mocks.from, rpc: mocks.rpc } }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }));
-vi.mock('@/hooks/useWorkoutSession', () => ({ useWorkoutSession: () => ({ isHydrated: true, activeSession: null, isActive: false, summary: null, startSession: mocks.start, abandonSession: mocks.abandon, finishSession: mocks.finish }) }));
+vi.mock('@/hooks/useWorkoutSession', () => ({ useWorkoutSession: () => ({ isHydrated: true, activeSession: mocks.active, isActive: Boolean(mocks.active), summary: null, elapsed: 0, formatTime: () => '00:00', startSession: mocks.start, abandonSession: mocks.abandon, finishSession: mocks.finish }) }));
 vi.mock('@/lib/benitoProductEvents', () => ({ emitBenitoProductEvent: mocks.event }));
 vi.mock('@/components/student/WorkoutTimer', () => ({ WorkoutTimer: ({ onStart, onAbandon, onFinish }: { onStart: () => void; onAbandon: () => void; onFinish: () => void }) => <><button onClick={onStart}>Test iniciar</button><button onClick={onAbandon}>Test abandonar</button><button onClick={onFinish}>Test finalizar</button></> }));
 vi.mock('@/components/student/ExerciseCard', () => ({ ExerciseCard: () => null }));
@@ -36,6 +44,9 @@ let withPrescription: boolean;
 let longContract: boolean;
 let pendingSlot: boolean;
 let pendingOnly: boolean;
+let policyMode: 'keep_until_replaced' | 'hide_on_expiry';
+let policyFailure: boolean;
+let policyRead: Promise<unknown> | null;
 let continuityScenario: 'published' | 'future' | 'cleared' | 'archived' | 'foreign' | 'cancelled' | null;
 let expiredEnrollment: boolean;
 let offlinePrescription: boolean;
@@ -43,6 +54,13 @@ let overlappingPrescription: boolean;
 let sessionLogs: Array<SessionLog & { id: string; session_date: string }> = [];
 beforeEach(() => {
   mocks.user = { id: 'user-a' }; mocks.toast.mockReset(); mocks.start.mockReset(); mocks.abandon.mockReset(); mocks.event.mockReset(); mocks.rpc.mockReset(); mocks.finish.mockReset(); sessionLogs = [];
+  mocks.active = null;
+  policyMode = 'keep_until_replaced'; policyFailure = false; policyRead = null;
+  mocks.rpc.mockImplementation((name: string) => {
+    if (name !== 'get_company_workout_expiry_policy') return Promise.resolve({ data: null, error: null });
+    if (policyRead) return policyRead;
+    return Promise.resolve(policyFailure ? { data: null, error: { code: '42P01' } } : { data: { company_id: 'company-a', expired_workout_behavior: policyMode, version: 1 }, error: null });
+  });
   expiredEnrollment = false; offlinePrescription = false; continuityScenario = null;
   failureTable = null; rejectRead = false; slowStudent = null; withPrescription = false; longContract = false; pendingSlot = false; pendingOnly = false; overlappingPrescription = false;
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -111,7 +129,7 @@ beforeEach(() => {
     }; return query;
   });
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); queryClients.forEach(client => client.clear()); queryClients.length = 0; vi.useRealTimers(); });
 
 describe('StudentPortal authoritative reads', () => {
   it.each(['students', 'nutrition_plans', 'running_plans', 'student_anamneses', 'enrollments', 'workout_logs', 'workout_sessions', 'workout_feedback', 'student_goals'])('shows unavailable rather than empty after %s RLS error, then retries', async table => {
@@ -144,7 +162,7 @@ describe('StudentPortal authoritative reads', () => {
     render(<StudentPortal />);
     expect(await screen.findByText('Aguardando prescrição')).toBeInTheDocument();
     expect(screen.getByText(/ciclo 12, válido até 08\/10\/2026/)).toBeInTheDocument();
-    expect(screen.getByText('Treino anterior')).toBeInTheDocument();
+    expect(await screen.findByText('Treino anterior')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Ver calendário e sessões' }));
     expect(await screen.findByRole('heading', { name: 'Histórico' })).toBeInTheDocument();
     expect(screen.getAllByText('Treino anterior').length).toBeGreaterThan(0);
@@ -160,13 +178,72 @@ describe('StudentPortal authoritative reads', () => {
     expect(await screen.findByText('Seu último treino continua disponível até a próxima prescrição.')).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: 'Test iniciar' }));
     expect(mocks.start).toHaveBeenCalledWith('workout-old');
-    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalledWith('mark_training_cycle_viewed', expect.anything());
+  });
+  it('hides an expired source when the company chooses automatic expiry', async () => {
+    withPrescription = true; pendingSlot = true; policyMode = 'hide_on_expiry';
+    render(<StudentPortal />);
+    await screen.findByText('Portal carregado');
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir treino' }));
+    expect(screen.queryByRole('button', { name: 'Test iniciar' })).toBeNull();
+    expect(screen.queryByText('Seu último treino continua disponível até a próxima prescrição.')).toBeNull();
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+  it('can finish an existing resolved session after expiry is hidden without enabling another start', async () => {
+    withPrescription = true; pendingSlot = true; policyMode = 'hide_on_expiry';
+    mocks.active = { id: 'session-active', workoutId: 'workout-old', startedAt: Date.now() - 60000 };
+    mocks.finish.mockImplementation(async (logs, exercises, bests, unknown) => ({
+      id: 'session-active', workoutId: 'workout-old', completedAt: '2026-10-29T15:00:00Z', durationSeconds: 60,
+      ...calculateSessionMetrics('workout-old', logs, exercises, bests, unknown),
+    }));
+    render(<StudentPortal />);
+    const finish = await screen.findByRole('button', { name: 'Finalizar sessão em andamento' });
+    expect(screen.queryByRole('button', { name: 'Test iniciar' })).toBeNull();
+    await act(async () => { fireEvent.click(finish); });
+    expect(mocks.finish).toHaveBeenCalledTimes(1);
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.abandon).not.toHaveBeenCalled();
+  });
+  it.each(['cleared', 'archived', 'foreign', 'cancelled'] as const)('does not use an active session to bypass the %s source guard', async scenario => {
+    withPrescription = true; pendingSlot = true; policyMode = 'hide_on_expiry'; continuityScenario = scenario;
+    mocks.active = { id: 'session-active', workoutId: 'workout-old', startedAt: Date.now() - 60000 };
+    render(<StudentPortal />);
+    await screen.findByText('Portal carregado');
+    expect(screen.queryByRole('button', { name: 'Finalizar sessão em andamento' })).toBeNull();
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.finish).not.toHaveBeenCalled();
+  });
+  it('hides on expiry even when the previously valid coverage projection is still cached', async () => {
+    withPrescription = true; policyMode = 'hide_on_expiry';
+    const view = render(<StudentPortal />);
+    await screen.findByText('Prescrição existente');
+    vi.setSystemTime(new Date('2026-11-12T15:00:00Z'));
+    view.rerender(<StudentPortal />);
+    expect(screen.queryByText('Prescrição existente')).toBeNull();
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+  it('fails closed only for expired continuity when the settings read fails, then retries', async () => {
+    withPrescription = true; pendingSlot = true; policyFailure = true;
+    render(<StudentPortal />);
+    await screen.findByText('Não foi possível verificar a disponibilidade do seu último treino.');
+    expect(screen.queryByText('Treino anterior')).toBeNull();
+    expect(mocks.start).not.toHaveBeenCalled();
+    policyFailure = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Verificar disponibilidade novamente' }));
+    expect(await screen.findByText('Treino anterior')).toBeInTheDocument();
+  });
+  it('keeps the currently covered workout available despite settings failure', async () => {
+    withPrescription = true; policyFailure = true;
+    render(<StudentPortal />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Abrir treino' }));
+    expect(await screen.findByRole('button', { name: 'Test iniciar' })).toBeInTheDocument();
   });
   it('keeps the previous workout until a future materialized replacement starts', async () => {
     withPrescription = true; pendingSlot = true; continuityScenario = 'future';
     render(<StudentPortal />);
     await screen.findByText('Portal carregado');
-    expect(screen.getByText('Treino anterior')).toBeInTheDocument();
+    expect(await screen.findByText('Treino anterior')).toBeInTheDocument();
     expect(screen.queryByText('Nova prescrição')).toBeNull();
   });
   it('switches to the next started materialized prescription', async () => {
@@ -200,7 +277,7 @@ describe('StudentPortal authoritative reads', () => {
     withPrescription = true; pendingSlot = true; pendingOnly = true;
     render(<StudentPortal />);
     await screen.findByText('Aguardando prescrição');
-    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalledWith('mark_training_cycle_viewed', expect.anything());
   });
   it('keeps history accessible even without a selected cycle', async () => {
     render(<StudentPortal />);
@@ -216,7 +293,7 @@ describe('StudentPortal authoritative reads', () => {
     expect(await screen.findByText('Prescrição existente')).toBeInTheDocument();
     expect(screen.getByText('Fixture exercise')).toBeInTheDocument();
     expect(screen.getByText(/renovação pendente/)).toBeInTheDocument();
-    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalledWith('mark_training_cycle_viewed', expect.anything());
     expect(mocks.start).not.toHaveBeenCalled();
   });
   it('distinguishes external prescription from missing digital publication', async () => {

@@ -1,3 +1,4 @@
+import { useStudentPrescriptionPolicy } from "@/hooks/useStudentPrescriptionPolicy";
 import { PublishedPrescriptionHistory } from "@/components/student/PublishedPrescriptionHistory";
 import { useEffect, useState, useCallback, useMemo, useRef, Fragment, Suspense, lazy } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
@@ -322,9 +323,16 @@ export default function StudentPortal() {
   const todayStr = businessDateYmd();
   const logsBackupKey = studentId ? `sett_logs_${studentId}_${todayStr}` : null;
   const awaitingPrescription = !studentIsInactive && !(coverage?.reliable && coverage.hasCurrentWorkout);
-  const hasDigitalContinuity = Boolean(!studentIsInactive && digitalContinuation && digitalContinuation.cycleId === selectedCycle?.id
+  const expiredContinuation = Boolean(selectedCycle?.end_date && selectedCycle.end_date < todayStr);
+  const prescriptionPolicy = useStudentPrescriptionPolicy(
+    loadedUserScope === userScope && !loadError && user?.id && studentId && companyId
+      && (!authCompanyId || authCompanyId === companyId)
+      ? { userId: user.id, studentId, companyId } : null,
+  );
+  const hasDigitalContinuity = Boolean((!expiredContinuation || prescriptionPolicy.allowContinuity) && !studentIsInactive && digitalContinuation && digitalContinuation.cycleId === selectedCycle?.id
     && digitalContinuation.enrollmentEndDate >= todayStr && selectedCycle?.workouts.length);
-  const workoutUnavailable = awaitingPrescription && !hasDigitalContinuity;
+  const awaitingDigitalPrescription = awaitingPrescription || expiredContinuation;
+  const workoutUnavailable = awaitingDigitalPrescription && !hasDigitalContinuity;
   const lastPublishedCycle = cycles.filter(cycle => cycle.workouts.length > 0 && cycle.end_date < todayStr)
     .sort((a, b) => b.end_date.localeCompare(a.end_date))[0];
 
@@ -1368,16 +1376,27 @@ export default function StudentPortal() {
   }
 
   const isSessionForCurrentWorkout = session.isActive && session.activeSession?.workoutId === selectedWorkout?.id;
+  const canFinalizeHiddenSession = workoutUnavailable && expiredContinuation
+    && !studentIsInactive && !preferredCyclePrescriptionCleared && isSessionForCurrentWorkout
+    && activeWorkoutResolution.kind === "resolved"
+    && activeWorkoutResolution.cycle.student_id === studentId
+    && activeWorkoutResolution.cycle.company_id === companyId
+    && !activeWorkoutResolution.cycle.prescription_cleared_at
+    && !activeWorkoutResolution.cycle.superseded_by_cycle_id
+    && activeWorkoutResolution.cycle.start_date <= todayStr;
   const prescriptionHistory = !studentIsInactive && user?.id && studentId && companyId ? <PublishedPrescriptionHistory key={`${user.id}:${studentId}:${companyId}`} userId={user.id} studentId={studentId} companyId={companyId} today={todayStr} /> : null;
   const pendingPrescriptionNotice = (
     <Card className="border-border bg-card">
       <CardContent className="space-y-3 p-5" role="status">
         <h2 className="font-semibold text-foreground">{coverage?.hasCurrentOfflinePrescription ? "Prescrição externa" : "Aguardando prescrição"}</h2>
         <p className="text-sm text-muted-foreground">{coverage?.hasCurrentOfflinePrescription ? "Sua equipe registrou uma prescrição externa ao aplicativo para este período. Consulte as orientações com sua equipe." : "Ainda não há treino publicado para o período atual. A existência de um ciclo na agenda não significa que o treino esteja pronto. Fale com sua equipe para acompanhar a prescrição."}</p>
+        {expiredContinuation && prescriptionPolicy.loading && <p className="text-sm text-muted-foreground">Verificando a disponibilidade do seu último treino…</p>}
+        {expiredContinuation && prescriptionPolicy.error && <div className="space-y-2" role="alert"><p className="text-sm">Não foi possível verificar a disponibilidade do seu último treino.</p><Button variant="outline" onClick={() => void prescriptionPolicy.retry()}>Verificar disponibilidade novamente</Button></div>}
         {hasDigitalContinuity && <p className="text-sm font-medium">Seu último treino continua disponível até a próxima prescrição.</p>}
         {lastPublishedCycle && <p className="text-sm text-muted-foreground">Último treino publicado: ciclo {lastPublishedCycle.cycle_number}, válido até {format(parseISO(lastPublishedCycle.end_date), "dd/MM/yyyy")}.</p>}
         {prescriptionHistory}
         <Button variant="outline" onClick={() => setActiveView("calendario")}>Ver calendário e sessões</Button>
+        {canFinalizeHiddenSession && <Button variant="outline" disabled={finishingWorkout} onClick={handleFinishSession}>Finalizar sessão em andamento</Button>}
         {session.isActive && <Button variant="outline" onClick={handleAbandonSession}>Encerrar sessão ativa</Button>}
       </CardContent>
     </Card>
@@ -1499,7 +1518,7 @@ export default function StudentPortal() {
           {user?.id && <PushBanner userId={user.id} companyId={companyId} />}
           {studentId && <CheckinCard studentId={studentId} companyId={companyId} />}
           <PlatformAdSlot audience="student" placement="dashboard_banner" companyId={companyId} />
-          {awaitingPrescription ? pendingPrescriptionNotice : prescriptionHistory}
+          {awaitingDigitalPrescription ? pendingPrescriptionNotice : prescriptionHistory}
           <StudentHome
             nameBadge={<AthleticClubStar studentId={studentId} />}
             studentName={studentName}
@@ -1540,7 +1559,7 @@ export default function StudentPortal() {
         {activeView === "treino" && (
           <div className="space-y-6">
             {/* (seletor de ciclos removido — o ciclo atual já é mostrado abaixo) */}
-            {(!selectedCycle || awaitingPrescription) && pendingPrescriptionNotice}
+            {(!selectedCycle || awaitingDigitalPrescription) && pendingPrescriptionNotice}
             {selectedCycle && !workoutUnavailable && (
               <div className="space-y-4">
                 <Card className="bg-card border-border">

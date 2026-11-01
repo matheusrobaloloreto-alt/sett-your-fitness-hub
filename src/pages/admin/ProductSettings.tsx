@@ -73,7 +73,7 @@ function errorMessage(error: unknown) {
   const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
   if (code === 'PT409' || code === '40001' || code === '409') return 'Outra pessoa alterou esta configuração. Seu rascunho foi mantido. Recarregue antes de salvar novamente.';
   if (code === '42501') return 'Seu acesso não permite alterar as configurações desta empresa.';
-  if (code === 'PGRST202' || code === '42P01' || code === 'PGRST205') return 'O banco deste ambiente ainda não está preparado para salvar as configurações.';
+  if (code === 'PGRST202' || code === '42P01' || code === 'PGRST205' || code === '42703' || code === 'PGRST204') return 'O banco deste ambiente ainda não está preparado para salvar as configurações.';
   if (error instanceof Error) return error.message;
   return 'Não foi possível salvar. O rascunho foi mantido.';
 }
@@ -198,6 +198,12 @@ export default function ProductSettings() {
     </section>}
     {section === 'forms' && <section className="space-y-6">{numbers('business', ASSESSMENT_FIELDS)}<Suspense fallback={<Loader2 className="h-5 w-5 animate-spin" />}><FormDefinitionManager key={companyId} companyId={companyId} /></Suspense></section>}
     {section === 'prescription' && <section className="space-y-6">{numbers('prescription', PRESCRIPTION_FIELDS)}
+      <div className="max-w-xl space-y-2"><HelpLabel htmlFor="expired-workout-behavior">Após o vencimento do treino</HelpLabel>
+        <select id="expired-workout-behavior" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.prescription.expired_workout_behavior} disabled={saving} onChange={e => change('prescription', 'expired_workout_behavior', e.target.value)}>
+          <option value="keep_until_replaced">Manter o último treino até o próximo ser publicado</option>
+          <option value="hide_on_expiry">Ocultar automaticamente ao vencer</option>
+        </select>
+      </div>
       <div className="grid gap-5 sm:grid-cols-2"><div className="space-y-2"><HelpLabel htmlFor="default-cadence">Cadência padrão</HelpLabel><Input id="default-cadence" inputMode="numeric" maxLength={4} value={draft.prescription.default_cadence} onChange={e => change('prescription', 'default_cadence', e.target.value)} /></div>
         <div className="space-y-2"><HelpLabel htmlFor="preferred-split">Divisão preferencial</HelpLabel><select id="preferred-split" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.prescription.preferred_split} onChange={e => change('prescription', 'preferred_split', e.target.value)}><option value="auto">Automática</option><option value="full_body">Corpo inteiro</option><option value="upper_lower">Superior e inferior</option><option value="push_pull_legs">Empurrar, puxar e pernas</option></select></div></div>
       <div className="space-y-2"><HelpLabel htmlFor="methodology-notes">Contexto da metodologia</HelpLabel><Textarea id="methodology-notes" value={draft.prescription.methodology_notes} onChange={e => change('prescription', 'methodology_notes', e.target.value)} /></div>
