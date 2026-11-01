@@ -1,0 +1,3 @@
+import base from '../../vitest.config';
+import {defineConfig} from 'vitest/config';
+export default defineConfig({...base,test:{...base.test,include:['qa/continuity-20261101/adversarial*.test.tsx']}});

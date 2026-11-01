@@ -11,6 +11,7 @@ export interface PrescriptionScheduleCycle {
   end_date: string;
   status: string;
   superseded_by_cycle_id?: string | null;
+  superseded_at?: string | null;
   delivery_status?: string | null;
   prescription_cleared_at?: string | null;
   prescription_cleared_event_id?: string | null;
@@ -283,6 +284,44 @@ export function selectCyclesForProgramHistory<T extends PrescriptionScheduleCycl
     .filter((cycle) => currentIds.has(cycle.id) || hasPrescriptionHistory(cycle))
     .sort((left, right) => utcDay(left.start_date) - utcDay(right.start_date)
       || left.cycle_number - right.cycle_number);
+}
+
+/** Student execution continuity only; never certifies calendar coverage or extends a contract.
+ * Materialized exercises (not delivery ACK/offline metadata) establish digital availability.
+ * Later started stages replace earlier ones; an explicit clear is a barrier to fallback.
+ */
+export function selectStudentDigitalContinuity<T extends PrescriptionScheduleCycle>(
+  cycles: T[],
+  args: {
+    enrollment: PrescriptionEnrollment;
+    expectedStudentId: string;
+    expectedCompanyId: string;
+    today?: Date;
+  },
+): T | null {
+  const today = scheduleDay(args.today ?? new Date());
+  const term = enrollmentTerm(args.enrollment);
+  if (!term || !Number.isFinite(today) || today < term.start || today > term.end
+    || !['active', 'awaiting_training', 'awaiting_renewal'].includes(args.enrollment.status)
+    || args.enrollment.student_id !== args.expectedStudentId
+    || args.enrollment.company_id !== args.expectedCompanyId) return null;
+  const ownedStarted = cycles.filter(cycle => cycleMatchesContext(cycle, args)
+    && Number.isFinite(scheduleDay(cycle.start_date))
+    && Number.isFinite(scheduleDay(cycle.end_date))
+    && scheduleDay(cycle.end_date) >= scheduleDay(cycle.start_date)
+    && scheduleDay(cycle.start_date) <= today);
+  const candidates = ownedStarted.filter(cycle => ['active', 'completed'].includes(cycle.status)
+    && !isSupersededCycle(cycle) && !cycle.superseded_at && !isPrescriptionClearedCycle(cycle)
+    && (cycle.has_usable_workouts ?? cycle.has_workouts) === true)
+    .sort((a, b) => scheduleDay(b.start_date) - scheduleDay(a.start_date));
+  const latest = candidates[0];
+  if (!latest) return null;
+  const latestStart = scheduleDay(latest.start_date);
+  // Equal-date imported duplicates are ambiguous; never choose by cycle number or id.
+  if (candidates[1] && scheduleDay(candidates[1].start_date) === latestStart) return null;
+  if (ownedStarted.some(cycle => isPrescriptionClearedCycle(cycle)
+    && scheduleDay(cycle.start_date) >= latestStart)) return null;
+  return latest;
 }
 
 export function selectStudentWorkoutCycleWindow<T extends PrescriptionScheduleCycle>(

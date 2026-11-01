@@ -70,7 +70,7 @@ import {
 } from "@/lib/workoutDraft";
 import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
-import { selectPreferredVisibleCycle, selectPrescriptionEnrollment, selectStudentWorkoutCycleWindow } from "@/lib/prescriptionSchedule";
+import { selectPreferredVisibleCycle, selectPrescriptionEnrollment, selectStudentWorkoutCycleWindow, selectStudentDigitalContinuity } from "@/lib/prescriptionSchedule";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
 import { projectPrescriptionCoverage } from "@/lib/prescriptionCoverage";
 import { createWorkoutLogSaveQueue, saveWorkoutLogBatchIfCurrent, type WorkoutLogSaveResult } from "@/lib/workoutLogPersistence";
@@ -267,6 +267,7 @@ export default function StudentPortal() {
   const [gender, setGender] = useState<Gender | null>(null);
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [coverage, setCoverage] = useState<ReturnType<typeof projectPrescriptionCoverage> | null>(null);
+  const [digitalContinuation, setDigitalContinuation] = useState<{ cycleId: string; enrollmentEndDate: string } | null>(null);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
   const [selectedWeekStart, setSelectedWeekStart] = useState<number | null>(null);
@@ -321,6 +322,9 @@ export default function StudentPortal() {
   const todayStr = businessDateYmd();
   const logsBackupKey = studentId ? `sett_logs_${studentId}_${todayStr}` : null;
   const awaitingPrescription = !studentIsInactive && !(coverage?.reliable && coverage.hasCurrentWorkout);
+  const hasDigitalContinuity = Boolean(!studentIsInactive && digitalContinuation && digitalContinuation.cycleId === selectedCycle?.id
+    && digitalContinuation.enrollmentEndDate >= todayStr && selectedCycle?.workouts.length);
+  const workoutUnavailable = awaitingPrescription && !hasDigitalContinuity;
   const lastPublishedCycle = cycles.filter(cycle => cycle.workouts.length > 0 && cycle.end_date < todayStr)
     .sort((a, b) => b.end_date.localeCompare(a.end_date))[0];
 
@@ -476,6 +480,7 @@ export default function StudentPortal() {
     }
     setLoadError(false);
     setCoverage(null);
+    setDigitalContinuation(null);
     const businessToday = parseISO(todayStr);
     performanceStartedAt.current = performance.now();
     performanceCompanyId.current = null;
@@ -499,7 +504,7 @@ export default function StudentPortal() {
     setStudentId(student.id);
     setStudentName(student.full_name);
     setCompanyId(student.company_id);
-    const inactive = (student as any).status === "inactive";
+    const inactive = ["inactive", "cancelled", "archived"].includes((student as any).status);
     setStudentIsInactive(inactive);
     setGender((student as any).gender === "male" || (student as any).gender === "female" ? (student as any).gender : null);
     setWeeklyGoal((student as any).weekly_workout_goal || 3);
@@ -580,11 +585,13 @@ export default function StudentPortal() {
     // matrícula ativa, não há uma agenda corrente para exibir.
     if (enrollment) {
       // O cast mantém compatibilidade com o tipo local legado da tabela.
-      const cycleSelect = "id, enrollment_id, student_id, company_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, objective, duration_weeks, delivery_status, prescription_cleared_at, prescribed_offline_at, prescribed_offline_by, prescribed_offline_note";
+      const cycleSelect = "id, enrollment_id, student_id, company_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, objective, duration_weeks, delivery_status, superseded_at, prescription_cleared_at, prescribed_offline_at, prescribed_offline_by, prescribed_offline_note";
       const { data: cyclesData } = await read((supabase as any)
         .from("training_cycles")
         .select(cycleSelect)
         .eq("enrollment_id", enrollment.id)
+        .eq("student_id", student.id)
+        .eq("company_id", student.company_id)
         .order("cycle_number"));
       const carriedOverCycleId = (enrollment as any).carried_over_cycle_id;
       const { data: carriedOverCycle } = carriedOverCycleId
@@ -603,14 +610,15 @@ export default function StudentPortal() {
         setCycles([]); setSelectedCycle(null); setSelectedWorkoutId(null);
       }
       if ((cyclesData && cyclesData.length > 0) || carriedOverCycle) {
-        const visibleCycles = (cyclesData || []).filter((cycle) => cycle.status !== "superseded" && !cycle.superseded_by_cycle_id);
+        const visibleCycles = (cyclesData || []).filter((cycle) => cycle.student_id === student.id && cycle.company_id === student.company_id && ["active", "completed", "pending"].includes(cycle.status) && !cycle.superseded_by_cycle_id && !cycle.superseded_at);
         const visibleCycleIds = new Set(visibleCycles.map((cycle) => cycle.id));
         if (
           carriedOverCycle
           && carriedOverCycle.student_id === student.id
           && carriedOverCycle.company_id === student.company_id
           && !visibleCycleIds.has(carriedOverCycle.id)
-          && carriedOverCycle.status !== "superseded"
+          && ["active", "completed", "pending"].includes(carriedOverCycle.status)
+          && !carriedOverCycle.superseded_at
           && !carriedOverCycle.superseded_by_cycle_id
         ) {
           visibleCycles.push(carriedOverCycle);
@@ -618,12 +626,19 @@ export default function StudentPortal() {
         const workoutsData = visibleCycles.length > 0
           ? (await read(supabase
             .from("workouts")
-            .select("id, name, title, description, exercises, cycle_id, day_of_week, sort_order")
+            .select("id, name, title, description, exercises, cycle_id, day_of_week, sort_order, company_id, superseded_at, superseded_by_revision_id, student_profile_archive_event_id")
+            .or(`company_id.eq.${student.company_id},company_id.is.null`)
+            .is("student_profile_archive_event_id", null)
+            .is("superseded_by_revision_id", null)
             .is("superseded_at", null)
             .in("cycle_id", visibleCycles.map(c => c.id)))).data
           : [];
 
-        const allMaterializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
+        // Legacy null company is inherited only through a verified owned cycle.
+        const allowedCycleIds = new Set(visibleCycles.map(cycle => cycle.id));
+        const allMaterializedWorkouts = filterMaterializedWorkouts(workoutsData || []).filter(workout =>
+          (workout.company_id === student.company_id || workout.company_id === null) && allowedCycleIds.has(workout.cycle_id)
+          && !workout.superseded_at && !workout.superseded_by_revision_id && !workout.student_profile_archive_event_id);
         const workoutCycleIds = new Set(allMaterializedWorkouts.map((workout) => workout.cycle_id));
         const currentCoverage = projectPrescriptionCoverage({
           enrollment,
@@ -633,8 +648,8 @@ export default function StudentPortal() {
           today: todayStr, planDurationDays, cycleDurationDays,
         });
         setCoverage(currentCoverage);
-        const { cycles: schedulableCycles, preferredCycle } = selectStudentWorkoutCycleWindow(
-          (cyclesData || []).map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && workoutCycleIds.has(cycle.id) })),
+        const { cycles: operationalCycles, preferredCycle } = selectStudentWorkoutCycleWindow(
+          visibleCycles.filter(cycle => cycle.enrollment_id === enrollment.id).map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && workoutCycleIds.has(cycle.id) })),
           {
             carriedOverCycle: carriedOverCycle
               ? { ...carriedOverCycle, has_workouts: !carriedOverCycle.prescription_cleared_at && workoutCycleIds.has(carriedOverCycle.id) }
@@ -647,6 +662,12 @@ export default function StudentPortal() {
             enrollment,
           },
         );
+        const continuation = selectStudentDigitalContinuity(
+          (cyclesData || []).map(cycle => ({ ...cycle, has_usable_workouts: workoutCycleIds.has(cycle.id) })),
+          { enrollment, expectedStudentId: student.id, expectedCompanyId: student.company_id, today: businessToday },
+        );
+        const schedulableCycles = continuation && !operationalCycles.some(cycle => cycle.id === continuation.id)
+          ? [...operationalCycles, continuation] : operationalCycles;
         const schedulableCycleIds = new Set(schedulableCycles.map((cycle) => cycle.id));
         const materializedWorkouts = allMaterializedWorkouts.filter((workout) => schedulableCycleIds.has(workout.cycle_id));
 
@@ -699,12 +720,16 @@ export default function StudentPortal() {
         setCycles(enriched);
 
         const today = businessToday;
-        const chosen = enriched.find((cycle) => cycle.id === preferredCycle?.id) ?? selectPreferredVisibleCycle(
+        const chosenId = continuation?.id ?? preferredCycle?.id;
+        const chosen = enriched.find((cycle) => cycle.id === chosenId) ?? selectPreferredVisibleCycle(
           enriched.map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && cycle.workouts.length > 0 })),
           today,
         );
         setPreferredCyclePrescriptionCleared(Boolean(chosen?.prescription_cleared_at));
         setSelectedCycle(chosen);
+        if (continuation && chosen?.id === continuation.id && chosen.workouts.length) {
+          setDigitalContinuation({ cycleId: chosen.id, enrollmentEndDate: enrollment.end_date });
+        }
         // Marca como vista somente uma prescrição com conteúdo e vigência atual.
         if (currentCoverage.hasCurrentWorkout && chosen?.id && currentCoverage.currentWorkoutCycleIds.includes(chosen.id)
           && chosen.workouts.length > 0 && chosen.start_date <= todayStr
@@ -1079,7 +1104,7 @@ export default function StudentPortal() {
 
   const handleStartSession = async () => {
     if (!selectedWorkout) return;
-    if (awaitingPrescription) {
+    if (workoutUnavailable) {
       toast({ title: "Aguardando prescrição", description: "Não há treino publicado para o período atual. Fale com sua equipe.", variant: "destructive" });
       return;
     }
@@ -1349,6 +1374,7 @@ export default function StudentPortal() {
       <CardContent className="space-y-3 p-5" role="status">
         <h2 className="font-semibold text-foreground">{coverage?.hasCurrentOfflinePrescription ? "Prescrição externa" : "Aguardando prescrição"}</h2>
         <p className="text-sm text-muted-foreground">{coverage?.hasCurrentOfflinePrescription ? "Sua equipe registrou uma prescrição externa ao aplicativo para este período. Consulte as orientações com sua equipe." : "Ainda não há treino publicado para o período atual. A existência de um ciclo na agenda não significa que o treino esteja pronto. Fale com sua equipe para acompanhar a prescrição."}</p>
+        {hasDigitalContinuity && <p className="text-sm font-medium">Seu último treino continua disponível até a próxima prescrição.</p>}
         {lastPublishedCycle && <p className="text-sm text-muted-foreground">Último treino publicado: ciclo {lastPublishedCycle.cycle_number}, válido até {format(parseISO(lastPublishedCycle.end_date), "dd/MM/yyyy")}.</p>}
         {prescriptionHistory}
         <Button variant="outline" onClick={() => setActiveView("calendario")}>Ver calendário e sessões</Button>
@@ -1479,16 +1505,16 @@ export default function StudentPortal() {
             studentName={studentName}
             enrollmentInfo={enrollmentInfo}
             overallProgress={getOverallProgress()}
-            selectedCycle={studentIsInactive || awaitingPrescription ? null : selectedCycle}
+            selectedCycle={studentIsInactive || workoutUnavailable ? null : selectedCycle}
             cycleProgress={selectedCycle ? getCycleProgress(selectedCycle) : 0}
-            workoutCount={studentIsInactive || awaitingPrescription ? 0 : workoutCount}
+            workoutCount={studentIsInactive || workoutUnavailable ? 0 : workoutCount}
             weeklySessionCount={weeklySessionCount}
             trainedDays={trainedDays}
             currentDayOfWeek={new Date().getDay()}
             totalSessions={totalSessions}
             weeklyGoal={weeklyGoal}
             streak={streak}
-            activeWorkoutId={awaitingPrescription ? null : session.activeSession?.workoutId ?? null}
+            activeWorkoutId={workoutUnavailable ? null : session.activeSession?.workoutId ?? null}
             goalEditor={studentId ? <WeeklyGoalEditor studentId={studentId} currentGoal={weeklyGoal} onSaved={setWeeklyGoal} /> : null}
             leaderboard={studentId ? <MonthlyLeaderboard companyId={companyId} /> : null}
             hasNutrition={!studentIsInactive && hasNutrition}
@@ -1515,7 +1541,7 @@ export default function StudentPortal() {
           <div className="space-y-6">
             {/* (seletor de ciclos removido — o ciclo atual já é mostrado abaixo) */}
             {(!selectedCycle || awaitingPrescription) && pendingPrescriptionNotice}
-            {selectedCycle && !awaitingPrescription && (
+            {selectedCycle && !workoutUnavailable && (
               <div className="space-y-4">
                 <Card className="bg-card border-border">
                   <CardContent className="p-4 space-y-2">

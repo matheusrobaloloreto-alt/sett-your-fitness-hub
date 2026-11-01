@@ -36,13 +36,14 @@ let withPrescription: boolean;
 let longContract: boolean;
 let pendingSlot: boolean;
 let pendingOnly: boolean;
+let continuityScenario: 'published' | 'future' | 'cleared' | 'archived' | 'foreign' | 'cancelled' | null;
 let expiredEnrollment: boolean;
 let offlinePrescription: boolean;
 let overlappingPrescription: boolean;
 let sessionLogs: Array<SessionLog & { id: string; session_date: string }> = [];
 beforeEach(() => {
   mocks.user = { id: 'user-a' }; mocks.toast.mockReset(); mocks.start.mockReset(); mocks.abandon.mockReset(); mocks.event.mockReset(); mocks.rpc.mockReset(); mocks.finish.mockReset(); sessionLogs = [];
-  expiredEnrollment = false; offlinePrescription = false;
+  expiredEnrollment = false; offlinePrescription = false; continuityScenario = null;
   failureTable = null; rejectRead = false; slowStudent = null; withPrescription = false; longContract = false; pendingSlot = false; pendingOnly = false; overlappingPrescription = false;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-29T15:00:00Z'));
@@ -50,7 +51,7 @@ beforeEach(() => {
   mocks.from.mockImplementation((table: string) => {
     let single = false;
     const query = {
-      select: () => query, eq: () => query, is: () => query, lte: () => query, in: () => query, order: () => query, limit: () => query, range: () => query,
+      select: () => query, eq: () => query, is: () => query, or: () => query, lte: () => query, in: () => query, order: () => query, limit: () => query, range: () => query,
       maybeSingle: () => { single = true; return query; },
       then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) => {
         if (table === 'students' && slowStudent) return slowStudent.then(resolve, reject);
@@ -80,7 +81,7 @@ beforeEach(() => {
             { id: 'cycle-old', enrollment_id: 'enrollment-a', student_id: 'student-a', company_id: 'company-a', cycle_number: 12, start_date: '2026-09-01', end_date: '2026-10-08', status: 'completed', duration_weeks: 6, delivery_status: 'viewed' },
             { id: 'cycle-pending', enrollment_id: 'enrollment-a', student_id: 'student-a', company_id: 'company-a', cycle_number: 13, start_date: '2026-10-09', end_date: '2026-11-19', status: 'active', duration_weeks: 6, delivery_status: 'pending' },
           ];
-          prescriptionRows.workouts = [{ id: 'workout-old', title: 'Treino anterior', cycle_id: 'cycle-old', exercises: [{ exercise_id: 'exercise-a', exercise_name: 'Fixture exercise', sets: '3', reps: '10' }] }];
+          prescriptionRows.workouts = [{ company_id: 'company-a', id: 'workout-old', title: 'Treino anterior', cycle_id: 'cycle-old', exercises: [{ exercise_id: 'exercise-a', exercise_name: 'Fixture exercise', sets: '3', reps: '10' }] }];
           prescriptionRows.workout_sessions = [{ id: 'history-session', workout_id: 'workout-old', session_date: '2026-10-08', status: 'completed', duration_seconds: 300, total_volume: 100, total_sets_completed: 3 }];
         }
         if (pendingOnly) {
@@ -92,6 +93,18 @@ beforeEach(() => {
           prescriptionRows.enrollments = [{ id: 'enrollment-a', student_id: 'student-a', company_id: 'company-a', plan_id: 'plan-a', status: 'active', start_date: '2026-01-01', end_date: '2027-01-01' }];
           prescriptionRows.plans = { name: 'Fixture plan', duration_days: 42, cycle_duration_days: 42 };
           prescriptionRows.training_cycles = [{ id: 'cycle-old', enrollment_id: 'enrollment-a', student_id: 'student-a', company_id: 'company-a', cycle_number: 1, start_date: '2026-01-01', end_date: '2026-02-11', status: 'active' }, ...(prescriptionRows.training_cycles as object[])];
+        }
+        if (continuityScenario && pendingSlot) {
+          const cycleRows = prescriptionRows.training_cycles as Array<Record<string, unknown>>;
+          const workoutRows = prescriptionRows.workouts as Array<Record<string, unknown>>;
+          if (continuityScenario === 'published' || continuityScenario === 'future') {
+            cycleRows[1] = { ...cycleRows[1], start_date: continuityScenario === 'future' ? '2026-11-02' : '2026-10-09' };
+            workoutRows.push({ ...workoutRows[0], id: 'workout-next', title: 'Nova prescrição', cycle_id: 'cycle-pending' });
+          }
+          if (continuityScenario === 'cleared') cycleRows[1].prescription_cleared_at = '2026-10-20T12:00:00Z';
+          if (continuityScenario === 'archived') workoutRows[0].student_profile_archive_event_id = 'archive-event';
+          if (continuityScenario === 'foreign') workoutRows[0].company_id = 'foreign-company';
+          if (continuityScenario === 'cancelled') prescriptionRows.enrollments = [{ ...(prescriptionRows.enrollments as object[])[0], status: 'cancelled' }];
         }
         return Promise.resolve({ data: table === 'students' ? student : withPrescription && table in prescriptionRows ? prescriptionRows[table] : single ? null : [], error: null }).then(resolve, reject);
       },
@@ -126,16 +139,54 @@ describe('StudentPortal authoritative reads', () => {
     render(<StudentPortal />);
     expect(await screen.findByText('Prescrição existente')).toBeInTheDocument();
   });
-  it('labels a restored empty slot as awaiting prescription and retains history without offering an expired workout', async () => {
+  it('labels an empty slot as pending while retaining the last digital workout and separate session history', async () => {
     withPrescription = true; pendingSlot = true;
     render(<StudentPortal />);
     expect(await screen.findByText('Aguardando prescrição')).toBeInTheDocument();
     expect(screen.getByText(/ciclo 12, válido até 08\/10\/2026/)).toBeInTheDocument();
-    expect(screen.queryByText('Treino anterior')).not.toBeInTheDocument();
+    expect(screen.getByText('Treino anterior')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Ver calendário e sessões' }));
     expect(await screen.findByRole('heading', { name: 'Histórico' })).toBeInTheDocument();
     expect(screen.getAllByText('Treino anterior').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: 'Test iniciar' })).not.toBeInTheDocument();
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+  it('continues the last digital workout through an empty next slot with functional start and no publication ACK', async () => {
+    withPrescription = true; pendingSlot = true;
+    mocks.start.mockResolvedValue({ ok: true });
+    render(<StudentPortal />);
+    await screen.findByText('Portal carregado');
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir treino' }));
+    expect(await screen.findByText('Seu último treino continua disponível até a próxima prescrição.')).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Test iniciar' }));
+    expect(mocks.start).toHaveBeenCalledWith('workout-old');
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+  it('keeps the previous workout until a future materialized replacement starts', async () => {
+    withPrescription = true; pendingSlot = true; continuityScenario = 'future';
+    render(<StudentPortal />);
+    await screen.findByText('Portal carregado');
+    expect(screen.getByText('Treino anterior')).toBeInTheDocument();
+    expect(screen.queryByText('Nova prescrição')).toBeNull();
+  });
+  it('switches to the next started materialized prescription', async () => {
+    withPrescription = true; pendingSlot = true; continuityScenario = 'published';
+    mocks.start.mockResolvedValue({ ok: true });
+    render(<StudentPortal />);
+    await screen.findByText('Portal carregado');
+    expect(screen.getByText('Nova prescrição')).toBeInTheDocument();
+    expect(screen.queryByText('Seu último treino continua disponível até a próxima prescrição.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir treino' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Test iniciar' }));
+    expect(mocks.start).toHaveBeenCalledWith('workout-next');
+  });
+  it.each(['cleared', 'archived', 'foreign', 'cancelled'] as const)('never enables continuity past %s guard', async scenario => {
+    withPrescription = true; pendingSlot = true; continuityScenario = scenario;
+    render(<StudentPortal />);
+    await screen.findByText('Portal carregado');
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir treino' }));
+    expect(screen.queryByRole('button', { name: 'Test iniciar' })).toBeNull();
+    expect(screen.queryByText('Seu último treino continua disponível até a próxima prescrição.')).toBeNull();
     expect(mocks.start).not.toHaveBeenCalled();
   });
   it('uses canonical coverage to avoid advertising overlapping prescriptions as ready', async () => {
