@@ -1,6 +1,6 @@
 # Preferência de vencimento de treino — 01/11/2026
 
-Estado: implementada localmente e validada com Auth/REST/banco reais de homologação. **Não publicada em produção.**
+Estado: **publicada em produção em 01/11/2026**, após validação com Auth/REST/banco reais de homologação e revisão independente.
 
 ## Uso
 
@@ -40,6 +40,15 @@ Aplicar a migration validada antes do frontend. O JSON legado continua compatív
 - ✅ Aplicação das duas escolhas no portal, sem alterar datas ou apagar histórico.
 - ✅ Homologação nativa, teste de navegador e QA independente.
 - ✅ Correção anterior de continuidade permanece em produção; esta preferência não a substituiu em produção ainda.
-- ❌ Publicação desta preferência (aguardando): inclui migration e frontend, ainda não autorizada/publicada neste pedido.
+- ✅ Publicação autorizada concluída: migration e frontend em produção.
 - ❌ Confirmação em dispositivos reais após publicação (aguardando): homologação usa apenas identidades sintéticas.
 - ❌ Casos de matrícula vencida, login ausente e outras exceções anteriores (aguardando): preservados como pendências separadas; esta configuração não os regulariza.
+
+## Recibo de publicação — 01/11/2026
+
+- Commit129059fad1ed70c797b0fca47d756e661347f600; deploy 6ae7c9b3065959f4eecb790f ready/current em https://www.settapp.com.br.
+- Migrationcompany_expired_workout_behavior aplicada uma vez, SHAa5d09feca803492dc82b35add8a252d44e13c0b263679cb9a8104f5fd65a9964. Versão nativa gerada pelo conector20261101231952 alinhada por compare-and-swap para20261101223102, correspondente ao arquivo fonte, sem reexecução do DDL. Readback confirmou registro único.
+- Body/owner do save legado, RLS, JSON, versões existentes e contagem de histórico conferidos intactos. Colunas novas defaultkeep.
+- BN não tem linha de configuração salva; leitura autorizada aplica o defaultkeep/version0. Nenhuma configuração BN foi gravada para forçar um valor.
+- QA do artefato268/268,735hashesde fontes,freeze10/10;cacheofflinev16;10testesSWpassaram. Onze arquivos críticos servidos pelo domínio comHTTP200ehashigual ao pacote, incluindoProductSettings/StudentPortal/index/SW.
+- Não foi efetuado login na conta de aluno real, gravação de cargas ou disparo de mensagens. Confirmação em dispositivos reais continua separada da verificação de publicação.
