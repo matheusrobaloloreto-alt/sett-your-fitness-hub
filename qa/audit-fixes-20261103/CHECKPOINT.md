@@ -38,3 +38,9 @@
 - Productionowner read: três workouts legados acessíveis por roleauthenticated/claimsdoowner emtransação rollback. Não foi loginGoTrue ouUI. BNexpirydefaultkeep confirmado porleitura.
 - RotaStudentWorkout alinhada à política poratorreal:103 testesowner,33/33 último rerun; sourcefrozen paraQAindependente. Histórico sóconsulta, semexecução.
 - Nenhum deployouDDLprodução nesta rodadaainda. Guardserverstartpreexistente foi documentadoseparadamente e nãoalterado.
+
+## Publicação e QA autenticada final — 03/11/2026
+- Fonte1158e137062dd612c10f98726828295790b7dc3b; CI329 arquivos/2781 testes verdes,3arquivos/10testes condicionais ignorados. tsc-b/lint/build exit0;42warnings lint.
+- Governance v1/v2 produção aplicada, ACLs e estado de titularidade preservados. Deploy6aea026196cbdb408153a28a;SW17;256/256hashes remotos confirmados.
+- IAB voltou a funcionar; usuário autenticou. Carteira77/36ativos, equipe4/2treinadores, Financeiro qualificado, governança legado pendente, duas consultas de treino e perfil/programa porURL confirmados. Assistir separado não alterou contagem8. Nenhum save real para QA.
+- Pendências explícitas: guardserverstart específico; classificação dos registros semhistórico; reprodução integral por dispositivos; acabamentos residuais de apresentação. Ver relatório final; etapas antigas acima são histórico, não status atual.
