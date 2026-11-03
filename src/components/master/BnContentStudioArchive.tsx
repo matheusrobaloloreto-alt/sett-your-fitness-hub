@@ -52,7 +52,7 @@ export function BnContentStudioArchive() {
   return <section className="min-w-0 space-y-4" aria-label="Acervo BN">
     <div className="flex flex-wrap items-center gap-2">
       <div className="relative min-w-0 flex-1 sm:max-w-md"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input aria-label="Buscar no acervo" className="pl-9" value={query} onChange={e => setQuery(e.target.value)} /></div>
-      <span className="text-xs text-muted-foreground">{posts.length} posts</span>
+      <span className="text-xs text-muted-foreground">{loading ? "Carregando…" : error ? "Acervo indisponível" : `${posts.length} ${posts.length === 1 ? "post" : "posts"}`}</span>
       <Button size="icon" variant="outline" title="Atualizar acervo" aria-label="Atualizar acervo" disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? "animate-spin" : ""} /></Button>
     </div>
     {loading ? <p role="status" className="py-10 text-center text-sm text-muted-foreground">Carregando acervo…</p>
@@ -61,7 +61,7 @@ export function BnContentStudioArchive() {
           : <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {filtered.map(post => <button type="button" key={post.id} onClick={() => { setSelectedId(post.id); setNotice(""); }} className="min-w-0 overflow-hidden rounded-lg border text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <img src={urls[post.slides[0]]} alt="" loading="lazy" className="aspect-[4/5] w-full object-cover" onError={() => setError("As imagens expiraram. Atualize o acervo.")} />
-              <div className="space-y-1 p-3"><p className="break-words text-sm font-medium">{post.title}</p><p className="text-xs text-muted-foreground">{post.slides.length} slides{post.date ? ` · ${post.date}` : ""}</p></div>
+              <div className="space-y-1 p-3"><p className="break-words text-sm font-medium">{post.title}</p><p className="text-xs text-muted-foreground">{post.slides.length} {post.slides.length === 1 ? "slide" : "slides"}{post.date ? ` · ${/^\d{4}-\d{2}-\d{2}$/.test(post.date) ? post.date.split("-").reverse().join("/") : post.date}` : ""}</p></div>
             </button>)}
           </div>}
     <Dialog open={Boolean(selected) && !error && !loading} onOpenChange={open => { if (!open) setSelectedId(null); }}>

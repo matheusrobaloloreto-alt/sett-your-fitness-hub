@@ -61,6 +61,8 @@ interface RecentPayment {
   invoice_action_available?: boolean;
   payment_row_note?: string;
   installment_label?: string;
+  provider_date_unknown?: boolean;
+  provider_reported_date?: string | null;
 }
 
 interface CashDetail {
@@ -75,7 +77,7 @@ const PAGE_SIZE = 20;
 export default function FinancialDashboard() {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { companyId, role } = useAuth();
+  const { companyId, role, user } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
   const rolePrefix = role === "coordinator" ? "/coordinator" : role === "trainer" ? "/trainer" : "/admin";
@@ -90,15 +92,36 @@ export default function FinancialDashboard() {
   const [ticketMedio, setTicketMedio] = useState(0);
   const [cashByStudentByMonth, setCashByStudentByMonth] = useState<Record<string, CashDetail[]>>({});
   const [cashMonthTabs, setCashMonthTabs] = useState<string[]>([]);
+  const [projectionLoading, setProjectionLoading] = useState(false);
   const [financialProjectionUnavailable, setFinancialProjectionUnavailable] = useState(false);
   const [hasUnavailableCreditCards, setHasUnavailableCreditCards] = useState(false);
   const [issuingInvoice, setIssuingInvoice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
+  const invoiceLock = useRef<{ generation: number; token: symbol } | null>(null);
   const loadRequestId = useRef(0);
   const currentCompany = useRef(effectiveCompanyId);
   currentCompany.current = effectiveCompanyId;
+  const actionContextKey = `${effectiveCompanyId || ""}:${role || ""}:${user?.id || ""}`;
+  const actionContext = useRef({ key: actionContextKey, generation: 0, mounted: true });
+  if (actionContext.current.key !== actionContextKey) {
+    actionContext.current.key = actionContextKey;
+    actionContext.current.generation++;
+  }
+  useEffect(() => {
+    actionContext.current.mounted = true;
+    return () => { actionContext.current.mounted = false; actionContext.current.generation++; };
+  }, []);
+  useEffect(() => {
+    setIssuingInvoice(null); setSyncing(false); setSyncingAll(false);
+  }, [actionContextKey]);
+  const actionGuard = () => {
+    const generation = actionContext.current.generation;
+    return () => actionContext.current.mounted && actionContext.current.generation === generation
+      && actionContext.current.key === actionContextKey;
+  };
+
   const [loadedCompany, setLoadedCompany] = useState<string | null | undefined>();
   const [loadError, setLoadError] = useState(false);
 
@@ -122,6 +145,7 @@ export default function FinancialDashboard() {
     const isStale = () => requestId !== loadRequestId.current || currentCompany.current !== effectiveCompanyId;
     setLoading(true);
     setLoadError(false);
+    setProjectionLoading(Boolean(effectiveCompanyId));
     if (!effectiveCompanyId) {
       setLoadedCompany(effectiveCompanyId);
       setLoading(false);
@@ -140,21 +164,19 @@ export default function FinancialDashboard() {
       totalQuery = totalQuery.eq("company_id", effectiveCompanyId);
       confirmedQuery = confirmedQuery.eq("company_id", effectiveCompanyId);
     }
-    const [
-      paymentsResult,
-      totalResult,
-      confirmedResult,
-      projectionResult,
-    ] = await Promise.all([
-      paymentsQuery,
-      totalQuery,
-      confirmedQuery,
-      effectiveCompanyId
-        ? supabase.functions.invoke("asaas-integration", {
-          body: { action: "financial-installment-snapshot", companyId: effectiveCompanyId },
-        }).catch((error) => ({ data: null, error }))
-        : Promise.resolve({ data: null, error: null }),
+    const projectionPromise = supabase.functions.invoke("asaas-integration", {
+      body: { action: "financial-installment-snapshot", companyId: effectiveCompanyId },
+    }).catch((error) => ({ data: null, error }));
+    const [paymentsResult, totalResult, confirmedResult] = await Promise.all([
+      paymentsQuery, totalQuery, confirmedQuery,
     ]);
+    // Publish local reads first; the second pass replaces, never adds to, the same totals.
+    const stages = async function* () {
+      yield { data: null, error: new Error("Snapshot pendente") };
+      yield await projectionPromise;
+    };
+    let localPass = true;
+    for await (const projectionResult of stages()) {
     if (isStale()) return;
 
     if (paymentsResult.error || totalResult.error || confirmedResult.error
@@ -238,8 +260,8 @@ export default function FinancialDashboard() {
         Number(entry.value),
         local?.students?.full_name || "Sem aluno",
         entry.installmentGroupId && entry.installmentNumber
-          ? `Cartão parcela ${entry.installmentNumber}`
-          : "Cartão recebido",
+          ? `Cartão parcela ${entry.installmentNumber} — data do provedor (origem não discriminada)`
+          : "Cartão recebido — data informada pelo provedor (origem não discriminada)",
       );
     });
     projectedCashEntries.forEach((entry) => {
@@ -249,8 +271,8 @@ export default function FinancialDashboard() {
         Number(entry.value),
         local?.students?.full_name || "Sem aluno",
         entry.installmentGroupId && entry.installmentNumber
-          ? `Previsão cartão parcela ${entry.installmentNumber}`
-          : "Previsão cartão",
+          ? `Previsão cartão parcela ${entry.installmentNumber} — ${entry.estimatedCreditDate ? "data estimada pelo provedor" : "vencimento como referência"}; não comprova recebimento`
+          : `Previsão cartão — ${entry.estimatedCreditDate ? "data estimada pelo provedor" : "vencimento como referência"}; não comprova recebimento`,
         true,
       );
     });
@@ -259,7 +281,7 @@ export default function FinancialDashboard() {
         financialMonthKey(p.due_date || p.created_at),
         Number(p.value),
         p.students?.full_name || "Sem aluno",
-        p.billing_type === "PIX" ? "PIX à vista" : "À vista",
+        `${p.billing_type === "PIX" ? "PIX" : "À vista"} — registro local; mês por ${p.due_date ? "vencimento" : "criação"}, sem data de recebimento`,
       );
     });
 
@@ -411,7 +433,9 @@ export default function FinancialDashboard() {
         value: Number(entry.value),
         billing_type: entry.billingType,
         status: entry.status,
-        created_at: entry.dueDate || entry.creditDate || new Date().toISOString(),
+        created_at: entry.dateCreated || "",
+        provider_date_unknown: true,
+        provider_reported_date: entry.creditDate,
         due_date: entry.dueDate,
         asaas_payment_id: entry.asaasPaymentId,
         invoice_status: entry.invoiceStatus,
@@ -469,18 +493,29 @@ export default function FinancialDashboard() {
     setAllPayments(sorted as RecentPayment[]);
     setCurrentPage(1);
     setLoadedCompany(effectiveCompanyId);
+    setLoading(false);
+    setProjectionLoading(localPass);
+    localPass = false;
+    }
     } catch {
       if (isStale()) return;
       setLoadError(true);
       setLoadedCompany(effectiveCompanyId);
     } finally {
-      if (!isStale()) setLoading(false);
+      if (!isStale()) { setLoading(false); setProjectionLoading(false); }
     }
   };
 
   const handleIssueInvoice = async (asaasPaymentId: string) => {
     const operationCompany = effectiveCompanyId;
-    if (!operationCompany) return;
+    const isCurrentAction = actionGuard();
+    if (!operationCompany || !isCurrentAction()) return;
+    const generation = actionContext.current.generation;
+    if (invoiceLock.current?.generation === generation) return;
+    const token = Symbol("invoice");
+    invoiceLock.current = { generation, token };
+    setIssuingInvoice(asaasPaymentId);
+    try {
     // P3 — valida o cadastro antes de emitir sem exigir documentos brasileiros de residentes estrangeiros.
     const pay: any = allPayments.find((p) => p.asaas_payment_id === asaasPaymentId);
     if (pay && pay.invoice_action_available === false) {
@@ -496,11 +531,11 @@ export default function FinancialDashboard() {
       try {
         const { data, error } = await supabase.from("students").select("cpf, cep, address, country_code")
           .eq("id", pay.student_id).eq("company_id", operationCompany).maybeSingle();
-        if (currentCompany.current !== operationCompany) return;
+        if (!isCurrentAction()) return;
         if (error || !data) throw new Error("Fiscal read unavailable");
         s = data;
       } catch {
-        if (currentCompany.current !== operationCompany) return;
+        if (!isCurrentAction()) return;
         toast({ title: "Não foi possível verificar o cadastro fiscal", description: "A consulta está indisponível. Tente novamente antes de solicitar a nota.", variant: "destructive" });
         return;
       }
@@ -525,31 +560,30 @@ export default function FinancialDashboard() {
         }
       }
     }
-    if (currentCompany.current !== operationCompany) return;
+    if (!isCurrentAction()) return;
     setIssuingInvoice(asaasPaymentId);
     try {
       const { data, error } = await supabase.functions.invoke("asaas-integration", {
         body: { action: "create-invoice", paymentId: asaasPaymentId },
       });
-      if (currentCompany.current !== operationCompany) return;
+      if (!isCurrentAction()) return;
       if (error) throw error;
-      toast({ title: "Nota fiscal emitida!", description: "A NFS-e foi solicitada com sucesso." });
+      if (typeof data?.invoiceId !== "string" || !data.invoiceId.trim()
+        || !["SCHEDULED", "AUTHORIZED", "PROCESSING_AUTHORIZATION"].includes(data?.status)) {
+        throw new Error("Resposta fiscal sem confirmação válida. Confira o estado antes de tentar novamente.");
+      }
+      toast({ title: "Solicitação de NFS-e confirmada", description: "O servidor confirmou a solicitação; acompanhe o status fiscal." });
       setAllPayments(prev => prev.map(p =>
-        p.asaas_payment_id === asaasPaymentId ? { ...p, invoice_status: data?.status || "SCHEDULED" } : p
+        p.asaas_payment_id === asaasPaymentId ? { ...p, invoice_status: data.status } : p
       ));
     } catch (err: any) {
-      if (currentCompany.current !== operationCompany) return;
+      if (!isCurrentAction()) return;
       const msg = err.message || "";
-      if (msg.includes("já existe") || msg.includes("already")) {
-        setAllPayments(prev => prev.map(p =>
-          p.asaas_payment_id === asaasPaymentId ? { ...p, invoice_status: "SCHEDULED" } : p
-        ));
-        toast({ title: "Nota já emitida", description: "Já existe uma nota fiscal agendada para esta cobrança." });
-      } else {
-        toast({ title: "Erro ao emitir nota", description: msg || "Tente novamente.", variant: "destructive" });
-      }
+      toast({ title: "Solicitação fiscal não confirmada", description: msg || "Confira o estado antes de tentar novamente.", variant: "destructive" });
+    }
     } finally {
-      if (currentCompany.current === operationCompany) setIssuingInvoice(null);
+      if (invoiceLock.current?.token === token) invoiceLock.current = null;
+      if (isCurrentAction()) setIssuingInvoice(null);
     }
   };
 
@@ -595,7 +629,7 @@ export default function FinancialDashboard() {
     <div className="space-y-0.5">
       <p className="text-xl font-bold text-foreground font-sans">—</p>
       {partialValue && partialValue > 0 ? (
-        <p className="text-xs text-muted-foreground/60 font-sans">Parcial conciliado: {formatCurrency(partialValue)}</p>
+        <p className="text-xs text-muted-foreground/60 font-sans">Parcial disponível (inclui registros locais): {formatCurrency(partialValue)}</p>
       ) : (
         <p className="text-xs text-muted-foreground/60 font-sans">Indisponível</p>
       )}
@@ -606,7 +640,7 @@ export default function FinancialDashboard() {
     <div className="space-y-0.5">
       <p className="text-xl font-bold text-foreground font-sans">—</p>
       {partialCount > 0 || partialValue > 0 ? (
-        <p className="text-xs text-muted-foreground/60 font-sans">Parcial conciliado: {partialCount} ({formatCurrency(partialValue)})</p>
+        <p className="text-xs text-muted-foreground/60 font-sans">Parcial disponível (inclui registros locais): {partialCount} ({formatCurrency(partialValue)})</p>
       ) : (
         <p className="text-xs text-muted-foreground/60 font-sans">Indisponível</p>
       )}
@@ -674,8 +708,9 @@ export default function FinancialDashboard() {
   };
 
   const formatPaymentDate = (payment: RecentPayment) => {
-    const date = parseFinancialDate(payment.due_date || payment.created_at);
-    return date ? format(date, "dd/MM/yyyy", { locale: ptBR }) : "—";
+    const date = parseFinancialDate(payment.due_date || payment.created_at || payment.provider_reported_date);
+    if (!payment.due_date && payment.provider_date_unknown && !payment.created_at && !payment.provider_reported_date) return "Data não informada pelo provedor";
+    return date ? `${payment.due_date ? "Vencimento" : payment.created_at ? "Criação" : "Data do provedor (origem desconhecida)"}: ${format(date, "dd/MM/yyyy", { locale: ptBR })}` : "—";
   };
 
   const paymentInstallmentLabel = (payment: RecentPayment) => {
@@ -686,22 +721,25 @@ export default function FinancialDashboard() {
 
   const handleSync = async (syncAll: boolean) => {
     const operationCompany = effectiveCompanyId;
-    if (!operationCompany) return;
+    const isCurrentAction = actionGuard();
+    if (!operationCompany || !isCurrentAction()) return;
     if (syncAll) setSyncingAll(true); else setSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke("asaas-integration", {
         body: { action: "sync-payments", companyId: effectiveCompanyId, syncAll },
       });
-      if (currentCompany.current !== operationCompany) return;
+      if (!isCurrentAction()) return;
       if (error) throw error;
-      toast({ title: "Sincronização concluída", description: data?.message || "Dados atualizados." });
+      if (!Number.isSafeInteger(data?.synced) || data.synced < 0) {
+        throw new Error("Resposta de sincronização sem confirmação válida. Confira o estado antes de tentar novamente.");
+      }
+      toast({ title: "Sincronização concluída", description: typeof data.message === "string" ? data.message : `${data.synced} cobranças sincronizadas.` });
       await loadData();
     } catch (err: any) {
-      if (currentCompany.current !== operationCompany) return;
+      if (!isCurrentAction()) return;
       toast({ title: "Erro ao sincronizar", description: err.message, variant: "destructive" });
     } finally {
-      setSyncing(false);
-      setSyncingAll(false);
+      if (isCurrentAction()) { setSyncing(false); setSyncingAll(false); }
     }
   };
 
@@ -769,9 +807,11 @@ export default function FinancialDashboard() {
               <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-amber-700 font-sans">Financeiro parcialmente conciliado</p>
-                {financialProjectionUnavailable && <Button variant="outline" onClick={() => void loadData()}>Tentar novamente</Button>}
+                {financialProjectionUnavailable && !projectionLoading && <Button variant="outline" onClick={() => void loadData()}>Tentar novamente</Button>}
                 <p className="text-xs text-muted-foreground font-sans">
-                  {financialProjectionUnavailable
+                  {projectionLoading
+                    ? "Conciliação externa em andamento. Dados locais parciais; cartões fora dos indicadores até a resposta."
+                    : financialProjectionUnavailable
                     ? "Cartões não puderam ser conciliados agora. Indicadores com cartão ficam indisponíveis; valores não cartão continuam separados."
                     : `${financialStats.unreconciledCreditCardCount} pagamento(s) de cartão ficaram pendentes de conciliação e não entram nos indicadores.`}
                 </p>
@@ -838,6 +878,7 @@ export default function FinancialDashboard() {
                   </div>
                 )}
                 <p className="text-sm text-muted-foreground font-sans">Caixa — {format(new Date(), "MMM/yy", { locale: ptBR }).replace(/^./, c => c.toUpperCase())}</p>
+                <p className="text-xs text-muted-foreground">Referência local/provedor; origem da data desconhecida no snapshot. Sem comprovação de liquidação.</p>
                 {!hasUnavailableCreditCards && financialStats.prevMonthCash > 0 && (
                   <p className="text-xs text-muted-foreground/60 font-sans">Mês anterior: {formatCurrency(financialStats.prevMonthCash)}</p>
                 )}
@@ -922,12 +963,12 @@ export default function FinancialDashboard() {
                 CAIXA MENSAL + PREVISÃO
                 <BnitoContextButton
                   label="caixa mensal e previsao"
-                  context="Grafico de recebido por mes e previsao de parcelas futuras."
+                  context="Valores por referência mensal; origem da data do provedor desconhecida. Previsão não comprova recebimento ou liquidação."
                   question="Como devo ler caixa recebido versus previsao futura?"
                   className="ml-auto"
                 />
               </CardTitle>
-              <p className="text-xs text-muted-foreground font-sans">Recebido por mês + previsão dos próximos meses (parcelas futuras)</p>
+              <p className="text-xs text-muted-foreground font-sans">Valores por data informada no snapshot (origem desconhecida: crédito ou pagamento não discriminados) + previsão. Não comprova liquidação bancária.</p>
             </CardHeader>
             <CardContent>
               {renderRevenueChart(monthlyCash, cashColor, "Caixa", hasUnavailableCreditCards)}
@@ -1010,7 +1051,7 @@ export default function FinancialDashboard() {
                 className="ml-auto"
               />
             </CardTitle>
-            <p className="text-xs text-muted-foreground font-sans">Quanto entra no caixa por aluno em cada mês (inclui previsão de parcelas futuras)</p>
+            <p className="text-xs text-muted-foreground font-sans">Valores por referência mensal: registro local, data do provedor ou previsão, conforme o detalhe. Previsão não comprova recebimento.</p>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue={cashMonthTabs[0]} className="w-full">
@@ -1030,7 +1071,7 @@ export default function FinancialDashboard() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Aluno</TableHead>
-                            <TableHead>Valor no Caixa</TableHead>
+                            <TableHead>Valor por referência mensal</TableHead>
                             <TableHead>Detalhe</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -1132,7 +1173,7 @@ export default function FinancialDashboard() {
                     <TableHead>Parcelas</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>NFS-e</TableHead>
-                    <TableHead>Data</TableHead>
+                    <TableHead>Data (origem indicada)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

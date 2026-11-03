@@ -17,9 +17,9 @@ export default function CompanyAdmissionPolicy({companyId,name,source,version,on
   finally{if(scope.current===current&&current.alive){pending.current=false;setBusy(false);}}
  };
  return <div className="mt-3 border-t pt-3 space-y-2">
-  <label className="flex items-center gap-2 text-sm"><Switch checked={source==="tier"} disabled={busy} onCheckedChange={enabled=>{setError("");setTarget(enabled?"tier":"legacy");}}/>Aplicar limite do tier a futuras admissões de {name}</label>
-  <p className="text-xs text-muted-foreground">{source==="tier"?"Origem: política do tier, quando ativada no catálogo.":"Origem: legado preservado; teto do catálogo não aplicado."}</p>
-  <Dialog open={target!==null} onOpenChange={open=>{if(!open&&!busy)setTarget(null);}}><DialogContent><DialogHeader><DialogTitle>Política de admissão: {name}</DialogTitle><DialogDescription>{target==="tier"?"Confirmo aplicar a política quantitativa do tier às futuras admissões desta empresa, quando ativada no catálogo. Alunos existentes e capacidade legada não serão alterados.":"Retornar ao legado preservado, sem aplicar o teto quantitativo do catálogo a esta empresa. Alunos existentes não serão alterados."}</DialogDescription></DialogHeader>
+  <label className="flex items-center gap-2 text-sm"><Switch checked={source==="tier"} disabled={busy} onCheckedChange={enabled=>{setError("");setTarget(enabled?"tier":"legacy");}}/>Aplicar limite do plano a futuras admissões de {name}</label>
+  <p className="text-xs text-muted-foreground">{source==="tier"?"Origem: política do plano, quando ativada no catálogo.":"Origem: legado preservado; teto do catálogo não aplicado."}</p>
+  <Dialog open={target!==null} onOpenChange={open=>{if(!open&&!busy)setTarget(null);}}><DialogContent><DialogHeader><DialogTitle>Política de admissão: {name}</DialogTitle><DialogDescription>{target==="tier"?"Confirmo aplicar a política quantitativa do plano às futuras admissões desta empresa, quando ativada no catálogo. Alunos existentes e capacidade legada não serão alterados.":"Retornar ao legado preservado, sem aplicar o teto quantitativo do catálogo a esta empresa. Alunos existentes não serão alterados."}</DialogDescription></DialogHeader>
    {error&&<p role="alert" className="text-destructive">{error}</p>}
    <Button disabled={busy} onClick={confirm}>Confirmar política de admissão</Button>
   </DialogContent></Dialog>

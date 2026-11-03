@@ -49,7 +49,7 @@ interface TrainerPerformance {
   user_id: string;
   full_name: string;
   role: string;
-  activeStudents: number;
+  portfolioStudents: number;
   sessionsByMonth: Record<string, number>; // ciclos entregues por mês: "YYYY-MM" -> count
   scheduledByMonth: Record<string, number>; // ciclos previstos na agenda por mês
   manualByMonth: Record<string, number>; // treinos avulsos registrados fora da agenda
@@ -161,16 +161,24 @@ export default function TeamManager() {
   const isAdminViewer = role === "admin" || role === "master";
   const [activityRows, setActivityRows] = useState<Array<{ user_id: string; full_name: string; sessions: number; totalMinutes: number; last_activity: string | null }>>([]);
   const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState("");
+  const activityRequest = useRef(0);
+  const performanceRequest = useRef(0);
+  const [performanceError, setPerformanceError] = useState("");
   const loadActivity = async () => {
     if (!effectiveCompanyId || !isAdminViewer) return;
-    setActivityLoading(true);
+    const scope = teamScope.current, request = ++activityRequest.current;
+    const current = () => scope === teamScope.current && scope.alive && request === activityRequest.current;
+    setActivityLoading(true); setActivityError("");
     try {
       const cutoff = new Date(Date.now() - 30 * 86400000).toISOString();
-      const { data: sessions } = await (supabase as any)
+      const { data: sessions, error: sessionsError } = await (supabase as any)
         .from("staff_sessions")
         .select("user_id, started_at, last_seen_at, ended_at")
         .eq("company_id", effectiveCompanyId)
         .gte("started_at", cutoff);
+      if (!current()) return;
+      if (sessionsError) throw sessionsError;
       const byUser = new Map<string, { sessions: number; totalMinutes: number; last: number }>();
       (sessions || []).forEach((s: any) => {
         const start = new Date(s.started_at).getTime();
@@ -198,45 +206,29 @@ export default function TeamManager() {
         || a.full_name.localeCompare(b.full_name, "pt-BR")
       ));
       setActivityRows(rows);
-    } catch { setActivityRows([]); } // tabela pode ainda não existir
-    setActivityLoading(false);
+    } catch { if (current()) { setActivityRows([]); setActivityError("Não foi possível carregar a atividade."); } }
+    finally { if (current()) setActivityLoading(false); }
   };
   const { isEnabled, togglePermission, loading: permLoading } = useManageRolePermissions(effectiveCompanyId);
 
-  useEffect(() => {
-    const scope=teamScope.current;scope.alive=true;setMembers([]);setAvailableUsers([]);setLoadedTeamCompany(null);
-    if (effectiveCompanyId) loadTeam();
-    return()=>{scope.alive=false;scope.generation++;};
-  }, [effectiveCompanyId]);
-
-  const loadTeam = async () => {
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamError, setTeamError] = useState("");
+  const [enrichmentError, setEnrichmentError] = useState("");
+  const loadTeam = useCallback(async () => {
     if (!effectiveCompanyId) return;
-    const scope=teamScope.current,generation=scope.generation;
+    const scope=teamScope.current,generation=++scope.generation;
     const current=()=>scope===teamScope.current && scope.alive && scope.generation===generation;
 
-    const { data: teamData, error: teamError } = await supabase.functions.invoke("manage-team-member", {
-      body: { action: "list-members", company_id: effectiveCompanyId },
-    });
-    if(!current())return;
-
-    if (!teamError && teamData && Array.isArray(teamData.members)) {
-      setMembers(teamData.members);
-      setLoadedTeamCompany(effectiveCompanyId);
-      setAvailableUsers(Array.isArray(teamData.available_users) ? teamData.available_users : []);
-      return;
-    }
-
-    if (teamError) {
-      console.warn("Falling back to client-side team load", teamError.message);
-    }
-
+    setTeamLoading(true); setTeamError(""); setEnrichmentError("");
+    try {
     // Get company members first for isolation
-    const { data: companyMembers } = await supabase
+    const { data: companyMembers, error: membershipError } = await supabase
       .from("company_members")
       .select("user_id")
       .eq("company_id", effectiveCompanyId);
     if(!current())return;
 
+    if (membershipError) throw membershipError;
     if (!companyMembers || companyMembers.length === 0) {
       setMembers([]);
       setAvailableUsers([]);
@@ -245,19 +237,21 @@ export default function TeamManager() {
 
     const companyUserIds = companyMembers.map((m) => m.user_id);
 
-    const { data: roles } = await supabase
+    const { data: roles, error: rolesError } = await supabase
       .from("user_roles")
       .select("user_id, role")
       .in("user_id", companyUserIds);
 
-    if (!roles || !current()) return;
+    if (!current()) return;
+    if (rolesError || !roles) throw rolesError || new Error();
 
     const userIds = [...new Set(roles.map((r) => r.user_id))];
-    const { data: profiles } = await supabase
+    const { data: profiles, error: profilesError } = await supabase
       .from("profiles")
       .select("user_id, full_name")
       .in("user_id", userIds);
 
+    if (profilesError) throw profilesError;
     const grouped: Record<string, TeamMember> = {};
     // Build a map of all roles per user
     const rolesByUser = new Map<string, string[]>();
@@ -282,13 +276,19 @@ export default function TeamManager() {
       grouped[r.user_id].roles.push(r.role);
     }
     const membersList = Object.values(grouped);
+    let enrichedMembers = membersList;
+
+    if (!current()) return;
+    setMembers(membersList); setLoadedTeamCompany(effectiveCompanyId); setTeamLoading(false);
 
     // Fetch emails via edge function
     if (membersList.length > 0) {
       try {
-        const { data: emailData } = await supabase.functions.invoke("manage-team-member", {
-          body: { action: "list-emails", user_ids: membersList.map((m) => m.user_id) },
+        const { data: emailData, error: enrichmentError } = await supabase.functions.invoke("manage-team-member", {
+          body: { action: "list-emails", company_id: effectiveCompanyId, user_ids: membersList.map((m) => m.user_id) },
         });
+        if (enrichmentError || !emailData || (!Array.isArray(emailData.emails) && !Array.isArray(emailData.accounts))) throw enrichmentError || new Error("Dados de conta indisponíveis");
+        if (!current()) return;
         const emailMap = new Map<string, string>(
           (emailData?.emails ?? []).map((entry: { user_id: string; email: string }) => [entry.user_id, entry.email]),
         );
@@ -308,21 +308,23 @@ export default function TeamManager() {
             last_sign_in_at: string | null;
           }) => [account.user_id, account]),
         );
-        membersList.forEach((member) => {
+        enrichedMembers = membersList.map((member) => {
           const account = accountMap.get(member.user_id);
-          member.email = account?.email ?? emailMap.get(member.user_id) ?? undefined;
-          member.auth_exists = account?.auth_exists ?? (emailMap.has(member.user_id) ? true : undefined);
-          member.email_confirmed = account?.email_confirmed;
-          member.banned = account?.banned;
-          member.last_sign_in_at = account?.last_sign_in_at;
+          return { ...member,
+            email: account?.email ?? emailMap.get(member.user_id) ?? undefined,
+            auth_exists: account?.auth_exists ?? (emailMap.has(member.user_id) ? true : undefined),
+            email_confirmed: account?.email_confirmed,
+            banned: account?.banned,
+            last_sign_in_at: account?.last_sign_in_at,
+          };
         });
       } catch (e) {
-        console.error("Failed to fetch emails", e);
+        if (current()) setEnrichmentError("Equipe carregada; dados de login e e-mail indisponíveis.");
       }
     }
 
     if(!current())return;
-    setMembers(membersList);setLoadedTeamCompany(effectiveCompanyId);
+    setMembers(enrichedMembers);setLoadedTeamCompany(effectiveCompanyId);
 
     // Available users: only from this company
     const { data: companyProfiles } = await supabase
@@ -331,9 +333,19 @@ export default function TeamManager() {
       .in("user_id", companyUserIds);
 
     if (companyProfiles && current()) setAvailableUsers(companyProfiles);
-  };
+    } catch { if (current()) setTeamError("Não foi possível carregar a equipe."); }
+    finally { if (current()) setTeamLoading(false); }
+  }, [effectiveCompanyId]);
 
   // Compute months in selected range
+  useEffect(() => {
+    const scope=teamScope.current;scope.alive=true;setMembers([]);setAvailableUsers([]);setLoadedTeamCompany(null);
+    setTrainerPerformance([]); setActivityRows([]); setActivityError(""); setPerformanceError("");
+    setTeamError(""); setEnrichmentError(""); setTeamLoading(false); setPerfLoading(false); setActivityLoading(false);
+    if (effectiveCompanyId) void loadTeam();
+    return()=>{scope.alive=false;scope.generation++;};
+  }, [effectiveCompanyId, loadTeam]);
+
   const performanceMonths = useMemo(() => {
     const months: { key: string; label: string; start: string; end: string }[] = [];
     let start = parse(startMonth, "yyyy-MM", new Date());
@@ -356,13 +368,18 @@ export default function TeamManager() {
 
   const loadPerformance = useCallback(async () => {
     if (!effectiveCompanyId) return;
-    setPerfLoading(true);
+    const scope = teamScope.current, request = ++performanceRequest.current;
+    const current = () => scope === teamScope.current && scope.alive && request === performanceRequest.current;
+    setPerfLoading(true); setPerformanceError("");
+    try {
 
-    const { data: companyMembers } = await supabase
+    const { data: companyMembers, error: membershipError } = await supabase
       .from("company_members")
       .select("user_id")
       .eq("company_id", effectiveCompanyId);
 
+    if (!current()) return;
+    if (membershipError) throw membershipError;
     if (!companyMembers || companyMembers.length === 0) {
       setTrainerPerformance([]);
       setPerfLoading(false);
@@ -371,12 +388,14 @@ export default function TeamManager() {
 
     const companyUserIds = companyMembers.map((m) => m.user_id);
 
-    const { data: memberRoles } = await supabase
+    const { data: memberRoles, error: rolesError } = await supabase
       .from("user_roles")
       .select("user_id, role")
       .in("role", ["trainer", "coordinator", "admin"])
       .in("user_id", companyUserIds);
 
+    if (!current()) return;
+    if (rolesError) throw rolesError;
     if (!memberRoles || memberRoles.length === 0) {
       setTrainerPerformance([]);
       setPerfLoading(false);
@@ -408,6 +427,8 @@ export default function TeamManager() {
         .is("deleted_at", null), // P17 — exclui períodos removidos do cálculo de performance
     ]);
 
+    if (!current()) return;
+    if ([profilesRes, studentsRes, historyRes].some(result => result.error)) throw new Error();
     const profiles = profilesRes.data || [];
     const students = studentsRes.data || [];
     const history = (historyRes.data || []) as TrainerAssignmentPeriod[];
@@ -440,7 +461,7 @@ export default function TeamManager() {
     let prescribedCycles: { cycle_id: string; student_id: string; start_date: string }[] = [];
 
     if (studentIds.length > 0) {
-      const { data: sessRes } = await supabase
+      const { data: sessRes, error: sessionError } = await supabase
         .from("workout_sessions")
         .select("id, student_id, completed_at, workout_id, notes, exercises_summary")
         .eq("status", "completed")
@@ -448,6 +469,8 @@ export default function TeamManager() {
         .in("student_id", studentIds)
         .gte("completed_at", rangeStart)
         .lte("completed_at", rangeEnd);
+    if (!current()) return;
+    if (sessionError) throw sessionError;
       manualSessions = (sessRes || []).map((s) => ({
         id: s.id,
         student_id: s.student_id,
@@ -456,15 +479,17 @@ export default function TeamManager() {
         exercises_summary: s.exercises_summary,
       }));
 
-      const { data: enrolls } = await supabase
+      const { data: enrolls, error: enrollmentError } = await supabase
         .from("enrollments")
         .select("id, student_id")
         .in("student_id", studentIds);
+    if (!current()) return;
+    if (enrollmentError) throw enrollmentError;
       const enrollmentIds = (enrolls || []).map((e) => e.id);
       const enrollStudent = new Map((enrolls || []).map((e) => [e.id, e.student_id]));
 
       if (enrollmentIds.length > 0) {
-        const { data: cycles } = await supabase
+        const { data: cycles, error: cycleError } = await supabase
           .from("training_cycles")
           .select("id, enrollment_id, start_date, status, prescribed_offline_at")
           .in("enrollment_id", enrollmentIds)
@@ -472,13 +497,17 @@ export default function TeamManager() {
           .gte("start_date", rangeStart.slice(0, 10))
           .lte("start_date", rangeEnd.slice(0, 10));
 
+    if (!current()) return;
+    if (cycleError) throw cycleError;
         const cycleIds = (cycles || []).map((c) => c.id);
         if (cycleIds.length > 0) {
-          const { data: workouts } = await supabase
+          const { data: workouts, error: workoutError } = await supabase
             .from("workouts")
             .select("cycle_id, exercises")
             .is("superseded_at", null)
             .in("cycle_id", cycleIds);
+    if (!current()) return;
+    if (workoutError) throw workoutError;
           const cyclesWithWorkout = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
           scheduledCycles = (cycles || []).map((c) => ({
             cycle_id: c.id,
@@ -570,7 +599,7 @@ export default function TeamManager() {
         user_id: tid,
         full_name: profile?.full_name || "Sem nome",
         role: roleMap.get(tid) || "trainer",
-        activeStudents: trainerStudents.length,
+        portfolioStudents: trainerStudents.length,
         sessionsByMonth,
         scheduledByMonth,
         manualByMonth,
@@ -582,12 +611,14 @@ export default function TeamManager() {
       };
     });
 
+    if (!current()) return;
     // Cache for history dialog
     setAllCompanyTrainers(profiles.map((p) => ({ user_id: p.user_id, full_name: p.full_name || "Sem nome" })));
     setAllCompanyStudents(students.map((s) => ({ id: s.id, full_name: s.full_name })));
 
     setTrainerPerformance(performance);
-    setPerfLoading(false);
+    } catch { if (current()) { setTrainerPerformance([]); setPerformanceError("Não foi possível carregar a performance."); } }
+    finally { if (current()) setPerfLoading(false); }
   }, [effectiveCompanyId, performanceMonths]);
 
   const openManualDialog = (trainer: TrainerPerformance) => {
@@ -1203,7 +1234,9 @@ export default function TeamManager() {
                     </CardContent>
                   </Card>
                 ))}
-                {members.length === 0 && (
+                {enrichmentError && <p role="status">{enrichmentError}<Button onClick={loadTeam}>Tentar novamente</Button></p>}
+                {(!effectiveCompanyId || teamLoading || teamError) && <p role={teamError ? "alert" : "status"}>{!effectiveCompanyId ? "Selecione uma empresa." : teamError || "Carregando equipe..."}{teamError && <Button onClick={loadTeam}>Tentar novamente</Button>}</p>}
+                {effectiveCompanyId && !teamLoading && !teamError && members.length === 0 && (
                   <p className="text-muted-foreground font-sans text-center py-12">Nenhum membro na equipe</p>
                 )}
               </div>
@@ -1285,7 +1318,7 @@ export default function TeamManager() {
                 </CardContent>
               </Card>
 
-              {perfLoading ? (
+              {!effectiveCompanyId ? <p>Selecione uma empresa.</p> : performanceError ? <p role="alert">{performanceError}</p> : perfLoading ? (
                 <div className="flex justify-center py-12">
                   <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
@@ -1316,7 +1349,7 @@ export default function TeamManager() {
 	                           </div>
                            <Badge variant="secondary" className="gap-1 shrink-0">
                              <Users className="h-3 w-3" />
-                             {t.activeStudents}
+                             {t.portfolioStudents} alunos na carteira total
                            </Badge>
                          </div>
                        </CardHeader>
@@ -1582,7 +1615,7 @@ export default function TeamManager() {
                   </p>
                 </CardHeader>
                 <CardContent>
-                  {activityLoading ? (
+                  {!effectiveCompanyId ? <p>Selecione uma empresa.</p> : activityError ? <p role="alert">{activityError}<Button onClick={loadActivity}>Tentar novamente</Button></p> : activityLoading ? (
                     <p className="text-sm text-muted-foreground font-sans py-6 text-center">Carregando...</p>
                   ) : activityRows.length === 0 ? (
                     <p className="text-sm text-muted-foreground font-sans py-6 text-center">

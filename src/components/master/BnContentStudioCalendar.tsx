@@ -10,7 +10,9 @@ function CalendarValue({ value }: { value: unknown }) {
   if (value === null || value === undefined) return null;
   if (Array.isArray(value)) return <ol className="space-y-3">{value.map((item, index) => <li key={index} className="border-l-2 border-primary/30 pl-3"><CalendarValue value={item} /></li>)}</ol>;
   if (typeof value === "object") return <dl className="space-y-2">{Object.entries(value).map(([key, item]) => <div key={key} className="min-w-0"><dt className="text-xs font-medium text-muted-foreground">{labels[key] || key.replaceAll("_", " ")}</dt><dd className="min-w-0 break-words text-sm"><CalendarValue value={item} /></dd></div>)}</dl>;
-  return <span className="whitespace-pre-wrap">{String(value)}</span>;
+  const text = String(value);
+  const display = /^\d{4}-\d{2}-\d{2}$/.test(text) ? text.split("-").reverse().join("/") : ({ l1_educativo: "L1 · Educativo", l2_storytelling: "L2 · História e feedback", l3_aviso: "L3 · Aviso", l4_evento_poster: "L4 · Cartaz de evento", l4_evento_teaser: "L4 · Teaser de evento", L1: "L1 · Educativo", L2: "L2 · História e feedback", L3: "L3 · Aviso", L4: "L4 · Evento", carousel: "Carrossel", reels: "Reels", story: "Story" } as Record<string, string>)[text] || text;
+  return <span className="whitespace-pre-wrap">{display}</span>;
 }
 
 export function BnContentStudioCalendar({ calendars, available, onCreated }: { calendars: BnStudioCalendar[]; available: boolean; onCreated: (calendar: BnStudioCalendar) => void }) {

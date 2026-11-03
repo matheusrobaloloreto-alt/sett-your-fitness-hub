@@ -27,6 +27,7 @@ function validateMessageSequencePayload(input: unknown, rendered: boolean): Part
       if (part.type === 'text') { if (Object.hasOwn(part, 'media')) fail('message_sequences.media'); }
       else {
         const media = part.media;
+        // eslint-disable-next-line no-control-regex -- Reject control bytes at this untrusted message boundary.
         if (!object(media) || Object.keys(media).sort().join(',') !== 'bucket,fileName,mimeType,path' || media.bucket !== 'whatsapp-media' || typeof media.path !== 'string' || !MESSAGE_MEDIA_PATH.test(media.path) || typeof media.mimeType !== 'string' || !(MESSAGE_MEDIA_MIMES[part.type as keyof typeof MESSAGE_MEDIA_MIMES] as readonly string[]).includes(media.mimeType) || typeof media.fileName !== 'string' || !/^[^/\\\x00-\x1f\x7f]{1,180}$/.test(media.fileName) || (secretLike.test(media.fileName) || media.fileName.includes('{{') || media.fileName.includes('}}'))) fail('message_sequences.media');
       }
     }
@@ -107,7 +108,7 @@ export interface SettingsRecord { settings: CompanyProductSettings; version: num
 
 export const DEFAULT_COMPANY_PRODUCT_SETTINGS: CompanyProductSettings = {
   messages: {
-    weekly_contact: 'Oi, {{primeiro_nome}}! Como estao os treinos? Conte com a equipe para continuar evoluindo.',
+    weekly_contact: 'Oi, {{primeiro_nome}}! Como estão os treinos? Conte com a equipe para continuar evoluindo.',
     pre_registration_confirmation: 'Oi, {{primeiro_nome}}! Recebemos seu pre-cadastro na {{empresa}}. Nossa equipe entrara em contato.',
     fiscal_invite: 'Oi, {{primeiro_nome}}! Complete seus dados fiscais e escolha seu plano: {{link}}',
     payment_link: 'Oi, {{primeiro_nome}}! Seu cadastro foi concluido. Escolha seu plano e faca o pagamento com seguranca: {{link}}',

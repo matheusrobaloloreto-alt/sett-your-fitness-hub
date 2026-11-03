@@ -1,3 +1,6 @@
+import { resolveExerciseMedia, type ExerciseMediaInput } from "@/lib/exerciseMediaSource";
+import { ExercisePreviewPlayer } from "@/components/admin/ExercisePreviewPlayer";
+import { resolveWorkoutTarget, withWorkoutKeys, withoutWorkoutKeys } from "@/lib/workoutSelection";
 import { useEffect, useState, useMemo, useRef, Fragment } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -90,6 +93,7 @@ interface WorkoutExercise {
   muscle_group: string;
   video_url: string | null;
   video_path: string | null;
+  youtube_video_id?: string | null;
   group_id?: string | null;
   method?: string | null;
   method_seconds?: number | null;
@@ -104,6 +108,7 @@ interface WorkoutExercise {
 }
 
 interface Workout {
+  clientKey?: string;
   id?: string;
   updated_at?: string;
   day_of_week?: number | null;
@@ -446,7 +451,7 @@ export default function WorkoutBuilder() {
   const tplId = searchParams.get("tpl");
   const isTemplate = !!tplId;
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : authCompanyId ?? null;
-  const saveScopeKey = JSON.stringify([cycleId, tplId, effectiveCompanyId, user?.id]);
+  const saveScopeKey = JSON.stringify([cycleId, tplId, effectiveCompanyId, user?.id, role]);
   const saveScopeRef = useRef({ key: saveScopeKey, version: 0, mounted: true });
   const saveInFlightRef = useRef<symbol | null>(null);
   if (saveScopeRef.current.key !== saveScopeKey) {
@@ -467,16 +472,24 @@ export default function WorkoutBuilder() {
   const [librarySaveIndex, setLibrarySaveIndex] = useState<number | undefined>();
   useEffect(() => { setLibrarySaveOpen(false); }, [cycleId, tplId, effectiveCompanyId]);
 
-  const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [workouts, setWorkoutState] = useState<Workout[]>([]);
+  const workoutsRef = useRef(workouts);
+  const setWorkouts = (next: Workout[] | ((prev: Workout[]) => Workout[])) => {
+    const value = withWorkoutKeys(typeof next === "function" ? next(workoutsRef.current) : next);
+    workoutsRef.current = value;
+    setWorkoutState(value);
+  };
   const [workoutRevisionSnapshot, setWorkoutRevisionSnapshot] = useState<Array<{ id: string; updated_at: string }>>([]);
   const trustedLegacyExerciseIdsRef = useRef<Set<string>>(new Set());
   const [weeklyPrescriptionMode, setWeeklyPrescriptionMode] = useState<WeeklyPrescriptionMode>("weekly");
   const [weeklyUiVersion, setWeeklyUiVersion] = useState<IndividualWeeklyUiVersion>(INDIVIDUAL_WEEKLY_UI_VERSION);
-  const [activeTab, setActiveTab] = useState("0");
+  const [activeTab, setActiveTab] = useState("");
   const [editingWeekStart, setEditingWeekStart] = useState(1);
   const [saving, setSaving] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryExercises, setLibraryExercises] = useState<Exercise[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryError, setLibraryError] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [templatePickerLoading, setTemplatePickerLoading] = useState(false);
   const [workoutTemplates, setWorkoutTemplates] = useState<WorkoutTemplatePickerItem[]>([]);
@@ -549,7 +562,7 @@ export default function WorkoutBuilder() {
     if (saving) return;
     setWorkouts((prev) => prev.map((w, i) => i !== wIdx ? w : ({ ...w, exercises: w.exercises.map((e, k) => idxs.includes(k) ? { ...e, group_id: null, method: null, method_seconds: null } : e) })));
   };
-  const [videoModal, setVideoModal] = useState<{ type: "path" | "url"; value: string } | null>(null);
+  const [videoModal, setVideoModal] = useState<{ input: ExerciseMediaInput; resolve: () => Promise<string> } | null>(null);
   const [cycleInfo, setCycleInfo] = useState<CycleInfo | null>(null);
   const [preRegistration, setPreRegistration] = useState<PreRegistrationData | null>(null);
   const [preRegistrationLoading, setPreRegistrationLoading] = useState(false);
@@ -579,9 +592,9 @@ export default function WorkoutBuilder() {
   const libraryExportWorkouts = useMemo(() => {
     const newWeeklyDraft = weeklyPrescriptionMode === "weekly" && workoutRevisionSnapshot.length === 0
       && (!isTemplate || tplId === "new");
-    if (!newWeeklyDraft) return workouts;
+    if (!newWeeklyDraft) return withoutWorkoutKeys(workouts);
     return workoutRevisionPayload(workouts, weeklyPrescriptionMode, weeklyUiVersion)
-      .map((payload, index) => ({ ...workouts[index], ...payload }));
+      .map((payload, index) => ({ ...withoutWorkoutKeys(workouts)[index], ...payload }));
   }, [workouts, weeklyPrescriptionMode, weeklyUiVersion, workoutRevisionSnapshot, isTemplate, tplId]);
   const visibleTemplateLibraryExercises = useMemo(
     () => visibleWorkoutLibraryExercises(libraryExercises, templateCompanyId),
@@ -615,6 +628,8 @@ export default function WorkoutBuilder() {
   }, [templateSearch, workoutTemplates]);
 
   useEffect(() => {
+    setWorkouts([]);
+    setActiveTab("");
     if (isTemplate) {
       setWorkoutRevisionSnapshot([]);
       if (tplId && tplId !== "new") loadTemplate(tplId);
@@ -623,6 +638,7 @@ export default function WorkoutBuilder() {
         setWeeklyPrescriptionMode("weekly");
         setWeeklyUiVersion(INDIVIDUAL_WEEKLY_UI_VERSION);
         setWorkouts([{ title: "Treino A", description: "", exercises: [] }]);
+        setActiveTab(workoutsRef.current[0]?.clientKey || "");
       }
     } else if (cycleId) {
       loadExisting();
@@ -631,7 +647,7 @@ export default function WorkoutBuilder() {
     loadLibrary();
     loadMuscleTargets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cycleId, tplId]);
+  }, [cycleId, tplId, effectiveCompanyId, user?.id]);
 
   useEffect(() => {
     if (templatePickerOpen) void loadWorkoutTemplates();
@@ -639,16 +655,20 @@ export default function WorkoutBuilder() {
   }, [templatePickerOpen, templateCompanyId]);
 
   const loadTemplate = async (id: string) => {
+    const isCurrent = captureSaveScope();
     const { data } = await (supabase as any).from("workout_templates").select("name, company_id, workouts").eq("id", id).maybeSingle();
+    if (!isCurrent()) return;
     if (data) {
       setTemplateName(data.name || "");
       setLoadedTemplateCompanyId(data.company_id || null);
+      if (!isCurrent()) return;
       const ws: Workout[] = Array.isArray(data.workouts) ? data.workouts : [];
       const normalized = ws.length ? sanitizeWorkoutSetTypes(ws) : [{ title: "Treino A", description: "", exercises: [] }];
       setWorkoutRevisionSnapshot([]);
       setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(normalized));
       setWeeklyUiVersion(individualWeeklyUiVersionForLoadedWorkouts(normalized) || INDIVIDUAL_WEEKLY_UI_VERSION);
       setWorkouts(normalized);
+      setActiveTab(workoutsRef.current[0]?.clientKey || "");
     }
   };
 
@@ -780,11 +800,14 @@ export default function WorkoutBuilder() {
 
   const loadExisting = async () => {
     try {
+      const isCurrent = captureSaveScope();
       const loaded = await fetchExistingWorkouts();
+      if (!isCurrent()) return;
       rememberPersistedExerciseIds(loaded);
       setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(loaded));
       setWeeklyUiVersion(individualWeeklyUiVersionForLoadedWorkouts(loaded) || INDIVIDUAL_WEEKLY_UI_VERSION);
       setWorkouts(loaded);
+      setActiveTab(workoutsRef.current[0]?.clientKey || "");
       setWorkoutRevisionSnapshot(workoutRevisionRows(loaded));
     } catch (error) {
       toast({
@@ -796,26 +819,37 @@ export default function WorkoutBuilder() {
   };
 
   const loadLibrary = async () => {
+    const isCurrent = captureSaveScope();
+    setLibraryLoading(true);
+    setLibraryError(false);
+    try {
     const data = await fetchAllPages<Exercise>(() => supabase
       .from("exercise_library")
       .select("id, company_id, is_global, name, muscle_group, category, categories, body_regions, video_url, video_path, description, thumbnail_url, youtube_video_id")
       .order("muscle_group")
       .order("name")
       .order("id"));
+    if (!isCurrent()) return;
     setLibraryExercises(((data || []) as unknown as Exercise[]).map((exercise) => ({
       ...exercise,
       body_regions: exercise.body_regions ?? null,
       youtube_video_id: exercise.youtube_video_id ?? null,
     })));
+    } catch {
+      if (isCurrent()) { setLibraryError(true); setLibraryExercises([]); }
+    } finally {
+      if (isCurrent()) setLibraryLoading(false);
+    }
   };
 
   const loadMuscleTargets = async () => {
+    const isCurrent = captureSaveScope();
     const data = await fetchAllPages<MuscleTarget>(() => (supabase as any)
       .from("exercise_muscle_targets")
       .select("exercise_id, muscle_group_id, role, is_primary, volume_percentage")
       .order("exercise_id")
       .order("muscle_group_id"));
-    setMuscleTargets((data as MuscleTarget[]) || []);
+    if (isCurrent()) setMuscleTargets((data as MuscleTarget[]) || []);
   };
 
   const loadWorkoutTemplates = async () => {
@@ -894,7 +928,7 @@ export default function WorkoutBuilder() {
       setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(nextWorkouts));
       setWeeklyUiVersion(individualWeeklyUiVersionForLoadedWorkouts(nextWorkouts) || INDIVIDUAL_WEEKLY_UI_VERSION);
       setWorkouts(nextWorkouts);
-      setActiveTab(String(insertedStart));
+      setActiveTab(workoutsRef.current[insertedStart]?.clientKey || "");
       setPendingTemplate(null);
       setTemplatePickerOpen(false);
       toast({
@@ -927,26 +961,21 @@ export default function WorkoutBuilder() {
     applyWorkoutTemplateDraft(selectedTemplate, mode);
   };
 
-  const getStoragePublicUrl = (path: string) => {
-    const { data } = supabase.storage.from("exercises-videos").getPublicUrl(path);
-    return data.publicUrl;
-  };
-
   const addWorkout = () => {
     if (saving) return;
     const nextLabel = WORKOUT_LABELS[workouts.length] || `Treino ${workouts.length + 1}`;
     setWorkouts(prev => [...prev, { title: `Treino ${nextLabel}`, description: "", exercises: [] }]);
-    setActiveTab(String(workouts.length));
+    setActiveTab(workoutsRef.current.at(-1)?.clientKey || "");
   };
 
   const removeWorkout = (idx: number) => {
-    if (saving) return;
+    if (saving || !workoutsRef.current[idx]) return;
     const newWorkouts = workouts.filter((_, i) => i !== idx);
     if (newWorkouts.length === 0) {
       newWorkouts.push({ title: "Treino A", description: "", exercises: [] });
     }
     setWorkouts(newWorkouts);
-    setActiveTab("0");
+    if (!newWorkouts.some(w => w.clientKey === activeTab)) setActiveTab("");
     toast({ title: "Treino removido" });
   };
 
@@ -957,7 +986,9 @@ export default function WorkoutBuilder() {
 
   const addExercise = (ex: Exercise) => {
     if (saving) return;
-    const idx = parseInt(activeTab);
+    const target = resolveWorkoutTarget(workoutsRef.current, activeTab);
+    if (!target || workoutsRef.current[target.index].exercises.some(e => e.exercise_id === ex.id)) return;
+    const idx = target.index;
     setWorkouts(prev => prev.map((w, i) => {
       if (i !== idx) return w;
       return {
@@ -968,6 +999,7 @@ export default function WorkoutBuilder() {
           muscle_group: ex.muscle_group,
           video_url: ex.video_url,
           video_path: ex.video_path,
+          youtube_video_id: ex.youtube_video_id ?? null,
           sets: "3",
           reps: "12",
           rest: "60s",
@@ -1059,7 +1091,7 @@ export default function WorkoutBuilder() {
 
   const focusSaveIssue = (issue: WorkoutSaveIssue, openLibrary = true) => {
     const workoutIndex = issue.workoutIndex ?? 0;
-    setActiveTab(String(workoutIndex));
+    setActiveTab(workoutsRef.current[workoutIndex]?.clientKey || "");
     if (openLibrary && issue.exerciseName) {
       setLibSearch(issue.exerciseName);
       setLibraryOpen(true);
@@ -1180,7 +1212,7 @@ export default function WorkoutBuilder() {
       } catch (loadError) {
         console.warn("Treino salvo, mas a versão confirmada não foi recarregada", loadError);
       }
-      const nextWorkouts = confirmedWorkouts || workoutsWithSavedRows(draftWorkouts, saved);
+      const nextWorkouts = (confirmedWorkouts || workoutsWithSavedRows(draftWorkouts, saved)).map((w, i) => ({ ...w, clientKey: draftWorkouts[i]?.clientKey }));
       if (!isCurrent()) return;
       rememberPersistedExerciseIds(nextWorkouts);
       setSaveIssues([]);
@@ -1228,7 +1260,7 @@ export default function WorkoutBuilder() {
       setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(revisionConflict.latest));
       setWeeklyUiVersion(individualWeeklyUiVersionForLoadedWorkouts(revisionConflict.latest) || INDIVIDUAL_WEEKLY_UI_VERSION);
       setWorkoutRevisionSnapshot(workoutRevisionRows(revisionConflict.latest));
-      setActiveTab("0");
+      setActiveTab("");
       setRevisionConflict(null);
       toast({ title: "Versão mais recente carregada" });
       return;
@@ -1259,7 +1291,7 @@ export default function WorkoutBuilder() {
         console.warn("Rascunho salvo, mas a versão confirmada não foi recarregada", loadError);
       }
       if (!isCurrent()) return;
-      const nextWorkouts = confirmedWorkouts || workoutsWithSavedRows(draft, saved);
+      const nextWorkouts = (confirmedWorkouts || workoutsWithSavedRows(draft, saved)).map((w, i) => ({ ...w, clientKey: draft[i]?.clientKey }));
       rememberPersistedExerciseIds(nextWorkouts);
       setWorkouts(nextWorkouts);
       setWorkoutRevisionSnapshot(workoutRevisionRows(nextWorkouts));
@@ -1454,59 +1486,21 @@ export default function WorkoutBuilder() {
     return resolved ? `https://i.ytimg.com/vi/${resolved}/hqdefault.jpg` : null;
   };
 
-  // Resolve capas dos exercícios visíveis que ainda não têm vídeo (lote pequeno, 1x cada).
-  useEffect(() => {
-    if (!libraryOpen) return;
-    const need = filteredLib
-      .filter((ex) => !exerciseThumb(ex) && !covers[ex.id] && !coverRequested.current.has(ex.id) && !ex.video_path)
-      .slice(0, 24);
-    need.forEach((ex) => {
-      coverRequested.current.add(ex.id);
-      supabase.functions
-        .invoke("youtube-exercise-video", { body: { exercise_id: ex.id, name: ex.name } })
-        .then(({ data }) => {
-          const vid = (data as { video_id?: string } | null)?.video_id;
-          if (vid) setCovers((c) => ({ ...c, [ex.id]: vid }));
-        })
-        .catch(() => {});
-    });
-  }, [filteredLib, libraryOpen, covers]);
-
-  const openPickerVideo = (ex: Exercise) => {
-    const id = ex.youtube_video_id || youtubeIdFromUrl(ex.video_url) || covers[ex.id];
-    if (ex.video_path) setVideoModal({ type: "path", value: getStoragePublicUrl(ex.video_path) });
-    else if (id) setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${id}` });
-    else if (ex.video_url) setVideoModal({ type: "url", value: ex.video_url });
+  useEffect(() => { setVideoModal(null); }, [saveScopeKey]);
+  const openVideoForExercise = (input: ExerciseMediaInput) => {
+    const isCurrent = captureSaveScope();
+    setVideoModal({ input, resolve: () => resolveExerciseMedia(supabase, input, {
+      storageOrigin: import.meta.env.VITE_SUPABASE_URL,
+      userId: user?.id || "",
+      isCurrent,
+    }) });
   };
+  const openPickerVideo = (ex: Exercise) => openVideoForExercise(ex);
 
-  const getEmbedUrl = (url: string) => {
-    if (url.includes("youtube.com/watch")) {
-      const vid = new URL(url).searchParams.get("v");
-      return vid ? `https://www.youtube.com/embed/${vid}` : url;
-    }
-    if (url.includes("youtu.be/")) {
-      const vid = url.split("youtu.be/")[1]?.split("?")[0];
-      return vid ? `https://www.youtube.com/embed/${vid}` : url;
-    }
-    if (url.includes("vimeo.com/")) {
-      const vid = url.split("vimeo.com/")[1]?.split("?")[0];
-      return vid ? `https://player.vimeo.com/video/${vid}` : url;
-    }
-    return url;
-  };
+  const hasVideo = (ex: WorkoutExercise) => !!(ex.video_path || ex.video_url || ex.youtube_video_id);
 
-  const openVideoForExercise = (ex: WorkoutExercise) => {
-    if (ex.video_path) {
-      setVideoModal({ type: "path", value: getStoragePublicUrl(ex.video_path) });
-    } else if (ex.video_url) {
-      setVideoModal({ type: "url", value: ex.video_url });
-    }
-  };
-
-  const hasVideo = (ex: WorkoutExercise) => !!(ex.video_path || ex.video_url);
-
-  const currentWorkout = workouts[parseInt(activeTab)] || workouts[0];
-  const currentIdx = parseInt(activeTab);
+  const currentIdx = resolveWorkoutTarget(workouts, activeTab)?.index ?? -1;
+  const currentWorkout = workouts[currentIdx];
 
   const floatingBnitoContext = useMemo(() => ({
     label: "rascunho atual da prescrição",
@@ -1749,25 +1743,26 @@ export default function WorkoutBuilder() {
                 </Select>
               </div>
             )}
+            {!resolveWorkoutTarget(workouts, activeTab) && <p role="status">Selecione um treino para editar ou adicionar exercícios.</p>}
             {/* Workout Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <div className="flex items-center gap-2">
                 <TabsList className="h-auto flex-1 justify-start overflow-x-auto overflow-y-hidden whitespace-nowrap pb-1 [-webkit-overflow-scrolling:touch]">
                   {workouts.map((w, idx) => (
-                    <TabsTrigger key={idx} value={String(idx)} className="max-w-[12rem] shrink-0 truncate text-sm">
+                    <TabsTrigger key={w.clientKey} value={w.clientKey!} className="max-w-[12rem] shrink-0 truncate text-sm">
                       {w.title || `Treino ${WORKOUT_LABELS[idx] || idx + 1}`}
                     </TabsTrigger>
                   ))}
                 </TabsList>
                 {workouts.length < 7 && (
-                  <Button variant="outline" size="sm" className="shrink-0" onClick={addWorkout} disabled={saving}>
+                  <Button variant="outline" size="sm" aria-label="Adicionar treino" className="shrink-0" onClick={addWorkout} disabled={saving}>
                     <Plus className="h-4 w-4" />
                   </Button>
                 )}
               </div>
 
               {workouts.map((workout, wIdx) => (
-                <TabsContent key={wIdx} value={String(wIdx)} className="space-y-4">
+                <TabsContent key={workout.clientKey} value={workout.clientKey!} className="space-y-4">
                   {/* Workout details */}
                   <Card className="bg-card border-border" data-workout-title-anchor={wIdx}>
                     <CardContent className="p-4 space-y-4">
@@ -1980,7 +1975,7 @@ export default function WorkoutBuilder() {
                                     <MethodBadge method={ex.method} seconds={(ex as any).method_seconds} tone="amber" />
                                   )}
                                   {hasVideo(ex) && (
-                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openVideoForExercise(ex)}>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6" aria-label={`Assistir ${ex.exercise_name}`} onClick={() => openVideoForExercise(ex)}>
                                       <Play className="h-3.5 w-3.5 text-primary" />
                                     </Button>
                                   )}
@@ -2809,12 +2804,14 @@ export default function WorkoutBuilder() {
               </div>
             )}
 
-            <p className="font-sans text-xs text-muted-foreground">{filteredLib.length} exercícios</p>
+            <p className="font-sans text-xs text-muted-foreground">{libraryLoading ? "Carregando exercícios…" : libraryError ? "Biblioteca indisponível" : `${filteredLib.length} exercícios`}</p>
           </div>
 
           {/* Grid de cards com "capa" em vídeo */}
           <div className="flex-1 overflow-y-auto px-5 py-4">
-            {filteredLib.length === 0 ? (
+            {libraryLoading ? <p role="status">Carregando biblioteca…</p> : libraryError ? (
+              <div role="alert">Não foi possível carregar a biblioteca. <button type="button" onClick={() => void loadLibrary()}>Tentar novamente</button></div>
+            ) : filteredLib.length === 0 ? (
               <p className="py-10 text-center font-sans text-muted-foreground">Nenhum exercício encontrado</p>
             ) : (
               <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4">
@@ -2823,11 +2820,8 @@ export default function WorkoutBuilder() {
                   const alreadyAdded = currentExercises.some((w) => w.exercise_id === ex.id);
                   const cover = coverFor(ex);
                   return (
-                    <button
+                    <div
                       key={ex.id}
-                      type="button"
-                      disabled={saving || alreadyAdded}
-                      onClick={() => addExercise(ex)}
                       title={ex.name}
                       className={`group relative aspect-[4/3] overflow-hidden rounded-xl border text-left transition ${alreadyAdded ? "border-primary/60 opacity-80" : "border-border hover:-translate-y-0.5 hover:border-primary"}`}
                     >
@@ -2839,22 +2833,21 @@ export default function WorkoutBuilder() {
                         </div>
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/15 to-transparent" />
-                      <span
-                        role="button"
-                        tabIndex={-1}
+                      <button type="button" aria-label={"Assistir " + ex.name}
                         onClick={(e) => { e.stopPropagation(); openPickerVideo(ex); }}
-                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition hover:bg-black/80 group-hover:opacity-100"
+                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition hover:bg-black/80"
                       >
                         <Play className="h-3.5 w-3.5" />
-                      </span>
-                      {alreadyAdded && (
-                        <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground">Adicionado</span>
-                      )}
+                      </button>
                       <div className="absolute bottom-0 left-0 right-0 p-2">
                         <p className="line-clamp-2 text-[11px] font-medium leading-tight text-white">{ex.name}</p>
                         <p className="mt-0.5 text-[9px] uppercase tracking-wide text-white/60">{ex.muscle_group}</p>
                       </div>
-                    </button>
+                      <button type="button" disabled={saving || alreadyAdded || !currentWorkout}
+                        onClick={() => addExercise(ex)} className="absolute left-2 top-2 rounded bg-background p-1 text-xs">
+                        {alreadyAdded ? "Adicionado" : "Adicionar ao treino"}
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -2864,7 +2857,7 @@ export default function WorkoutBuilder() {
           {/* Rodapé: continua na seleção; só vai para a prescrição em "Ver treino completo" */}
           <div className="flex flex-col gap-3 border-t border-border px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="font-sans text-sm text-muted-foreground">
-              {(currentWorkout?.exercises?.length || 0)} exercício(s) no treino
+              {currentWorkout ? `${currentWorkout.exercises.length} exercício(s) no treino` : "Selecione um treino para adicionar"}
             </span>
             <Button className="w-full sm:w-auto" onClick={() => setLibraryOpen(false)}>
               Ver treino completo
@@ -2930,29 +2923,12 @@ export default function WorkoutBuilder() {
       </Dialog>
 
       {/* Video Modal */}
-      <Dialog open={!!videoModal} onOpenChange={() => setVideoModal(null)}>
+      <Dialog open={!!videoModal} onOpenChange={() => { setVideoModal(null); }}>
         <DialogContent className="bg-card border-border max-w-3xl">
           <DialogHeader>
             <DialogTitle className="text-primary">VÍDEO</DialogTitle>
           </DialogHeader>
-          {videoModal && (
-            <div className="aspect-video w-full">
-              {videoModal.type === "path" ? (
-                <video
-                  src={videoModal.value}
-                  controls
-                  className="w-full h-full rounded-md"
-                />
-              ) : (
-                <iframe
-                  src={getEmbedUrl(videoModal.value)}
-                  className="w-full h-full rounded-md"
-                  allowFullScreen
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                />
-              )}
-            </div>
-          )}
+          {videoModal && <ExercisePreviewPlayer key={JSON.stringify(videoModal.input)} resolve={videoModal.resolve} />}
         </DialogContent>
       </Dialog>
     </>

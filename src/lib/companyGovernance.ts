@@ -8,12 +8,13 @@ export interface OwnershipRequest {
 }
 export interface GovernanceBundle { id: string; name: string; permissions: string[] }
 export interface GovernanceSnapshot {
+  owner_kind?: 'registered' | 'legacy' | 'missing'; legacy_owner_id?: string | null; pending_confirmation?: boolean; can_initialize?: boolean;
   company_id: string; owner_id: string | null; version: number; can_manage: boolean;
   members: GovernanceMember[]; transfers: OwnershipRequest[]; bundles: GovernanceBundle[];
   assignments: { role_id: string; user_id: string }[];
   audit: { id: string; action: string; version: number; created_at: string; actor_id: string }[];
 }
-export type GovernanceAction = 'request_transfer' | 'accept_transfer' | 'cancel_transfer' | 'expire_transfer'
+export type GovernanceAction = 'initialize_owner' | 'request_transfer' | 'accept_transfer' | 'cancel_transfer' | 'expire_transfer'
   | 'save_role' | 'assign_role' | 'unassign_role' | 'delete_role';
 interface GovernanceRpc {
   rpc(name: 'get_company_governance' | 'change_company_governance', args: Record<string, unknown>):
@@ -36,6 +37,12 @@ export function parseGovernance(value: unknown, companyId: string): GovernanceSn
     || !['members','transfers','bundles','assignments','audit'].every(key => Array.isArray(v[key as keyof GovernanceSnapshot]))) {
     throw new Error('Resposta de governança inválida. Recarregue.');
   }
+  if (v.owner_kind !== undefined && (!['registered','legacy','missing'].includes(v.owner_kind)
+    || typeof v.can_initialize !== 'boolean' || typeof v.pending_confirmation !== 'boolean'
+    || !(v.legacy_owner_id === null || typeof v.legacy_owner_id === 'string')
+    || (v.can_initialize && (v.owner_id !== null || v.owner_kind !== 'legacy' || !v.legacy_owner_id || !v.can_manage)))) {
+    throw new Error('Metadados de propriedade inválidos. Recarregue.');
+  }
   return v;
 }
 export async function fetchCompanyGovernance(companyId: string) {
@@ -50,4 +57,11 @@ export async function changeCompanyGovernance(companyId: string, action: Governa
   const result = parseGovernance(data,companyId);
   if (result.version !== version + 1) throw new Error('Versão inesperada');
   return result;
+}
+
+// Display-only identity. RPC authorization always uses full member IDs server-side.
+export function governanceMemberLabel(member: GovernanceMember): string {
+  const roleNames: Record<string,string> = { admin:'Administrador', trainer:'Professor', coordinator:'Coordenador', master:'Master' };
+  const roles = member.roles.map(role=>roleNames[role] || 'Equipe').join(', ') || 'Equipe';
+  return `${member.name || 'Sem nome'} · ${roles} · membro ${member.user_id.replace(/-/g,'').slice(-8)}`;
 }

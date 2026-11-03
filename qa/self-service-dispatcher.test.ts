@@ -89,6 +89,9 @@ Deno.test('actual dispatcher HTTP handler sends through loopback fake provider a
     check(blocked.failed === 1 && sent.length === 1, 'Revoked consent still reached fake provider');
   } finally {
     await dispatcher.shutdown(); await provider.shutdown();
-    for (const [name, value] of previous) value === undefined ? Deno.env.delete(name) : Deno.env.set(name, value);
+    for (const [name, value] of previous) {
+      if (value === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, value);
+    }
   }
 });

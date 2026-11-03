@@ -1,0 +1,21 @@
+import { act, cleanup, render, screen } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { InstallPrompt } from './InstallPrompt';
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
+it('yields to the chat and releases its footprint when dismissed or unmounted', () => {
+  vi.useFakeTimers();
+  vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(null);
+  vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Android');
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 140 } as DOMRect);
+  const view = render(<InstallPrompt />);
+  act(() => { vi.advanceTimersByTime(2500); });
+  expect(screen.getByRole('dialog', { name: 'Instalar o app' })).toBeInTheDocument();
+  expect(document.documentElement.style.getPropertyValue('--sett-install-height')).toBe('140px');
+  act(() => { window.dispatchEvent(new CustomEvent('sett:chat-layout', { detail: { open: true } })); });
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(document.documentElement.style.getPropertyValue('--sett-install-height')).toBe('0px');
+  act(() => { window.dispatchEvent(new CustomEvent('sett:chat-layout', { detail: { open: false } })); });
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  view.unmount();
+  expect(document.documentElement.style.getPropertyValue('--sett-install-height')).toBe('');
+});

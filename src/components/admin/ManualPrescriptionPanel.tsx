@@ -18,6 +18,7 @@ function safeFormatDate(value: string | null | undefined, fmt: string): string {
 }
 
 interface ManualPrescriptionPanelProps<Cycle extends ManualPrescriptionCycle> {
+  eligibilityMessage?: string;
   cycles: Cycle[];
   selectedCycle: Cycle | null;
   onCycleChange: (cycleId: string) => void;
@@ -29,6 +30,7 @@ interface ManualPrescriptionPanelProps<Cycle extends ManualPrescriptionCycle> {
 }
 
 export function ManualPrescriptionPanel<Cycle extends ManualPrescriptionCycle>({
+  eligibilityMessage,
   cycles,
   selectedCycle,
   onCycleChange,
@@ -50,6 +52,7 @@ export function ManualPrescriptionPanel<Cycle extends ManualPrescriptionCycle>({
         </p>
       </div>
 
+      {eligibilityMessage && <p role="status" className="text-sm text-muted-foreground">{eligibilityMessage}</p>}
       {cycles.length > 0 ? (
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
           <div className="space-y-2">

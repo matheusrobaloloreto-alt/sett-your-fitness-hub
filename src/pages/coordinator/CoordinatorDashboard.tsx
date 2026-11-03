@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { DashboardAlerts } from "@/components/DashboardAlerts";
 import { RenewalsAndCyclesPanel } from "@/components/dashboard/RenewalsAndCyclesPanel";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+
+import { useMaster } from "@/contexts/MasterContext";
 
 interface Student {
   id: string;
@@ -47,30 +49,54 @@ export default function CoordinatorDashboard() {
   const [form, setForm] = useState({ full_name: "", email: "", phone: "" });
   const [enrollForm, setEnrollForm] = useState({ plan_id: "", start_date: format(new Date(), "yyyy-MM-dd") });
   const { toast } = useToast();
-  const { user, companyId } = useAuth();
+  const { user, companyId: authCompanyId, role } = useAuth();
+  const { viewingCompany, isViewingCompany } = useMaster();
+  const companyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : authCompanyId;
+  const actorId = user?.id ?? null;
+  const operationScope = useRef({ companyId, actorId, role, mounted: false });
+  if (operationScope.current.companyId !== companyId || operationScope.current.actorId !== actorId || operationScope.current.role !== role) {
+    operationScope.current.mounted = false;
+    operationScope.current = { companyId, actorId, role, mounted: false };
+  }
+  // A new object also invalidates A -> B -> A operations from the first A epoch.
+  const scope = operationScope.current;
+  const generation = useRef(0);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const loadData = useCallback(async () => {
+    if (operationScope.current !== scope || !scope.mounted) return;
+    const request = ++generation.current;
+    const current = () => operationScope.current === scope && scope.mounted && request === generation.current;
+    setLoadError("");
+    if (!companyId || !actorId) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const results = await Promise.all([
+        supabase.from("students").select("*").eq("company_id", companyId).order("created_at", { ascending: false }),
+        supabase.from("plans").select("id, name, duration_weeks, duration_days").eq("company_id", companyId).eq("is_active", true),
+        supabase.rpc("get_company_student_staff_directory" as never, { _company_id: companyId } as never),
+      ]);
+      if (!current()) return;
+      if (results.some(result => result.error)) throw new Error();
+      setStudents((results[0].data || []) as Student[]);
+      setPlans((results[1].data || []) as Plan[]);
+      setTrainers(((results[2].data || []) as unknown as (Trainer & { roles: string[] })[]).filter(member => member.roles.includes("trainer")));
+    } catch {
+      if (current()) setLoadError("Não foi possível carregar as matrículas. Tente novamente.");
+    } finally { if (current()) setLoading(false); }
+  }, [companyId, actorId, scope]);
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    const { data: studentsData } = await supabase.from("students").select("*").order("created_at", { ascending: false });
-    setStudents((studentsData as Student[]) || []);
-
-    const { data: plansData } = await supabase.from("plans").select("id, name, duration_weeks, duration_days").eq("is_active", true);
-    setPlans((plansData as Plan[]) || []);
-
-    // Load trainers (profiles with trainer role)
-    const { data: trainerRoles } = await supabase.from("user_roles").select("user_id").eq("role", "trainer");
-    if (trainerRoles && trainerRoles.length > 0) {
-      const trainerIds = trainerRoles.map((r) => r.user_id);
-      const { data: profiles } = await supabase.from("profiles").select("user_id, full_name").in("user_id", trainerIds);
-      setTrainers((profiles as Trainer[]) || []);
-    }
-  };
+    scope.mounted = true;
+    setStudents([]); setPlans([]); setTrainers([]); setSelectedStudent(null); setEnrollOpen(false); setOpen(false);
+    void loadData();
+    const counter = generation;
+    return () => { scope.mounted = false; counter.current++; };
+  }, [loadData, scope]);
 
   const handleAddStudent = async () => {
-    if (!form.full_name) return;
+    const current = () => operationScope.current === scope && scope.mounted;
+    if (!current() || !actorId || !form.full_name || !companyId || loading || loadError) return;
     const email = form.email.trim().toLowerCase();
     const phone = form.phone.replace(/\D/g, "");
     const duplicate = students.find((student) => {
@@ -86,25 +112,31 @@ export default function CoordinatorDashboard() {
       });
       return;
     }
-    const { error } = await supabase.from("students").insert({
-      full_name: form.full_name,
-      email: form.email || null,
-      phone: form.phone || null,
-      status: "pending",
-      company_id: companyId,
-    });
-    if (error) {
-      toast({ title: "Erro", description: error.message, variant: "destructive" });
-      return;
+    try {
+      const { error } = await supabase.from("students").insert({
+        full_name: form.full_name,
+        email: form.email || null,
+        phone: form.phone || null,
+        status: "pending",
+        company_id: companyId,
+      });
+      if (!current()) return;
+      if (error) {
+        toast({ title: "Erro", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Aluno cadastrado!" });
+      setOpen(false);
+      setForm({ full_name: "", email: "", phone: "" });
+      void loadData();
+    } catch {
+      if (current()) toast({ title: "Erro", description: "Não foi possível confirmar o cadastro. Recarregue antes de tentar novamente.", variant: "destructive" });
     }
-    toast({ title: "Aluno cadastrado!" });
-    setOpen(false);
-    setForm({ full_name: "", email: "", phone: "" });
-    loadData();
   };
 
   const handleEnroll = async () => {
-    if (!selectedStudent || !enrollForm.plan_id) return;
+    const current = () => operationScope.current === scope && scope.mounted;
+    if (!current() || !actorId || !selectedStudent || !enrollForm.plan_id || loading || loadError) return;
 
     const plan = plans.find((p) => p.id === enrollForm.plan_id);
     if (!plan) return;
@@ -114,30 +146,35 @@ export default function CoordinatorDashboard() {
       return;
     }
 
-    const { data: replacementRows, error } = await supabase.rpc("replace_student_enrollment", {
-      _student_id: selectedStudent.id,
-      _company_id: companyId,
-      _plan_id: enrollForm.plan_id,
-      _trainer_id: selectedStudent.assigned_trainer_id ?? null,
-      _start_date: enrollForm.start_date,
-      _clear_carried_over_cycle: false,
-    });
+    try {
+      const { data: replacementRows, error } = await supabase.rpc("replace_student_enrollment", {
+        _student_id: selectedStudent.id,
+        _company_id: companyId,
+        _plan_id: enrollForm.plan_id,
+        _trainer_id: selectedStudent.assigned_trainer_id ?? null,
+        _start_date: enrollForm.start_date,
+        _clear_carried_over_cycle: false,
+      });
+      if (!current()) return;
 
-    if (error) {
-      toast({ title: "Erro", description: error.message, variant: "destructive" });
-      return;
-    }
-    const enrollmentId = Array.isArray(replacementRows) ? replacementRows[0]?.enrollment_id : (replacementRows as any)?.enrollment_id;
-    if (!enrollmentId) {
-      toast({ title: "Matrícula criada sem confirmação local", description: "O servidor não retornou a matrícula criada. Recarregue o aluno antes de prescrever.", variant: "destructive" });
-      return;
-    }
+      if (error) {
+        toast({ title: "Erro", description: error.message, variant: "destructive" });
+        return;
+      }
+      const enrollmentId = Array.isArray(replacementRows) ? replacementRows[0]?.enrollment_id : (replacementRows as any)?.enrollment_id;
+      if (!enrollmentId) {
+        toast({ title: "Matrícula criada sem confirmação local", description: "O servidor não retornou a matrícula criada. Recarregue o aluno antes de prescrever.", variant: "destructive" });
+        return;
+      }
 
-    toast({ title: "Aluno matriculado e liberado!" });
-    setEnrollOpen(false);
-    setSelectedStudent(null);
-    setEnrollForm({ plan_id: "", start_date: format(new Date(), "yyyy-MM-dd") });
-    loadData();
+      toast({ title: "Aluno matriculado e liberado!" });
+      setEnrollOpen(false);
+      setSelectedStudent(null);
+      setEnrollForm({ plan_id: "", start_date: format(new Date(), "yyyy-MM-dd") });
+      void loadData();
+    } catch {
+      if (current()) toast({ title: "Erro", description: "Não foi possível confirmar a matrícula. Recarregue antes de tentar novamente.", variant: "destructive" });
+    }
   };
 
   const selectedPlan = plans.find((p) => p.id === enrollForm.plan_id);
@@ -161,6 +198,7 @@ export default function CoordinatorDashboard() {
   return (
     <>
       <div className="space-y-6">
+        {!companyId ? <p>Selecione uma empresa para consultar as matrículas.</p> : loading ? <p role="status">Carregando matrículas...</p> : loadError ? <div role="alert">{loadError}<Button onClick={loadData}>Tentar novamente</Button></div> : students.length === 0 ? <p>Nenhum aluno nesta empresa.</p> : null}
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -175,7 +213,7 @@ export default function CoordinatorDashboard() {
           </div>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button><Plus className="h-4 w-4 mr-2" />Novo Aluno</Button>
+              <Button disabled={!companyId || loading || Boolean(loadError)}><Plus className="h-4 w-4 mr-2" />Novo Aluno</Button>
             </DialogTrigger>
             <DialogContent className="bg-card border-border">
               <DialogHeader>
@@ -208,7 +246,7 @@ export default function CoordinatorDashboard() {
                 <Clock className="h-6 w-6 text-warning" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{pendingStudents.length}</p>
+                <p className="text-2xl font-bold text-foreground font-sans">{companyId && !loading && !loadError ? pendingStudents.length : "—"}</p>
                 <p className="text-sm text-muted-foreground font-sans">Pendentes</p>
               </div>
             </CardContent>
@@ -219,7 +257,7 @@ export default function CoordinatorDashboard() {
                 <UserCheck className="h-6 w-6 text-success" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{activeStudents.length}</p>
+                <p className="text-2xl font-bold text-foreground font-sans">{companyId && !loading && !loadError ? activeStudents.length : "—"}</p>
                 <p className="text-sm text-muted-foreground font-sans">Ativos</p>
               </div>
             </CardContent>
@@ -230,15 +268,15 @@ export default function CoordinatorDashboard() {
                 <Users className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{students.length}</p>
-                <p className="text-sm text-muted-foreground font-sans">Total</p>
+                <p className="text-2xl font-bold text-foreground font-sans">{companyId && !loading && !loadError ? students.length : "—"}</p>
+                <p className="text-sm text-muted-foreground font-sans">Total de alunos da empresa</p>
               </div>
             </CardContent>
           </Card>
         </div>
 
         {/* Alerts */}
-        <DashboardAlerts />
+        {companyId && !loading && !loadError && <DashboardAlerts />}
 
         {/* Renovação e Troca de Treino */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

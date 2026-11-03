@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,42 +14,67 @@ export function PendingFeedbackCard({ companyId, routePrefix, readOnly = false }
   const snapshot = useDashboardSnapshot();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
+  const [reviewing, setReviewing] = useState<string | null>(null);
+  const scope = useRef({ companyId, readOnly, generation: 0, reviewing: false });
+  if (scope.current.companyId !== companyId || scope.current.readOnly !== readOnly) {
+    scope.current = { companyId, readOnly, generation: scope.current.generation + 1, reviewing: false };
+  }
 
   useEffect(() => {
     let alive = true;
+    const requestScope = scope.current;
     (async () => {
       setLoading(true);
+      setError(""); setRows([]); setReviewing(null);
+      if (!companyId) { setLoading(false); return; }
       if (readOnly) {
         setRows(snapshot?.pendingFeedback || []);
         setLoading(false);
         return;
       }
-      let q = (supabase as any)
+      try {
+      const q = (supabase as any)
         .from("cycle_feedback")
         .select("id, student_id, nps, wants_adjustment, adjustment_notes, created_at")
         .eq("applied", false)
         .order("created_at", { ascending: false })
-        .limit(50);
-      if (companyId) q = q.eq("company_id", companyId);
-      const { data } = await q;
+        .limit(50).eq("company_id", companyId);
+      const { data, error: readError } = await q;
+      if (readError || !Array.isArray(data)) throw new Error('feedback_read_failed');
       const fbs = data || [];
       const ids = [...new Set(fbs.map((b: any) => b.student_id).filter(Boolean))];
       let names: Record<string, string> = {};
       if (ids.length) {
-        const { data: studs } = await (supabase as any).from("students").select("id, full_name").in("id", ids);
+        const { data: studs, error: namesError } = await (supabase as any).from("students").select("id, full_name").eq("company_id", companyId).in("id", ids);
+        if (namesError || !Array.isArray(studs)) throw new Error('feedback_names_failed');
         names = Object.fromEntries((studs || []).map((s: any) => [s.id, s.full_name]));
       }
-      if (!alive) return;
+      if (!alive || scope.current !== requestScope) return;
       setRows(fbs.map((b: any) => ({ ...b, name: names[b.student_id] || "Aluno" })));
-      setLoading(false);
+      } catch {
+        if (alive && scope.current === requestScope) setError("Não foi possível consultar os feedbacks. Tente novamente.");
+      } finally { if (alive && scope.current === requestScope) setLoading(false); }
     })();
-    return () => { alive = false; };
-  }, [companyId, readOnly, snapshot]);
+    return () => {
+      alive = false;
+      if (scope.current === requestScope) scope.current = { ...requestScope, generation: requestScope.generation + 1, reviewing: false };
+    };
+  }, [companyId, readOnly, snapshot, reload]);
 
   const markApplied = async (id: string) => {
-    if (readOnly) return;
-    const { error } = await (supabase as any).from("cycle_feedback").update({ applied: true }).eq("id", id);
-    if (!error) setRows((prev) => prev.filter((r) => r.id !== id));
+    if (readOnly || !companyId || scope.current.reviewing) return;
+    const requestScope = scope.current;
+    requestScope.reviewing = true;
+    setReviewing(id); setError("");
+    try {
+      const { data, error: writeError } = await (supabase as any).from("cycle_feedback").update({ applied: true }).eq("id", id).eq("company_id", companyId).select("id");
+      if (scope.current !== requestScope) return;
+      if (writeError || !Array.isArray(data) || data.length !== 1 || data[0].id !== id) throw new Error('feedback_review_unconfirmed');
+      setRows((prev) => prev.filter((r) => r.id !== id));
+    } catch { if (scope.current === requestScope) setError("Não foi possível confirmar a revisão. O feedback continua pendente; atualize antes de tentar novamente."); }
+    finally { if (scope.current === requestScope) { requestScope.reviewing = false; setReviewing(null); } }
   };
 
   const goStudent = (sid: string) => {
@@ -73,9 +98,10 @@ export function PendingFeedbackCard({ companyId, routePrefix, readOnly = false }
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {loading ? (
+        {error && <div role="alert" className="mb-3 text-sm text-destructive">{error}<Button variant="outline" size="sm" className="ml-2" onClick={() => setReload(value => value + 1)}>Tentar novamente</Button></div>}
+        {!companyId ? <p>Selecione uma empresa para consultar os feedbacks.</p> : loading ? (
           <p className="text-sm text-muted-foreground font-sans">Carregando...</p>
-        ) : rows.length === 0 ? (
+        ) : rows.length === 0 && !error ? (
           <p className="text-sm text-muted-foreground font-sans">Nenhum feedback aguardando revisão. 👏</p>
         ) : (
           <div className="space-y-2 max-h-80 overflow-y-auto">
@@ -96,6 +122,7 @@ export function PendingFeedbackCard({ companyId, routePrefix, readOnly = false }
                       {r.wants_adjustment && <Badge className="bg-amber-500 text-[10px] text-white">ajuste</Badge>}
                     </div>
                   </div>
+                  {r.created_at && <p className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleString('pt-BR')}</p>}
                   {r.wants_adjustment && r.adjustment_notes && (
                     <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{r.adjustment_notes}</p>
                   )}
@@ -103,7 +130,7 @@ export function PendingFeedbackCard({ companyId, routePrefix, readOnly = false }
                   {!readOnly && (
                     <div className="mt-1.5 flex items-center gap-2">
                       <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => goStudent(r.student_id)}>Abrir aluno</Button>
-                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => markApplied(r.id)}>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={Boolean(reviewing)} onClick={() => markApplied(r.id)}>
                         <Check className="mr-1 h-3.5 w-3.5" /> Revisado
                       </Button>
                     </div>

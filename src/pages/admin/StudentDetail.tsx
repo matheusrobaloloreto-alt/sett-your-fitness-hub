@@ -352,6 +352,10 @@ export default function StudentDetail() {
   const scheduleLoadGeneration = useRef(0);
   const [expandedEnrollmentCycles, setExpandedEnrollmentCycles] = useState<Record<string, boolean>>({});
   const [reschedulingCycleId, setReschedulingCycleId] = useState<string | null>(null);
+  const [functionalEvaluations, setFunctionalEvaluations] = useState<Array<{ id: string; assessment_date: string | null; created_at: string | null; status: string | null }>>([]);
+  const [evaluationsLoading, setEvaluationsLoading] = useState(false);
+  const [evaluationsReadError, setEvaluationsReadError] = useState(false);
+  const evaluationsGeneration = useRef(0);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [allWorkouts, setAllWorkouts] = useState<StudentWorkoutRow[]>([]);
   const volumeExerciseIds = useMemo(() => allWorkouts.flatMap((workout) =>
@@ -450,15 +454,21 @@ export default function StudentDetail() {
       : null;
     if (typeof handoff?.studentId === "string" && handoff.studentId !== id) return;
     const tabFromQuery = new URLSearchParams(location.search).get("tab");
-    const requestedTab = typeof handoff?.tab === "string" ? handoff.tab : tabFromQuery;
+    const requestedTab = tabFromQuery ?? (typeof handoff?.tab === "string" ? handoff.tab : "overview");
     const resolved = resolveStudentProgramHandoff(requestedTab);
-    if (resolved.activeTab) {
-      setActiveTab(resolved.activeTab);
-    }
+    setActiveTab(resolved.activeTab || "overview");
     if (resolved.prescriptionPanel) {
       setActivePrescriptionPanel(resolved.prescriptionPanel);
     }
   }, [id, location.search, location.state]);
+
+  useEffect(() => {
+    evaluationsGeneration.current += 1;
+    setEvaluations([]);
+    setFunctionalEvaluations([]);
+    setEvaluationsReadError(false);
+    return () => { evaluationsGeneration.current += 1; };
+  }, [id]);
 
   // ===== Acesso do app: gerar/copiar/enviar login do aluno =====
   const studentLoginUrl = `${window.location.origin}/auth?as=student`;
@@ -780,17 +790,33 @@ export default function StudentDetail() {
   };
 
   const loadEvaluations = async (studentId: string) => {
-    const { data } = await supabase
-      .from("student_evaluations").select("*").eq("student_id", studentId)
-      .order("created_at", { ascending: false });
-
-    if (data && data.length > 0) {
-      const creatorIds = [...new Set(data.map((e: any) => e.created_by))];
-      const { data: profiles } = await supabase.from("profiles").select("user_id, full_name").in("user_id", creatorIds);
-      const profileMap = new Map((profiles || []).map((p: any) => [p.user_id, p.full_name]));
-      setEvaluations(data.map((e: any) => ({ ...e, created_by_name: profileMap.get(e.created_by) || "—" })));
-    } else {
-      setEvaluations([]);
+    const generation = ++evaluationsGeneration.current;
+    setEvaluations([]);
+    setFunctionalEvaluations([]);
+    setEvaluationsReadError(false);
+    setEvaluationsLoading(true);
+    try {
+      const [functional, manual] = await Promise.all([
+        supabase.from("functional_assessments").select("id, assessment_date, created_at, status")
+          .eq("student_id", studentId).order("assessment_date", { ascending: false }),
+        supabase.from("student_evaluations").select("*").eq("student_id", studentId)
+          .order("created_at", { ascending: false }),
+      ]);
+      if (generation !== evaluationsGeneration.current) return;
+      setFunctionalEvaluations(functional.data || []);
+      setEvaluationsReadError(Boolean(manual.error || functional.error));
+      const data = manual.data || [];
+      if (data.length) {
+        const creatorIds = [...new Set(data.map(e => e.created_by).filter((value): value is string => typeof value === "string"))];
+        const { data: profiles } = await supabase.from("profiles").select("user_id, full_name").in("user_id", creatorIds);
+        if (generation !== evaluationsGeneration.current) return;
+        const profileMap = new Map((profiles || []).map(p => [p.user_id, p.full_name]));
+        setEvaluations(data.map(e => ({ ...e, type: e.type || "note", created_by_name: profileMap.get(e.created_by) || "—" })));
+      }
+    } catch {
+      if (generation === evaluationsGeneration.current) setEvaluationsReadError(true);
+    } finally {
+      if (generation === evaluationsGeneration.current) setEvaluationsLoading(false);
     }
   };
 
@@ -1583,7 +1609,7 @@ export default function StudentDetail() {
                         variant={cycle.status === "active" ? "default" : "outline"}
                         className="text-[10px] shrink-0"
                       >
-                        {cycle.status === "active" ? "Ativo" : cycle.status === "completed" ? "Concluído" : "Futuro"}
+                        {cycle.status === "superseded" || cycle.superseded_by_cycle_id ? "Substituído / histórico" : cycle.status === "active" ? "Ativo" : cycle.status === "completed" ? "Concluído" : cycle.start_date > businessDateYmd() ? "Pendente / futuro" : "Histórico"}
                       </Badge>
                     </div>
                     <span className="text-[11px] text-muted-foreground font-sans shrink-0">
@@ -1907,7 +1933,12 @@ export default function StudentDetail() {
         />
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as StudentProgramPrimaryTabValue)} className="w-full">
+        <Tabs value={activeTab} onValueChange={(value) => {
+          const query = new URLSearchParams(location.search);
+          query.set("tab", value);
+          navigate({ pathname: location.pathname, search: `?${query.toString()}` }, { replace: false, state: location.state });
+          setActiveTab(value as StudentProgramPrimaryTabValue);
+        }} className="w-full">
           <EditorialTabStrip
             tabs={STUDENT_PROGRAM_PRIMARY_TABS}
             ariaLabel="Seções do aluno"
@@ -2092,6 +2123,13 @@ export default function StudentDetail() {
 
           {/* ===== PROGRAMA DE TREINO ===== */}
           <TabsContent value="program" className="space-y-4">
+            {rawCycles.some(cycle => cycle.status === "superseded" || cycle.superseded_by_cycle_id) && (
+              <Card><CardHeader><CardTitle>Ciclos substituídos / histórico</CardTitle></CardHeader><CardContent>
+                {rawCycles.filter(cycle => cycle.status === "superseded" || cycle.superseded_by_cycle_id)
+                  .sort((a, b) => a.start_date.localeCompare(b.start_date) || a.cycle_number - b.cycle_number)
+                  .map(cycle => <p key={cycle.id}>Ciclo {cycle.cycle_number} · Substituído / histórico · {safeFormatDate(cycle.start_date, "dd/MM/yyyy")} a {safeFormatDate(cycle.end_date, "dd/MM/yyyy")}</p>)}
+              </CardContent></Card>
+            )}
             {/* Provas e metas alvo (aparecem no calendário do aluno e na agenda) */}
             {id && (
               <CollapsibleCard title="PROVAS E METAS" icon={<CalendarDays className="h-4 w-4" />}>
@@ -2139,6 +2177,7 @@ export default function StudentDetail() {
                 </div>
                 {activePrescriptionPanel === "prescricao" && (
                   <ManualPrescriptionPanel
+                    eligibilityMessage={!manualPrescriptionEnrollment ? "Sem matrícula elegível para nova prescrição. O histórico permanece disponível; revise a vigência pelo fluxo de matrícula." : undefined}
                     cycles={manualPrescriptionCycles}
 	                    selectedCycle={manualSelectedCycle}
 	                    onCycleChange={setManualPrescriptionCycleId}
@@ -2417,7 +2456,7 @@ export default function StudentDetail() {
             <StudentWorkoutFeedbackCard studentId={student.id} />
             <Suspense fallback={<TabFallback />}>
               <TrainerWeeklyBar studentId={id!} />
-              <WorkoutAnalysis studentId={id!} />
+              <WorkoutAnalysis studentId={id!} companyId={student.company_id} />
               <StudentVolumePanel studentId={id!} />
             </Suspense>
           </TabsContent>
@@ -2428,10 +2467,20 @@ export default function StudentDetail() {
               <StudentBodyMap studentId={id!} />
             </Suspense>
             <ProgressPhotosPanel studentId={id!} />
+            {id && student.company_id && <Card><CardHeader><CardTitle>Arquivos anexados</CardTitle></CardHeader><CardContent>
+              <StudentFilesPanel studentId={id} companyId={student.company_id} />
+            </CardContent></Card>}
+            <Card><CardHeader><CardTitle>Avaliações funcionais</CardTitle></CardHeader><CardContent>
+              {evaluationsReadError && <p role="alert">Não foi possível carregar todas as fontes de avaliação.</p>}
+              {evaluationsLoading ? <p>Carregando avaliações…</p> : functionalEvaluations.length ? functionalEvaluations.map(evaluation => <p key={evaluation.id}>
+                Avaliação funcional · {safeFormatDate(evaluation.assessment_date || evaluation.created_at, "dd/MM/yyyy")} · {evaluation.status || "Status não informado"}
+              </p>) : <p>Sem registros funcionais disponíveis.</p>}
+              <p className="text-xs text-muted-foreground">Avaliações funcionais, anexos e notas manuais são fontes separadas; arquivos não representam achados clínicos estruturados.</p>
+            </CardContent></Card>
             <Card className="bg-card border-border">
               <CardHeader>
                 <CardTitle className="text-primary text-lg flex items-center gap-2">
-                  <FileText className="h-5 w-5" />AVALIAÇÕES
+                  <FileText className="h-5 w-5" />Registros manuais
                   <BnitoContextButton
                     label="avaliacoes do aluno"
                     context={`Avaliacoes do aluno ${student.full_name}: fotos, audios, observacoes e registros que podem influenciar treino.`}

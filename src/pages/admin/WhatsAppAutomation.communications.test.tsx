@@ -56,3 +56,14 @@ it('ignores a previous company response after unmount and replacement',async()=>
   old(result([row]));
   await waitFor(()=>expect(screen.queryByText('Anamnese interciclos')).not.toBeInTheDocument());
 });
+it('does not diagnose uncertain delivery before a successful inspection with occurrences', async () => {
+  let resolve!: (value: unknown) => void;
+  mocks.rpc.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+  render(<DispatchReconciliationPanel companyId="company-a" />);
+  expect(screen.getByRole('status')).toHaveTextContent('Consultando');
+  expect(screen.queryByText(/Resultado de envio incerto/)).toBeNull();
+  resolve(result([]));
+  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+  expect(screen.queryByText(/Resultado de envio incerto/)).toBeNull();
+  expect(mocks.rpc).toHaveBeenCalledTimes(1);
+});

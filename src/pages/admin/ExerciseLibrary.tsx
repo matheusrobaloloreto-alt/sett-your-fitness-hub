@@ -1,3 +1,4 @@
+import { normalizeSearchText } from "@/lib/normalizeSearchText";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -455,7 +456,7 @@ export default function ExerciseLibrary() {
   }, [search, filterGroup, categoryFilters, effectiveCompanyId]);
 
   const filtered = useMemo(() => exercises.filter((ex) => {
-    const matchSearch = ex.name.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = normalizeSearchText(ex.name).includes(normalizeSearchText(search));
     const matchGroup = filterGroup === "all" || normalizedExerciseLibraryGroup(ex) === filterGroup;
     const exCategories = normalizedExerciseCategories(ex);
     const matchCategory = categoryFilters.length === 0 || exCategories.some((category) => categoryFilters.includes(category));
@@ -868,10 +869,10 @@ export default function ExerciseLibrary() {
                       </div>
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         {canEditMetadata(ex) && <Button variant="ghost" size="icon" className="h-7 w-7" title="Contexto tecnico" aria-label={`Contexto tecnico de ${ex.name}`} onClick={() => void openMetadata(ex)}><Dumbbell className="h-4 w-4" /></Button>}
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(ex)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Editar ${ex.name}`} onClick={() => openEdit(ex)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(ex.id)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Excluir ${ex.name}`} onClick={() => handleDelete(ex.id)}>
                           <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
                       </div>
@@ -1118,6 +1119,7 @@ export default function ExerciseLibrary() {
                           <Button
                             type="button" variant="ghost" size="icon"
                             className="h-6 w-6 flex-shrink-0"
+                            aria-label={`Remover músculo principal ${idx + 1}`}
                             onClick={() => removeSlot(primaryMuscleIds, setPrimaryMuscleIds, idx)}
                           >
                             <Trash2 className="h-3 w-3 text-destructive" />
@@ -1158,6 +1160,7 @@ export default function ExerciseLibrary() {
                           <Button
                             type="button" variant="ghost" size="icon"
                             className="h-6 w-6 flex-shrink-0"
+                            aria-label={`Remover músculo secundário ${idx + 1}`}
                             onClick={() => removeSlot(secondaryMuscleIds, setSecondaryMuscleIds, idx)}
                           >
                             <Trash2 className="h-3 w-3 text-destructive" />

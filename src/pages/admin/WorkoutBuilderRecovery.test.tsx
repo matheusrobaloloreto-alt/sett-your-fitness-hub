@@ -172,8 +172,8 @@ describe("mounted WorkoutBuilder recovery integration", () => {
     expect(mocks.rpc).not.toHaveBeenCalled();
     expect(rows.get("cycle-a")).toEqual(originalRows);
     expect(templates).toEqual(originalTemplates);
-    fireEvent.click(saveButton());
-    expect(await screen.findByText("Save confirmado QA")).toBeInTheDocument();
+    await act(async () => { fireEvent.click(saveButton()); });
+    expect(screen.getByText("Save confirmado QA")).toBeInTheDocument();
     const call = mocks.rpc.mock.calls.find(([name]) => name === "replace_cycle_workout_revision")![1];
     expect(call.p_workouts.map((workout: Row) => workout.title)).toEqual(["Treino cycle-a QA", "Sessao extra QA"]);
     expect(call.p_expected_rows).toEqual([{ id: "row-cycle-a", updated_at: "2026-09-29T00:00:00Z" }]);

@@ -30,7 +30,7 @@ const NotFound = () => {
           A rota <code className="bg-muted px-1.5 py-0.5 rounded">{location.pathname}</code> não existe ou você não tem acesso a ela.
         </p>
         <div className="flex gap-3 justify-center pt-2">
-          <Button onClick={() => navigate(homePath)}>Voltar ao painel</Button>
+          <Button onClick={() => navigate(homePath)}>{role && dashboardMap[role] ? "Voltar ao painel" : "Ir para início"}</Button>
           <Button variant="outline" onClick={() => window.location.reload()}>
             Recarregar
           </Button>

@@ -62,6 +62,12 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
     if (!canRetainWhatsApp) { setRequest({}); closeChatPanel(); }
   }, [canRetainWhatsApp, closeChatPanel]);
 
+  useEffect(() => {
+    document.documentElement.dataset.settChatOpen = String(isOpen);
+    window.dispatchEvent(new CustomEvent("sett:chat-layout", { detail: { open: isOpen } }));
+    return () => { delete document.documentElement.dataset.settChatOpen; window.dispatchEvent(new CustomEvent("sett:chat-layout", { detail: { open: false } })); };
+  }, [isOpen]);
+
   const value = useMemo(
     () => ({ isAvailable: canUseWhatsApp, openChatPanel, closeChatPanel, isChatPanelOpen: isOpen }),
     [canUseWhatsApp, closeChatPanel, isOpen, openChatPanel],
@@ -76,7 +82,8 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
             <Button
               type="button"
               size="lg"
-              className="fixed bottom-4 right-4 z-40 gap-2 rounded-full px-4 shadow-lg max-[380px]:px-3 sm:bottom-6 sm:right-6"
+              style={{ bottom: "calc(var(--sett-install-height, 0px) + max(1rem, env(safe-area-inset-bottom, 0px)))" }}
+              className="fixed right-4 z-40 gap-2 rounded-full px-4 shadow-lg max-[380px]:px-3 sm:bottom-6 sm:right-6"
               onClick={() => openChatPanel()}
               aria-label="Abrir conversas do WhatsApp"
               title="Abrir conversas do WhatsApp"

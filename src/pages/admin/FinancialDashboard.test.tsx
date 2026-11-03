@@ -47,6 +47,7 @@ function localPayment(id = "local-parent", providerId: string | null = "pay_1", 
 }
 type LocalPayment = ReturnType<typeof localPayment>;
 let localRows: LocalPayment[] = [];
+let fiscalPending: Promise<{ data: object; error: null }> | null = null;
 let readFailure: { table: string; head?: boolean; reject?: boolean } | null = null;
 
 function entry(n: number, overrides: Partial<FinancialProjectionEntry> = {}): FinancialProjectionEntry {
@@ -85,8 +86,9 @@ beforeEach(() => {
   mocks.toast.mockReset();
   localRows = [localPayment()];
   readFailure = null;
+  fiscalPending = null;
   mocks.invoke.mockImplementation(async (_name, args) =>
-    args.body.action === "financial-installment-snapshot" ? snapshot() : { data: { status: "SCHEDULED" }, error: null });
+    args.body.action === "financial-installment-snapshot" ? snapshot() : { data: { invoiceId: "inv-fixture", status: "SCHEDULED" }, error: null });
   mocks.from.mockImplementation((table: string) => {
     let company: string | undefined;
     let head = false;
@@ -95,6 +97,7 @@ beforeEach(() => {
       eq: (column: string, value: string) => { if (column === "company_id") company = value; return query; },
       in: () => query, order: () => query, limit: () => query, range: () => query,
       maybeSingle: async () => {
+        if (fiscalPending) return fiscalPending;
         if (readFailure?.table === table) {
           if (readFailure.reject) throw new TypeError('fixture offline');
           return { data: null, error: new Error('fixture denied') };
@@ -150,7 +153,7 @@ describe("FinancialDashboard authoritative installment snapshot", () => {
     localRows.push(localPayment("local-child", "pay_2", "company-a", 230));
     mocks.invoke.mockImplementation(async (_name, args) => args.body.action === "financial-installment-snapshot"
       ? snapshot(Array.from({ length: 6 }, (_, i) => entry(i + 1, i === 1 ? { localPaymentIds: ["local-child"] } : {})))
-      : { data: { status: "SCHEDULED" }, error: null });
+      : { data: { invoiceId: "inv-fixture", status: "SCHEDULED" }, error: null });
     render(<FinancialDashboard />);
     await loaded();
     const rows = within(history()).getAllByRole("row").slice(1);
@@ -345,9 +348,47 @@ it('ignores a prior-company sync response without reloading old tenant or celebr
   mocks.master = { viewingCompany: { id: 'company-b' }, isViewingCompany: true };
   view.rerender(<FinancialDashboard />);
   await waitFor(() => expect(within(history()).getByText('R$ 90,00')).toBeInTheDocument());
+  expect(screen.getByRole('button', { name: 'Sincronizar' })).toBeEnabled();
   await act(async () => oldSync.resolve({ data: { message: 'fixture synced' }, error: null }));
   expect(within(history()).getByText('R$ 90,00')).toBeInTheDocument();
   expect(mocks.toast.mock.calls.some(([args]) => args.title === 'Sincronização concluída')).toBe(false);
   expect(mocks.invoke.mock.calls.filter(([, args]) => args.body.action === 'financial-installment-snapshot')
     .map(([, args]) => args.body.companyId)).toEqual(['company-a', 'company-b']);
+});
+
+ it('shows local rows while the external snapshot remains pending, then replaces cards without doubling', async () => {
+  const pending = deferred<ReturnType<typeof snapshot>>();
+  localRows.push({ ...localPayment('pix', null, 'company-a', 75), billing_type: 'PIX', students: { full_name: 'Local PIX' } });
+  mocks.invoke.mockReturnValue(pending.promise);
+  render(<FinancialDashboard />);
+  await loaded();
+  expect(within(history()).getByText('Local PIX')).toBeInTheDocument();
+  expect(cashCard()).toHaveTextContent(/parcial|indisponível/i);
+  expect(within(history()).queryByText('R$ 1.380,00')).not.toBeInTheDocument();
+  await act(async () => pending.resolve(snapshot()));
+  await waitFor(() => expect(within(history()).getAllByText('R$ 230,00')).toHaveLength(6));
+  expect(cashCard()).toHaveTextContent('R$ 1.455,00');
+ });
+
+it('does not fabricate creation dates for provider entries without dates', async () => {
+  mocks.invoke.mockResolvedValue(snapshot([entry(1, { dateCreated: null, dueDate: null, creditDate: null, estimatedCreditDate: null })]));
+  render(<FinancialDashboard />);
+  await loaded();
+  const row = within(history()).getAllByRole('row')[1];
+  expect(row).toHaveTextContent('Data não informada pelo provedor');
+  expect(row).not.toHaveTextContent('Criação: 09/09/2026');
+  expect(cashCard()).toHaveTextContent('R$ 0,00');
+});
+
+it.each(['unmount', 'role-change'])('cancels invoice preflight after %s', async transition => {
+  const view = render(<FinancialDashboard />);
+  await loaded();
+  const pending = deferred<{ data: object; error: null }>();
+  fiscalPending = pending.promise;
+  fireEvent.click(within(history()).getByRole('button', { name: /emitir nota/i }));
+  if (transition === 'unmount') view.unmount();
+  else { mocks.auth.role = 'trainer'; view.rerender(<FinancialDashboard />); }
+  await act(async () => pending.resolve({ data: { cpf: '00000000000', cep: '00000000', address: 'Fixture', country_code: 'BR' }, error: null }));
+  expect(mocks.invoke.mock.calls.filter(([, args]) => args.body.action === 'create-invoice')).toHaveLength(0);
+  expect(mocks.toast).not.toHaveBeenCalled();
 });

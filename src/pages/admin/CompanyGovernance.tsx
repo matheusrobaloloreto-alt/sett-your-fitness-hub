@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMaster } from '@/contexts/MasterContext';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
-  changeCompanyGovernance, fetchCompanyGovernance, governanceError, GOVERNANCE_PERMISSIONS,
+  changeCompanyGovernance, fetchCompanyGovernance, governanceError, governanceMemberLabel, GOVERNANCE_PERMISSIONS,
   type GovernanceAction, type GovernanceSnapshot,
 } from '@/lib/companyGovernance';
 
 export default function CompanyGovernance() {
-  const { user, companyId, loading } = useAuth();
+  const { user, companyId: authCompanyId, loading, role } = useAuth();
+  const { viewingCompany, contextLoading, contextError } = useMaster();
+  const companyId = role === 'master' ? viewingCompany?.id : authCompanyId;
+  if (role === 'master' && contextLoading) return <p role="status">Carregando empresa…</p>;
+  if (role === 'master' && contextError) return <p role="alert">{contextError}</p>;
   if (loading) return <p role="status">Carregando sessão…</p>;
   if (!user || !companyId) return <p role="alert">Selecione uma empresa com acesso de equipe.</p>;
   // Remount on tenant OR identity changes: a late response cannot populate another company.
@@ -52,7 +57,7 @@ function GovernanceEditor({companyId,actorId}:{companyId:string;actorId:string})
     finally {running.current=false;if(alive.current)setBusy(false);}
   };
   const locked=busy || needsReload || !snapshot?.can_manage;
-  const memberName=(id:string|null)=>snapshot?.members.find(m=>m.user_id===id)?.name || id || 'Não definido';
+  const memberName=(id:string|null)=>{const member=snapshot?.members.find(m=>m.user_id===id);return member ? governanceMemberLabel(member) : 'Não definido';};
   const eligible=snapshot?.members.filter(m=>m.roles.includes('admin') && m.user_id!==actorId) || [];
   const pending=snapshot?.transfers.some(t=>t.status==='pending');
   return <main className="mx-auto max-w-4xl space-y-6 p-4">
@@ -63,27 +68,32 @@ function GovernanceEditor({companyId,actorId}:{companyId:string;actorId:string})
     {!snapshot && <p role="status">{busy?'Carregando governança…':'Governança indisponível.'}</p>}
     {snapshot && <>
       <Card><CardHeader><CardTitle>Propriedade</CardTitle></CardHeader><CardContent className="space-y-4">
-        <p><strong>Proprietário atual:</strong> {memberName(snapshot.owner_id)}</p>
+        <p><strong>Proprietário atual:</strong> {memberName(snapshot.owner_id ?? snapshot.legacy_owner_id ?? null)}</p>
+        {snapshot.pending_confirmation && <p>Proprietário legado: cadastro pendente de confirmação.</p>}
+        {snapshot.owner_kind === 'legacy' && snapshot.can_initialize && snapshot.legacy_owner_id === actorId && <fieldset disabled={locked} className="space-y-3">
+          <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Confirmo o registro da minha propriedade legada nesta empresa: {memberName(actorId)}.</label>
+          <Button disabled={locked || !confirmed} onClick={()=>void mutate('initialize_owner',{expected_legacy_owner_id:snapshot.legacy_owner_id})}>Confirmar proprietário</Button>
+        </fieldset>}
         <p className="text-sm text-muted-foreground">Transfere o cadastro de proprietário da empresa após aceite do destinatário. Os acessos atuais da equipe e dos alunos são preservados. Faturamento e titularidade jurídica não são alterados.</p>
         {snapshot.can_manage && snapshot.owner_id===actorId && <fieldset disabled={locked || pending} className="space-y-3">
           <label className="block">Novo proprietário (administrador existente)
             <select className="mt-1 block w-full rounded border bg-background p-2" value={recipient} onChange={e=>{setRecipient(e.target.value);setConfirmed(false);}}>
               <option value="">Selecione o membro exato</option>
-              {eligible.map(m=><option key={m.user_id} value={m.user_id}>{m.name} · {m.user_id}</option>)}
+              {eligible.map(m=><option key={m.user_id} value={m.user_id}>{governanceMemberLabel(m)}</option>)}
             </select></label>
           {!eligible.length && <p>É necessário outro administrador já vinculado à empresa. Nenhum acesso será concedido automaticamente.</p>}
-          {recipient && <p className="break-all">Destinatário: {memberName(recipient)} · {recipient}</p>}
-          <label className="flex items-start gap-2"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Confirmo o destinatário e a solicitação de transferência.</label>
+          {recipient && <p className="break-all">Destinatário: {memberName(recipient)}</p>}
+          <label className="flex items-start gap-2"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Confirmo o destinatário {memberName(recipient)} e a solicitação de transferência.</label>
           <Button disabled={!recipient || !confirmed || locked || pending} onClick={()=>void mutate('request_transfer',{recipient_id:recipient})}>Solicitar transferência</Button>
         </fieldset>}
         {pending && <p>Existe uma solicitação pendente. Resolva-a antes de solicitar outra.</p>}
         <p className="text-sm">O pedido aparece aqui para o destinatário; expira em 48 horas.</p>
         {snapshot.transfers.map(t=><div key={t.id} className="space-y-2 rounded border p-3">
           <p>Solicitação para {memberName(t.recipient_id)} · {t.status}</p>
-          <p className="break-all text-xs">Membro: {t.recipient_id} · Vence: {new Date(t.expires_at).toLocaleString('pt-BR')}</p>
+          <p className="break-all text-xs">Vence: {new Date(t.expires_at).toLocaleString('pt-BR')}</p>
           {t.status==='pending' && (t.requester_id===actorId || t.recipient_id===actorId) && <div className="flex flex-wrap items-center gap-3">
             {t.recipient_id===actorId && <>
-              <label className="flex items-start gap-2"><input type="checkbox" checked={acceptId===t.id} disabled={locked} onChange={e=>setAcceptId(e.target.checked?t.id:'')}/>Confirmo o aceite da propriedade desta empresa.</label>
+              <label className="flex items-start gap-2"><input type="checkbox" checked={acceptId===t.id} disabled={locked} onChange={e=>setAcceptId(e.target.checked?t.id:'')}/>Confirmo o aceite da propriedade desta empresa para {memberName(actorId)}.</label>
               <Button disabled={locked || acceptId!==t.id} onClick={()=>void mutate('accept_transfer',{request_id:t.id})}>Aceitar transferência</Button>
             </>}
             <Button variant="outline" disabled={locked} onClick={()=>void mutate('cancel_transfer',{request_id:t.id})}>Cancelar solicitação</Button>
@@ -108,7 +118,7 @@ function GovernanceEditor({companyId,actorId}:{companyId:string;actorId:string})
             </select></label>
           <label className="block">Professor existente
             <select className="mt-1 block w-full rounded border bg-background p-2" value={trainerId} onChange={e=>setTrainerId(e.target.value)}>
-              <option value="">Selecione</option>{snapshot.members.filter(m=>m.roles.includes('trainer')).map(m=><option key={m.user_id} value={m.user_id}>{m.name} · {m.user_id}</option>)}
+              <option value="">Selecione</option>{snapshot.members.filter(m=>m.roles.includes('trainer')).map(m=><option key={m.user_id} value={m.user_id}>{governanceMemberLabel(m)}</option>)}
             </select></label>
           <Button disabled={locked || !bundleId || !trainerId} onClick={()=>void mutate('assign_role',{role_id:bundleId,user_id:trainerId})}>Atribuir papel</Button>
         </fieldset>}

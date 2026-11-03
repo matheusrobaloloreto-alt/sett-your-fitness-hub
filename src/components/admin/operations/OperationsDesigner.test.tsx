@@ -26,7 +26,7 @@ beforeEach(()=>{
 afterEach(cleanup);
 it('edits, saves, reads back and renders the saved report in the actual dashboard consumer',async()=>{
  mount();await screen.findByText('Etapas do funil');
- fireEvent.change(screen.getByLabelText('Rótulo contacted'),{target:{value:'Conversa iniciada'}});
+ fireEvent.change(screen.getByDisplayValue(defaultOperations().stages.find(s=>s.code==='contacted')!.label),{target:{value:'Conversa iniciada'}});
  fireEvent.click(screen.getByText('Adicionar relatório'));
  fireEvent.click(screen.getByText('Salvar operação'));
  await screen.findByText('Salvo e relido do servidor.');
@@ -38,13 +38,13 @@ it('edits, saves, reads back and renders the saved report in the actual dashboar
 });
 it('preserves the draft after a conflict and reloads the server version explicitly',async()=>{
  mount();await screen.findByText('Etapas do funil');
- fireEvent.change(screen.getByLabelText('Rótulo contacted'),{target:{value:'Local'}});
+ fireEvent.change(screen.getByDisplayValue(defaultOperations().stages.find(s=>s.code==='contacted')!.label),{target:{value:'Local'}});
  stored={settings:defaultOperations(),version:2};stored.settings.stages.find(s=>s.code==='contacted')!.label='Outra edição';
  fireEvent.click(screen.getByText('Salvar operação'));
  await screen.findByText('Conflito. Recarregue.');
- expect(screen.getByLabelText('Rótulo contacted')).toHaveValue('Local');
+ expect(screen.getByLabelText('Rótulo Local')).toHaveValue('Local');
  fireEvent.click(screen.getByText('Recarregar do servidor'));
- await waitFor(()=>expect(screen.getByLabelText('Rótulo contacted')).toHaveValue('Outra edição'));
+ await waitFor(()=>expect(screen.getByLabelText('Rótulo Outra edição')).toHaveValue('Outra edição'));
 });
 it('refuses the editor for a coordinator',()=>{state.role='coordinator';mount();expect(screen.getByRole('alert')).toHaveTextContent('Apenas administradores');expect(api.fetchCompanyOperations).not.toHaveBeenCalled();});
 it('does not display invented metrics when the aggregate source fails',async()=>{

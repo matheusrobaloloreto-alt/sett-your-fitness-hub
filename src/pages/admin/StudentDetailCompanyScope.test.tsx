@@ -6,10 +6,12 @@ const mocks = vi.hoisted(() => ({
   auth: { role: "trainer" as string | null, companyId: "company-a" as string | null, session: { user: { id: "actor" } } },
   master: { viewingCompany: null as { id: string } | null, isViewingCompany: false },
   from: vi.fn(), rpc: vi.fn(), invoke: vi.fn(), openChat: vi.fn(), toast: vi.fn(), navigate: vi.fn(), studentCompany: "company-a",
+  search: "?tab=program&draft=keep&returnTo=%2Fadmin%2Fstudents",
   studentTrainer: "profile-trainer",
   studentCountry: "BR" as string | null,
   studentPhone: "48999990001",
   studentWhatsApp: "48999990001",
+  functional: [] as Array<Record<string, unknown>>,
   cycles: [] as Array<Record<string, unknown>>,
   cycleReadError: false,
   reassignError: null as { message: string; code: string } | null,
@@ -24,7 +26,7 @@ vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }
 vi.mock("@/hooks/useExerciseVolumeTargets", () => ({ useExerciseVolumeTargets: () => [] }));
 vi.mock("react-router-dom", () => ({
   useParams: () => ({ id: "student-a" }), useNavigate: () => mocks.navigate,
-  useLocation: () => ({ pathname: "/admin/students/student-a", search: "?tab=program", state: null }),
+  useLocation: () => ({ pathname: "/admin/students/student-a", search: mocks.search, state: null }),
 }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: mocks.from, rpc: mocks.rpc, functions: { invoke: mocks.invoke } } }));
 vi.mock("@/components/ui/select", async () => {
@@ -68,6 +70,8 @@ vi.mock('@/lib/studentChat', async original => ({ ...await original<typeof impor
 import StudentDetail from "./StudentDetail";
 
 beforeEach(() => {
+  mocks.search = "?tab=program&draft=keep&returnTo=%2Fadmin%2Fstudents";
+  mocks.functional = [];
   mocks.auth.role = "trainer";
   mocks.auth.companyId = "company-a";
   mocks.master = { viewingCompany: null, isViewingCompany: false };
@@ -125,7 +129,7 @@ beforeEach(() => {
         } : null, error: null };
       },
       then: (resolve: (result: object) => unknown) => {
-        const data = table === "training_cycles" ? mocks.cycles : table === "enrollments" ? mocks.enrollments
+        const data = table === "functional_assessments" ? mocks.functional : table === "training_cycles" ? mocks.cycles : table === "enrollments" ? mocks.enrollments
           : table === "plans" ? [
             { id: "plan-a", name: "Fixture Plan", duration_weeks: 6, plan_kind: "paid" },
             { id: "plan-completed", name: "Historic Completed", duration_weeks: 6, plan_kind: "paid" },
@@ -458,4 +462,31 @@ it('shows a persisted full thirteen-digit BR contact correctly in the header and
  const dialog = await screen.findByRole('dialog');
  expect(within(dialog).getByLabelText('WhatsApp')).toHaveValue('+5511981234567');
  expect(within(dialog).queryByRole('checkbox', { name: /Conferi a identidade/ })).not.toBeInTheDocument();
+});
+
+it('persists tab navigation in the URL while preserving other parameters', async () => {
+ render(<StudentDetail />);
+ fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Avaliação' }), { button: 0, ctrlKey: false });
+ expect(mocks.navigate).toHaveBeenCalledWith(expect.objectContaining({ search: '?tab=evaluations&draft=keep&returnTo=%2Fadmin%2Fstudents' }), expect.objectContaining({ replace: false }));
+});
+
+it('follows back/forward URL changes without stale tab state', async () => {
+ mocks.search = '?tab=analytics&draft=keep';
+ const view = render(<StudentDetail />);
+ await waitFor(() => expect(screen.getByRole('tab', { name: 'Análise' })).toHaveAttribute('data-state', 'active'));
+ mocks.search = '?draft=keep';
+ view.rerender(<StudentDetail />);
+ await waitFor(() => expect(screen.getByRole('tab', { name: 'Visão geral' })).toHaveAttribute('data-state', 'active'));
+ mocks.search = '?tab=program&draft=keep&returnTo=%2Fadmin%2Fstudents';
+});
+
+it('labels functional records separately from manual evaluations without clinical inference', async () => {
+ mocks.functional = [{ id: 'functional-1', assessment_date: '2026-10-29', created_at: '2026-10-29', status: 'completed' }];
+ render(<StudentDetail />);
+ fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Avaliação' }), { button: 0, ctrlKey: false });
+ expect(await screen.findByText(/Avaliação funcional · 29\/10\/2026/)).toBeInTheDocument();
+ expect(screen.getByText(/Registros manuais/)).toBeInTheDocument();
+ expect(screen.getByText(/arquivos não representam achados clínicos estruturados/)).toBeInTheDocument();
+ expect(screen.queryByText(/student_evaluations|functional_assessments/)).not.toBeInTheDocument();
+ expect(mocks.writes).toEqual([]);
 });

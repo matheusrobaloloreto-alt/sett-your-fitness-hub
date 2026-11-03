@@ -33,6 +33,7 @@ export function DispatchReconciliationPanel({ companyId }: { companyId: string }
   const load = useCallback(async () => {
     const request = ++generation.current;
     setLoading(true);
+    setRows([]); setSelected(null); setFailure('');
     try {
       const result = await reconciliationClient.rpc('inspect_company_dispatch_reconciliation', { _company_id: companyId });
       if (request !== generation.current) return;
@@ -77,7 +78,7 @@ export function DispatchReconciliationPanel({ companyId }: { companyId: string }
       <h2 className="font-medium">Entregas em revisão {rows.length ? `(${rows.length}${rows.length === 50 ? '+' : ''})` : ''}</h2>
       <Button size="sm" variant="outline" disabled={loading || busy} onClick={() => { setFailure(''); setSelected(null); void load(); }}>Atualizar envios</Button>
     </div>
-    <p className="text-muted-foreground">Resultado de envio incerto. Confirmação técnica pendente; reenvio automático suspenso.</p>
+    {!loading && !failure && rows.length > 0 && <p className="text-muted-foreground">Resultado de envio incerto. Confirmação técnica pendente; reenvio automático suspenso.</p>}
     {loading && <p role="status">Consultando envios...</p>}
     {failure && <p role="alert">{failure}</p>}
     <ul className="mt-2 max-h-48 overflow-y-auto space-y-2">{rows.map(row => <li key={`${row.source}:${row.id}`} className="flex flex-wrap justify-between items-center gap-2">

@@ -1,4 +1,6 @@
-import { useEffect, useState, useRef } from "react";
+import { selectPrescriptionEnrollment } from "@/lib/prescriptionSchedule";
+import { normalizeSearchText } from "@/lib/normalizeSearchText";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,6 +52,8 @@ interface Student {
   enrollment_trainer_id?: string | null;
   created_at: string;
   plan_name?: string;
+  has_current_contract?: boolean;
+  contract_read_error?: boolean;
 }
 
 interface Plan {
@@ -107,6 +111,11 @@ function findDuplicateStudent(students: Student[], payload: { email: string | nu
 
 export default function StudentsManager() {
   const [students, setStudents] = useState<Student[]>([]);
+  const loadGeneration = useRef(0);
+  const contextRef = useRef("");
+  const [loadError, setLoadError] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [contractReadError, setContractReadError] = useState(false);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [trainers, setTrainers] = useState<Trainer[]>([]);
   const [searchParams] = useSearchParams();
@@ -150,64 +159,74 @@ export default function StudentsManager() {
     && ["trainer", "coordinator", "admin", "master"].includes(role || "");
   const rolePrefix = role === "coordinator" ? "/coordinator" : role === "trainer" ? "/trainer" : "/admin";
 
-  useEffect(() => { loadData(); }, [effectiveCompanyId]);
+  const readContext = `${effectiveCompanyId || ""}:${role || ""}:${session?.user?.id || ""}`;
+  contextRef.current = readContext;
 
-  const loadData = async () => {
-    // Don't load until we know which company we're in (avoids empty trainers list on first paint)
-    if (!effectiveCompanyId) return;
-
-    const studentsQuery = supabase.from("students").select("*").eq("company_id", effectiveCompanyId).order("full_name");
-    const plansQuery = supabase.from("plans").select("id, name, duration_weeks, duration_days, plan_kind").eq("is_active", true).eq("company_id", effectiveCompanyId).order("name");
-    setTrainers([]);
-    const directoryQuery = (supabase as any).rpc("get_company_student_staff_directory", { _company_id: effectiveCompanyId });
-
-    const [{ data: studentsData }, { data: plansData }, { data: directoryData, error: directoryError }] = await Promise.all([
-      studentsQuery,
-      plansQuery,
-      directoryQuery,
-    ]);
-
-    setPlans(plansData || []);
-
-    if (directoryError) {
-      toast({ title: "Erro ao carregar equipe", description: directoryError.message, variant: "destructive" });
-    }
-    setTrainers(directoryError ? [] : ((directoryData || []) as Array<Trainer & { roles: string[] }>)
-      .map((member) => ({ user_id: member.user_id, full_name: member.full_name || "Sem nome" }))
-      .sort((a, b) => a.full_name.localeCompare(b.full_name, "pt-BR")));
-
-    // Load enrollments for plan names
-    if (studentsData) {
-      const studentIds = studentsData.map(s => s.id);
-      const { data: enrollments } = await supabase
-        .from("enrollments").select("student_id, plan_id, trainer_id, status")
-        .in("student_id", studentIds).in("status", ["active", "awaiting_training", "awaiting_renewal"]);
-
-      const planMap = new Map((plansData || []).map(p => [p.id, p.name]));
-      const studentPlanMap = new Map<string, string>();
-      const studentEnrollPlanIdMap = new Map<string, string>();
-      const studentEnrollmentTrainerMap = new Map<string, string>();
-      (enrollments || []).forEach(e => {
-        if (!studentPlanMap.has(e.student_id)) {
-          studentPlanMap.set(e.student_id, planMap.get(e.plan_id) || "");
-          studentEnrollPlanIdMap.set(e.student_id, e.plan_id);
-          if (e.trainer_id) studentEnrollmentTrainerMap.set(e.student_id, e.trainer_id);
-        }
+  const loadData = useCallback(async () => {
+    const context = readContext;
+    if (context !== contextRef.current) return;
+    const generation = ++loadGeneration.current;
+    const current = () => generation === loadGeneration.current && contextRef.current === context;
+    setStudents([]); setPlans([]); setTrainers([]);
+    setContractReadError(false); setLoadError(false); setLoading(false);
+    if (!effectiveCompanyId || !canManageCompanyStudents) return;
+    setLoading(true);
+    try {
+      const [studentRead, planRead, directoryRead] = await Promise.all([
+        supabase.from("students").select("*").eq("company_id", effectiveCompanyId).order("full_name"),
+        supabase.from("plans").select("id, name, duration_weeks, duration_days, plan_kind").eq("is_active", true).eq("company_id", effectiveCompanyId).order("name"),
+        (supabase as any).rpc("get_company_student_staff_directory", { _company_id: effectiveCompanyId }),
+      ]);
+      if (!current()) return;
+      if (studentRead.error || (studentRead.data || []).some(student => student.company_id !== effectiveCompanyId)) throw new Error("Student scope unavailable");
+      const studentsData = studentRead.data || [];
+      const studentIds = studentsData.map(student => student.id);
+      const enrollmentRead = studentIds.length ? await supabase.from("enrollments")
+        .select("id, student_id, company_id, plan_id, trainer_id, status, start_date, end_date, training_start_date, created_at")
+        .eq("company_id", effectiveCompanyId).in("student_id", studentIds).in("status", ["active", "awaiting_training", "awaiting_renewal"])
+        : { data: [], error: null };
+      if (!current()) return;
+      const enrollmentError = Boolean(enrollmentRead.error || (enrollmentRead.data || []).some(row => row.company_id !== effectiveCompanyId || !studentIds.includes(row.student_id)));
+      const enrollments = enrollmentError ? [] : enrollmentRead.data || [];
+      const planIds = [...new Set(enrollments.map(row => row.plan_id))];
+      const metadata = planIds.length ? await supabase.from("plans").select("id, name").eq("company_id", effectiveCompanyId).in("id", planIds) : { data: [], error: null };
+      if (!current()) return;
+      const names = new Map((metadata.error ? [] : metadata.data || []).filter(plan => planIds.includes(plan.id)).map(plan => [plan.id, plan.name]));
+      const enriched = studentsData.map(student => {
+        const enrollment = selectPrescriptionEnrollment(enrollments.filter(row => row.student_id === student.id), {
+          expectedStudentId: student.id, expectedCompanyId: effectiveCompanyId,
+        });
+        return { ...student, selected_plan_id: student.selected_plan_id,
+          enrollment_trainer_id: enrollment?.trainer_id || null,
+          has_current_contract: Boolean(enrollment), contract_read_error: enrollmentError,
+          plan_name: enrollment ? names.get(enrollment.plan_id) : undefined };
       });
-      setStudents(studentsData.map(s => ({
-        ...s,
-        selected_plan_id: s.selected_plan_id || studentEnrollPlanIdMap.get(s.id) || null,
-        enrollment_trainer_id: studentEnrollmentTrainerMap.get(s.id) || null,
-        plan_name: studentPlanMap.get(s.id) || (s.selected_plan_id ? planMap.get(s.selected_plan_id) : undefined)
-      })));
+      setStudents(enriched);
+      setPlans(planRead.error ? [] : planRead.data || []);
+      setTrainers(directoryRead.error ? [] : (directoryRead.data || []).map(member => ({
+        user_id: member.user_id, full_name: member.full_name || "Sem nome",
+      })).sort((a, b) => a.full_name.localeCompare(b.full_name, "pt-BR")));
+      setContractReadError(enrollmentError || Boolean(metadata.error) || enriched.some(student => student.has_current_contract && !student.plan_name));
+      setLoadError(Boolean(planRead.error || directoryRead.error));
+    } catch {
+      if (current()) { setStudents([]); setPlans([]); setTrainers([]); setLoadError(true); }
+    } finally {
+      if (current()) setLoading(false);
     }
-  };
+  }, [readContext, effectiveCompanyId, canManageCompanyStudents]);
+
+  useEffect(() => {
+    setOpen(false); setEditing(null); setForm(emptyForm);
+    void loadData();
+    return () => { loadGeneration.current += 1; };
+  }, [loadData]);
 
   const filtered = students.filter(s => {
+    if (s.company_id !== effectiveCompanyId) return false;
     if (filter !== "all" && s.status !== filter) return false;
     if (search) {
-      const q = search.toLowerCase();
-      return s.full_name.toLowerCase().includes(q) || (s.email?.toLowerCase().includes(q) ?? false) || (s.cpf?.includes(search) ?? false);
+      const q = normalizeSearchText(search);
+      return normalizeSearchText(s.full_name).includes(q) || normalizeSearchText(s.email).includes(q) || (s.cpf?.includes(search) ?? false);
     }
     return true;
   });
@@ -539,6 +558,9 @@ export default function StudentsManager() {
   return (
     <>
       <div className="space-y-6">
+        {loading && <p role="status">Carregando alunos…</p>}
+        {loadError && <p role="alert">Não foi possível carregar todos os dados de alunos, planos ou equipe.</p>}
+        {contractReadError && <p role="alert">Não foi possível confirmar todos os dados contratuais. Falha de leitura ou nome indisponível não significa ausência de contrato.</p>}
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -632,7 +654,7 @@ export default function StudentsManager() {
                       </button>
                       <AthleticClubStar studentId={s.id} companyId={effectiveCompanyId} className="shrink-0" />
                       <Badge variant="outline" className={`text-xs ${statusColors[s.status]}`}>{statusLabels[s.status] || s.status}</Badge>
-                      {s.plan_name && <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">{s.plan_name}</Badge>}
+                      {s.contract_read_error ? <Badge variant="outline">Contrato indisponível: falha de leitura</Badge> : s.has_current_contract && !s.plan_name ? <Badge variant="outline">Plano contratado vigente: nome indisponível</Badge> : s.plan_name ? <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">Plano contratado vigente: {s.plan_name}</Badge> : <Badge variant="outline">Sem plano contratado vigente</Badge>}
                       {s.status === "active" && !s.user_id && <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">Sem acesso</Badge>}
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground font-sans">
@@ -680,9 +702,9 @@ export default function StudentsManager() {
                     </Select>
                   </div>
                   <div className="flex-1 space-y-1">
-                    <Label className="text-xs font-sans text-muted-foreground">Plano</Label>
+                    <Label className="text-xs font-sans text-muted-foreground">Plano escolhido no cadastro</Label>
                     <Select value={s.selected_plan_id || ""} onValueChange={v => handleChangePlan(s.id, v)}>
-                      <SelectTrigger className="bg-secondary border-border h-8 text-xs"><SelectValue placeholder="Selecionar plano" /></SelectTrigger>
+                      <SelectTrigger aria-label="Plano escolhido no cadastro" className="bg-secondary border-border h-8 text-xs"><SelectValue placeholder="Plano escolhido no cadastro" /></SelectTrigger>
                       <SelectContent>{plans.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>

@@ -89,6 +89,7 @@ export default function Portfolio() {
   const [selectedId, setSelectedId] = useState<string>(ALL_STUDENTS);
   const [students, setStudents] = useState<PortfolioStudent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
   const [editingStudent, setEditingStudent] = useState<PortfolioStudent | null>(null);
@@ -146,7 +147,7 @@ export default function Portfolio() {
   useEffect(() => {
     currentScopeRef.current = { companyId: effectiveCompanyId, trainerId: selectedId };
     loadSeqRef.current += 1;
-    setStudents([]);
+    setStudents([]); setLoadError("");
     setTransferStudent(null);
     setTransferSearch("");
     setTransferTargetId("");
@@ -169,7 +170,8 @@ export default function Portfolio() {
       currentScopeRef.current.companyId !== companyIdAtRequest ||
       currentScopeRef.current.trainerId !== selectedIdAtRequest
     ) return;
-    setLoading(true);
+    setLoading(true); setLoadError("");
+    try {
     let studentsQuery = supabase
       .from("students")
       .select("id, company_id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, country_code, notes, assigned_trainer_id")
@@ -178,16 +180,19 @@ export default function Portfolio() {
     if (selectedIdAtRequest !== ALL_STUDENTS) {
       studentsQuery = studentsQuery.eq("assigned_trainer_id", selectedIdAtRequest);
     }
-    const { data: studs } = await studentsQuery;
+    const { data: studs, error } = await studentsQuery;
+    if (error) throw error;
     const list: PortfolioStudent[] = (studs || []) as any[];
     const ids = list.map((s) => s.id);
     if (ids.length) {
-      const [{ data: cycles }, { data: chats }, { data: enrollments }, cad] = await Promise.all([
+      const [cyclesResult, chatsResult, enrollmentsResult, cad] = await Promise.all([
         (supabase as any).from("training_cycles").select("student_id, end_date").in("student_id", ids).eq("status", "active"),
         (supabase as any).from("whatsapp_chats").select("id, student_id").in("student_id", ids),
         (supabase as any).from("enrollments").select("student_id, trainer_id, status").in("student_id", ids).in("status", ["active", "awaiting_training", "awaiting_renewal"]),
-        (supabase as any).rpc("contact_cadence", { _company_id: companyIdAtRequest }).then((r: any) => r, () => ({ data: null })),
+        (supabase as any).rpc("contact_cadence", { _company_id: companyIdAtRequest }).then((r: any) => r, () => ({ data: null, error: true })),
       ]);
+      if ([cyclesResult, chatsResult, enrollmentsResult, cad].some(result => result.error)) throw new Error("Dados complementares indisponíveis");
+      const cycles = cyclesResult.data, chats = chatsResult.data, enrollments = enrollmentsResult.data;
       const cycleMap = new Map<string, string>();
       (cycles || []).forEach((c: any) => {
         const cur = cycleMap.get(c.student_id);
@@ -217,9 +222,13 @@ export default function Portfolio() {
     ) return;
     setStudents(list);
     setLoading(false);
+    } catch {
+      if (loadSeqRef.current !== requestId) return;
+      setStudents([]); setLoadError("Não foi possível carregar a carteira. Tente novamente."); setLoading(false);
+    }
   }, [effectiveCompanyId, selectedId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); return () => { loadSeqRef.current++; }; }, [load]);
 
   const openEditStudent = (student: PortfolioStudent) => {
     if (bulkInteractionLocked || !canManageStudent(student)) return;
@@ -545,7 +554,7 @@ export default function Portfolio() {
         <h1 className="flex items-center gap-2 text-xl font-semibold text-primary">
           <Briefcase className="h-5 w-5" /> Carteira
         </h1>
-        <Badge variant="outline" className="text-sm">{students.length} aluno(s)</Badge>
+        <Badge variant="outline" className="text-sm">{effectiveCompanyId && !loading && !loadError ? `${students.length} aluno(s)` : "Carteira não consolidada"}</Badge>
         {canPickOthers && (
           <Select value={selectedId} onValueChange={handleSelectedTrainerChange} disabled={bulkInteractionLocked}>
             <SelectTrigger className="ml-auto h-9 w-[240px]"><SelectValue placeholder="Escolher colaborador" /></SelectTrigger>
@@ -571,7 +580,7 @@ export default function Portfolio() {
             className={cn("rounded-full border px-3 py-1 text-xs transition",
               bulkInteractionLocked && "cursor-not-allowed opacity-60",
               statusFilter === st ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground")}>
-            {st === "todos" ? "Todos" : STATUS_LABEL[st] || st} {counts[st] ? `(${counts[st]})` : "(0)"}
+            {st === "todos" ? "Todos" : STATUS_LABEL[st] || st} {effectiveCompanyId && !loading && !loadError ? `(${counts[st] || 0})` : "(—)"}
           </button>
         ))}
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar aluno..." className="ml-auto h-8 w-52" disabled={bulkInteractionLocked} />
@@ -615,8 +624,8 @@ export default function Portfolio() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+          {!effectiveCompanyId ? <p>Selecione uma empresa.</p> : loadError ? <div role="alert">{loadError}<Button onClick={load}>Tentar novamente</Button></div> : loading ? (
+            <div role="status" aria-label="Carregando carteira" className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
           ) : filtered.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               {students.length === 0 ? "Nenhum aluno disponível nesta empresa." : "Nenhum aluno com esse filtro."}

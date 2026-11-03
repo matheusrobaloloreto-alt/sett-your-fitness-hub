@@ -35,6 +35,9 @@ export default function MasterDashboard() {
   const [metrics, setMetrics] = useState<Metrics>({ totalCompanies: 0, activeCompanies: 0, totalStudents: 0, monthlyRevenue: 0 });
   const [storageInfo, setStorageInfo] = useState<StorageInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [catalogAvailable, setCatalogAvailable] = useState(false);
+  const [planNames, setPlanNames] = useState<Record<string, string>>({});
+  const [loadError, setLoadError] = useState(false);
   const navigate = useNavigate();
   const { viewingCompany, exitCompanyView } = useMaster();
 
@@ -46,6 +49,7 @@ export default function MasterDashboard() {
         supabase.from("exercise_library").select("company_id, video_path"),
       ]);
 
+      if (companiesRes.error || studentsRes.error || exercisesRes.error) throw new Error("master_read_failed");
       const companiesList = (companiesRes.data || []) as CompanyRow[];
       setCompanies(companiesList);
 
@@ -53,6 +57,8 @@ export default function MasterDashboard() {
       const activeStudents = (studentsRes.data || []).filter((s: any) => s.status === "active").length;
 
       const catalog = await fetchPublicPlatformCatalog().catch(() => null);
+      setCatalogAvailable(Boolean(catalog));
+      if (catalog) setPlanNames(Object.fromEntries(Object.entries(catalog.tiers).map(([code, plan]) => [code, plan.name])));
       const monthlyRevenue = activeCompanies.reduce((sum, c) => {
         return sum + (catalog?.tiers[c.tier as keyof typeof catalog.tiers]?.monthly_price || 0);
       }, 0);
@@ -84,7 +90,7 @@ export default function MasterDashboard() {
       setStorageInfo(storageList);
       setLoading(false);
     };
-    fetchData();
+    void fetchData().catch(() => { setLoadError(true); setLoading(false); });
   }, []);
 
   const tierLabel: Record<string, string> = { basic: "Básico", intermediate: "Intermediário", advanced: "Avançado" };
@@ -161,7 +167,7 @@ export default function MasterDashboard() {
           {[
             { label: "Empresas", value: metrics.totalCompanies, sub: `${metrics.activeCompanies} ativas`, icon: Building2 },
             { label: "Alunos Ativos", value: metrics.totalStudents, sub: "em todas as instâncias", icon: Users },
-            { label: "Referência Mensal", value: `R$ ${metrics.monthlyRevenue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, sub: "estimativa pelo catálogo; não é receita recebida", icon: DollarSign },
+            { label: "Referência Mensal", value: catalogAvailable ? `R$ ${metrics.monthlyRevenue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "Indisponível", sub: "estimativa pelo catálogo; não é receita recebida", icon: DollarSign },
             { label: "Status", value: metrics.activeCompanies, sub: "instâncias ativas", icon: Activity },
             { label: "Vídeos Armazenados", value: totalVideos, sub: `em ${storageInfo.length} origens`, icon: HardDrive },
           ].map((m) => (
@@ -171,8 +177,8 @@ export default function MasterDashboard() {
                 <m.icon className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-foreground">{m.value}</div>
-                <p className="text-xs text-muted-foreground font-sans">{m.sub}</p>
+                <div className="text-2xl font-bold text-foreground">{loading ? "Carregando…" : loadError ? "Indisponível" : m.value}</div>
+                <p className="text-xs text-muted-foreground font-sans">{loading || loadError ? "Aguardando leitura confirmada" : m.sub}</p>
               </CardContent>
             </Card>
           ))}
@@ -215,6 +221,8 @@ export default function MasterDashboard() {
               <div className="flex justify-center py-8">
                 <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
               </div>
+            ) : loadError ? (
+              <p role="alert">Não foi possível consultar as empresas. Recarregue para tentar novamente.</p>
             ) : companies.length === 0 ? (
               <p className="text-muted-foreground text-sm font-sans text-center py-8">Nenhuma empresa cadastrada.</p>
             ) : (
@@ -234,7 +242,7 @@ export default function MasterDashboard() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant={tierColor[c.tier] as any || "secondary"}>
-                        {tierLabel[c.tier] || c.tier}
+                        {planNames[c.tier] || tierLabel[c.tier] || c.tier}
                       </Badge>
                       <Badge variant={c.is_active ? "default" : "secondary"}>
                         {c.is_active ? "Ativa" : "Inativa"}

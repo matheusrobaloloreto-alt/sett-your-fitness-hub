@@ -1,0 +1,117 @@
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { ExercisePreviewPlayer } from './ExercisePreviewPlayer';
+afterEach(() => { cleanup(); vi.useRealTimers(); });
+it('exposes a delayed fallback without claiming iframe playback', () => {
+ vi.useFakeTimers();
+ render(<ExercisePreviewPlayer value="https://youtu.be/abcdefghijk" />);
+ act(() => { vi.advanceTimersByTime(10000); });
+ expect(screen.getByRole('status').textContent).toContain('demorando');
+ expect(screen.getByRole('link').getAttribute('rel')).toBe('noopener noreferrer');
+});
+it('handles native failure and retry', () => {
+ const { container } = render(<ExercisePreviewPlayer value="https://example.com/demo.mp4" />);
+ fireEvent.error(container.querySelector('video')!);
+ expect(screen.getByRole('alert')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button'));
+ expect(screen.queryByRole('alert')).toBeNull();
+});
+it('ignores late obsolete resolutions and retries authorized source resolution', async () => {
+ let finish!: (value:string)=>void;
+ const old = vi.fn(() => new Promise<string>(done=>{finish=done;}));
+ const current = vi.fn().mockResolvedValueOnce('https://example.com/current.mp4').mockResolvedValueOnce('https://example.com/retry.mp4');
+ const {container, rerender} = render(<ExercisePreviewPlayer resolve={old}/>);
+ rerender(<ExercisePreviewPlayer resolve={current}/>);
+ await act(async()=>{ await Promise.resolve(); });
+ expect(container.querySelector('video')?.getAttribute('src')).toContain('current.mp4');
+ await act(async()=>{finish('https://example.com/obsolete.mp4');});
+ expect(container.querySelector('video')?.getAttribute('src')).toContain('current.mp4');
+ fireEvent.click(screen.getByRole('button'));
+ await act(async()=>{await Promise.resolve();});
+ expect(container.querySelector('video')?.getAttribute('src')).toContain('retry.mp4');
+});
+it('keeps delayed fallback until the current native source becomes ready', async () => {
+ vi.useFakeTimers();
+ const {container,unmount} = render(<ExercisePreviewPlayer value="https://example.com/demo.mp4"/>);
+ act(()=>{vi.advanceTimersByTime(10000);});
+ expect(screen.getByRole('status').textContent).toContain('demorando');
+ fireEvent.loadedData(container.querySelector('video')!);
+ expect(screen.queryByRole('status')).toBeNull();
+ unmount();
+ expect(vi.getTimerCount()).toBe(0);
+});
+it('shows external-only HTTPS sources without arbitrary iframe and rejects unsafe links', () => {
+ const {container, rerender} = render(<ExercisePreviewPlayer value="https://example.com/watch/demo"/>);
+ expect(container.querySelector('iframe')).toBeNull();
+ expect(container.querySelector('video')).toBeNull();
+ expect(screen.getByRole('link')).toHaveAttribute('href','https://example.com/watch/demo');
+ rerender(<ExercisePreviewPlayer value="javascript:alert(1)"/>);
+ expect(screen.queryByRole('link')).toBeNull();
+});
+it('accepts a current late signing result after the delayed fallback', async () => {
+ vi.useFakeTimers();
+ let finish!: (value:string)=>void;
+ const resolve = vi.fn(() => new Promise<string>(done=>{finish=done;}));
+ const {container} = render(<ExercisePreviewPlayer resolve={resolve}/>);
+ act(()=>{vi.advanceTimersByTime(10000);});
+ expect(screen.getByRole('status').textContent).toContain('demorando');
+ await act(async()=>{finish('https://example.com/signed.mp4?token=synthetic');});
+ expect(container.querySelector('video')).toBeTruthy();
+ fireEvent.loadedData(container.querySelector('video')!);
+ expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('clears iframe loading on document load without claiming playback and never becomes delayed afterward', () => {
+ vi.useFakeTimers();
+ const {container} = render(<ExercisePreviewPlayer value="https://youtu.be/abcdefghijk"/>);
+ expect(screen.getByRole('status')).toBeTruthy();
+ fireEvent.load(container.querySelector('iframe')!);
+ expect(screen.queryByRole('status')).toBeNull();
+ act(()=>{vi.advanceTimersByTime(10000);});
+ expect(screen.queryByRole('status')).toBeNull();
+ expect(screen.queryByText(/reproduzindo|reprodução confirmada/i)).toBeNull();
+ expect(screen.getByRole('button',{name:'Tentar novamente'})).toBeInTheDocument();
+ expect(screen.getByRole('link')).toHaveAttribute('rel','noopener noreferrer');
+});
+it('clears a delayed iframe state when the current document eventually loads', () => {
+ vi.useFakeTimers();
+ const {container} = render(<ExercisePreviewPlayer value="https://vimeo.com/12345"/>);
+ act(()=>{vi.advanceTimersByTime(10000);});
+ expect(screen.getByRole('status').textContent).toContain('demorando');
+ fireEvent.load(container.querySelector('iframe')!);
+ expect(screen.queryByRole('status')).toBeNull();
+ expect(screen.queryByRole('alert')).toBeNull();
+ expect(screen.getByRole('link')).toBeInTheDocument();
+});
+it('reports an emitted iframe error, preserves safe exit, and resets state on retry', () => {
+ vi.useFakeTimers();
+ const {container} = render(<ExercisePreviewPlayer value="https://youtu.be/abcdefghijk"/>);
+ const oldFrame=container.querySelector('iframe')!;
+ fireEvent.error(oldFrame);
+ expect(screen.getByRole('alert')).toBeInTheDocument();
+ act(()=>{vi.advanceTimersByTime(10000);});
+ expect(screen.queryByRole('status')).toBeNull();
+ expect(screen.getByRole('link')).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'Tentar novamente'}));
+ const newFrame=container.querySelector('iframe')!;
+ expect(newFrame).not.toBe(oldFrame);
+ fireEvent.load(oldFrame);
+ fireEvent.error(oldFrame);
+ expect(screen.queryByRole('alert')).toBeNull();
+ expect(screen.getByRole('status').textContent).toContain('Carregando');
+ fireEvent.load(newFrame);
+ expect(screen.queryByRole('status')).toBeNull();
+});
+it('ignores iframe load/error from a previous source while accepting the current document event', () => {
+ const {container,rerender}=render(<ExercisePreviewPlayer value="https://youtu.be/abcdefghijk"/>);
+ const oldFrame=container.querySelector('iframe')!;
+ rerender(<ExercisePreviewPlayer value="https://youtu.be/lmnopqrstuv"/>);
+ const newFrame=container.querySelector('iframe')!;
+ expect(newFrame).not.toBe(oldFrame);
+ fireEvent.load(oldFrame);fireEvent.error(oldFrame);
+ expect(screen.queryByRole('alert')).toBeNull();
+ expect(screen.getByRole('status').textContent).toContain('Carregando');
+ expect(newFrame).toHaveAttribute('src','https://www.youtube-nocookie.com/embed/lmnopqrstuv');
+ fireEvent.load(newFrame);
+ expect(screen.queryByRole('status')).toBeNull();
+});

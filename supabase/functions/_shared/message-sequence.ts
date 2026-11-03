@@ -70,6 +70,7 @@ export async function dispatchMessageSequence(args: SequenceArgs): Promise<void>
       if (!response.ok) throw new Error('dispatch_uncertain');
       const payload = await response.json();
       const receipt = payload?.key?.id;
+      // eslint-disable-next-line no-control-regex -- Reject control bytes at this untrusted message boundary.
       if (typeof receipt !== 'string' || !receipt.trim() || receipt.length > 200 || /[\x00-\x1f\x7f]/.test(receipt)) throw new Error('dispatch_uncertain');
       await rpc(args.admin, 'ack_company_message_part', { _sequence_id: snapshot.id, _index: index, _token: claim.token, _receipt: receipt });
       // History is a projection. Receipt persists first so projection failures cannot repeat provider I/O.

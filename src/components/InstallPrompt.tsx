@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, Share, Plus, X, MoreVertical } from "lucide-react";
 
 // Popup "baixar o app". Três modos, porque cada plataforma instala de um jeito:
@@ -33,6 +33,8 @@ function dismissedRecently(): boolean {
 type Mode = "android-native" | "android-manual" | "ios" | null;
 
 export function InstallPrompt() {
+  const bannerRef = useRef<HTMLDivElement>(null);
+  const [chatOpen, setChatOpen] = useState(() => document.documentElement.dataset.settChatOpen === "true");
   const [show, setShow] = useState(false);
   const [mode, setMode] = useState<Mode>(null);
 
@@ -52,6 +54,21 @@ export function InstallPrompt() {
     return () => { clearTimeout(t); window.removeEventListener("bip-ready", decide); };
   }, []);
 
+  useEffect(() => {
+    const listener = (event: Event) => setChatOpen(Boolean((event as CustomEvent<{ open: boolean }>).detail.open));
+    window.addEventListener("sett:chat-layout", listener);
+    return () => window.removeEventListener("sett:chat-layout", listener);
+  }, []);
+  useEffect(() => {
+    const node = bannerRef.current;
+    const measure = () => document.documentElement.style.setProperty("--sett-install-height", `${node?.getBoundingClientRect().height || 0}px`);
+    measure();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    if (node) observer?.observe(node);
+    window.addEventListener("resize", measure);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", measure); document.documentElement.style.removeProperty("--sett-install-height"); };
+  }, [show, mode, chatOpen]);
+
   const dismiss = () => {
     try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch { /* ignore */ }
     setShow(false);
@@ -66,10 +83,11 @@ export function InstallPrompt() {
     dismiss();
   };
 
-  if (!show || !mode) return null;
+  if (!show || !mode || chatOpen) return null;
 
   return (
     <div
+      ref={bannerRef}
       className="fixed inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]"
       role="dialog"
       aria-label="Instalar o app"

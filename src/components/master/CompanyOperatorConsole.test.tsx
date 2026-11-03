@@ -30,3 +30,10 @@ it("ignores late grant acknowledgements and does not query old-company access in
  expect(mocks.read.mock.calls.filter(call=>call[1]==="company-a")).toHaveLength(1);
  expect(screen.queryByText("Synthetic A")).toBeNull();
 });
+it("does not grant support automatically and keeps switches disabled after access read failure",async()=>{
+ mocks.read.mockResolvedValue({data:null,error:{message:"denied"}});
+ render(<CompanyOperatorConsole companyId="company-a" canManage members={[{user_id:"member-a",full_name:"Synthetic A"}]}/>);
+ await screen.findByRole("alert");
+ expect(screen.getByRole("switch",{name:"Diagnóstico para Synthetic A"})).toBeDisabled();
+ expect(mocks.rpc).not.toHaveBeenCalled();
+});

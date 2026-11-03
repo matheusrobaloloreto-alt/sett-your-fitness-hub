@@ -35,6 +35,9 @@ describe.runIf(Boolean(process.env.SETT_TEST_PGLITE_MODULE))('company governance
           ('00000000-0000-4000-8000-000000000005','student');
       `);
       await db.exec(readFileSync('supabase/migrations/20261028103721_company_governance.sql','utf8'));
+      await db.exec('alter table companies add column owner_user_id uuid');
+      await db.exec(readFileSync('supabase/migrations/20261103124026_company_governance_legacy_initialization.sql','utf8'));
+      await db.exec(readFileSync('supabase/migrations/20261103131053_company_governance_init_expired_requests.sql','utf8'));
       const company = '10000000-0000-4000-8000-000000000001';
       const user = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
       const actor = async (n: number) => { await db.exec(`reset role; select set_config('request.jwt.claim.sub','${user(n)}',false); set role authenticated;`); };

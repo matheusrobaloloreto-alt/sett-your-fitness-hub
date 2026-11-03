@@ -88,7 +88,7 @@ export async function loadStudentLoginSnapshot(
     typeof student.updated_at !== "string" || !student.updated_at ||
     typeof student.email !== "string" || !student.email.trim()
   ) fail("student_login_contact_incomplete");
-  let query = client.from("whatsapp_chats").select(
+  const query = client.from("whatsapp_chats").select(
     "id,company_id,student_id,remote_jid,instance_id",
   ).eq("company_id", input.companyId);
   const result = input.chatId

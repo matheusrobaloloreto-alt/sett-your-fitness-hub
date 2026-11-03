@@ -5,7 +5,7 @@
 //   - Assets do Vite (JS/CSS com hash no nome) → cache-first: o nome muda a cada build, então o
 //     cache NUNCA serve algo desatualizado; ganhamos velocidade e offline.
 // Bump CACHE a cada mudança estrutural; manter gerações antigas para fallback seguro.
-const CACHE = "sett-cache-v16";
+const CACHE = "sett-cache-v17";
 // A shell replacement is a single Cache.put; failed writes preserve the previous entry.
 // Serialize commits so a slower, older request cannot overwrite a newer healthy response.
 let shellRequest = 0;
