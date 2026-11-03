@@ -108,7 +108,7 @@ export interface SettingsRecord { settings: CompanyProductSettings; version: num
 
 export const DEFAULT_COMPANY_PRODUCT_SETTINGS: CompanyProductSettings = {
   messages: {
-    weekly_contact: 'Oi, {{primeiro_nome}}! Como estão os treinos? Conte com a equipe para continuar evoluindo.',
+    weekly_contact: 'Oi, {{primeiro_nome}}! Como estao os treinos? Conte com a equipe para continuar evoluindo.',
     pre_registration_confirmation: 'Oi, {{primeiro_nome}}! Recebemos seu pre-cadastro na {{empresa}}. Nossa equipe entrara em contato.',
     fiscal_invite: 'Oi, {{primeiro_nome}}! Complete seus dados fiscais e escolha seu plano: {{link}}',
     payment_link: 'Oi, {{primeiro_nome}}! Seu cadastro foi concluido. Escolha seu plano e faca o pagamento com seguranca: {{link}}',

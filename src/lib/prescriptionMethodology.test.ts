@@ -15,7 +15,13 @@ describe('methodology validation and executable policy', () => {
     const sql = readFileSync('supabase/migrations/20261028090117_company_prescription_methodology.sql', 'utf8');
     const json = sql.match(/select '([\s\S]+?)'::jsonb;/)?.[1];
     expect(json).toBeDefined();
-    expect(JSON.parse(json!)).toEqual(normalizeCompanyProductSettings());
+    const legacyDefaults = normalizeCompanyProductSettings();
+    // Expiry policy was added in a separate column/wrapper; the legacy JSON codec stays unchanged.
+    delete (legacyDefaults.prescription as Partial<typeof legacyDefaults.prescription>).expired_workout_behavior;
+    expect(JSON.parse(json!)).toEqual(legacyDefaults);
+    const expiryMigration = readFileSync('supabase/migrations/20261101223102_company_expired_workout_behavior.sql', 'utf8');
+    expect(expiryMigration).toContain("expired_workout_behavior text not null default 'keep_until_replaced'");
+    expect(normalizeCompanyProductSettings().prescription.expired_workout_behavior).toBe('keep_until_replaced');
   });
   it.each([
     { weekly_rules: [{ week: 0, phase: 'base', rir_min: 3, rir_max: 4, volume_percent: 80 }] },

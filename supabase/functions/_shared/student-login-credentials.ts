@@ -116,7 +116,7 @@ export async function loadStudentLoginSnapshot(
     clientRemoteJid: input.remoteJid || chat?.remote_jid || student.whatsapp ||
       student.phone,
   });
-  if (!verified.ok) fail(verified.code);
+  if (verified.ok === false) fail(verified.code);
   // A partial default PostgREST page cannot prove exclusive phone ownership.
   const candidates: any[] = [];
   for (let offset = 0;; offset += 500) {

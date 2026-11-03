@@ -1,3 +1,4 @@
+import * as loginCredentials from '../../supabase/functions/_shared/student-login-credentials';
 import { readFileSync } from "node:fs";
 import { URL as NodeURL } from "node:url";
 import { runInNewContext } from "node:vm";
@@ -25,7 +26,7 @@ function handlerFrom(path: string, decision: unknown, error: unknown = null) {
   const js=ts.transpileModule(ts.createPrinter().printFile(stripped),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
   runInNewContext(js,{exports:{},Request,Response,URL,console:{error:()=>{}},fetch:network,
     Deno:{env:{get:()=>"synthetic"},serve:(callback:typeof handler)=>{handler=callback;}},
-    createClient:()=>client,requireCompanyFeature,HttpError,FeatureHttpError:HttpError});
+    ...loginCredentials, createClient:()=>client,requireCompanyFeature,HttpError,FeatureHttpError:HttpError});
   return {handler,network,calls};
 }
 it.each([false,null])("actual WhatsApp handler denies entitlement %j before any provider call",async decision=>{

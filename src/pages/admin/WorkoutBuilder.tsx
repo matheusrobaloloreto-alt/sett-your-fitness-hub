@@ -2844,7 +2844,7 @@ export default function WorkoutBuilder() {
                         <p className="mt-0.5 text-[9px] uppercase tracking-wide text-white/60">{ex.muscle_group}</p>
                       </div>
                       <button type="button" disabled={saving || alreadyAdded || !currentWorkout}
-                        onClick={() => addExercise(ex)} className="absolute left-2 top-2 rounded bg-background p-1 text-xs">
+                        onClick={() => addExercise(ex)} className="absolute left-2 top-2 max-w-[calc(100%_-_3rem)] rounded bg-background p-1 text-xs leading-tight">
                         {alreadyAdded ? "Adicionado" : "Adicionar ao treino"}
                       </button>
                     </div>

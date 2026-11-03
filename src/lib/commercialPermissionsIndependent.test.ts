@@ -1,3 +1,4 @@
+import * as loginCredentials from '../../supabase/functions/_shared/student-login-credentials';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { runInNewContext } from 'node:vm';
@@ -28,7 +29,7 @@ function actualHandler(decision: unknown, lookupError: unknown = null) {
   const body = ts.factory.updateSourceFile(ast, ast.statements.filter(s => !ts.isImportDeclaration(s)));
   const code = ts.transpileModule(ts.createPrinter().printFile(body), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
   runInNewContext(code, { exports: {}, Request, Response, URL, fetch: network,
-    console: { error: () => {} }, createClient: () => client, requireCompanyFeature, HttpError, FeatureHttpError: HttpError,
+    console: { error: () => {} }, ...loginCredentials, createClient: () => client, requireCompanyFeature, HttpError, FeatureHttpError: HttpError,
     Deno: { env: { get: () => 'synthetic' }, serve: (fn: typeof handler) => { handler = fn; } },
   });
   return { handler, network, table, rpc };

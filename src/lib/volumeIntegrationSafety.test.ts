@@ -58,7 +58,11 @@ describe("volume integration safety contracts", () => {
     expect(sources[1]).toContain("fractionalSetsByMuscleGroup");
     expect(sources[1]).toContain("useExerciseVolumeTargets");
     expect(sources[3]).toContain("calculateWeeklyMuscleVolume");
-    expect(sources[3]).toContain("fractionalSetsByMuscleGroup");
+    // Historical execution comes from its recorded snapshot, not today's exercise array.
+    // Mounted WorkoutAnalysis tests cover changed workouts, fractional denominators and
+    // foreign nested snapshots; retain the anatomical allowlist on this execution path.
+    expect(sources[3]).toContain("canonicalAnatomicalMuscleGroup(item.muscleGroup)");
+    expect(sources[3]).toContain("session.exercises_summary");
     expect(sources[4]).toContain("calculateWeeklyMuscleVolume");
     expect(sources[4]).toContain("useExerciseVolumeTargets");
     expect(sources[5]).toContain("anatomicalBnitoVolumeReview");

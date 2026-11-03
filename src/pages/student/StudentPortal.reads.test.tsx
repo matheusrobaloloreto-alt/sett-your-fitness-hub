@@ -37,6 +37,7 @@ vi.mock('@/components/student/StudentHome', () => ({ StudentHome: ({ selectedCyc
 import StudentPortal from './StudentPortal';
 
 let failureTable: string | null;
+let enrollmentBlocker: Record<string, unknown> | null;
 let rejectRead: boolean;
 let student: object | null;
 let slowStudent: Promise<object> | null;
@@ -61,6 +62,7 @@ beforeEach(() => {
     if (policyRead) return policyRead;
     return Promise.resolve(policyFailure ? { data: null, error: { code: '42P01' } } : { data: { company_id: 'company-a', expired_workout_behavior: policyMode, version: 1 }, error: null });
   });
+  enrollmentBlocker = null;
   expiredEnrollment = false; offlinePrescription = false; continuityScenario = null;
   failureTable = null; rejectRead = false; slowStudent = null; withPrescription = false; longContract = false; pendingSlot = false; pendingOnly = false; overlappingPrescription = false;
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -85,7 +87,8 @@ beforeEach(() => {
           exercise_library: [],
           workout_logs: sessionLogs,
         };
-        if (expiredEnrollment) prescriptionRows.enrollments = [{ ...(prescriptionRows.enrollments as object[])[0], status: 'awaiting_renewal', end_date: '2026-09-13' }];
+        if (expiredEnrollment) prescriptionRows.enrollments = [{ ...(prescriptionRows.enrollments as object[])[0], status: 'awaiting_renewal', start_date: '2026-03-30', end_date: '2026-09-13' }];
+        if (enrollmentBlocker) prescriptionRows.enrollments = [...(prescriptionRows.enrollments as object[]), enrollmentBlocker];
         if (offlinePrescription) {
           prescriptionRows.training_cycles = [{ ...(prescriptionRows.training_cycles as object[])[0], prescribed_offline_at: '2026-10-01T12:00:00Z' }];
           prescriptionRows.workouts = [];
@@ -286,7 +289,7 @@ describe('StudentPortal authoritative reads', () => {
     expect(await screen.findByRole('heading', { name: 'Histórico' })).toBeInTheDocument();
   });
   it('opens published prescription exercises even with no eligible enrollment, without acknowledging or starting a session', async () => {
-    withPrescription = true; expiredEnrollment = true;
+    withPrescription = true; expiredEnrollment = true; policyMode = 'hide_on_expiry';
     render(<StudentPortal />);
     await screen.findByText('Aguardando prescrição');
     fireEvent.click(screen.getByRole('button', { name: 'Consultar prescrições publicadas' }));
@@ -382,4 +385,28 @@ describe('StudentPortal PR baseline integration', () => {
     expect(summary?.exercisesSummary[0]).toMatchObject({ maxWeight: 20, isPR: completed === true });
     expect(JSON.stringify(sessionLogs)).toBe(original);
   });
+});
+
+it.each(['keep_until_replaced','hide_on_expiry','error'] as const)('gates expired enrollment execution by strict policy: %s',async mode=>{
+ withPrescription=true;expiredEnrollment=true;policyMode=mode==='hide_on_expiry'?'hide_on_expiry':'keep_until_replaced';policyFailure=mode==='error';
+ render(<StudentPortal/>);
+ await screen.findByText('Portal carregado');
+ fireEvent.click(screen.getByRole('button',{name:'Abrir treino'}));
+ if(mode==='keep_until_replaced'){fireEvent.click(await screen.findByRole('button',{name:'Test iniciar'}));expect(mocks.start).toHaveBeenCalled();}
+ else {expect(screen.queryByRole('button',{name:'Test iniciar'})).toBeNull();expect(mocks.start).not.toHaveBeenCalled();}
+ expect(mocks.rpc).not.toHaveBeenCalledWith('mark_training_cycle_viewed',expect.anything());
+});
+
+it.each([
+ {start_date:'2026-10-15',end_date:'2026-10-28'},
+ {start_date:null,end_date:null,created_at:'2026-10-20'},
+ {start_date:'invalid',end_date:'2026-10-28'},
+])('blocks execution before a newer cancelled/unknown-order enrollment: %j',async dates=>{
+ withPrescription=true;
+ enrollmentBlocker={id:'cancelled-newer',student_id:'student-a',company_id:'company-a',status:'cancelled',...dates};
+ render(<StudentPortal/>);
+ await screen.findByText('Portal carregado');
+ fireEvent.click(screen.getByRole('button',{name:'Abrir treino'}));
+ expect(screen.queryByRole('button',{name:'Test iniciar'})).toBeNull();
+ expect(mocks.start).not.toHaveBeenCalled();
 });

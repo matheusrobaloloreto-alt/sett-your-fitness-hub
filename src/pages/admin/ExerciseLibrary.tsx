@@ -22,6 +22,12 @@ import { buildExerciseTargetPayload, replaceExerciseMuscleTargets } from "@/lib/
 import { resolveExerciseUploadScope } from "@/lib/exerciseUploadScope";
 import { prepareExerciseMetadata, saveExerciseMetadata, type ExerciseMetadataDraft, type MetadataWriteClient } from '@/lib/prescription/exerciseMetadata';
 
+// Presentation only: canonical taxonomy labels also serve as business keys.
+const displayTaxonomyLabel = (label: string) => ({
+  Biceps: "Bíceps", Triceps: "Tríceps", Trapezio: "Trapézio",
+  "Pesos Livre": "Pesos livres", Maquinas: "Máquinas",
+} as Record<string, string>)[label] || label;
+
 interface Exercise {
   id: string;
   name: string;
@@ -818,7 +824,7 @@ export default function ExerciseLibrary() {
                   onClick={() => toggleCategoryFilter(category.id)}
                   className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition ${active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"}`}
                 >
-                  {category.label}
+                  {displayTaxonomyLabel(category.label)}
                 </button>
               );
             })}
@@ -879,11 +885,11 @@ export default function ExerciseLibrary() {
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       {ex.muscle_group && (
-                        <Badge variant="outline" className="capitalize text-xs">{muscleLabel(ex.muscle_group) || ex.muscle_group}</Badge>
+                        <Badge variant="outline" className="capitalize text-xs">{displayTaxonomyLabel(muscleLabel(ex.muscle_group) || ex.muscle_group)}</Badge>
                       )}
                       {normalizedExerciseCategories(ex).map((category) => (
                         <Badge key={category} variant="outline" className="text-xs">
-                          {categoryLabel(category) || category}
+                          {displayTaxonomyLabel(categoryLabel(category) || category)}
                         </Badge>
                       ))}
                       {ex.is_global && (
@@ -987,6 +993,7 @@ export default function ExerciseLibrary() {
                         <p className="text-xs text-muted-foreground font-sans">
                           {[ex.muscle_group, ...(ex.categories || []).map((item) => categoryLabel(item) || item)]
                             .filter(Boolean)
+                            .map(displayTaxonomyLabel)
                             .join(" · ") || "sem taxonomia"}
                         </p>
                       </div>
@@ -1045,7 +1052,7 @@ export default function ExerciseLibrary() {
                 <SelectContent>
                   <SelectItem value="none">Sem grupo principal</SelectItem>
                   {MUSCLE_GROUP_OPTIONS.map((group) => (
-                    <SelectItem key={group.slug} value={group.slug}>{group.label}</SelectItem>
+                    <SelectItem key={group.slug} value={group.slug}>{displayTaxonomyLabel(group.label)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1067,7 +1074,7 @@ export default function ExerciseLibrary() {
                         onCheckedChange={() => toggleFormCategory(category.id)}
                         className="h-3.5 w-3.5"
                       />
-                      {category.label}
+                      {displayTaxonomyLabel(category.label)}
                     </label>
                   );
                 })}
@@ -1112,7 +1119,7 @@ export default function ExerciseLibrary() {
                               <SelectItem value="none">Remover</SelectItem>
                               {selectableMuscleGroups(mgId)
                                 .map(mg => (
-                                  <SelectItem key={mg.id} value={mg.id}>{mg.label}{mg.legacy ? " (legado)" : ""}</SelectItem>
+                                  <SelectItem key={mg.id} value={mg.id}>{displayTaxonomyLabel(mg.label)}{mg.legacy ? " (legado)" : ""}</SelectItem>
                                 ))}
                             </SelectContent>
                           </Select>
@@ -1153,7 +1160,7 @@ export default function ExerciseLibrary() {
                               <SelectItem value="none">Remover</SelectItem>
                               {selectableMuscleGroups(mgId)
                                 .map(mg => (
-                                  <SelectItem key={mg.id} value={mg.id}>{mg.label}{mg.legacy ? " (legado)" : ""}</SelectItem>
+                                  <SelectItem key={mg.id} value={mg.id}>{displayTaxonomyLabel(mg.label)}{mg.legacy ? " (legado)" : ""}</SelectItem>
                                 ))}
                             </SelectContent>
                           </Select>

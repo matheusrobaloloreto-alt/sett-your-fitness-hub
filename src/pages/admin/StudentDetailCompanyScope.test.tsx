@@ -14,8 +14,9 @@ const mocks = vi.hoisted(() => ({
   functional: [] as Array<Record<string, unknown>>,
   cycles: [] as Array<Record<string, unknown>>,
   cycleReadError: false,
+  invalidPlanCalls: [] as unknown[],
   reassignError: null as { message: string; code: string } | null,
-  enrollments: [] as Array<{ id: string; student_id: string; plan_id: string; trainer_id: string; status: string; start_date: string; end_date: string }>,
+  enrollments: [] as Array<{ id: string; student_id: string; plan_id: string | null; trainer_id: string; status: string; start_date: string; end_date: string }>,
   writes: [] as string[],
   studentFilters: [] as Array<Record<string, unknown>>,
 }));
@@ -111,11 +112,12 @@ beforeEach(() => {
     }
     throw new Error(`Unexpected RPC ${name}`);
   });
+  mocks.invalidPlanCalls = [];
   mocks.studentFilters = [];
   mocks.from.mockReset().mockImplementation((table: string) => {
     const filters: Record<string, unknown> = {};
     const query = {
-      select: () => query, order: () => query, in: () => query, is: () => query, not: () => query,
+      select: () => query, order: () => query, in: (key: string, values: unknown[]) => { filters[key] = values; if(table === "plans" && values.includes(null)) mocks.invalidPlanCalls.push(values); return query; }, is: () => query, not: () => query,
       update: () => { mocks.writes.push(table); return query; },
       eq: (key: string, value: unknown) => { filters[key] = value; return query; },
       maybeSingle: async () => ({ data: null, error: null }),
@@ -137,6 +139,7 @@ beforeEach(() => {
           ] : table === "profiles" ? [{ user_id: "historic-trainer", full_name: "Historic Trainer" }]
           : table === "user_roles" ? [{ user_id: "actor", role: "trainer" }]
           : [];
+        if (table === "plans" && Array.isArray(filters.id) && filters.id.includes(null)) return Promise.resolve({data:null,error:{message:"invalid input syntax for uuid: null"}}).then(resolve);
         return Promise.resolve({ data, error: table === "training_cycles" && mocks.cycleReadError ? { message: "Synthetic cycle read failure" } : null }).then(resolve);
       },
     };
@@ -489,4 +492,11 @@ it('labels functional records separately from manual evaluations without clinica
  expect(screen.getByText(/arquivos não representam achados clínicos estruturados/)).toBeInTheDocument();
  expect(screen.queryByText(/student_evaluations|functional_assessments/)).not.toBeInTheDocument();
  expect(mocks.writes).toEqual([]);
+});
+
+it('loads an existing enrollment with no catalog plan instead of losing the entire schedule',async()=>{
+ mocks.enrollments=mocks.enrollments.map(e=>({...e,plan_id:null}));
+ render(<StudentDetail/>);
+ expect((await screen.findAllByRole('button',{name:'Excluir matrícula Plano desconhecido'})).length).toBeGreaterThan(0);
+ expect(mocks.invalidPlanCalls).toEqual([]);
 });

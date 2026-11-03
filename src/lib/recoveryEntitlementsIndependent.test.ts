@@ -1,3 +1,4 @@
+import * as messageSequence from '../../supabase/functions/_shared/message-sequence';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { webcrypto } from 'node:crypto';
@@ -33,7 +34,7 @@ function dispatcher(client: unknown, network: typeof fetch) {
   }).outputText;
   const exports: Record<string, (...args: unknown[]) => Promise<unknown>> = {};
   runInNewContext(javascript, {
-    exports, ...recovery, ...entitlements, ...product, ...communication, ...flow, ...redaction, ...identity,
+    exports, ...messageSequence, ...recovery, ...entitlements, ...product, ...communication, ...flow, ...redaction, ...identity,
     crypto: webcrypto, TextEncoder, Uint8Array, Request, Response, Date,
     // Provider I/O is simulated; jsdom's AbortSignal lacks native Deno timeout.
     AbortSignal: { timeout: () => new AbortController().signal },

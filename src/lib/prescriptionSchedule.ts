@@ -294,6 +294,7 @@ export function selectStudentDigitalContinuity<T extends PrescriptionScheduleCyc
   cycles: T[],
   args: {
     enrollment: PrescriptionEnrollment;
+    allowExpiredEnrollment?: boolean;
     expectedStudentId: string;
     expectedCompanyId: string;
     today?: Date;
@@ -301,7 +302,7 @@ export function selectStudentDigitalContinuity<T extends PrescriptionScheduleCyc
 ): T | null {
   const today = scheduleDay(args.today ?? new Date());
   const term = enrollmentTerm(args.enrollment);
-  if (!term || !Number.isFinite(today) || today < term.start || today > term.end
+  if (!term || !Number.isFinite(today) || today < term.start || (today > term.end && !args.allowExpiredEnrollment)
     || !['active', 'awaiting_training', 'awaiting_renewal'].includes(args.enrollment.status)
     || args.enrollment.student_id !== args.expectedStudentId
     || args.enrollment.company_id !== args.expectedCompanyId) return null;

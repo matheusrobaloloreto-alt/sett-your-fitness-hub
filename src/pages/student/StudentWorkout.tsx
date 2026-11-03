@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,7 +19,11 @@ import { STUDENT_EFFORT_HELP_TEXT, hasIndividualWeeklyPrescription, studentEffor
 import { groupWorkoutExercises, WORKOUT_METHODS, type MethodId } from "@/lib/workoutMethods";
 import { sanitizeStudentWorkoutDescription } from "@/lib/studentWorkoutDescription";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
-import { selectPrescriptionEnrollment, selectStudentWorkoutCycleWindow } from "@/lib/prescriptionSchedule";
+import { selectStudentPrescriptionEnrollment } from "@/lib/studentEnrollmentContinuity";
+import { useAuth } from "@/hooks/useAuth";
+import { useStudentPrescriptionPolicy } from "@/hooks/useStudentPrescriptionPolicy";
+import { canAccessStudentWorkout } from "@/lib/studentAccess";
+import { selectStudentDigitalContinuity, selectStudentWorkoutCycleWindow } from "@/lib/prescriptionSchedule";
 import { currentWeekIndex } from "@/lib/periodization";
 import { StudentWeekSelector } from "@/components/student/StudentWeekSelector";
 import { toast } from "sonner";
@@ -81,9 +85,16 @@ interface StudentInfo {
 
 export default function StudentWorkout() {
   const { studentId } = useParams<{ studentId: string }>();
+  const { user, role, companyId: authCompanyId, loading: authLoading } = useAuth();
+  const actorId = user?.id;
+  const scopeKey = `${actorId || ""}:${role || ""}:${authCompanyId || ""}:${studentId || ""}`;
+  const scopeRef = useRef(scopeKey); scopeRef.current = scopeKey;
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
+  const [currentCycleId, setCurrentCycleId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [student, setStudent] = useState<StudentInfo | null>(null);
   const [cycles, setCycles] = useState<Cycle[]>([]);
-  const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
+  const [selectedCycleData, setSelectedCycle] = useState<Cycle | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
   const [selectedWeekStart, setSelectedWeekStart] = useState<number | null>(null);
   const [videoModal, setVideoModal] = useState<ExerciseVideoModalState | null>(null);
@@ -96,6 +107,14 @@ export default function StudentWorkout() {
   const performanceCompanyId = useRef<string | null>(null);
   const recordedPerformanceMetrics = useRef(new Set<"shell_ready" | "content_ready">());
 
+  const todayStr = businessDateYmd();
+  const sameScope = loadedScope === scopeKey && !authLoading;
+  const prescriptionPolicy = useStudentPrescriptionPolicy(sameScope && actorId && studentId && student?.company_id
+    ? { userId: actorId, studentId, companyId: student.company_id } : null);
+  const needsKeep = (cycle: Cycle) => Boolean((cycle.end_date && cycle.end_date < todayStr)
+    || (student?.enrollment?.end_date && student.enrollment.end_date < todayStr));
+  const selectedCycle = sameScope && selectedCycleData
+    && (historyOpen || !needsKeep(selectedCycleData) || prescriptionPolicy.allowContinuity) ? selectedCycleData : null;
   const selectedWorkoutBase = selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
   const currentCycleWeek = selectedCycle
     ? currentWeekIndex(selectedCycle.start_date, selectedCycle.duration_weeks || 6) + 1
@@ -114,17 +133,13 @@ export default function StudentWorkout() {
     [selectedWorkout?.description],
   );
 
-  useEffect(() => {
-    if (studentId) loadData();
-    return () => { loadRevision.current += 1; };
-  }, [studentId]);
 
   const getStoragePublicUrl = (path: string) => {
     const { data } = supabase.storage.from("exercises-videos").getPublicUrl(path);
     return data.publicUrl;
   };
 
-  const recordLoadPerformance = (metric: "shell_ready" | "content_ready") => {
+  const recordLoadPerformance = useCallback((metric: "shell_ready" | "content_ready") => {
     if (recordedPerformanceMetrics.current.has(metric)) return;
     recordedPerformanceMetrics.current.add(metric);
     void recordAppPerformanceSample({
@@ -133,237 +148,137 @@ export default function StudentWorkout() {
       durationMs: performance.now() - performanceStartedAt.current,
       companyId: performanceCompanyId.current,
     });
-  };
+  }, []);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     const revision = ++loadRevision.current;
-    const isCurrentLoad = () => loadRevision.current === revision;
-    performanceStartedAt.current = performance.now();
-    performanceCompanyId.current = null;
+    const capturedScope = scopeKey;
+    const isCurrentLoad = () => loadRevision.current === revision && scopeRef.current === capturedScope;
+    performanceStartedAt.current = performance.now(); performanceCompanyId.current = null;
     recordedPerformanceMetrics.current.clear();
-    setLoading(true);
-    setWorkoutsLoading(true);
-    setLoadError("");
-    setStudent(null);
-    setCycles([]);
-    setSelectedCycle(null);
-    setSelectedWorkoutId(null);
-    setSelectedWeekStart(null);
-    setExpandedExercise(null);
+    setLoading(true); setWorkoutsLoading(true); setLoadError(""); setLoadedScope(null);
+    setStudent(null); setCycles([]); setSelectedCycle(null); setCurrentCycleId(null);
+    setSelectedWorkoutId(null); setSelectedWeekStart(null); setExpandedExercise(null); setHistoryOpen(false); setVideoModal(null);
     try {
-    const studentRequest = supabase
-      .from("students")
-      .select("full_name, company_id")
-      .eq("id", studentId!)
-      .single();
-    const enrollmentRequest = supabase
-      .from("enrollments")
-      .select("id, start_date, end_date, training_start_date, plan_id, status, created_at, carried_over_cycle_id, plans(name, duration_days, duration_weeks, cycle_duration_days)")
-      .eq("student_id", studentId!)
-      .order("created_at", { ascending: false })
-      .limit(20);
-
-    const [
-      { data: studentData, error: studentError },
-      { data: enrollmentRows, error: enrollmentError },
-    ] = await Promise.all([studentRequest, enrollmentRequest]);
-    if (!isCurrentLoad()) return;
-    if (studentError) throw studentError;
-    if (enrollmentError) throw enrollmentError;
-    const enrollmentData = selectPrescriptionEnrollment((enrollmentRows || []) as any[]);
-    const planRow = (enrollmentData?.plans as any) || null;
-    const planDurationDays = Math.max(
-      1,
-      Number(planRow?.duration_days)
-        || Number(planRow?.duration_weeks) * 7
-        || 42,
-    );
-    const cycleDurationDays = Math.max(1, Number(planRow?.cycle_duration_days) || 42);
-
-    if (studentData) {
-      performanceCompanyId.current = studentData.company_id;
-      setStudent({
-        full_name: studentData.full_name,
-        company_id: studentData.company_id,
-        enrollment: enrollmentData
-          ? {
-              plan_name: planRow?.name || "Plano",
-              start_date: enrollmentData.start_date,
-              end_date: enrollmentData.end_date,
-              training_start_date: enrollmentData.training_start_date,
-            }
-          : null,
+      if (authLoading || !actorId || !role || !studentId || (!["master", "student"].includes(role) && !authCompanyId)) throw new Error("Missing actor scope");
+      // Defense in depth only. The router's StudentWorkoutAccessGuard remains mandatory.
+      let studentRequest = supabase.from("students").select("id, user_id, full_name, company_id, status").eq("id", studentId);
+      if (role === "student") studentRequest = studentRequest.eq("user_id", actorId);
+      if (role !== "master" && authCompanyId) studentRequest = studentRequest.eq("company_id", authCompanyId);
+      const readEnrollments = (company: string) => supabase.from("enrollments")
+        .select("id, student_id, company_id, start_date, end_date, training_start_date, plan_id, status, created_at, carried_over_cycle_id, plans(name, duration_days, duration_weeks, cycle_duration_days)", { count: "exact" })
+        .eq("student_id", studentId).eq("company_id", company).order("created_at", { ascending: false }).limit(201);
+      const canReadInParallel = role !== "master" && Boolean(authCompanyId);
+      const [studentResult, parallelEnrollments] = await Promise.all([
+        studentRequest.single(), canReadInParallel ? readEnrollments(authCompanyId!) : Promise.resolve(null),
+      ]);
+      if (!isCurrentLoad()) return;
+      const studentData = studentResult.data;
+      if (studentResult.error || !studentData || studentData.id !== studentId || !studentData.company_id
+        || (role !== "master" && authCompanyId && studentData.company_id !== authCompanyId)
+        || !canAccessStudentWorkout({ role, userId: actorId, companyId: authCompanyId, studentUserId: studentData.user_id,
+          studentCompanyId: studentData.company_id, studentStatus: studentData.status })
+        || (role === "student" && studentData.status === "archived")) throw new Error("Student scope not authorized");
+      const targetCompany = studentData.company_id;
+      const enrollmentResult = parallelEnrollments ?? await readEnrollments(targetCompany);
+      if (!isCurrentLoad()) return;
+      const rows = enrollmentResult.data || [];
+      if (enrollmentResult.error || rows.length >= 201 || (!Number.isSafeInteger(enrollmentResult.count) || enrollmentResult.count !== rows.length)
+        || rows.some(row => row.student_id !== studentId || row.company_id !== targetCompany)) throw new Error("Incomplete or foreign enrollment history");
+      const today = businessDateYmd();
+      const businessToday = new Date(`${today}T12:00:00`);
+      // Student-facing pedagogical selection only; never changes commercial eligibility.
+      const enrollment = selectStudentPrescriptionEnrollment(rows, { today, expectedStudentId: studentId, expectedCompanyId: targetCompany });
+      const plan = rows.find(row => row.id === enrollment?.id)?.plans as { name?: string; duration_days?: number; duration_weeks?: number; cycle_duration_days?: number } | null;
+      const planDurationDays = Math.max(1, Number(plan?.duration_days) || Number(plan?.duration_weeks) * 7 || 42);
+      const cycleDurationDays = Math.max(1, Number(plan?.cycle_duration_days) || 42);
+      performanceCompanyId.current = targetCompany;
+      setStudent({ full_name: studentData.full_name, company_id: targetCompany,
+        enrollment: enrollment ? { plan_name: plan?.name || "Plano", start_date: enrollment.start_date,
+          end_date: enrollment.end_date, training_start_date: enrollment.training_start_date } : null });
+      setLoadedScope(capturedScope); setLoading(false); recordLoadPerformance("shell_ready");
+      if (!enrollment) { setWorkoutsLoading(false); recordLoadPerformance("content_ready"); return; }
+      const cycleSelect = "id, enrollment_id, student_id, company_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, superseded_at, duration_weeks, delivery_status, prescription_cleared_at";
+      const cycleResult = await supabase.from("training_cycles").select(cycleSelect, { count: "exact" })
+        .eq("enrollment_id", enrollment.id).eq("student_id", studentId).eq("company_id", targetCompany).limit(501).order("cycle_number");
+      if (!isCurrentLoad()) return;
+      const cyclesData = cycleResult.data || [];
+      if (cycleResult.error || cyclesData.length >= 501 || (!Number.isSafeInteger(cycleResult.count) || cycleResult.count !== cyclesData.length)
+        || cyclesData.some(cycle => cycle.enrollment_id !== enrollment.id || cycle.student_id !== studentId || cycle.company_id !== targetCompany)) throw new Error("Incomplete or foreign cycle history");
+      const carryId = enrollment.carried_over_cycle_id;
+      const carriedResult = carryId ? await supabase.from("training_cycles").select(cycleSelect)
+        .eq("id", carryId).eq("student_id", studentId).eq("company_id", targetCompany).maybeSingle() : { data: null, error: null };
+      if (!isCurrentLoad()) return;
+      const carried = carriedResult.data;
+      if (carriedResult.error || (carried && (carried.id !== carryId || carried.student_id !== studentId || carried.company_id !== targetCompany))) throw new Error("Foreign carried prescription");
+      const readable = [...cyclesData, ...(carried ? [carried] : [])].filter((cycle, index, all) =>
+        ["active", "completed", "pending"].includes(cycle.status || "") && !cycle.superseded_at && !cycle.superseded_by_cycle_id
+        && all.findIndex(item => item.id === cycle.id) === index);
+      const readableIds = new Set(readable.filter(cycle => !cycle.prescription_cleared_at).map(cycle => cycle.id));
+      const workoutResult = readableIds.size ? await supabase.from("workouts")
+        .select("id, title, description, exercises, cycle_id, sort_order, company_id, superseded_at, superseded_by_revision_id, student_profile_archive_event_id", { count: "exact" })
+        .or(`company_id.eq.${targetCompany},company_id.is.null`).is("superseded_at", null).is("superseded_by_revision_id", null)
+        .is("student_profile_archive_event_id", null).limit(1001).in("cycle_id", [...readableIds]) : { data: [], error: null, count: 0 };
+      if (!isCurrentLoad()) return;
+      const workoutRows = workoutResult.data || [];
+      if (workoutResult.error || workoutRows.length >= 1000 || (!Number.isSafeInteger(workoutResult.count) || workoutResult.count !== workoutRows.length)
+        || workoutRows.some(row => !readableIds.has(row.cycle_id) || (row.company_id !== null && row.company_id !== targetCompany))) throw new Error("Incomplete or foreign workout history");
+      const materialized = filterMaterializedWorkouts(workoutRows).filter(row => !row.superseded_at && !row.superseded_by_revision_id && !row.student_profile_archive_event_id);
+      const withContent = new Set(materialized.map(row => row.cycle_id));
+      const signaledCycles = cyclesData.map(cycle => ({ ...cycle, has_usable_workouts: !cycle.prescription_cleared_at && withContent.has(cycle.id), has_workouts: !cycle.prescription_cleared_at && withContent.has(cycle.id) }));
+      const { cycles: operational, preferredCycle } = selectStudentWorkoutCycleWindow(signaledCycles, {
+        enrollment, expectedStudentId: studentId, expectedCompanyId: targetCompany, planDurationDays, cycleDurationDays, today: businessToday,
+        carriedOverCycle: carried ? { ...carried, has_usable_workouts: !carried.prescription_cleared_at && withContent.has(carried.id), has_workouts: !carried.prescription_cleared_at && withContent.has(carried.id) } : null,
       });
-      // Identity and plan are enough to render the page shell. Cycles and
-      // workouts continue loading below instead of blocking the whole screen.
-      setLoading(false);
-      recordLoadPerformance("shell_ready");
-    }
-
-    if (enrollmentData) {
-      const cycleSelect = "id, enrollment_id, student_id, company_id, cycle_number, start_date, end_date, status, superseded_by_cycle_id, duration_weeks, delivery_status, prescription_cleared_at";
-      const { data: cyclesData, error: cyclesError } = await supabase
-        .from("training_cycles")
-        .select(cycleSelect)
-        .eq("enrollment_id", enrollmentData.id)
-        .order("cycle_number");
-      if (!isCurrentLoad()) return;
-      if (cyclesError) throw cyclesError;
-      const carriedOverCycleId = (enrollmentData as any).carried_over_cycle_id;
-      const { data: carriedOverCycle, error: carriedOverCycleError } = carriedOverCycleId
-        ? await (supabase as any)
-          .from("training_cycles")
-          .select(cycleSelect)
-          .eq("id", carriedOverCycleId)
-          .eq("student_id", studentId!)
-          .eq("company_id", studentData.company_id)
-          .maybeSingle()
-        : { data: null, error: null };
-      if (!isCurrentLoad()) return;
-      if (carriedOverCycleError) throw carriedOverCycleError;
-
-      if ((cyclesData && cyclesData.length > 0) || carriedOverCycle) {
-        const queryCycles = [
-          ...(cyclesData || []),
-          ...(carriedOverCycle ? [carriedOverCycle] : []),
-        ].filter((cycle, index, all) =>
-          cycle.status !== "superseded"
-          && !cycle.superseded_by_cycle_id
-          && all.findIndex((item) => item.id === cycle.id) === index
-        );
-        const workoutResult = queryCycles.length > 0
-          ? await supabase
-            .from("workouts")
-            .select("id, title, description, exercises, cycle_id, sort_order")
-            .is("superseded_at", null)
-            .in("cycle_id", queryCycles.map((c) => c.id))
-          : { data: [], error: null };
-        const { data: workoutsData, error: workoutsError } = workoutResult;
-        if (!isCurrentLoad()) return;
-        if (workoutsError) throw workoutsError;
-
-        const materializedWorkouts = filterMaterializedWorkouts(workoutsData || []);
-        const workoutCycleIds = new Set(materializedWorkouts.map((workout) => workout.cycle_id));
-        const { cycles: schedulableCycles, preferredCycle } = selectStudentWorkoutCycleWindow(
-          (cyclesData || []).map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && workoutCycleIds.has(cycle.id) })),
-          {
-            carriedOverCycle: carriedOverCycle
-              ? { ...carriedOverCycle, has_workouts: !carriedOverCycle.prescription_cleared_at && workoutCycleIds.has(carriedOverCycle.id) }
-              : null,
-            expectedStudentId: studentId!,
-            expectedCompanyId: studentData.company_id,
-            planDurationDays,
-            cycleDurationDays,
-            today: new Date(),
-          },
-        );
-
-        // Collect exercise_ids for video enrichment
-        const exerciseIds = new Set<string>();
-        materializedWorkouts.forEach(w => {
-          const exs = (w.exercises as unknown as WorkoutExercise[]) || [];
-          exs.forEach(ex => { if (ex.exercise_id) exerciseIds.add(ex.exercise_id); });
-        });
-
-        const enrichCyclesWithVideos = (
-          sourceCycles: Cycle[],
-          videoMap: Record<string, { video_url: string | null; video_path: string | null; youtube_video_id: string | null }>,
-        ): Cycle[] => sourceCycles.map((cycle) => ({
-          ...cycle,
-          workouts: cycle.workouts.map((workout) => ({
-            ...workout,
-            exercises: workout.exercises.map((ex) => ({
-              ...ex,
-              video_url: (ex.video_url && ex.video_url.trim()) || videoMap[ex.exercise_id]?.video_url || null,
-              video_path: (ex.video_path && ex.video_path.trim()) || videoMap[ex.exercise_id]?.video_path || null,
-              youtube_video_id: ex.youtube_video_id || videoMap[ex.exercise_id]?.youtube_video_id || null,
-            })),
-          })),
-        }));
-
-        const enriched: Cycle[] = schedulableCycles.map((c) => {
-          const cycleWorkouts = c.prescription_cleared_at
-            ? []
-            : orderWorkoutsByPrescription(materializedWorkouts
-              .filter((w) => w.cycle_id === c.id)
-              .map((w) => ({
-                id: w.id,
-                title: w.title,
-                description: w.description,
-                sort_order: w.sort_order,
-                exercises: (w.exercises as unknown as WorkoutExercise[]) || [],
-              })));
-          return { ...c, workouts: cycleWorkouts };
-        });
-
-        const today = new Date();
-        const todayYmd = businessDateYmd(today);
-        const isFuture = (cycle: Cycle) => Boolean(cycle.start_date && cycle.start_date > todayYmd);
-
-        const chosen = enriched.find((cycle) => cycle.id === preferredCycle?.id) ?? null;
-
-        const visibleCycles = enriched
-          .filter((cycle) => {
-            if (chosen?.id === cycle.id) return true;
-            if (cycle.status === "completed") return true;
-            if (isFuture(cycle)) return true;
-            return false;
-          })
-          .map((cycle) => isFuture(cycle) ? { ...cycle, workouts: [] } : cycle)
-          .sort((left, right) =>
-            (left.start_date || "").localeCompare(right.start_date || "") ||
-            left.cycle_number - right.cycle_number
-        );
-
-        setCycles(visibleCycles);
-        const visibleChosen = visibleCycles.find((cycle) => cycle.id === chosen?.id) || visibleCycles[0] || null;
-        setSelectedCycle(visibleChosen);
-        if (visibleChosen?.workouts.length) setSelectedWorkoutId(visibleChosen.workouts[0].id);
-        else setSelectedWorkoutId(null);
-        setWorkoutsLoading(false);
-
-        // The stored workout is complete enough to render immediately. Library
-        // metadata only fills missing video fields and must not block the page.
-        setLoading(false);
-        recordLoadPerformance("content_ready");
-        if (exerciseIds.size > 0) {
-          const { data: libraryData } = await supabase
-            .from("exercise_library")
-            .select("id, video_url, video_path, youtube_video_id, thumbnail_url")
-            .in("id", Array.from(exerciseIds));
+      const continuation = selectStudentDigitalContinuity(signaledCycles, { enrollment, expectedStudentId: studentId,
+        expectedCompanyId: targetCompany, today: businessToday, allowExpiredEnrollment: true });
+      const candidate = continuation ?? (preferredCycle && (!withContent.has(preferredCycle.id) || preferredCycle.id === carried?.id)
+        ? preferredCycle : null);
+      const available = [...operational, ...(continuation && !operational.some(cycle => cycle.id === continuation.id) ? [continuation] : [])];
+      // Retain already-readable completed cycles for explicit consultation, never as an automatic fallback.
+      const displayRows = [...available, ...readable.filter(cycle => cycle.status === "completed" && !cycle.prescription_cleared_at)]
+        .filter((cycle, index, all) => all.findIndex(item => item.id === cycle.id) === index);
+      const enriched: Cycle[] = displayRows.map(cycle => ({ ...cycle, workouts: cycle.prescription_cleared_at || cycle.start_date > today ? []
+        : orderWorkoutsByPrescription(materialized.filter(row => row.cycle_id === cycle.id).map(row => ({ id: row.id, title: row.title,
+          description: row.description, sort_order: row.sort_order, exercises: (row.exercises as unknown as WorkoutExercise[]) || [] }))) })) as Cycle[];
+      const selected = enriched.find(cycle => cycle.id === candidate?.id) ?? null;
+      setCycles(enriched.sort((a, b) => (a.start_date || "").localeCompare(b.start_date || "") || a.cycle_number - b.cycle_number));
+      setCurrentCycleId(selected?.id || null); setSelectedCycle(selected); setSelectedWorkoutId(selected?.workouts[0]?.id || null);
+      setWorkoutsLoading(false); recordLoadPerformance("content_ready");
+      const exerciseIds = new Set(materialized.flatMap(row => ((row.exercises as unknown as WorkoutExercise[]) || []).map(exercise => exercise.exercise_id)).filter(Boolean));
+      if (exerciseIds.size) {
+        try {
+          const { data: library } = await supabase.from("exercise_library").select("id, video_url, video_path, youtube_video_id, thumbnail_url").in("id", [...exerciseIds]);
           if (!isCurrentLoad()) return;
-          if (libraryData?.length) {
-            const videoMap: Record<string, { video_url: string | null; video_path: string | null; youtube_video_id: string | null }> = {};
-            libraryData.forEach((lib) => {
-              videoMap[lib.id] = {
-                video_url: lib.video_url,
-                video_path: lib.video_path,
-                youtube_video_id: lib.youtube_video_id ?? null,
-              };
-            });
-            setCycles((current) => enrichCyclesWithVideos(current, videoMap));
-            setSelectedCycle((current) => current ? enrichCyclesWithVideos([current], videoMap)[0] : current);
-          }
-        }
-      } else {
-        setWorkoutsLoading(false);
-        recordLoadPerformance("content_ready");
+          const videos = new Map((library || []).filter(item => exerciseIds.has(item.id)).map(item => [item.id, item]));
+          const enrich = (cycle: Cycle): Cycle => ({ ...cycle, workouts: cycle.workouts.map(workout => ({ ...workout, exercises: workout.exercises.map(exercise => ({ ...exercise,
+            video_url: exercise.video_url?.trim() || videos.get(exercise.exercise_id)?.video_url || null,
+            video_path: exercise.video_path?.trim() || videos.get(exercise.exercise_id)?.video_path || null,
+            youtube_video_id: exercise.youtube_video_id || videos.get(exercise.exercise_id)?.youtube_video_id || null,
+          })) })) });
+          setCycles(current => current.map(enrich)); setSelectedCycle(current => current ? enrich(current) : null);
+        } catch { /* Optional media metadata cannot revoke a verified prescription. */ }
       }
-    } else {
-      setWorkoutsLoading(false);
-      recordLoadPerformance("content_ready");
-    }
-    } catch (error) {
+    } catch {
       if (!isCurrentLoad()) return;
-      console.error("student workout load failed", error);
-      setLoadError("Não foi possível carregar os treinos. Atualize a página ou fale com seu treinador.");
+      setStudent(null); setCycles([]); setSelectedCycle(null); setCurrentCycleId(null); setLoadedScope(capturedScope);
+      setLoadError("Não foi possível carregar os treinos com segurança. Atualize a página ou fale com seu treinador.");
       setWorkoutsLoading(false);
-    } finally {
-      if (isCurrentLoad()) setLoading(false);
-    }
-  };
+    } finally { if (isCurrentLoad()) setLoading(false); }
+  }, [actorId, role, authCompanyId, authLoading, studentId, scopeKey, recordLoadPerformance]);
+
+  useEffect(() => {
+    void loadData();
+    return () => { loadRevision.current += 1; };
+  }, [loadData]);
+
+  const visibleMediaScope = selectedWorkout ? `${scopeKey}:${selectedCycle?.id}:${selectedWorkout.id}:${historyOpen}` : "";
+  const mediaScopeRef = useRef(visibleMediaScope); mediaScopeRef.current = visibleMediaScope;
+  useEffect(() => { setVideoModal(null); }, [visibleMediaScope]);
 
   const openVideoForExercise = async (ex: WorkoutExercise) => {
+    const mediaScope = mediaScopeRef.current;
+    if (!mediaScope) return;
     if (ex.video_path) { setVideoModal({ type: "path", value: getStoragePublicUrl(ex.video_path), title: ex.exercise_name }); return; }
     if (ex.video_url) { setVideoModal({ type: "url", value: ex.video_url, title: ex.exercise_name }); return; }
     if (ex.youtube_video_id) {
@@ -376,10 +291,12 @@ export default function StudentWorkout() {
       const { data, error } = await supabase.functions.invoke("youtube-exercise-video", {
         body: { exercise_id: ex.exercise_id, name: ex.exercise_name },
       });
+      if (mediaScopeRef.current !== mediaScope) return;
       const videoId = (data as { video_id?: string } | null)?.video_id;
       if (error || !videoId) throw error || new Error("Vídeo não encontrado");
       setVideoModal({ type: "url", value: `https://www.youtube.com/watch?v=${videoId}`, title: ex.exercise_name });
     } catch {
+      if (mediaScopeRef.current !== mediaScope) return;
       setVideoModal({ type: "unavailable", value: buildYouTubeSearchUrl(ex.exercise_name), title: ex.exercise_name });
     }
   };
@@ -411,7 +328,7 @@ export default function StudentWorkout() {
 
   const getWorkoutLabel = (index: number) => String.fromCharCode(65 + index);
 
-  if (loading) {
+  if (loading || authLoading || loadedScope !== scopeKey) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -422,7 +339,7 @@ export default function StudentWorkout() {
   if (!student) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <p className="text-muted-foreground font-sans">{loadError || "Aluno não encontrado."}</p>
+        <p role="alert" className="text-muted-foreground font-sans">{loadError || "Aluno não encontrado."}</p>
       </div>
     );
   }
@@ -455,6 +372,20 @@ export default function StudentWorkout() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {!historyOpen && selectedCycleData && needsKeep(selectedCycleData) && !prescriptionPolicy.allowContinuity && (
+          <div className="space-y-2" role={prescriptionPolicy.error ? "alert" : "status"}>
+            <p>{prescriptionPolicy.loading ? "Confirmando a disponibilidade do treino…" : prescriptionPolicy.error ? "Não foi possível confirmar a disponibilidade do treino." : "Aguardando nova prescrição."}</p>
+            {prescriptionPolicy.error && <Button variant="outline" onClick={() => void prescriptionPolicy.retry()}>Tentar novamente</Button>}
+          </div>
+        )}
+        {cycles.some(cycle => cycle.workouts.length > 0) && <Button variant="outline" onClick={() => {
+          const next = !historyOpen; setHistoryOpen(next);
+          if (next && !selectedCycleData) { const historical = cycles.find(cycle => cycle.workouts.length > 0); setSelectedCycle(historical || null); setSelectedWorkoutId(historical?.workouts[0]?.id || null); }
+          if (!next) { const current = cycles.find(cycle => cycle.id === currentCycleId); setSelectedCycle(current || null); setSelectedWorkoutId(current?.workouts[0]?.id || null); }
+        }}>{historyOpen ? "Voltar à prescrição atual" : "Consultar histórico"}</Button>}
+        {historyOpen && <p className="text-sm text-muted-foreground">Histórico — somente consulta. Não libera sessões nem altera matrícula, cargas ou prescrição.</p>}
+        {!historyOpen && selectedCycle && needsKeep(selectedCycle) && prescriptionPolicy.allowContinuity && <p className="text-sm text-muted-foreground">Mantido até substituição. O período original permanece encerrado.</p>}
+        {loadError && <p role="alert">{loadError}</p>}
         {/* Cycle Timeline */}
         <div>
           <h2 className="text-sm font-sans font-semibold text-muted-foreground uppercase tracking-wider mb-3">Ciclos de Treino</h2>
@@ -478,6 +409,7 @@ export default function StudentWorkout() {
                 <button
                   key={cycle.id}
                   onClick={() => {
+                    setHistoryOpen(needsKeep(cycle) && (cycle.id !== currentCycleId || !prescriptionPolicy.allowContinuity));
                     setSelectedCycle(cycle);
                     setSelectedWorkoutId(cycle.workouts[0]?.id || null);
                     setExpandedExercise(null);
@@ -494,11 +426,12 @@ export default function StudentWorkout() {
                   ) : (
                     <Circle className="h-4 w-4 text-muted-foreground/40" />
                   )}
-                  {isCurrent && (
+                  {isCurrent && !historyOpen && !needsKeep(cycle) && cycle.id === currentCycleId && (
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/50 text-primary">
                       Atual
                     </Badge>
                   )}
+                  {needsKeep(cycle) && <span className="text-[10px] text-muted-foreground">Histórico</span>}
                   {!isCurrent && cycle.status === "completed" && (
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
                       Concluído
@@ -514,7 +447,7 @@ export default function StudentWorkout() {
             })}
             {!workoutsLoading && cycles.length === 0 && (
               <p className="text-muted-foreground font-sans text-sm">
-                {loadError || "Nenhum ciclo criado ainda."}
+                {loadError || "Nenhuma prescrição atual disponível."}
               </p>
             )}
           </div>

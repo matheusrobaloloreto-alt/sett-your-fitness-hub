@@ -62,7 +62,7 @@ describe("registration funnel safety contracts", () => {
   it("does not use the automatic send-link action from the Kanban UI", () => {
     expect(managerSource).not.toContain('action: "send-link"');
     expect(managerSource).toContain("Abrir conversa sem enviar");
-    expect(managerSource).toContain("Copiar mensagem");
+    expect(managerSource).toContain("Copiar roteiro");
   });
 
   it("keeps profile, chat and pre-registration as independent card actions", () => {

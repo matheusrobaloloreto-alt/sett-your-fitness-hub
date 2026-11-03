@@ -13,7 +13,7 @@ it('consumes company payment-link copy through the existing idempotent funnel se
         ? { version: 1, settings: { brand: { company_name: 'Synthetic A' }, messages: { payment_link: '{{empresa}}: {{primeiro_nome}}, {{link}}' } } }
         : table === 'whatsapp_instances' ? { id: 'instance', instance_name: 'synthetic', status: 'connected' }
         : table === 'student_funnel_events' ? { status: 'completed' }
-        : { id: 'chat', student_id: 'student' } }),
+        : table === 'whatsapp_chats' ? { id: 'chat', student_id: 'student' } : null }),
       insert: async (row: Record<string, unknown>) => {
         writes.push({ table, ...row });
         if (table === 'student_funnel_events') { const error = claimed ? { code: '23505' } : null; claimed = true; return { error }; }

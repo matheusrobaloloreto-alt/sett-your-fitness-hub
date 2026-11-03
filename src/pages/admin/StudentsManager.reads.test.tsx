@@ -68,3 +68,19 @@ it('shows an enrollment read failure instead of declaring absence of contract', 
  expect(await screen.findByText('Contrato indisponível: falha de leitura')).toBeInTheDocument();
  expect(screen.queryByText('Sem plano contratado vigente')).not.toBeInTheDocument();
 });
+
+it.each([null, '', '   '])('preserves the current enrollment without inventing a plan or sending invalid UUID metadata (%j)', async planId => {
+ mock.read.mockImplementation((table, filters, selection) => {
+  const result = response(table, filters, selection);
+  if (table === 'enrollments') return { data: result.data.map(row => ({ ...row, plan_id: planId })), error: null };
+  if (table === 'plans' && selection === 'id, name') return { data: [], error: { message: 'invalid input syntax for type uuid' } };
+  return result;
+ });
+ render(<StudentsManager />);
+ expect(await screen.findByRole('button', { name: 'Aluno company-a' })).toBeInTheDocument();
+ expect(screen.getByText('Matrícula vigente sem plano vinculado')).toBeInTheDocument();
+ expect(screen.queryByText('Sem plano contratado vigente')).not.toBeInTheDocument();
+ expect(screen.queryByText('Plano contratado vigente: nome indisponível')).not.toBeInTheDocument();
+ expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+ expect(mock.read.mock.calls.filter(([table, , selection]) => table === 'plans' && selection === 'id, name')).toEqual([]);
+});

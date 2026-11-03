@@ -29,3 +29,12 @@
 - QA adicional Analytics comprovou semana3 com5séries sendo apresentada como2base; Popper ajustando resolução semanal preservando legado.
 - Gov2 revisada independentemente por Sagan:14/14, zero skips, SHA6b6d21ec4509d159244110bc7f7ee495b06cb7a7dc03de3d4462b7a5fd7dc8fc. Aplicação/probes staging delegadas a Aristotle, exclusivamente fixturecompanyA.
 - Player: preservar YoutubeID/role invalidation e iframe load/error sem afirmar reprodução. QAestático aprovado;rerun integrado ainda pendente.
+
+## Integração lateral concluída localmente
+- Source commit anterior449f3e1, runtime em revisão final antes de novoCI.
+- Regressão de taxonomia do primeiroCI revertida: canon bytebase preservado, acentos sóna UI. DefaultsemanalTS/SQL preservado. AdaptersVM/contratos antigos atualizados sem enfraquecer auth/tenant/replay.
+- TypecheckREAL tsc-b exit0 (o --noEmit na raiz comfiles[] não comprovava referências). Três diagnósticos resolvidos: typedcatalogkeys, annotationsnotes e discriminantebooleano.
+- Sidepatch: sete arquivos integrados,150/150 tests e99 QAindependente.50 perfis27→41, zero perdas/trocas nos27 originais,100barreiras e50tenantprobes.
+- Productionowner read: três workouts legados acessíveis por roleauthenticated/claimsdoowner emtransação rollback. Não foi loginGoTrue ouUI. BNexpirydefaultkeep confirmado porleitura.
+- RotaStudentWorkout alinhada à política poratorreal:103 testesowner,33/33 último rerun; sourcefrozen paraQAindependente. Histórico sóconsulta, semexecução.
+- Nenhum deployouDDLprodução nesta rodadaainda. Guardserverstartpreexistente foi documentadoseparadamente e nãoalterado.

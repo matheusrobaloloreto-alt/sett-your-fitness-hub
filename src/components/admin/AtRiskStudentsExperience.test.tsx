@@ -17,7 +17,9 @@ vi.mock('@/integrations/supabase/client', () => ({ supabase: {
       students: [{ id: 'student-a', full_name: 'Synthetic Student', status: 'active' }],
       payments: [], workout_sessions: [{ student_id: 'student-a', completed_at: days(-1) }],
       whatsapp_chats: [{ id: 'chat-a', student_id: 'student-a' }],
-      training_cycles: [{ student_id: 'student-a', end_date: days(5).slice(0, 10), status: 'active' }],
+      training_cycles: [{ id: 'cycle-a', enrollment_id: 'enrollment-a', student_id: 'student-a', company_id: 'company-a', cycle_number: 1, start_date: days(-36).slice(0, 10), end_date: days(5).slice(0, 10), status: 'active' }],
+      enrollments: [{ id: 'enrollment-a', student_id: 'student-a', company_id: 'company-a', status: 'active', start_date: days(-36).slice(0, 10), end_date: days(5).slice(0, 10), plans: { duration_days: 42, cycle_duration_days: 42 } }],
+      workouts: [{ cycle_id: 'cycle-a', exercises: [{ name: 'Synthetic exercise' }] }],
       student_body_limitations: mocks.pain ? [{ student_id: 'student-a', region: 'Synthetic', severity: 'moderada' }] : [],
       functional_assessments: [],
     } as Record<string, unknown[]>)[table] ?? [];
@@ -27,8 +29,8 @@ vi.mock('@/integrations/supabase/client', () => ({ supabase: {
   },
 } }));
 import { AtRiskStudents } from './AtRiskStudents';
-beforeEach(() => { mocks.pain = false; mocks.open.mockReset().mockResolvedValue(undefined); mocks.plans.mockReset().mockResolvedValue('https://example.invalid/payment'); });
-afterEach(cleanup);
+beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-03T15:00:00Z')); mocks.pain = false; mocks.open.mockReset().mockResolvedValue(undefined); mocks.plans.mockReset().mockResolvedValue('https://example.invalid/payment'); });
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 it('passes the company renewal event and canonical values to the draft helper', async () => {
   render(<AtRiskStudents />);
   fireEvent.click(await screen.findByRole('button', { name: 'Abrir conversa interna com Synthetic Student' }));

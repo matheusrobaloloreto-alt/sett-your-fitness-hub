@@ -632,11 +632,13 @@ export default function StudentDetail() {
       return;
     }
 
-    const planIds = [...new Set(enrollmentData.map((e) => e.plan_id))];
+    const planIds = [...new Set(enrollmentData.map((e) => e.plan_id).filter((id): id is string => !!id))];
     const trainerIds = [...new Set(enrollmentData.map((e) => e.trainer_id).filter((id): id is string => !!id))];
 
     const [{ data: plansData, error: plansError }, { data: profiles }] = await Promise.all([
-      supabase.from("plans").select("id, name, duration_weeks, duration_days, cycle_duration_days, plan_kind").in("id", planIds),
+      planIds.length > 0
+        ? supabase.from("plans").select("id, name, duration_weeks, duration_days, cycle_duration_days, plan_kind").in("id", planIds)
+        : Promise.resolve({ data: [], error: null }),
       trainerIds.length > 0
         ? supabase.from("profiles").select("user_id, full_name").in("user_id", trainerIds)
         : Promise.resolve({ data: [] as { user_id: string; full_name: string | null }[] }),

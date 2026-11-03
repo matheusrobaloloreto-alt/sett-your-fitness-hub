@@ -58,7 +58,7 @@ export default function MasterDashboard() {
 
       const catalog = await fetchPublicPlatformCatalog().catch(() => null);
       setCatalogAvailable(Boolean(catalog));
-      if (catalog) setPlanNames(Object.fromEntries(Object.entries(catalog.tiers).map(([code, plan]) => [code, plan.name])));
+      if (catalog) setPlanNames(Object.fromEntries(Object.keys(catalog.tiers).map(code => [code, catalog.tiers[code].name])));
       const monthlyRevenue = activeCompanies.reduce((sum, c) => {
         return sum + (catalog?.tiers[c.tier as keyof typeof catalog.tiers]?.monthly_price || 0);
       }, 0);

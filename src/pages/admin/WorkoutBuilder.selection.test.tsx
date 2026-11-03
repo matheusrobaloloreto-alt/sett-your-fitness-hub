@@ -225,7 +225,7 @@ describe('mounted selector destinations and persistence', () => {
  }, 30000);
  it('new draft workout retains identity across edits and exports weekly metrics without UI keys', async () => {
    setup();
-   rows.set('cycle-a', initializeNewWeeklyWorkoutDraft(rows.get('cycle-a') as Array<Row & { exercises: Array<{ sets: string; reps: string; rest: string }> }>) as Row[]);
+   rows.set('cycle-a', initializeNewWeeklyWorkoutDraft(rows.get('cycle-a') as Array<Row & { exercises: Array<{ sets: string; reps: string; rest: string; notes: string }> }>) as Row[]);
    mountBuilder(); await screen.findByDisplayValue('Treino A');
    fireEvent.click(screen.getByRole('button', {name:'Adicionar treino'}));
    const title = screen.getByDisplayValue('Treino D');

@@ -1,3 +1,4 @@
+import { selectStudentPrescriptionEnrollment } from "@/lib/studentEnrollmentContinuity";
 import { useStudentPrescriptionPolicy } from "@/hooks/useStudentPrescriptionPolicy";
 import { PublishedPrescriptionHistory } from "@/components/student/PublishedPrescriptionHistory";
 import { useEffect, useState, useCallback, useMemo, useRef, Fragment, Suspense, lazy } from "react";
@@ -71,7 +72,7 @@ import {
 } from "@/lib/workoutDraft";
 import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 import { resolveWorkoutSelectionAfterReload } from "@/lib/studentWorkoutReload";
-import { selectPreferredVisibleCycle, selectPrescriptionEnrollment, selectStudentWorkoutCycleWindow, selectStudentDigitalContinuity } from "@/lib/prescriptionSchedule";
+import { selectPreferredVisibleCycle, selectStudentWorkoutCycleWindow, selectStudentDigitalContinuity } from "@/lib/prescriptionSchedule";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
 import { projectPrescriptionCoverage } from "@/lib/prescriptionCoverage";
 import { createWorkoutLogSaveQueue, saveWorkoutLogBatchIfCurrent, type WorkoutLogSaveResult } from "@/lib/workoutLogPersistence";
@@ -323,14 +324,14 @@ export default function StudentPortal() {
   const todayStr = businessDateYmd();
   const logsBackupKey = studentId ? `sett_logs_${studentId}_${todayStr}` : null;
   const awaitingPrescription = !studentIsInactive && !(coverage?.reliable && coverage.hasCurrentWorkout);
-  const expiredContinuation = Boolean(selectedCycle?.end_date && selectedCycle.end_date < todayStr);
+  const expiredContinuation = Boolean((selectedCycle?.end_date && selectedCycle.end_date < todayStr) || (digitalContinuation?.enrollmentEndDate && digitalContinuation.enrollmentEndDate < todayStr));
   const prescriptionPolicy = useStudentPrescriptionPolicy(
     loadedUserScope === userScope && !loadError && user?.id && studentId && companyId
       && (!authCompanyId || authCompanyId === companyId)
       ? { userId: user.id, studentId, companyId } : null,
   );
   const hasDigitalContinuity = Boolean((!expiredContinuation || prescriptionPolicy.allowContinuity) && !studentIsInactive && digitalContinuation && digitalContinuation.cycleId === selectedCycle?.id
-    && digitalContinuation.enrollmentEndDate >= todayStr && selectedCycle?.workouts.length);
+    && selectedCycle?.workouts.length);
   const awaitingDigitalPrescription = awaitingPrescription || expiredContinuation;
   const workoutUnavailable = awaitingDigitalPrescription && !hasDigitalContinuity;
   const lastPublishedCycle = cycles.filter(cycle => cycle.workouts.length > 0 && cycle.end_date < todayStr)
@@ -550,10 +551,12 @@ export default function StudentPortal() {
       .from("enrollments")
       .select("id, student_id, company_id, start_date, end_date, training_start_date, plan_id, status, created_at, carried_over_cycle_id")
       .eq("student_id", student.id)
-      .in("status", ["active", "awaiting_training", "awaiting_renewal"])
+      .eq("company_id", student.company_id)
       .order("created_at", { ascending: false })
-      .limit(10));
-    const enrollment = selectPrescriptionEnrollment((enrollmentRows || []) as any[], { today: businessToday, expectedStudentId: student.id, expectedCompanyId: student.company_id });
+      .limit(1000));
+    // Never infer continuity from a possibly truncated history.
+    if ((enrollmentRows?.length ?? 0) >= 1000) throw new Error("Histórico de matrículas excede o limite de leitura segura.");
+    const enrollment = selectStudentPrescriptionEnrollment((enrollmentRows || []) as any[], { today: businessToday, expectedStudentId: student.id, expectedCompanyId: student.company_id });
     if (!enrollment) {
       setActiveEnrollmentId(null); setEnrollmentInfo(null);
       setCycles([]); setSelectedCycle(null); setSelectedWorkoutId(null);
@@ -672,7 +675,7 @@ export default function StudentPortal() {
         );
         const continuation = selectStudentDigitalContinuity(
           (cyclesData || []).map(cycle => ({ ...cycle, has_usable_workouts: workoutCycleIds.has(cycle.id) })),
-          { enrollment, expectedStudentId: student.id, expectedCompanyId: student.company_id, today: businessToday },
+          { enrollment, expectedStudentId: student.id, expectedCompanyId: student.company_id, today: businessToday, allowExpiredEnrollment: true },
         );
         const schedulableCycles = continuation && !operationalCycles.some(cycle => cycle.id === continuation.id)
           ? [...operationalCycles, continuation] : operationalCycles;

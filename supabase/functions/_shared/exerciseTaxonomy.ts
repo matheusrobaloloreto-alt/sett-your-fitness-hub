@@ -13,10 +13,10 @@ export const MUSCLE_GROUP_OPTIONS = [
   { slug: "deltoide_posterior", label: "Deltoide Posterior", aliases: ["deltoide posterior", "posterior de ombro"] },
   { slug: "deltoide_anterior", label: "Deltoide Anterior", aliases: ["deltoide anterior", "anterior de ombro", "deltoide frontal", "deltóide frontal"] },
   { slug: "antebraco", label: "Antebraço", aliases: ["antebracos", "braquiorradial"] },
-  { slug: "biceps", label: "Bíceps", aliases: ["bíceps", "biceps"] },
-  { slug: "triceps", label: "Tríceps", aliases: ["tríceps", "triceps"] },
+  { slug: "biceps", label: "Biceps", aliases: ["bíceps", "biceps"] },
+  { slug: "triceps", label: "Triceps", aliases: ["tríceps", "triceps"] },
   { slug: "dorsal", label: "Dorsal", aliases: ["costas", "dorsais", "latissimo", "latissimos"] },
-  { slug: "trapezio", label: "Trapézio", aliases: ["trapézio", "trapezio", "trapézios", "trapezios", "trapezio inferior", "trapézio inferior"] },
+  { slug: "trapezio", label: "Trapezio", aliases: ["trapézio", "trapezio", "trapézios", "trapezios", "trapezio inferior", "trapézio inferior"] },
   { slug: "peitoral", label: "Peitoral", aliases: ["peito", "peitorais", "chest"] },
 ] as const;
 
@@ -27,9 +27,9 @@ export const CATEGORY_OPTIONS = [
   { slug: "mobilidades", label: "Mobilidades", aliases: ["mobilidade", "mobility", "alongamento", "stretching"] },
   { slug: "funcionais", label: "Funcionais", aliases: ["funcional", "controle_motor", "controle motor", "fisioterapia", "fisio", "ativacao", "ativação", "estabilidade", "propriocepcao"] },
   { slug: "base", label: "Base", aliases: ["basico", "básico", "composto", "compostos"] },
-  { slug: "pesos_livre", label: "Pesos livres", aliases: ["pesos_livres", "pesos livres", "peso livre", "halteres", "barra", "kettlebell", "anilha"] },
+  { slug: "pesos_livre", label: "Pesos Livre", aliases: ["pesos_livres", "pesos livres", "peso livre", "halteres", "barra", "kettlebell", "anilha"] },
   { slug: "peso_corporal", label: "Peso Corporal", aliases: ["calistenia", "livre", "bodyweight", "solo"] },
-  { slug: "maquinas", label: "Máquinas", aliases: ["máquinas", "maquina", "máquina", "polia", "cabo", "leg press", "cadeira", "mesa flexora"] },
+  { slug: "maquinas", label: "Maquinas", aliases: ["máquinas", "maquina", "máquina", "polia", "cabo", "leg press", "cadeira", "mesa flexora"] },
   { slug: "pliometria", label: "Pliometria", aliases: ["performance", "pliometrico", "pliométrico", "salto", "jump", "hop", "bound"] },
 ] as const;
 

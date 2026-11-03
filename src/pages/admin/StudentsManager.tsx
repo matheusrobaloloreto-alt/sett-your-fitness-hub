@@ -53,6 +53,7 @@ interface Student {
   created_at: string;
   plan_name?: string;
   has_current_contract?: boolean;
+  has_linked_plan?: boolean;
   contract_read_error?: boolean;
 }
 
@@ -188,7 +189,8 @@ export default function StudentsManager() {
       if (!current()) return;
       const enrollmentError = Boolean(enrollmentRead.error || (enrollmentRead.data || []).some(row => row.company_id !== effectiveCompanyId || !studentIds.includes(row.student_id)));
       const enrollments = enrollmentError ? [] : enrollmentRead.data || [];
-      const planIds = [...new Set(enrollments.map(row => row.plan_id))];
+      const planIds = [...new Set(enrollments.map(row => row.plan_id)
+        .filter((id): id is string => typeof id === "string" && id.trim().length > 0))];
       const metadata = planIds.length ? await supabase.from("plans").select("id, name").eq("company_id", effectiveCompanyId).in("id", planIds) : { data: [], error: null };
       if (!current()) return;
       const names = new Map((metadata.error ? [] : metadata.data || []).filter(plan => planIds.includes(plan.id)).map(plan => [plan.id, plan.name]));
@@ -198,7 +200,8 @@ export default function StudentsManager() {
         });
         return { ...student, selected_plan_id: student.selected_plan_id,
           enrollment_trainer_id: enrollment?.trainer_id || null,
-          has_current_contract: Boolean(enrollment), contract_read_error: enrollmentError,
+          has_current_contract: Boolean(enrollment),
+          has_linked_plan: Boolean(enrollment && typeof enrollment.plan_id === "string" && enrollment.plan_id.trim().length > 0), contract_read_error: enrollmentError,
           plan_name: enrollment ? names.get(enrollment.plan_id) : undefined };
       });
       setStudents(enriched);
@@ -206,7 +209,7 @@ export default function StudentsManager() {
       setTrainers(directoryRead.error ? [] : (directoryRead.data || []).map(member => ({
         user_id: member.user_id, full_name: member.full_name || "Sem nome",
       })).sort((a, b) => a.full_name.localeCompare(b.full_name, "pt-BR")));
-      setContractReadError(enrollmentError || Boolean(metadata.error) || enriched.some(student => student.has_current_contract && !student.plan_name));
+      setContractReadError(enrollmentError || Boolean(metadata.error) || enriched.some(student => student.has_current_contract && student.has_linked_plan && !student.plan_name));
       setLoadError(Boolean(planRead.error || directoryRead.error));
     } catch {
       if (current()) { setStudents([]); setPlans([]); setTrainers([]); setLoadError(true); }
@@ -654,7 +657,7 @@ export default function StudentsManager() {
                       </button>
                       <AthleticClubStar studentId={s.id} companyId={effectiveCompanyId} className="shrink-0" />
                       <Badge variant="outline" className={`text-xs ${statusColors[s.status]}`}>{statusLabels[s.status] || s.status}</Badge>
-                      {s.contract_read_error ? <Badge variant="outline">Contrato indisponível: falha de leitura</Badge> : s.has_current_contract && !s.plan_name ? <Badge variant="outline">Plano contratado vigente: nome indisponível</Badge> : s.plan_name ? <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">Plano contratado vigente: {s.plan_name}</Badge> : <Badge variant="outline">Sem plano contratado vigente</Badge>}
+                      {s.contract_read_error ? <Badge variant="outline">Contrato indisponível: falha de leitura</Badge> : s.has_current_contract && !s.has_linked_plan ? <Badge variant="outline">Matrícula vigente sem plano vinculado</Badge> : s.has_current_contract && !s.plan_name ? <Badge variant="outline">Plano contratado vigente: nome indisponível</Badge> : s.plan_name ? <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">Plano contratado vigente: {s.plan_name}</Badge> : <Badge variant="outline">Sem plano contratado vigente</Badge>}
                       {s.status === "active" && !s.user_id && <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">Sem acesso</Badge>}
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground font-sans">

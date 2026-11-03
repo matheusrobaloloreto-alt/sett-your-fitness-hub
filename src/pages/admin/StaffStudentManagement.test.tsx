@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   auth: { role: "trainer" as string | null, companyId: "company-a" as string | null,
     user: { id: "actor" }, session: { user: { id: "actor" } } },
   master: { viewingCompany: null as { id: string } | null, isViewingCompany: false },
-  from: vi.fn(), rpc: vi.fn(), invoke: vi.fn(), toast: vi.fn(), navigate: vi.fn(),
+  from: vi.fn(), read: vi.fn(), rpc: vi.fn(), invoke: vi.fn(), toast: vi.fn(), navigate: vi.fn(),
   rows: [] as Array<Record<string, unknown>>,
   writes: [] as Array<{ table: string; values: unknown; filters: Record<string, unknown> }>,
 }));
@@ -51,6 +51,12 @@ vi.mock("@/components/ui/select", async () => {
 import StudentsManager from "./StudentsManager";
 import Portfolio from "./Portfolio";
 
+function deferredRead() {
+  let resolve!: (value: { data: unknown[]; error: null }) => void;
+  const promise = new Promise<{ data: unknown[]; error: null }>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 function fixture(company = "company-a") {
   return { id: "student-a", company_id: company, full_name: "Fixture Student", status: "active",
     assigned_trainer_id: "another-trainer", email: "fixture@example.invalid", user_id: "student-user",
@@ -65,6 +71,7 @@ beforeEach(() => {
   mocks.rows = [fixture()];
   mocks.writes = [];
   mocks.toast.mockReset();
+  mocks.read.mockReset().mockImplementation((_table, _filters, result) => result);
   mocks.rpc.mockReset().mockImplementation(async (name: string) => ({
     data: name === "get_company_student_staff_directory" ? [
       { user_id: "actor", full_name: "Fixture Actor", roles: ["trainer"] },
@@ -90,7 +97,7 @@ beforeEach(() => {
           : table === "user_roles" ? [{ user_id: "actor", role: "trainer" }]
           : table === "profiles" ? [{ user_id: "actor", full_name: "Fixture Actor" }, { user_id: "target-trainer", full_name: "Fixture Target" }]
           : [];
-        return Promise.resolve({ data, error: null }).then(resolve);
+        return Promise.resolve(mocks.read(table, { ...filters }, { data, error: null })).then(resolve);
       },
     };
     return query;
@@ -107,29 +114,58 @@ describe.each([
       if (role === "master") mocks.master = { viewingCompany: { id: "company-a" }, isViewingCompany: true };
       render(<Page />);
       fireEvent.click(await screen.findByRole("button", { name: /Editar Fixture Student/ }));
-      expect(await screen.findByRole("dialog")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: /Salvar/ }));
+      const dialog = await screen.findByRole("dialog");
+      expect(dialog).toBeInTheDocument();
+      fireEvent.change(within(dialog).getAllByRole("textbox")[0], { target: { value: "Fixture Student edited" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: /Salvar/ }));
       await waitFor(() => expect(mocks.writes).toHaveLength(1));
-      expect(mocks.writes[0]).toMatchObject({ table: "students", filters: { id: "student-a", company_id: "company-a" } });
+      expect(mocks.writes[0]).toMatchObject({ table: "students", values: { full_name: "Fixture Student edited" }, filters: { id: "student-a", company_id: "company-a" } });
     },
   );
 
   it.each(["student", null])("does not give %s the staff edit controls", async (role) => {
     mocks.auth.role = role;
     render(<Page />);
-    await screen.findByText("Fixture Student");
+    if (Page === StudentsManager) {
+      await act(async () => {});
+      expect(screen.queryByText("Fixture Student")).not.toBeInTheDocument();
+      expect(mocks.from).not.toHaveBeenCalledWith("students");
+      expect(mocks.rpc).not.toHaveBeenCalledWith("get_company_student_staff_directory", expect.anything());
+    } else {
+      // Portfolio's existing read contract is separate; both pages deny staff controls.
+      await screen.findByText("Fixture Student");
+    }
+    expect(screen.queryByRole("combobox", { name: "Professor responsável por Fixture Student" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Excluir Fixture Student/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Editar Fixture Student/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Trocar professor de Fixture Student/ })).not.toBeInTheDocument();
   });
 
   it("keeps an open editor from writing after switching company", async () => {
+    const nextCompany = deferredRead();
+    mocks.read.mockImplementation((table, filters, result) => (
+      table === "students" && filters.company_id === "company-b" ? nextCompany.promise : result
+    ));
     const view = render(<Page />);
     fireEvent.click(await screen.findByRole("button", { name: /Editar Fixture Student/ }));
-    await screen.findByRole("dialog");
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    const originalSave = screen.getByRole("button", { name: /Salvar/ });
+    expect(originalSave).toBeEnabled();
     mocks.auth.companyId = "company-b";
     view.rerender(<Page />);
-    fireEvent.click(screen.getByRole("button", { name: /Salvar/ }));
-    await waitFor(() => expect(mocks.from).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.read).toHaveBeenCalledWith(
+      "students", expect.objectContaining({ company_id: "company-b" }), expect.anything(),
+    ));
+    if (Page === StudentsManager) {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(originalSave).not.toBeInTheDocument();
+    } else {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /Salvar/ }));
+    }
+    expect(mocks.writes).toHaveLength(0);
+    await act(async () => { nextCompany.resolve({ data: [], error: null }); });
+    expect(screen.queryByText("Fixture Student")).not.toBeInTheDocument();
     expect(mocks.writes).toHaveLength(0);
   });
 
@@ -192,7 +228,10 @@ it("keeps a failed directory closed instead of falling back to globally queried 
   await screen.findByRole("combobox", { name: "Professor responsável por Fixture Student" });
   expect(screen.queryByRole("option", { name: "Fixture Target" })).not.toBeInTheDocument();
   expect(mocks.from).not.toHaveBeenCalledWith("user_roles");
-  expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Erro ao carregar equipe", description: "directory denied" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível carregar todos os dados de alunos, planos ou equipe.");
+  expect(mocks.rpc).toHaveBeenCalledWith("get_company_student_staff_directory", { _company_id: "company-a" });
+  expect(mocks.from).not.toHaveBeenCalledWith("company_members");
+  expect(mocks.writes).toHaveLength(0);
 });
 
 
