@@ -212,6 +212,27 @@ describe("StudentWorkout", () => {
     expect(screen.queryByText(/Gerado pelo BN Prescription Engine/i)).not.toBeInTheDocument();
   });
 
+  it.each([null, "prescribed1"])("uses library YouTube metadata while preserving prescribed video %s without resolving a provider", async prescribedId => {
+    const original = fromMock.getMockImplementation()!;
+    let resolveLibrary!: (value: unknown) => void;
+    const libraryResult = new Promise(resolve => { resolveLibrary = resolve; });
+    fromMock.mockImplementation((table: string) => {
+      if (table === "workouts") return makeQuery({ data: [{ ...workoutRows[0], exercises: [{ ...workoutRows[0].exercises[2], youtube_video_id: prescribedId }] }], error: null }, "in");
+      if (table === "exercise_library") return makeQuery(libraryResult, "in");
+      return original(table);
+    });
+    renderWorkout();
+    expect(await screen.findByRole("heading", { name: "Treino A" })).toBeInTheDocument();
+    await act(async () => {
+      resolveLibrary({ data: [{ id: "ex-3", youtube_video_id: "library0001", video_url: null, video_path: null }], error: null });
+      await libraryResult;
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Ver demonstração de Prancha" }));
+    const frame = await screen.findByTitle("Demonstração do exercício");
+    expect(new URL(frame.getAttribute("src")!).pathname).toBe(`/embed/${prescribedId ?? "library0001"}`);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
   it("distinguishes commercial enrollment eligibility from prescription continuity", () => {
     const enrollment = { id: "enrollment-1", student_id: "student-1", company_id: "company-1",
       start_date: "2026-08-01", end_date: "2026-09-30", training_start_date: "2026-08-01", status: "active" };

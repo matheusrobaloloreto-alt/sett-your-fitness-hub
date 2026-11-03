@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 
 const studentSource = readFileSync(resolve(process.cwd(), "src/pages/student/StudentWorkout.tsx"), "utf8");
 const studentPortalSource = readFileSync(resolve(process.cwd(), "src/pages/student/StudentPortal.tsx"), "utf8");
@@ -13,7 +14,26 @@ const migrationPath = resolve(
 describe("app performance telemetry wiring", () => {
   it("records shell and content readiness on the student workout without entity identifiers", () => {
     expect(studentSource).toContain("recordAppPerformanceSample");
-    expect(studentSource).toContain('.select("full_name, company_id")');
+    const ast = ts.createSourceFile("StudentWorkout.tsx", studentSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const calls: ts.CallExpression[] = [];
+    const visit = (node: ts.Node) => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "recordAppPerformanceSample") calls.push(node);
+      ts.forEachChild(node, visit);
+    };
+    visit(ast);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].arguments).toHaveLength(1);
+    const payload = calls[0].arguments[0];
+    expect(ts.isObjectLiteralExpression(payload)).toBe(true);
+    if (!ts.isObjectLiteralExpression(payload)) throw new Error("Telemetry must use an explicit object payload");
+    expect(payload.properties.every(property => (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) && ts.isIdentifier(property.name))).toBe(true);
+    const properties = payload.properties.filter((property): property is ts.PropertyAssignment | ts.ShorthandPropertyAssignment => ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property));
+    expect(properties.map(property => property.name.getText(ast)).sort()).toEqual(["companyId", "durationMs", "metric", "routeGroup"]);
+    const values = new Map(properties.map(property => [property.name.getText(ast), ts.isShorthandPropertyAssignment(property) ? property.name : property.initializer]));
+    expect(values.get("routeGroup")?.getText(ast)).toBe('"student_workout"');
+    expect(values.get("metric")?.getText(ast)).toBe("metric");
+    expect(values.get("durationMs")?.getText(ast)).toBe("performance.now() - performanceStartedAt.current");
+    expect(values.get("companyId")?.getText(ast)).toBe("performanceCompanyId.current");
     expect(studentSource).toContain('routeGroup: "student_workout"');
     expect(studentSource).toContain("companyId: performanceCompanyId.current");
     expect(studentSource).toContain('recordLoadPerformance("shell_ready")');

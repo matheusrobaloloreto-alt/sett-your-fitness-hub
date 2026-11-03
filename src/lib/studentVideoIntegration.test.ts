@@ -2,11 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("student workout video integration", () => {
-  it("keeps the library YouTube id when enriching a prescribed exercise", () => {
-    const source = readFileSync("src/pages/student/StudentWorkout.tsx", "utf8");
-    expect(source).toContain("youtube_video_id: lib.youtube_video_id ?? null");
-    expect(source).not.toContain("youtube_video_id: null,");
-  });
+  // Library enrichment and prescribed-video precedence are exercised with the
+  // mounted StudentWorkout in StudentWorkout.test.tsx.
 
   it("keeps the dormant warmup component ready for canonical videos without rendering it in the portal", () => {
     const portal = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");

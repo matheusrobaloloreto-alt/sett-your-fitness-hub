@@ -41,12 +41,16 @@ it('keeps delayed fallback until the current native source becomes ready', async
  expect(vi.getTimerCount()).toBe(0);
 });
 it('shows external-only HTTPS sources without arbitrary iframe and rejects unsafe links', () => {
+ vi.useFakeTimers();
  const {container, rerender} = render(<ExercisePreviewPlayer value="https://example.com/watch/demo"/>);
  expect(container.querySelector('iframe')).toBeNull();
  expect(container.querySelector('video')).toBeNull();
  expect(screen.getByRole('link')).toHaveAttribute('href','https://example.com/watch/demo');
  rerender(<ExercisePreviewPlayer value="javascript:alert(1)"/>);
  expect(screen.queryByRole('link')).toBeNull();
+ act(()=>{vi.advanceTimersByTime(10000);});
+ expect(screen.getByText('Demonstração indisponível.')).toBeInTheDocument();
+ expect(screen.queryByRole('status')).toBeNull();
 });
 it('accepts a current late signing result after the delayed fallback', async () => {
  vi.useFakeTimers();
@@ -113,5 +117,26 @@ it('ignores iframe load/error from a previous source while accepting the current
  expect(screen.getByRole('status').textContent).toContain('Carregando');
  expect(newFrame).toHaveAttribute('src','https://www.youtube-nocookie.com/embed/lmnopqrstuv');
  fireEvent.load(newFrame);
+ expect(screen.queryByRole('status')).toBeNull();
+});
+it('shows an external fallback immediately without loading or delayed states, including after resolution', async () => {
+ vi.useFakeTimers();
+ const url='https://drive.google.com/file/d/synthetic/view';
+ const {container,rerender}=render(<ExercisePreviewPlayer value={url}/>);
+ expect(screen.queryByRole('status')).toBeNull();
+ expect(screen.getByRole('link')).toHaveAttribute('href',url);
+ expect(container.querySelector('iframe, video')).toBeNull();
+ act(()=>{vi.advanceTimersByTime(10000);});
+ expect(screen.queryByRole('status')).toBeNull();
+ let finish!: (value:string)=>void;
+ const resolve=()=>new Promise<string>(done=>{finish=done;});
+ rerender(<ExercisePreviewPlayer resolve={resolve}/>);
+ expect(screen.getByRole('status').textContent).toContain('Carregando');
+ await act(async()=>{finish(url);});
+ expect(screen.queryByRole('status')).toBeNull();
+ expect(screen.getByRole('link')).toHaveAttribute('href',url);
+ expect(container.querySelector('iframe, video')).toBeNull();
+ expect(screen.getByText('Esta demonstração deve ser aberta no link externo.')).toBeInTheDocument();
+ act(()=>{vi.advanceTimersByTime(10000);});
  expect(screen.queryByRole('status')).toBeNull();
 });
