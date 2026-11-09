@@ -1,3 +1,4 @@
+import { isSecondaryCardInstallment, matchesSecondaryInstallmentOrder, secondaryInstallmentOrderId } from "../_shared/asaas-installment-webhook.ts";
 import { asaasPaymentStatus } from "../_shared/asaas-payment-status.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -38,6 +39,51 @@ function requireAsaasApiConfig(): AsaasApiConfig {
   } catch {
     throw new HttpError(503, "Ambiente Asaas não configurado com segurança.");
   }
+}
+
+async function completeEvent(eventId: string) {
+  const { error } = await supabaseAdmin.from("integration_webhook_events").update({
+    status: "completed",
+    processed_at: new Date().toISOString(),
+  }).eq("provider", "asaas").eq("event_id", eventId);
+  if (error) throw new Error(`Falha ao concluir evento Asaas: ${error.message}`);
+}
+
+async function reconcileSecondaryInstallment(remote: any, status: string, config: AsaasApiConfig) {
+  const orderId = secondaryInstallmentOrderId(remote);
+  if (!orderId) throw new HttpError(409, "Parcela Asaas sem checkout SETT verificável.");
+  const { data: order, error } = await supabaseAdmin.from("payments")
+    .select("id, company_id, student_id, asaas_customer_id, asaas_payment_id, billing_type, installment_count")
+    .eq("id", orderId).maybeSingle();
+  if (error) throw new Error(`Falha ao localizar pedido da parcela: ${error.message}`);
+  if (!order?.asaas_payment_id || order.asaas_payment_id === remote.id) {
+    throw new HttpError(409, "Parcela Asaas sem pedido local vinculado.");
+  }
+
+  const primary = await fetch(asaasApiUrl(config, `/payments/${encodeURIComponent(order.asaas_payment_id)}`), {
+    headers: { "User-Agent": "SETT-BNApp/1.0 (Supabase Edge; Asaas webhook)", access_token: ASAAS_API_KEY },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!primary.ok) throw new HttpError(502, "Não foi possível verificar a primeira parcela no Asaas.");
+  if (!matchesSecondaryInstallmentOrder(remote, order, await primary.json())) {
+    throw new HttpError(409, "Parcela Asaas não pertence ao pedido local informado.");
+  }
+
+  const { data: local, error: readError } = await supabaseAdmin.from("payments")
+    .select("id, company_id, student_id, asaas_customer_id")
+    .eq("asaas_payment_id", remote.id).maybeSingle();
+  if (readError) throw new Error(`Falha ao consultar parcela local: ${readError.message}`);
+  // Finance already projects the Asaas group, even when only its first charge
+  // has a local row. Never grant or revoke enrollment from later installments.
+  if (!local) return;
+  if (local.company_id !== order.company_id || local.student_id !== order.student_id ||
+    local.asaas_customer_id !== order.asaas_customer_id) {
+    throw new HttpError(409, "Parcela vinculada a outro cadastro local.");
+  }
+  const { error: updateError } = await supabaseAdmin.from("payments").update({ status })
+    .eq("id", local.id).eq("company_id", order.company_id).eq("student_id", order.student_id)
+    .eq("asaas_payment_id", remote.id).eq("asaas_customer_id", order.asaas_customer_id);
+  if (updateError) throw new Error(`Falha ao atualizar parcela local: ${updateError.message}`);
 }
 
 async function claimEvent(eventId: string, eventType: string) {
@@ -205,6 +251,14 @@ Deno.serve(async (req) => {
     claimedEventId = eventId;
     console.log("Asaas webhook", JSON.stringify({ eventType, asaasPaymentId, newStatus }));
 
+    if (isSecondaryCardInstallment(remotePayment)) {
+      await reconcileSecondaryInstallment(remotePayment, newStatus, asaasConfig);
+      await completeEvent(eventId);
+      return new Response(JSON.stringify({ received: true, secondaryInstallment: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Update payment status in our database
     const { data: localPayment, error: paymentError } = await supabaseAdmin
       .from("payments")
@@ -316,11 +370,7 @@ Deno.serve(async (req) => {
       if (error) throw new Error(`Falha ao atualizar a matrícula da cobrança: ${error.message}`);
     }
 
-    const { error: completionError } = await supabaseAdmin.from("integration_webhook_events").update({
-      status: "completed",
-      processed_at: new Date().toISOString(),
-    }).eq("provider", "asaas").eq("event_id", eventId);
-    if (completionError) throw new Error(`Falha ao concluir evento Asaas: ${completionError.message}`);
+    await completeEvent(eventId);
 
     return new Response(JSON.stringify({ received: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
