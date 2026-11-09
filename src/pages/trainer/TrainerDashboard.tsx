@@ -6,7 +6,6 @@ export default function TrainerDashboard() {
       readOnly
       routePrefixOverride="trainer"
       title="PAINEL DA EMPRESA"
-      subtitle="Mesmos indicadores, alertas, renovações, aniversários e análises do painel administrativo."
       includeCoordinatorPanels
     />
   );

@@ -7,7 +7,6 @@ import { Users, TrendingUp, RefreshCw, UserX, Timer, RotateCcw, MessageCircle, C
 import { format, addDays, differenceInCalendarDays, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { DashboardAlerts } from "@/components/DashboardAlerts";
-import { ContactCadenceCard } from "@/components/admin/ContactCadenceCard";
 import { PendingFeedbackCard } from "@/components/admin/PendingFeedbackCard";
 import { useMaster } from "@/contexts/MasterContext";
 import { useAuth } from "@/hooks/useAuth";
@@ -480,9 +479,8 @@ export default function AdminDashboard({
           {mine ? <FirstTrainingDashboardCard scope={operationalScope} students={roster.data ?? []}
             routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} rosterLoading={roster.isLoading} rosterError={roster.error} />
             : <AssessmentDashboardCard scope={operationalScope} routePrefix={safeRoutePrefix} allowChat={canOpenChat} />}
-          {readOnly && !mine
-            ? <div className="min-w-0 overflow-x-auto"><ContactCadenceCard companyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly /></div>
-            : <OperationalContactCadenceCard scope={canOpenChat ? operationalScope : null} routePrefix={safeRoutePrefix} />}
+          <OperationalContactCadenceCard scope={canOpenChat ? mine ? assignedScope : actorScope : null}
+            routePrefix={safeRoutePrefix} allowChat={!readOnly || mine} />
           <Card className="bg-card border-border">
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-2">

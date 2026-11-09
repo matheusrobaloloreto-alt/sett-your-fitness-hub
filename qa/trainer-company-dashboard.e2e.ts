@@ -73,10 +73,10 @@ test("human contact cadence uses the operational queues and trainer projection",
 
   const trainerGuard = await openFixture(page, { role: "trainer", viewport: { width: 390, height: 844 } });
   await expect(page.getByText("Mais operações", { exact: true })).toHaveCount(0);
-  const cadence = page.getByRole("heading", { name: /Cadência de Contatos.*sem resposta/ }).locator("../..");
+  const cadence = page.getByRole("heading", { name: "Cadência de contatos" }).locator("../..");
+  await cadence.getByRole("button", { name: "Sem resposta há 24h", exact: true }).click();
   await expect(cadence.getByText("Bruno Ativo", { exact: true })).toBeVisible();
-  await expect(cadence.getByText("4 dias", { exact: true })).toBeVisible();
-  await expect(cadence.getByRole("button", { name: "Abrir conversa" })).toHaveCount(0);
+  await expect(cadence.getByRole("link", { name: "Abrir conversa" })).toHaveCount(0);
   await expectNoFixtureLeak(trainerGuard);
 });
 
@@ -138,7 +138,9 @@ test("coordinator keeps renewal, cycle and birthday visibility for the same comp
   await page.getByText("Fila de matrículas", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "MATRÍCULAS" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Novo Aluno" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Ver avaliação" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Aguardando avaliação" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ver avaliação" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Ver mais" })).toHaveAttribute("href", "/coordinator/registration");
   await expect(page.getByRole("link", { name: "Prescrever" }).and(page.locator('[href*="student-active-b"]')))
     .toHaveAttribute("href", "/coordinator/students/student-active-b?tab=prescricao&cycle=cycle-next-b");
   await expect(page.getByText("Renovações", { exact: true })).toBeVisible();

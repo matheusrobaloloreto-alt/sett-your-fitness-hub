@@ -310,7 +310,7 @@ const contactCadenceClient = supabase as unknown as {
   };
 };
 
-export function OperationalContactCadenceCard({ scope, routePrefix }: { scope: Scope | null; routePrefix: string }) {
+export function OperationalContactCadenceCard({ scope, routePrefix, allowChat = true }: { scope: Scope | null; routePrefix: string; allowChat?: boolean }) {
   const [filter, setFilter] = useState<"all" | "unanswered" | "without_team_message">("all");
   const query = useQuery({
     queryKey: ["dashboard-operational-cadence", scope],
@@ -346,9 +346,9 @@ export function OperationalContactCadenceCard({ scope, routePrefix }: { scope: S
               {[row.unanswered && "Sem resposta há 24h", row.without_team_message && "Sem mensagem da equipe há 7 dias"].filter(Boolean).join(" · ")}
             </p>
           </div>
-          <Link className={actionClass} to={`/${routePrefix}/whatsapp-chat`} state={{ chatId: row.chat_id }} onClick={event => {
+          {allowChat && <Link className={actionClass} to={`/${routePrefix}/whatsapp-chat`} state={{ chatId: row.chat_id }} onClick={event => {
             if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && requestWhatsAppChatPanel({ chatId: row.chat_id })) event.preventDefault();
-          }}>Abrir conversa</Link>
+          }}>Abrir conversa</Link>}
         </div>)}</div> : <DashboardQueueState empty="Nenhum contato neste filtro." />}
     </div>}
   </DashboardCard>;
