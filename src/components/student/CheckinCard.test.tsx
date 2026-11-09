@@ -29,11 +29,11 @@ describe("daily check-in save", () => {
     if (failure === "response error") mocks.upsert.mockResolvedValueOnce({ error: { code: "42501" } });
     else mocks.upsert.mockRejectedValueOnce(new Error("offline"));
     render(<CheckinCard studentId="student-a" companyId="company-a" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Bom", exact: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Bom" }));
     fireEvent.click(screen.getByRole("button", { name: "Moderado" }));
     fireEvent.click(screen.getByRole("button", { name: "Dor 4 de 8" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Suas respostas foram mantidas");
-    expect(screen.getByRole("button", { name: "Bom", exact: true })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Bom" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Moderado" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Dor 4 de 8" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByText(/Check-in de hoje feito/)).not.toBeInTheDocument();
