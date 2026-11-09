@@ -54,7 +54,7 @@ async function expectNoFixtureLeak({
 
 async function visibleSectionTexts(page: Page) {
   const sections = ["Interessados", "Aguardando avaliação", "Cadência de contatos", "Próximas prescrições",
-    "Renovações", "Aniversariantes", "Feedbacks de treino", "Análises e acompanhamento"];
+    "Renovações", "Aniversariantes", "Feedbacks de treino"];
   for (const section of sections) await expect(page.getByText(section, { exact: true })).toBeVisible();
   return sections;
 
@@ -62,15 +62,17 @@ async function visibleSectionTexts(page: Page) {
 
 test("human contact cadence uses the operational queues and trainer projection", async ({ page }) => {
   const adminGuard = await openFixture(page, { role: "admin", viewport: { width: 1440, height: 1000 } });
-  for (const label of ["Sem resposta há 24h · 1", "Sem mensagem da equipe há 7 dias · 1"]) {
-    const queue = page.locator("details").filter({ has: page.getByText(label, { exact: true }) });
-    await queue.getByText(label, { exact: true }).click();
-    await expect(queue.getByRole("link", { name: "Bruno Ativo" })).toHaveAttribute("href", "/admin/whatsapp-chat");
+  const filters = page.getByRole("group", { name: "Filtrar cadência de contatos" });
+  for (const label of ["Sem resposta há 24h", "Sem mensagem há 7 dias"]) {
+    const filter = filters.getByRole("button", { name: label, exact: true });
+    await filter.click();
+    await expect(filter).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("link", { name: "Abrir conversa" }).first()).toHaveAttribute("href", "/admin/whatsapp-chat");
   }
   await expectNoFixtureLeak(adminGuard);
 
   const trainerGuard = await openFixture(page, { role: "trainer", viewport: { width: 390, height: 844 } });
-  await page.getByText("Mais operações", { exact: true }).click();
+  await expect(page.getByText("Mais operações", { exact: true })).toHaveCount(0);
   const cadence = page.getByRole("heading", { name: /Cadência de Contatos.*sem resposta/ }).locator("../..");
   await expect(cadence.getByText("Bruno Ativo", { exact: true })).toBeVisible();
   await expect(cadence.getByText("4 dias", { exact: true })).toBeVisible();
@@ -80,33 +82,25 @@ test("human contact cadence uses the operational queues and trainer projection",
 
 test("trainer sees the full company dashboard sections that admin sees without write actions", async ({ page }) => {
   const adminGuard = await openFixture(page, { role: "admin", viewport: { width: 1440, height: 1000 } });
-  await expect(page.getByRole("heading", { name: "DASHBOARD" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "DASHBOARD", exact: true })).toHaveCount(0);
   const adminSections = await visibleSectionTexts(page);
-  await expect(page.getByRole("link", { name: "Ver avaliação" })).toHaveAttribute("href", "/admin/students/student-active-a?tab=evaluations");
+  await expect(page.getByRole("button", { name: "Ver avaliação" })).toBeVisible();
   await expect(page.getByText(/Anamnese registrada/)).toBeVisible();
-  await expect(page.getByText("Sem resposta há 24h · 1")).toBeVisible();
-  await expect(page.getByText("Sem mensagem da equipe há 7 dias · 1")).toBeVisible();
-  await page.getByRole("button", { name: /ANÁLISES E ACOMPANHAMENTO/i }).click();
-  await expect(page.getByRole("heading", { name: "Matrículas por plano" })).toBeVisible();
-  await expect(page.getByText("Prescrições do mês")).toBeVisible();
-  await expect(page.getByText("Feedback de ciclo pendente")).toBeVisible();
-  await expect(page.getByText("Coorte — satisfação (NPS)")).toBeVisible();
+  await expect(page.getByRole("group", { name: "Filtrar cadência de contatos" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ver mais" })).toHaveAttribute("href", "/admin/registration");
+  await expect(page.getByText("Análises e acompanhamento", { exact: true })).toHaveCount(0);
   await expectNoFixtureLeak(adminGuard);
 
   const trainerGuard = await openFixture(page, { role: "trainer", viewport: { width: 1440, height: 1000 } });
   await expect(page.getByRole("heading", { name: "PAINEL DA EMPRESA" })).toBeVisible();
   await expect(page.getByText("Visualização completa da empresa")).toBeVisible();
-  await page.getByText("Mais operações", { exact: true }).click();
+  await expect(page.getByText("Mais operações", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Ana Ativa").first()).toBeVisible();
   await expect(page.getByText("Bruno Ativo").first()).toBeVisible();
   await expect(page.getByText("Outro Tenant")).toHaveCount(0);
   expect(await visibleSectionTexts(page)).toEqual(adminSections);
 
-  await page.getByRole("button", { name: /ANÁLISES E ACOMPANHAMENTO/i }).click();
-  await expect(page.getByRole("heading", { name: "Matrículas por plano" })).toBeVisible();
-  await expect(page.getByText("Prescrições do mês")).toBeVisible();
-  await expect(page.getByText("Feedback de ciclo pendente")).toBeVisible();
-  await expect(page.getByText("Coorte — satisfação (NPS)")).toBeVisible();
+  await expect(page.getByText("Análises e acompanhamento", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Renovar agora/i })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Prescrever" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Mensagem/i })).toHaveCount(0);
@@ -127,9 +121,9 @@ test("trainer sees the full company dashboard sections that admin sees without w
 
 test("master company view keeps the same dashboard inventory for the selected tenant", async ({ page }) => {
   const guard = await openFixture(page, { role: "master", viewport: { width: 1440, height: 1000 } });
-  await expect(page.getByRole("heading", { name: "DASHBOARD" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "DASHBOARD", exact: true })).toHaveCount(0);
   await expect(page.getByText("Visualizando: BN QA")).toBeVisible();
-  await page.getByText("Mais operações", { exact: true }).click();
+  await expect(page.getByText("Mais operações", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Alunos Ativos").first()).toBeVisible();
   await expect(page.getByText("Treinadores").first()).toBeVisible();
   await expect(page.getByText("Renovações", { exact: true })).toBeVisible();
@@ -140,10 +134,11 @@ test("master company view keeps the same dashboard inventory for the selected te
 
 test("coordinator keeps renewal, cycle and birthday visibility for the same company", async ({ page }) => {
   const guard = await openFixture(page, { role: "coordinator", viewport: { width: 1366, height: 900 } });
-  await page.getByText("Mais operações", { exact: true }).click();
+  await expect(page.getByText("Mais operações", { exact: true })).toHaveCount(0);
+  await page.getByText("Fila de matrículas", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "MATRÍCULAS" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Novo Aluno" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Ver avaliação" })).toHaveAttribute("href", "/coordinator/students/student-active-a?tab=evaluations");
+  await expect(page.getByRole("button", { name: "Ver avaliação" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Prescrever" }).and(page.locator('[href*="student-active-b"]')))
     .toHaveAttribute("href", "/coordinator/students/student-active-b?tab=prescricao&cycle=cycle-next-b");
   await expect(page.getByText("Renovações", { exact: true })).toBeVisible();
@@ -159,8 +154,7 @@ test("trainer dashboard handles empty and error states", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "PAINEL DA EMPRESA" })).toBeVisible();
   await expect(page.getByText("Nenhuma renovação pendente").first()).toBeVisible();
   await expect(page.getByText("Nenhuma próxima prescrição no período configurado.")).toBeVisible();
-  await page.getByRole("button", { name: /ANÁLISES E ACOMPANHAMENTO/i }).click();
-  await expect(page.getByText(/Resumo sem alertas/)).toBeVisible();
+  await expect(page.getByText("Análises e acompanhamento", { exact: true })).toHaveCount(0);
   await expectNoFixtureLeak(emptyGuard);
 
   const errorGuard = await openFixture(page, { role: "trainer", scenario: "error", viewport: { width: 1280, height: 900 } });
@@ -201,8 +195,7 @@ test("Meus alunos excludes company onboarding and links only the authenticated t
   await expect(page.getByRole("link", { name: "Abrir treino" })).toHaveAttribute("href", "/trainer/students/student-pending?tab=prescricao");
   await expect(page.getByRole("link", { name: "Ver feedback" })).toHaveAttribute("href", "/trainer/students/student-active-a?tab=analytics");
   await expect(page.getByText("Força B", { exact: false })).toHaveCount(0);
-  await page.getByRole("button", { name: /Análises e acompanhamento/i }).click();
-  await expect(page.getByText("Matrículas por plano", { exact: true })).toBeVisible();
+  await expect(page.getByText("Análises e acompanhamento", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Plano Elite · 1", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Outro Tenant", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

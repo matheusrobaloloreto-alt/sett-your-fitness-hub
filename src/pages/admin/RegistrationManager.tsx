@@ -45,7 +45,7 @@ import {
 import { cn } from "@/lib/utils";
 import { intercycleAnamnesisPath } from "@/lib/intercycleAnamnesis";
 import {
-  FUNNEL_STAGE_META as CANONICAL_FUNNEL_STAGE_META,
+  resolveFunnelStageMeta,
   FUNNEL_STAGE_ORDER,
   type FunnelStageKey,
   canMoveOperationalStudentToStage,
@@ -478,7 +478,10 @@ export default function RegistrationManager() {
   const operations = useCompanyOperations(effectiveCompanyId, !operationsFeatures.loading && operationsFeatures.hasRegistration);
   const [commercialSettings,setCommercialSettings]=useState(DEFAULT_COMPANY_COMMERCIAL_SETTINGS);
   useEffect(()=>{let current=true;setCommercialSettings(DEFAULT_COMPANY_COMMERCIAL_SETTINGS);if(effectiveCompanyId)void fetchCompanyCommercialSettings(effectiveCompanyId).then(value=>{if(current)setCommercialSettings(value.settings);},()=>{if(current)toast.error("Configuração comercial indisponível.");});return()=>{current=false;};},[effectiveCompanyId]);
-  const FUNNEL_STAGE_META=useMemo(()=>Object.fromEntries(FUNNEL_STAGE_ORDER.map(key=>[key,{...CANONICAL_FUNNEL_STAGE_META[key],...((operations.data?.version ? operations.data.settings.stages.find(s=>s.code===key)?.label : commercialSettings.funnel_labels[key]) ? {label:operations.data?.version ? operations.data.settings.stages.find(s=>s.code===key)!.label : commercialSettings.funnel_labels[key],shortLabel:operations.data?.version ? operations.data.settings.stages.find(s=>s.code===key)!.label : commercialSettings.funnel_labels[key]}:{})}])) as typeof CANONICAL_FUNNEL_STAGE_META,[commercialSettings,operations.data]);
+  const FUNNEL_STAGE_META = useMemo(
+    () => resolveFunnelStageMeta(commercialSettings.funnel_labels, operations.data),
+    [commercialSettings, operations.data],
+  );
   const navigate = useNavigate();
   const chatRoutePrefix = role === "master" ? "admin" : role || "admin";
   const currentTrainerName = useMemo(() => {

@@ -25,12 +25,36 @@ import {
   OperationalContactCadenceCard, useAssignedDashboardStudents, WorkoutFeedbackDashboardCard,
 } from "@/components/dashboard/OperationalDashboardCards";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
+import { useCompanyOperations } from "@/components/admin/operations/OperationsConsumers";
+import { fetchCompanyCommercialSettings } from "@/lib/companyCommercialSettings";
+import { isOpenFunnelStage, normalizeLeadSalesStage, normalizeSalesStage, resolveFunnelStageMeta } from "@/lib/salesFunnelView";
 
 interface DashboardData {
   stats: { totalStudents: number; interestedStudents: number; awaitingRenewalStudents: number; inactiveStudents: number; trainers: number };
   expiringContracts: any[];
   cycleCountdowns: any[];
   trainerMap: Record<string, string>;
+}
+
+async function fetchClosingPreview(companyId: string) {
+  const [students, leads] = await Promise.all([
+    supabase.from("students").select("id, full_name, company_id, status, sales_stage, created_at")
+      .eq("company_id", companyId)
+      .or("sales_stage.in.(interested,contacted,fiscal_registration_pending,payment_pending,active_onboarding),and(sales_stage.is.null,status.in.(interested,pending))")
+      .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(12),
+    supabase.from("leads").select("id, full_name, company_id, stage, created_at")
+      .eq("company_id", companyId).is("converted_to_student_id", null)
+      .in("stage", ["interested", "contacted", "fiscal_registration", "fiscal_registration_pending"])
+      .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(6),
+  ]);
+  if (students.error || leads.error) throw students.error ?? leads.error;
+  const rows = [
+    ...(students.data ?? []).map(row => ({ ...row, key: `student:${row.id}`, step: normalizeSalesStage(row) })),
+    ...(leads.data ?? []).map(row => ({ ...row, key: `lead:${row.id}`, step: normalizeLeadSalesStage(row.stage) })),
+  ];
+  return rows.filter(row => row.company_id === companyId && isOpenFunnelStage(row.step))
+    .sort((left, right) => (right.created_at ?? "").localeCompare(left.created_at ?? "") || right.key.localeCompare(left.key))
+    .slice(0, 5);
 }
 
 async function fetchDashboardData(effectiveCompanyId: string | null | undefined): Promise<DashboardData> {
@@ -271,6 +295,19 @@ export default function AdminDashboard({
   const safeRoutePrefix = routePrefix || "admin";
   const canOpenStudent = (mine || !readOnly) && (role !== "coordinator" || (!permissionsLoading && canAccess("students")));
   const canOpenChat = !permissionsLoading && canAccess("whatsapp");
+  const canViewClosing = !!effectiveCompanyId && !readOnly && !mine && !permissionsLoading && canAccess("registration");
+  const closingPreview = useQuery({
+    queryKey: ["dashboard-closing-preview", effectiveCompanyId, user?.id, role],
+    queryFn: () => fetchClosingPreview(effectiveCompanyId!),
+    enabled: canViewClosing,
+  });
+  const closingOperations = useCompanyOperations(effectiveCompanyId ?? null, canViewClosing);
+  const closingCommercial = useQuery({
+    queryKey: ["dashboard-closing-labels", effectiveCompanyId, user?.id, role],
+    queryFn: () => fetchCompanyCommercialSettings(effectiveCompanyId!),
+    enabled: canViewClosing && closingOperations.data?.version === 0,
+  });
+  const closingLabels = resolveFunnelStageMeta(closingCommercial.data?.settings.funnel_labels ?? {}, closingOperations.data);
   const canRunAdminOperations = !readOnly && (role === "admin" || role === "master");
   const { policy, isPending: policyPending, error: policyError } = useCompanyExperiencePolicy(effectiveCompanyId);
 
@@ -403,17 +440,17 @@ export default function AdminDashboard({
           })}
         </div>}
 
-        <div>
-          <h1 className="text-4xl text-primary">{title}</h1>
-          <p className="text-muted-foreground font-sans">
-            {subtitle ?? (isViewingCompany ? `Visualizando: ${viewingCompany?.name}` : "Visão geral da consultoria")}
-          </p>
+        {(readOnly || isViewingCompany || subtitle || title !== "DASHBOARD") && <div>
+          {(readOnly || title !== "DASHBOARD") && <h1 className="text-4xl text-primary">{title}</h1>}
+          {(subtitle || isViewingCompany) && <p className="text-muted-foreground font-sans">
+            {subtitle ?? `Visualizando: ${viewingCompany?.name}`}
+          </p>}
           {readOnly && !mine && (
             <p className="mt-1 text-xs text-muted-foreground font-sans">
               Visualização completa da empresa. Ações administrativas permanecem restritas a admin/coordenador.
             </p>
           )}
-        </div>
+        </div>}
 
         {dashboardError && (
           <Card className="border-destructive/40 bg-destructive/5">
@@ -426,13 +463,19 @@ export default function AdminDashboard({
 
         <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2">
           {!mine && <DashboardCard title="Interessados" icon={UserPlus}>
-            {!data || dashboardError ? <DashboardQueueState loading={dashboardLoading} error={dashboardError}
-              empty="Selecione uma empresa para consultar os interessados." /> : (
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm text-muted-foreground">{stats.interestedStudents} contatos na fila de interessados</p>
-                {!readOnly && !permissionsLoading && canAccess("registration") && <Button size="sm" variant="outline" onClick={() => navigate(`/${safeRoutePrefix}/registration`)}>Ver interessados</Button>}
-              </div>
-            )}
+            {canViewClosing ? <>
+              {closingPreview.data?.length ? <ul className="max-h-56 divide-y overflow-auto" aria-label="Fases da esteira">
+                {closingPreview.data.map(row => <li key={row.key} className="flex items-center justify-between gap-2 py-2 text-sm">
+                  <span className="min-w-0 break-words font-medium">{row.full_name}</span>
+                  <span className="text-right text-xs text-muted-foreground">{closingLabels[row.step].shortLabel}</span>
+                </li>)}
+              </ul> : <DashboardQueueState loading={closingPreview.isLoading} error={closingPreview.error}
+                empty="Nenhuma pessoa nas etapas abertas da esteira." />}
+              <Link className="mt-2 inline-block text-sm font-medium text-primary hover:underline"
+                to={`/${safeRoutePrefix}/registration`}>Ver mais</Link>
+            </> : !data || dashboardError ? <DashboardQueueState loading={dashboardLoading} error={dashboardError}
+              empty="Selecione uma empresa para consultar os interessados." />
+              : <p className="text-sm text-muted-foreground">{stats.interestedStudents} contatos iniciais</p>}
           </DashboardCard>}
           {mine ? <FirstTrainingDashboardCard scope={operationalScope} students={roster.data ?? []}
             routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} rosterLoading={roster.isLoading} rosterError={roster.error} />
@@ -577,7 +620,6 @@ export default function AdminDashboard({
           <DashboardAlerts section="birthdays" readOnly={readOnly} studentIds={mine ? studentIds : undefined}
             birthdayLoading={readOnly ? queueLoading : mine && roster.isLoading}
             birthdayError={readOnly ? queueError : mine && roster.error}
-            agendaPath={!permissionsLoading && canAccess("agenda") && canOpenStudent ? "/" + safeRoutePrefix + "/agenda" : undefined}
             allowStudentNavigation={canOpenStudent} allowBirthdayMessage={canOpenChat} />
           <WorkoutFeedbackDashboardCard scope={operationalScope} routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} allowWhatsApp={canOpenChat && (!readOnly || mine)} />
           </div>

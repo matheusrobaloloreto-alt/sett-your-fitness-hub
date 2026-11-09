@@ -78,6 +78,19 @@ export const FUNNEL_STAGE_META: Record<FunnelStageKey, {
   },
 };
 
+/** Use the same labels in the pipeline and in its Dashboard preview. */
+export function resolveFunnelStageMeta(
+  legacy: Partial<Record<FunnelStageKey, string>>,
+  operations?: { version: number; settings: { stages: readonly { code: string; label: string }[] } } | null,
+) {
+  return Object.fromEntries(FUNNEL_STAGE_ORDER.map(key => {
+    const label = operations?.version
+      ? operations.settings.stages.find(stage => stage.code === key)?.label
+      : legacy[key];
+    return [key, { ...FUNNEL_STAGE_META[key], ...(label ? { label, shortLabel: label } : {}) }];
+  })) as typeof FUNNEL_STAGE_META;
+}
+
 export function canReconcileActiveStage(status?: string | null): boolean {
   return status === "active" || status === "awaiting_renewal";
 }
