@@ -1,3 +1,4 @@
+import { unrestrictedMasterFeatures } from "../src/lib/companyFeatureEntitlements";
 /* eslint-disable react-refresh/only-export-components */
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -110,7 +111,15 @@ const session = { access_token: "mock-template-media-session", user: { id: userI
   signOut: async () => ({ error: null }),
 };
 Object.defineProperty(supabase, "from", { configurable: true, value: (table: string) => new Query(table) });
-Object.defineProperty(supabase, "rpc", { configurable: true, value: async (name: string) => ({ data: name === "get_user_role" ? "master" : true, error: null }) });
+Object.defineProperty(supabase, "rpc", { configurable: true, value: async (name: string, args?: { _company_id?: string }) => {
+  if (name === "get_company_feature_entitlements") {
+    const target = companies.find(company => company.id === args?._company_id);
+    if (!target) return { data: null, error: { message: "Empresa QA desconhecida" } };
+    return { data: { company_id: target.id, tier: "advanced", source: "legacy", version: 0,
+      catalog_version: null, adopted_tier: null, features: unrestrictedMasterFeatures }, error: null };
+  }
+  return { data: name === "get_user_role" ? "master" : true, error: null };
+} });
 Object.defineProperty(supabase, "functions", { configurable: true, value: { invoke: async () => ({ data: { ok: true }, error: null }) } });
 Object.defineProperty(supabase, "channel", { configurable: true, value: () => { const channel = { on: () => channel, subscribe: () => channel, unsubscribe() {} }; return channel; } });
 Object.defineProperty(supabase, "removeChannel", { configurable: true, value: () => {} });
