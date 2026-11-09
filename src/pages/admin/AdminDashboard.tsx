@@ -1,57 +1,33 @@
-import { CompanyOperationsReports } from "@/components/admin/operations/OperationsConsumers";
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, TrendingUp, RefreshCw, Clock, UserX, Timer, RotateCcw, MessageCircle, CalendarRange, BarChart3, ChevronDown, UserPlus } from "lucide-react";
+import { Users, TrendingUp, RefreshCw, UserX, Timer, RotateCcw, MessageCircle, CalendarRange, UserPlus } from "lucide-react";
 import { format, addDays, differenceInCalendarDays, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { DashboardAlerts } from "@/components/DashboardAlerts";
-import { MonthlyPrescriptionsCard } from "@/components/admin/MonthlyPrescriptionsCard";
-import { PendingFeedbackCard } from "@/components/admin/PendingFeedbackCard";
-import { CohortInsightsCard } from "@/components/admin/CohortInsightsCard";
 import { ContactCadenceCard } from "@/components/admin/ContactCadenceCard";
-import { AtRiskStudents } from "@/components/admin/AtRiskStudents";
+import { PendingFeedbackCard } from "@/components/admin/PendingFeedbackCard";
 import { useMaster } from "@/contexts/MasterContext";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, useNavigate } from "react-router-dom";
 import { buildStudentChatMap, createPlansLink, isRenewalOverdue, openStudentChat, renewalMessage } from "@/lib/studentChat";
 import { businessDateYmd } from "@/lib/businessDate";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
-import { RenewalsAndCyclesPanel } from "@/components/dashboard/RenewalsAndCyclesPanel";
 import { DashboardSnapshotContext, type CompanyDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 import { parseCompanyDashboardSnapshot } from "@/lib/companyDashboardSnapshot";
 import { DEFAULT_COMPANY_PRODUCT_SETTINGS, fetchCompanyProductSettings } from '@/lib/companyProductSettings';
 import { useCompanyExperiencePolicy } from '@/hooks/useCompanyExperiencePolicy';
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import {
-  AssessmentDashboardCard, AssignedDashboardInsights, DashboardCard, DashboardQueueState, FirstTrainingDashboardCard,
+  AssessmentDashboardCard, DashboardCard, DashboardQueueState, FirstTrainingDashboardCard,
   OperationalContactCadenceCard, useAssignedDashboardStudents, WorkoutFeedbackDashboardCard,
 } from "@/components/dashboard/OperationalDashboardCards";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 
-const LazyChart = lazy(() => import("recharts").then(mod => ({
-  default: ({ data, colors }: { data: { name: string; count: number }[]; colors: string[] }) => (
-    <mod.ResponsiveContainer width="100%" height={250}>
-      <mod.BarChart data={data}>
-        <mod.XAxis dataKey="name" tick={{ fill: "hsl(0,0%,45%)", fontSize: 12 }} />
-        <mod.YAxis tick={{ fill: "hsl(0,0%,45%)", fontSize: 12 }} />
-        <mod.Tooltip contentStyle={{ backgroundColor: "hsl(0,0%,100%)", border: "1px solid hsl(0,0%,88%)" }} labelStyle={{ color: "hsl(220,70%,25%)" }} />
-        <mod.Bar dataKey="count" radius={[4, 4, 0, 0]}>
-          {data.map((_, i) => (
-            <mod.Cell key={i} fill={colors[i % colors.length]} />
-          ))}
-        </mod.Bar>
-      </mod.BarChart>
-    </mod.ResponsiveContainer>
-  )
-})));
-
 interface DashboardData {
-  stats: { totalStudents: number; interestedStudents: number; pendingStudents: number; awaitingRenewalStudents: number; inactiveStudents: number; trainers: number };
-  planChart: { name: string; count: number }[];
+  stats: { totalStudents: number; interestedStudents: number; awaitingRenewalStudents: number; inactiveStudents: number; trainers: number };
   expiringContracts: any[];
   cycleCountdowns: any[];
   trainerMap: Record<string, string>;
@@ -69,10 +45,8 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
   let interestedQuery = (supabase as any).from("leads").select("*", { count: "exact", head: true })
     .is("converted_to_student_id", null)
     .in("stage", ["interested", "contacted"]);
-  let pendingQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "pending");
   let awaitingRenewalQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "awaiting_renewal");
   let inactiveQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "inactive");
-  let enrollQuery = supabase.from("enrollments").select("plan_id, plans(name)");
   let expiringQuery = supabase.from("enrollments").select("id, student_id, end_date, trainer_id, students(full_name, status), plans(name)")
     .in("status", ["active", "awaiting_renewal"]).lte("end_date", renewalDate)
     .order("end_date", { ascending: false });
@@ -80,10 +54,8 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
   if (effectiveCompanyId) {
     studentQuery = studentQuery.eq("company_id", effectiveCompanyId);
     interestedQuery = interestedQuery.eq("company_id", effectiveCompanyId);
-    pendingQuery = pendingQuery.eq("company_id", effectiveCompanyId);
     awaitingRenewalQuery = awaitingRenewalQuery.eq("company_id", effectiveCompanyId);
     inactiveQuery = inactiveQuery.eq("company_id", effectiveCompanyId);
-    enrollQuery = enrollQuery.eq("company_id", effectiveCompanyId);
     expiringQuery = expiringQuery.eq("company_id", effectiveCompanyId);
   }
 
@@ -105,13 +77,11 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     return count || 0;
   })();
 
-  const [studentRes, interestedRes, pendingRes, awaitingRenewalRes, inactiveRes, enrollRes, expiringRes, activeEnrollsRes, trainerCount] = await Promise.all([
+  const [studentRes, interestedRes, awaitingRenewalRes, inactiveRes, expiringRes, activeEnrollsRes, trainerCount] = await Promise.all([
     studentQuery,
     interestedQuery,
-    pendingQuery,
     awaitingRenewalQuery,
     inactiveQuery,
-    enrollQuery,
     expiringQuery,
     cycleEnrollQuery,
     trainerCountPromise,
@@ -120,10 +90,8 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
   const failedQuery = [
     ["alunos ativos", studentRes],
     ["interessados", interestedRes],
-    ["alunos pendentes", pendingRes],
     ["renovações", awaitingRenewalRes],
     ["alunos inativos", inactiveRes],
-    ["matrículas", enrollRes],
     ["contratos a vencer", expiringRes],
     ["ciclos por matrícula", activeEnrollsRes],
   ].find(([, result]) => (result as any)?.error);
@@ -135,19 +103,10 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
   const stats = {
     totalStudents: studentRes.count || 0,
     interestedStudents: interestedRes.count || 0,
-    pendingStudents: pendingRes.count || 0,
     awaitingRenewalStudents: awaitingRenewalRes.count || 0,
     inactiveStudents: inactiveRes.count || 0,
     trainers: trainerCount,
   };
-
-  const planCounts: Record<string, { name: string; count: number }> = {};
-  (enrollRes.data || []).forEach((e: any) => {
-    const name = e.plans?.name || "Sem plano";
-    if (!planCounts[name]) planCounts[name] = { name, count: 0 };
-    planCounts[name].count++;
-  });
-  const planChart = Object.values(planCounts).sort((a, b) => b.count - a.count);
 
   const expiringContracts = (expiringRes.data || []).filter((e: any) => {
     const s = e.students?.status;
@@ -166,7 +125,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     (profiles || []).forEach((p: any) => { trainerMap[p.user_id] = p.full_name || ""; });
   }
 
-  return { stats, planChart, expiringContracts, cycleCountdowns: countdowns, trainerMap };
+  return { stats, expiringContracts, cycleCountdowns: countdowns, trainerMap };
 }
 
 async function fetchPrescriptionCountdowns(companyId: string, activeEnrolls: any[], today: string, renewalDate: string) {
@@ -253,20 +212,16 @@ export function prescriptionDeadlineTone(daysLeft: number) {
   return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 }
 
-const chartColors = ["hsl(220, 70%, 25%)", "hsl(220, 60%, 35%)", "hsl(220, 50%, 45%)", "hsl(220, 40%, 55%)"];
-
 function dashboardDataFromSnapshot(snapshot: CompanyDashboardSnapshot | null | undefined): DashboardData | undefined {
   if (!snapshot) return undefined;
   return {
     stats: {
       totalStudents: Number(snapshot.stats?.totalStudents) || 0,
       interestedStudents: Number(snapshot.stats?.interestedStudents) || 0,
-      pendingStudents: Number(snapshot.stats?.pendingStudents) || 0,
       awaitingRenewalStudents: Number(snapshot.stats?.awaitingRenewalStudents) || 0,
       inactiveStudents: Number(snapshot.stats?.inactiveStudents) || 0,
       trainers: Number(snapshot.stats?.trainers) || 0,
     },
-    planChart: snapshot.planChart || [],
     expiringContracts: snapshot.expiringContracts || [],
     cycleCountdowns: snapshot.cycleCountdowns || [],
     trainerMap: snapshot.trainerMap || {},
@@ -304,7 +259,6 @@ export default function AdminDashboard({
   const navigate = useNavigate();
   const [view, setView] = useState<"all" | "mine">("all");
   const mine = view === "mine";
-  const [insightsOpen, setInsightsOpen] = useState(false);
   const [renewalFilter, setRenewalFilter] = useState<"all" | "pending" | "overdue">("all");
   const [cycleFilter, setCycleFilter] = useState<"all" | "pending" | "overdue">("all");
   const routePrefix = routePrefixOverride ?? (role === "master" && isViewingCompany ? "admin" : role);
@@ -396,8 +350,7 @@ export default function AdminDashboard({
     }
   };
 
-  const stats = data?.stats ?? { totalStudents: 0, interestedStudents: 0, pendingStudents: 0, awaitingRenewalStudents: 0, inactiveStudents: 0, trainers: 0 };
-  const planChart = data?.planChart ?? [];
+  const stats = data?.stats ?? { totalStudents: 0, interestedStudents: 0, awaitingRenewalStudents: 0, inactiveStudents: 0, trainers: 0 };
   const expiringContracts = (data?.expiringContracts ?? []).filter(row => !mine || studentIds.has(row.student_id));
   const cycleCountdowns = ((mine ? myCycles.data : data?.cycleCountdowns) ?? [])
     .filter(row => !row.next_ready && (!mine || studentIds.has(row.student_id)))
@@ -421,6 +374,35 @@ export default function AdminDashboard({
     <>
       <DashboardSnapshotContext.Provider value={readOnly ? snapshotData ?? null : null}>
       <div className="space-y-6">
+        <div role="group" aria-label="Carteira do dashboard" className="flex flex-wrap justify-end gap-2">
+          {([["all", "Todos os alunos"], ["mine", "Meus alunos"]] as const).map(([value, label]) => (
+            <Button key={value} type="button" size="sm" variant={view === value ? "default" : "outline"}
+              aria-pressed={view === value} disabled={value === "mine" && !actorScope}
+              onClick={() => setView(value)}>{label}</Button>
+          ))}
+        </div>
+
+        {!mine && <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label="Indicadores da empresa">
+          {([
+            ["Alunos Ativos", stats.totalStudents, Users, "active"],
+            ["Aguardando Renovação", stats.awaitingRenewalStudents, RotateCcw, "awaiting_renewal"],
+            ["Alunos Inativos", stats.inactiveStudents, UserX, "inactive"],
+            ["Treinadores", stats.trainers, TrendingUp, null],
+          ] as const).map(([label, value, Icon, status]) => {
+            const content = <>
+              <span className="shrink-0 rounded-full bg-muted p-2"><Icon aria-hidden="true" className="h-4 w-4 text-primary" /></span>
+              <span className="min-w-0">
+                <span className="block text-lg font-semibold leading-tight">{dashboardLoading || dashboardError || !data ? "—" : value}</span>
+                <span className="block text-xs text-muted-foreground">{label}</span>
+              </span>
+            </>;
+            const className = "flex min-w-0 items-center gap-2 rounded-xl border border-border bg-card p-2.5 text-left";
+            return status && canOpenStudent
+              ? <Link key={label} to={`/${safeRoutePrefix}/students?status=${status}`} className={`${className} hover:border-primary/50`}>{content}</Link>
+              : <div key={label} className={className}>{content}</div>;
+          })}
+        </div>}
+
         <div>
           <h1 className="text-4xl text-primary">{title}</h1>
           <p className="text-muted-foreground font-sans">
@@ -433,14 +415,6 @@ export default function AdminDashboard({
           )}
         </div>
 
-        <div role="group" aria-label="Carteira do dashboard" className="flex flex-wrap gap-2">
-          {([["all", "Todos os alunos"], ["mine", "Meus alunos"]] as const).map(([value, label]) => (
-            <Button key={value} type="button" size="sm" variant={view === value ? "default" : "outline"}
-              aria-pressed={view === value} disabled={value === "mine" && !actorScope}
-              onClick={() => setView(value)}>{label}</Button>
-          ))}
-        </div>
-
         {dashboardError && (
           <Card className="border-destructive/40 bg-destructive/5">
             <CardContent className="pt-6">
@@ -450,7 +424,7 @@ export default function AdminDashboard({
           </Card>
         )}
 
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2">
           {!mine && <DashboardCard title="Interessados" icon={UserPlus}>
             {!data || dashboardError ? <DashboardQueueState loading={dashboardLoading} error={dashboardError}
               empty="Selecione uma empresa para consultar os interessados." /> : (
@@ -463,7 +437,9 @@ export default function AdminDashboard({
           {mine ? <FirstTrainingDashboardCard scope={operationalScope} students={roster.data ?? []}
             routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} rosterLoading={roster.isLoading} rosterError={roster.error} />
             : <AssessmentDashboardCard scope={operationalScope} routePrefix={safeRoutePrefix} allowChat={canOpenChat} />}
-          <OperationalContactCadenceCard scope={canOpenChat ? operationalScope : null} routePrefix={safeRoutePrefix} />
+          {readOnly && !mine
+            ? <div className="min-w-0 overflow-x-auto"><ContactCadenceCard companyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly /></div>
+            : <OperationalContactCadenceCard scope={canOpenChat ? operationalScope : null} routePrefix={safeRoutePrefix} />}
           <Card className="bg-card border-border">
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -597,115 +573,20 @@ export default function AdminDashboard({
           </Card>
 
 
+          <div className="min-w-0 space-y-3">
           <DashboardAlerts section="birthdays" readOnly={readOnly} studentIds={mine ? studentIds : undefined}
             birthdayLoading={readOnly ? queueLoading : mine && roster.isLoading}
             birthdayError={readOnly ? queueError : mine && roster.error}
             agendaPath={!permissionsLoading && canAccess("agenda") && canOpenStudent ? "/" + safeRoutePrefix + "/agenda" : undefined}
             allowStudentNavigation={canOpenStudent} allowBirthdayMessage={canOpenChat} />
-          <WorkoutFeedbackDashboardCard scope={operationalScope} routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} />
-        <Collapsible open={insightsOpen} onOpenChange={setInsightsOpen}>
-          <Card className="bg-card border-border">
-            <CollapsibleTrigger asChild>
-              <button type="button" className="flex w-full items-center justify-between gap-4 p-6 text-left">
-                <div>
-                  <CardTitle className="text-primary text-xl flex items-center gap-2">
-                    <BarChart3 className="h-5 w-5" />Análises e acompanhamento
-                  </CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground font-sans">
-                    NPS, matrículas por plano e acompanhamento de alunos.
-                  </p>
-                </div>
-                <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform ${insightsOpen ? "rotate-180" : ""}`} />
-              </button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <CardContent className="space-y-6 pt-0">
-                {mine ? <AssignedDashboardInsights scope={assignedScope} /> : <>
-                <section className="rounded-lg border border-border bg-secondary/20 p-4">
-                  <h2 className="text-primary text-xl">Matrículas por plano</h2>
-                  <div className="mt-4">
-                    {planChart.length > 0 ? (
-                      <Suspense fallback={<div className="h-[250px] flex items-center justify-center"><div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
-                        <LazyChart data={planChart} colors={chartColors} />
-                      </Suspense>
-                    ) : (
-                      <p className="text-muted-foreground font-sans text-center py-8">Nenhuma matrícula registrada</p>
-                    )}
-                  </div>
-                </section>
-
-                <CohortInsightsCard companyId={effectiveCompanyId} readOnly={readOnly} />
-                {role !== "coordinator" && <>
-                  <AtRiskStudents readOnly={readOnly} routePrefix={safeRoutePrefix} />
-                  <MonthlyPrescriptionsCard companyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} />
-                  <PendingFeedbackCard companyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} />
-                </>}
-                </>}
-              </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
-        </div>
-
-        {!mine && <details className="rounded-xl border border-border bg-card">
-          <summary className="cursor-pointer p-4 text-sm font-semibold text-primary">Mais operações</summary>
-          <div className="space-y-4 p-4 pt-0">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-primary/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=active`)}>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="p-3 rounded-lg bg-primary/10"><Users className="h-6 w-6 text-primary" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{(dashboardLoading || dashboardError || !data) ? "—" : stats.totalStudents}</p>
-                <p className="text-sm text-muted-foreground font-sans">Alunos Ativos</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-warning/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=pending`)}>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="p-3 rounded-lg bg-warning/10"><Clock className="h-6 w-6 text-warning" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{(dashboardLoading || dashboardError || !data) ? "—" : stats.pendingStudents}</p>
-                <p className="text-sm text-muted-foreground font-sans">Alunos Pendentes</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-warning/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=awaiting_renewal`)}>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="p-3 rounded-lg bg-warning/10"><RotateCcw className="h-6 w-6 text-warning" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{(dashboardLoading || dashboardError || !data) ? "—" : stats.awaitingRenewalStudents}</p>
-                <p className="text-sm text-muted-foreground font-sans">Aguardando Renovação</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-muted-foreground/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=inactive`)}>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="p-3 rounded-lg bg-muted"><UserX className="h-6 w-6 text-muted-foreground" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{(dashboardLoading || dashboardError || !data) ? "—" : stats.inactiveStudents}</p>
-                <p className="text-sm text-muted-foreground font-sans">Alunos Inativos</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-card border-border">
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="p-3 rounded-lg bg-primary/10"><TrendingUp className="h-6 w-6 text-primary" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{(dashboardLoading || dashboardError || !data) ? "—" : stats.trainers}</p>
-                <p className="text-sm text-muted-foreground font-sans">Treinadores</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-            <DashboardAlerts section="extras" readOnly={readOnly} showRecentStudents />
-            {(canOpenChat || readOnly) && <ContactCadenceCard companyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} />}
-            {canRunAdminOperations && effectiveCompanyId && <CompanyOperationsReports companyId={effectiveCompanyId} />}
-            {includeCoordinatorPanels && <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <RenewalsAndCyclesPanel effectiveCompanyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} renewalsOnly />
-              <RenewalsAndCyclesPanel effectiveCompanyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} cyclesOnly />
-            </div>}
-            {operationalExtras}
+          <WorkoutFeedbackDashboardCard scope={operationalScope} routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} allowWhatsApp={canOpenChat && (!readOnly || mine)} />
           </div>
+        </div>
+
+        {!mine && role !== "coordinator" && <PendingFeedbackCard companyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} />}
+        {!mine && includeCoordinatorPanels && operationalExtras && <details className="rounded-xl border border-border bg-card">
+          <summary className="cursor-pointer p-4 text-sm font-semibold text-primary">Fila de matrículas</summary>
+          <div className="overflow-x-auto p-4 pt-0">{operationalExtras}</div>
         </details>}
       </div>
       </DashboardSnapshotContext.Provider>

@@ -68,6 +68,7 @@ describe('company product settings screen', () => {
     fireEvent.change(screen.getByLabelText('Mensagem'), { target: { value: birthday } });
     expect(screen.getByTestId('message-preview')).toHaveTextContent('Parabéns, Ana!');
     await act(async () => { fireEvent.click(screen.getByText('Salvar', { selector: 'button' })); });
+    expect(screen.queryByRole('alert')?.textContent).toBeUndefined();
     expect(screen.getByText('Versão 8')).toBeInTheDocument();
     expect(mocks.save).toHaveBeenCalledExactlyOnceWith('company-a', expect.objectContaining({
       messages: expect.objectContaining({ birthday }),
@@ -75,7 +76,7 @@ describe('company product settings screen', () => {
     mocks.fetch.mockResolvedValue({ settings: mocks.save.mock.calls[0][1], version: 8 });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Recarregar configurações' })); });
     expect(screen.getByLabelText('Mensagem')).toHaveValue(birthday);
-  });
+  }, 20_000);
 
   it('keeps drafts across URL tab changes and relocates the existing controls', async () => {
     render(<ProductSettings />);

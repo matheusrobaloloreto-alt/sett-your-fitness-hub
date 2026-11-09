@@ -71,6 +71,7 @@ import {
 import { consumeTransientLoginNavigation, type CompanyEventDraft, type WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
 import { manualSequencePayload, manualSequenceResult, resolveWhatsAppChatRequest, studentLoginSendPayload, type StudentLoginDraft, type StudentLoginTarget } from "@/lib/whatsappChatRequest";
 import { prepareEmojiWhatsAppSticker, prepareWhatsAppSticker, QUICK_STICKER_EMOJIS } from "@/lib/whatsappSticker";
+import { dashboardFeedbackAction } from "@/lib/dashboardFeedback";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 type Chat = {
@@ -124,6 +125,7 @@ type Message = {
   is_from_me?: boolean | null;
   edited_at?: string | null;
   edited_by?: string | null;
+  dashboardFeedbackId?: string;
   quoted_message_id?: string | null;
   quoted_message_external_id?: string | null;
   quoted_message_preview?: string | null;
@@ -570,6 +572,8 @@ export default function WhatsAppChat({
   const [recordingTime, setRecordingTime] = useState(0);
   const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const consumedFeedbackQuoteRef = useRef<ChatNavigationState | null>(null);
+  const [feedbackQuoteLoading, setFeedbackQuoteLoading] = useState(false);
   const [isChatListCollapsed, setIsChatListCollapsed] = useState(false);
   const [isConversationCollapsed, setIsConversationCollapsed] = useState(false);
   const [isContextCollapsed, setIsContextCollapsed] = useState(false);
@@ -1322,6 +1326,7 @@ export default function WhatsAppChat({
       navigationState.phone ?? "",
       navigationState.prefillMessage ?? "",
       navigationState.eventDraft?.draftId ?? "",
+      navigationState.dashboardFeedbackId ?? "",
       navigationState.loginDraftId ?? navigationState.loginAccess?.preflightToken ?? "",
     ].join("|"));
     if (consumedNavigationRequestRef.current === requestKey) return;
@@ -1392,6 +1397,34 @@ export default function WhatsAppChat({
     }
   }, [selectedChatId, effectiveCompanyId, loadMessages]);
   useEffect(() => {
+    const request = navigationState;
+    if (!request?.dashboardFeedbackId || !request.companyId || request.companyId !== effectiveCompanyId
+      || request.chatId !== selectedChatId || consumedFeedbackQuoteRef.current === request || !user?.id) return;
+    let active = true;
+    setFeedbackQuoteLoading(true);
+    void dashboardFeedbackAction("workout-feedback-origin", request.companyId, request.dashboardFeedbackId)
+      .then(result => {
+        if (!active) return;
+        if (result?.chatId !== request.chatId || result?.studentId !== request.studentId
+          || !result?.message?.id || !result.message.message_id_external) throw new Error("A citação original do feedback está indisponível.");
+        consumedFeedbackQuoteRef.current = request;
+        const original = result.message;
+        setReplyingTo({
+          id: original.id, chat_id: result.chatId, content: original.content, source: "incoming",
+          type: original.type ?? "text", timestamp: original.timestamp, created_at: original.created_at,
+          sender_id: null, media_url: null, media_type: original.media_type,
+          message_id_external: original.message_id_external, dashboardFeedbackId: request.dashboardFeedbackId,
+        });
+      })
+      .catch(error => {
+        if (!active) return;
+        consumedFeedbackQuoteRef.current = request;
+        toast.error(getErrorMessage(error, "A citação original do feedback está indisponível."));
+      })
+      .finally(() => { if (active) setFeedbackQuoteLoading(false); });
+    return () => { active = false; setFeedbackQuoteLoading(false); };
+  }, [navigationState, effectiveCompanyId, selectedChatId, user?.id]);
+  useEffect(() => {
     if (!editingMessage || editingMessage.chatId === selectedChatId) return;
     setEditingMessage(null);
     setEditingSaving(false);
@@ -1460,6 +1493,7 @@ export default function WhatsAppChat({
   }, [effectiveCompanyId, scheduleChatsRefresh]);
 
   const handleSend = async () => {
+    if (feedbackQuoteLoading) return;
     if (!hasSendAccess()) return;
     if (activeEventDraft || sequenceSendingRef.current || loginSendBusyRef.current) return;
     if (sending || sendingAttachment || templateSendingRef.current) return;
@@ -1540,6 +1574,7 @@ export default function WhatsAppChat({
           contactName: chat ? getContactName(chat) : draftRecipient?.contactName,
           ...(protectedPayload || {}),
           ...(reply?.message_id_external ? {
+            dashboardFeedbackId: reply.dashboardFeedbackId,
             quotedMessageDbId: reply.id,
             quotedMessageId: reply.message_id_external,
             quotedFromMe: reply.source === "outgoing",
@@ -1754,6 +1789,7 @@ export default function WhatsAppChat({
   };
 
   const handleSendTemplateDraft = async () => {
+    if (feedbackQuoteLoading) return;
     if (!hasSendAccess()) return;
     if (loginDraftRef.current) return;
     const chat = chats.find((item) => item.id === selectedChatId);
@@ -1796,6 +1832,7 @@ export default function WhatsAppChat({
       };
       if (draft.text) {
         await send({ action: "send-message", content: draft.text, ...(draft.reply?.message_id_external ? {
+          dashboardFeedbackId: draft.reply.dashboardFeedbackId,
           quotedMessageDbId: draft.reply.id,
           quotedMessageId: draft.reply.message_id_external,
           quotedFromMe: draft.reply.source === "outgoing",
@@ -3777,7 +3814,7 @@ export default function WhatsAppChat({
                       </div>
 	                      <Button
                         onClick={editingMessage ? handleSaveMessageEdit : handleSend}
-                        disabled={sending || sendingAttachment || editingSaving || (!newMessage.trim() && (Boolean(editingMessage) || templateAttachments.length === 0))}
+                        disabled={feedbackQuoteLoading || sending || sendingAttachment || editingSaving || (!newMessage.trim() && (Boolean(editingMessage) || templateAttachments.length === 0))}
                         size="icon"
 	                        className="h-10 w-10 shrink-0 self-end sm:h-9 sm:w-9"
 	                        title={editingMessage ? "Salvar edição" : "Enviar mensagem"}

@@ -12,6 +12,7 @@ export type CompanyEventDraft = {
 export type WhatsAppChatPanelRequest = {
   requestId?: number;
   chatId?: string | null;
+  dashboardFeedbackId?: string;
   studentId?: string | null;
   phone?: string | null;
   contactName?: string | null;

@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { ClipboardList, Dumbbell, MessageCircle, type LucideIcon } from "lucide-react";
 import { format, parseISO } from "date-fns";
@@ -14,8 +14,7 @@ import { normalizeSalesStage } from "@/lib/salesFunnelView";
 
 import { readForIds, readPages, type Page } from "@/lib/pagedRead";
 import { OPEN_ENROLLMENT_STATUSES, PORTFOLIO_TRAINER_COLUMN } from "@/lib/studentRoster";
-import { ENROLLMENT_HISTORY_BY_PLAN_LABEL } from "@/lib/companyDashboardSnapshot";
-import { readEnrollmentHistoryByPlan } from "@/lib/studentRosterReads";
+import { dashboardFeedbackAction, readDashboardFeedbackOrigins } from "@/lib/dashboardFeedback";
 
 type Scope = { companyId: string; actorId: string; role: string; studentIds?: string[] };
 
@@ -112,19 +111,24 @@ export function AssessmentDashboardCard({ scope, routePrefix, allowChat }: { sco
 }
 
 export function hasPublishedFirstTraining(
-  cycles: { id: string; status: string | null }[],
+  cycles: { id: string; status: string | null; bundle_id?: string | null; delivery_status?: string | null;
+    prescribed_offline_at?: string | null; prescription_cleared_at?: string | null }[],
   materializedCycleIds: ReadonlySet<string>,
-  bundles: { training_cycle_id: string | null; status: string | null }[],
+  bundles: { id?: string; training_cycle_id: string | null; status: string | null }[],
   hasPublishedCardio = false,
 ) {
   if (hasPublishedCardio) return true;
-  const linked = new Set(bundles.filter(bundle => !["generating", "draft", "failed"].includes(bundle.status ?? ""))
-    .map(bundle => bundle.training_cycle_id));
-  const published = new Set(bundles.filter(bundle => bundle.status === "active" || bundle.status === "scheduled").map(bundle => bundle.training_cycle_id));
-  return cycles.some(cycle => materializedCycleIds.has(cycle.id) && (
-    published.has(cycle.id)
-    || (!linked.has(cycle.id) && (cycle.status === "active" || cycle.status === "completed" || cycle.status === "superseded"))
-  ));
+  return cycles.some(cycle => {
+    if (cycle.prescription_cleared_at || !materializedCycleIds.has(cycle.id)) return false;
+    const linked = bundles.filter(bundle => bundle.training_cycle_id === cycle.id);
+    if (linked.some(bundle => (!cycle.bundle_id || bundle.id === cycle.bundle_id)
+      && ["active", "scheduled", "completed"].includes(bundle.status ?? ""))) return true;
+    if (cycle.bundle_id || cycle.prescribed_offline_at) return false;
+    if (linked.length) return ["sent", "viewed", "delivered", "published"].includes(cycle.delivery_status ?? "");
+    // Pre-bundle publication evidence is the materialized workout in a live or
+    // historical cycle. Offline-only records cannot satisfy the digital queue.
+    return ["active", "completed", "superseded"].includes(cycle.status ?? "");
+  });
 }
 
 export function FirstTrainingDashboardCard({ scope, students, routePrefix, allowStudentNavigation, rosterLoading, rosterError }: {
@@ -142,7 +146,7 @@ export function FirstTrainingDashboardCard({ scope, students, routePrefix, allow
       const assessed = await readCompletedAssessments(companyId, enrolled);
       const ids = enrolled.filter(id => assessed.has(id));
       const [cycles, bundles, runningPlans, receipts] = await Promise.all([
-        readForIds(ids, (batch, from, to) => supabase.from("training_cycles").select("id, student_id, status")
+        readForIds(ids, (batch, from, to) => supabase.from("training_cycles").select("id, student_id, status, bundle_id, delivery_status, prescribed_offline_at, prescription_cleared_at")
           .eq("company_id", companyId).in("student_id", batch).order("id").range(from, to)),
         readForIds(ids, (batch, from, to) => supabase.from("prescription_bundles").select("id, student_id, training_cycle_id, running_plan_id, status")
           .eq("company_id", companyId).in("student_id", batch).order("id").range(from, to)),
@@ -161,30 +165,42 @@ export function FirstTrainingDashboardCard({ scope, students, routePrefix, allow
         return hasPublishedFirstTraining(cycles.filter(cycle => cycle.student_id === id), materialized, studentBundles, hasPublishedCardio);
       }));
       const dueByStudent = new Map(receipts.map(receipt => [receipt.student_id, receipt.first_prescription_due_on]));
-      return ids.filter(id => !published.has(id)).map(id => ({ id, dueOn: dueByStudent.get(id) }));
+      const offlineStudents = new Set(cycles.filter(cycle => cycle.prescribed_offline_at && !cycle.prescription_cleared_at)
+        .map(cycle => cycle.student_id));
+      return ids.filter(id => !published.has(id)).map(id => ({
+        id, dueOn: dueByStudent.get(id), offline: offlineStudents.has(id),
+      }));
     },
   });
-  const queued = new Map(query.data?.map(row => [row.id, row.dueOn]));
-  const rows = students.filter(student => queued.has(student.id)).map(student => ({ ...student, dueOn: queued.get(student.id) }))
-    .sort((a, b) => (a.dueOn ?? "9999").localeCompare(b.dueOn ?? "9999"));
+  const queued = new Map(query.data?.map(row => [row.id, row]));
+  const rows = students.flatMap(student => {
+    const row = queued.get(student.id);
+    return row ? [{ ...student, ...row }] : [];
+  }).sort((a, b) => (a.dueOn ?? "9999").localeCompare(b.dueOn ?? "9999"));
   return <DashboardCard title="Primeiros treinos" icon={Dumbbell}>
     {rows.length && !query.error && !rosterError ? <div className="max-h-72 space-y-2 overflow-auto">{rows.map(student =>
-      <QueueRow key={student.id} name={student.full_name} detail={student.dueOn
-        ? `Primeira prescrição até ${format(parseISO(student.dueOn), "dd/MM")}` : "Aguardando primeira publicação"}
+      <QueueRow key={student.id} name={student.full_name} detail={[
+        student.dueOn ? `Primeira prescrição digital até ${format(parseISO(student.dueOn), "dd/MM")}` : "Aguardando primeira publicação digital",
+        student.offline && "Prescrição fora do app registrada",
+      ].filter(Boolean).join(" · ")}
         to={allowStudentNavigation ? `/${routePrefix}/students/${student.id}?tab=prescricao` : undefined} action="Abrir treino" />,
     )}</div> : <DashboardQueueState loading={rosterLoading || query.isLoading} error={rosterError || query.error}
       empty="Nenhum primeiro treino pendente na sua carteira." />}
   </DashboardCard>;
 }
 
-export function WorkoutFeedbackDashboardCard({ scope, routePrefix, allowStudentNavigation }: { scope: Scope | null; routePrefix: string; allowStudentNavigation: boolean }) {
+export function WorkoutFeedbackDashboardCard({ scope, routePrefix, allowStudentNavigation, allowWhatsApp }: {
+  scope: Scope | null; routePrefix: string; allowStudentNavigation: boolean; allowWhatsApp?: boolean;
+}) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["dashboard-workout-feedback", scope],
     enabled: Boolean(scope),
     queryFn: async () => {
       const { companyId, studentIds } = scope!;
       const page = (from: number, to: number, ids?: string[]) => {
-        let request = supabase.from("workout_feedback").select("id, student_id, workout_title, created_at, students(full_name)")
+        let request = supabase.from("workout_feedback").select("id, student_id, workout_title, created_at, pain_areas, students(full_name)")
           .eq("company_id", companyId).is("trainer_replied_at", null);
         if (ids) request = request.in("student_id", ids);
         return request.order("created_at", { ascending: false }).order("id").range(from, to);
@@ -193,11 +209,72 @@ export function WorkoutFeedbackDashboardCard({ scope, routePrefix, allowStudentN
       return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
   });
+  const feedbackIds = query.data?.map(row => row.id) ?? [];
+  const originKey = ["dashboard-workout-feedback-origins", scope, feedbackIds];
+  const origins = useQuery({
+    queryKey: originKey,
+    enabled: Boolean(scope && feedbackIds.length),
+    queryFn: async () => {
+      const rows = [];
+      for (let from = 0; from < feedbackIds.length; from += 100) {
+        rows.push(...await readDashboardFeedbackOrigins(scope!.companyId, feedbackIds.slice(from, from + 100)));
+      }
+      return rows;
+    },
+  });
+  const byFeedback = new Map(!origins.error
+    ? origins.data?.map(origin => [origin.feedback_id, origin]) : undefined);
+  const acknowledge = useMutation({
+    mutationFn: async (feedbackId: string) => {
+      if (!scope || !allowWhatsApp) throw new Error("Acesso ao WhatsApp indisponível.");
+      const result = await dashboardFeedbackAction("acknowledge-workout-feedback", scope.companyId, feedbackId);
+      if (result?.reviewed !== true) throw new Error("Revisão ainda não confirmada.");
+    },
+    onError: (error) => toast.error(error.message),
+    onSuccess: () => toast.success("Curtida aceita pelo provedor. Feedback revisado."),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: originKey, exact: true }),
+  });
+  const reply = useMutation({
+    mutationFn: async (row: { id: string; student_id: string }) => {
+      if (!scope || !allowWhatsApp) throw new Error("Acesso ao WhatsApp indisponível.");
+      const result = await dashboardFeedbackAction("workout-feedback-origin", scope.companyId, row.id);
+      if (!result?.chatId || result.studentId !== row.student_id) throw new Error("Mensagem original indisponível.");
+      return { companyId: scope.companyId, chatId: result.chatId, studentId: row.student_id, dashboardFeedbackId: row.id };
+    },
+    onSuccess: (request) => {
+      if (!requestWhatsAppChatPanel(request)) navigate(`/${routePrefix}/whatsapp-chat`, { state: request });
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const rows = query.data?.filter(row => !byFeedback.get(row.id)?.reviewed_at);
   return <DashboardCard title="Feedbacks de treino" icon={MessageCircle}>
-    {query.data?.length && !query.error ? <div className="max-h-72 space-y-2 overflow-auto">{query.data.map(row =>
-      <QueueRow key={row.id} name={row.students?.full_name ?? "Aluno"} detail={`${row.workout_title ?? "Treino"} · ${format(parseISO(row.created_at), "dd/MM")} · sem resposta`}
-        to={allowStudentNavigation ? `/${routePrefix}/students/${row.student_id}?tab=analytics` : undefined} action="Ver feedback" />,
-    )}</div> : <DashboardQueueState loading={query.isLoading} error={query.error}
+    {rows?.length && !query.error ? <div className="max-h-72 space-y-2 overflow-auto">{rows.map(row => {
+      const origin = byFeedback.get(row.id);
+      const adjustment = origin?.needs_adjustment || (Array.isArray(row.pain_areas) && row.pain_areas.length > 0);
+      const originStatus = origins.isLoading ? "Verificando origem"
+        : origins.error ? "Origem do WhatsApp indisponível"
+        : "Sem mensagem original vinculada no WhatsApp";
+      const detail = [
+        row.workout_title ?? "Treino",
+        format(parseISO(row.created_at), "dd/MM"),
+        adjustment ? "Ajuste pendente" : origin?.reaction_attempted_at ? "Curtida aguardando conciliação" : "Sem resposta",
+        !origin?.has_original && originStatus,
+      ].filter(Boolean).join(" · ");
+      return <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-secondary/40 p-3">
+        <div className="min-w-0">
+          <p className="break-words text-sm font-medium">{row.students?.full_name ?? "Aluno"}</p>
+          <p className="text-xs text-muted-foreground">{detail}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {origin?.has_original && allowWhatsApp ? <>
+            <Button type="button" variant="outline" size="sm" disabled={reply.isPending} onClick={() => reply.mutate(row)}>Responder</Button>
+            <Button type="button" variant="outline" size="sm" disabled={acknowledge.isPending || adjustment || !!origin.reaction_attempted_at}
+              onClick={() => acknowledge.mutate(row.id)}>OK</Button>
+          </> : allowStudentNavigation && <Link className={actionClass}
+            to={`/${routePrefix}/students/${row.student_id}?tab=analytics`}>Ver feedback</Link>}
+        </div>
+      </div>;
+    })}</div> : <DashboardQueueState loading={query.isLoading} error={query.error}
       empty={scope ? "Nenhum feedback de treino aguardando resposta." : "O resumo da empresa não inclui feedbacks por treino."} />}
   </DashboardCard>;
 }
@@ -234,6 +311,7 @@ const contactCadenceClient = supabase as unknown as {
 };
 
 export function OperationalContactCadenceCard({ scope, routePrefix }: { scope: Scope | null; routePrefix: string }) {
+  const [filter, setFilter] = useState<"all" | "unanswered" | "without_team_message">("all");
   const query = useQuery({
     queryKey: ["dashboard-operational-cadence", scope],
     enabled: Boolean(scope),
@@ -245,53 +323,33 @@ export function OperationalContactCadenceCard({ scope, routePrefix }: { scope: S
       return studentIds ? readForIds(studentIds, (ids, from, to) => page(from, to, ids)) : readPages(page);
     },
   });
+  const waitingSince = (row: OperationalCadenceRow) => Date.parse(
+    (filter !== "without_team_message" && row.unanswered && row.first_unanswered_at)
+    || row.last_team_message_at || row.chat_created_at || row.first_unanswered_at || "",
+  );
+  const rows = (query.data ?? []).filter(row => filter === "all" ? row.unanswered || row.without_team_message : row[filter])
+    .sort((a, b) => waitingSince(a) - waitingSince(b));
+
   return <DashboardCard title="Cadência de contatos" icon={MessageCircle}>
     {!scope || query.isLoading || query.error ? <DashboardQueueState loading={query.isLoading} error={query.error}
       empty="A cadência precisa de acesso às mensagens da equipe." /> : <div className="space-y-2">
-      {([["unanswered", "Sem resposta há 24h"], ["without_team_message", "Sem mensagem da equipe há 7 dias"]] as const).map(([key, label]) => {
-        const waitingSince = (row: OperationalCadenceRow) => (key === "unanswered"
-          ? row.first_unanswered_at : row.last_team_message_at ?? row.chat_created_at ?? row.first_unanswered_at) ?? "";
-        const rows = query.data?.filter(row => row[key] === true)
-          .sort((a, b) => Date.parse(waitingSince(a)) - Date.parse(waitingSince(b))) ?? [];
-        return <details key={key} className="rounded-lg border border-border bg-secondary/40 p-3">
-          <summary className="cursor-pointer text-sm font-medium">{label} · {rows.length}</summary>
-          <div className="mt-2 max-h-56 space-y-1 overflow-auto">
-            {rows.map(row => <Link key={row.chat_id} className="block rounded px-2 py-1 text-sm text-primary hover:bg-muted"
-              to={`/${routePrefix}/whatsapp-chat`} state={{ chatId: row.chat_id }}
-              onClick={event => {
-                if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && requestWhatsAppChatPanel({ chatId: row.chat_id })) event.preventDefault();
-              }}>{row.student_name || row.contact_name || "Contato sem nome"}</Link>)}
+      <div role="group" aria-label="Filtrar cadência de contatos" className="flex flex-wrap gap-1.5">
+        {([["all", "Todas"], ["unanswered", "Sem resposta há 24h"], ["without_team_message", "Sem mensagem há 7 dias"]] as const)
+          .map(([value, label]) => <Button key={value} type="button" size="sm" variant={filter === value ? "default" : "outline"}
+            aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</Button>)}
+      </div>
+      {rows.length ? <div className="max-h-56 space-y-2 overflow-auto">{rows.map(row =>
+        <div key={row.chat_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-secondary/40 p-3">
+          <div className="min-w-0">
+            <p className="break-words text-sm font-medium">{row.student_name || row.contact_name || "Contato sem nome"}</p>
+            <p className="text-xs text-muted-foreground">
+              {[row.unanswered && "Sem resposta há 24h", row.without_team_message && "Sem mensagem da equipe há 7 dias"].filter(Boolean).join(" · ")}
+            </p>
           </div>
-        </details>;
-      })}
+          <Link className={actionClass} to={`/${routePrefix}/whatsapp-chat`} state={{ chatId: row.chat_id }} onClick={event => {
+            if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && requestWhatsAppChatPanel({ chatId: row.chat_id })) event.preventDefault();
+          }}>Abrir conversa</Link>
+        </div>)}</div> : <DashboardQueueState empty="Nenhum contato neste filtro." />}
     </div>}
   </DashboardCard>;
-}
-
-export function AssignedDashboardInsights({ scope }: { scope: Scope | null }) {
-  const query = useQuery({
-    queryKey: ["dashboard-assigned-insights", scope],
-    enabled: Boolean(scope),
-    queryFn: async () => {
-      const { companyId, studentIds = [] } = scope!;
-      const [feedback, plans] = await Promise.all([
-        readForIds(studentIds, (ids, from, to) => supabase.from("cycle_feedback").select("nps")
-          .eq("company_id", companyId).in("student_id", ids).not("nps", "is", null).order("id").range(from, to)),
-        readEnrollmentHistoryByPlan(companyId, studentIds),
-      ]);
-      const scores = feedback.map(row => row.nps).filter(score => score != null && score >= 0 && score <= 10);
-      const netPromoters = scores.reduce((net, score) => net + (score >= 9 ? 1 : score <= 6 ? -1 : 0), 0);
-      return { nps: scores.length ? Math.round(100 * netPromoters / scores.length) : null,
-        responses: scores.length, plans };
-    },
-  });
-  if (!query.data || query.error) return <DashboardQueueState loading={query.isLoading} error={query.error}
-    empty="Resumo da carteira indisponível." />;
-  return <div className="space-y-2 text-sm">
-    <p>{query.data.nps == null ? "Sem respostas de NPS na carteira." : `NPS ${query.data.nps} · ${query.data.responses} respostas de fim de ciclo`}</p>
-    <h3 className="font-medium text-primary">{ENROLLMENT_HISTORY_BY_PLAN_LABEL}</h3>
-    {query.data.plans.length ? <ul className="space-y-1 text-muted-foreground">
-      {query.data.plans.map(({ name, count }) => <li key={name}>{name} · {count}</li>)}
-    </ul> : <p className="text-muted-foreground">Nenhuma matrícula registrada.</p>}
-  </div>;
 }

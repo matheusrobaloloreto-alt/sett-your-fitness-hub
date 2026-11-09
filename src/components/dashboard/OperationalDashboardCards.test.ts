@@ -4,11 +4,11 @@ import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { openStudentChat } from "@/lib/studentChat";
-import { AssessmentDashboardCard, AssignedDashboardInsights, OperationalContactCadenceCard, hasPublishedFirstTraining, isPublishedFirstCardioPlan, useAssignedDashboardStudents } from "./OperationalDashboardCards";
+import { AssessmentDashboardCard, OperationalContactCadenceCard, WorkoutFeedbackDashboardCard, hasPublishedFirstTraining, isPublishedFirstCardioPlan, useAssignedDashboardStudents } from "./OperationalDashboardCards";
 import { prescriptionDeadlineTone } from "@/pages/admin/AdminDashboard";
 
-const { rpc, from } = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
-vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc, from } }));
+const { rpc, from, invoke } = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn(), invoke: vi.fn() }));
+vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc, from, functions: { invoke } } }));
 vi.mock("@/lib/studentChat", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/studentChat")>(),
   openStudentChat: vi.fn().mockResolvedValue(undefined),
@@ -47,8 +47,22 @@ describe("functional dashboard queues", () => {
     expect(hasPublishedFirstTraining([{ id: "cycle", status: "pending" }], materialized, [{ training_cycle_id: "cycle", status: "scheduled" }])).toBe(true);
     expect(hasPublishedFirstTraining([{ id: "cycle", status: "completed" }], materialized, [])).toBe(true);
     for (const status of ["draft", "generating", "failed"]) {
-      expect(hasPublishedFirstTraining([{ id: "cycle", status: "active" }], materialized, [{ training_cycle_id: "cycle", status }])).toBe(true);
+      expect(hasPublishedFirstTraining([{ id: "cycle", status: "active", delivery_status: "sent" }], materialized, [{ training_cycle_id: "cycle", status }])).toBe(true);
     }
+  });
+
+  it("counts only a published digital first prescription and keeps offline evidence separate", () => {
+    const cycle = { id: "cycle", status: "active" };
+    const workouts = new Set([cycle.id]);
+    expect(hasPublishedFirstTraining([], workouts, [])).toBe(false);
+    expect(hasPublishedFirstTraining([{ ...cycle, prescribed_offline_at: "2026-11-09" }], workouts, [])).toBe(false);
+    expect(hasPublishedFirstTraining([{ ...cycle, prescription_cleared_at: "2026-11-09" }], workouts, [])).toBe(false);
+    const linked = { id: "draft", training_cycle_id: cycle.id, status: "draft" };
+    expect(hasPublishedFirstTraining([cycle], workouts, [linked])).toBe(false);
+    expect(hasPublishedFirstTraining([{ ...cycle, bundle_id: "draft" }], workouts,
+      [linked, { ...linked, id: "other", status: "active" }])).toBe(false);
+    expect(hasPublishedFirstTraining([{ ...cycle, bundle_id: "draft" }], workouts,
+      [{ ...linked, status: "scheduled" }])).toBe(true);
   });
 
   it("renders the server queues without recalculating either deadline in the browser", async () => {
@@ -64,11 +78,17 @@ describe("functional dashboard queues", () => {
     rpc.mockReturnValueOnce({ order });
     render(createElement(QueryClientProvider, { client }, createElement(MemoryRouter, null,
       createElement(OperationalContactCadenceCard, { scope, routePrefix: "admin" }))));
-    expect((await screen.findByText("Sem resposta há 24h · 1")).parentElement).toHaveTextContent("Aguardando resposta");
+    expect(await screen.findByText("Aguardando resposta")).toBeVisible();
+    expect(screen.getByText("Aguardando contato")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Sem resposta há 24h" }));
+    expect(screen.getByText("Aguardando resposta")).toBeVisible();
+    expect(screen.queryByText("Aguardando contato")).toBeNull();
     expect(rpc).toHaveBeenCalledWith("operational_contact_cadence_status", { _company_id: scope.companyId, _student_ids: undefined });
     expect(order).toHaveBeenCalledWith("chat_id");
     expect(range).toHaveBeenCalledWith(0, 499);
-    expect(screen.getByText("Sem mensagem da equipe há 7 dias · 1").parentElement).toHaveTextContent("Aguardando contato");
+    fireEvent.click(screen.getByRole("button", { name: "Sem mensagem há 7 dias" }));
+    expect(screen.getByText("Aguardando contato")).toBeVisible();
+    expect(screen.queryByText("Aguardando resposta")).toBeNull();
     expect(screen.queryByText("Relógio pausado")).toBeNull();
   });
 
@@ -106,26 +126,32 @@ describe("functional dashboard queues", () => {
     expect(query.neq).toHaveBeenCalledExactlyOnceWith("status", "inactive");
   });
 
-  it("shows enrollment history separately and excludes a different company's plan", async () => {
-    const scope = { companyId: "company-a", actorId: "staff-a", role: "trainer", studentIds: ["student-a"] };
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const row = { plan_id: "plan-a", students: { company_id: "company-a" },
-      plans: { name: "Plano local", company_id: "company-a" } };
-    const makeQuery = (data: unknown[]) => ({
-      select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), in: vi.fn().mockReturnThis(),
-      not: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(),
-      range: vi.fn().mockResolvedValue({ data, error: null }),
+  it("keeps unlinked and adjustment feedback pending and opens only the verified reply target", async () => {
+    const scope = { companyId: "company-a", actorId: "staff-a", role: "admin" };
+    const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
+    const rows = ["adjustment", "unlinked"].map(id => ({
+      id, student_id: id + "-student", workout_title: "Treino", created_at: "2026-11-09", pain_areas: [], students: { full_name: id },
+    }));
+    client.setQueryData(["dashboard-workout-feedback", scope], rows);
+    client.setQueryData(["dashboard-workout-feedback-origins", scope, rows.map(row => row.id)], [
+      { feedback_id: "adjustment", has_original: true, needs_adjustment: true, reviewed_at: null, reaction_attempted_at: null },
+    ]);
+    invoke.mockResolvedValueOnce({ data: { chatId: "exact-chat", studentId: "adjustment-student" }, error: null });
+    const request = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener("sett:open-whatsapp-chat", request, { once: true });
+    render(createElement(QueryClientProvider, { client }, createElement(MemoryRouter, null,
+      createElement(WorkoutFeedbackDashboardCard, { scope, routePrefix: "admin", allowStudentNavigation: true, allowWhatsApp: true }))));
+    expect(screen.getByText(/Sem mensagem original vinculada/)).toBeVisible();
+    expect(screen.getByText(/Ajuste pendente/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "OK" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Responder" }));
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    expect((request.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      companyId: "company-a", chatId: "exact-chat", studentId: "adjustment-student", dashboardFeedbackId: "adjustment",
     });
-    const enrollments = makeQuery([row, row, { ...row, plan_id: null, plans: null },
-      { ...row, plan_id: "other", plans: { name: "Outro tenant", company_id: "company-b" } }]);
-    from.mockImplementation(table => table === "enrollments" ? enrollments : makeQuery([]));
-    render(createElement(QueryClientProvider, { client }, createElement(AssignedDashboardInsights, { scope })));
-    expect(await screen.findByRole("heading", { name: "Histórico de matrículas por plano" })).toBeInTheDocument();
-    expect(screen.getByText("Plano local · 2")).toBeInTheDocument();
-    expect(screen.getByText("Sem plano · 1")).toBeInTheDocument();
-    expect(screen.queryByText(/Outro tenant/)).toBeNull();
-    expect(enrollments.eq.mock.calls).toEqual([["company_id", "company-a"], ["students.company_id", "company-a"]]);
-    expect(enrollments.in).toHaveBeenCalledExactlyOnceWith("student_id", ["student-a"]);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("whatsapp-manager", {
+      body: { action: "workout-feedback-origin", companyId: "company-a", dashboardFeedbackId: "adjustment" },
+    });
   });
 
   it("distinguishes past, today's and future deadlines", () => {

@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import WhatsAppChat from './WhatsAppChat';
 import { transientLoginNavigation } from '@/lib/whatsappChatPanel';
-const api = vi.hoisted(() => ({ rpc: vi.fn(), auth: { user: { id: 'staff' }, role: 'admin', companyId: 'company-a' }, fetch: vi.fn(), from: vi.fn(), session: vi.fn(), error: vi.fn(), ack: true, missingAck: false, availableChats: [] as Array<Record<string, unknown>> }));
+const api = vi.hoisted(() => ({ rpc: vi.fn(), invoke: vi.fn(), auth: { user: { id: 'staff' }, role: 'admin', companyId: 'company-a' }, fetch: vi.fn(), from: vi.fn(), session: vi.fn(), error: vi.fn(), ack: true, missingAck: false, availableChats: [] as Array<Record<string, unknown>> }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => api.auth }));
 vi.mock('@/contexts/MasterContext', () => ({ useMaster: () => ({ isViewingCompany: false, viewingCompany: null }) }));
 vi.mock('react-router-dom', () => ({ useLocation: () => ({ pathname: '/admin/whatsapp-chat', state: null }), useNavigate: () => vi.fn() }));
@@ -12,7 +12,7 @@ vi.mock('sonner', () => ({ toast: { error: api.error, success: vi.fn(), warning:
 vi.mock('@/lib/appPerformanceTelemetry', () => ({ recordAppPerformanceSample: vi.fn() }));
 vi.mock('@/lib/studentFiles', () => ({ listStudentFiles: vi.fn(async () => []) }));
 vi.mock('@/components/AthleticClubStar', () => ({ AthleticClubStar: () => null }));
-vi.mock('@/integrations/supabase/client', () => ({ supabase: { rpc: api.rpc, from: api.from, auth: { getSession: api.session }, channel: () => { const c = { on: () => c, subscribe: () => c }; return c; }, removeChannel: vi.fn(), functions: { invoke: vi.fn(async () => ({ data: {}, error: null })) } } }));
+vi.mock('@/integrations/supabase/client', () => ({ supabase: { rpc: api.rpc, from: api.from, auth: { getSession: api.session }, channel: () => { const c = { on: () => c, subscribe: () => c }; return c; }, removeChannel: vi.fn(), functions: { invoke: api.invoke } } }));
 const request = { requestId: 1, companyId: 'company-a', studentId: 'student-a', chatId: 'chat-a', phone: '5548999990001', prefillMessage: 'synthetic password draft', loginAccess: { studentId: 'student-a', preflightToken: 'signed-send-token' } };
 const chats = [
  { id: 'chat-a', company_id: 'company-a', student_id: 'student-a', remote_jid: '5548999990001@s.whatsapp.net', contact_name: 'Synthetic A', unread_count: 0, last_message_at: '2026-10-29T12:00:00Z', history_synced_at: '2026-10-29T12:00:00Z' },
@@ -21,6 +21,7 @@ const chats = [
 beforeEach(() => {
  api.rpc.mockReset().mockResolvedValue({data:{company_id:'company-a',tier:'advanced',source:'legacy',version:1,features:unrestrictedMasterFeatures},error:null});
  api.auth.companyId = 'company-a'; api.ack = true; api.missingAck = false; api.availableChats = chats; api.error.mockReset();
+ api.invoke.mockReset().mockResolvedValue({ data: {}, error: null });
  api.session.mockReset().mockResolvedValue({ data: { session: { access_token: 'synthetic-auth' } } });
  api.from.mockImplementation((table: string) => {
   const filters: Record<string, unknown> = {};
@@ -83,4 +84,21 @@ it('cancels an ordinary suspended send across A -> B -> A without restoring the 
  expect(sends()).toHaveLength(0);
  expect(screen.getByDisplayValue('ordinary A new')).toBeInTheDocument();
  expect(screen.queryByDisplayValue('ordinary A old')).toBeNull();
+});
+
+
+it('opens the verified original as a quote without sending or populating a message', async () => {
+ api.invoke.mockImplementation(async (_name, { body }) => body.action === 'workout-feedback-origin'
+  ? { data: { chatId: 'chat-a', studentId: 'student-a', message: {
+   id: 'original-db-id', message_id_external: 'original-provider-id', content: 'Feedback original sintético',
+   created_at: '2026-10-29T12:00:00Z', type: 'text', media_type: null,
+  } }, error: null }
+  : { data: {}, error: null });
+ render(<WhatsAppChat embedded navigationState={{ requestId: 1, companyId: 'company-a', studentId: 'student-a',
+  chatId: 'chat-a', dashboardFeedbackId: 'feedback-a' }} />);
+ expect(await screen.findByText('Feedback original sintético', {}, { timeout: 15000 })).toBeVisible();
+ expect(sends()).toHaveLength(0);
+ expect(api.invoke).toHaveBeenCalledWith('whatsapp-manager', {
+  body: { action: 'workout-feedback-origin', companyId: 'company-a', dashboardFeedbackId: 'feedback-a' },
+ });
 });

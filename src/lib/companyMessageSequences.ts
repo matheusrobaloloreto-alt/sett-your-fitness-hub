@@ -1,4 +1,4 @@
-import { type CompanyProductSettings, type MessageEvent, type MessagePart, type WhatsAppEvent } from '@/lib/companyProductSettings';
+import { WHATSAPP_EVENTS, type CompanyProductSettings, type MessageEvent, type MessagePart, type WhatsAppEvent } from '@/lib/companyProductSettings';
 
 export type { WhatsAppEvent } from '@/lib/companyProductSettings';
 export type MessageBlock = MessagePart;
@@ -8,7 +8,7 @@ export type SequenceSettings = CompanyProductSettings;
 export const MAX_MESSAGE_BLOCKS = 10;
 
 export function isWhatsAppEvent(event: MessageEvent): event is WhatsAppEvent {
-  return !['daily_reminder_title', 'daily_reminder_body', 'new_workout_push_title', 'new_workout_push_body'].includes(event);
+  return WHATSAPP_EVENTS.some(whatsappEvent => whatsappEvent === event);
 }
 
 // A derived block is display-only. Opening an event must never migrate saved settings.

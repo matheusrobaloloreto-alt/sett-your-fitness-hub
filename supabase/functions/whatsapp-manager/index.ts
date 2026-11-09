@@ -1,3 +1,4 @@
+import { acknowledgeDashboardFeedback, loadDashboardFeedbackOrigin } from "./dashboard-feedback.ts";
 import { completeStudentLoginClaim, claimStudentLoginGeneration, issueStudentLoginToken, loadStudentLoginSnapshot, LoginPreflightError, verifyStudentLoginToken } from "../_shared/student-login-credentials.ts";
 import { dispatchMessageSequence } from "../_shared/message-sequence.ts";
 import { attributeManualWhatsAppEcho } from "../_shared/whatsappManualAttribution.ts";
@@ -384,6 +385,37 @@ Deno.serve(async (req) => {
       const member=await adminClient.rpc("is_company_staff",{_user_id:userId,_company_id:resolvedCompanyId});
       if(member.error)throw new LoginPreflightError("student_login_preflight_unavailable",503);
       if(member.data!==true)return json({error:"Forbidden"},403);
+    }
+
+    const usesDashboardFeedback = action === "workout-feedback-origin" || action === "acknowledge-workout-feedback"
+      || (action === "send-message" && body.dashboardFeedbackId != null);
+    if (usesDashboardFeedback && !isPrivileged) {
+      const permittedRoles = [hasCoord && "coordinator", hasTrainer && "trainer"].filter(Boolean);
+      const { data: permission, error } = await adminClient.from("role_permissions").select("role")
+        .eq("company_id", resolvedCompanyId).eq("module", "whatsapp").eq("enabled", true)
+        .in("role", permittedRoles).limit(1).maybeSingle();
+      if (error || !permission) return json({ error: "Acesso ao WhatsApp indisponível." }, 403);
+    }
+    const dashboardFeedback = usesDashboardFeedback
+      ? await loadDashboardFeedbackOrigin(anonClient, adminClient, resolvedCompanyId, body.dashboardFeedbackId)
+      : null;
+    if (action === "workout-feedback-origin" && dashboardFeedback) {
+      const { origin, message } = dashboardFeedback;
+      return json({ chatId: origin.chat_id, studentId: origin.student_id, message });
+    }
+    if (action === "acknowledge-workout-feedback" && dashboardFeedback) {
+      const { origin } = dashboardFeedback;
+      if (origin.reviewed_at) return json({ reviewed: true });
+      const { data: instance, error } = await adminClient.from("whatsapp_instances")
+        .select("instance_name").eq("company_id", resolvedCompanyId).eq("id", origin.instance_id)
+        .eq("status", "connected").maybeSingle();
+      if (error || !instance?.instance_name || !evoUrl || !evoKey) {
+        throw new HttpError(409, "A instância original do WhatsApp está indisponível.");
+      }
+      return json(await acknowledgeDashboardFeedback({
+        db: adminClient, binding: dashboardFeedback, userId, feedbackId: body.dashboardFeedbackId,
+        providerUrl: `${evoUrl}/message/sendReaction/${encodeURIComponent(instance.instance_name)}`, headers: evoHeaders,
+      }));
     }
 
     // SECURITY (IDOR): when a chatId is supplied, ensure it belongs to this company
@@ -1049,6 +1081,13 @@ Deno.serve(async (req) => {
       }
       const effectiveRemoteJid = verifiedRecipient.remoteJid;
 
+      if (dashboardFeedback && (
+        dashboardFeedback.origin.chat_id !== chatId || dashboardFeedback.origin.student_id !== studentId
+        || dashboardFeedback.origin.instance_id !== instanceRow?.id
+        || dashboardFeedback.origin.remote_jid !== effectiveRemoteJid
+        || dashboardFeedback.origin.message_id !== quotedMessageDbId
+      )) throw new HttpError(409, "A conversa ou a citação original do feedback mudou.");
+
       const sendBody: Record<string, unknown> = {
         number: evolutionTextRecipient(effectiveRemoteJid),
         text: content,
@@ -1092,9 +1131,13 @@ Deno.serve(async (req) => {
         }
       }
 
+      if (dashboardFeedback && (quotedDbId !== dashboardFeedback.origin.message_id
+        || quotedExternalId !== dashboardFeedback.origin.provider_message_id)) {
+        throw new HttpError(409, "A citação original do feedback está indisponível.");
+      }
+
       if (quotedExternalId) {
-        const quoteFromMe = quotedSource === "outgoing" ||
-          quotedFromMe === true;
+        const quoteFromMe = dashboardFeedback ? false : quotedSource === "outgoing" || quotedFromMe === true;
         const quotedMessage = buildQuotedMessage(quotedPreview, quotedType);
         const quoteKey = {
           remoteJid: effectiveRemoteJid,
