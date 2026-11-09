@@ -1,4 +1,4 @@
-type ProviderInstallment = {
+export type ProviderInstallment = {
   id?: unknown;
   customer?: unknown;
   billingType?: unknown;
@@ -35,11 +35,36 @@ export function matchesSecondaryInstallmentOrder(
   secondary: ProviderInstallment, order: LocalOrder, primary: ProviderInstallment,
 ) {
   return secondaryInstallmentOrderId(secondary) === order.id &&
-    Boolean(order.company_id && order.student_id && order.asaas_customer_id && order.asaas_payment_id) &&
+    Boolean(order.company_id && order.student_id && order.asaas_customer_id) &&
     order.billing_type === "CREDIT_CARD" &&
     typeof order.installment_count === "number" && Number(secondary.installmentNumber) <= order.installment_count &&
-    primary.id === order.asaas_payment_id && primary.id !== secondary.id &&
+    primary.id !== secondary.id && typeof primary.id === "string" && primary.id.length > 0 &&
+    (!order.asaas_payment_id || primary.id === order.asaas_payment_id) &&
     primary.billingType === "CREDIT_CARD" && primary.installmentNumber === 1 &&
     primary.customer === order.asaas_customer_id && secondary.customer === primary.customer &&
     secondary.installment === primary.installment && secondary.externalReference === primary.externalReference;
+}
+
+
+export function uniquePrimaryCardCharge<T extends ProviderInstallment>(
+  charges: readonly T[], externalReference: string, customer: string | null, expectedInstallments: number,
+): T | null {
+  if (!customer) return null;
+  const matches = charges.filter(payment =>
+    typeof payment.id === "string" && payment.id.length > 0 &&
+    payment.customer === customer && payment.externalReference === externalReference &&
+    payment.billingType === "CREDIT_CARD" &&
+    (expectedInstallments > 1
+      ? typeof payment.installment === "string" && payment.installment.length > 0 && payment.installmentNumber === 1
+      : !payment.installment && (payment.installmentNumber == null || payment.installmentNumber === 1))
+  );
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function matchesLinkedSecondaryInstallment(
+  remote: ProviderInstallment,
+  local: { company_id: string | null; student_id: string | null; asaas_customer_id: string | null; asaas_payment_id: string | null },
+) {
+  return isSecondaryCardInstallment(remote) && Boolean(local.company_id && local.student_id && local.asaas_customer_id && local.asaas_payment_id) &&
+    remote.id === local.asaas_payment_id && remote.customer === local.asaas_customer_id;
 }

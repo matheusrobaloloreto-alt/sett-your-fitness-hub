@@ -1,4 +1,4 @@
-import { isSecondaryCardInstallment, matchesSecondaryInstallmentOrder, secondaryInstallmentOrderId } from "../_shared/asaas-installment-webhook.ts";
+import { isSecondaryCardInstallment, matchesLinkedSecondaryInstallment, matchesSecondaryInstallmentOrder, secondaryInstallmentOrderId, uniquePrimaryCardCharge } from "../_shared/asaas-installment-webhook.ts";
 import { asaasPaymentStatus } from "../_shared/asaas-payment-status.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -50,40 +50,54 @@ async function completeEvent(eventId: string) {
 }
 
 async function reconcileSecondaryInstallment(remote: any, status: string, config: AsaasApiConfig) {
-  const orderId = secondaryInstallmentOrderId(remote);
-  if (!orderId) throw new HttpError(409, "Parcela Asaas sem checkout SETT verificável.");
-  const { data: order, error } = await supabaseAdmin.from("payments")
-    .select("id, company_id, student_id, asaas_customer_id, asaas_payment_id, billing_type, installment_count")
-    .eq("id", orderId).maybeSingle();
-  if (error) throw new Error(`Falha ao localizar pedido da parcela: ${error.message}`);
-  if (!order?.asaas_payment_id || order.asaas_payment_id === remote.id) {
-    throw new HttpError(409, "Parcela Asaas sem pedido local vinculado.");
-  }
-
-  const primary = await fetch(asaasApiUrl(config, `/payments/${encodeURIComponent(order.asaas_payment_id)}`), {
-    headers: { "User-Agent": "SETT-BNApp/1.0 (Supabase Edge; Asaas webhook)", access_token: ASAAS_API_KEY },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!primary.ok) throw new HttpError(502, "Não foi possível verificar a primeira parcela no Asaas.");
-  if (!matchesSecondaryInstallmentOrder(remote, order, await primary.json())) {
-    throw new HttpError(409, "Parcela Asaas não pertence ao pedido local informado.");
-  }
-
   const { data: local, error: readError } = await supabaseAdmin.from("payments")
-    .select("id, company_id, student_id, asaas_customer_id")
+    .select("id, company_id, student_id, asaas_customer_id, asaas_payment_id")
     .eq("asaas_payment_id", remote.id).maybeSingle();
   if (readError) throw new Error(`Falha ao consultar parcela local: ${readError.message}`);
-  // Finance already projects the Asaas group, even when only its first charge
-  // has a local row. Never grant or revoke enrollment from later installments.
-  if (!local) return;
-  if (local.company_id !== order.company_id || local.student_id !== order.student_id ||
-    local.asaas_customer_id !== order.asaas_customer_id) {
-    throw new HttpError(409, "Parcela vinculada a outro cadastro local.");
+
+  const orderId = secondaryInstallmentOrderId(remote);
+  if (orderId) {
+    const { data: order, error } = await supabaseAdmin.from("payments")
+      .select("id, company_id, student_id, asaas_customer_id, asaas_payment_id, billing_type, installment_count")
+      .eq("id", orderId).maybeSingle();
+    if (error) throw new Error(`Falha ao localizar pedido da parcela: ${error.message}`);
+    if (!order || order.asaas_payment_id === remote.id) {
+      throw new HttpError(409, "Parcela Asaas sem pedido local vinculado.");
+    }
+    const path = order.asaas_payment_id
+      ? `/payments/${encodeURIComponent(order.asaas_payment_id)}`
+      : `/payments?externalReference=${encodeURIComponent(remote.externalReference)}&limit=100`;
+    const response = await fetch(asaasApiUrl(config, path), {
+      headers: { "User-Agent": "SETT-BNApp/1.0 (Supabase Edge; Asaas webhook)", access_token: ASAAS_API_KEY },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) throw new HttpError(502, "Não foi possível verificar a primeira parcela no Asaas.");
+    const body = await response.json();
+    // The Asaas response can reach the webhook before the checkout persists
+    // its provider ID. Verify the unique first charge without changing the order.
+    const primary = order.asaas_payment_id ? body : Array.isArray(body?.data)
+      ? uniquePrimaryCardCharge(body.data, remote.externalReference, order.asaas_customer_id, order.installment_count ?? 0)
+      : null;
+    if (!primary || !matchesSecondaryInstallmentOrder(remote, order, primary) ||
+      (local && (local.company_id !== order.company_id || local.student_id !== order.student_id))) {
+      throw new HttpError(409, "Parcela Asaas não pertence ao pedido local informado.");
+    }
+    // Finance projects the provider group even if only its first charge has a
+    // local row. A secondary charge never grants or revokes an enrollment.
+    if (!local) return;
   }
-  const { error: updateError } = await supabaseAdmin.from("payments").update({ status })
-    .eq("id", local.id).eq("company_id", order.company_id).eq("student_id", order.student_id)
-    .eq("asaas_payment_id", remote.id).eq("asaas_customer_id", order.asaas_customer_id);
-  if (updateError) throw new Error(`Falha ao atualizar parcela local: ${updateError.message}`);
+  // Preserve financial updates for verified legacy rows imported by Asaas ID
+  // when the provider did not carry a SETT checkout reference.
+  if (!local || !matchesLinkedSecondaryInstallment(remote, local)) {
+    throw new HttpError(409, "Parcela sem vínculo local verificável.");
+  }
+  const { data: saved, error: updateError } = await supabaseAdmin.from("payments").update({ status })
+    .eq("id", local.id).eq("company_id", local.company_id).eq("student_id", local.student_id)
+    .eq("asaas_payment_id", local.asaas_payment_id).eq("asaas_customer_id", local.asaas_customer_id)
+    .select("id").maybeSingle();
+  if (updateError || saved?.id !== local.id) {
+    throw new Error("Parcela local mudou durante a atualização; reprocessamento necessário.");
+  }
 }
 
 async function claimEvent(eventId: string, eventType: string) {

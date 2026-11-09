@@ -1,3 +1,4 @@
+import { uniquePrimaryCardCharge } from "../_shared/asaas-installment-webhook.ts";
 import { asaasPaymentStatus } from "../_shared/asaas-payment-status.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
@@ -742,10 +743,13 @@ async function createCardPayment(body: any) {
     }
     if (existingPayment) {
       assertExistingPaymentScope(existingPayment, studentId, student.company_id);
+      const externalReference = `sett-payment:${existingPayment.id}`;
       const reconciliation = await asaasFetch(
-        `/payments?externalReference=${encodeURIComponent(`sett-payment:${existingPayment.id}`)}&limit=1&offset=0`,
+        `/payments?externalReference=${encodeURIComponent(externalReference)}&limit=100&offset=0`,
       );
-      const reconciled = Array.isArray(reconciliation?.data) ? reconciliation.data[0] : null;
+      const reconciled = Array.isArray(reconciliation?.data)
+        ? uniquePrimaryCardCharge<any>(reconciliation.data, externalReference, student.asaas_customer_id, allowedInstallmentCount)
+        : null;
       if (reconciled?.id) {
         const { data: savedPayment, error: updateError } = await supabaseAdmin.from("payments").update({
           asaas_payment_id: reconciled.id,
