@@ -25,7 +25,7 @@ vi.mock("@/components/BnitoFloatingAssistant", () => ({
 vi.mock("@/components/BenitoSprite", () => ({ BenitoSprite: () => null }));
 vi.mock("@/components/body/BodyMap", () => ({ BodyMap: () => null }));
 vi.mock("@/components/admin/PreRegistrationDetails", () => ({ PreRegistrationDetails: () => null }));
-vi.mock("@/lib/preRegistrationData", () => ({ loadStudentPreRegistration: vi.fn().mockResolvedValue(null), updateStudentPreRegistration: vi.fn() }));
+vi.mock("@/lib/preRegistrationData", () => ({ loadStudentPreRegistration: vi.fn().mockResolvedValue(null), resolveStudioAnamnesis: vi.fn().mockResolvedValue(null), updateStudentPreRegistration: vi.fn() }));
 
 vi.mock("@/components/admin/SaveWorkoutToLibraryDialog", async (importOriginal) => {
  const actual = await importOriginal<typeof import("@/components/admin/SaveWorkoutToLibraryDialog")>();

@@ -43,6 +43,7 @@ export function upsertCompletedWorkoutSession<T extends { id?: string }>(
     totalVolume: number;
     totalSetsCompleted: number;
     totalSetsPrescribed: number;
+    exercisesSummary?: unknown;
   },
   sessionDate: string,
 ) {
@@ -54,6 +55,7 @@ export function upsertCompletedWorkoutSession<T extends { id?: string }>(
     total_volume: session.totalVolume,
     total_sets_completed: session.totalSetsCompleted,
     total_sets_prescribed: session.totalSetsPrescribed,
+    ...(session.exercisesSummary === undefined ? {} : { exercises_summary: session.exercisesSummary }),
     completed_at: session.completedAt,
     status: "completed",
   }, ...current.filter((row) => row.id !== session.id)];

@@ -5,15 +5,11 @@ import { describe, expect, it } from "vitest";
 const read = (path: string) => readFile(resolve(process.cwd(), path), "utf8");
 
 describe("volume integration safety contracts", () => {
-  it("uses the tenant-scoped effective-target RPC in student and trainer views", async () => {
-    const [studentView, trainerView, migration] = await Promise.all([
-      read("src/components/student/VolumeInsights.tsx"),
+  it("resolves current prescription targets through the tenant-scoped RPC", async () => {
+    const [trainerView, migration] = await Promise.all([
       read("src/components/trainer/WorkoutAnalysis.tsx"),
       read("supabase/migrations/20260914130000_fix_fixed_muscle_volume.sql"),
     ]);
-    expect(studentView).toContain('rpc("get_effective_exercise_targets"');
-    expect(studentView).not.toContain('.from("company_exercise_volumes")');
-    expect(studentView).toContain("log?.completed === true");
     expect(trainerView).toContain('rpc("get_effective_exercise_targets"');
     expect(migration).toContain("auth.uid() is distinct from v_student_user_id");
     expect(migration).toContain("public.is_company_staff(auth.uid(), v_company_id)");
@@ -21,13 +17,26 @@ describe("volume integration safety contracts", () => {
     expect(migration).toContain("el.is_global or el.company_id = v_company_id");
   });
 
-  it("counts only completed logs inside the effective cycle window", async () => {
-    const trainerView = await read("src/components/trainer/WorkoutAnalysis.tsx");
-    expect(trainerView).toContain("effectiveCoverageWindow");
-    expect(trainerView).toContain('.eq("completed", true)');
-    expect(trainerView).toContain('.gte("session_date", coverage.start)');
-    expect(trainerView).toContain("mg.executedSets / coveredWeeks");
-    expect(trainerView).not.toContain("mg.executedSets / (parseInt(period) / 7)");
+  it("shares historical execution evidence while keeping the planned calculation separate", async () => {
+    const [staff, cycleVolume, insights, stats, metrics] = await Promise.all([
+      read("src/components/trainer/WorkoutAnalysis.tsx"),
+      read("src/components/trainer/StudentVolumePanel.tsx"),
+      read("src/components/student/VolumeInsights.tsx"),
+      read("src/components/student/StatsCharts.tsx"),
+      read("src/lib/realizedTraining.ts"),
+    ]);
+    for (const surface of [staff, cycleVolume, insights, stats]) {
+      expect(surface).toContain("summarizeRealizedTraining(");
+    }
+    for (const surface of [insights, stats]) {
+      expect(surface).not.toContain("useExerciseVolumeTargets");
+      expect(surface).not.toContain("fractionalSetsByMuscleGroup");
+    }
+    expect(staff).toContain("effectiveCoverageWindow");
+    expect(staff).toContain("mg.executedSets / coveredWeeks");
+    expect(metrics).toContain("log.completed !== true");
+    expect(metrics).toContain("session.exercises_summary");
+    expect(metrics).toContain("canonicalAnatomicalMuscleGroup(exercise.muscleGroup)");
   });
 
   it("replaces muscle targets through one validated transactional RPC", async () => {
@@ -44,27 +53,19 @@ describe("volume integration safety contracts", () => {
   });
 
   it("aplica a allowlist anatômica em aluno, professor e prescritor", async () => {
-    const sources = await Promise.all([
+    const [stats, radar, trainer, profile, builder] = await Promise.all([
       read("src/lib/volumeStats.ts"),
-      read("src/components/student/StatsCharts.tsx"),
       read("src/components/student/MuscleRadar.tsx"),
       read("src/components/trainer/WorkoutAnalysis.tsx"),
       read("src/pages/admin/StudentDetail.tsx"),
       read("src/pages/admin/WorkoutBuilder.tsx"),
     ]);
-    for (const index of [0, 2, 5]) {
-      expect(sources[index]).toContain("canonicalAnatomicalMuscleGroup");
+    for (const source of [stats, radar, builder]) {
+      expect(source).toContain("canonicalAnatomicalMuscleGroup");
     }
-    expect(sources[1]).toContain("fractionalSetsByMuscleGroup");
-    expect(sources[1]).toContain("useExerciseVolumeTargets");
-    expect(sources[3]).toContain("calculateWeeklyMuscleVolume");
-    // Historical execution comes from its recorded snapshot, not today's exercise array.
-    // Mounted WorkoutAnalysis tests cover changed workouts, fractional denominators and
-    // foreign nested snapshots; retain the anatomical allowlist on this execution path.
-    expect(sources[3]).toContain("canonicalAnatomicalMuscleGroup(item.muscleGroup)");
-    expect(sources[3]).toContain("session.exercises_summary");
-    expect(sources[4]).toContain("calculateWeeklyMuscleVolume");
-    expect(sources[4]).toContain("useExerciseVolumeTargets");
-    expect(sources[5]).toContain("anatomicalBnitoVolumeReview");
+    expect(trainer).toContain("calculateWeeklyMuscleVolume");
+    expect(profile).toContain("calculateWeeklyMuscleVolume");
+    expect(profile).toContain("useExerciseVolumeTargets");
+    expect(builder).toContain("anatomicalBnitoVolumeReview");
   });
 });

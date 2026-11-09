@@ -14,7 +14,7 @@ import {
   INDIVIDUAL_WEEKLY_UI_VERSION,
   weeklySetTypesForSets,
 } from "@/lib/weeklyStrengthPeriodization";
-import { saveCycleWorkoutRevision } from "@/lib/workoutRevision";
+import { saveCycleWorkoutRevision, WorkoutRevisionConflictError } from "@/lib/workoutRevision";
 
 // Formato que o app do aluno (StudentPortal/StudentWorkout) consome em workouts.exercises[].
 export interface StudentWorkoutExercise {
@@ -141,6 +141,98 @@ export function buildWorkoutRows(plan: any, cycleId: string, companyId: string):
   });
 }
 
+type StrengthDraftPublication = {
+  draftId: string;
+  draftVersion: string;
+  plan: Record<string, unknown>;
+};
+type StudioPublishTarget = { bundleId: string; cycleId: string; companyId: string };
+export type StudioModalityVersion = { id: string; updated_at: string };
+export type StudioModalityVersions = Partial<Record<"corrida" | "natacao" | "ciclismo" | "nutricao", StudioModalityVersion>>;
+
+export function publishStrengthDraftToStudent(input: StudioPublishTarget & StrengthDraftPublication) {
+  return publishStudioDraft(input, input);
+}
+
+export function publishIntegratedStudioDraft(input: StudioPublishTarget & {
+  modalities: StudioModalityVersions;
+  strength?: StrengthDraftPublication;
+}) {
+  return publishStudioDraft(input, input.strength, input.modalities);
+}
+
+async function publishStudioDraft(
+  input: StudioPublishTarget,
+  strength?: StrengthDraftPublication,
+  modalities?: StudioModalityVersions,
+) {
+  const workouts = strength ? buildWorkoutRows(strength.plan, input.cycleId, input.companyId).map((row) => ({
+    title: row.title,
+    description: row.description,
+    day_of_week: row.day_of_week,
+    exercises: row.exercises,
+  })) : [];
+  if (strength && (!workouts.length || workouts.some((workout) => !workout.exercises.length))) {
+    throw new Error("Inclua exercícios em todos os treinos antes de publicar a musculação.");
+  }
+
+  const strengthArgs = strength ? {
+    p_draft_id: strength.draftId,
+    p_expected_draft_updated_at: strength.draftVersion,
+    p_plan: strength.plan,
+    p_workouts: workouts,
+  } : {};
+  const { data, error } = await (supabase as any).rpc(
+    modalities ? "publish_studio_integrated_bundle" : "publish_studio_strength_draft",
+    {
+      p_cycle_id: input.cycleId,
+      ...strengthArgs,
+      ...(modalities ? { p_bundle_id: input.bundleId, p_expected_modalities: modalities } : {}),
+    },
+  );
+  if (error) {
+    switch (error.message) {
+      case "workout_revision_changed":
+        throw new WorkoutRevisionConflictError();
+      case "studio_bundle_incomplete":
+      case "studio_bundle_requires_integrated_publish":
+        throw new Error("O pacote está incompleto. Gere ou reabra todas as modalidades antes de publicar.");
+      case "studio_bundle_changed":
+      case "studio_strength_draft_changed":
+        throw new Error("O rascunho mudou em outra tela. Recarregue e confira a versão antes de publicar.");
+      case "studio_strength_cycle_changed":
+        throw new Error("O ciclo mudou desde a geração. Confira as datas antes de publicar.");
+      case "studio_strength_intercycle_review_required":
+        throw new Error("Revise a nova Anamnese interciclos com o treinador antes de publicar. O rascunho foi preservado.");
+      case "studio_strength_forbidden":
+      case "workout_revision_forbidden":
+        throw new Error("Confira a matrícula e sua permissão para publicar neste ciclo.");
+      case "workout_revision_cycle_not_visible":
+      case "workout_revision_cycle_not_found":
+        throw new Error("Este ciclo não está disponível para publicação. Confira o ciclo exibido no perfil.");
+      default:
+        throw new Error("Não foi possível confirmar a publicação. Confira o ciclo ou tente novamente.");
+    }
+  }
+  if (
+    data?.cycle_id !== input.cycleId || data.bundle_id !== input.bundleId
+    || (strength && (data.strength_plan_id !== strength.draftId || !data.revision_id))
+    || (modalities && (
+      Object.keys(data.modalities ?? {}).length !== Object.keys(modalities).length
+      || Object.entries(modalities).some(([key, value]) => data.modalities?.[key]?.id !== value.id)
+    ))
+    || data.workouts_created !== workouts.length
+  ) {
+    throw new Error("O banco não confirmou a publicação completa da prescrição.");
+  }
+  return {
+    workoutsCreated: Number(data.workouts_created),
+    current: data.current === true,
+    scheduled: data.scheduled === true,
+    replayed: data.replayed === true,
+  };
+}
+
 export function buildTrainingCycleMetadata(
   plan: any,
   durationWeeks: number,
@@ -247,9 +339,12 @@ export async function publishStrengthPlanToStudent(opts: {
       && opts.replaceTargetCycle !== true) throw new Error("Este ciclo já tem prescrição. Confirme a substituição para publicar novamente.");
   }
   if (opts.bundleId) {
-    const { data: bundle, error } = await db.from("prescription_bundles").select("id")
+    const { data: bundle, error } = await db.from("prescription_bundles").select("id,studio_strength_draft,studio_modalities_snapshot")
       .eq("id", opts.bundleId).eq("company_id", companyId).eq("student_id", studentId).maybeSingle();
     if (error || !bundle) throw new Error("O pacote não pertence a este aluno/empresa ou não está disponível.");
+    if (bundle.studio_strength_draft || bundle.studio_modalities_snapshot) {
+      throw new Error("Publique o rascunho pelo fluxo de revisão do Studio.");
+    }
   }
   let createdEnrollment = false;
   let bundleId = opts.bundleId ?? null;

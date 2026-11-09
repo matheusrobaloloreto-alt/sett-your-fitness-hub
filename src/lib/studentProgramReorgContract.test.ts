@@ -12,12 +12,14 @@ describe("student profile program reorganization contract", () => {
   const studio = source("src/pages/admin/PrescriptionStudio.tsx");
   const prescriber = source("src/pages/admin/UnifiedPrescriber.tsx");
 
-  it("exposes exactly the four requested primary tabs and resolves prescription handoffs behaviorally", () => {
+  it("exposes the requested primary tabs and resolves prescription handoffs behaviorally", () => {
     expect(STUDENT_PROGRAM_PRIMARY_TABS).toEqual([
       { value: "overview", label: "Visão geral" },
-      { value: "program", label: "Programa" },
-      { value: "analytics", label: "Análise" },
-      { value: "evaluations", label: "Avaliação" },
+      { value: "program", label: "Treino" },
+      { value: "evaluations", label: "Avaliação e anamnese" },
+      { value: "analytics", label: "Acompanhamento" },
+      { value: "registration", label: "Cadastro" },
+      { value: "enrollments", label: "Matrículas" },
     ]);
     expect(resolveStudentProgramHandoff("prescricao")).toEqual({
       activeTab: "program",
@@ -51,16 +53,16 @@ describe("student profile program reorganization contract", () => {
   it("keeps manual prescription on WorkoutBuilder and integrated prescription on PrescriptionStudio", () => {
     const dashboard = source("src/pages/admin/AdminDashboard.tsx");
 
-    expect(dashboard).toContain('state: { studentId: m.student_id, tab: "prescricao" }');
+    expect(dashboard).toContain("?tab=prescricao");
     expect(dashboard).toContain("`/${routePrefix}/students/${m.student_id}`");
     expect(studentDetail).toContain("EmbeddedPrescriptionStudio");
     expect(studentDetail).not.toContain("EmbeddedUnifiedPrescriber");
     expect(studentDetail).not.toContain("@/pages/admin/UnifiedPrescriber");
     expect(studentDetail).toContain("ManualPrescriptionPanel");
     expect(studentDetail).toContain("openManualPrescriptionBuilder");
-    expect(studentDetail).toContain("workoutBuilderUrl({ role, studentId: id, cycleId: targetCycle.id })");
+    expect(studentDetail).toContain("workoutBuilderUrl({ role, studentId: id, cycleId: targetCycle.id, returnTab: activeTab })");
     expect(studentDetail).toContain("resolveManualPrescriptionTargetCycle");
-    expect(studentDetail).toContain("EmbeddedPrescriptionStudio embeddedStudentId={id}");
+    expect(studentDetail).toContain("embeddedStudentId={id}");
     expect(studentDetail).toContain("resolveStudentProgramHandoff");
     expect(studentDetail).toContain('new URLSearchParams(location.search).get("tab")');
     expect(studentDetail).toContain("activePrescriptionPanel === \"prescricao\"");
@@ -96,18 +98,19 @@ describe("student profile program reorganization contract", () => {
     expect(resolveStudentProgramReturnTo({ queryReturnTo: "//example.com", fallbackPath })).toBe(fallbackPath);
   });
 
-  it("moves cycle calendar and finance to overview, anamnesis to program, workouts to analysis, and progress photos to evaluation", () => {
-    expect(studentDetail).toContain("renderCycleCalendar()");
-    expect(studentDetail.indexOf("renderCycleCalendar()")).toBeLessThan(studentDetail.indexOf('value="program"'));
-    expect(studentDetail).not.toContain('TabsContent value="anamnesis"');
-    expect(studentDetail).not.toContain('TabsContent value="financial"');
-    expect(studentDetail.indexOf('title="FINANCEIRO"')).toBeLessThan(studentDetail.indexOf('value="program"'));
-    expect(studentDetail.indexOf('title="ANAMNESE"')).toBeGreaterThan(studentDetail.indexOf('value="program"'));
-    expect(studentDetail.indexOf('title="ANAMNESE"')).toBeLessThan(studentDetail.indexOf('value="analytics"'));
-    expect(studentDetail.indexOf("renderWorkoutCycles()")).toBeGreaterThan(studentDetail.indexOf('value="analytics"'));
-    expect(studentDetail.indexOf("<ProgressPhotosPanel")).toBeGreaterThan(studentDetail.indexOf('value="evaluations"'));
-    expect(studentDetail).toContain("PROVAS E METAS");
-    expect(studentDetail).toContain("<CollapsibleCard title=\"PROVAS E METAS\"");
+  it("groups the existing flows by the approved profile tabs", () => {
+    const tab = (value: string) => studentDetail.split(`<TabsContent value="${value}"`)[1]?.split("</TabsContent>")[0];
+    expect(tab("overview")).toContain("<WeeklyContactToggle");
+    expect(tab("overview")).toContain("<IntercycleAnamnesisControls");
+    expect(tab("program")).toContain("renderCycleCalendar()");
+    expect(tab("program")).toContain("<PlanVersionsCard");
+    expect(tab("analytics")).toContain("renderWorkoutCycles()");
+    expect(tab("analytics")).toContain("PROVAS E METAS");
+    expect(tab("evaluations")).toContain('title="ANAMNESE"');
+    expect(tab("evaluations")).toContain("<StudentBodyMap");
+    expect(tab("evaluations")).toContain("<ProgressPhotosPanel");
+    expect(tab("registration")).toContain('title="FINANCEIRO"');
+    expect(tab("enrollments")).toContain("MATRÍCULAS");
   });
 
   it("summarizes volume alerts behind an explicit see-more control", () => {

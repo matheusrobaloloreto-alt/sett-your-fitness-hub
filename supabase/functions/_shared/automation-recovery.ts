@@ -34,9 +34,9 @@ export function assertAcyclicDispatchGraph(edges: Array<{ source_node_id: string
   if (seen!==incoming.size) throw new Error('flow_graph_cycle_unsupported');
 }
 
-export async function beginDispatch(admin: any, attempt: DispatchAttempt) {
+export async function prepareDispatch(admin: any, attempt: DispatchAttempt) {
   if (!attempt.owner.dispatch_lease_token) throw new Error("dispatch_lease_lost");
-  const result = await admin.rpc("begin_automation_dispatch", {
+  const result = await admin.rpc("prepare_automation_dispatch", {
     _kind: attempt.kind, _owner_id: attempt.owner.id,
     _lease_token: attempt.owner.dispatch_lease_token, _send_key: attempt.key,
   });
@@ -44,8 +44,8 @@ export async function beginDispatch(admin: any, attempt: DispatchAttempt) {
     if (String(result.error.message).includes("dispatch_uncertain")) throw new DispatchUncertain();
     throw new Error("dispatch_begin_unavailable");
   }
-  if (result.data !== "in_flight" && result.data !== "acked") throw new Error("dispatch_begin_invalid");
-  return result.data as "in_flight" | "acked";
+  if (result.data !== "prepared" && result.data !== "acked") throw new Error("dispatch_begin_invalid");
+  return result.data as "prepared" | "acked";
 }
 
 export async function acknowledgeDispatch(admin: any, attempt: DispatchAttempt, receipt: string | null) {
@@ -57,12 +57,23 @@ export async function acknowledgeDispatch(admin: any, attempt: DispatchAttempt, 
   if (result.error) throw new DispatchUncertain();
 }
 
+export function isDispatchGuardRefusal(code: string) {
+  return ["dispatch_lease_lost", "weekly_contact_ineligible", "weekly_contact_window_closed",
+    "weekly_contact_interval_blocked", "weekly_contact_conversation_active"].includes(code);
+}
+
 export async function authorizeDispatch(admin: any, attempt: DispatchAttempt) {
   const result = await admin.rpc("authorize_automation_dispatch", {
     _kind: attempt.kind, _owner_id: attempt.owner.id,
     _lease_token: attempt.owner.dispatch_lease_token, _send_key: attempt.key,
   });
-  if (result.error) throw new DispatchUncertain();
+  if (result.error) {
+    const code = String(result.error.message || "");
+    if (isDispatchGuardRefusal(code)) {
+      throw new Error(code);
+    }
+    throw new DispatchUncertain();
+  }
 }
 
 // The server locks the owner and checks its own clock, even if an HTTP proxy or

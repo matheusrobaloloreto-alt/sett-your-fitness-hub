@@ -719,6 +719,32 @@ describe("StudentWorkout", () => {
     expect(screen.queryByRole("heading", { name: "Treino A" })).not.toBeInTheDocument();
   });
 
+  it("keeps overlapping current workouts available only for explicit consultation", async () => {
+    continuityFixture();
+    const original = fromMock.getMockImplementation()!;
+    const cycles = [1, 2].map(n => ({
+      id: `overlap-${n}`, enrollment_id: "enrollment-1", student_id: "student-1", company_id: "company-1",
+      cycle_number: n, start_date: `2026-10-0${n}`, end_date: "2026-11-12", status: "active",
+    }));
+    fromMock.mockImplementation((table: string) => {
+      if (table === "training_cycles") return makeQuery({ data: cycles, error: null }, "order");
+      if (table === "workouts") return makeQuery({
+        data: cycles.map(cycle => ({ ...workoutRows[0], id: `workout-${cycle.id}`, cycle_id: cycle.id })),
+        error: null,
+      }, "in");
+      return original(table);
+    });
+    renderWorkout();
+
+    const cycleButton = await screen.findByRole("button", { name: "Ciclo 1" });
+    expect(screen.queryByRole("heading", { name: "Treino A" })).not.toBeInTheDocument();
+    fireEvent.click(cycleButton);
+    expect(screen.getByText(/Histórico — somente consulta/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Treino A" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Voltar à prescrição atual" }));
+    expect(screen.queryByRole("heading", { name: "Treino A" })).not.toBeInTheDocument();
+  });
+
   it.each([null, undefined])("does not infer complete enrollment history from an unknown count (%s)", async count => {
     continuityFixture(); const original = fromMock.getMockImplementation()!;
     fromMock.mockImplementation((table: string) => table === "enrollments" ? makeQuery({ data: [{ id: "enrollment-1", student_id: "student-1", company_id: "company-1", status: "active", start_date: "2026-09-01", end_date: "2026-12-01" }], error: null, count }) : original(table));

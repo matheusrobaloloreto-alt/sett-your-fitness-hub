@@ -1,3 +1,5 @@
+import { applyEffectivePrescriptionInput, readEffectivePrescriptionAnamnesis } from "../_shared/prescription/effective-input.ts";
+import { clinicalRiskText } from "../_shared/prescription/clinicalContext.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { canonicalMuscleSlug, normalizeExerciseCategories } from "../_shared/exerciseTaxonomy.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -341,7 +343,7 @@ function validatePrescription(args: {
     });
   }
 
-  const text = normalizeText({ plan, anamnese: args.anamnese_context, assessment: args.assessment_context });
+  const text = `${normalizeText({ plan, assessment: args.assessment_context })} ${clinicalRiskText({ anamneseContext: args.anamnese_context })}`;
   const levelText = normalizeText(args.fitness_level);
   const painActive = /(dor|eva\s*[4-9]|eva\s*10|joelho|lombar|ombro|tornozelo|quadril|lesao|lesoes)/.test(text);
   const exerciseMap = new Map(args.catalog.map((exercise) => [exercise.id, exercise]));
@@ -469,10 +471,20 @@ serve(async (req) => {
   if (!claims) return jsonResponse({ error: "Unauthorized" }, 401);
 
   try {
-    const body = await req.json();
+    const payload = await req.json();
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-    const companyId = await resolveValidationCompanyId(supabase, claims, body);
+    const companyId = await resolveValidationCompanyId(supabase, claims, payload);
     await requireCompanyFeature(supabase, companyId || "", "hasPrescription");
+    let body = payload;
+    if (companyId && payload.student_id) {
+      const userSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+      });
+      const effective = await readEffectivePrescriptionAnamnesis(userSupabase, {
+        companyId, studentId: payload.student_id,
+      });
+      body = applyEffectivePrescriptionInput(payload, effective, "strength", { validationOnly: true });
+    }
     const [catalog, trustedLegacyExerciseIds] = await Promise.all([
       loadExerciseCatalog(supabase, companyId),
       loadTrustedLegacyExerciseIds(supabase, body.cycle_id, companyId),

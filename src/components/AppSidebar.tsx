@@ -9,7 +9,6 @@ import {
   FileText,
   CalendarDays,
   DollarSign,
-  MessageSquare,
   Palette,
   ChevronDown,
   Zap,
@@ -32,7 +31,10 @@ import { useRolePermissions, type PermissionModule } from "@/hooks/useRolePermis
 import { useTheme } from "@/contexts/ThemeContext";
 import { useMaster } from "@/contexts/MasterContext";
 import { useLocation, useNavigate } from "react-router-dom";
+import bnMark from "@/assets/bn-mark-transparent.png";
+import { WhatsAppIcon } from "@/components/WhatsAppIcon";
 import { Logo } from "@/components/Logo";
+import { runWithSettingsExitConfirmation } from "@/lib/settingsDraftProtection";
 import {
   Sidebar,
   SidebarContent,
@@ -46,6 +48,8 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarFooter,
+  SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   Collapsible,
@@ -103,7 +107,7 @@ const managementItems = [
 const financialItem = { title: "Financeiro", url: "/admin/financial", icon: DollarSign };
 
 const whatsappSubItems = [
-  { title: "Conversas", url: "/admin/whatsapp-chat", icon: MessageSquare },
+  { title: "Conversas", url: "/admin/whatsapp-chat", icon: WhatsAppIcon },
   { title: "Templates", url: "/admin/whatsapp-templates", icon: FileText },
   { title: "Automação", url: "/admin/whatsapp-automation", icon: Zap },
 ];
@@ -121,13 +125,13 @@ const coordinatorAllItems = [
 ];
 
 const coordinatorWhatsappSubItems = [
-  { title: "Conversas", url: "/coordinator/whatsapp-chat", icon: MessageSquare },
+  { title: "Conversas", url: "/coordinator/whatsapp-chat", icon: WhatsAppIcon },
   { title: "Templates", url: "/coordinator/whatsapp-templates", icon: FileText },
   { title: "Automação", url: "/coordinator/whatsapp-automation", icon: Zap },
 ];
 
 const trainerWhatsappSubItems = [
-  { title: "Conversas", url: "/trainer/whatsapp-chat", icon: MessageSquare },
+  { title: "Conversas", url: "/trainer/whatsapp-chat", icon: WhatsAppIcon },
   { title: "Templates", url: "/trainer/whatsapp-templates", icon: FileText },
   { title: "Automação", url: "/trainer/whatsapp-automation", icon: Zap },
 ];
@@ -150,8 +154,8 @@ const trainerAlwaysAvailableModules = new Set<PermissionModule>([
   "appearance",
 ]);
 
-export function AppSidebar() {
-  const { role, signOut, user } = useAuth();
+export function AppSidebar({ linen = false }: { linen?: boolean }) {
+  const { role, signOut, user, companyId } = useAuth();
   const features = useCompanyFeatures();
   const { canAccess } = useRolePermissions();
   const { settings } = useTheme();
@@ -160,6 +164,9 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const { openChatPanel } = useWhatsAppChatPanel();
   const prefersReducedMotion = useReducedMotion();
+  const isBn = (isViewingCompany ? viewingCompany?.id : companyId) === "dad65c62-e700-4ae9-930a-43b18357c171"
+    || (isViewingCompany && viewingCompany?.slug === "bn-performance-training")
+    || /^bn performance training$/i.test(settings?.platform_title?.trim() ?? "");
   const title = settings?.platform_title || "Set Training App";
   const [customLogoFailed, setCustomLogoFailed] = useState(false);
 
@@ -230,8 +237,10 @@ export function AppSidebar() {
       : whatsappSubItems;
 
   const handleExitCompanyView = () => {
-    exitCompanyView();
-    navigate("/master");
+    runWithSettingsExitConfirmation(() => {
+      exitCompanyView();
+      navigate("/master");
+    });
   };
 
   const roleLabel = showAdminView 
@@ -241,10 +250,14 @@ export function AppSidebar() {
       : role || "...";
 
   return (
-    <Sidebar className="border-r border-line">
-      <div className="p-5 flex items-center gap-3 border-b border-line">
+    <>
+    <Sidebar className={linen ? "sett-linen-sidebar" : "border-r border-line"}
+      variant={linen ? "floating" : "sidebar"} collapsible={linen ? "icon" : "offcanvas"} linen={linen}>
+      <div className="sett-sidebar-brand p-5 flex items-center gap-3 border-b border-line">
         <div className="flex-1 min-w-0 flex items-center">
-          {settings?.logo_url && !customLogoFailed ? (
+          {linen && isBn ? (
+            <img src={bnMark} alt="BN Performance Training" className="h-12 w-12 shrink-0 object-contain" draggable={false} />
+          ) : settings?.logo_url && !customLogoFailed ? (
             <img
               key={settings.logo_url}
               src={settings.logo_url}
@@ -257,6 +270,7 @@ export function AppSidebar() {
             <Logo size="md" sublabel={roleLabel} />
           )}
         </div>
+        {linen && <SidebarTrigger className="sett-linen-sidebar-toggle shrink-0" aria-label="Recolher ou abrir menu lateral" />}
         {showAdminView && (
           <Button
             variant="ghost"
@@ -284,7 +298,7 @@ export function AppSidebar() {
                   : location.pathname === item.url.split("?")[0] || location.pathname.startsWith(item.url.split("?")[0] + "/");
                 return (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild>
+                    <SidebarMenuButton asChild tooltip={linen ? item.title : undefined}>
                       <NavLink
                         to={item.url}
                         end={isRoot}
@@ -294,6 +308,7 @@ export function AppSidebar() {
                         {isActive && (
                           <motion.span
                             layoutId="sidebar-active"
+                            aria-hidden="true"
                             className="absolute inset-0 bg-navy/[0.07] border-l-2 border-navy -z-0"
                             transition={
                               prefersReducedMotion
@@ -303,7 +318,7 @@ export function AppSidebar() {
                           />
                         )}
                         <item.icon className="mr-2 h-4 w-4 relative z-10" />
-                        <span className="relative z-10">{item.title}</span>
+                        <span className="sett-sidebar-label relative z-10">{item.title}</span>
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -353,7 +368,7 @@ export function AppSidebar() {
                   <SidebarMenuItem>
                     <CollapsibleTrigger asChild>
                       <SidebarMenuButton className="w-full">
-                        <MessageSquare className="mr-2 h-4 w-4" />
+                        <WhatsAppIcon className="mr-2 h-4 w-4" />
                         <span className="flex-1 text-left">WhatsApp</span>
                         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 group-data-[state=open]/collapsible:rotate-180" />
                       </SidebarMenuButton>
@@ -398,7 +413,7 @@ export function AppSidebar() {
           {user?.email}
         </p>
         <button
-          onClick={signOut}
+          onClick={() => runWithSettingsExitConfirmation(() => { void signOut(); })}
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-destructive transition-colors w-full"
         >
           <LogOut className="h-4 w-4" />
@@ -406,5 +421,46 @@ export function AppSidebar() {
         </button>
       </SidebarFooter>
     </Sidebar>
+    {linen && <LinenMobileNav items={items} />}
+    </>
+  );
+}
+
+function LinenMobileNav({ items }: { items: typeof managementItems }) {
+  const { isMobile, openMobile, toggleSidebar } = useSidebar();
+  const { isAvailable, openChatPanel, isChatPanelOpen } = useWhatsAppChatPanel();
+  const reducedMotion = useReducedMotion();
+  if (!isMobile) return null;
+
+  const shortcut = (title: string, label = title) => {
+    const item = items.find(item => item.title === title);
+    return item && (
+      <NavLink to={item.url} end={title === "Dashboard"} activeClassName="sett-dock-active">
+        <item.icon aria-hidden="true" />
+        <span>{label}</span>
+      </NavLink>
+    );
+  };
+  const press = reducedMotion ? undefined : { scale: 0.95 };
+  const spring = { type: "spring", mass: 1, stiffness: 310, damping: 31 } as const;
+
+  return (
+    <nav className="sett-linen-dock" aria-label="Navegação rápida">
+      {shortcut("Dashboard", "Painel")}
+      {shortcut("Alunos")}
+      {shortcut("Agenda")}
+      {isAvailable && (
+        <motion.button type="button" onClick={() => openChatPanel()} aria-expanded={isChatPanelOpen}
+          aria-haspopup="dialog" whileTap={press} transition={spring}>
+          <WhatsAppIcon />
+          <span>Conversas</span>
+        </motion.button>
+      )}
+      <motion.button type="button" onClick={toggleSidebar} aria-expanded={openMobile}
+        whileTap={press} transition={spring}>
+        <Settings aria-hidden="true" />
+        <span>Menu</span>
+      </motion.button>
+    </nav>
   );
 }

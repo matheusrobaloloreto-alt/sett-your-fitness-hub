@@ -45,7 +45,7 @@ function dispatcher(client: unknown, network: typeof fetch) {
   return exports;
 }
 
-function intercycleAdapter(options: { stale?: boolean; begin?: 'acked' | 'in_flight' } = {}) {
+function intercycleAdapter(options: { stale?: boolean; prepared?: 'acked' | 'prepared' } = {}) {
   const writes: Array<{ table: string; patch: Record<string, unknown> }> = [];
   const events: string[] = [];
   let persistedHash = 'hash-of-already-delivered-successor-invite';
@@ -54,9 +54,9 @@ function intercycleAdapter(options: { stale?: boolean; begin?: 'acked' | 'in_fli
     if (name === 'process_intercycle_anamnesis_schedule') return { data: 0, error: null };
     if (name === 'claim_intercycle_anamnesis_deliveries') return { data: [{ ...delivery }], error: null };
     if (name === 'service_company_feature_allowed') return { data: true, error: null };
-    if (name === 'begin_automation_dispatch') return options.stale
+    if (name === 'prepare_automation_dispatch') return options.stale
       ? { data: null, error: { message: 'dispatch_lease_lost' } }
-      : { data: options.begin ?? 'in_flight', error: null };
+      : { data: options.prepared ?? 'prepared', error: null };
     if (name === 'ack_automation_dispatch') return { data: null, error: null };
     if (name === 'authorize_automation_dispatch') return { data: null, error: null };
     if (name === 'checkpoint_automation_dispatch') return options.stale
@@ -113,7 +113,7 @@ describe('independent recovery intercycle adversarial ordering (adapter, no data
   });
 
   it('a durable ACK replay preserves the invite hash instead of rotating an unsent token', async () => {
-    const adapter = intercycleAdapter({ begin: 'acked' });
+    const adapter = intercycleAdapter({ prepared: 'acked' });
     const originalHash = adapter.hash();
     const network = vi.fn<typeof fetch>(() => { throw new Error('Provider network forbidden'); });
     const handler = dispatcher(adapter.client, network);
@@ -131,14 +131,15 @@ describe('independent recovery intercycle adversarial ordering (adapter, no data
     const handler = dispatcher(adapter.client, network);
     await handler.processIntercycleAnamnesisDeliveries({ admin: adapter.client, provider: { url: 'http://127.0.0.1:1', key: 'synthetic' } });
     expect(network, JSON.stringify(adapter.events)).toHaveBeenCalledTimes(1);
-    expect(adapter.events.indexOf('begin_automation_dispatch')).toBeLessThan(adapter.events.indexOf('simulated-provider'));
+    expect(adapter.events.filter(name => ['prepare_automation_dispatch', 'authorize_automation_dispatch', 'simulated-provider', 'ack_automation_dispatch'].includes(name)))
+      .toEqual(['prepare_automation_dispatch', 'authorize_automation_dispatch', 'simulated-provider', 'ack_automation_dispatch']);
     expect(adapter.rpc).toHaveBeenCalledWith('ack_automation_dispatch', expect.objectContaining({ _provider_message_id: 'synthetic-receipt' }));
   });
 });
 
 describe('independent delayed graph revisits (adapter, no database)', () => {
   it('rejects a persisted delayed cycle before ledger or provider while accepting an acyclic diamond', async () => {
-    const adapter = intercycleAdapter({ begin: 'acked' });
+    const adapter = intercycleAdapter({ prepared: 'acked' });
     const flowId = '00000000-0000-4000-8000-000000000010';
     const nodeA = '00000000-0000-4000-8000-000000000011';
     const nodeB = '00000000-0000-4000-8000-000000000012';
@@ -165,7 +166,7 @@ describe('independent delayed graph revisits (adapter, no database)', () => {
     };
     await expect(handler.processSession(adapter.client, session, { url: 'http://127.0.0.1:1', key: 'synthetic' }))
       .rejects.toThrow('flow_graph_cycle_unsupported');
-    expect(adapter.rpc.mock.calls.some(([name]) => name === 'begin_automation_dispatch')).toBe(false);
+    expect(adapter.rpc.mock.calls.some(([name]) => name === 'prepare_automation_dispatch')).toBe(false);
     expect(network).not.toHaveBeenCalled();
     expect(adapter.writes).toEqual([]);
     expect(() => recovery.assertAcyclicDispatchGraph([

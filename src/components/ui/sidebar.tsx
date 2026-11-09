@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { VariantProps, cva } from "class-variance-authority";
+import { motion, useReducedMotion } from "framer-motion";
 import { PanelLeft } from "lucide-react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -8,9 +9,11 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
+const LINEN_SPRING = { type: "spring", mass: 1, stiffness: 310, damping: 31 } as const;
 
 const SIDEBAR_COOKIE_NAME = "sidebar:state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -134,9 +137,16 @@ const Sidebar = React.forwardRef<
     side?: "left" | "right";
     variant?: "sidebar" | "floating" | "inset";
     collapsible?: "offcanvas" | "icon" | "none";
+    linen?: boolean;
   }
->(({ side = "left", variant = "sidebar", collapsible = "offcanvas", className, children, ...props }, ref) => {
+>(({ side = "left", variant = "sidebar", collapsible = "offcanvas", linen = false, className, children, ...props }, ref) => {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const reducedMotion = useReducedMotion();
+  const [portalContainer, setPortalContainer] = React.useState<HTMLDivElement | null>(null);
+  const spring = reducedMotion ? { duration: 0 } : LINEN_SPRING;
+  const width = state === "expanded" ? "16rem" : "4.5rem";
+  const desktopMotion = linen ? { initial: false as const, animate: { width }, transition: spring } : {};
+
 
   if (collapsible === "none") {
     return (
@@ -152,23 +162,63 @@ const Sidebar = React.forwardRef<
 
   if (isMobile) {
     return (
-      <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
-        <SheetContent
-          data-sidebar="sidebar"
-          data-mobile="true"
-          className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
-          style={
-            {
-              "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
-            } as React.CSSProperties
-          }
-          side={side}
-        >
-          <div className="flex h-full w-full flex-col">{children}</div>
-        </SheetContent>
-      </Sheet>
+      <>
+        {linen && <div ref={setPortalContainer} className="contents" />}
+        <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
+          <SheetContent
+            data-sidebar="sidebar"
+            data-mobile="true"
+            className={cn("w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden",
+              linen && "sett-linen-drawer")}
+            portalContainer={linen ? portalContainer : undefined}
+            springTransition={linen ? spring : undefined}
+            onCloseAutoFocus={linen ? (event) => {
+              const trigger = portalContainer?.closest(".sett-linen")
+                ?.querySelector<HTMLButtonElement>(".sett-linen-dock button");
+              if (trigger) {
+                event.preventDefault();
+                trigger.focus();
+              }
+            } : undefined}
+            style={{ "--sidebar-width": SIDEBAR_WIDTH_MOBILE } as React.CSSProperties}
+            side={side}
+          >
+            {linen && <SheetTitle className="sr-only">Menu do painel</SheetTitle>}
+            <div className="flex h-full w-full flex-col" onClick={linen ? (event) => {
+              if (event.target instanceof Element && event.target.closest("a[href]") &&
+                !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) setOpenMobile(false);
+            } : undefined}>{children}</div>
+          </SheetContent>
+        </Sheet>
+      </>
     );
   }
+
+  const spacerClass = cn(
+    "relative h-svh w-[--sidebar-width] bg-transparent transition-[width] duration-200 ease-linear",
+    "group-data-[collapsible=offcanvas]:w-0 group-data-[side=right]:rotate-180",
+    variant === "floating" || variant === "inset"
+      ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4))]"
+      : "group-data-[collapsible=icon]:w-[--sidebar-width-icon]",
+    linen && "!transition-none",
+  );
+  const panelClass = cn(
+    "fixed inset-y-0 z-10 hidden h-svh w-[--sidebar-width] transition-[left,right,width] duration-200 ease-linear md:flex",
+    side === "left"
+      ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
+      : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
+    variant === "floating" || variant === "inset"
+      ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
+      : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l",
+    linen && "!transition-none",
+    className,
+  );
+  const panel = (
+    <div data-sidebar="sidebar"
+      className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow">
+      {children}
+    </div>
+  );
 
   return (
     <div
@@ -179,38 +229,16 @@ const Sidebar = React.forwardRef<
       data-variant={variant}
       data-side={side}
     >
-      {/* This is what handles the sidebar gap on desktop */}
-      <div
-        className={cn(
-          "relative h-svh w-[--sidebar-width] bg-transparent transition-[width] duration-200 ease-linear",
-          "group-data-[collapsible=offcanvas]:w-0",
-          "group-data-[side=right]:rotate-180",
-          variant === "floating" || variant === "inset"
-            ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4))]"
-            : "group-data-[collapsible=icon]:w-[--sidebar-width-icon]",
-        )}
-      />
-      <div
-        className={cn(
-          "fixed inset-y-0 z-10 hidden h-svh w-[--sidebar-width] transition-[left,right,width] duration-200 ease-linear md:flex",
-          side === "left"
-            ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
-            : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
-          // Adjust the padding for floating and inset variants.
-          variant === "floating" || variant === "inset"
-            ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
-            : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l",
-          className,
-        )}
-        {...props}
-      >
-        <div
-          data-sidebar="sidebar"
-          className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow"
-        >
-          {children}
-        </div>
-      </div>
+      {linen
+        ? <motion.div {...desktopMotion} className={spacerClass} aria-hidden="true" />
+        : <div className={spacerClass} aria-hidden="true" />}
+      {linen ? (
+        <motion.div {...desktopMotion} className={panelClass}>
+          {panel}
+        </motion.div>
+      ) : (
+        <div className={panelClass} {...props}>{panel}</div>
+      )}
     </div>
   );
 });

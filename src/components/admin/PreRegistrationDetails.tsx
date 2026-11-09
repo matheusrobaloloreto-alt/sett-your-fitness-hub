@@ -1,3 +1,4 @@
+import { applyIntercycleFields } from "../../../supabase/functions/_shared/effective-anamnesis.ts";
 import { useEffect, useState } from "react";
 import { CalendarDays, Clock3, Pencil, Save, WalletCards, X } from "lucide-react";
 import { format } from "date-fns";
@@ -22,6 +23,7 @@ import {
 type PreRegistrationDetailsProps = {
   data: PreRegistrationData | null;
   loading?: boolean;
+  loadError?: boolean;
   compact?: boolean;
   className?: string;
   onSave?: (next: PreRegistrationData) => Promise<PreRegistrationData | void>;
@@ -52,7 +54,7 @@ const PRIMARY_ANSWER_GROUPS = [
   ["session_duration", "session_duration_min"],
   ["days_cardio", "days_per_week_cardio"],
   ["training_location"],
-  ["current_pain", "injuries"],
+  ["current_pain"],
 ] as const;
 
 function primaryAnswerPosition(key: string) {
@@ -81,6 +83,7 @@ function editableValue(value: unknown) {
 export function PreRegistrationDetails({
   data,
   loading = false,
+  loadError = false,
   compact = false,
   className,
   onSave,
@@ -88,18 +91,25 @@ export function PreRegistrationDetails({
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [confirmObjective, setConfirmObjective] = useState(false);
   const [draftAnswers, setDraftAnswers] = useState<Record<string, unknown>>({});
   const [draftBudget, setDraftBudget] = useState<string | null>(null);
   const [draftContact, setDraftContact] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState("");
 
+  const effectiveObjective = data?.intercycleAnswers?.objective;
+  const editableAnswers = effectiveObjective == null
+    ? data?.answers ?? {}
+    : { ...data?.answers, objective: effectiveObjective };
+
   useEffect(() => {
-    setDraftAnswers(data?.answers || {});
+    setDraftAnswers(effectiveObjective == null ? data?.answers || {} : { ...data?.answers, objective: effectiveObjective });
     setDraftBudget(data?.budgetRange || null);
     setDraftContact(data?.preferredContactPeriod || null);
     setNotesDraft(data?.manualNotes || "");
     setEditing(false);
-  }, [data]);
+    setConfirmObjective(false);
+  }, [data, effectiveObjective]);
 
   if (loading) {
     return (
@@ -113,6 +123,12 @@ export function PreRegistrationDetails({
     );
   }
 
+  if (loadError) {
+    return <p role="alert" className={cn("p-4 text-sm text-destructive", className)}>
+      Não foi possível carregar a anamnese efetiva. Reabra o registro para tentar novamente.
+    </p>;
+  }
+
   if (!data) {
     return (
       <div className={cn("rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground", className)}>
@@ -122,8 +138,16 @@ export function PreRegistrationDetails({
   }
 
   const canEdit = Boolean(onSave && data.recordId);
-  const answers = preRegistrationAnswerEntries(data.answers)
-    .filter((answer) => !["budget_range", "preferred_contact_period", "notes"].includes(answer.key.split(".").pop() || answer.key));
+  const visibleAnswers = !editing && data.intercycleAnswers
+    ? applyIntercycleFields(data.answers, data.intercycleAnswers)
+    : editableAnswers;
+  const answers = preRegistrationAnswerEntries(visibleAnswers)
+    .concat(editing && data.intercycleAnswers?.current_pain != null
+      && (visibleAnswers.current_pain == null || visibleAnswers.current_pain === "")
+      ? [{ key: "current_pain", label: "Nota do professor sobre dor atual", value: "", rawValue: "" }] : [])
+    .concat(editing && data.intercycleGoalNeedsReview && !visibleAnswers.objective
+      ? [{ key: "objective", label: "Objetivo principal", value: "", rawValue: "" }] : [])
+    .filter((answer) => !["budget_range", "preferred_contact_period", "notes", "submitted_at", "session_duration_minutes"].includes(answer.key.split(".").pop() || answer.key));
   const primaryAnswers = PRIMARY_ANSWER_GROUPS.flatMap((_, groupIndex) => {
     const candidates = answers
       .filter((answer) => primaryAnswerGroup(answer.key) === groupIndex)
@@ -157,7 +181,7 @@ export function PreRegistrationDetails({
 
   const saveNotes = async () => {
     try {
-      await persist({ ...data, manualNotes: notesDraft }, "Notas atualizadas");
+      await persist({ ...data, manualNotes: notesDraft, editedFields: [] }, "Notas atualizadas");
     } catch {
       // O toast de erro é emitido por persist.
     }
@@ -165,9 +189,14 @@ export function PreRegistrationDetails({
 
   const saveAll = async () => {
     try {
+      const editedFields = Object.keys(draftAnswers).filter(key =>
+        JSON.stringify(draftAnswers[key]) !== JSON.stringify(editableAnswers[key]));
+      if (confirmObjective && !editedFields.includes("objective")) editedFields.push("objective");
       await persist({
         ...data,
         answers: draftAnswers,
+        editedFields,
+
         budgetRange: draftBudget,
         preferredContactPeriod: draftContact,
         manualNotes: notesDraft,
@@ -233,7 +262,20 @@ export function PreRegistrationDetails({
           )}
         >
           <dt className="text-eyebrow text-muted-foreground">{answer.label}</dt>
-          {editing ? renderEditor(answer) : (
+          {editing ? (
+            <>
+              {renderEditor(answer)}
+              {answer.key === "current_pain" && data.intercycleAnswers?.current_pain != null && (
+                <p className="mt-2 text-xs text-muted-foreground">A nota não altera a resposta nem o EVA informados pelo aluno.</p>
+              )}
+              {answer.key === "objective" && data.intercycleGoalNeedsReview && (
+                <label className="mt-2 flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={confirmObjective} onChange={event => setConfirmObjective(event.target.checked)} />
+                  Confirmar este objetivo para a meta interciclos
+                </label>
+              )}
+            </>
+          ) : (
             <dd className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
               {answer.value}
             </dd>
@@ -326,7 +368,8 @@ export function PreRegistrationDetails({
           editing ? (
             <div className="flex gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={() => {
-                setDraftAnswers(data.answers);
+                setDraftAnswers(editableAnswers);
+                setConfirmObjective(false);
                 setDraftBudget(data.budgetRange);
                 setDraftContact(data.preferredContactPeriod);
                 setNotesDraft(data.manualNotes || "");

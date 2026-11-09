@@ -40,6 +40,28 @@ describe('student digital continuity within the preserved contract', () => {
  it('ranks stages by start date rather than imported cycle number or active status', () => {
   expect(selectStudentDigitalContinuity([{ ...past, cycle_number: 99, status: 'active' }, { ...empty, has_workouts: true }], context)?.id).toBe('next');
  });
+ it('preserves a sole current workout when another current slot is empty or offline', () => {
+  const published = { ...empty, has_workouts: true };
+  const overlap = { ...empty, id: 'overlap', cycle_number: 10, start_date: '2026-10-28' };
+  for (const competingSlot of [overlap, { ...overlap, prescribed_offline_at: '2026-10-28T12:00:00Z' }]) {
+   expect(selectStudentDigitalContinuity([past, published, competingSlot], context)?.id).toBe(published.id);
+   expect(projectPrescriptionCoverage({ ...context, cycles: [past, published, competingSlot] }).currentSlot?.state).toBe('review');
+  }
+  expect(selectStudentDigitalContinuity([past, published, { ...overlap, has_workouts: true }], context)).toBeNull();
+  expect(selectStudentDigitalContinuity([past, published, { ...overlap, prescription_cleared_at: 'now' }], context)).toBeNull();
+ });
+ it('preserves the latest trustworthy history when overlapping current slots have no digital workout', () => {
+  expect(selectStudentDigitalContinuity([past, empty, { ...empty, id: 'overlap', start_date: '2026-10-28' }], context)?.id).toBe(past.id);
+ });
+ it('prefers the sole current publication over a newer cycle that already ended', () => {
+  const current = { ...empty, start_date: '2026-10-15', has_workouts: true };
+  const ended = { ...past, start_date: '2026-10-19' };
+  expect(selectStudentDigitalContinuity([current, ended], context)?.id).toBe(current.id);
+ });
+ it('keeps superseded clear markers in history without blocking a live workout', () => {
+  const removed = { ...empty, superseded_at: 'now', prescription_cleared_at: 'now' };
+  expect(selectStudentDigitalContinuity([past, removed], context)?.id).toBe(past.id);
+ });
  it('fails closed on ambiguous same-stage materialization and wrong enrollment scope', () => {
   expect(selectStudentDigitalContinuity([past, { ...past, id: 'duplicate' }], context)).toBeNull();
   expect(selectStudentDigitalContinuity([past], { ...context, enrollment: { ...enrollment, company_id: 'foreign' } })).toBeNull();

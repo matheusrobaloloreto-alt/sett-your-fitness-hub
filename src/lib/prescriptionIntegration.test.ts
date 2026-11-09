@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildBnitoOrchestrationPlan,
   buildPrescriptionIntegration,
-} from "@/lib/prescriptionIntegration";
+} from "../../supabase/functions/_shared/prescription/integration";
 
 const anamnesis = {
   id: "anamnesis-id",

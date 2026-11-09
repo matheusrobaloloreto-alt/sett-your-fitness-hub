@@ -1,4 +1,3 @@
-import { AgendaAvailabilityLayer } from "@/components/admin/operations/AgendaAvailabilityLayer";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,6 +23,9 @@ interface AgendaEvent {
   studentName: string;
   studentId?: string;
   cycleId?: string;
+  cycleCompanyId?: string;
+  cycleEndDate?: string;
+  prescriptionCleared?: boolean;
   trainerName?: string;
   trainerIds?: string[];
   meta?: string;
@@ -102,14 +104,15 @@ export default function AdminAgenda() {
     });
 
     // Training cycles — filter by start_date in month, include completed status
-    let cyclesQuery = supabase
+    const { data: cycles, error: cyclesError } = await supabase
       .from("training_cycles")
-      .select("id, start_date, end_date, cycle_number, enrollment_id, status, prescribed_offline_at, enrollments!training_cycles_enrollment_id_fkey(student_id, trainer_id, students(full_name, assigned_trainer_id))")
+      .select("id, company_id, start_date, end_date, cycle_number, enrollment_id, status, prescribed_offline_at, prescription_cleared_at, enrollments!training_cycles_enrollment_id_fkey(student_id, trainer_id, students(full_name, assigned_trainer_id))")
+      .eq("company_id", effectiveCompanyId)
       .in("status", ["active", "pending", "completed"])
+      .is("superseded_at", null)
+      .is("superseded_by_cycle_id", null)
       .gte("start_date", monthStart)
       .lte("start_date", monthEnd);
-    if (effectiveCompanyId) cyclesQuery = cyclesQuery.eq("company_id", effectiveCompanyId);
-    const { data: cycles, error: cyclesError } = await cyclesQuery;
     if (cyclesError) failedSources.push("ciclos de treino");
 
     if (cycles && cycles.length > 0) {
@@ -117,6 +120,9 @@ export default function AdminAgenda() {
       const { data: workouts, error: workoutsError } = await supabase
         .from("workouts")
         .select("cycle_id, exercises")
+        .or(`company_id.eq.${effectiveCompanyId},company_id.is.null`)
+        .is("student_profile_archive_event_id", null)
+        .is("superseded_by_revision_id", null)
         .is("superseded_at", null)
         .in("cycle_id", cycleIds);
       if (workoutsError) failedSources.push("treinos dos ciclos");
@@ -141,7 +147,8 @@ export default function AdminAgenda() {
 
       cycles.forEach((c: any) => {
         if (!cyclesWithWorkout) return;
-        const hasWorkout = cyclesWithWorkout.has(c.id) || Boolean(c.prescribed_offline_at);
+        const prescriptionCleared = Boolean(c.prescription_cleared_at);
+        const hasWorkout = !prescriptionCleared && (cyclesWithWorkout.has(c.id) || Boolean(c.prescribed_offline_at));
         const trainerId = (c as any).enrollments?.students?.assigned_trainer_id;
         collected.push({
           id: `cyc-${c.id}`,
@@ -151,6 +158,10 @@ export default function AdminAgenda() {
           studentName: (c as any).enrollments?.students?.full_name || "—",
           studentId: (c as any).enrollments?.student_id,
           cycleId: c.id,
+          cycleCompanyId: c.company_id,
+          cycleEndDate: c.end_date,
+          prescriptionCleared,
+          meta: prescriptionCleared ? "Prescrição removida" : undefined,
           trainerName: trainerId ? trainerMap[trainerId] : undefined,
           trainerIds: uniqueAgendaTrainerIds(trainerId, (c as any).enrollments?.trainer_id),
         });
@@ -233,24 +244,42 @@ export default function AdminAgenda() {
   };
 
   const markCycleAsDone = async (ev: AgendaEvent) => {
-    if (!ev.cycleId || ev.type !== "prescription_pending") return;
+    if (!ev.cycleId || !ev.cycleEndDate || ev.type !== "prescription_pending" || ev.prescriptionCleared
+      || !effectiveCompanyId || ev.cycleCompanyId !== effectiveCompanyId) return;
     if (!session?.user?.id) {
       toast({ title: "Sessão expirada", description: "Entre novamente para marcar o ciclo.", variant: "destructive" });
       return;
     }
 
+    const generation = loadGeneration.current;
     setMarkingCycleId(ev.cycleId);
-    const { error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("training_cycles")
       .update({
         prescribed_offline_at: new Date().toISOString(),
         prescribed_offline_by: session.user.id,
       })
-      .eq("id", ev.cycleId);
+      .eq("id", ev.cycleId)
+      .eq("company_id", effectiveCompanyId)
+      .eq("start_date", ev.date)
+      .eq("end_date", ev.cycleEndDate)
+      .in("status", ["active", "pending", "completed"])
+      .is("prescribed_offline_at", null)
+      .is("prescription_cleared_at", null)
+      .is("superseded_at", null)
+      .is("superseded_by_cycle_id", null)
+      .select("id")
+      .maybeSingle();
     setMarkingCycleId(null);
+    if (generation !== loadGeneration.current) return;
 
     if (error) {
       toast({ title: "Erro ao marcar como feito", description: error.message, variant: "destructive" });
+      return;
+    }
+    if (data?.id !== ev.cycleId) {
+      toast({ title: "Não foi possível marcar o ciclo", description: "A agenda será atualizada para você conferir o ciclo." });
+      void loadEvents();
       return;
     }
 
@@ -285,7 +314,6 @@ export default function AdminAgenda() {
           )}
         </div>
 
-        {effectiveCompanyId && <AgendaAvailabilityLayer companyId={effectiveCompanyId} month={format(currentMonth, "yyyy-MM")} selectedDate={selectedDate ? format(selectedDate, "yyyy-MM-dd") : null}/>}
 
         {/* Legend */}
         <div className="flex flex-wrap gap-2 sm:gap-3">
@@ -426,7 +454,7 @@ export default function AdminAgenda() {
                               </p>
                             )}
                           </div>
-                          {ev.type === "prescription_pending" && ev.cycleId && (role !== "trainer" || agendaEventBelongsToTrainer(ev.trainerIds, session?.user?.id)) && (
+                          {ev.type === "prescription_pending" && ev.cycleId && !ev.prescriptionCleared && (role !== "trainer" || agendaEventBelongsToTrainer(ev.trainerIds, session?.user?.id)) && (
                             <Button
                               type="button"
                               size="sm"

@@ -16,6 +16,8 @@ import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { canonicalAnatomicalMuscleGroup } from "@/lib/anatomicalMuscleGroups";
 import { normalizeSearchText } from "@/lib/normalizeSearchText";
 import type { ExerciseSummaryItem } from "@/hooks/useWorkoutSession";
+import { foreignSnapshot as foreign, snapshotRecord as record, summarizeRealizedTraining } from "@/lib/realizedTraining";
+import { loadStudentTrainingHistory } from "@/lib/studentTrainingHistory";
 import { effectiveCoverageWindow } from "@/lib/volumeStats";
 
 interface Props {
@@ -34,7 +36,7 @@ interface SessionSummary {
   completed: number;
   abandoned: number;
   avgDuration: number;
-  totalVolume: number;
+  totalVolume: number | null;
 }
 
 function formatPrescriptionDate(value: string | null): string {
@@ -49,10 +51,6 @@ type SnapshotSession = {
 };
 type PrescriptionContext = { volume: Record<string, number>; source: string; compatible: boolean; error: boolean };
 const emptyPrescription = (): PrescriptionContext => ({ volume: {}, source: "Sem prescrição atual disponível.", compatible: false, error: false });
-const record = (value: unknown): Record<string, unknown> | null => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-const foreign = (value: Record<string, unknown>, studentId: string, companyId: string) =>
-  (value.student_id != null && value.student_id !== studentId) || (value.company_id != null && value.company_id !== companyId);
-
 // The snapshot stores name/muscleGroup/sets, not exercise IDs or prescribed sets per exercise.
 // Never use exercise_index to recover historical identity from a mutable current array.
 function completeSnapshot(value: unknown, studentId: string, companyId: string): value is ExerciseSummaryItem[] {
@@ -163,6 +161,7 @@ export function WorkoutAnalysis({ studentId, companyId }: Props) {
   const requestRef = useRef(0);
   const [prescription, setPrescription] = useState<PrescriptionContext>(emptyPrescription);
   const [showAllVolumeAlerts, setShowAllVolumeAlerts] = useState(false);
+  const [coverageNote, setCoverageNote] = useState("");
   const [legacyLogs, setLegacyLogs] = useState(0);
   const [readError, setReadError] = useState(false);
   const [period, setPeriod] = useState("30");
@@ -180,6 +179,7 @@ export function WorkoutAnalysis({ studentId, companyId }: Props) {
     setCoveredWeeks(1);
     setReadError(false);
     setLegacyLogs(0);
+    setCoverageNote("");
     setPrescription(emptyPrescription());
     setShowAllVolumeAlerts(false);
     try {
@@ -188,48 +188,27 @@ export function WorkoutAnalysis({ studentId, companyId }: Props) {
         .eq("id", studentId).eq("company_id", companyId).maybeSingle();
       if (request !== requestRef.current) return;
       if (scope.error || scope.data?.id !== studentId || scope.data.company_id !== companyId) throw new Error("Analysis scope unavailable");
-      const coverage = effectiveCoverageWindow({ today: businessDateYmd(), requestedDays: Number(period) });
-      const { data, error } = await supabase.from("workout_sessions").select("student_id, company_id, status, duration_seconds, total_volume, exercises_summary, workout_id, session_date, total_sets_completed, total_sets_prescribed")
-        .eq("student_id", studentId).or(`company_id.eq.${companyId},company_id.is.null`).gte("session_date", coverage.start).lte("session_date", coverage.end);
+      const today = businessDateYmd();
+      const coverage = effectiveCoverageWindow({ today, requestedDays: Number(period) });
+      const history = await loadStudentTrainingHistory(supabase, studentId, { companyId, ...coverage });
       if (request !== requestRef.current) return;
-      if (error || (data || []).some(row => row.student_id !== studentId || (row.company_id != null && row.company_id !== companyId))) throw error || new Error("Session scope unavailable");
-      const sessions = data || [];
-      const completed = sessions.filter(session => session.status === "completed");
+      const realized = summarizeRealizedTraining({ ...history, studentId, companyId, ...coverage });
+      const { sessions, completed } = realized;
       setCoveredWeeks(coverage.coveredWeeks);
       setSessionSummary({ total: sessions.length, completed: completed.length,
         abandoned: sessions.filter(session => session.status === "abandoned").length,
         avgDuration: completed.length ? Math.round(completed.reduce((sum, session) => sum + Number(session.duration_seconds || 0), 0) / completed.length) : 0,
-        totalVolume: completed.reduce((sum, session) => sum + Number(session.total_volume || 0), 0) });
-      const groups = new Map<string, number>();
-      for (const session of completed) {
-        if (!Array.isArray(session.exercises_summary)) continue;
-        for (const item of session.exercises_summary) {
-          if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-          if (foreign(item, studentId, companyId)) continue;
-          const group = canonicalAnatomicalMuscleGroup(item.muscleGroup);
-          if (!group || !Array.isArray(item.sets)) continue;
-          const sets = item.sets.filter(set => set && typeof set === "object" && !Array.isArray(set) && !foreign(set, studentId, companyId)
-            && typeof set.weight === "number" && Number.isFinite(set.weight) && set.weight >= 0
-            && typeof set.reps === "number" && Number.isFinite(set.reps) && set.reps >= 0).length;
-          if (sets) groups.set(group, (groups.get(group) || 0) + sets);
-        }
-      }
-      setMuscleData([...groups].map(([name, executedSets]) => ({ name, executedSets, prescribedSets: 0 })));
-      if (!sessions.length) {
-        const logsResult = await supabase.from("workout_logs").select("student_id, weight, reps_done")
-          .eq("student_id", studentId).eq("completed", true)
-          .gte("session_date", coverage.start).lte("session_date", coverage.end);
-        if (request !== requestRef.current) return;
-        if (logsResult.error || (logsResult.data || []).some(row => row.student_id !== studentId)) throw logsResult.error || new Error("Log scope unavailable");
-        const logs = logsResult.data || [];
-        setLegacyLogs(logs.length);
-        setSessionSummary(summary => ({ ...summary, totalVolume: logs.reduce((sum, log) =>
-          sum + Math.max(0, Number(log.weight) || 0) * Math.max(0, Number(log.reps_done) || 0), 0) }));
-      }
+        totalVolume: (realized.incompleteLoad || realized.overlappingLogs > 0) && !realized.knownDays ? null : realized.totalVolume });
+      setLegacyLogs(realized.legacyLogs);
+      setCoverageNote([
+        realized.incompleteLoad && "Há registros sem carga ou repetições verificáveis.",
+        realized.overlappingLogs > 0 && "Séries do mesmo treino e dia de uma sessão não são somadas separadamente.",
+      ].filter(Boolean).join(" "));
+      setMuscleData(realized.muscles.map(({ group: name, sets: executedSets }) => ({ name, executedSets, prescribedSets: 0 })));
       try {
-        const current = await readPrescriptionContext(studentId, companyId, businessDateYmd(), coverage, sessions);
+        const current = await readPrescriptionContext(studentId, companyId, today, coverage, sessions);
         if (request !== requestRef.current) return;
-        setPrescription(current);
+        setPrescription({ ...current, compatible: current.compatible && !realized.incompleteMuscles && !realized.incompleteLoad });
         setMuscleData(existing => {
           const combined = new Map(existing.map(row => [row.name, row]));
           for (const [name, prescribedSets] of Object.entries(current.volume)) {
@@ -317,8 +296,9 @@ export function WorkoutAnalysis({ studentId, companyId }: Props) {
         </Select>
       </CardHeader>
       <CardContent className="space-y-6">
-        <p className="text-xs text-muted-foreground">Janela: últimos {period} dias, incluindo hoje. Distribuição baseada nos snapshots disponíveis das sessões concluídas; pode ser parcial. Adesão à meta não calculada.</p>
-        {legacyLogs > 0 && <p className="text-xs text-muted-foreground">{legacyLogs} registros de séries sem sessão registrada. Volume preservado; conclusão não inferida.</p>}
+        <p className="text-xs text-muted-foreground">Janela: últimos {period} dias, incluindo hoje. Distribuição parcial por músculo principal, conforme o registro da sessão concluída. Adesão à meta não calculada.</p>
+        {coverageNote && <p className="text-xs text-muted-foreground">{coverageNote}</p>}
+        {legacyLogs > 0 && <p className="text-xs text-muted-foreground">{legacyLogs} registros de séries sem total de sessão aproveitável. A carga foi preservada sem inferir conclusão de sessão.</p>}
         <section aria-label="Prescrição atual e comparação" className="space-y-2 text-sm">
           <h3 className="font-medium">Volume prescrito semanal atual</h3>
           <p>{prescription.error ? "Prescrição atual indisponível: falha de leitura ou vínculo não confirmado." : prescription.source}</p>
@@ -340,11 +320,9 @@ export function WorkoutAnalysis({ studentId, companyId }: Props) {
           </div>
           <div className="p-3 rounded-lg bg-secondary/50 border border-border text-center">
             <p className="text-2xl font-bold text-foreground">
-              {sessionSummary.totalVolume >= 1000
-                ? `${(sessionSummary.totalVolume / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}t`
-                : `${sessionSummary.totalVolume}kg`}
+              {sessionSummary.totalVolume === null ? "—" : `${sessionSummary.totalVolume.toLocaleString("pt-BR")}kg`}
             </p>
-            <p className="text-xs text-muted-foreground font-sans">Volume total</p>
+            <p className="text-xs text-muted-foreground font-sans">Carga × repetições realizadas</p>
           </div>
         </div>
 

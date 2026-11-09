@@ -11,8 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Plus, UserCheck, Clock, Users } from "lucide-react";
 import { addDays, format, parseISO } from "date-fns";
 import { Badge } from "@/components/ui/badge";
-import { DashboardAlerts } from "@/components/DashboardAlerts";
-import { RenewalsAndCyclesPanel } from "@/components/dashboard/RenewalsAndCyclesPanel";
+import AdminDashboard from "@/pages/admin/AdminDashboard";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 
 import { useMaster } from "@/contexts/MasterContext";
@@ -195,9 +194,8 @@ export default function CoordinatorDashboard() {
     inactive: { label: "Inativo", variant: "destructive" },
   };
 
-  return (
-    <>
-      <div className="space-y-6">
+  return <AdminDashboard routePrefixOverride="coordinator" includeCoordinatorPanels operationalExtras={(
+      <section className="space-y-6">
         {!companyId ? <p>Selecione uma empresa para consultar as matrículas.</p> : loading ? <p role="status">Carregando matrículas...</p> : loadError ? <div role="alert">{loadError}<Button onClick={loadData}>Tentar novamente</Button></div> : students.length === 0 ? <p>Nenhum aluno nesta empresa.</p> : null}
         <div className="flex items-center justify-between">
           <div>
@@ -273,15 +271,6 @@ export default function CoordinatorDashboard() {
               </div>
             </CardContent>
           </Card>
-        </div>
-
-        {/* Alerts */}
-        {companyId && !loading && !loadError && <DashboardAlerts />}
-
-        {/* Renovação e Troca de Treino */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <RenewalsAndCyclesPanel effectiveCompanyId={companyId} routePrefix="coordinator" renewalsOnly />
-          <RenewalsAndCyclesPanel effectiveCompanyId={companyId} routePrefix="coordinator" cyclesOnly />
         </div>
 
         {/* Student List */}
@@ -380,7 +369,6 @@ export default function CoordinatorDashboard() {
             </div>
           </DialogContent>
         </Dialog>
-      </div>
-    </>
-  );
+      </section>
+  )} />;
 }

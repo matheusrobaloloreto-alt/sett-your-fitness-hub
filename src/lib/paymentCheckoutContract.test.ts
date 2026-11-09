@@ -164,8 +164,8 @@ describe("public credit-card checkout contract", () => {
   it("does not infer the paid plan from the student's current selection during sync", () => {
     const start = edgeSource.indexOf("async function syncPayments");
     const handler = edgeSource.slice(start);
-    expect(handler).toContain('existing.plan_id && existing.company_id');
-    expect(handler).not.toContain("applyPaymentStatusEffects(student.id, ap.status, ap.id, student.selected_plan_id");
+    expect(handler).toContain("applyPaymentStatusEffects(student.id, providerStatus, ap.id, existing.plan_id, existing.company_id)");
+    expect(handler).not.toContain("student.selected_plan_id");
     expect(migrationSource).not.toContain("set plan_id = s.selected_plan_id");
   });
 
@@ -173,7 +173,9 @@ describe("public credit-card checkout contract", () => {
     const start = edgeSource.indexOf("async function applyPaymentStatusEffects");
     const end = edgeSource.indexOf("async function getPaymentStatus", start);
     const handler = edgeSource.slice(start, end);
-    expect(handler.match(/\.eq\("company_id", companyId\)/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(handler).toContain('rpc("apply_asaas_payment_reversal"');
+    expect(handler).toContain("_company_id: companyId");
+    expect(handler).toContain("_asaas_payment_id: asaasPaymentId");
   });
 
   it("blocks confirmed fallback lifecycle when the immutable paid plan is missing", () => {
@@ -181,8 +183,17 @@ describe("public credit-card checkout contract", () => {
     expect(edgeSource).toContain("Pagamento confirmado, mas o plano pago precisa de conciliação manual");
   });
 
+  it("keeps initial checkout links separate and shares one payment key per renewal", () => {
+    expect(paymentContextSource).toContain('action === "create-renewal-link"');
+    expect(paymentContextSource).toContain('.is("renewal_of_enrollment_id", null)');
+    expect(registrationSource).toContain('.is("renewal_of_enrollment_id", null)');
+    expect(edgeSource).toContain("body.renewalOfEnrollmentId = link.renewal_of_enrollment_id");
+    expect(edgeSource.match(/checkout:\$\{body.checkoutToken\}:renewal/g)).toHaveLength(2);
+    expect(edgeSource.match(/assertRenewalPaymentChoice\(existingPayment/g)).toHaveLength(2);
+  });
+
   it("applies the local lifecycle before reused or reconciled paid checkouts return success", () => {
-    expect(edgeSource.match(/\.select\("id, student_id, company_id, plan_id, asaas_payment_id, status, invoice_url"\)/g))
+    expect(edgeSource.match(/\.select\("id, student_id, company_id, plan_id, asaas_payment_id, status, invoice_url, billing_type, installment_count"\)/g))
       .toHaveLength(2);
     expect(edgeSource.match(/await applyExistingPaymentLifecycle\(/g)?.length).toBe(4);
 
@@ -203,17 +214,24 @@ describe("public credit-card checkout contract", () => {
     expect(lifecycle.indexOf('"apply_paid_payment_lifecycle"')).toBeLessThan(
       lifecycle.indexOf("await claimFunnelEvent"),
     );
-    expect(lifecycle).toContain("_assessment_due_date: isoDate(dueDate)");
     expect(edgeSource.match(/await ensureEnrollmentExists\(/g)).toBeNull();
 
     expect(lifecycleMigrationSource).toContain("for update");
     expect(lifecycleMigrationSource).toContain("lifecycle_applied_at");
     expect(lifecycleMigrationSource).toContain("v_payment.lifecycle_applied_at is not null");
     expect(lifecycleMigrationSource).toContain("set end_date = v_new_end");
-    expect(lifecycleMigrationSource).toContain("when v_first_activation then _assessment_due_date::timestamptz");
     expect(lifecycleMigrationSource).not.toContain("_business_date + 5");
     expect(lifecycleMigrationSource).toContain("lifecycle_enrollment_id = v_enrollment_id");
     expect(lifecycleMigrationSource).toContain("return query select v_enrollment_id, v_first_activation, false");
+  });
+
+  it("keeps the paid RPC argument but never derives assessment timing from payment", () => {
+    for (const source of [edgeSource, webhookSource]) {
+      expect(source).toContain("_assessment_due_date: null");
+      expect(source).not.toMatch(/assessmentDeadline|formattedDueDate|assessment_due_at:/);
+      expect(source).toContain("assessment_instructions:${asaasPaymentId}");
+      expect(source).toMatch(/if \([\s\n]*isFirstActivation\b/);
+    }
   });
 
   it("starts a paid renewal after the financial term instead of a stale cycle tail", () => {

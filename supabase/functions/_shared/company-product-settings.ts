@@ -2,12 +2,12 @@
 export const MESSAGE_EVENTS = [
   'weekly_contact', 'pre_registration_confirmation', 'fiscal_invite', 'payment_link',
   'assessment_onboarding', 'anamnesis_invite', 'renewal_due', 'renewal_overdue',
-  'intercycle_invite', 'first_contact', 'daily_reminder_title', 'daily_reminder_body',
+  'intercycle_invite', 'first_contact', 'birthday', 'daily_reminder_title', 'daily_reminder_body',
   'new_workout_push_title', 'new_workout_push_body',
 ] as const;
 export type MessageEvent = typeof MESSAGE_EVENTS[number];
-export const WHATSAPP_EVENTS = MESSAGE_EVENTS.filter((event) => !['daily_reminder_title', 'daily_reminder_body', 'new_workout_push_title', 'new_workout_push_body'].includes(event)) as readonly WhatsAppEvent[];
-export type WhatsAppEvent = Exclude<MessageEvent, 'daily_reminder_title' | 'daily_reminder_body' | 'new_workout_push_title' | 'new_workout_push_body'>;
+export const WHATSAPP_EVENTS = MESSAGE_EVENTS.filter((event) => !['birthday', 'daily_reminder_title', 'daily_reminder_body', 'new_workout_push_title', 'new_workout_push_body'].includes(event)) as readonly WhatsAppEvent[];
+export type WhatsAppEvent = Exclude<MessageEvent, 'birthday' | 'daily_reminder_title' | 'daily_reminder_body' | 'new_workout_push_title' | 'new_workout_push_body'>;
 export type MessagePart = { id: string; type: 'text' | 'image' | 'video' | 'audio'; text: string; media?: { bucket: string; path: string; mimeType: string; fileName: string } };
 export const MESSAGE_MEDIA_MIMES = { image: ['image/jpeg', 'image/png', 'image/webp'], video: ['video/mp4'], audio: ['audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/webm'] } as const;
 export const MESSAGE_MEDIA_PATH = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/message-settings\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.(?:jpg|jpeg|png|webp|mp4|mp3|m4a|ogg|webm)$/;
@@ -48,7 +48,7 @@ const BASE_MESSAGE_VARIABLES = ['primeiro_nome', 'nome', 'empresa'] as const;
 const EVENT_MESSAGE_VARIABLES: Record<MessageEvent, readonly TemplateVariable[]> = {
   weekly_contact: [], pre_registration_confirmation: [], fiscal_invite: ['link'], payment_link: ['link'],
   assessment_onboarding: ['prazo', 'data'], anamnesis_invite: ['link'], renewal_due: ['link'],
-  renewal_overdue: ['link'], intercycle_invite: ['link'], first_contact: ['profissional'],
+  renewal_overdue: ['link'], intercycle_invite: ['link'], first_contact: ['profissional'], birthday: [],
   daily_reminder_title: ['link', 'data'], daily_reminder_body: ['link', 'data'],
   new_workout_push_title: [], new_workout_push_body: [],
 };
@@ -118,6 +118,7 @@ export const DEFAULT_COMPANY_PRODUCT_SETTINGS: CompanyProductSettings = {
     renewal_overdue: 'Oi, {{primeiro_nome}}! Sua renovacao esta pendente. Fale com a equipe: {{link}}',
     intercycle_invite: 'Oi, {{primeiro_nome}}! Responda ao questionario para o proximo ciclo: {{link}}',
     first_contact: 'Oi, {{primeiro_nome}}! Aqui e {{profissional}}, da {{empresa}}. Como posso ajudar?',
+    birthday: 'Feliz aniversário, {{primeiro_nome}}! 🎉 Que esse novo ciclo venha cheio de saúde, energia e conquistas. Tamo junto pra você chegar nos seus objetivos. 💪',
     daily_reminder_title: 'Seu treino de hoje te espera',
     daily_reminder_body: 'Bora manter a sequencia? Abra o app e registre seu treino.',
     new_workout_push_title: 'Novo treino disponivel',
@@ -258,11 +259,22 @@ export function parseSettingsRecord(data: unknown): SettingsRecord {
     if (typeof behavior !== 'string' || !(EXPIRED_WORKOUT_BEHAVIORS as readonly string[]).includes(behavior)) fail('expired_workout_behavior');
     settings.prescription.expired_workout_behavior = behavior as ExpiredWorkoutBehavior;
   }
+  if (Object.hasOwn(data, 'birthday_message_template') && data.birthday_message_template !== null) {
+    const template = data.birthday_message_template;
+    if (typeof template !== 'string') fail('messages.birthday');
+    validateMessageTemplate(template, 'birthday');
+    settings.messages.birthday = template;
+  }
   return { settings, version: data.version as number };
 }
-export async function readCompanyProductSettings(client: SettingsReadClient, companyId: string): Promise<SettingsRecord> {
+export async function readCompanyProductSettings(client: SettingsReadClient, companyId: string, includeBirthday = false): Promise<SettingsRecord> {
   if (!companyId?.trim()) fail('company_id');
-  const { data, error } = await client.from('company_product_settings').select('settings,version,expired_workout_behavior').eq('company_id', companyId).maybeSingle();
+  const columns = 'settings,version,expired_workout_behavior';
+  const read = (selection: string) => client.from('company_product_settings').select(selection).eq('company_id', companyId).maybeSingle();
+  let { data, error } = await read(includeBirthday ? columns + ',birthday_message_template' : columns);
+  if (includeBirthday && ['42703', 'PGRST204'].includes(error?.code ?? '')) {
+    ({ data, error } = await read(columns));
+  }
   if (error && error.code !== '42P01' && error.code !== 'PGRST205') throw error;
   if (error || data === null) return { settings: normalizeCompanyProductSettings({}), version: 0 };
   return parseSettingsRecord(data);

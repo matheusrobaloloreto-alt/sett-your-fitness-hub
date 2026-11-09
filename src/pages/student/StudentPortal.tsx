@@ -323,7 +323,7 @@ export default function StudentPortal() {
 
   const todayStr = businessDateYmd();
   const logsBackupKey = studentId ? `sett_logs_${studentId}_${todayStr}` : null;
-  const awaitingPrescription = !studentIsInactive && !(coverage?.reliable && coverage.hasCurrentWorkout);
+  const awaitingPrescription = !studentIsInactive && !(coverage?.reliable && selectedCycle && coverage.currentWorkoutCycleIds.includes(selectedCycle.id));
   const expiredContinuation = Boolean((selectedCycle?.end_date && selectedCycle.end_date < todayStr) || (digitalContinuation?.enrollmentEndDate && digitalContinuation.enrollmentEndDate < todayStr));
   const prescriptionPolicy = useStudentPrescriptionPolicy(
     loadedUserScope === userScope && !loadError && user?.id && studentId && companyId
@@ -621,10 +621,11 @@ export default function StudentPortal() {
         setCycles([]); setSelectedCycle(null); setSelectedWorkoutId(null);
       }
       if ((cyclesData && cyclesData.length > 0) || carriedOverCycle) {
-        const visibleCycles = (cyclesData || []).filter((cycle) => cycle.student_id === student.id && cycle.company_id === student.company_id && ["active", "completed", "pending"].includes(cycle.status) && !cycle.superseded_by_cycle_id && !cycle.superseded_at);
+        const visibleCycles = (cyclesData || []).filter((cycle) => cycle.enrollment_id === enrollment.id && cycle.student_id === student.id && cycle.company_id === student.company_id && ["active", "completed", "pending"].includes(cycle.status) && !cycle.superseded_by_cycle_id && !cycle.superseded_at);
         const visibleCycleIds = new Set(visibleCycles.map((cycle) => cycle.id));
         if (
           carriedOverCycle
+          && carriedOverCycle.id === carriedOverCycleId
           && carriedOverCycle.student_id === student.id
           && carriedOverCycle.company_id === student.company_id
           && !visibleCycleIds.has(carriedOverCycle.id)
@@ -662,7 +663,7 @@ export default function StudentPortal() {
         const { cycles: operationalCycles, preferredCycle } = selectStudentWorkoutCycleWindow(
           visibleCycles.filter(cycle => cycle.enrollment_id === enrollment.id).map((cycle) => ({ ...cycle, has_workouts: !cycle.prescription_cleared_at && workoutCycleIds.has(cycle.id) })),
           {
-            carriedOverCycle: carriedOverCycle
+            carriedOverCycle: carriedOverCycle && visibleCycles.includes(carriedOverCycle)
               ? { ...carriedOverCycle, has_workouts: !carriedOverCycle.prescription_cleared_at && workoutCycleIds.has(carriedOverCycle.id) }
               : null,
             expectedStudentId: student.id,
@@ -673,10 +674,16 @@ export default function StudentPortal() {
             enrollment,
           },
         );
+        // The workout window already validates carry-over eligibility. It can
+        // provide execution continuity without covering the renewed schedule.
+        const carriedOverContinuation = preferredCycle
+          && preferredCycle.id === carriedOverCycleId
+          && preferredCycle.enrollment_id !== enrollment.id
+          ? preferredCycle : null;
         const continuation = selectStudentDigitalContinuity(
           (cyclesData || []).map(cycle => ({ ...cycle, has_usable_workouts: workoutCycleIds.has(cycle.id) })),
           { enrollment, expectedStudentId: student.id, expectedCompanyId: student.company_id, today: businessToday, allowExpiredEnrollment: true },
-        );
+        ) ?? carriedOverContinuation;
         const schedulableCycles = continuation && !operationalCycles.some(cycle => cycle.id === continuation.id)
           ? [...operationalCycles, continuation] : operationalCycles;
         const schedulableCycleIds = new Set(schedulableCycles.map((cycle) => cycle.id));
@@ -761,7 +768,7 @@ export default function StudentPortal() {
       { data: feedbackData },
       { data: goalsData },
     ] = await Promise.all([
-      loadStudentTrainingHistory(supabase, student.id),
+      loadStudentTrainingHistory(supabase, student.id, student.company_id ? { companyId: student.company_id } : undefined),
       read(supabase
         .from("workout_feedback")
         .select("id, workout_session_id, notes, trainer_reply, trainer_replied_at, trainer_reply_author_name")
@@ -1127,6 +1134,14 @@ export default function StudentPortal() {
     const operationScope = userScope;
     const result = await session.startSession(selectedWorkout.id);
     if (currentUserScope.current !== operationScope) return;
+    if (result?.ok === false && result.reason === "duplicate_open_sessions") {
+      toast({
+        title: "Há mais de uma sessão aberta",
+        description: "Peça à sua equipe para revisar as sessões em aberto antes de iniciar outro treino.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (result?.ok !== true) {
       toast({ title: "Não foi possível iniciar o treino", description: "O início não foi confirmado. Tente novamente.", variant: "destructive" });
       return;
@@ -1388,14 +1403,15 @@ export default function StudentPortal() {
     && !activeWorkoutResolution.cycle.superseded_by_cycle_id
     && activeWorkoutResolution.cycle.start_date <= todayStr;
   const prescriptionHistory = !studentIsInactive && user?.id && studentId && companyId ? <PublishedPrescriptionHistory key={`${user.id}:${studentId}:${companyId}`} userId={user.id} studentId={studentId} companyId={companyId} today={todayStr} /> : null;
+  const currentPrescriptionUnderReview = hasDigitalContinuity && !expiredContinuation && coverage?.currentSlot?.state === "review";
   const pendingPrescriptionNotice = (
     <Card className="border-border bg-card">
       <CardContent className="space-y-3 p-5" role="status">
-        <h2 className="font-semibold text-foreground">{coverage?.hasCurrentOfflinePrescription ? "Prescrição externa" : "Aguardando prescrição"}</h2>
-        <p className="text-sm text-muted-foreground">{coverage?.hasCurrentOfflinePrescription ? "Sua equipe registrou uma prescrição externa ao aplicativo para este período. Consulte as orientações com sua equipe." : "Ainda não há treino publicado para o período atual. A existência de um ciclo na agenda não significa que o treino esteja pronto. Fale com sua equipe para acompanhar a prescrição."}</p>
+        <h2 className="font-semibold text-foreground">{currentPrescriptionUnderReview ? "Agenda em revisão" : coverage?.hasCurrentOfflinePrescription ? "Prescrição externa" : "Aguardando prescrição"}</h2>
+        <p className="text-sm text-muted-foreground">{currentPrescriptionUnderReview ? "Há ciclos sobrepostos na agenda. Seu treino publicado segue disponível." : coverage?.hasCurrentOfflinePrescription ? "Sua equipe registrou uma prescrição externa ao aplicativo para este período. Consulte as orientações com sua equipe." : "Ainda não há treino publicado para o período atual. A existência de um ciclo na agenda não significa que o treino esteja pronto. Fale com sua equipe para acompanhar a prescrição."}</p>
         {expiredContinuation && prescriptionPolicy.loading && <p className="text-sm text-muted-foreground">Verificando a disponibilidade do seu último treino…</p>}
         {expiredContinuation && prescriptionPolicy.error && <div className="space-y-2" role="alert"><p className="text-sm">Não foi possível verificar a disponibilidade do seu último treino.</p><Button variant="outline" onClick={() => void prescriptionPolicy.retry()}>Verificar disponibilidade novamente</Button></div>}
-        {hasDigitalContinuity && <p className="text-sm font-medium">Seu último treino continua disponível até a próxima prescrição.</p>}
+        {hasDigitalContinuity && !currentPrescriptionUnderReview && <p className="text-sm font-medium">Seu último treino continua disponível até a próxima prescrição.</p>}
         {lastPublishedCycle && <p className="text-sm text-muted-foreground">Último treino publicado: ciclo {lastPublishedCycle.cycle_number}, válido até {format(parseISO(lastPublishedCycle.end_date), "dd/MM/yyyy")}.</p>}
         {prescriptionHistory}
         <Button variant="outline" onClick={() => setActiveView("calendario")}>Ver calendário e sessões</Button>
@@ -1798,8 +1814,8 @@ export default function StudentPortal() {
         {/* STATS VIEW */}
         {activeView === "stats" && (
           <div className="space-y-4">
-            <VolumeInsights allLogs={allLogs} cycles={cycles} studentId={studentId} />
-            <StatsCharts studentId={studentId ?? undefined} allLogs={allLogs} cycles={cycles} todayStr={todayStr} />
+            {studentId && companyId && <VolumeInsights allLogs={allLogs} sessions={workoutSessions} studentId={studentId} companyId={companyId} todayStr={todayStr} />}
+            {studentId && companyId && <StatsCharts studentId={studentId} companyId={companyId} allLogs={allLogs} sessions={workoutSessions} cycles={cycles} todayStr={todayStr} />}
             {studentId && totalSessions > 0 && (
               <AchievementsPanel studentId={studentId} />
             )}

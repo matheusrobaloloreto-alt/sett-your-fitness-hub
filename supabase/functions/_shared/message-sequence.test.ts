@@ -96,8 +96,12 @@ Deno.test('missing, foreign and public media fail before part claim and provider
  await runFixture(foreign,async()=>{await rejects(()=>dispatchMessageSequence(foreign.args),'sequence_media_scope_invalid');});
  assert(foreign.posts.length===0 && foreign.states[0]==='pending');
 });
-Deno.test('access revoked after durable intent pauses without a provider call or blind retry',async()=>{
+Deno.test('access revoked before part claim leaves the part pending for safe retry', async () => {
  const f=fixture([{id:'a',type:'text',text:'first'}]);f.setFailBefore(2);
- await runFixture(f,async()=>{await rejects(()=>dispatchMessageSequence(f.args),'dispatch_uncertain');await rejects(()=>dispatchMessageSequence(f.args),'dispatch_uncertain');});
- assert(f.posts.length===0 && f.states[0]==='in_flight');
+ await runFixture(f,async()=>{
+  await rejects(()=>dispatchMessageSequence(f.args),'revoked');
+  assert(f.posts.length===0 && f.states[0]==='pending');
+  await dispatchMessageSequence(f.args);
+ });
+ assert(f.posts.length===1 && f.states[0]==='acked');
 });

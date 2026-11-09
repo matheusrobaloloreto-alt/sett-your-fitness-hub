@@ -66,6 +66,7 @@ export function StudentHistory({ allLogs, workouts, sessions, feedbacks = [] }: 
       groups[key].logs.push(log);
     });
 
+    const historySessions = sessions.filter(session => session.status !== "reconciled");
     const result: SessionGroup[] = [];
     Object.values(groups).forEach(g => {
       const totalVolume = g.logs.reduce((sum: number, l: any) =>
@@ -74,7 +75,7 @@ export function StudentHistory({ allLogs, workouts, sessions, feedbacks = [] }: 
       const totalSets = g.logs.length;
 
       // Find matching workout_session for duration
-      const matching = sessions.filter((s: any) => s.workout_id === g.workoutId && s.session_date === g.date);
+      const matching = historySessions.filter((s: any) => s.workout_id === g.workoutId && s.session_date === g.date);
       const unassignedLogs = matching.length > 1 && matching.every(session => session.total_volume == null && session.total_sets_completed == null);
       if (matching.length === 0 || unassignedLogs) result.push({
         date: g.date,
@@ -88,11 +89,11 @@ export function StudentHistory({ allLogs, workouts, sessions, feedbacks = [] }: 
       });
     });
     // Concrete sessions remain visible without set logs and keep their own replies.
-    sessions.forEach((session: any) => {
+    historySessions.forEach((session: any) => {
       if (!session.session_date || !session.workout_id) return;
       const group = groups[`${session.session_date}-${session.workout_id}`];
       if (!group && session.status !== 'completed' && !session.completed_at) return;
-      const onlySession = sessions.filter((s: any) => s.workout_id === session.workout_id && s.session_date === session.session_date).length === 1;
+      const onlySession = historySessions.filter((s: any) => s.workout_id === session.workout_id && s.session_date === session.session_date).length === 1;
       result.push({
         date: session.session_date,
         workoutTitle: workoutMap[session.workout_id] || 'Treino',

@@ -15,7 +15,7 @@ interface SettingsRpcClient extends SettingsReadClient {
 const client = supabase as unknown as SettingsRpcClient;
 
 export function fetchCompanyProductSettings(companyId: string): Promise<SettingsRecord> {
-  return readCompanyProductSettings(client, companyId);
+  return readCompanyProductSettings(client, companyId, true);
 }
 
 export async function saveCompanyProductSettings(

@@ -1,6 +1,8 @@
 import { type MessagePart, MESSAGE_MEDIA_PATH } from './company-product-settings.ts';
 import { webhookOccurrence } from './dispatch-reconciliation-webhook.ts';
+import { isDispatchGuardRefusal } from './automation-recovery.ts';
 import { requireCompanyFeature } from './company-feature-entitlements.ts';
+import { attributeManualWhatsAppEcho } from './whatsappManualAttribution.ts';
 
 export type SequenceScope = { kind: 'flow' | 'intercycle'; ownerId: string; leaseToken: string };
 export type SequenceArgs = {
@@ -11,7 +13,11 @@ export type SequenceArgs = {
 };
 async function rpc(admin: any, name: string, args: Record<string, unknown>) {
   const result = await admin.rpc(name, args);
-  if (result.error) throw new Error(String(result.error.message || '').includes('dispatch_uncertain') ? 'dispatch_uncertain' : 'sequence_rpc_unavailable');
+  if (result.error) {
+    const code = String(result.error.message || '');
+    if (isDispatchGuardRefusal(code)) throw new Error(code);
+    throw new Error(code.includes('dispatch_uncertain') ? 'dispatch_uncertain' : 'sequence_rpc_unavailable');
+  }
   return result.data;
 }
 
@@ -57,11 +63,11 @@ export async function dispatchMessageSequence(args: SequenceArgs): Promise<void>
       endpoint = 'sendMedia';
       body = { number: args.recipient.replace(/@.*$/, ''), mediatype: part.type, mimetype: media.mimeType, media: data.signedUrl, fileName: media.fileName, caption: part.text };
     }
+    await beforeSend();
     const claim = await rpc(args.admin, 'claim_company_message_part', { _sequence_id: snapshot.id, _index: index, _scope: args.scope || null });
     if (claim.state === 'acked') continue;
     if (claim.state !== 'in_flight' || !claim.token) throw new Error('dispatch_uncertain');
     try {
-      await beforeSend();
       await rpc(args.admin, 'authorize_company_message_part', { _sequence_id: snapshot.id, _index: index, _token: claim.token, _scope: args.scope || null });
       const response = await fetch(`${args.evoUrl}/message/${endpoint}/${encodeURIComponent(args.instanceName)}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', apikey: args.evoKey },
@@ -75,11 +81,15 @@ export async function dispatchMessageSequence(args: SequenceArgs): Promise<void>
       await rpc(args.admin, 'ack_company_message_part', { _sequence_id: snapshot.id, _index: index, _token: claim.token, _receipt: receipt });
       // History is a projection. Receipt persists first so projection failures cannot repeat provider I/O.
       try {
-        await args.admin.from('whatsapp_messages').insert({ company_id: args.companyId, chat_id: args.chatId,
+        const actorId = snapshot.snapshot.metadata?.actorId;
+        const { error: historyError } = await args.admin.from('whatsapp_messages').insert({ company_id: args.companyId, chat_id: args.chatId,
           type: part.type, content: part.text, media_type: part.media?.mimeType || null,
-          sender_id: snapshot.snapshot.metadata?.actorId || null,
-          media_storage_path: part.media?.path || null, source: 'outgoing', origin: snapshot.snapshot.metadata?.actorId ? 'panel_manual' : 'automation', is_from_me: true,
+          sender_id: actorId || null,
+          media_storage_path: part.media?.path || null, source: 'outgoing', origin: actorId ? 'panel_manual' : 'automation', is_from_me: true,
           message_id_external: receipt, timestamp: new Date().toISOString() });
+        if (historyError?.code === '23505' && actorId) {
+          await attributeManualWhatsAppEcho(args.admin, args.companyId, args.chatId, receipt, actorId);
+        }
         await args.admin.from('whatsapp_chats').update({ last_message: part.text || `[${part.type}]`, last_message_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...(snapshot.snapshot.metadata?.actorId ? { last_sender_id: snapshot.snapshot.metadata.actorId } : {}) }).eq('id', args.chatId).eq('company_id', args.companyId);
       } catch { /* Durable receipt remains authoritative. */ }
     } catch { throw new Error('dispatch_uncertain'); }

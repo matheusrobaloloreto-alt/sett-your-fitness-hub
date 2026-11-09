@@ -92,8 +92,10 @@ describe("trainer dashboard access contract", () => {
   });
 
   it("hides administrative actions from the read-only company dashboard", () => {
-    expect(adminDashboardSource).toContain("if (readOnly) return");
-    expect(adminDashboardSource).toContain("{!readOnly && (");
+    expect(adminDashboardSource).toContain("(mine || !readOnly)");
+    expect(adminDashboardSource).toContain("if (!canOpenStudent) return");
+    expect(adminDashboardSource).toContain("if (!canRunAdminOperations || !effectiveCompanyId) return");
+    expect(adminDashboardSource).toContain("{canRunAdminOperations && !mine && canOpenChat && (");
     expect(adminDashboardSource).toContain("navigateWhenInteractive");
     expect(dashboardAlertsSource).toContain("readOnly?: boolean");
     expect(dashboardAlertsSource).toContain("enabled: !readOnly");

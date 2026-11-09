@@ -1,3 +1,4 @@
+import { AccessLookupError } from "@/components/AccessLookupError";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -7,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { user, role, loading } = useAuth();
+  const { user, role, loading, accessLookupFailed } = useAuth();
 
   if (loading) {
     return (
@@ -32,6 +33,8 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     };
     return <Navigate to={dashboardMap[role] || "/"} replace />;
   }
+
+  if (accessLookupFailed) return <AccessLookupError />;
 
   // If user has no role yet, show waiting state
   if (!role && !loading) {

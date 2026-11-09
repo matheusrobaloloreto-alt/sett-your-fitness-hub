@@ -110,6 +110,7 @@ type Flow = {
   is_active: boolean;
   created_at: string;
   company_id?: string;
+  weekly_contact_inactivity_hours?: number;
 };
 
 const triggerLabels: Record<string, string> = {
@@ -170,19 +171,32 @@ export default function WhatsAppAutomation() {
   };
 
   const handleToggleActive = async (flow: Flow) => {
-    const newActive = !flow.is_active;
-    let query = supabase.from("automation_flows").update({ is_active: newActive } as any).eq("id", flow.id);
-    if (effectiveCompanyId) query = query.eq("company_id", effectiveCompanyId);
-    await query;
-
-    // Se desativando, cancelar todas as sessões pendentes imediatamente
-    if (!newActive) {
-      await supabase.from("flow_sessions")
-        .update({ status: "cancelled", updated_at: new Date().toISOString() } as any)
-        .eq("flow_id", flow.id)
-        .eq("status", "waiting_response");
+    if (!effectiveCompanyId) { toast.error("Selecione uma empresa para alterar o fluxo"); return; }
+    const { data, error } = await supabase.from("automation_flows")
+      .update({ is_active: !flow.is_active })
+      .eq("id", flow.id)
+      .eq("company_id", effectiveCompanyId)
+      .eq("is_active", flow.is_active)
+      .select("id");
+    if (error || data?.length !== 1) {
+      toast.error("Não foi possível confirmar a alteração do fluxo");
     }
 
+    loadFlows();
+  };
+
+  const saveWeeklyInactivity = async (flow: Flow, hours: number) => {
+    if (!effectiveCompanyId || !Number.isInteger(hours) || hours < 0 || hours > 720) {
+      toast.error("Informe entre 0 e 720 horas de inatividade");
+      return;
+    }
+    const { data, error } = await supabase.from("automation_flows")
+      .update({ weekly_contact_inactivity_hours: hours })
+      .eq("id", flow.id).eq("company_id", effectiveCompanyId).eq("trigger_type", "weekly_contact")
+      .eq("weekly_contact_inactivity_hours", flow.weekly_contact_inactivity_hours ?? 0)
+      .select("id");
+    if (error || data?.length !== 1) toast.error("Não foi possível confirmar a regra de inatividade");
+    else toast.success("Regra de inatividade salva");
     loadFlows();
   };
 
@@ -298,6 +312,28 @@ export default function WhatsAppAutomation() {
                   </div>
                 </div>
 
+                {selectedFlow.trigger_type === "weekly_contact" && (
+                  <form
+                    key={`${selectedFlow.id}:${selectedFlow.weekly_contact_inactivity_hours ?? 0}`}
+                    className="flex flex-wrap items-end gap-3 border-b border-border p-3"
+                    onSubmit={event => {
+                      event.preventDefault();
+                      const hours = Number(new FormData(event.currentTarget).get("inactivity_hours"));
+                      void saveWeeklyInactivity(selectedFlow, hours);
+                    }}
+                  >
+                    <div className="space-y-1">
+                      <Label htmlFor="weekly-contact-inactivity">Inatividade mínima da conversa (horas)</Label>
+                      <Input id="weekly-contact-inactivity" name="inactivity_hours" type="number" min={0} max={720}
+                        step={1} required defaultValue={selectedFlow.weekly_contact_inactivity_hours ?? 0} />
+                      <p className="text-xs text-muted-foreground">
+                        Salvo: {selectedFlow.weekly_contact_inactivity_hours ?? 0} h.
+                        Com 0 h, vale o intervalo entre contatos. Acima de 0 h, entradas do aluno e envios da equipe reiniciam a espera.
+                      </p>
+                    </div>
+                    <Button type="submit" size="sm" variant="outline">Salvar regra</Button>
+                  </form>
+                )}
                 <FlowCanvas flowId={selectedFlow.id} companyId={selectedFlow.company_id} triggerType={selectedFlow.trigger_type} />
               </>
             )}

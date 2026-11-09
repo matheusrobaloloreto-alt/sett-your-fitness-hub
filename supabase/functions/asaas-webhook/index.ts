@@ -1,3 +1,4 @@
+import { asaasPaymentStatus } from "../_shared/asaas-payment-status.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   asaasApiUrl,
@@ -5,13 +6,9 @@ import {
   resolveAsaasApiConfig,
 } from "../_shared/asaas-environment.ts";
 import { businessDateYmd } from "../_shared/business-date.ts";
-import { getCompanyProductSettings,type SettingsReadClient } from "../_shared/company-product-settings.ts";
-import { assessmentDeadline } from "../_shared/assessment-deadline.ts";
 import {
-  buildAssessmentOnboardingMessage,
   claimFunnelEvent,
   completeFunnelEvent,
-  isoDate,
   sendFunnelWhatsAppMessage,
 } from "../_shared/sales-funnel.ts";
 
@@ -53,22 +50,37 @@ async function claimEvent(eventId: string, eventType: string) {
   if (!error) return "claimed" as const;
   if (error.code !== "23505") throw new Error(`Falha ao registrar evento Asaas: ${error.message}`);
 
-  const { data: existing } = await supabaseAdmin.from("integration_webhook_events")
-    .select("status")
-    .eq("provider", "asaas")
-    .eq("event_id", eventId)
-    .maybeSingle();
+  const readEvent = async () => {
+    const { data, error } = await supabaseAdmin.from("integration_webhook_events")
+      .select("status, received_at")
+      .eq("provider", "asaas")
+      .eq("event_id", eventId)
+      .maybeSingle();
+    if (error) throw new Error(`Falha ao consultar evento Asaas: ${error.message}`);
+    return data;
+  };
+  const existing = await readEvent();
   if (existing?.status === "completed") return "completed" as const;
   if (existing?.status !== "failed") return "processing" as const;
 
-  const { error: retryError } = await supabaseAdmin.from("integration_webhook_events").update({
+  // Advance the generation even when retries share a clock tick.
+  const receivedAt = new Date(Math.max(Date.now(), Date.parse(existing.received_at) + 1)).toISOString();
+  const { data: reopened, error: retryError } = await supabaseAdmin.from("integration_webhook_events").update({
     status: "processing",
     error: null,
-    received_at: new Date().toISOString(),
+    received_at: receivedAt,
     processed_at: null,
-  }).eq("provider", "asaas").eq("event_id", eventId);
+  }).eq("provider", "asaas")
+    .eq("event_id", eventId)
+    .eq("status", "failed")
+    .eq("received_at", existing.received_at)
+    .select("event_id")
+    .maybeSingle();
   if (retryError) throw new Error(`Falha ao reabrir evento Asaas: ${retryError.message}`);
-  return "claimed" as const;
+  if (reopened?.event_id === eventId) return "claimed" as const;
+
+  const current = await readEvent();
+  return current?.status === "completed" ? "completed" as const : "processing" as const;
 }
 
 async function createInvoice(asaasPaymentId: string, asaasConfig: AsaasApiConfig) {
@@ -78,6 +90,7 @@ async function createInvoice(asaasPaymentId: string, asaasConfig: AsaasApiConfig
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "User-Agent": "SETT-BNApp/1.0 (Supabase Edge; Asaas webhook)",
         access_token: ASAAS_API_KEY,
       },
       body: JSON.stringify({
@@ -164,14 +177,18 @@ Deno.serve(async (req) => {
       asaasConfig,
       `/payments/${encodeURIComponent(asaasPaymentId)}`,
     ), {
-      headers: { access_token: ASAAS_API_KEY },
+      headers: {
+        "User-Agent": "SETT-BNApp/1.0 (Supabase Edge; Asaas webhook)",
+        access_token: ASAAS_API_KEY,
+      },
     });
     if (!remotePaymentResponse.ok) {
       throw new HttpError(502, `Falha ao confirmar pagamento no Asaas (HTTP ${remotePaymentResponse.status})`);
     }
     const remotePayment = await remotePaymentResponse.json();
     if (remotePayment?.id !== asaasPaymentId) throw new HttpError(400, "Pagamento Asaas divergente");
-    const newStatus = remotePayment.status;
+    const newStatus = asaasPaymentStatus(remotePayment);
+    if (!newStatus) throw new HttpError(502, "Pagamento Asaas sem status.");
     const eventId = String(event.id || `${eventType}:${asaasPaymentId}:${newStatus}`);
     const eventClaim = await claimEvent(eventId, String(eventType || "payment"));
     if (eventClaim === "completed") {
@@ -204,15 +221,12 @@ Deno.serve(async (req) => {
     const studentId = localPayment.student_id;
     const companyId = localPayment.company_id;
     const planId = localPayment.plan_id;
-    if (!companyId || !planId) {
-      throw new Error("Pagamento sem empresa ou plano imutável; ciclo de ativação bloqueado.");
-    }
+    if (!companyId) throw new Error("Pagamento sem empresa.");
     const isConfirmed = ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"].includes(newStatus);
 
     // Handle status transitions
     if (isConfirmed) {
-      const productSettings=await getCompanyProductSettings(supabaseAdmin as unknown as SettingsReadClient,companyId);
-      const dueDate = assessmentDeadline(new Date(),productSettings.business.assessment_sla_business_days);
+      if (!planId) throw new Error("Pagamento sem plano imutável; ciclo de ativação bloqueado.");
       const { data: lifecycleRows, error: lifecycleError } = await supabaseAdmin.rpc(
         "apply_paid_payment_lifecycle",
         {
@@ -221,7 +235,7 @@ Deno.serve(async (req) => {
           _plan_id: planId,
           _asaas_payment_id: asaasPaymentId,
           _business_date: businessDateYmd(),
-          _assessment_due_date: isoDate(dueDate),
+          _assessment_due_date: null,
         },
       );
       if (lifecycleError) throw new Error(`Falha ao aplicar lifecycle do pagamento: ${lifecycleError.message}`);
@@ -262,7 +276,6 @@ Deno.serve(async (req) => {
           .eq("student_id", studentId)
           .limit(1)
           .maybeSingle();
-        const formattedDueDate = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(dueDate);
         const result = await sendFunnelWhatsAppMessage({
           admin: supabaseAdmin,
           studentId,
@@ -270,17 +283,11 @@ Deno.serve(async (req) => {
           fullName: previousStudent.full_name,
           phone: previousStudent.whatsapp || previousStudent.phone,
           countryCode: previousStudent.country_code,
-          text: buildAssessmentOnboardingMessage({
-            fullName: previousStudent.full_name,
-            dueDate: formattedDueDate,
-            hasAnamnesis: !!anamnesis,
-          }),
           eventType: "assessment_instructions_sent",
           eventKey: `assessment_instructions:${asaasPaymentId}`,
           payload: {
             payment_id: asaasPaymentId,
             enrollment_id: enrollmentId,
-            assessment_due_at: isoDate(dueDate),
             has_anamnesis: !!anamnesis,
           },
         });
@@ -300,34 +307,13 @@ Deno.serve(async (req) => {
         );
         claimedFunnelEvent = null;
       }
-    } else if (newStatus === "OVERDUE") {
-      await supabaseAdmin
-        .from("enrollments")
-        .update({ payment_status: "overdue" })
-        .eq("student_id", studentId)
-        .eq("company_id", companyId)
-        .eq("status", "active");
-
-      console.log(`Student ${studentId} payment overdue`);
-    } else if (
-      newStatus === "REFUNDED" ||
-      newStatus === "DELETED" ||
-      newStatus === "REFUND_REQUESTED"
-    ) {
-      await supabaseAdmin
-        .from("students")
-        .update({ status: "pending" })
-        .eq("id", studentId)
-        .eq("company_id", companyId);
-
-      await supabaseAdmin
-        .from("enrollments")
-        .update({ payment_status: "refunded" })
-        .eq("student_id", studentId)
-        .eq("company_id", companyId)
-        .eq("status", "active");
-
-      console.log(`Student ${studentId} deactivated after refund/delete`);
+    } else if (newStatus === "OVERDUE" || newStatus === "REFUNDED") {
+      const { error } = await supabaseAdmin.rpc("apply_asaas_payment_reversal", {
+        _asaas_payment_id: asaasPaymentId,
+        _company_id: companyId,
+        _expected_status: newStatus,
+      });
+      if (error) throw new Error(`Falha ao atualizar a matrícula da cobrança: ${error.message}`);
     }
 
     const { error: completionError } = await supabaseAdmin.from("integration_webhook_events").update({

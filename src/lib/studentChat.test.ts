@@ -2,7 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const accessMocks = vi.hoisted(() => ({ invoke: vi.fn(), panel: vi.fn() }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { functions: { invoke: accessMocks.invoke } } }));
 vi.mock("@/lib/whatsappChatPanel", async original => ({ ...await original<typeof import("@/lib/whatsappChatPanel")>(), requestWhatsAppChatPanel: accessMocks.panel }));
-import { generateStudentLoginAccess, preflightStudentLoginAccess, openStudentChat, studentCanonicalContact, sameStudentContactRecipient, studentContactErrorMessage, normalizeStudentChatPhone } from "./studentChat";
+import { generateStudentLoginAccess, isRenewalOverdue, preflightStudentLoginAccess, openStudentChat, renewalMessage, studentCanonicalContact, sameStudentContactRecipient, studentContactErrorMessage, normalizeStudentChatPhone } from "./studentChat";
+
+describe("renewal date boundary", () => {
+  it.each([
+    [-1, true, 'venceu'],
+    [0, false, 'vence hoje'],
+    [1, false, 'falta'],
+  ] as const)('classifies a renewal at offset %s consistently with its draft', (daysLeft, overdue, wording) => {
+    expect(isRenewalOverdue(daysLeft)).toBe(overdue);
+    expect(renewalMessage({ daysLeft, paymentLink: 'https://example.test' })).toContain(wording);
+  });
+});
 
 describe("student chat recipient normalization", () => {
   it("keeps an explicit Australian E.164 destination instead of adding Brazil", () => {

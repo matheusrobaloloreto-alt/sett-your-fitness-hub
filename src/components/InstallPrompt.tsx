@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Share, Plus, X, MoreVertical } from "lucide-react";
+import { matchRoutes, useLocation } from "react-router-dom";
 
 // Popup "baixar o app". Três modos, porque cada plataforma instala de um jeito:
 //  - android-native: Chrome capturou o beforeinstallprompt (window.__bip) → botão de 1 toque.
@@ -9,6 +10,15 @@ import { Download, Share, Plus, X, MoreVertical } from "lucide-react";
 
 const DISMISS_KEY = "sett_install_dismissed";
 const DISMISS_DAYS = 7;
+const PUBLIC_FORM_ROUTES = [
+  { path: "/cadastro/*" },
+  { path: "/inscricao/*" },
+  { path: "/cadastro-fiscal/*" },
+  { path: "/anamnese/*" },
+  { path: "/anamnese-convite/*" },
+  { path: "/anamnese-interciclos/*" },
+  { path: "/pagamento/*" },
+];
 
 function isStandalone(): boolean {
   return (
@@ -33,6 +43,8 @@ function dismissedRecently(): boolean {
 type Mode = "android-native" | "android-manual" | "ios" | null;
 
 export function InstallPrompt() {
+  const { pathname } = useLocation();
+  const isPublicForm = matchRoutes(PUBLIC_FORM_ROUTES, pathname) !== null;
   const bannerRef = useRef<HTMLDivElement>(null);
   const [chatOpen, setChatOpen] = useState(() => document.documentElement.dataset.settChatOpen === "true");
   const [show, setShow] = useState(false);
@@ -67,7 +79,7 @@ export function InstallPrompt() {
     if (node) observer?.observe(node);
     window.addEventListener("resize", measure);
     return () => { observer?.disconnect(); window.removeEventListener("resize", measure); document.documentElement.style.removeProperty("--sett-install-height"); };
-  }, [show, mode, chatOpen]);
+  }, [show, mode, chatOpen, isPublicForm]);
 
   const dismiss = () => {
     try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch { /* ignore */ }
@@ -83,7 +95,7 @@ export function InstallPrompt() {
     dismiss();
   };
 
-  if (!show || !mode || chatOpen) return null;
+  if (isPublicForm || !show || !mode || chatOpen) return null;
 
   return (
     <div

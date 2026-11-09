@@ -140,7 +140,7 @@ Deno.test("weekly automation provider errors do not expose raw provider bodies",
   const queries: Array<{ table: string; filters: Record<string, unknown> }> = [];
   const admin = {
     rpc: (name: string) => {
-      if (name === "begin_automation_dispatch") return Promise.resolve({ data: "in_flight", error: null });
+      if (name === "prepare_automation_dispatch") return Promise.resolve({ data: "prepared", error: null });
       if (name === "authorize_automation_dispatch") return Promise.resolve({ data: null, error: null });
       if (name === "weekly_contact_consent_is_current") return Promise.resolve({ data: true, error: null });
       return Promise.resolve({ data: null, error: new Error(`unexpected rpc ${name}`) });

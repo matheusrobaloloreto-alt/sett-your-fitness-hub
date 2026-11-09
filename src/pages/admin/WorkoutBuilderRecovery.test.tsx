@@ -24,7 +24,11 @@ vi.mock("@/components/BnitoFloatingAssistant", () => ({
 vi.mock("@/components/BenitoSprite", () => ({ BenitoSprite: () => null }));
 vi.mock("@/components/body/BodyMap", () => ({ BodyMap: () => null }));
 vi.mock("@/components/admin/PreRegistrationDetails", () => ({ PreRegistrationDetails: () => null }));
-vi.mock("@/lib/preRegistrationData", () => ({ loadStudentPreRegistration: vi.fn().mockResolvedValue(null), updateStudentPreRegistration: vi.fn() }));
+vi.mock("@/lib/preRegistrationData", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/preRegistrationData")>(),
+  loadStudentPreRegistration: vi.fn().mockResolvedValue(null),
+  updateStudentPreRegistration: vi.fn(),
+}));
 
 const companyId = "20000000-0000-4000-8000-000000000001";
 const actorId = "10000000-0000-4000-8000-000000000001";
@@ -73,7 +77,8 @@ function queryFor(table: string) {
       case "training_cycles": return { data: { cycle_number: 1, enrollment_id: `enrollment-${filters.get("id")}`, company_id: companyId, status: "active" }, error: null };
       case "enrollments": return { data: { student_id: "student-synthetic-qa", company_id: companyId }, error: null };
       case "students": return { data: { full_name: "Aluno sintetico QA", gender: "male" }, error: null };
-      case "student_anamneses": case "functional_assessments": return { data: null, error: null };
+      case "intercycle_anamneses": return { data: [], error: null };
+      case "student_anamneses": case "functional_assessments": case "leads": return { data: null, error: null };
       default: throw new Error(`Unexpected synthetic table ${table}`);
     }
   };

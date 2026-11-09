@@ -65,8 +65,28 @@ export function IntercycleAnamnesisControls({ studentId, companyId, initial }: {
 }
 
 export function IntercycleAnamnesisTimeline({ studentId, companyId }: { studentId: string; companyId: string }) {
-  const [rows, setRows] = useState<IntercycleAnswerRow[]>([]);
-  useEffect(() => { void db.from<IntercycleAnswerRow>("intercycle_anamneses").select("id,submitted_at,prescription_evaluation,goals_continue,availability_changed,pain_present,pain_eva,additional_information,training_cycles(cycle_number)").eq("student_id", studentId).eq("company_id", companyId).order("submitted_at", { ascending: false }).then(({ data }) => setRows(data || [])); }, [studentId, companyId]);
+  const [result, setResult] = useState<{ studentId: string; companyId: string; rows: IntercycleAnswerRow[] | null }>();
+  useEffect(() => {
+    let active = true;
+    async function loadHistory() {
+      try {
+        const { data, error } = await db.from<IntercycleAnswerRow>("intercycle_anamneses")
+          .select("id,submitted_at,prescription_evaluation,goals_continue,availability_changed,pain_present,pain_eva,additional_information,training_cycles(cycle_number)")
+          .eq("student_id", studentId).eq("company_id", companyId).order("submitted_at", { ascending: false });
+        if (active) setResult({ studentId, companyId, rows: error ? null : data ?? [] });
+      } catch {
+        if (active) setResult({ studentId, companyId, rows: null });
+      }
+    }
+    void loadHistory();
+    return () => { active = false; };
+  }, [studentId, companyId]);
+
+  if (result?.studentId !== studentId || result.companyId !== companyId) {
+    return <p role="status">Carregando histórico de anamnese interciclos…</p>;
+  }
+  const { rows } = result;
+  if (!rows) return <p role="alert">Não foi possível carregar o histórico de anamnese interciclos.</p>;
   if (!rows.length) return <p className="text-sm text-muted-foreground">Nenhuma Anamnese interciclos respondida ainda.</p>;
-  const latest = rows[0]; return <div className="space-y-3"><div className="rounded-lg bg-secondary/50 p-3 text-sm"><p className="font-medium">Visão consolidada atual</p><p className="mt-1 text-muted-foreground">Metas: {latest.goals_continue ? "continuam" : "atualizadas"} · Disponibilidade: {latest.availability_changed ? "mudou" : "sem mudança"} · Dor: {latest.pain_present ? `relatada (EVA ${latest.pain_eva})` : "não relatada"}</p></div>{rows.map((row) => <div key={row.id} className="border-l-2 border-primary/30 pl-3 text-sm"><p className="font-medium">Ciclo {row.training_cycles?.cycle_number || "—"} · {format(new Date(row.submitted_at), "dd/MM/yyyy", { locale: ptBR })}</p><p className="text-muted-foreground">Última prescrição: {row.prescription_evaluation} · {row.additional_information || "Sem informação adicional."}</p></div>)}</div>;
+  const latest = rows[0]; return <div className="space-y-3"><div className="rounded-lg bg-secondary/50 p-3 text-sm"><p className="font-medium">Última resposta interciclos</p><p className="mt-1 text-muted-foreground">Metas: {latest.goals_continue ? "continuam" : "atualizadas"} · Disponibilidade: {latest.availability_changed ? "mudou" : "sem mudança"} · Dor: {latest.pain_present ? (latest.pain_eva == null ? "relatada" : `relatada (EVA ${latest.pain_eva})`) : "não relatada"}</p></div>{rows.map((row) => <div key={row.id} className="border-l-2 border-primary/30 pl-3 text-sm"><p className="font-medium">Ciclo {row.training_cycles?.cycle_number || "—"} · {format(new Date(row.submitted_at), "dd/MM/yyyy", { locale: ptBR })}</p><p className="text-muted-foreground">Última prescrição: {row.prescription_evaluation} · {row.additional_information || "Sem informação adicional."}</p></div>)}</div>;
 }

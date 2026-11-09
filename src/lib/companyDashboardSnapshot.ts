@@ -2,6 +2,18 @@ import type { CadenceRow } from "./contactCadence";
 import type { CompletedPrescriptionBundleBadges } from "./prescriptionBundleIntegrity";
 import type { StudentStatus } from "./studentStatus";
 
+export const ENROLLMENT_HISTORY_BY_PLAN_LABEL = "Histórico de matrículas por plano";
+
+export function projectEnrollmentHistoryByPlan(rows: readonly { plans: { name: string } | null }[]) {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const name = row.plans?.name ?? "Sem plano";
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts].map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "pt-BR"));
+}
+
 /** Read-only, explicitly projected payload. No raw student/billing/chat records. */
 export interface DashboardContractRow {
   id: string;

@@ -6,9 +6,12 @@ const portal = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");
 const workout = readFileSync("src/pages/student/StudentWorkout.tsx", "utf8");
 
 describe("workout publication and ordering contract", () => {
-  it("materializes generated strength plans for the current cycle without a second click", () => {
-    expect(studio).toContain("const shouldMaterializeStrength = Boolean(strengthPlan)");
-    expect(studio).not.toContain('scheduleMode === "remaining" || !isCycleCurrent(cycle)');
+  it("generates private strength drafts and publishes only from the explicit student action", () => {
+    const [generation, publication] = studio.split("async function publishToStudent");
+    expect(generation).toContain("studio_strength_draft: true");
+    expect(generation).toContain("draft_only: true");
+    expect(generation).not.toContain("await publishStrengthDraftToStudent(");
+    expect(publication).toContain("await publishStrengthDraftToStudent(");
   });
 
   it("loads and applies prescription sort_order in both student workout surfaces", () => {

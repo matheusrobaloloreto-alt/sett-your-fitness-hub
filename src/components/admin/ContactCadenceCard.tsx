@@ -1,6 +1,6 @@
 // Cadência de Contatos — quem está ficando pra trás sem resposta (leads + alunos ativos).
-// Mostra o tempo desde a ÚLTIMA MENSAGEM RECEBIDA no WhatsApp; botão "inativar" tira do countdown.
-import { useCallback, useEffect, useRef, useState } from "react";
+// Mostra o tempo desde a primeira mensagem que ainda aguarda resposta da equipe.
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,38 +31,40 @@ export function ContactCadenceCard({ companyId, routePrefix, readOnly = false }:
   const navigate = useNavigate();
   const snapshot = useDashboardSnapshot();
   const { policy, error: policyError } = useCompanyExperiencePolicy(companyId);
-  const [rows, setRows] = useState<CadenceRow[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [cadence, setCadence] = useState<{ companyId: string; rows: CadenceRow[]; failed: boolean } | null>(null);
   const [windowDays, setWindowDays] = useState<CadenceWindowDays>(90);
-  const loadGeneration = useRef(0);
+  const currentCadence = cadence?.companyId === companyId ? cadence : null;
 
-  const load = useCallback(async () => {
-    const generation = ++loadGeneration.current;
-    if (readOnly) {
-      setRows((snapshot?.contactCadence || []) as CadenceRow[]);
-      setLoaded(true);
-      return;
-    }
-    if (!companyId) { setRows([]); setLoaded(true); return; }
-    const { data, error } = await (supabase as any).rpc("contact_cadence", { _company_id: companyId });
-    if (generation !== loadGeneration.current) return;
-    if (error) { setRows([]); setLoaded(true); return; } // RPC ainda não migrada → card se esconde
-    setRows((data || []) as CadenceRow[]);
-    setLoaded(true);
-  }, [companyId, readOnly, snapshot]);
-
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (readOnly || !companyId) return;
+    let active = true;
+    const load = async () => {
+      try {
+        const { data, error } = await supabase.rpc("contact_cadence", { _company_id: companyId });
+        if (error) throw error;
+        if (active) setCadence({ companyId, rows: (data ?? []) as CadenceRow[], failed: false });
+      } catch {
+        if (active) setCadence({ companyId, rows: [], failed: true });
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [companyId, readOnly]);
 
   const mute = async (row: CadenceRow) => {
-    if (readOnly) return;
-    const { error } = await (supabase as any).from("whatsapp_chats").update({ cadence_muted: true }).eq("id", row.chat_id);
+    if (readOnly || !companyId) return;
+    const { error } = await supabase.from("whatsapp_chats").update({ cadence_muted: true })
+      .eq("company_id", companyId).eq("id", row.chat_id);
     if (error) { toast.error("Não consegui inativar este contato"); return; }
-    setRows((r) => r.filter((x) => x.chat_id !== row.chat_id));
+    setCadence((current) => current?.companyId === companyId
+      ? { ...current, rows: current.rows.filter((entry) => entry.chat_id !== row.chat_id) } : current);
     toast.success(`${cadenceDisplayName(row)} saiu da cadência de contatos.`);
   };
 
   if (policyError) return <p role="alert" className="text-sm text-destructive">Nao foi possivel carregar a politica de contatos.</p>;
-  if (!loaded) return null;
+  if (!readOnly && currentCadence?.failed) return <p role="alert" className="text-sm text-destructive">Não foi possível carregar a cadência de contatos.</p>;
+  if (!readOnly && !currentCadence && companyId) return null;
+  const rows = (readOnly ? snapshot?.contactCadence : currentCadence?.rows) ?? [];
   const filteredRows = filterCadenceByWindow(rows, windowDays);
   const leads = filteredRows.filter((r) => r.kind === "lead").length;
 
@@ -92,7 +94,8 @@ export function ContactCadenceCard({ companyId, routePrefix, readOnly = false }:
         <div className="space-y-1.5 max-h-80 overflow-y-auto">
           {filteredRows.slice(0, 20).map((r) => (
             <div key={r.chat_id} className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">
-              <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold font-mono-data shrink-0", TONE_CLASS[cadenceTone(r.hours_since, policy)])}>
+              <span title="Tempo sem resposta, descontados os fechamentos de dia inteiro da empresa"
+                className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold font-mono-data shrink-0", TONE_CLASS[cadenceTone(r.hours_since, policy)])}>
                 {formatCadence(r.hours_since)}
               </span>
               <div className="min-w-0 flex-1">

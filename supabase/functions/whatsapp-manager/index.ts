@@ -1,5 +1,6 @@
 import { completeStudentLoginClaim, claimStudentLoginGeneration, issueStudentLoginToken, loadStudentLoginSnapshot, LoginPreflightError, verifyStudentLoginToken } from "../_shared/student-login-credentials.ts";
 import { dispatchMessageSequence } from "../_shared/message-sequence.ts";
+import { attributeManualWhatsAppEcho } from "../_shared/whatsappManualAttribution.ts";
 import { validateRenderedMessageParts, type MessagePart } from "../_shared/company-product-settings.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
@@ -1236,14 +1237,14 @@ Deno.serve(async (req) => {
           }).select("*").maybeSingle();
         if (messageInsertError) {
           if (messageInsertError.code === "23505" && externalMessageId) {
-            const { data: racedRow } = await adminClient.from(
-              "whatsapp_messages",
-            )
-              .select("*")
-              .eq("chat_id", persistedChatId)
-              .eq("message_id_external", externalMessageId)
-              .maybeSingle();
+            const { data: attributed, error: attributionError } = await attributeManualWhatsAppEcho(
+              adminClient, resolvedCompanyId, persistedChatId, externalMessageId, userId,
+            );
+            const racedRow = attributed ?? (await adminClient.from("whatsapp_messages").select("*")
+              .eq("company_id", resolvedCompanyId).eq("chat_id", persistedChatId)
+              .eq("message_id_external", externalMessageId).eq("is_from_me", true).maybeSingle()).data;
             if (racedRow) insertedMessage = racedRow;
+            if (attributionError || !racedRow) persistenceWarning = true;
           } else {
             persistenceWarning = true;
             console.error(
@@ -1651,14 +1652,14 @@ Deno.serve(async (req) => {
           }).select("*").maybeSingle();
         if (messageInsertError) {
           if (messageInsertError.code === "23505" && externalMessageId) {
-            const { data: racedRow } = await adminClient.from(
-              "whatsapp_messages",
-            )
-              .select("*")
-              .eq("chat_id", chatId)
-              .eq("message_id_external", externalMessageId)
-              .maybeSingle();
+            const { data: attributed, error: attributionError } = await attributeManualWhatsAppEcho(
+              adminClient, resolvedCompanyId, chatId, externalMessageId, userId,
+            );
+            const racedRow = attributed ?? (await adminClient.from("whatsapp_messages").select("*")
+              .eq("company_id", resolvedCompanyId).eq("chat_id", chatId)
+              .eq("message_id_external", externalMessageId).eq("is_from_me", true).maybeSingle()).data;
             if (racedRow) insertedMediaMessage = racedRow;
+            if (attributionError || !racedRow) persistenceWarning = true;
           } else {
             persistenceWarning = true;
             console.error(
@@ -1701,6 +1702,7 @@ Deno.serve(async (req) => {
             signatureWarning = true;
           } else if (chatId) {
             const signatureData = await signatureResponse.json();
+            const signatureReceipt = extractExternalMessageId(signatureData);
             const { data: signatureRow, error: signatureInsertError } = await adminClient
               .from("whatsapp_messages").insert({
                 company_id: resolvedCompanyId,
@@ -1710,12 +1712,18 @@ Deno.serve(async (req) => {
                 type: "text",
                 is_from_me: true,
                 sender_id: userId,
-                message_id_external: extractExternalMessageId(signatureData),
+                message_id_external: signatureReceipt,
                 origin: "panel_manual",
                 timestamp: new Date().toISOString(),
               }).select("*").maybeSingle();
             signatureMessage = signatureRow;
-            if (signatureInsertError) persistenceWarning = true;
+            if (signatureInsertError?.code === "23505" && signatureReceipt) {
+              const { data: attributed } = await attributeManualWhatsAppEcho(
+                adminClient, resolvedCompanyId, chatId, signatureReceipt, userId,
+              );
+              signatureMessage = attributed;
+              if (!attributed) persistenceWarning = true;
+            } else if (signatureInsertError) persistenceWarning = true;
           }
         } catch {
           signatureWarning = true;

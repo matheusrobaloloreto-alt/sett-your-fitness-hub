@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Dumbbell, Play, Clock, RotateCcw, ChevronDown, ChevronUp, Timer, CheckCircle2, Circle, Loader2 } from "lucide-react";
-import { format, parseISO, differenceInDays, isWithinInterval } from "date-fns";
+import { format, parseISO, differenceInDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { filterMaterializedWorkouts, orderWorkoutsByPrescription } from "@/lib/workoutPresence";
 import { businessDateYmd } from "@/lib/businessDate";
@@ -399,17 +399,13 @@ export default function StudentWorkout() {
               const isActive = selectedCycle?.id === cycle.id;
               const hasPrescription = cycle.workouts.length > 0;
               const isFutureCycle = Boolean(cycle.start_date && cycle.start_date > businessDateYmd());
-              const isCurrent = (() => {
-                try {
-                  return !isFutureCycle && cycle.status === "active" && isWithinInterval(new Date(), { start: parseISO(cycle.start_date), end: parseISO(cycle.end_date) });
-                } catch { return false; }
-              })();
+              const isCurrent = !isFutureCycle && cycle.end_date >= todayStr && cycle.id === currentCycleId;
 
               return (
                 <button
                   key={cycle.id}
                   onClick={() => {
-                    setHistoryOpen(needsKeep(cycle) && (cycle.id !== currentCycleId || !prescriptionPolicy.allowContinuity));
+                    setHistoryOpen(hasPrescription && (cycle.id !== currentCycleId || (needsKeep(cycle) && !prescriptionPolicy.allowContinuity)));
                     setSelectedCycle(cycle);
                     setSelectedWorkoutId(cycle.workouts[0]?.id || null);
                     setExpandedExercise(null);

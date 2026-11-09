@@ -10,8 +10,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { paymentUrl } from "@/lib/publicFlowLinks";
 import { requestWhatsAppChatPanel, transientLoginNavigation, type CompanyEventDraft } from "@/lib/whatsappChatPanel";
 import { fetchCompanyProductSettings } from "@/lib/companyProductSettings";
-import { WHATSAPP_EVENTS, type MessageEvent, type WhatsAppEvent } from '../../supabase/functions/_shared/company-product-settings';
-import { eventMessage, eventMessageSequence, messageValues } from '../../supabase/functions/_shared/communication-policy';
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS, WHATSAPP_EVENTS, type MessageEvent, type WhatsAppEvent } from '../../supabase/functions/_shared/company-product-settings';
+import { eventMessage, eventMessageSequence, messageValues, renderCompanyMessage } from '../../supabase/functions/_shared/communication-policy';
 
 export function eventDraftPreview(draft: CompanyEventDraft): string {
   return draft.parts.map((part, index) => `${index + 1}. ${part.type === 'text' ? part.text : `[${part.type}: ${part.media?.fileName || 'arquivo'}]${part.text ? `\n${part.text}` : ''}`}`).join('\n\n');
@@ -20,7 +20,8 @@ export function eventDraftPreview(draft: CompanyEventDraft): string {
 export async function draftCompanyEventSequence(companyId: string, event: MessageEvent, values: Record<string, string>, fallback: string): Promise<CompanyEventDraft> {
   if (!companyId || !(WHATSAPP_EVENTS as readonly string[]).includes(event)) throw new Error('whatsapp_event_company_required');
   const { settings, version } = await fetchCompanyProductSettings(companyId);
-  const renderedValues = messageValues({ profissional: settings.brand.professional_name, email: settings.brand.support_email, prazo: String(settings.business.assessment_sla_business_days), ...values }, settings.brand.company_name);
+  const prescriptionDays = Math.max(2, settings.business.assessment_sla_business_days);
+  const renderedValues = messageValues({ profissional: settings.brand.professional_name, email: settings.brand.support_email, prazo: String(prescriptionDays), ...values }, settings.brand.company_name);
   return {
     draftId: crypto.randomUUID(), companyId, event: event as WhatsAppEvent, settingsVersion: version,
     parts: version > 0 ? eventMessageSequence(settings, event as WhatsAppEvent, renderedValues, fallback) : [{ id: 'legacy', type: 'text', text: fallback }],
@@ -243,9 +244,11 @@ const firstName = (full?: string | null) => (full ?? "").trim().split(/\s+/)[0] 
 
 // Cria um link opaco e temporário. O UUID do aluno nunca funciona como credencial
 // pública de checkout.
-export async function createPlansLink(studentId: string): Promise<string> {
+export async function createPlansLink(studentId: string, renewal?: { enrollmentId?: string }): Promise<string> {
   const { data, error } = await supabase.functions.invoke("public-payment-context", {
-    body: { action: "create-link", studentId },
+    body: renewal
+      ? { action: "create-renewal-link", studentId, renewalOfEnrollmentId: renewal.enrollmentId }
+      : { action: "create-link", studentId },
   });
   if (error || !data?.token) {
     throw new Error(data?.error || error?.message || "Não foi possível criar o link de pagamento.");
@@ -253,9 +256,13 @@ export async function createPlansLink(studentId: string): Promise<string> {
   return paymentUrl(window.location.origin, data.token);
 }
 
-export function birthdayMessage(fullName?: string | null): string {
-  const nome = firstName(fullName);
-  return `Feliz aniversário, ${nome}! 🎉 Que esse novo ciclo venha cheio de saúde, energia e conquistas. Tamo junto pra você chegar nos seus objetivos. 💪`;
+export function birthdayMessage(fullName?: string | null, template?: string, companyName?: string): string {
+  const values = { ...messageValues({ nome: fullName ?? '' }, companyName), primeiro_nome: firstName(fullName) };
+  return renderCompanyMessage(template ?? DEFAULT_COMPANY_PRODUCT_SETTINGS.messages.birthday, values);
+}
+
+export function isRenewalOverdue(daysLeft: number | null | undefined): boolean {
+  return typeof daysLeft === "number" && Number.isFinite(daysLeft) && daysLeft < 0;
 }
 
 export function renewalMessage(opts: {
@@ -263,13 +270,15 @@ export function renewalMessage(opts: {
   planName?: string | null;
   daysLeft?: number | null;
   paymentLink: string;
-  overdue?: boolean;
 }): string {
   const nome = firstName(opts.fullName);
   const plano = opts.planName ? ` ${opts.planName}` : "";
   const link = opts.paymentLink;
-  if (opts.overdue) {
+  if (isRenewalOverdue(opts.daysLeft)) {
     return `Oi, ${nome}! Seu plano${plano} venceu e seu acesso aos treinos pode ser interrompido. Pra regularizar e continuar evoluindo, é só renovar por aqui: ${link}`;
+  }
+  if (opts.daysLeft === 0) {
+    return `Oi, ${nome}! Seu plano${plano} vence hoje. Pra continuar sem interromper seus treinos, renove por aqui: ${link}`;
   }
   const prazo =
     typeof opts.daysLeft === "number"

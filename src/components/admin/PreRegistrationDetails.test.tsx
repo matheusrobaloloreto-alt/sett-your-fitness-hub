@@ -49,6 +49,22 @@ describe("PreRegistrationDetails", () => {
     }));
   });
 
+  it("sends an explicit confirmation when staff keeps the classified objective for a free-text goal", async () => {
+    const onSave = vi.fn(async (next: PreRegistrationData) => next);
+    render(<PreRegistrationDetails data={{
+      source: "student_anamnesis", recordId: "synthetic", answers: { objective: "saude" },
+      budgetRange: null, preferredContactPeriod: null, submittedAt: null,
+      intercycleAnswers: { new_goals: "Brincar com meus filhos" }, intercycleGoalNeedsReview: true,
+    }} onSave={onSave} />);
+    expect(screen.getByText("Brincar com meus filhos")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Editar anamnese" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Confirmar este objetivo para a meta interciclos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      answers: { objective: "saude" }, editedFields: ["objective"],
+    })));
+  });
+
   it("keeps the requested priority fields above additional answers", () => {
     const { container } = render(<PreRegistrationDetails data={data} />);
     const text = container.textContent || "";

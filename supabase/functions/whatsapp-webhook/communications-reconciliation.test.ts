@@ -38,6 +38,7 @@ function fixture(options: {mode?:'content'|'menu';failAck?:boolean;recipient?:st
           automation_flows:{id:filters.id,company_id:'company',is_active:true},
           automation_flow_nodes:[{id:'node',node_type:options.mode==='menu'?'menu':'content',data:options.mode==='menu'?{prompt:'Escolha',options:[{number:'1',text:'Continuar'}]}:{message:'Roteiro {{nome}}',use_company_template:'weekly_contact'}}],
           automation_flow_edges:[],
+          company_message_sequences:null,
           company_product_settings:{settings:{messages:{weekly_contact:'Central {{primeiro_nome}}'}},version:1},
           whatsapp_chats:{id:'chat',company_id:'company',student_id:'student',remote_jid:options.recipient||jid,instance_id:'instance'},
           whatsapp_instances:{id:'instance',instance_name:'synthetic',status:'connected'},

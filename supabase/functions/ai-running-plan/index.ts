@@ -1,5 +1,6 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { applyEffectivePrescriptionInput, readEffectivePrescriptionAnamnesis } from "../_shared/prescription/effective-input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { readPreviousStudioModalityDraft, resolveStudioModalityDraft, writeStudioModalityDraft } from "../_shared/studio-modality-draft.ts";
 import { assertBundleAccess, assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import { buildCardioProgram, assertCardioPlanComplete, normalizeCardioSport } from "../_shared/prescription/cardio/cardioEngine.ts";
@@ -31,7 +32,9 @@ function deriveEva(input: Record<string, any>): Record<string, number> {
   }
   const corpus = JSON.stringify([
     input.injuries,
+    input.restrictions,
     input.anamnese_context?.injuries,
+    input.anamnese_context?.current_pain,
     input.anamnese_context?.notes,
     input.prescription_integration?.risk_screening,
   ]).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -363,7 +366,7 @@ Retorne EXATAMENTE este JSON sem texto adicional, sem markdown:
 `.trim();
 
 // ─── SERVIDOR ─────────────────────────────────────────────────────────────────
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const claims = await requireUser(req);
@@ -375,36 +378,8 @@ serve(async (req) => {
 
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-    const input = await req.json();
-    const {
-      student_id, student_name, company_id,
-      sport,            // "corrida" | "ciclismo" | "natacao" | "triathlon"
-      goal,             // "maratona", "5km sub-25", "ironman", etc.
-      duration_weeks,   // número de semanas do plano
-      days_per_week,    // dias disponíveis para cardio
-      session_duration, // minutos por sessão
-      current_volume,   // km/semana atual (corrida) ou horas/semana
-      current_volume_unit, // "km_week" | "hours_week"
-      fcmax,            // pode ser null
-      fcrep,            // pode ser null
-      experience_months,// tempo de prática em meses
-      tsb,              // pode ser null — se informado, aplicar regras de fadiga
-      eva,              // objeto: { tornozelo: 0, joelho: 0, quadril: 0, lombar: 0, ... }
-      injuries,         // lesões pregressas ou atuais
-      equipment,        // esteira, rua, piscina, bicicleta outdoor/indoor
-      diet_type,        // "emagrecimento" | "hipertrofia" | "performance"
-      assessment_context, // JSON da avaliação funcional BN (se houver)
-      anamnese_context, // JSON bruto/resumido da anamnese
-      prescription_integration, // resultado integrado anamnese + avaliação
-      bnito_orchestration, // contrato do BNITO para sincronizar agentes
-      strength_plan_context, // { days_per_week, workouts:[{day,focus,has_heavy_legs}] }
-      anamnese_id,
-      bundle_id,
-      training_cycle_id,
-      previous_plan_id,
-      previous_plan_context,
-      program_sequence,
-    } = input;
+    const payload = await req.json();
+    const { student_id, company_id, bundle_id, training_cycle_id } = payload;
 
     const authz = await assertTenantAccess(supabase, claims, {
       companyId: company_id,
@@ -426,6 +401,51 @@ serve(async (req) => {
       }
       cycleContext = cycle;
     }
+    try {
+      payload.sport = normalizeCardioSport(payload.sport);
+    } catch (sportError) {
+      throw new HttpError(422, sportError instanceof Error ? sportError.message : "Modalidade não suportada.");
+    }
+    const draftScope = {
+      bundleId: authorizedBundleId, cycleId: cycleContext?.id ?? null,
+      companyId: authorizedCompanyId, studentId: student_id, modality: payload.sport,
+    };
+    const studioDraft = await resolveStudioModalityDraft(supabase, draftScope, payload.draft_only);
+    const userSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+    });
+    const effective = await readEffectivePrescriptionAnamnesis(userSupabase, {
+      studentId: student_id, companyId: authorizedCompanyId,
+    });
+    const input = applyEffectivePrescriptionInput(payload, effective, "cardio");
+    const {
+      student_name,
+      sport,            // "corrida" | "ciclismo" | "natacao" | "triathlon"
+      goal,             // "maratona", "5km sub-25", "ironman", etc.
+      duration_weeks,   // número de semanas do plano
+      days_per_week,    // dias disponíveis para cardio
+      session_duration, // minutos por sessão
+      current_volume,   // km/semana atual (corrida) ou horas/semana
+      current_volume_unit, // "km_week" | "hours_week"
+      fcmax,            // pode ser null
+      fcrep,            // pode ser null
+      experience_months,// tempo de prática em meses
+      tsb,              // pode ser null — se informado, aplicar regras de fadiga
+      eva,              // objeto: { tornozelo: 0, joelho: 0, quadril: 0, lombar: 0, ... }
+      injuries,         // lesões pregressas ou atuais
+      equipment,        // esteira, rua, piscina, bicicleta outdoor/indoor
+      diet_type,        // "emagrecimento" | "hipertrofia" | "performance"
+      assessment_context, // JSON da avaliação funcional BN (se houver)
+      anamnese_context, // JSON bruto/resumido da anamnese
+      prescription_integration, // resultado integrado anamnese + avaliação
+      bnito_orchestration, // contrato do BNITO para sincronizar agentes
+      strength_plan_context, // { days_per_week, workouts:[{day,focus,has_heavy_legs}] }
+      anamnese_id,
+      previous_plan_id,
+      previous_plan_context,
+      program_sequence,
+    } = input;
+
     let authorizedPreviousPlanId: string | null = null;
     let effectivePreviousPlan = previous_plan_context ?? null;
     if (previous_plan_id != null && previous_plan_id !== "") {
@@ -434,9 +454,12 @@ serve(async (req) => {
         .select("id, plan_name, sport, goal, duration_weeks, weeks, fc_zones, safety_check")
         .eq("id", previous_plan_id).eq("student_id", student_id).eq("company_id", authorizedCompanyId).maybeSingle();
       if (previousError) throw new HttpError(500, `Falha ao carregar plano anterior: ${previousError.message}`);
-      if (!previous) throw new HttpError(403, "Forbidden: previous plan mismatch.");
-      authorizedPreviousPlanId = previous.id;
-      effectivePreviousPlan = previous;
+      const stagedPrevious = !previous && studioDraft
+        ? await readPreviousStudioModalityDraft(supabase, previous_plan_id, draftScope, cycleContext.start_date)
+        : null;
+      if (!previous && !stagedPrevious) throw new HttpError(403, "Forbidden: previous plan mismatch.");
+      authorizedPreviousPlanId = previous_plan_id;
+      effectivePreviousPlan = previous ?? stagedPrevious;
     }
     input.previous_plan_context = effectivePreviousPlan;
     input.block_number = cycleContext?.cycle_number ?? input.block_number ?? 1;
@@ -446,11 +469,6 @@ serve(async (req) => {
       start_date: cycleContext?.start_date ?? program_sequence?.start_date ?? null,
       end_date: cycleContext?.end_date ?? program_sequence?.end_date ?? null,
     };
-    try {
-      input.sport = normalizeCardioSport(sport);
-    } catch (sportError) {
-      throw new HttpError(422, sportError instanceof Error ? sportError.message : "Modalidade não suportada.");
-    }
     input.eva = deriveEva(input);
     input.prescription_integration = prescription_integration ?? null;
     const aiConfig = await loadCompanyAiConfig(supabase, authorizedCompanyId);
@@ -551,7 +569,7 @@ INSTRUÇÕES:
     assertCardioPlanComplete(planJson);
 
     // Salva no banco
-    const { data: existingCyclePlan } = cycleContext
+    const { data: existingCyclePlan } = !studioDraft && cycleContext
       ? await supabase.from("running_plans").select("id").eq("training_cycle_id", cycleContext.id).eq("sport", planJson.sport).maybeSingle()
       : { data: null };
     const planId = existingCyclePlan?.id || crypto.randomUUID();
@@ -582,6 +600,10 @@ INSTRUÇÕES:
       end_date: cycleContext?.end_date ?? null,
       status: cycleContext && cycleContext.start_date > businessDateYmd() ? "scheduled" : "active",
     };
+    if (studioDraft) {
+      const draft = await writeStudioModalityDraft(supabase, draftScope, planJson, persistencePayload);
+      return new Response(JSON.stringify(draft), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     const persistenceResult = existingCyclePlan?.id
       ? await supabase.from("running_plans").update(persistencePayload)
         .eq("id", existingCyclePlan.id).select("id, updated_at").single()

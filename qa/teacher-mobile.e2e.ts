@@ -4,9 +4,10 @@ const fixturePath = "/qa/teacher-mobile-fixture.html";
 const artifactDir = "output/teacher-mobile-qa";
 
 test("Athletic Club star follows current membership without editing a student name", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-09-14T12:00:00Z"));
   const guard = await openFixture(page, "/trainer/students/student-mobile-1", 390, 844);
-  const name = page.getByRole("heading", { name: /Ana Carolina/ });
-  const star = name.locator("..").getByRole("img", { name: "Athletic Club" });
+  const name = page.getByRole("heading", { name: /Ana Carolina/i });
+  const star = page.getByRole("img", { name: "Athletic Club" });
   await expect(name).toBeVisible();
   await expect(star).toHaveCount(0);
   await page.evaluate(() => (window as any).__teacherMobileFixture.changeMembership(true));
@@ -110,13 +111,12 @@ for (const width of [360, 390, 768, 1440]) {
   });
 }
 
-test("trainer reads anamnesis responses without seeing the closing pipeline", async ({ page }) => {
+test("trainer can review pre-registration from the closing pipeline", async ({ page }) => {
   const guard = await openFixture(page, "/trainer/registration", 390, 900);
-  await expect(page.getByRole("heading", { name: "Respostas de pré-cadastro" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Esteira de fechamento" })).toBeVisible();
   await expect(page.getByText("Lead Interessada Mobile Com Sobrenome Enorme").first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Esteira de fechamento" })).toHaveCount(0);
-  await expect(page.getByText("Cadastro fiscal, escolha do plano e pagamento")).toHaveCount(0);
-  await expect(page.getByText("Etapa exibida")).toHaveCount(0);
+  await page.getByRole("button", { name: "Ver pré-cadastro" }).first().click();
+  await expect(page.getByRole("dialog")).toContainText("Lead Interessada Mobile Com Sobrenome Enorme");
   await expectClean(page, guard, 390);
 });
 
@@ -294,15 +294,16 @@ test("embedded WhatsApp Sheet keeps close and bulk-send controls separate", asyn
 });
 
 test("StudentHub and StudentDetail profile surfaces fit mobile and desktop", async ({ page }) => {
-  const mobileGuard = await openFixture(page, "/trainer/students/student-mobile-1", 360, 900);
+  const mobileGuard = await openFixture(page, "/admin/aluno/student-mobile-1", 360, 900, "light", "admin");
   await expect(page.getByText("Visão 360")).toBeVisible();
   await expect(page.getByRole("heading", { name: /Ana Carolina/ })).toBeVisible();
   await page.screenshot({ path: `${artifactDir}/student-hub-360.png`, fullPage: true });
   await expectClean(page, mobileGuard, 360);
 
-  const detailGuard = await openFixture(page, "/trainer/aluno/student-mobile-1", 1440, 1000);
+  const detailGuard = await openFixture(page, "/trainer/students/student-mobile-1", 1440, 1000);
   await expect(page.getByRole("heading", { name: /Ana Carolina/i })).toBeVisible();
-  await expect(page.getByText("Ciclos:").first()).toBeVisible();
+  await page.getByRole("tab", { name: "Matrículas", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "MATRÍCULAS" })).toBeVisible();
   await page.screenshot({ path: `${artifactDir}/student-detail-1440.png`, fullPage: true });
   await expectClean(page, detailGuard, 1440);
 });
@@ -320,7 +321,49 @@ test("WorkoutBuilder and embedded PrescriptionStudio render with fixture data wi
   await expectClean(page, studioGuard, 768);
 });
 
+test("PrescriptionStudio reopens a saved strength draft and uses only atomic publication", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-09-14T12:00:00Z"));
+  const blocked: string[] = [];
+  await page.route("**/*", async route => {
+    const url = new URL(route.request().url());
+    if (url.hostname === "127.0.0.1") return route.continue();
+    if (url.hostname.endsWith("supabase.co") && url.pathname.includes("/rest/v1/staff_sessions")) {
+      return route.fulfill({ status: 204, body: "" });
+    }
+    blocked.push(url.href);
+    return route.abort();
+  });
+  await page.goto(`${fixturePath}?route=%2Ftrainer%2Fstudio&strengthDraft=1`);
+  const openDraft = page.getByRole("button", { name: "Revisar rascunho · ciclo 1" });
+  await page.getByRole("button", { name: "3. Prescrição" }).click();
+  await expect(openDraft).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "3. Prescrição" }).click();
+  await openDraft.click();
+  const publish = page.getByRole("button", { name: "Publicar musculação · ciclo 1" });
+  await expect(publish).toBeEnabled();
+  const readWrites = () => page.evaluate(() => (window as any).__teacherMobileFixture.getWrites() as string[]);
+  expect(await readWrites()).toEqual([]);
+
+  page.once("dialog", dialog => dialog.dismiss());
+  await publish.click();
+  expect(await readWrites()).toEqual([]);
+
+  page.on("dialog", dialog => dialog.accept());
+  await publish.click();
+  await expect(page.getByText(/Não foi possível confirmar a publicação/)).toBeVisible();
+  await expect(publish).toBeEnabled();
+  expect((await readWrites()).filter(write => write.startsWith("publish_studio_strength_draft:rpc:"))).toHaveLength(1);
+  await publish.click();
+  await expect(page.getByText(/Treino agendado/)).toBeVisible();
+  const writes = await readWrites();
+  expect(writes.filter(write => write.startsWith("publish_studio_strength_draft:rpc:"))).toHaveLength(2);
+  expect(writes.every(write => write.startsWith("publish_studio_strength_draft:rpc:"))).toBe(true);
+  expect(blocked).toEqual([]);
+});
+
 test("Agenda resolves the canonical enrollment relationship and shows scheduled cycles", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-09-14T12:00:00Z"));
   const guard = await openFixture(page, "/trainer/agenda", 1440, 900);
   await expect(page.getByRole("heading", { name: "AGENDA", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "setembro 2026" })).toBeVisible();
@@ -339,7 +382,8 @@ test("WorkoutBuilder keeps weekly volume clear of the assistant card and floatin
 
   await expect(volumeCard).toBeVisible();
   await expect(auditCard).toBeVisible();
-  await expect(page.getByTestId("workout-builder-header-actions").getByRole("button", { name: "Conversas" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Abrir conversas do WhatsApp" })).toBeVisible();
+  await expect(page.getByTestId("workout-builder-header-actions").getByRole("button", { name: "Conversas" })).toHaveCount(0);
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
 
   const [volumeBox, auditBox] = await Promise.all([volumeCard.boundingBox(), auditCard.boundingBox()]);

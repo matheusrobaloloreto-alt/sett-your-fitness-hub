@@ -5,7 +5,7 @@ import { WhatsAppConnectionPanel } from '@/pages/admin/WhatsAppSettings';
 import CompanyIntegrationCredentials from './CompanyIntegrationCredentials';
 
 /** Moving this UI never moves credentials or creates/replaces the provider instance. */
-export default function CompanyIntegrations({companyId}: {companyId: string}) {
+export default function CompanyIntegrations({companyId, visible = true}: {companyId: string; visible?: boolean}) {
   const auth=useAuth();
   const master=useMaster();
   const features=useCompanyFeatures();
@@ -17,9 +17,9 @@ export default function CompanyIntegrations({companyId}: {companyId: string}) {
       <h2 className="text-lg font-semibold">Conexão em uso</h2>
       <p className="text-sm text-muted-foreground">Gerencie aqui a instância WhatsApp já vinculada à empresa, sem transferir suas credenciais. Ao abrir, o estado é consultado. Se uma conexão já estiver aguardando leitura do QR Code, o painel acompanha a tentativa e pode atualizar o código automaticamente. Uma sessão conectada não é desconectada ao navegar por esta área.</p>
     </div>
-    {features.loading ? <p>Carregando acesso ao WhatsApp…</p> : features.hasWhatsApp
+    {visible && (features.loading ? <p>Carregando acesso ao WhatsApp…</p> : features.hasWhatsApp
       ? <WhatsAppConnectionPanel key={companyId} embedded />
-      : <p className="text-sm text-muted-foreground">O WhatsApp não está habilitado para esta empresa.</p>}
+      : <p className="text-sm text-muted-foreground">O WhatsApp não está habilitado para esta empresa.</p>)}
     <details className="rounded-xl border border-border p-4">
       <summary className="cursor-pointer font-medium">Credenciais próprias da empresa · preparação</summary>
       <div className="pt-4 space-y-3">

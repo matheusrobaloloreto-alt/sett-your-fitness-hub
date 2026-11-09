@@ -1,3 +1,4 @@
+import { classifiedAnamnesisObjective, intercycleProjection, mergeEffectiveAnamnesis, readCanonicalAnamnesis, readIntercycleAnswers, separateCurrentPain, splitLegacyClinicalHistory, staffCorrectionTimes, STAFF_LEAD_FIELD_TIMES } from "../../supabase/functions/_shared/effective-anamnesis.ts";
 import { supabase } from "@/integrations/supabase/client";
 import {
   canonicalAnamnesisToPreRegistrationAnswers,
@@ -13,6 +14,7 @@ export type LoadStudentPreRegistrationInput = {
   phone?: string | null;
   includeCanonicalAnamnesis?: boolean;
   throwOnError?: boolean;
+  includeIntercycle?: boolean;
 };
 
 export type ResolveStudioAnamnesisInput = LoadStudentPreRegistrationInput & {
@@ -42,8 +44,11 @@ function optionalBoolean(value: unknown) {
 export function canonicalAnamnesisUpdateFromPreRegistration(
   data: PreRegistrationData,
   existingCustomAnswers: unknown = {},
+  existingInjuries?: unknown,
 ) {
-  const answers = data.answers;
+  const answers = data.editedFields
+    ? Object.fromEntries(data.editedFields.map(key => [key, data.answers[key]]))
+    : data.answers;
   const update: Record<string, unknown> = {
     notes: optionalText(data.manualNotes),
     updated_at: new Date().toISOString(),
@@ -73,7 +78,7 @@ export function canonicalAnamnesisUpdateFromPreRegistration(
   assign("cardio_goal", optionalText(answers.cardio_goal), "cardio_goal");
   assign("stress_score", optionalNumber(answers.stress_score), "stress_score");
   assign("sleep_quality", optionalNumber(answers.sleep_quality), "sleep_quality");
-  assign("injuries", optionalText(has("current_pain") ? answers.current_pain : answers.injuries), "injuries", "current_pain");
+  assign("injuries", optionalText(answers.injuries), "injuries");
   assign("food_restrictions", optionalText(answers.food_restrictions), "food_restrictions");
   assign("nutrition_context", optionalText(answers.nutrition_context ?? answers.nutrition), "nutrition_context", "nutrition");
   assign("budget_food", optionalText(answers.budget_food), "budget_food");
@@ -87,12 +92,21 @@ export function canonicalAnamnesisUpdateFromPreRegistration(
   const previousAnswers = isPreRegistrationRecord(previous.answers) ? previous.answers : {};
   // Keep the displayed modalities array authoritative even when an old alias column exists.
   const extraAnswers = Object.fromEntries(Object.entries(answers).filter(([key]) => !mappedKeys.has(key) || key === "modalities"));
+  const legacyPain = has("injuries") && !has("current_pain") && !Object.hasOwn(previousAnswers, "current_pain")
+    ? splitLegacyClinicalHistory(existingInjuries).currentPain : undefined;
   update.custom_answers = {
     ...custom,
     ...incomingCustom,
     staff_pre_registration: {
       ...previous,
-      answers: { ...previousAnswers, ...extraAnswers },
+      answers: {
+        ...previousAnswers,
+        ...(legacyPain !== undefined ? { current_pain: legacyPain } : {}),
+        ...extraAnswers,
+      },
+      ...(data.editedFields?.length ? {
+        field_updated_at: staffCorrectionTimes(previous.field_updated_at, data.editedFields, String(update.updated_at)),
+      } : {}),
       budgetRange: data.budgetRange,
       preferredContactPeriod: data.preferredContactPeriod,
     },
@@ -102,6 +116,7 @@ export function canonicalAnamnesisUpdateFromPreRegistration(
 
 export function canonicalPreRegistrationData(row: Record<string, unknown> | null): PreRegistrationData | null {
   if (!row) return null;
+  row = separateCurrentPain(row);
   const custom = isPreRegistrationRecord(row.custom_answers) ? row.custom_answers : {};
   const extension = isPreRegistrationRecord(custom.staff_pre_registration) ? custom.staff_pre_registration : {};
   const extensionAnswers = isPreRegistrationRecord(extension.answers) ? extension.answers : {};
@@ -109,6 +124,7 @@ export function canonicalPreRegistrationData(row: Record<string, unknown> | null
   delete visibleCustom.staff_pre_registration;
   const answers: Record<string, unknown> = {
     ...canonicalAnamnesisToPreRegistrationAnswers(row),
+    ...(row.current_pain !== undefined ? { current_pain: row.current_pain } : {}),
     ...(row.endurance_session_duration_min != null ? { endurance_session_duration_min: row.endurance_session_duration_min } : {}),
     ...(Object.keys(visibleCustom).length ? { custom_answers: visibleCustom } : {}),
     ...extensionAnswers,
@@ -128,56 +144,95 @@ export function canonicalPreRegistrationData(row: Record<string, unknown> | null
 }
 
 export async function updateStudentPreRegistration(data: PreRegistrationData): Promise<PreRegistrationData> {
-  if (!data.recordId) throw new Error("Registro da anamnese não identificado.");
+  if (!data.recordId || data.source === "intercycle") throw new Error("Registro da anamnese não identificado.");
+  if (data.intercycleGoalNeedsReview && data.editedFields?.includes("objective")) {
+    const objective = classifiedAnamnesisObjective(data.answers.objective);
+    if (!objective) throw new Error("Classifique o objetivo como força, hipertrofia, emagrecimento, recomposição, performance ou saúde.");
+    data = { ...data, answers: { ...data.answers, objective } };
+  }
   const db = supabase as any;
   const updatedAt = new Date().toISOString();
   const manualNotes = data.manualNotes?.trim() || "";
+  const scope = data.effectiveScope;
   const canonicalId = data.source === "student_anamnesis" ? data.recordId : data.canonicalRecordId;
+  const scoped = (query: any, table: string) => {
+    if (!scope) return query;
+    query = query.eq("company_id", scope.companyId);
+    if (scope.studentId) query = query.eq(table === "leads" ? "converted_to_student_id" : "student_id", scope.studentId);
+    return query;
+  };
+  const write = async (table: string, id: string, payload: Record<string, unknown>, revision: unknown) => {
+    let query = scoped(db.from(table).update(payload).eq("id", id), table);
+    if (scope) {
+      query = revision == null ? query.is("updated_at", null) : query.eq("updated_at", revision);
+      const result = await query.select("id").maybeSingle();
+      if (!result.error && !result.data) throw new Error("O registro mudou. Recarregue a anamnese antes de salvar.");
+      return result;
+    }
+    return query;
+  };
   let canonicalUpdate: Record<string, unknown> | undefined;
+  let canonicalRevision: unknown;
   if (canonicalId) {
-    const { data: existing, error } = await db.from("student_anamneses")
-      .select("custom_answers").eq("id", canonicalId).maybeSingle();
+    const { data: existing, error } = await scoped(db.from("student_anamneses")
+      .select("custom_answers, updated_at, injuries").eq("id", canonicalId), "student_anamneses").maybeSingle();
     if (error) throw new Error(error.message || "Falha ao carregar respostas existentes.");
     if (!existing) throw new Error("Anamnese não encontrada para atualização.");
-    canonicalUpdate = canonicalAnamnesisUpdateFromPreRegistration(data, existing.custom_answers);
+    canonicalRevision = existing.updated_at;
+    canonicalUpdate = canonicalAnamnesisUpdateFromPreRegistration(data, existing.custom_answers, existing.injuries);
   }
 
   if (data.source === "lead") {
+    let previousAnswers = data.answers;
+    let leadRevision: unknown;
+    if (scope) {
+      const { data: existing, error } = await scoped(db.from("leads")
+        .select("pre_registration_answers, updated_at").eq("id", data.recordId), "leads").maybeSingle();
+      if (error || !existing) throw new Error(error?.message || "Pré-cadastro não encontrado para atualização.");
+      previousAnswers = isPreRegistrationRecord(existing.pre_registration_answers) ? existing.pre_registration_answers : {};
+      leadRevision = existing.updated_at;
+    }
+    const changes = data.editedFields
+      ? Object.fromEntries(data.editedFields.filter(key => key !== "__form").map(key => [key, data.answers[key]]))
+      : data.answers;
     const answers: Record<string, unknown> = {
-      ...data.answers,
+      ...previousAnswers,
+      ...changes,
       ...(manualNotes ? { notes: manualNotes } : {}),
     };
-    if (!manualNotes) delete answers.notes;
-    if (Object.prototype.hasOwnProperty.call(answers, "current_pain") && Object.prototype.hasOwnProperty.call(answers, "injuries")) {
-      answers.injuries = answers.current_pain;
+    if (data.editedFields?.length) {
+      answers[STAFF_LEAD_FIELD_TIMES] = staffCorrectionTimes(previousAnswers[STAFF_LEAD_FIELD_TIMES], data.editedFields, updatedAt);
     }
+    if (!manualNotes) delete answers.notes;
     const writes = [
-      db.from("leads").update({
+      write("leads", data.recordId, {
         pre_registration_answers: answers,
         budget_range: data.budgetRange,
         preferred_contact_period: data.preferredContactPeriod,
         interest_notes: optionalText(manualNotes),
         updated_at: updatedAt,
-      }).eq("id", data.recordId),
+      }, leadRevision),
     ];
-    if (data.canonicalRecordId) {
-      writes.push(
-        db.from("student_anamneses")
-          .update(canonicalUpdate)
-          .eq("id", data.canonicalRecordId),
-      );
+    if (data.canonicalRecordId && canonicalUpdate) {
+      writes.push(write("student_anamneses", data.canonicalRecordId, canonicalUpdate, canonicalRevision));
     }
     const results = await Promise.all(writes);
     const failed = results.find((result) => result.error)?.error;
     if (failed) throw new Error(failed.message || "Falha ao atualizar o pré-cadastro.");
+    if (scope) return await reloadEffectiveAfterSave(scope);
     return { ...data, answers, manualNotes };
   }
 
-  const { error } = await db.from("student_anamneses")
-    .update(canonicalUpdate)
-    .eq("id", data.recordId);
+  const { error } = await write("student_anamneses", data.recordId, canonicalUpdate!, canonicalRevision);
   if (error) throw new Error(error.message || "Falha ao atualizar a anamnese.");
+  if (scope) return await reloadEffectiveAfterSave(scope);
   return { ...data, manualNotes };
+}
+
+async function reloadEffectiveAfterSave(scope: NonNullable<PreRegistrationData["effectiveScope"]>) {
+  const refreshed = await loadStudentPreRegistration({ ...scope, includeIntercycle: true }).catch(() => null);
+  if (!refreshed) throw new Error("Alteração salva, mas não foi possível recarregar a anamnese efetiva. Reabra o registro.");
+  return refreshed;
 }
 
 export function studioAnamnesisGenerationBlockReason({
@@ -202,17 +257,16 @@ export async function resolveStudioAnamnesis({
   if (!studentId) return null;
   if (!companyId) throw new Error("Empresa não definida para carregar anamnese do Studio.");
 
-  let query = db.from("student_anamneses").select("*").eq("student_id", studentId);
-  query = query.eq("company_id", companyId);
-  const { data: canonical, error } = await query.maybeSingle();
-  if (error) {
-    throw new Error(error.message || "Falha ao carregar anamnese canônica do aluno.");
-  }
-  if (canonical) return canonical;
+  const scope = { studentId, companyId };
+  const [canonical, intercycleRows] = await Promise.all([
+    readCanonicalAnamnesis(db, scope),
+    readIntercycleAnswers(db, scope),
+  ]);
+  if (canonical) return mergeEffectiveAnamnesis(canonical, intercycleProjection(scope, intercycleRows, canonical));
 
   const preRegistration = await loadPreRegistration({ studentId, companyId, phone });
-  if (!preRegistration) return null;
-  return preRegistrationToStudioAnamnesis(preRegistration, { studentId, companyId: companyId ?? null });
+  const lead = preRegistration ? preRegistrationToStudioAnamnesis(preRegistration, scope) : null;
+  return mergeEffectiveAnamnesis(lead, intercycleProjection(scope, intercycleRows, lead));
 }
 
 export async function loadStudioPreRegistrationFallback(
@@ -231,8 +285,12 @@ export async function loadStudentPreRegistration({
   phone,
   includeCanonicalAnamnesis = true,
   throwOnError = false,
+  includeIntercycle = false,
 }: LoadStudentPreRegistrationInput): Promise<PreRegistrationData | null> {
   const db = supabase as any;
+  if (includeIntercycle && !companyId) throw new Error("Empresa não definida para carregar a anamnese.");
+  const scope = studentId && companyId ? { studentId, companyId } : null;
+  const history = includeIntercycle && scope ? readIntercycleAnswers(db, scope) : Promise.resolve([]);
   const phoneCandidates = preRegistrationPhoneCandidates(phone);
 
   const leadByStudentPromise = studentId
@@ -245,7 +303,7 @@ export async function loadStudentPreRegistration({
       })()
     : Promise.resolve({ data: null, error: null });
 
-  const leadByPhonePromise = phoneCandidates.length > 0
+  const leadByPhonePromise = !studentId && phoneCandidates.length > 0
     ? (() => {
         let query = db.from("leads")
           .select(LEAD_SELECT)
@@ -263,23 +321,48 @@ export async function loadStudentPreRegistration({
       })()
     : Promise.resolve({ data: null, error: null });
 
-  const [leadByStudent, leadByPhone, anamnesisResult] = await Promise.all([
+  const [leadByStudent, leadByPhone, anamnesisResult, intercycleRows] = await Promise.all([
     leadByStudentPromise,
     leadByPhonePromise,
     anamnesisPromise,
+    history,
   ]);
 
-  if (throwOnError) {
+  if (throwOnError || includeIntercycle) {
     const error = leadByStudent.error || leadByPhone.error || anamnesisResult.error;
     if (error) throw new Error(error.message || "Falha ao carregar pré-cadastro do aluno.");
   }
 
   const lead = leadByStudent.data || leadByPhone.data;
+  const canonical = canonicalPreRegistrationData(anamnesisResult.data);
+  const leadAnswers = isPreRegistrationRecord(lead?.pre_registration_answers) ? lead.pre_registration_answers : {};
+  const intercycle = scope ? intercycleProjection(scope, intercycleRows,
+    canonical ? anamnesisResult.data : leadAnswers) : null;
+  const withEffectiveAnswers = (data: PreRegistrationData): PreRegistrationData => ({
+    ...data,
+    ...(includeIntercycle && companyId ? { effectiveScope: { companyId, studentId, phone } } : {}),
+    ...(intercycle ? {
+      intercycleAnswers: {
+        ...intercycle.update, ...intercycle.patch,
+        ...(Object.hasOwn(intercycle.patch, "current_pain") && Object.hasOwn(data.answers, "current_pain")
+          ? { staff_current_pain: data.answers.current_pain } : {}),
+      },
+      intercycleGoalNeedsReview: intercycle.goalNeedsReview,
+    } : {}),
+  });
+  if (canonical) {
+    return withEffectiveAnswers({
+      ...canonical,
+      budgetRange: canonical.budgetRange ?? lead?.budget_range ?? null,
+      preferredContactPeriod: canonical.preferredContactPeriod ?? lead?.preferred_contact_period ?? null,
+      submittedAt: lead?.submitted_at ?? lead?.created_at ?? canonical.submittedAt,
+    });
+  }
   if (lead) {
-    const answers = isPreRegistrationRecord(lead.pre_registration_answers)
-      ? lead.pre_registration_answers
-      : {};
-    return {
+    const { [STAFF_LEAD_FIELD_TIMES]: _fieldTimes, ...answers } = leadAnswers;
+    if (includeIntercycle) delete answers.__form;
+    if (!includeIntercycle && !includeCanonicalAnamnesis && _fieldTimes) answers[STAFF_LEAD_FIELD_TIMES] = _fieldTimes;
+    return withEffectiveAnswers({
       recordId: lead.id,
       canonicalRecordId: (anamnesisResult.data as Record<string, unknown> | null)?.id as string | undefined,
       answers,
@@ -288,8 +371,11 @@ export async function loadStudentPreRegistration({
       submittedAt: lead.submitted_at || lead.created_at || null,
       manualNotes: lead.interest_notes || String(answers.notes || ""),
       source: "lead",
-    };
+    });
   }
 
-  return canonicalPreRegistrationData(anamnesisResult.data);
+  return intercycle ? withEffectiveAnswers({
+    source: "intercycle", answers: {}, budgetRange: null, preferredContactPeriod: null,
+    submittedAt: String(intercycle.update.submitted_at ?? "") || null,
+  }) : null;
 }

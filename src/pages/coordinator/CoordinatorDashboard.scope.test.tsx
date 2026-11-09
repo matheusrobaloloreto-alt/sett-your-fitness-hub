@@ -5,8 +5,7 @@ vi.mock('@/hooks/useAuth', () => ({ useAuth: () => m.auth }));
 vi.mock('@/contexts/MasterContext', () => ({ useMaster: () => m.master }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({toast: m.toast}) }));
 vi.mock('@/components/BnitoFloatingAssistant', () => ({ BnitoContextButton: () => null }));
-vi.mock('@/components/DashboardAlerts', () => ({ DashboardAlerts: () => null }));
-vi.mock('@/components/dashboard/RenewalsAndCyclesPanel', () => ({ RenewalsAndCyclesPanel: () => null }));
+vi.mock('@/pages/admin/AdminDashboard', () => ({ default: ({ operationalExtras }: { operationalExtras: React.ReactNode }) => operationalExtras }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { rpc: m.rpc, from: (table:string) => {
  const filters:Record<string,unknown> = {}; const q = { insert: m.insert, select: () => q, eq: (k:string,v:unknown) => {filters[k]=v;return q;}, order: () => q, then: (resolve:any,reject:any) => {m.calls.push({table,filters});return Promise.resolve(m.read(table,filters)).then(resolve,reject);} }; return q;
 } } }));

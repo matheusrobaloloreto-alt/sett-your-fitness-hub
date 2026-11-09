@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addBusinessDays,
   buildAssessmentOnboardingMessage,
+  buildFiscalRegistrationMessage,
   buildPaymentLinkMessage,
   isoDate,
   normalizeFunnelRemoteJid,
@@ -32,14 +33,26 @@ describe("sales funnel", () => {
     expect(message).toContain("/pagamento/token");
   });
 
-  it("states the movement-assessment deadline without requesting anamnesis again", () => {
+  it("sends fiscal registration instructions before payment and starts onboarding deadlines at material receipt", () => {
+    const message = buildFiscalRegistrationMessage("Ana Teste", "https://app.invalid/cadastro");
+    expect(message).toContain("https://app.invalid/cadastro");
+    expect(message).toMatch(/pagamento.*confirmado.*instruções/i);
+    expect(message).toMatch(/recebimento do material completo.*2 dias úteis.*avaliação/);
+    expect(message).toMatch(/primeira prescrição.*desse recebimento/);
+    expect(message).not.toContain("5 dias úteis");
+  });
+
+  it("starts both distinct onboarding deadlines at material receipt without requesting anamnesis again", () => {
     const message = buildAssessmentOnboardingMessage({
       fullName: "Matheus Loreto",
-      dueDate: "06/08/2026",
       hasAnamnesis: true,
+      firstPrescriptionBusinessDays: 7,
     });
     expect(message).toContain("avaliação de movimento");
-    expect(message).toContain("5 dias úteis");
+    expect(message).toContain("recebimento do material completo");
+    expect(message).toMatch(/2 dias úteis para .*avaliação/);
+    expect(message).toMatch(/7 dias úteis para .*primeira prescrição/);
+    expect(message).not.toMatch(/\d{2}\/\d{2}\/\d{4}|\d{4}-\d{2}-\d{2}/);
     expect(message).toContain("não precisa responder novamente");
   });
 

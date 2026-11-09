@@ -1,4 +1,3 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
@@ -579,14 +578,24 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
         .from("running_plans")
         .select("id, plan_name, sport, goal, duration_weeks, weeks, start_date, end_date, created_at")
         .eq("student_id", student.id)
+        .eq("company_id", student.company_id)
+        .or("status.is.null,status.in.(active,scheduled)")
+        .or(`start_date.is.null,start_date.lte.${todayIso}`)
+        .or(`end_date.is.null,end_date.gte.${todayIso}`)
+        .order("start_date", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
         .limit(4),
       supabase
         .from("nutrition_plans")
-        .select("id, objective, goal, start_date, end_date, plan, meals, created_at")
+        .select("id, goal, target_calories, target_protein_g, target_carbs_g, target_fat_g, status, start_date, end_date, meals, created_at")
         .eq("student_id", student.id)
+        .eq("company_id", student.company_id)
+        .or("status.is.null,status.ilike.active,status.ilike.ativo")
+        .or(`start_date.is.null,start_date.lte.${todayIso}`)
+        .or(`end_date.is.null,end_date.gte.${todayIso}`)
+        .order("start_date", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(1),
+        .limit(20),
       supabase
         .from("wearable_devices")
         .select("provider, device_name, is_active, last_sync_at, last_sync_status")
@@ -606,34 +615,33 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
         .limit(12),
     ]);
 
-  let cycles: any[] = [];
-  let workouts: any[] = [];
+  let activeCycle: any = null;
+  let activeWorkouts: any[] = [];
   if (enrollment?.id) {
     const { data: cyclesData } = await supabase
       .from("training_cycles")
       .select("id, cycle_number, start_date, end_date, status")
       .eq("enrollment_id", enrollment.id)
+      .is("superseded_at", null)
+      .is("superseded_by_cycle_id", null)
+      .or(`start_date.is.null,start_date.lte.${todayIso}`)
+      .or(`end_date.is.null,end_date.gte.${todayIso}`)
       .order("cycle_number");
-    cycles = cyclesData || [];
-
-    const cycleIds = cycles.map((cycle) => cycle.id).filter(Boolean);
-    if (cycleIds.length > 0) {
-      const { data: workoutsData } = await supabase
+    const cycles = (cyclesData || []).filter(cycle => !["superseded", "cancelled"].includes(cycle.status));
+    activeCycle = cycles.find(cycle => isDateInside(todayIso, cycle.start_date, cycle.end_date))
+      ?? cycles.find(cycle => cycle.status === "active"
+        && (!cycle.start_date || cycle.start_date <= todayIso) && (!cycle.end_date || cycle.end_date >= todayIso))
+      ?? null;
+    if (activeCycle) {
+      const { data: workouts } = await supabase
         .from("workouts")
         .select("id, title, name, description, day_of_week, cycle_id, exercises")
         .is("superseded_at", null)
-        .in("cycle_id", cycleIds);
-      workouts = workoutsData || [];
+        .eq("cycle_id", activeCycle.id);
+      activeWorkouts = workouts || [];
     }
   }
 
-  const activeCycle =
-    cycles.find((cycle) => isDateInside(todayIso, cycle.start_date, cycle.end_date)) ||
-    cycles.find((cycle) => cycle.status === "active") ||
-    cycles[0] ||
-    null;
-
-  const activeWorkouts = activeCycle ? workouts.filter((workout) => workout.cycle_id === activeCycle.id) : [];
   const todaysWorkout =
     activeWorkouts.find((workout) => workout.day_of_week === todayDow) ||
     activeWorkouts[0] ||
@@ -682,7 +690,7 @@ async function loadStudentContext(auth: AuthContext, opts: { allowMissingStudent
     achievements_earned: achievements || [],
     recent_checkins: checkins || [],
     cardio_plans: cardioPlans || [],
-    nutrition_plan: nutritionPlans?.[0] || null,
+    nutrition_plan: nutritionPlans?.find(plan => plan.status) ?? nutritionPlans?.[0] ?? null,
     wearable_devices: wearableDevices || [],
     wearable_metrics: wearableMetrics || [],
     wearable_workouts: wearableWorkouts || [],
@@ -823,7 +831,7 @@ function localActionFallback(
   };
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 

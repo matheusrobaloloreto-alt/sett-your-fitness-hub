@@ -19,15 +19,19 @@ function fixture(kind: "flow" | "intercycle" = "flow") {
         return { data: features, error: featureError ? { message: "synthetic unavailable" } : null };
       }
       equal(args._kind, kind); equal(args._owner_id, "owner"); equal(args._lease_token, "lease");
-      if (name === "begin_automation_dispatch") {
+      if (name === "prepare_automation_dispatch") {
         beginCalls++;
         if (!lease) return { error: { message: "dispatch_lease_lost" } };
         if (state === "in_flight") return { error: { message: "dispatch_uncertain" } };
         if (state === "acked") return { data: "acked", error: null };
-        state = "in_flight";
+        state = "prepared";
         return { data: state, error: null };
       }
-      if (name === "authorize_automation_dispatch") return { error: lease ? null : { message: "dispatch_lease_lost" } };
+      if (name === "authorize_automation_dispatch") {
+        if (!lease) return { error: { message: "dispatch_lease_lost" } };
+        state = "in_flight";
+        return { error: null };
+      }
       if (name === "ack_automation_dispatch") {
         if (!lease || ackFailure) return { error: { message: "synthetic checkpoint failure" } };
         equal(args._provider_message_id, "valid-receipt"); state = "acked";
@@ -93,11 +97,21 @@ for (const kind of ["flow", "intercycle"] as const) {
     const f = fixture(kind); let calls = 0; const original = globalThis.fetch;
     globalThis.fetch = (() => { calls++; throw new Error("stale worker sent"); }) as typeof fetch;
     try {
-      equal(await code(() => sendText({ ...f.args, prepare: async () => { f.expire(); } })), "dispatch_uncertain");
-      equal(calls, 0); equal(f.state(), "in_flight");
+      equal(await code(() => sendText({ ...f.args, prepare: async () => { f.expire(); } })), "dispatch_lease_lost");
+      equal(calls, 0); equal(f.state(), "prepared");
     } finally { globalThis.fetch = original; }
   });
 }
+Deno.test("failed preparation can retry without a provider call before authorization", async () => {
+  const f = fixture(); let calls = 0; const original = globalThis.fetch;
+  globalThis.fetch = (() => { calls++; return Promise.resolve(Response.json({ key: { id: "valid-receipt" } })); }) as typeof fetch;
+  try {
+    equal(await code(() => sendText({ ...f.args, prepare: async () => { throw new Error("synthetic_preflight"); } })), "synthetic_preflight");
+    equal(calls, 0); equal(f.state(), "prepared");
+    await sendText(f.args);
+    equal(calls, 1); equal(f.state(), "acked");
+  } finally { globalThis.fetch = original; }
+});
 Deno.test('fenced checkpoint delegates to authoritative DB clock and fails closed on refusal', async () => {
   let request: unknown;
   const admin={rpc:(name:string,args:unknown)=>{

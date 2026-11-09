@@ -30,6 +30,7 @@ interface RiskRow {
   tone: "red" | "amber";     // semáforo
   cycleEndsInDays?: number | null;
   scheduledStart?: boolean;
+  enrollmentId?: string;
 }
 const PAID = ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"];
 
@@ -149,7 +150,7 @@ export function AtRiskStudents({ readOnly = false, routePrefix = "admin" }: { re
           if (reassessDue) reasons.unshift(`Reavaliação devida (última há ${Math.floor((now - new Date(la).getTime()) / 86400000)}d)`);
           if (pain) reasons.unshift(`Dor: ${pain}`);
           out.push({
-            id: s.id, name: s.full_name, status, reasons, scheduledStart: coverage?.notStarted, chatId: chatByStudent[s.id], pain, cycleEndsInDays,
+            id: s.id, name: s.full_name, status, reasons, scheduledStart: coverage?.notStarted, chatId: chatByStudent[s.id], pain, cycleEndsInDays, enrollmentId: enrollment?.id,
             message: buildMessage(s.full_name, status, reasons, pain),
             tone: pain || status === "risco" ? "red" : "amber",
           });
@@ -171,7 +172,7 @@ export function AtRiskStudents({ readOnly = false, routePrefix = "admin" }: { re
     if (readOnly || !effectiveCompanyId) return;
     try {
       const renewal = row.status === 'renovacao' && !row.pain;
-      const link = renewal ? await createPlansLink(row.id) : '';
+      const link = renewal ? await createPlansLink(row.id, { enrollmentId: row.enrollmentId }) : '';
       await openStudentChat({
       navigate,
       routePrefix,

@@ -7,7 +7,7 @@ import ProductSettings from './ProductSettings';
 
 const mocks = vi.hoisted(() => ({
   auth: { role: 'admin', companyId: 'company-a' },
-  master: { isViewingCompany: false, viewingCompany: null },
+  master: { isViewingCompany: false, viewingCompany: null as { id: string; name: string } | null },
   fetch: vi.fn(), save: vi.fn(),
 }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => mocks.auth }));
@@ -17,9 +17,21 @@ vi.mock('@/lib/companyProductSettings', async (original) => ({
   fetchCompanyProductSettings: mocks.fetch,
   saveCompanyProductSettings: mocks.save,
 }));
-vi.mock('@/components/admin/CompanyAchievements', () => ({ default: () => <div>Conquistas</div> }));
-vi.mock('@/components/admin/CompanyCommercialSettings', () => ({ default: () => <div>Comercial preservado</div> }));
-vi.mock('@/components/admin/FormDefinitionManager', () => ({ default: () => <div>Formularios</div> }));
+vi.mock('@/components/admin/CompanyAchievements', () => ({
+  default: () => <label>Conquista em edição<input defaultValue="" /></label>,
+}));
+vi.mock('@/components/admin/CompanyCommercialSettings', () => ({
+  default: () => <label>Comercial preservado<input defaultValue="" /></label>,
+}));
+vi.mock('@/components/admin/FormDefinitionManager', async () => {
+  const { useState } = await import('react');
+  return {
+    default: function FormDefinitionManagerMock() {
+      const [title, setTitle] = useState('Título publicado');
+      return <label>Título<input value={title} onChange={event => setTitle(event.target.value)} /></label>;
+    },
+  };
+});
 
 describe('company product settings screen', () => {
   beforeEach(() => {
@@ -48,12 +60,29 @@ describe('company product settings screen', () => {
     await waitFor(() => expect(screen.getByLabelText('Após o vencimento do treino')).toHaveValue('hide_on_expiry'));
   }, 30000);
 
+  it('saves and reloads a birthday draft template for the selected company', async () => {
+    await act(async () => { render(<ProductSettings />); });
+    fireEvent.change(screen.getByLabelText('Evento'), { target: { value: 'birthday' } });
+    expect(screen.getByLabelText('Mensagem')).toHaveValue(DEFAULT_COMPANY_PRODUCT_SETTINGS.messages.birthday);
+    const birthday = 'Parabéns, {{primeiro_nome}}!';
+    fireEvent.change(screen.getByLabelText('Mensagem'), { target: { value: birthday } });
+    expect(screen.getByTestId('message-preview')).toHaveTextContent('Parabéns, Ana!');
+    await act(async () => { fireEvent.click(screen.getByText('Salvar', { selector: 'button' })); });
+    expect(screen.getByText('Versão 8')).toBeInTheDocument();
+    expect(mocks.save).toHaveBeenCalledExactlyOnceWith('company-a', expect.objectContaining({
+      messages: expect.objectContaining({ birthday }),
+    }), 7);
+    mocks.fetch.mockResolvedValue({ settings: mocks.save.mock.calls[0][1], version: 8 });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Recarregar configurações' })); });
+    expect(screen.getByLabelText('Mensagem')).toHaveValue(birthday);
+  });
+
   it('keeps drafts across URL tab changes and relocates the existing controls', async () => {
     render(<ProductSettings />);
     fireEvent.change(await screen.findByLabelText('Mensagem'), { target: { value: 'Rascunho preservado' } });
     expect(screen.queryByRole('button', { name: 'Operação' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Formulários' }));
-    expect(screen.getByLabelText('Prazo para avaliação e treino (dias úteis)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Prazo da primeira prescrição (dias úteis)')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Experiência' }));
     expect(screen.getByLabelText('Hora do lembrete diário')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sobre Push de novo treino publicado' })).toBeInTheDocument();
@@ -65,10 +94,61 @@ describe('company product settings screen', () => {
   });
   it('accepts a valid query tab and safely defaults an invalid tab', async () => {
     const view = rtlRender(<ProductSettings />, { wrapper: ({ children }) => <MemoryRouter initialEntries={['/admin/settings?tab=forms']}>{children}</MemoryRouter> });
-    expect(await screen.findByLabelText('Prazo para avaliação e treino (dias úteis)')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Prazo da primeira prescrição (dias úteis)')).toBeInTheDocument();
     view.unmount();
     rtlRender(<ProductSettings />, { wrapper: ({ children }) => <MemoryRouter initialEntries={['/admin/settings?tab=invalid']}>{children}</MemoryRouter> });
     expect(await screen.findByLabelText('Mensagem')).toBeInTheDocument();
+  });
+
+  it('preserves an unpublished form when visiting another settings section', async () => {
+    render(<ProductSettings />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Formulários' }));
+    const title = await screen.findByLabelText('Título', {}, { timeout: 8000 });
+    await waitFor(() => expect(title).toBeEnabled());
+    fireEvent.change(title, { target: { value: 'Meu formulário em edição' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Contatos' }));
+    expect(screen.queryByRole('textbox', { name: 'Título' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Formulários' }));
+    await waitFor(() => expect(screen.getByLabelText('Título')).toHaveValue('Meu formulário em edição'));
+  }, 15000);
+
+  it.each([
+    ['Identidade', 'Comercial preservado'],
+    ['Experiência', 'Conquista em edição'],
+    ['Prescrição', 'Chave da pergunta extra'],
+    ['Formulários', 'Título'],
+  ])('keeps the %s editor mounted across tabs and a central reload', async (tab, label) => {
+    render(<ProductSettings />);
+    fireEvent.click(await screen.findByRole('button', { name: tab }));
+    fireEvent.change(await screen.findByLabelText(label), { target: { value: 'rascunho local' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Contatos' }));
+    expect(screen.queryByRole('textbox', { name: label })).toBeNull();
+    mocks.fetch.mockResolvedValue({ settings: structuredClone(DEFAULT_COMPANY_PRODUCT_SETTINGS), version: 8 });
+    fireEvent.click(screen.getByRole('button', { name: 'Recarregar configurações' }));
+    await screen.findByText('Versão 8');
+    fireEvent.click(screen.getByRole('button', { name: tab }));
+    expect(await screen.findByLabelText(label)).toHaveValue('rascunho local');
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it('clears a mounted auxiliary draft when switching companies', async () => {
+    const { rerender } = render(<ProductSettings />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Identidade' }));
+    fireEvent.change(await screen.findByLabelText('Comercial preservado'), { target: { value: 'Empresa A' } });
+    mocks.auth = { role: 'admin', companyId: 'company-b' };
+    rerender(<ProductSettings />);
+    expect(await screen.findByLabelText('Comercial preservado')).toHaveValue('');
+    expect(mocks.fetch).toHaveBeenCalledWith('company-b');
+  });
+
+  it('marks central edits as pending until explicitly discarded', async () => {
+    render(<ProductSettings />);
+    fireEvent.change(await screen.findByLabelText('Mensagem'), { target: { value: 'Alteração local' } });
+    expect(screen.getByText('Alterações gerais pendentes.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Descartar alterações' }));
+    expect(screen.queryByText('Alterações gerais pendentes.')).toBeNull();
+    expect(screen.getByLabelText('Mensagem')).toHaveValue(DEFAULT_COMPANY_PRODUCT_SETTINGS.messages.weekly_contact);
+    expect(mocks.save).not.toHaveBeenCalled();
   });
 
   it('persists the selected company and expected version, then reflects the returned version', async () => {
@@ -92,11 +172,13 @@ describe('company product settings screen', () => {
     expect(screen.getByLabelText('Mensagem')).toHaveValue('Meu rascunho');
   });
 
-  it('does not load company configuration for students', () => {
-    mocks.auth = { role: 'student', companyId: 'company-a' };
+  it.each(['student', 'coordinator', 'trainer'])('does not load or expose save for %s', (role) => {
+    mocks.auth = { role, companyId: 'company-a' };
     render(<ProductSettings />);
     expect(screen.getByRole('alert')).toHaveTextContent('administrador');
     expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Salvar' })).toBeNull();
+    expect(mocks.save).not.toHaveBeenCalled();
   });
 
   it('requires a master to select a company before loading', () => {
@@ -104,6 +186,30 @@ describe('company product settings screen', () => {
     render(<ProductSettings />);
     expect(screen.getByText('Selecione uma empresa no painel master.')).toBeInTheDocument();
     expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it('loads and saves only the company selected by master', async () => {
+    mocks.auth = { role: 'master', companyId: 'default-company' };
+    mocks.master = { isViewingCompany: true, viewingCompany: { id: 'selected-company', name: 'Empresa selecionada' } };
+    render(<ProductSettings />);
+    fireEvent.change(await screen.findByLabelText('Mensagem'), { target: { value: 'Rascunho do master' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    await screen.findByText('Versão 8');
+    expect(mocks.fetch).toHaveBeenCalledExactlyOnceWith('selected-company');
+    expect(mocks.save).toHaveBeenCalledExactlyOnceWith('selected-company', expect.any(Object), 7);
+  });
+
+  it('preserves auxiliary editing if the central reload fails', async () => {
+    render(<ProductSettings />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Identidade' }));
+    const field = await screen.findByLabelText('Comercial preservado');
+    fireEvent.change(field, { target: { value: 'Rascunho comercial' } });
+    mocks.fetch.mockRejectedValueOnce(new Error('Falha de rede fictícia'));
+    fireEvent.click(screen.getByRole('button', { name: 'Recarregar configurações' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Falha de rede fictícia');
+    expect(screen.getByText('Versão 7')).toBeInTheDocument();
+    expect(field).toHaveValue('Rascunho comercial');
+    expect(mocks.save).not.toHaveBeenCalled();
   });
 
   it('does not apply an old tenant save response after changing company', async () => {

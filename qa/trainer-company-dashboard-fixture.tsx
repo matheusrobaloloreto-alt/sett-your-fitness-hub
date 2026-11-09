@@ -13,6 +13,7 @@ import TrainerDashboard from "../src/pages/trainer/TrainerDashboard";
 import { supabase } from "../src/integrations/supabase/client";
 import { MASTER_COMPANY_STORAGE_KEY } from "../src/lib/masterCompanyContext";
 import "../src/index.css";
+import "../src/components/professional-linen.css";
 
 const params = new URLSearchParams(window.location.search);
 const role = params.get("role") || "trainer";
@@ -47,6 +48,7 @@ const baseRows: Record<string, any[]> = {
     { id: companyId, name: "BN QA", tier: "standard", slug: "bn-qa" },
     { id: otherCompanyId, name: "Outro Tenant", tier: "standard", slug: "outro-tenant" },
   ],
+  role_permissions: [{ company_id: companyId, role: "trainer", module: "whatsapp", enabled: true }],
   user_roles: [
     { user_id: trainerId, role: "trainer" },
     { user_id: "10000000-0000-4000-8000-000000000002", role: "admin" },
@@ -252,6 +254,7 @@ const baseRows: Record<string, any[]> = {
     { id: "cycle-active-a", company_id: companyId, enrollment_id: "enroll-active-a", student_id: "student-active-a", cycle_number: 2, status: "active", start_date: "2026-08-08", end_date: "2026-09-16", prescribed_offline_at: null },
     { id: "cycle-next-a", company_id: companyId, enrollment_id: "enroll-active-a", student_id: "student-active-a", cycle_number: 3, status: "planned", start_date: "2026-09-17", end_date: "2026-10-28", prescribed_offline_at: "2026-09-01T12:00:00.000Z" },
     { id: "cycle-active-b", company_id: companyId, enrollment_id: "enroll-active-b", student_id: "student-active-b", cycle_number: 1, status: "active", start_date: "2026-08-09", end_date: "2026-09-17", prescribed_offline_at: null },
+    { id: "cycle-next-b", company_id: companyId, enrollment_id: "enroll-active-b", student_id: "student-active-b", cycle_number: 2, status: "planned", start_date: "2026-09-18", end_date: "2026-10-29", prescribed_offline_at: null },
     { id: "cycle-superseded", company_id: companyId, enrollment_id: "enroll-active-b", student_id: "student-active-b", cycle_number: 1, status: "superseded", start_date: "2026-08-01", end_date: "2026-09-01", prescribed_offline_at: null },
     { id: "cycle-other", company_id: otherCompanyId, enrollment_id: "enroll-other", student_id: "student-other-tenant", cycle_number: 1, status: "active", start_date: "2026-08-08", end_date: "2026-09-16", prescribed_offline_at: null },
   ],
@@ -296,11 +299,20 @@ const baseRows: Record<string, any[]> = {
       resolved_at: null,
     },
   ],
-  whatsapp_chats: [],
+  whatsapp_chats: [{
+    id: "chat-1", company_id: companyId, student_id: "student-active-b", contact_name: "Bruno Ativo",
+    students: { full_name: "Bruno Ativo", status: "active" }, cadence_muted: false, is_archived: false,
+    remote_jid: "5511999990002@s.whatsapp.net", created_at: "2026-09-01T12:00:00Z",
+    inbound: [{ timestamp: new Date(Date.now() - 48 * 3_600_000).toISOString() }],
+    outbound: [{ timestamp: new Date(Date.now() - 8 * 24 * 3_600_000).toISOString() }],
+  }],
   payments: [],
   workout_sessions: [],
   student_body_limitations: [],
-  workout_feedback: [],
+  workout_feedback: [
+    { id: "feedback-a", company_id: companyId, student_id: "student-active-a", workout_title: "Força A", created_at: "2026-09-12T12:00:00Z", trainer_replied_at: null, students: { full_name: "Ana Ativa" } },
+    { id: "feedback-b", company_id: companyId, student_id: "student-active-b", workout_title: "Força B", created_at: "2026-09-13T12:00:00Z", trainer_replied_at: null, students: { full_name: "Bruno Ativo" } },
+  ],
   cycle_feedback: [
     {
       id: "feedback-1",
@@ -313,9 +325,21 @@ const baseRows: Record<string, any[]> = {
       applied: false,
     },
   ],
-  student_anamneses: [],
-  functional_assessments: [],
+  student_anamneses: [{ id: "anamnesis-a", company_id: companyId, student_id: "student-active-a" }],
+  functional_assessments: [
+    { id: "assessment-draft-a", company_id: companyId, student_id: "student-active-a", status: "draft" },
+  ],
 };
+
+if (scenario === "first") {
+  const student = baseRows.students.find(row => row.id === "student-pending");
+  student.assigned_trainer_id = trainerId;
+  baseRows.functional_assessments.push({ id: "assessment-completed", company_id: companyId, student_id: student.id, status: "completed" });
+  baseRows.enrollments.push({
+    id: "enroll-first", company_id: companyId, student_id: student.id, trainer_id: trainerId,
+    status: "awaiting_training", students: { full_name: student.full_name, status: student.status },
+  });
+}
 
 const mutableLog = { writes: [] as string[], reads: [] as string[] };
 
@@ -468,7 +492,7 @@ function buildCompanyDashboardSnapshot(requestedCompanyId: string) {
       lead_name: null,
       student_status: "active",
       hours_since: 96,
-      last_inbound_at: "2026-09-10T12:00:00.000Z",
+      last_inbound_at: new Date(Date.now() - 4 * 86_400_000).toISOString(),
     }],
     cohortFeedback: scenario === "empty" ? [] : [{ bucket: "Detratores", alunos: 1, media_nps: 6, pct_ajuste: 100 }],
     atRiskStudents: scenario === "empty" ? [] : [{
@@ -513,10 +537,11 @@ class SupabaseQueryBuilder {
   or() { return this; }
 
   order(column: string, options?: { ascending?: boolean }) {
+    if (options && "referencedTable" in options) return this;
     this.orders.push({ column, ascending: options?.ascending !== false });
     return this;
   }
-  limit(value: number) { this.rowLimit = value; return this; }
+  limit(value: number, options?: { referencedTable?: string }) { if (!options?.referencedTable) this.rowLimit = value; return this; }
   range(from: number, to: number) { this.rangeFrom = from; this.rangeTo = to; return this; }
 
   maybeSingle() { this.wantsMaybeSingle = true; return this.execute(); }
@@ -545,10 +570,11 @@ class SupabaseQueryBuilder {
 
   private applyQuery(rows: any[]) {
     let result = rows.filter((row) => this.filters.every((filter) => {
+      if (filter.column.includes(".")) return true; // Embedded fixtures already contain their filtered child rows.
       const value = row[filter.column];
       if (filter.type === "eq") return value === filter.value;
       if (filter.type === "neq") return value !== filter.value;
-      if (filter.type === "is") return value === filter.value;
+      if (filter.type === "is") return (value ?? null) === filter.value;
       if (filter.type === "in") return Array.isArray(filter.value) && filter.value.includes(value);
       if (filter.type === "lte") return String(value) <= String(filter.value);
       if (filter.type === "gte") return String(value) >= String(filter.value);
@@ -599,6 +625,14 @@ Object.defineProperty(supabase, "from", {
   configurable: true,
   value: (table: string) => new SupabaseQueryBuilder(table),
 });
+Object.defineProperty(supabase, "channel", {
+  configurable: true,
+  value: () => {
+    const channel = { on: () => channel, subscribe: () => channel };
+    return channel;
+  },
+});
+Object.defineProperty(supabase, "removeChannel", { configurable: true, value: async () => "ok" });
 Object.defineProperty(supabase, "rpc", {
   configurable: true,
   value: (name: string, params?: any) => {
@@ -614,6 +648,23 @@ Object.defineProperty(supabase, "rpc", {
         ? new Promise((resolve) => window.setTimeout(() => resolve(response), 1_200))
         : Promise.resolve(response);
     }
+    if (name === "operational_contact_cadence_status") {
+      const data = params?._company_id === companyId
+        ? rowsForTable("whatsapp_chats")
+          .filter(chat => !params._student_ids || params._student_ids.includes(chat.student_id))
+          .map(chat => ({
+            chat_id: chat.id,
+            student_id: chat.student_id,
+            student_name: chat.students?.full_name,
+            first_unanswered_at: chat.inbound[0]?.timestamp,
+            last_team_message_at: chat.outbound[0]?.timestamp,
+            chat_created_at: chat.created_at,
+            unanswered: true,
+            without_team_message: true,
+          }))
+        : [];
+      return { order: () => ({ range: async (from: number, to: number) => ({ data: data.slice(from, to + 1), error: null }) }) };
+    }
     if (name === "contact_cadence") {
       return Promise.resolve({
         data: params?._company_id === companyId ? [{
@@ -625,7 +676,7 @@ Object.defineProperty(supabase, "rpc", {
           lead_name: null,
           student_status: "active",
           hours_since: 96,
-          last_inbound_at: "2026-09-10T12:00:00.000Z",
+          last_inbound_at: new Date(Date.now() - 4 * 86_400_000).toISOString(),
         }] : [],
         error: null,
       });
@@ -678,7 +729,7 @@ function FixtureApp() {
           <AuthProvider>
             <MasterProvider>
               <MemoryRouter initialEntries={[initialEntry]}>
-                <main className="min-h-screen bg-background p-4 text-foreground md:p-8">
+                <main className="sett-linen min-h-screen bg-background p-4 text-foreground md:p-8">
                   <Routes>
                     <Route path="/admin" element={<AdminDashboard />} />
                     <Route path="/coordinator" element={<CoordinatorDashboard />} />

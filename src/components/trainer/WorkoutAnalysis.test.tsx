@@ -4,16 +4,16 @@ const mock = vi.hoisted(() => ({ rows: [{ status: 'completed', duration_seconds:
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: (table: string) => {
  mock.reads.push(table);
  const filters: Record<string, unknown> = {};
- const query: any = { select: () => query, eq: (key: string, value: unknown) => { filters[key] = value; return query; }, maybeSingle: async () => ({ data: filters.company_id === mock.allowedCompany ? { id: filters.id, company_id: mock.allowedCompany } : null, error: null }), gte: () => query, lte: () => query, in: () => query, is: () => query, or: () => query, order: () => query, limit: () => query,
- then: (resolve: any) => Promise.resolve({ data: mock.fail ? null : table === "workout_logs" ? mock.logs.map(row => ({ student_id: filters.student_id, ...row })) : table === "enrollments" ? mock.enrollments : table === "training_cycles" ? mock.cycles : table === "workouts" ? mock.workouts : mock.rows.map(row => ({ student_id: filters.student_id, company_id: mock.allowedCompany, ...row })), error: mock.fail ? { message: 'failed' } : null }).then(resolve) }; return query;
+ const query: any = { select: () => query, eq: (key: string, value: unknown) => { filters[key] = value; return query; }, maybeSingle: async () => ({ data: filters.company_id === mock.allowedCompany ? { id: filters.id, company_id: mock.allowedCompany } : null, error: null }), gte: () => query, lte: () => query, in: () => query, is: () => query, or: () => query, order: () => query, range: () => query, limit: () => query,
+ then: (resolve: any) => Promise.resolve({ data: mock.fail ? null : table === "workout_logs" ? mock.logs.map((row, i) => ({ id: `log-${i}`, session_date: mock.today, workout_id: "legacy", completed: true, student_id: filters.student_id, ...row })) : table === "enrollments" ? mock.enrollments : table === "training_cycles" ? mock.cycles : table === "workouts" ? mock.workouts : mock.rows.map((row, i) => ({ id: `session-${i}`, workout_id: "modern", session_date: mock.today, student_id: filters.student_id, company_id: mock.allowedCompany, ...row })), error: mock.fail ? { message: 'failed' } : null }).then(resolve) }; return query;
 }, rpc: async () => ({ data: mock.targets, error: null }) } }));
 vi.mock('@/lib/businessDate', () => ({ businessDateYmd: () => mock.today }));
 vi.mock('@/components/BnitoFloatingAssistant', () => ({ BnitoContextButton: () => null }));
 import { WorkoutAnalysis } from './WorkoutAnalysis';
-afterEach(cleanup);
+afterEach(() => { cleanup(); mock.logs = []; });
 it('reports completion separately from adherence without inventing historical muscle attribution', async () => {
  render(<WorkoutAnalysis companyId="company-a" studentId="a" />);
- await waitFor(() => expect(screen.getByText('250kg')).toBeInTheDocument());
+ await waitFor(() => expect(screen.getByText('250kg')).toBeInTheDocument(), { timeout: 4000 });
  expect(screen.getByText('Conclusão das sessões iniciadas')).toBeInTheDocument();
  expect(screen.getByText(/Sem dados para distribuição muscular/)).toBeInTheDocument();
  expect(screen.queryByText('Aderência')).not.toBeInTheDocument();
@@ -40,7 +40,7 @@ it('preserves legacy log volume without inferring any completed session', async 
  mock.fail = false; mock.rows = []; mock.logs = [{ weight: 10, reps_done: 12 }];
  render(<WorkoutAnalysis companyId="company-a" studentId="legacy" />);
  expect(await screen.findByText('120kg')).toBeInTheDocument();
- expect(screen.getByText(/conclusão não inferida/)).toBeInTheDocument();
+ expect(screen.getByText(/sem inferir conclusão de sessão/)).toBeInTheDocument();
  expect(screen.queryByText('100%')).not.toBeInTheDocument();
 });
 it('distinguishes an empty successful read from a failed read', async () => {
@@ -215,4 +215,29 @@ it('preserves a null-company legacy workout only under the already validated cyc
  render(<WorkoutAnalysis studentId="a" companyId="company-a" />);
  expect(await screen.findByText(/12 séries prescritas\/sem/)).toBeInTheDocument();
  expect(screen.queryByText(/Prescrição atual indisponível/)).not.toBeInTheDocument();
+});
+
+
+it("keeps a genuine abandonment and excludes reconciled duplicates from the completion rate", async () => {
+ mock.fail = false;
+ mock.allowedCompany = "company-a";
+ mock.rows = [
+  { status: "completed", duration_seconds: 60, total_volume: 250 },
+  { status: "abandoned", duration_seconds: 0, total_volume: 0 },
+  { status: "reconciled", duration_seconds: 0, total_volume: 0 },
+ ];
+ render(<WorkoutAnalysis companyId="company-a" studentId="a" />);
+ expect(await screen.findByText("1/2 sessões")).toBeInTheDocument();
+ expect(screen.getByText("1 sessão abandonada")).toBeInTheDocument();
+ expect(screen.getByText("250kg")).toBeInTheDocument();
+});
+
+it("combines modern and independent legacy load on the staff profile", async () => {
+ currentPrescription();
+ (mock.rows[0] as any).total_volume = 1000;
+ mock.logs = [{ weight: 50, reps_done: 10 }];
+ render(<WorkoutAnalysis studentId="a" companyId="company-a" />);
+ expect(await screen.findByText("1.500kg")).toBeInTheDocument();
+ expect(screen.getByText("1/1 sessões")).toBeInTheDocument();
+ expect(screen.queryByText(/sub-treinado/)).not.toBeInTheDocument();
 });

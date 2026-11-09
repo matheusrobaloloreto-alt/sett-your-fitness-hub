@@ -151,10 +151,10 @@ function applyThemeModeClass(mode: PersonalThemeMode) {
   if (themeColor) themeColor.content = mode === "dark" ? "#101318" : "#1D2D5C";
 }
 
-export function applyPlatformTheme(settings: PlatformThemeColors, mode: PersonalThemeMode = resolveInitialPersonalThemeMode()) {
+export function applyPlatformTheme(settings: PlatformThemeColors, mode: PersonalThemeMode = resolveInitialPersonalThemeMode(), target?: HTMLElement) {
   if (typeof document === "undefined") return;
 
-  applyThemeModeClass(mode);
+  if (!target) applyThemeModeClass(mode);
 
   const background = parseHexToHsl(settings.background_color, { h: 60, s: 19, l: 98 });
   const foreground = parseHexToHsl(settings.text_color, { h: 0, s: 0, l: 4 });
@@ -191,7 +191,7 @@ export function applyPlatformTheme(settings: PlatformThemeColors, mode: Personal
       warning: { h: 32, s: 80, l: 42 },
     };
 
-  const root = document.documentElement;
+  const root = target ?? document.documentElement;
   root.style.setProperty("--background", hslString(palette.background));
   root.style.setProperty("--foreground", hslString(palette.foreground));
   root.style.setProperty("--primary", hslString(primary));

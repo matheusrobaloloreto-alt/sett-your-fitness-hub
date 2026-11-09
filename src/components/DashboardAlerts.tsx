@@ -8,12 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Cake, UserCheck, CalendarDays, AlertTriangle, Bell, Check, MessageCircle, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+import { fetchCompanyProductSettings } from "@/lib/companyProductSettings";
 import { buildStudentChatMap, openStudentChat, birthdayMessage } from "@/lib/studentChat";
 import { FUNNEL_STAGE_META, normalizeSalesStage, stageNextAction } from "@/lib/salesFunnelView";
 import { fiscalRegistrationValidation } from "@/lib/fiscalRegistration";
 import { useDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 import type { ReactNode } from "react";
+import { DashboardQueueState } from "@/components/dashboard/OperationalDashboardCards";
+import { businessDateYmd } from "@/lib/businessDate";
 
 interface Birthday { full_name: string; birth_date: string; student_id: string; isToday: boolean; day: number; }
 interface MissingWorkout { student_name: string; student_id: string; cycle_number: number; cycle_id: string; start_date: string; end_date: string; trainer_name?: string; }
@@ -62,6 +65,13 @@ interface Props {
   readOnly?: boolean;
   showRecentStudents?: boolean;
   birthdayCompanion?: ReactNode;
+  section?: "birthdays" | "extras";
+  studentIds?: ReadonlySet<string>;
+  birthdayLoading?: boolean;
+  birthdayError?: unknown;
+  agendaPath?: string;
+  allowStudentNavigation?: boolean;
+  allowBirthdayMessage?: boolean;
 }
 
 async function fetchAlerts(
@@ -97,6 +107,8 @@ async function fetchAlerts(
   }
 
   const results = await Promise.all(queries);
+  const failedResult = results.find(result => result.error);
+  if (failedResult) throw failedResult.error;
 
   const allTrainerIds = new Set<string>();
   const collectTrainerIds = (data: any[]) => {
@@ -112,8 +124,8 @@ async function fetchAlerts(
 
   // Aniversariantes do MÊS atual (usa 'T00:00:00' para evitar o drift de fuso já conhecido no projeto).
   const birthdays: Birthday[] = [];
-  const curMonth = today.getMonth();
-  const curDay = today.getDate();
+  const [, month, curDay] = businessDateYmd(today).split("-").map(Number);
+  const curMonth = month - 1;
   (results[0].data || []).forEach((s: any) => {
     if (!s.birth_date) return;
     const bd = new Date(`${s.birth_date}T00:00:00`);
@@ -196,7 +208,7 @@ async function fetchAlerts(
   return { birthdays, missingWorkouts, awaitingTrainer, awaitingTrainingDate, missingEnrollment, incompleteBilling, recentStudents };
 }
 
-export function DashboardAlerts({ trainerId, compact = false, readOnly = false, showRecentStudents = true, birthdayCompanion }: Props) {
+export function DashboardAlerts({ trainerId, compact = false, readOnly = false, showRecentStudents = true, birthdayCompanion, section, studentIds, birthdayLoading, birthdayError, agendaPath, allowStudentNavigation = !readOnly, allowBirthdayMessage = !readOnly }: Props) {
   const { role, companyId, user } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const navigate = useNavigate();
@@ -207,11 +219,11 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
   const snapshot = useDashboardSnapshot();
   const snapshotAlerts = readOnly ? snapshot?.alerts : null;
 
-  const { data: queriedAlerts } = useQuery({
-    queryKey: ["dashboard-alerts", trainerId ?? "all", effectiveCompanyId ?? "all"],
+  const { data: queriedAlerts, isLoading: alertsLoading, error: alertsError } = useQuery({
+    queryKey: ["dashboard-alerts", trainerId ?? "all", effectiveCompanyId ?? "all", user?.id, role],
     queryFn: () => fetchAlerts(trainerId, effectiveCompanyId),
     staleTime: 60_000,
-    enabled: !readOnly,
+    enabled: !readOnly && !!effectiveCompanyId,
   });
 
   const { data: queriedPendingActions = [] } = useQuery({
@@ -227,7 +239,7 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
       return (data as any[]) || [];
     },
     staleTime: 30_000,
-    enabled: !readOnly && !!user?.id,
+    enabled: !readOnly && section !== "birthdays" && !!user?.id && !!effectiveCompanyId,
   });
 
   const resolveAlert = async (id: string) => {
@@ -237,7 +249,7 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
 
   const alerts = readOnly ? snapshotAlerts : queriedAlerts;
   const pendingActions = readOnly ? (snapshotAlerts?.pendingActions ?? []) : queriedPendingActions;
-  const birthdays = alerts?.birthdays ?? [];
+  const birthdays = section === "extras" ? [] : (alerts?.birthdays ?? []).filter(row => !studentIds || studentIds.has(row.student_id));
   const missingWorkouts: MissingWorkout[] = [];
   const awaitingTrainer = alerts?.awaitingTrainer ?? [];
   const awaitingTrainingDate = alerts?.awaitingTrainingDate ?? [];
@@ -251,29 +263,37 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
     if (readOnly) return;
     navigate(target);
   };
-  const goToStudent = (studentId: string) => navigateWhenInteractive(`/${safeRoutePrefix}/students/${studentId}`);
+  const goToStudent = (studentId: string) => allowStudentNavigation && navigate(`/${safeRoutePrefix}/students/${studentId}`);
 
   // Mapa aluno→conversa para o botão de mensagem de aniversário (abre o chat com a mensagem pronta).
   const { data: studentChatMap } = useQuery({
     queryKey: ["student-chat-map", effectiveCompanyId ?? "all"],
     queryFn: () => buildStudentChatMap(effectiveCompanyId),
     staleTime: 60_000,
-    enabled: !readOnly,
+    enabled: !readOnly && allowBirthdayMessage && section !== "extras" && !!effectiveCompanyId,
   });
-  const sendBirthday = (studentId: string, fullName: string) => {
-    if (readOnly) return;
+  const { data: birthdaySettings, isFetching: birthdayTemplateLoading } = useQuery({
+    queryKey: ["birthday-message-template", effectiveCompanyId, user?.id],
+    queryFn: () => fetchCompanyProductSettings(effectiveCompanyId!),
+    enabled: !readOnly && allowBirthdayMessage && birthdays.length > 0 && !!effectiveCompanyId,
+    retry: false,
+    select: ({ settings }) => ({ template: settings.messages.birthday, companyName: settings.brand.company_name }),
+  });
+  const openBirthdayDraft = (studentId: string, fullName: string) => {
+    if (readOnly || !allowBirthdayMessage || !effectiveCompanyId || birthdayTemplateLoading) return;
     void openStudentChat({
       navigate,
       routePrefix: safeRoutePrefix,
+      companyId: effectiveCompanyId,
       chatId: studentChatMap?.[studentId],
       studentId,
-      message: birthdayMessage(fullName),
+      message: birthdayMessage(fullName, birthdaySettings?.template, birthdaySettings?.companyName),
       onNoChat: (m) => { void navigator.clipboard?.writeText(m); toast.success("Aluno sem WhatsApp — mensagem de aniversário copiada."); },
-    });
+    }).catch(() => toast.error("Não foi possível abrir o rascunho de aniversário."));
   };
 
   const hasContent = pendingActions.length > 0 || birthdays.length > 0 || missingWorkouts.length > 0 || awaitingTrainer.length > 0 || awaitingTrainingDate.length > 0 || missingEnrollment.length > 0 || incompleteBilling.length > 0 || recentStudents.length > 0;
-  if (!hasContent) return null;
+  if (!hasContent && section !== "birthdays") return null;
 
   const itemClass = "flex items-center justify-between p-2 rounded-lg cursor-pointer hover:brightness-110 transition-all";
 
@@ -398,12 +418,14 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
                     <Check className="h-4 w-4" />
                   </Button>
                 )}
-                {item.birthday && !readOnly && (
+                {item.birthday && !readOnly && allowBirthdayMessage && (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-7 px-2 text-xs shrink-0 border-primary/40 text-primary hover:bg-primary/5"
-                    onClick={() => sendBirthday(item.birthday.student_id, item.birthday.full_name)}
+                    disabled={birthdayTemplateLoading}
+                    aria-label="Abrir rascunho de aniversário"
+                    onClick={() => openBirthdayDraft(item.birthday.student_id, item.birthday.full_name)}
                   >
                     <MessageCircle className="h-3.5 w-3.5" />
                   </Button>
@@ -420,6 +442,48 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
       </Card>
     );
   }
+
+  const birthdayCard = (
+    <Card className="bg-card border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-primary text-lg flex items-center gap-2">
+              <Cake className="h-5 w-5" /><span>Aniversariantes</span>
+              {agendaPath && <Button className="ml-auto" variant="outline" size="sm" onClick={() => navigate(agendaPath)}>Ver agenda</Button>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {birthdayLoading || birthdayError || alertsLoading || alertsError || !birthdays.length ? (
+              <DashboardQueueState loading={birthdayLoading || alertsLoading} error={birthdayError || alertsError} empty="Nenhum aniversário neste mês." />
+            ) : <div className="space-y-2 max-h-[260px] overflow-auto">
+              {birthdays.map((b) => (
+                <div key={b.student_id} className={`${itemClass} bg-secondary/50 border border-border`} onClick={() => goToStudent(b.student_id)}>
+                  <div className="min-w-0">
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="text-sm font-sans text-foreground truncate">{b.full_name}</span>
+                      <AthleticClubStar studentId={b.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                    </span>
+                    <span className={`text-xs font-sans font-medium ${b.isToday ? "text-primary" : "text-muted-foreground"}`}>
+                      {b.isToday ? "🎉 Hoje!" : `dia ${b.day}`}
+                    </span>
+                  </div>
+                  {!readOnly && allowBirthdayMessage && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs shrink-0 border-primary/40 text-primary hover:bg-primary/5"
+                      disabled={birthdayTemplateLoading}
+                      onClick={(e) => { e.stopPropagation(); openBirthdayDraft(b.student_id, b.full_name); }}
+                    >
+                      <MessageCircle className="h-3.5 w-3.5 mr-1" /> Mensagem
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>}
+          </CardContent>
+          </Card>
+  );
+  if (section === "birthdays") return birthdayCard;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -615,43 +679,10 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
         </Card>
       )}
 
-      {(birthdays.length > 0 || birthdayCompanion) && (
+      {section !== "extras" && (birthdays.length > 0 || birthdayCompanion) && (
         <div className="grid grid-cols-1 gap-4 lg:col-span-3 lg:grid-cols-2">
           {birthdayCompanion && <div className={birthdays.length > 0 ? "" : "lg:col-span-2"}>{birthdayCompanion}</div>}
-          {birthdays.length > 0 && <Card className="bg-card border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-primary text-lg flex items-center gap-2">
-              <Cake className="h-5 w-5" />ANIVERSÁRIOS DO MÊS
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2 max-h-[260px] overflow-auto">
-              {birthdays.map((b, i) => (
-                <div key={i} className={`${itemClass} bg-secondary/50 border border-border`} onClick={() => goToStudent(b.student_id)}>
-                  <div className="min-w-0">
-                    <span className="inline-flex min-w-0 items-center gap-1.5">
-                      <span className="text-sm font-sans text-foreground truncate">{b.full_name}</span>
-                      <AthleticClubStar studentId={b.student_id} companyId={effectiveCompanyId} className="shrink-0" />
-                    </span>
-                    <span className={`text-xs font-sans font-medium ${b.isToday ? "text-primary" : "text-muted-foreground"}`}>
-                      {b.isToday ? "🎉 Hoje!" : `dia ${b.day}`}
-                    </span>
-                  </div>
-                  {!readOnly && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-xs shrink-0 border-primary/40 text-primary hover:bg-primary/5"
-                      onClick={(e) => { e.stopPropagation(); sendBirthday(b.student_id, b.full_name); }}
-                    >
-                      <MessageCircle className="h-3.5 w-3.5 mr-1" /> Mensagem
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-          </Card>}
+          {birthdays.length > 0 && birthdayCard}
         </div>
       )}
 

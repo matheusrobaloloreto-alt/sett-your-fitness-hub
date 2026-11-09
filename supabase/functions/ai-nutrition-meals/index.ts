@@ -2,7 +2,7 @@
 // plano nutricional já existente (macros/objetivo/restrições) + anamnese (nº de refeições, horários,
 // horário de treino). Função NOVA e ISOLADA: NÃO toca a ai-nutrition-plan (que está num estado de
 // schema inconsistente). Idempotente: se o plano já tem meals, devolve o que existe.
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { businessDateYmd } from "../_shared/business-date.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import { HttpError } from "../_shared/tenant-auth.ts";
@@ -21,24 +21,12 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 const clean = (s: string) => (s || "").replace(/[^\x20-\x7EÀ-ſ\n]/g, "").slice(0, 4000);
-const businessDateYmd = (date = new Date()) => {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${value.year}-${value.month}-${value.day}`;
-};
-
 async function getClaims(req: Request) {
   const auth = req.headers.get("Authorization");
   if (!auth?.startsWith("Bearer ")) return null;
   const supa = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { headers: { Authorization: auth } } });
-  const { data, error } = await supa.auth.getClaims(auth.replace("Bearer ", ""));
-  if (error || !data?.claims) return null;
-  return data.claims;
+  const { data, error } = await supa.auth.getUser(auth.slice("Bearer ".length));
+  return error || !data?.user ? null : { sub: data.user.id };
 }
 
 // Fallback determinístico (sem IA) — garante que o aluno sempre veja refeições coerentes.
@@ -67,7 +55,7 @@ function sanitizeMeals(meals: any[]) {
   }));
 }
 
-serve(async (req) => {
+export async function handleNutritionMeals(req: Request) {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const claims = await getClaims(req);
   if (!claims?.sub) return json({ error: "Unauthorized" }, 401);
@@ -83,16 +71,14 @@ serve(async (req) => {
     // Autorização: o próprio aluno (students.user_id = sub), master, ou staff da mesma empresa.
     const { data: student } = await db.from("students").select("id, company_id, user_id, weight_kg").eq("id", student_id).maybeSingle();
     if (!student) return json({ error: "Aluno não encontrado" }, 404);
-    const isOwner = student.user_id === claims.sub;
-    let allowed = isOwner;
-    if (!allowed) {
-      const [{ data: isMaster }, { data: userCompany }] = await Promise.all([
-        db.rpc("has_role", { _user_id: claims.sub, _role: "master" }),
-        db.rpc("get_user_company_id", { _user_id: claims.sub }),
-      ]);
-      allowed = !!isMaster || (!!userCompany && userCompany === student.company_id);
+    if (student.user_id !== claims.sub) {
+      const staff = await db.rpc("is_company_staff", {
+        _user_id: claims.sub,
+        _company_id: student.company_id,
+      });
+      if (staff.error) throw new HttpError(503, "Não foi possível verificar o acesso da equipe.");
+      if (staff.data !== true) return json({ error: "Forbidden" }, 403);
     }
-    if (!allowed) return json({ error: "Forbidden" }, 403);
     await requireCompanyFeature(db, student.company_id, "hasPrescription");
 
     // Anamnese (nº de refeições, horários, treino).
@@ -149,12 +135,15 @@ serve(async (req) => {
       const write = await db.from("nutrition_plans").insert(persistencePayload).select("*").maybeSingle();
       if (write.error) throw write.error;
       const savedId = (write.data as any)?.id || persistencePayload.id;
-      // Um único plano pode ser vigente. Os anteriores continuam íntegros e
-      // auditáveis; apenas deixam de disputar a visualização atual.
+      // O upload substitui os planos vigentes. Planos futuros continuam
+      // agendados pela data de início, mesmo quando seu status é ativo.
       const retired = await db.from("nutrition_plans")
         .update({ status: "inactive", end_date: today })
         .eq("student_id", student_id)
+        .eq("company_id", student.company_id)
         .eq("status", "active")
+        .or(`start_date.is.null,start_date.lte.${today}`)
+        .or(`end_date.is.null,end_date.gte.${today}`)
         .neq("id", savedId);
       if (retired.error) {
         console.warn("ai-nutrition-meals: unable to retire previous active plans", retired.error.message);
@@ -274,4 +263,6 @@ Retorne APENAS JSON válido, sem texto extra:
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "Erro inesperado" }, e instanceof HttpError ? e.status : 500);
   }
-});
+}
+
+if (import.meta.main) Deno.serve(handleNutritionMeals);

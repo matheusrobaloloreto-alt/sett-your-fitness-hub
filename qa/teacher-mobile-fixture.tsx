@@ -17,6 +17,7 @@ import WorkoutBuilder from "../src/pages/admin/WorkoutBuilder";
 import PrescriptionStudio from "../src/pages/admin/PrescriptionStudio";
 import AdminAgenda from "../src/pages/admin/AdminAgenda";
 import { supabase } from "../src/integrations/supabase/client";
+import { unrestrictedMasterFeatures } from "../src/lib/companyFeatureEntitlements";
 import "../src/index.css";
 
 const companyId = "20000000-0000-4000-8000-000000000001";
@@ -222,6 +223,21 @@ const rows: Record<string, any[]> = {
   whatsapp_chat_labels: [],
 };
 
+const hasStrengthDraft = fixtureParams.get("strengthDraft") === "1";
+if (hasStrengthDraft) {
+  rows.prescription_bundles.push({
+    id: "studio-bundle-qa", company_id: companyId, student_id: "student-mobile-1",
+    training_cycle_id: "cycle-mobile-1", status: "draft", studio_strength_draft: true,
+    studio_strength_snapshot: { start_date: "2026-09-03", end_date: "2026-10-14", bundle_id: null },
+  });
+  rows.ai_strength_plans.push({
+    id: "studio-draft-qa", bundle_id: "studio-bundle-qa", company_id: companyId, student_id: "student-mobile-1",
+    studio_draft_cycle_id: "cycle-mobile-1", updated_at: fixtureNow,
+    plan: { cycle_name: "Rascunho recuperado QA", workouts: [{ name: "Treino preservado QA",
+      exercises: [{ exercise_id: "exercise-mobile-1", exercise_name: "Remada QA", sets: 3, reps: 10 }] }] },
+  });
+}
+
 const log = { writes: [] as string[], invokes: [] as string[], reads: [] as string[] };
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const valueAt = (row: any, column: string) => column.split(".").reduce((acc, key) => acc?.[key], row);
@@ -322,7 +338,23 @@ Object.defineProperty(supabase, "rpc", {
   configurable: true,
   value: (name: string, params?: Record<string, unknown>) => {
     if (name === "get_user_role") return Promise.resolve({ data: fixtureRole, error: null });
+    if (name === "get_company_feature_entitlements" && params?._company_id === companyId) {
+      return Promise.resolve({ data: {
+        company_id: companyId, tier: "advanced", source: "legacy", version: 0,
+        catalog_version: null, adopted_tier: null, features: unrestrictedMasterFeatures,
+      }, error: null });
+    }
     if (name === "has_staff_permission") return Promise.resolve({ data: true, error: null });
+    if (name === "publish_studio_strength_draft" && hasStrengthDraft) {
+      const attempts = log.writes.filter(write => write.startsWith(`${name}:rpc:`)).length;
+      log.writes.push(`${name}:rpc:${JSON.stringify(params ?? {})}`);
+      if (attempts === 0) return Promise.resolve({ data: null, error: { message: "connection interrupted" } });
+      return Promise.resolve({
+        data: { cycle_id: "cycle-mobile-1", bundle_id: "studio-bundle-qa", strength_plan_id: "studio-draft-qa",
+          revision_id: "studio-revision-qa", workouts_created: 1, current: false, scheduled: true, replayed: true },
+        error: null,
+      });
+    }
     if (name === "replace_cycle_workout_revision") {
       log.writes.push(`${name}:rpc:${JSON.stringify(params ?? {})}`);
       const workouts = Array.isArray(params?.p_workouts) ? params.p_workouts : [];
@@ -402,8 +434,8 @@ function ReadyRoutes() {
           <Route path="/coordinator/registration" element={<RegistrationManager />} />
           <Route path="/master/registration" element={<RegistrationManager />} />
           <Route path="/trainer/whatsapp-chat" element={<WhatsAppChat />} />
-          <Route path="/trainer/aluno/:id" element={<StudentDetail />} />
-          <Route path="/trainer/students/:id" element={<StudentHub />} />
+          <Route path="/admin/aluno/:id" element={<StudentHub />} />
+          <Route path="/trainer/students/:id" element={<StudentDetail />} />
           <Route path="/trainer/workout/:cycleId" element={<WorkoutBuilder />} />
           <Route path="/trainer/studio" element={<PrescriptionStudio embeddedStudentId="student-mobile-1" />} />
           <Route path="/trainer/agenda" element={<AdminAgenda />} />

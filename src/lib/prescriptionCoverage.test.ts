@@ -40,6 +40,21 @@ describe('shared prescription coverage projection', () => {
   const result = projectPrescriptionCoverage({ ...context, cycles: [cycle({ has_usable_workouts: true }), cycle({ id: 'duplicate', cycle_number: 19, start_date: '2026-01-02' })] });
   expect(result.currentSlot?.state).toBe('review');
   expect(result.hasCurrentWorkout).toBe(false);
+  expect(result.currentWorkoutCycleIds).toEqual([]);
+ });
+ it('preserves historical overlap warnings without hiding the only cycle covering today', () => {
+  const past = cycle({ id: 'past', end_date: '2026-01-10', has_usable_workouts: true });
+  const current = cycle({ start_date: '2026-01-10', has_usable_workouts: true });
+  const result = projectPrescriptionCoverage({ ...context, cycles: [past, current] });
+  expect(result.currentSlot?.state).toBe('review');
+  expect(result.hasCurrentWorkout).toBe(true);
+  expect(result.currentWorkoutCycleIds).toEqual([current.id]);
+ });
+ it('keeps timestamp-only supersession in history and out of current coverage', () => {
+  const replaced = cycle({ superseded_at: '2026-01-15T00:00:00Z', has_usable_workouts: true });
+  const result = projectPrescriptionCoverage({ ...context, cycles: [replaced] });
+  expect(result.historyCycles).toEqual([replaced]);
+  expect(result.currentWorkoutCycleIds).toEqual([]);
  });
  it('keeps missing reads explicit and never treats an empty result as confirmed coverage', () => {
   const result = projectPrescriptionCoverage({ ...context, cycles: [], readError: true });

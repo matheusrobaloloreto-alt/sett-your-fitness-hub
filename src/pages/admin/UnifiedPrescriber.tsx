@@ -9,6 +9,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { resolveStudioAnamnesis } from "@/lib/preRegistrationData";
+import { separateCurrentPain, splitLegacyClinicalHistory } from "../../../supabase/functions/_shared/effective-anamnesis";
 import { useMaster } from "@/contexts/MasterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,7 +32,7 @@ import {
   buildBnitoOrchestrationPlan,
   buildPrescriptionIntegration,
   formatPrescriptionIntegrationSummary,
-} from "@/lib/prescriptionIntegration";
+} from "../../../supabase/functions/_shared/prescription/integration";
 import { emitBenitoProductEvent } from "@/lib/benitoProductEvents";
 
 interface Student { id: string; full_name: string; }
@@ -105,6 +107,9 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
   const [studentId, setStudentId]   = useState("");
   const [anamnese, setAnamnese]     = useState<Anamnese>(DEFAULT_ANAMNESE);
   const [anamneseId, setAnamneseId] = useState<string | null>(null);
+  const [anamneseRevision, setAnamneseRevision] = useState<string | null>(null);
+  const [legacyPain, setLegacyPain] = useState<string>();
+  const [currentPain, setCurrentPain] = useState<unknown>();
   const [assessmentExists, setAssessmentExists] = useState(false);
   const [assessment, setAssessment] = useState<any>(null);
   const [modalities, setModalities] = useState<Set<Modality>>(new Set(["musculacao"]));
@@ -138,12 +143,27 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
   }, [effectiveCompanyId]);
 
   useEffect(() => {
-    if (!studentId) return;
+    if (!studentId || !companyId) return;
+    let active = true;
+    setAnamneseId(null);
+    setAnamneseRevision(null);
+    setLegacyPain(undefined);
+    setCurrentPain(undefined);
+    setAnamnese(DEFAULT_ANAMNESE);
     (async () => {
-      const { data } = await supabase.from("student_anamneses")
-        .select("*").eq("student_id", studentId).maybeSingle();
+      const { data, error: loadError } = await supabase.from("student_anamneses")
+        .select("*").eq("student_id", studentId).eq("company_id", companyId).maybeSingle();
+      if (!active) return;
+      if (loadError) {
+        setError("Não foi possível carregar a anamnese para edição.");
+        return;
+      }
       if (data) {
         setAnamneseId(data.id);
+        setAnamneseRevision(data.updated_at);
+        const clinical = splitLegacyClinicalHistory(data.injuries);
+        setLegacyPain(clinical.currentPain);
+        setCurrentPain(separateCurrentPain(data).current_pain);
         setAnamnese({
           age: data.age?.toString() ?? "",
           body_fat_percent: data.body_fat_percent?.toString() ?? "",
@@ -166,7 +186,7 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
           cardio_goal: data.cardio_goal ?? "",
           stress_score: data.stress_score?.toString() ?? "",
           sleep_quality: data.sleep_quality?.toString() ?? "",
-          injuries: data.injuries ?? "",
+          injuries: String(clinical.injuries ?? ""),
           notes: data.notes ?? "",
         });
       } else {
@@ -178,10 +198,12 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
         .eq("student_id", studentId)
         .order("created_at", { ascending: false })
         .limit(1).maybeSingle();
+      if (!active) return;
       setAssessment(assess);
       setAssessmentExists(!!assess);
     })();
-  }, [studentId]);
+    return () => { active = false; };
+  }, [studentId, companyId]);
 
   useEffect(() => {
     if (modalities.has("corrida")) setOpen(o => ({ ...o, cardio: true }));
@@ -235,15 +257,22 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
       cardio_goal: anamnese.cardio_goal,
       stress_score: anamnese.stress_score ? Number(anamnese.stress_score) : null,
       sleep_quality: anamnese.sleep_quality ? Number(anamnese.sleep_quality) : null,
-      injuries: anamnese.injuries, notes: anamnese.notes,
+      injuries: [anamnese.injuries, legacyPain && `Dor atual: ${legacyPain}`].filter(Boolean).join(" | "),
+      notes: anamnese.notes,
     };
     if (anamneseId) {
-      await supabase.from("student_anamneses").update(payload).eq("id", anamneseId);
-      return anamneseId;
+      const update = supabase.from("student_anamneses").update(payload)
+        .eq("id", anamneseId).eq("company_id", companyId).eq("student_id", studentId);
+      const guarded = anamneseRevision == null ? update.is("updated_at", null) : update.eq("updated_at", anamneseRevision);
+      const { data, error: updateError } = await guarded.select("id, updated_at").maybeSingle();
+      if (updateError || !data) throw new Error(updateError?.message || "A anamnese mudou. Reabra o aluno antes de editar.");
+      setAnamneseRevision(data.updated_at);
+      return data.id;
     }
-    const { data, error: e } = await supabase.from("student_anamneses").insert(payload).select("id").single();
+    const { data, error: e } = await supabase.from("student_anamneses").insert(payload).select("id, updated_at").single();
     if (e) throw new Error(e.message);
     setAnamneseId(data.id);
+    setAnamneseRevision(data.updated_at);
     return data.id;
   }
 
@@ -325,6 +354,7 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
 
     try {
       const savedAnamneseId = await saveAnamnese();
+      const effectiveAnamnesis = await resolveStudioAnamnesis({ studentId, companyId });
 
       const { data: latestAssessment } = await supabase
         .from("functional_assessments").select("id, assessment_json, report_text, created_at")
@@ -340,7 +370,7 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
           }
         : null;
       const integrationCtx = buildPrescriptionIntegration({
-        anamnese: { ...anamnese, id: savedAnamneseId },
+        anamnese: effectiveAnamnesis,
         assessment: assessmentCtx,
         assessmentId: latestAssessment?.id,
         assessmentCreatedAt: latestAssessment?.created_at,
@@ -365,7 +395,7 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
               sport: anamnese.sport,
             } : null,
             assessment_context: assessmentCtx,
-            anamnese_context: { ...anamnese, id: savedAnamneseId },
+            anamnese_context: effectiveAnamnesis,
             prescription_integration: integrationCtx,
             bnito_orchestration: orchestrationCtx,
           },
@@ -379,7 +409,7 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
         startPrescriptionReview();
         const validation = await validateStrengthPlan(
           strengthPlan,
-          { ...anamnese, id: savedAnamneseId },
+          effectiveAnamnesis,
           assessmentCtx,
         );
         if (validation?.status === "blocked" || (validation?.blockers || []).length > 0) {
@@ -419,7 +449,7 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
               })) ?? [],
             } : null,
             assessment_context: assessmentCtx,
-            anamnese_context: { ...anamnese, id: savedAnamneseId },
+            anamnese_context: effectiveAnamnesis,
             prescription_integration: integrationCtx,
             bnito_orchestration: orchestrationCtx,
           },
@@ -595,9 +625,12 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
                     <SS value={anamnese.activity_level} onChange={(v: string) => set("activity_level", v)}
                       opts={[["sedentario","Sedentário"],["leve","Leve"],["moderado","Moderado"],["muito_ativo","Muito ativo"],["extremo","Extremo"]]} />
                   </F>
-                  <F label="Lesões / restrições" span="col-span-2 md:col-span-3">
-                    <Textarea className="text-sm min-h-[60px]" value={anamnese.injuries} onChange={(e: any) => set("injuries", e.target.value)} placeholder="Ex: dor lombar EVA 2, ombro D sensível" />
+                  <F label="Histórico de lesões / restrições" span="col-span-2 md:col-span-3">
+                    <Textarea className="text-sm min-h-[60px]" value={anamnese.injuries} onChange={(e: any) => set("injuries", e.target.value)} placeholder="Ex: cirurgia anterior no ombro" />
                   </F>
+                  {currentPain != null && <F label="Dor atual registrada" span="col-span-2 md:col-span-3">
+                    <p className="text-sm">{currentPain === false ? "Não relatada" : String(currentPain)}</p>
+                  </F>}
                 </Section>
 
                 <Section id="training" label="Treino">

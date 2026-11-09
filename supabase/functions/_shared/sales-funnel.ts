@@ -45,11 +45,14 @@ export function buildPaymentLinkMessage(fullName: string, paymentUrl: string): s
   return `Oi, ${firstName(fullName)}! Seu cadastro foi concluído. Agora escolha seu plano e faça o pagamento com segurança pelo Asaas: ${paymentUrl}`;
 }
 
+const ASSESSMENT_BUSINESS_DAYS = 2;
+
 export function buildFiscalRegistrationMessage(fullName: string, registrationUrl: string): string {
   return [
     `Oi, ${firstName(fullName)}! Vamos seguir com seu cadastro com a nossa equipe.`,
     `Neste link você completa os dados fiscais necessários para a nota e escolhe seu plano: ${registrationUrl}`,
-    "Depois, o pagamento é feito com segurança pelo Pix do Asaas. Assim que ele confirmar, você recebe as instruções da Avaliação de Movimento e o prazo para avaliação e início do treino é de até 5 dias úteis.",
+    "O pagamento é feito com segurança pelo Pix do Asaas. Após o pagamento ser confirmado, você recebe as instruções da avaliação de movimento.",
+    `Após o recebimento do material completo, a equipe tem até ${ASSESSMENT_BUSINESS_DAYS} dias úteis para concluir a avaliação. O prazo da primeira prescrição também começa a contar a partir desse recebimento.`,
   ].join("\n\n");
 }
 
@@ -63,8 +66,8 @@ export function buildPreRegistrationConfirmationMessage(fullName: string, follow
 
 export function buildAssessmentOnboardingMessage(args: {
   fullName: string;
-  dueDate: string;
   hasAnamnesis: boolean;
+  firstPrescriptionBusinessDays: number;
 }): string {
   const anamnesisLine = args.hasAnamnesis
     ? "Sua anamnese já está registrada, então você não precisa responder novamente."
@@ -73,7 +76,7 @@ export function buildAssessmentOnboardingMessage(args: {
     `Oi, ${firstName(args.fullName)}! Pagamento confirmado e seu plano já está ativo.`,
     anamnesisLine,
     "O próximo passo é a avaliação de movimento. A equipe vai enviar as instruções e acompanhar seu envio por aqui.",
-    `O prazo para concluir a avaliação e liberar o início do treino é de até 5 dias úteis, com previsão até ${args.dueDate}.`,
+    `Após o recebimento do material completo, a equipe tem até ${ASSESSMENT_BUSINESS_DAYS} dias úteis para concluir a avaliação de movimento e até ${Math.max(ASSESSMENT_BUSINESS_DAYS, args.firstPrescriptionBusinessDays)} dias úteis para entregar a primeira prescrição de treino.`,
   ].join("\n\n");
 }
 
@@ -160,21 +163,37 @@ export async function sendFunnelWhatsAppMessage(args: {
   fullName: string;
   phone: string | null;
   countryCode?: string | null;
-  text: string;
   eventType: string;
   eventKey: string;
   payload?: Record<string, unknown>;
   templateValues?: Record<string, string>;
-}): Promise<FunnelMessageResult> {
+} & ({ text: string } | { eventType: "assessment_instructions_sent"; text?: undefined })): Promise<FunnelMessageResult> {
   const claimed = await claimFunnelEvent(args.admin, args);
   if (!claimed) return { sent: true, reason: "already_processed" };
 
   try {
     await requireCompanyFeature(args.admin as unknown as FeatureEntitlementClient, args.companyId, "hasWhatsApp");
-    const event = ({ fiscal_registration_link_sent: 'fiscal_invite', payment_link_sent: 'payment_link', assessment_instructions_sent: 'assessment_onboarding' } as Record<string, string>)[args.eventType];
+    const event = ({
+      fiscal_registration_link_sent: "fiscal_invite",
+      payment_link_sent: "payment_link",
+      assessment_instructions_sent: "assessment_onboarding",
+    } as Partial<Record<string, WhatsAppEvent>>)[args.eventType];
     const envelope = event ? await readCompanyProductSettings(args.admin, args.companyId) : { settings: DEFAULT_COMPANY_PRODUCT_SETTINGS, version: 0 };
-    const values = messageValues({ nome: args.fullName, prazo: envelope.settings.business.assessment_sla_business_days, data: args.payload?.assessment_due_at || '', ...args.templateValues }, envelope.settings.brand.company_name);
-    const text = event && envelope.version > 0 ? eventMessage(envelope.settings.messages, event, values, args.text) : args.text;
+    const isAssessment = event === "assessment_onboarding";
+    const firstPrescriptionDays = envelope.settings.business.assessment_sla_business_days;
+    const fallback = args.text ?? buildAssessmentOnboardingMessage({
+      fullName: args.fullName, hasAnamnesis: args.payload?.has_anamnesis === true,
+      firstPrescriptionBusinessDays: firstPrescriptionDays,
+    });
+    const values = messageValues({
+      nome: args.fullName, prazo: firstPrescriptionDays, data: "", ...args.templateValues,
+      ...(isAssessment ? {
+        prazo: Math.max(ASSESSMENT_BUSINESS_DAYS, firstPrescriptionDays),
+        data: "a data definida a partir do recebimento do material",
+      } : {}),
+    }, envelope.settings.brand.company_name);
+    const text = event && envelope.version > 0
+      ? eventMessage(envelope.settings.messages, event, values, fallback) : fallback;
     const remoteJid = normalizeFunnelRemoteJid(args.phone || "", args.countryCode);
     if (!remoteJid) throw new Error("Aluno sem WhatsApp válido.");
 
@@ -227,8 +246,8 @@ export async function sendFunnelWhatsAppMessage(args: {
     const handledSequence = event && await dispatchConfiguredMessageSequence({
       admin: args.admin, companyId: args.companyId, chatId: chatResult.data.id,
       occurrence: `funnel:${args.studentId}:${args.eventKey}`,
-      configured: !!envelope.settings.message_sequences?.[event as WhatsAppEvent],
-      parts: eventMessageSequence(envelope.settings, event as WhatsAppEvent, values, args.text),
+      configured: !!envelope.settings.message_sequences?.[event],
+      parts: eventMessageSequence(envelope.settings, event, values, fallback),
       recipient: remoteJid, instanceName: instance.instance_name, evoUrl, evoKey,
       metadata: { settingsVersion: envelope.version },
       beforeSend: async () => {

@@ -30,7 +30,7 @@ function fixture(options={}) {
         if(options.linkEmpty) return {data:null,error:null};
         effects.linkCompleted++;
         if(payload.last_used_at) effects.auditUses++;
-        return {data:selected?{...link,...payload}:null,error:null};
+        return {data:selected?{...link,...payload,completed_at:options.linkAckAt?.(payload.completed_at) ?? payload.completed_at}:null,error:null};
       }
       if(table==='students') {
         if(operation==='read') return {data: options.readMissing?null:{...student},error:null};
@@ -109,6 +109,20 @@ for(const options of [{linkError:true},{linkEmpty:true},{linkReject:true},
     const f=fixture(options);const r=await f.complete();assert.ok(r.status>=400);noEffects(f);
   });
 }
+test('accepts the same completion instant in the PostgREST timezone format',async()=>{
+  const f=fixture({linkAckAt:at=>at.replace(/Z$/, '+00:00')});
+  const r=await f.complete();
+  assert.equal(r.status,200);
+  assert.equal(f.effects.paymentReads,1);
+});
+test('rejects a completion ACK for another instant',async()=>{
+  const f=fixture({linkAckAt:()=> '2000-01-01T00:00:00Z'});
+  const r=await f.complete();
+  assert.equal(r.status,409);
+  assert.equal(f.effects.paymentReads,0);
+  assert.equal(f.effects.sends.length,0);
+});
+
 for(const [input,expected] of [
   [{phone:'(11) 99999-0000',whatsapp:'+55 11 99999-0000'},'5511999990000'],
   [{phone:'1199990000',whatsapp:'11999990000'},'5511999990000'],

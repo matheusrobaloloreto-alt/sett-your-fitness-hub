@@ -117,7 +117,7 @@ interface Student {
   fiscal_completed_at: string | null;
   payment_link_sent_at: string | null;
   activated_at: string | null;
-  assessment_due_at: string | null;
+  assessment_material_receipts: { assessment_due_on: string } | null;
   onboarding_instructions_sent_at: string | null;
   selected_plan_id: string | null;
   assigned_trainer_id: string | null;
@@ -577,7 +577,7 @@ export default function RegistrationManager() {
             "fiscal_completed_at",
             "payment_link_sent_at",
             "activated_at",
-            "assessment_due_at",
+            "assessment_material_receipts(assessment_due_on)",
             "onboarding_instructions_sent_at",
             "selected_plan_id",
             "assigned_trainer_id",
@@ -614,7 +614,7 @@ export default function RegistrationManager() {
         fiscal_completed_at: null,
         payment_link_sent_at: null,
         activated_at: null,
-        assessment_due_at: null,
+        assessment_material_receipts: null,
         onboarding_instructions_sent_at: null,
         selected_plan_id: null,
         assigned_trainer_id: null,
@@ -838,6 +838,10 @@ export default function RegistrationManager() {
           toast.error("Para evitar liberar aluno sem pagamento, somente cadastros já ativos podem ser reconciliados diretamente.");
           return;
         }
+        if (student.stage === "active_onboarding" && !student.hasAssessment) {
+          toast.error("Conclua a avaliação funcional antes de tirar o aluno do onboarding.");
+          return;
+        }
         const { error } = await (supabase as any)
           .from("students")
           .update({ sales_stage: "active", updated_at: new Date().toISOString() })
@@ -963,7 +967,7 @@ export default function RegistrationManager() {
     if (!renewalStudentId) throw new Error("Selecione o aluno que receberá a renovação.");
     setRenewalLoading(true);
     try {
-      const link = await createPlansLink(renewalStudentId);
+      const link = await createPlansLink(renewalStudentId, {});
       setRenewalLink(link);
       await navigator.clipboard?.writeText(link);
       toast.success("Link de renovação criado e copiado.");
@@ -1112,20 +1116,17 @@ export default function RegistrationManager() {
         const paymentLink = await createPlansLink(student.id);
         await openChatWithStudent(
           student,
-          `Oi, ${firstName(student.full_name)}! Seu cadastro fiscal esta concluido. Agora escolha seu plano e faca o pagamento com Pix pelo Asaas: ${paymentLink}\n\nDepois da confirmacao, voce passa para aluno ativo e recebe as instrucoes finais da Avaliacao de Movimento. O prazo para avaliacao e inicio do treino e de ate 5 dias uteis.`,
+          `Oi, ${firstName(student.full_name)}! Seu cadastro fiscal está concluído. Escolha seu plano e faça o pagamento com Pix pelo Asaas: ${paymentLink}\n\nApós a confirmação, você recebe as instruções da avaliação de movimento. Os prazos começam quando a equipe recebe o material completo.`,
           "payment_link", { link: paymentLink },
         );
         return;
       }
 
       if (student.stage === "active_onboarding") {
-        const due = student.assessment_due_at
-          ? format(new Date(`${student.assessment_due_at}T00:00:00`), "dd/MM/yyyy", { locale: ptBR })
-          : "a confirmar";
         await openChatWithStudent(
           student,
-          `Oi, ${firstName(student.full_name)}! Pagamento confirmado. O proximo passo e a avaliacao de movimento. Me envie os videos/fotos conforme as instrucoes; o prazo para avaliacao e inicio do treino e ${due}.`,
-          "assessment_onboarding", { data: due },
+          `Oi, ${firstName(student.full_name)}! Pagamento confirmado. O próximo passo é a avaliação de movimento. Envie os vídeos e fotos conforme as instruções. A avaliação leva até 2 dias úteis após o recebimento do material completo.`,
+          "assessment_onboarding", { data: "a confirmar após o recebimento do material" },
         );
         return;
       }
@@ -1355,7 +1356,9 @@ export default function RegistrationManager() {
                   </div>
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
                     <span>Avaliacao</span>
-                    <span className="break-words text-right font-mono-data">{student.hasAssessment ? "ok" : student.assessment_due_at ? `ate ${format(new Date(`${student.assessment_due_at}T00:00:00`), "dd/MM")}` : "pendente"}</span>
+                    <span className="break-words text-right font-mono-data">{student.hasAssessment ? "ok" : student.assessment_material_receipts
+                      ? `até ${format(new Date(`${student.assessment_material_receipts.assessment_due_on}T00:00:00`), "dd/MM")}`
+                      : student.stage === "active_onboarding" ? "aguardando material" : "pendente"}</span>
                   </div>
                 </div>
               )}

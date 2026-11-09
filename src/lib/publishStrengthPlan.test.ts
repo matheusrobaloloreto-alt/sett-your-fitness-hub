@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   publishStrengthPlanToStudent,
+  publishStrengthDraftToStudent,
   buildPublishDecisionLog,
   mapStrengthExercise,
   buildTrainingCycleMetadata,
@@ -220,7 +221,7 @@ afterEach(() => vi.useRealTimers());
 function publisherFixture(overrides: Record<string, any[]> = {}) {
   const tables: Record<string, any[]> = { enrollments: [{ id: 'enr', company_id: 'co', student_id: 's', status: 'awaiting_training', start_date: '2026-01-01', end_date: '2026-12-31' }], training_cycles: [], workouts: [], ...overrides };
   const mutations: any[] = [];
-  const db = { mutations, tables, rpc: vi.fn(async (_name: string, args: any) => { mutations.push({ table: 'rpc', args }); return { data: { cycle_id: args.p_cycle_id, revision_id: 'rev', workouts_created: args.p_workouts.length, workout_ids: args.p_workouts.map((_: any, i: number) => `w${i}`) }, error: null }; }), from(table: string) {
+  const db = { mutations, tables, rpc: vi.fn(async (_name: string, args: any): Promise<{ data: Record<string, unknown> | null; error: { code: string; message: string } | null }> => { mutations.push({ table: 'rpc', args }); return { data: { cycle_id: args.p_cycle_id, revision_id: 'rev', workouts_created: args.p_workouts.length, workout_ids: args.p_workouts.map((_: any, i: number) => `w${i}`) }, error: null }; }), from(table: string) {
     let operation = 'read', payload: any, single = false; const filters: Array<(row: any) => boolean> = [];
     const query: any = { select: () => query, eq: (k: string,v: any) => {filters.push(r=>r[k]===v);return query;}, neq: (k: string,v: any) => {filters.push(r=>r[k]!==v);return query;}, in: (k: string,v: any[]) => {filters.push(r=>v.includes(r[k]));return query;}, is: (k: string,v: any) => {filters.push(r=>(r[k]??null)===v);return query;}, order: () => query, limit: () => query,
       insert: (v: any) => {operation='insert';payload=v;return query;}, update: (v: any) => {operation='update';payload=v;return query;}, maybeSingle: () => {single=true;return query;}, single: () => {single=true;return query;},
@@ -253,4 +254,63 @@ it('rejects foreign target or bundle before mutation',async()=>{
  await expect(publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co',targetCycleId:'slot'})).rejects.toThrow(/selecione/i);expect(db.mutations).toEqual([]);
  const other=publisherFixture({prescription_bundles:[{id:'foreign-bundle',company_id:'other',student_id:'s'}]});
  await expect(publishStrengthPlanToStudent({plan:publishPlan,studentId:'s',companyId:'co',bundleId:'foreign-bundle'})).rejects.toThrow(/pacote/i);expect(other.mutations).toEqual([]);
+});
+
+
+describe("protected Studio draft publication", () => {
+  const input = {
+    draftId: "draft",
+    draftVersion: "2026-11-06T12:00:00Z",
+    bundleId: "bundle",
+    cycleId: "slot",
+    companyId: "co",
+    plan: publishPlan,
+  };
+
+  it("sends one atomic request with the reviewed plan and its version", async () => {
+    const db = publisherFixture();
+    db.rpc.mockResolvedValueOnce({
+      data: { cycle_id: "slot", revision_id: "new", bundle_id: "bundle", strength_plan_id: "draft",
+        workouts_created: 1, current: true, scheduled: false, replayed: false, workout_ids: ["new"] },
+      error: null,
+    });
+    await expect(publishStrengthDraftToStudent(input)).resolves.toEqual({
+      workoutsCreated: 1, current: true, scheduled: false, replayed: false,
+    });
+    expect(db.rpc).toHaveBeenCalledExactlyOnceWith("publish_studio_strength_draft", {
+      p_draft_id: input.draftId, p_cycle_id: input.cycleId, p_expected_draft_updated_at: input.draftVersion,
+      p_plan: input.plan, p_workouts: [{ title: "A", description: null, day_of_week: null,
+        exercises: [expect.objectContaining({ exercise_name: "Synthetic squat", sets: "3" })] }],
+    });
+    expect(db.mutations).toEqual([]);
+  });
+
+  it("orienta a revisão da nova Anamnese interciclos quando o servidor bloqueia a publicação", async () => {
+    const db = publisherFixture();
+    db.rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: "P0001", message: "studio_strength_intercycle_review_required" },
+    });
+
+    await expect(publishStrengthDraftToStudent(input)).rejects.toThrow(
+      "Revise a nova Anamnese interciclos com o treinador antes de publicar. O rascunho foi preservado.",
+    );
+    expect(db.rpc).toHaveBeenCalledTimes(1);
+    expect(db.mutations).toEqual([]);
+  });
+
+  it("reports an unconfirmed response without attempting a fallback write", async () => {
+    const db = publisherFixture();
+    await expect(publishStrengthDraftToStudent(input)).rejects.toThrow(/não confirmou/i);
+    expect(db.rpc).toHaveBeenCalledTimes(1);
+    expect(db.mutations.map(mutation => mutation.table)).toEqual(["rpc"]);
+  });
+
+  it("rejects a plan with an empty workout before publishing", async () => {
+    const db = publisherFixture();
+    await expect(publishStrengthDraftToStudent({
+      ...input, plan: { workouts: [{ name: "A", exercises: [] }] },
+    })).rejects.toThrow(/inclua exercícios/i);
+    expect(db.rpc).not.toHaveBeenCalled();
+  });
 });

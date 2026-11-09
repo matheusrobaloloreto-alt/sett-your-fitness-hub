@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquare } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
+import { WhatsAppIcon } from "@/components/WhatsAppIcon";
 import { useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -15,8 +16,10 @@ import { WhatsAppChatPanelContext } from "@/components/WhatsAppChatPanelContext"
 
 const WhatsAppChat = lazy(() => import("@/pages/admin/WhatsAppChat"));
 
-export function WhatsAppChatPanelProvider({ children }: { children: React.ReactNode }) {
+export function WhatsAppChatPanelProvider({ children, mobileDock = false }: { children: React.ReactNode; mobileDock?: boolean }) {
   const location = useLocation();
+  const reducedMotion = useReducedMotion();
+  const opener = useRef<HTMLElement | null>(null);
   const { role, companyId, user } = useAuth();
   const { isViewingCompany, viewingCompany } = useMaster();
   const features = useCompanyFeatures();
@@ -38,6 +41,10 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
 
   const openChatPanel = useCallback((nextRequest: WhatsAppChatPanelRequest = {}) => {
     if (!canUseWhatsApp) return false;
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && focused !== document.body && !focused.closest('[role="dialog"]')) {
+      opener.current = focused;
+    }
     setRequest({ ...nextRequest, requestId: nextRequestId.current++ });
     setIsOpen(true);
     return true;
@@ -79,22 +86,34 @@ export function WhatsAppChatPanelProvider({ children }: { children: React.ReactN
       {canRetainWhatsApp && (
         <>
           {!isWhatsAppChatRoute && (
-            <Button
+            <motion.button
               type="button"
-              size="lg"
+              disabled={!canUseWhatsApp}
+              whileTap={reducedMotion ? undefined : { scale: 0.95 }}
+              transition={{ type: "spring", mass: 1, stiffness: 310, damping: 31 }}
               style={{ bottom: "calc(var(--sett-install-height, 0px) + max(1rem, env(safe-area-inset-bottom, 0px)))" }}
-              className="fixed right-4 z-40 gap-2 rounded-full px-4 shadow-lg max-[380px]:px-3 sm:bottom-6 sm:right-6"
+              className={`sett-chat-launcher fixed right-4 z-40 items-center gap-2 px-4 sm:right-6 ${mobileDock ? "hidden md:inline-flex" : "inline-flex"}`}
               onClick={() => openChatPanel()}
               aria-label="Abrir conversas do WhatsApp"
               title="Abrir conversas do WhatsApp"
             >
-              <MessageSquare className="h-5 w-5" />
+              <WhatsAppIcon className="h-5 w-5" />
               <span className="hidden min-[360px]:inline">Conversas</span>
-            </Button>
+            </motion.button>
           )}
           <Sheet open={isOpen} onOpenChange={open => open ? setIsOpen(true) : closeChatPanel()}>
             <SheetContent
               side="right"
+              springTransition={reducedMotion ? { duration: 0 } : { type: "spring", mass: 1, stiffness: 310, damping: 31 }}
+              showSpringClose
+              onCloseAutoFocus={(event) => {
+                const trigger = opener.current;
+                opener.current = null;
+                if (trigger?.isConnected && trigger.getClientRects().length) {
+                  event.preventDefault();
+                  trigger.focus({ preventScroll: true });
+                }
+              }}
               className="flex h-dvh !w-full !max-w-none flex-col gap-0 overflow-hidden border-l bg-white p-0 dark:border-[#2a3942] dark:bg-[#0b141a] sm:!w-[min(96vw,1100px)] sm:!max-w-none"
             >
               <SheetHeader className="sr-only">

@@ -38,6 +38,16 @@ export function hasPrescriptionHistory(cycle: PrescriptionScheduleCycle): boolea
     || (Array.isArray(cycle.workouts) ? cycle.workouts.length : cycle.workouts)
     || ['sent', 'viewed', 'delivered', 'published'].includes(cycle.delivery_status ?? ''));
 }
+export function isSupersededCycle(
+  cycle: Pick<PrescriptionScheduleCycle, 'status' | 'superseded_at' | 'superseded_by_cycle_id'>,
+): boolean {
+  return cycle.status === 'superseded' || Boolean(cycle.superseded_at || cycle.superseded_by_cycle_id);
+}
+
+export function coversScheduleDay(cycle: Pick<PrescriptionScheduleCycle, 'start_date' | 'end_date'>, day: number): boolean {
+  return scheduleDay(cycle.start_date) <= day && scheduleDay(cycle.end_date) >= day;
+}
+
 export function hasCurrentDigitalPrescription(cycle: PrescriptionScheduleCycle): boolean {
   return !cycle.prescription_cleared_at && (cycle.has_usable_workouts ?? cycle.has_workouts) === true;
 }
@@ -58,10 +68,10 @@ export function projectPrescriptionCoverage<T extends PrescriptionScheduleCycle>
   const notStarted = Boolean(term && today < term.start);
   const warnings: string[] = [];
   const owned = args.cycles.filter(cycle => cycleMatchesContext(cycle, args));
-  const visible = owned.filter(cycle => cycle.status !== 'superseded' && !cycle.superseded_by_cycle_id);
+  const visible = owned.filter(cycle => !isSupersededCycle(cycle));
   const historyCycles = owned.filter(cycle => hasPrescriptionHistory(cycle) && (!term
     || scheduleDay(cycle.start_date) < term.start || scheduleDay(cycle.end_date) > term.end
-    || cycle.status === 'superseded' || Boolean(cycle.superseded_by_cycle_id)));
+    || isSupersededCycle(cycle)));
   if (args.readError) warnings.push('coverage_read_failed');
   if (!term) warnings.push('invalid_enrollment_term');
   if (historyCycles.length) warnings.push('history_outside_current_contract');
@@ -92,15 +102,19 @@ export function projectPrescriptionCoverage<T extends PrescriptionScheduleCycle>
     slots.push({ position: slots.length + 1, start_date: scheduleDate(start), end_date: scheduleDate(end), cycleIds: overlapping.map(cycle => cycle.id), state, gaps });
   }
   const currentCycles = term && ['active', 'awaiting_training', 'awaiting_renewal'].includes(args.enrollment.status) && today >= term.start && today <= term.end && !args.readError
-    ? cycles.filter(cycle => scheduleDay(cycle.start_date) <= today && scheduleDay(cycle.end_date) >= today) : [];
+    ? cycles.filter(cycle => ['active', 'completed', 'pending'].includes(cycle.status) && coversScheduleDay(cycle, today)) : [];
+  // A slot can contain a historical overlap. Only competing cycles on the
+  // business day make today's publication ambiguous.
+  const currentCycle = currentCycles.length === 1 ? currentCycles[0] : null;
+  const currentWorkoutCycleIds = currentCycle && hasCurrentDigitalPrescription(currentCycle) ? [currentCycle.id] : [];
   const currentSlot = slots.find(slot => scheduleDay(slot.start_date) <= today && scheduleDay(slot.end_date) >= today) ?? null;
   if (slots.some(slot => slot.gaps.length)) warnings.push('schedule_gap');
   if (slots.some(slot => slot.state === 'review')) warnings.push('schedule_overlap_or_review');
   return {
     enrollmentId: args.enrollment.id, term, cycles, historyCycles, slots, currentSlot, notStarted,
-    hasCurrentWorkout: currentSlot?.state !== 'review' && currentCycles.some(hasCurrentDigitalPrescription),
-    hasCurrentOfflinePrescription: currentCycles.some(cycle => !cycle.prescription_cleared_at && Boolean(cycle.prescribed_offline_at)),
-    currentWorkoutCycleIds: currentCycles.filter(hasCurrentDigitalPrescription).map(cycle => cycle.id),
+    hasCurrentWorkout: currentWorkoutCycleIds.length > 0,
+    hasCurrentOfflinePrescription: Boolean(currentCycle && !currentCycle.prescription_cleared_at && currentCycle.prescribed_offline_at),
+    currentWorkoutCycleIds,
     warnings, reliable: Boolean(term) && !args.readError,
   };
 }

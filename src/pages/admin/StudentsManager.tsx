@@ -1,4 +1,6 @@
-import { selectPrescriptionEnrollment } from "@/lib/prescriptionSchedule";
+import { readPages } from "@/lib/pagedRead";
+import { readCurrentStudentContracts } from "@/lib/studentRosterReads";
+import { PORTFOLIO_TRAINER_COLUMN, PORTFOLIO_TRAINER_LABEL, STUDENT_RECORD_STATUS_FILTERS, countStudentRecords, studentContractLabel, studentRecordStatusLabel, type StudentContractSummary } from "@/lib/studentRoster";
 import { normalizeSearchText } from "@/lib/normalizeSearchText";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -49,12 +51,8 @@ interface Student {
   user_id: string | null;
   selected_plan_id: string | null;
   assigned_trainer_id: string | null;
-  enrollment_trainer_id?: string | null;
   created_at: string;
-  plan_name?: string;
-  has_current_contract?: boolean;
-  has_linked_plan?: boolean;
-  contract_read_error?: boolean;
+  currentContract?: StudentContractSummary | null;
 }
 
 interface Plan {
@@ -70,13 +68,6 @@ interface Trainer {
   full_name: string;
 }
 
-const statusLabels: Record<string, string> = {
-  interested: "Interessado",
-  active: "Ativo",
-  pending: "Pendente",
-  inactive: "Inativo",
-  awaiting_renewal: "Aguardando Renovação",
-};
 const statusColors: Record<string, string> = {
   interested: "bg-blue-500/10 text-blue-700 border-blue-500/30",
   active: "bg-success/15 text-success border-success/30",
@@ -115,13 +106,13 @@ export default function StudentsManager() {
   const loadGeneration = useRef(0);
   const contextRef = useRef("");
   const [loadError, setLoadError] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [contractReadError, setContractReadError] = useState(false);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [trainers, setTrainers] = useState<Trainer[]>([]);
   const [searchParams] = useSearchParams();
   const initialStatus = searchParams.get("status");
-  const [filter, setFilter] = useState(initialStatus && ["interested", "active", "pending", "inactive", "awaiting_renewal"].includes(initialStatus) ? initialStatus : "all");
+  const [filter, setFilter] = useState(initialStatus && STUDENT_RECORD_STATUS_FILTERS.some(option => option.id === initialStatus) ? initialStatus : "all");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Student | null>(null);
@@ -173,43 +164,27 @@ export default function StudentsManager() {
     if (!effectiveCompanyId || !canManageCompanyStudents) return;
     setLoading(true);
     try {
-      const [studentRead, planRead, directoryRead] = await Promise.all([
-        supabase.from("students").select("*").eq("company_id", effectiveCompanyId).order("full_name"),
+      const [studentsData, planRead, directoryRead] = await Promise.all([
+        readPages((from, to) => supabase.from("students").select("*").eq("company_id", effectiveCompanyId)
+          .order("full_name").order("id").range(from, to)),
         supabase.from("plans").select("id, name, duration_weeks, duration_days, plan_kind").eq("is_active", true).eq("company_id", effectiveCompanyId).order("name"),
         (supabase as any).rpc("get_company_student_staff_directory", { _company_id: effectiveCompanyId }),
       ]);
       if (!current()) return;
-      if (studentRead.error || (studentRead.data || []).some(student => student.company_id !== effectiveCompanyId)) throw new Error("Student scope unavailable");
-      const studentsData = studentRead.data || [];
-      const studentIds = studentsData.map(student => student.id);
-      const enrollmentRead = studentIds.length ? await supabase.from("enrollments")
-        .select("id, student_id, company_id, plan_id, trainer_id, status, start_date, end_date, training_start_date, created_at")
-        .eq("company_id", effectiveCompanyId).in("student_id", studentIds).in("status", ["active", "awaiting_training", "awaiting_renewal"])
-        : { data: [], error: null };
+      if (studentsData.some(student => student.company_id !== effectiveCompanyId)) throw new Error("Student scope unavailable");
+      const contracts = await readCurrentStudentContracts(effectiveCompanyId, studentsData.map(student => student.id))
+        .catch(() => null);
       if (!current()) return;
-      const enrollmentError = Boolean(enrollmentRead.error || (enrollmentRead.data || []).some(row => row.company_id !== effectiveCompanyId || !studentIds.includes(row.student_id)));
-      const enrollments = enrollmentError ? [] : enrollmentRead.data || [];
-      const planIds = [...new Set(enrollments.map(row => row.plan_id)
-        .filter((id): id is string => typeof id === "string" && id.trim().length > 0))];
-      const metadata = planIds.length ? await supabase.from("plans").select("id, name").eq("company_id", effectiveCompanyId).in("id", planIds) : { data: [], error: null };
-      if (!current()) return;
-      const names = new Map((metadata.error ? [] : metadata.data || []).filter(plan => planIds.includes(plan.id)).map(plan => [plan.id, plan.name]));
-      const enriched = studentsData.map(student => {
-        const enrollment = selectPrescriptionEnrollment(enrollments.filter(row => row.student_id === student.id), {
-          expectedStudentId: student.id, expectedCompanyId: effectiveCompanyId,
-        });
-        return { ...student, selected_plan_id: student.selected_plan_id,
-          enrollment_trainer_id: enrollment?.trainer_id || null,
-          has_current_contract: Boolean(enrollment),
-          has_linked_plan: Boolean(enrollment && typeof enrollment.plan_id === "string" && enrollment.plan_id.trim().length > 0), contract_read_error: enrollmentError,
-          plan_name: enrollment ? names.get(enrollment.plan_id) : undefined };
-      });
+      const enriched = studentsData.map(student => ({
+        ...student,
+        currentContract: contracts ? contracts.get(student.id) ?? null : undefined,
+      }));
       setStudents(enriched);
       setPlans(planRead.error ? [] : planRead.data || []);
       setTrainers(directoryRead.error ? [] : (directoryRead.data || []).map(member => ({
         user_id: member.user_id, full_name: member.full_name || "Sem nome",
       })).sort((a, b) => a.full_name.localeCompare(b.full_name, "pt-BR")));
-      setContractReadError(enrollmentError || Boolean(metadata.error) || enriched.some(student => student.has_current_contract && student.has_linked_plan && !student.plan_name));
+      setContractReadError(!contracts || [...contracts.values()].some(contract => contract.planId && !contract.planName));
       setLoadError(Boolean(planRead.error || directoryRead.error));
     } catch {
       if (current()) { setStudents([]); setPlans([]); setTrainers([]); setLoadError(true); }
@@ -224,8 +199,10 @@ export default function StudentsManager() {
     return () => { loadGeneration.current += 1; };
   }, [loadData]);
 
-  const filtered = students.filter(s => {
-    if (s.company_id !== effectiveCompanyId) return false;
+  const companyStudents = students.filter(student => student.company_id === effectiveCompanyId);
+  const counts = countStudentRecords(companyStudents);
+  const countsAvailable = Boolean(effectiveCompanyId && !loading && !loadError);
+  const filtered = companyStudents.filter(s => {
     if (filter !== "all" && s.status !== filter) return false;
     if (search) {
       const q = normalizeSearchText(search);
@@ -626,12 +603,10 @@ export default function StudentsManager() {
           <Select value={filter} onValueChange={setFilter}>
             <SelectTrigger className="w-[160px] bg-card border-border"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="interested">Interessados</SelectItem>
-              <SelectItem value="active">Ativos</SelectItem>
-              <SelectItem value="awaiting_renewal">Aguardando Renovação</SelectItem>
-              <SelectItem value="pending">Pendentes</SelectItem>
-              <SelectItem value="inactive">Inativos</SelectItem>
+              <SelectItem value="all">Todos{countsAvailable ? ` (${counts.total})` : ""}</SelectItem>
+              {STUDENT_RECORD_STATUS_FILTERS.map(({ id, plural }) => (
+                <SelectItem key={id} value={id}>{plural}{countsAvailable ? ` (${counts.byStatus.get(id) ?? 0})` : ""}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -656,8 +631,10 @@ export default function StudentsManager() {
                         {s.full_name}
                       </button>
                       <AthleticClubStar studentId={s.id} companyId={effectiveCompanyId} className="shrink-0" />
-                      <Badge variant="outline" className={`text-xs ${statusColors[s.status]}`}>{statusLabels[s.status] || s.status}</Badge>
-                      {s.contract_read_error ? <Badge variant="outline">Contrato indisponível: falha de leitura</Badge> : s.has_current_contract && !s.has_linked_plan ? <Badge variant="outline">Matrícula vigente sem plano vinculado</Badge> : s.has_current_contract && !s.plan_name ? <Badge variant="outline">Plano contratado vigente: nome indisponível</Badge> : s.plan_name ? <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">Plano contratado vigente: {s.plan_name}</Badge> : <Badge variant="outline">Sem plano contratado vigente</Badge>}
+                      <Badge variant="outline" className={`text-xs ${statusColors[s.status]}`}>{studentRecordStatusLabel(s.status)}</Badge>
+                      <Badge variant="outline" className={s.currentContract?.planName ? "text-xs bg-primary/10 text-primary border-primary/30" : undefined}>
+                        {studentContractLabel(s.currentContract)}
+                      </Badge>
                       {s.status === "active" && !s.user_id && <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">Sem acesso</Badge>}
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground font-sans">
@@ -669,7 +646,7 @@ export default function StudentsManager() {
                   <div className="flex items-center gap-1 ml-4">
                     <BnitoContextButton
                       label={`aluno ${s.full_name}`}
-                      context={`Aluno na lista. Status: ${statusLabels[s.status] || s.status}. Plano: ${s.plan_name || "sem plano"}. Treinador atribuido: ${s.assigned_trainer_id ? "sim" : "nao"}.`}
+                      context={`Aluno na lista. Status: ${studentRecordStatusLabel(s.status)}. ${studentContractLabel(s.currentContract)}. Professor da carteira atribuído: ${s[PORTFOLIO_TRAINER_COLUMN] ? "sim" : "não"}.`}
                       question="Qual o proximo passo operacional e tecnico para este aluno?"
                     />
                     <StudentChatButton studentId={s.id} studentName={s.full_name} phone={s.whatsapp || s.phone} />
@@ -698,8 +675,8 @@ export default function StudentsManager() {
                 {/* Trainer & Plan assignment */}
                 {canManageStudent(s) && <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border">
                   <div className="flex-1 space-y-1">
-                    <Label className="text-xs font-sans text-muted-foreground">Treinador{influencer ? " (opcional)" : ""}</Label>
-                    <Select value={s.assigned_trainer_id || ""} onValueChange={v => handleAssignTrainer(s.id, v)} disabled={influencer || Boolean(assigningStudentId)}>
+                    <Label className="text-xs font-sans text-muted-foreground">{PORTFOLIO_TRAINER_LABEL}{influencer ? " (opcional)" : ""}</Label>
+                    <Select value={s[PORTFOLIO_TRAINER_COLUMN] || ""} onValueChange={v => handleAssignTrainer(s.id, v)} disabled={influencer || Boolean(assigningStudentId)}>
                       <SelectTrigger aria-label={`Professor responsável por ${s.full_name}`} className="bg-secondary border-border h-8 text-xs"><SelectValue placeholder={influencer ? "Não exigido" : "Atribuir treinador"} /></SelectTrigger>
                       <SelectContent>{trainers.map(t => <SelectItem key={t.user_id} value={t.user_id}>{t.full_name}</SelectItem>)}</SelectContent>
                     </Select>

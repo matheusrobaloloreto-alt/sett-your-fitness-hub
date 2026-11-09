@@ -1,5 +1,6 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { applyEffectivePrescriptionInput, readEffectivePrescriptionAnamnesis } from "../_shared/prescription/effective-input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { readPreviousStudioModalityDraft, resolveStudioModalityDraft, writeStudioModalityDraft } from "../_shared/studio-modality-draft.ts";
 import { assertBundleAccess, assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import { buildNutritionProgram, assertNutritionPlanComplete } from "../_shared/nutrition/nutritionEngine.ts";
@@ -95,9 +96,9 @@ async function requireUser(req: Request) {
     global: { headers: { Authorization: authHeader } },
   });
   const token = authHeader.replace("Bearer ", "");
-  const { data, error } = await supa.auth.getClaims(token);
-  if (error || !data?.claims) return null;
-  return data.claims;
+  const { data, error } = await supa.auth.getUser(token);
+  if (error || !data?.user) return null;
+  return { sub: data.user.id };
 }
 
 function createUserClient(req: Request) {
@@ -434,7 +435,7 @@ INSTRUÇÃO DE SAÍDA — APENAS JSON VÁLIDO
 `.trim();
 
 // ─── SERVIDOR ─────────────────────────────────────────────────────────────────
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   // Fallback-first: o plano é determinístico e NÃO depende de ANTHROPIC_API_KEY (sem mais 503).
@@ -447,35 +448,8 @@ serve(async (req) => {
 
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-    const input = await req.json();
-    const {
-      student_id, student_name, company_id,
-      age, gender, weight_kg, height_cm,
-      body_fat_percent,      // pode ser null — usa Harris-Benedict se null
-      objective,             // "emagrecimento" | "hipertrofia" | "performance"
-      activity_level,        // "sedentario" | "leve" | "moderado" | "muito_ativo" | "extremo"
-      is_endurance_athlete,  // true/false
-      training_hours_per_day, // horas de treino por dia
-      training_modality,     // "corrida" | "musculacao" | "triathlon" | etc.
-      meals_per_day,         // 4 | 5 | 6
-      food_restrictions,     // intolerâncias, alergias, preferências
-      stress_score,          // 0-10
-      sleep_quality,         // 0-10
-      budget,                // "economico" | "moderado" | "premium"
-      has_microwave,         // true/false
-      running_plan_context,  // JSON do plano de corrida (para calcular gasto cíclico)
-      strength_plan_context, // JSON do plano de força (sessões/semana, duração, kcal estimado)
-      nutrition_context,     // texto: horários das refeições/treino, jejum, apetite, gostos/aversões
-      anamnese_context,      // JSON bruto/resumido da anamnese
-      prescription_integration, // resultado integrado anamnese + avaliação
-      bnito_orchestration, // contrato do BNITO para sincronizar agentes
-      anamnese_id,
-      bundle_id,
-      training_cycle_id,
-      previous_plan_id,
-      previous_plan_context,
-      program_sequence,
-    } = input;
+    const payload = await req.json();
+    const { student_id, company_id, bundle_id, training_cycle_id } = payload;
 
     const authz = await assertTenantAccess(supabase, claims, {
       companyId: company_id,
@@ -497,6 +471,45 @@ serve(async (req) => {
       }
       cycleContext = cycle;
     }
+    const draftScope = {
+      bundleId: authorizedBundleId, cycleId: cycleContext?.id ?? null,
+      companyId: authorizedCompanyId, studentId: student_id, modality: "nutricao" as const,
+    };
+    const studioDraft = await resolveStudioModalityDraft(supabase, draftScope, payload.draft_only);
+    const userSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+    });
+    const effective = await readEffectivePrescriptionAnamnesis(userSupabase, {
+      studentId: student_id, companyId: authorizedCompanyId,
+    });
+    const input = applyEffectivePrescriptionInput(payload, effective, "nutrition");
+    const {
+      student_name,
+      age, gender, weight_kg, height_cm,
+      body_fat_percent,      // pode ser null — usa Harris-Benedict se null
+      objective,             // "emagrecimento" | "hipertrofia" | "performance"
+      activity_level,        // "sedentario" | "leve" | "moderado" | "muito_ativo" | "extremo"
+      is_endurance_athlete,  // true/false
+      training_hours_per_day, // horas de treino por dia
+      training_modality,     // "corrida" | "musculacao" | "triathlon" | etc.
+      meals_per_day,         // 4 | 5 | 6
+      food_restrictions,     // intolerâncias, alergias, preferências
+      stress_score,          // 0-10
+      sleep_quality,         // 0-10
+      budget,                // "economico" | "moderado" | "premium"
+      has_microwave,         // true/false
+      running_plan_context,  // JSON do plano de corrida (para calcular gasto cíclico)
+      strength_plan_context, // JSON do plano de força (sessões/semana, duração, kcal estimado)
+      nutrition_context,     // texto: horários das refeições/treino, jejum, apetite, gostos/aversões
+      anamnese_context,      // JSON bruto/resumido da anamnese
+      prescription_integration, // resultado integrado anamnese + avaliação
+      bnito_orchestration, // contrato do BNITO para sincronizar agentes
+      anamnese_id,
+      previous_plan_id,
+      previous_plan_context,
+      program_sequence,
+    } = input;
+
     let authorizedPreviousPlanId: string | null = null;
     let effectivePreviousPlan = previous_plan_context ?? null;
     if (previous_plan_id != null && previous_plan_id !== "") {
@@ -505,9 +518,12 @@ serve(async (req) => {
         .select("id, plan_name, goal, target_calories, target_protein_g, target_carbs_g, target_fat_g, meals")
         .eq("id", previous_plan_id).eq("student_id", student_id).eq("company_id", authorizedCompanyId).maybeSingle();
       if (previousError) throw new HttpError(500, `Falha ao carregar plano anterior: ${previousError.message}`);
-      if (!previous) throw new HttpError(403, "Forbidden: previous plan mismatch.");
-      authorizedPreviousPlanId = previous.id;
-      effectivePreviousPlan = previous;
+      const stagedPrevious = !previous && studioDraft
+        ? await readPreviousStudioModalityDraft(supabase, previous_plan_id, draftScope, cycleContext.start_date)
+        : null;
+      if (!previous && !stagedPrevious) throw new HttpError(403, "Forbidden: previous plan mismatch.");
+      authorizedPreviousPlanId = previous_plan_id;
+      effectivePreviousPlan = previous ?? stagedPrevious;
     }
     input.previous_plan_context = effectivePreviousPlan;
     input.block_number = cycleContext?.cycle_number ?? input.block_number ?? 1;
@@ -531,8 +547,8 @@ Horas de treino/dia: ${training_hours_per_day || "1-1,5"}
 Modalidade principal: ${clean(training_modality || "não informada")}
 Refeições por dia desejadas: ${meals_per_day || 5}
 Restrições alimentares: ${clean(food_restrictions || "nenhuma")}
-Nível de estresse: ${stress_score || "não informado"}/10
-Qualidade do sono: ${sleep_quality || "não informado"}/10
+Nível de estresse: ${stress_score ?? "não informado"}/10
+Qualidade do sono: ${sleep_quality ?? "não informado"}/10
 Orçamento alimentar: ${clean(budget || "moderado")}
 Tem micro-ondas/cozinha: ${has_microwave ? "SIM" : "NÃO — preferir orientações sem preparo complexo"}
 
@@ -603,7 +619,7 @@ INSTRUÇÕES:
     assertNutritionPlanComplete(planJson);
 
     // Salva no banco
-    const { data: existingCyclePlan } = cycleContext
+    const { data: existingCyclePlan } = !studioDraft && cycleContext
       ? await supabase.from("nutrition_plans").select("id").eq("training_cycle_id", cycleContext.id).maybeSingle()
       : { data: null };
     const planId = existingCyclePlan?.id || crypto.randomUUID();
@@ -640,6 +656,10 @@ INSTRUÇÕES:
       end_date: cycleContext?.end_date ?? null,
       status: cycleContext && cycleContext.start_date > businessDateYmd() ? "scheduled" : "active",
     };
+    if (studioDraft) {
+      const draft = await writeStudioModalityDraft(supabase, draftScope, planJson, persistencePayload);
+      return new Response(JSON.stringify(draft), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (existingCyclePlan?.id) {
       await supabase.from("nutrition_plans").update(persistencePayload).eq("id", existingCyclePlan.id).throwOnError();
     } else {

@@ -11,7 +11,7 @@ vi.mock('@/hooks/use-toast',()=>({useToast:()=>({toast:m.toast})}));
 vi.mock('@/hooks/useCompanyExperiencePolicy',()=>({useCompanyExperiencePolicy:()=>({policy:{},error:null})}));
 vi.mock('@/components/BnitoFloatingAssistant',()=>({BnitoContextButton:()=>null}));
 vi.mock('@/components/admin/StudentChatButton',()=>({StudentChatButton:()=>null}));
-vi.mock('@/integrations/supabase/client',()=>({supabase:{rpc:m.rpc,from:(table:string)=>{const filters:Record<string,unknown>={};const q={select:()=>q,order:()=>q,eq:(k:string,v:unknown)=>{filters[k]=v;return q;},in:()=>q,then:(a:any,b:any)=>{m.calls.push({table,filters});return Promise.resolve(m.read(table,filters)).then(a,b);}};return q;}}}));
+vi.mock('@/integrations/supabase/client',()=>({supabase:{rpc:m.rpc,from:(table:string)=>{const filters:Record<string,unknown>={};const q={select:()=>q,order:()=>q,range:()=>q,eq:(k:string,v:unknown)=>{filters[k]=v;return q;},in:()=>q,then:(a:any,b:any)=>{m.calls.push({table,filters});return Promise.resolve(m.read(table,filters)).then(a,b);}};return q;}}}));
 import Portfolio from './Portfolio';
 function deferred(){let resolve!:(v:any)=>void;const promise=new Promise(r=>{resolve=r;});return{promise,resolve};}
 const student=(name:string)=>({id:name,company_id:m.company,full_name:name,status:'active',assigned_trainer_id:null});
@@ -52,4 +52,23 @@ it('trainer selection remains explicit across failure and retry, and Todos remov
  fireEvent.keyDown(screen.getByRole('combobox'),{key:'ArrowDown'});
  fireEvent.click(await screen.findByRole('option',{name:'Todos os alunos'}));
  await waitFor(()=>expect(m.calls.filter(call=>call.table==='students').slice(-1)[0]?.filters.assigned_trainer_id).toBeUndefined());
+});
+
+it('shows the current contracted plan and current portfolio trainer despite a conflicting enrollment trainer', async () => {
+ const learner = { ...student('Aluno sintético'), assigned_trainer_id: 'portfolio-trainer' };
+ const contract = { student_id: learner.id, company_id: 'a', status: 'active', trainer_id: 'enrollment-trainer' };
+ m.rpc.mockImplementation(async name => ({ data: name === 'get_company_student_staff_directory' ? [
+  { user_id: 'portfolio-trainer', full_name: 'Pessoa da Carteira', roles: ['trainer'] },
+  { user_id: 'enrollment-trainer', full_name: 'Pessoa da Matrícula', roles: ['trainer'] },
+ ] : [], error: null }));
+ m.read.mockImplementation(table => ({ data: table === 'students' ? [learner] : table === 'enrollments' ? [
+  { ...contract, id: 'expired', plan_id: 'expired', start_date: '2000-01-01', end_date: '2000-12-31' },
+  { ...contract, id: 'current', plan_id: 'current', start_date: '2020-01-01', end_date: '2100-12-31' },
+  { ...contract, id: 'future', plan_id: 'future', start_date: '2101-01-01', end_date: '2101-12-31' },
+ ] : table === 'plans' ? [{ id: 'current', name: 'Contrato sintético' }] : [], error: null }));
+ mount();
+ expect(await screen.findByText('Plano contratado vigente: Contrato sintético')).toBeInTheDocument();
+ expect(screen.getByText('Professor da carteira: Pessoa da Carteira')).toBeInTheDocument();
+ expect(screen.getByRole('button', { name: 'Ativos (1)' })).toBeInTheDocument();
+ expect(m.calls.some(call => call.table === 'enrollments' && call.filters.company_id === 'a')).toBe(true);
 });

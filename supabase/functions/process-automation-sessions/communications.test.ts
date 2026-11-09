@@ -23,12 +23,14 @@ function fixture(nodes: Row[], edges: Row[] = [], settings: Row = {}) {
         updates.push(args._patch);
         return Promise.resolve({data:null,error:null});
       }
-      if (name === 'begin_automation_dispatch') {
+      if (name === 'prepare_automation_dispatch') {
         const prior = attempts.get(args._send_key);
         if (prior === 'in_flight') return Promise.resolve({ data:null,error:{ message:'dispatch_uncertain' } });
-        if (!prior) attempts.set(args._send_key,'in_flight');
-        return Promise.resolve({ data:prior || 'in_flight',error:null });
+        if (!prior) attempts.set(args._send_key,'prepared');
+        return Promise.resolve({ data:prior || 'prepared',error:null });
       }
+      if (name === 'weekly_contact_dispatch_check') return Promise.resolve({ data:'eligible',error:null });
+      if (name === 'authorize_automation_dispatch') attempts.set(args._send_key,'in_flight');
       if (name === 'ack_automation_dispatch') attempts.set(args._send_key,'acked');
       return Promise.resolve({ data:true,error:null });
     },

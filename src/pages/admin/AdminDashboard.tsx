@@ -1,5 +1,5 @@
 import { CompanyOperationsReports } from "@/components/admin/operations/OperationsConsumers";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,8 +15,8 @@ import { ContactCadenceCard } from "@/components/admin/ContactCadenceCard";
 import { AtRiskStudents } from "@/components/admin/AtRiskStudents";
 import { useMaster } from "@/contexts/MasterContext";
 import { useAuth } from "@/hooks/useAuth";
-import { useNavigate } from "react-router-dom";
-import { buildStudentChatMap, createPlansLink, openStudentChat, renewalMessage } from "@/lib/studentChat";
+import { Link, useNavigate } from "react-router-dom";
+import { buildStudentChatMap, createPlansLink, isRenewalOverdue, openStudentChat, renewalMessage } from "@/lib/studentChat";
 import { businessDateYmd } from "@/lib/businessDate";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
@@ -25,6 +25,11 @@ import { DashboardSnapshotContext, type CompanyDashboardSnapshot } from "@/conte
 import { parseCompanyDashboardSnapshot } from "@/lib/companyDashboardSnapshot";
 import { DEFAULT_COMPANY_PRODUCT_SETTINGS, fetchCompanyProductSettings } from '@/lib/companyProductSettings';
 import { useCompanyExperiencePolicy } from '@/hooks/useCompanyExperiencePolicy';
+import { useRolePermissions } from "@/hooks/useRolePermissions";
+import {
+  AssessmentDashboardCard, AssignedDashboardInsights, DashboardCard, DashboardQueueState, FirstTrainingDashboardCard,
+  OperationalContactCadenceCard, useAssignedDashboardStudents, WorkoutFeedbackDashboardCard,
+} from "@/components/dashboard/OperationalDashboardCards";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 
 const LazyChart = lazy(() => import("recharts").then(mod => ({
@@ -149,8 +154,23 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     return s === "active" || s === "pending" || s === "awaiting_renewal";
   });
 
-  // Cycle countdowns
-  const activeEnrolls = (activeEnrollsRes as any)?.data || [];
+  const countdowns = await fetchPrescriptionCountdowns(effectiveCompanyId!, activeEnrollsRes.data ?? [], today, renewalDate);
+
+  // Resolve trainer names once
+  const allTrainerIds = new Set<string>();
+  expiringContracts.forEach((e: any) => { if (e.trainer_id) allTrainerIds.add(e.trainer_id); });
+  countdowns.forEach((m: any) => { if (m.trainer_id) allTrainerIds.add(m.trainer_id); });
+  const trainerMap: Record<string, string> = {};
+  if (allTrainerIds.size > 0) {
+    const { data: profiles } = await supabase.from("profiles").select("user_id, full_name").in("user_id", Array.from(allTrainerIds));
+    (profiles || []).forEach((p: any) => { trainerMap[p.user_id] = p.full_name || ""; });
+  }
+
+  return { stats, planChart, expiringContracts, cycleCountdowns: countdowns, trainerMap };
+}
+
+async function fetchPrescriptionCountdowns(companyId: string, activeEnrolls: any[], today: string, renewalDate: string) {
+  const businessToday = parseISO(today);
   const countdowns: any[] = [];
   const enrollsWithDate = activeEnrolls.filter((e: any) => e.training_start_date);
   if (enrollsWithDate.length > 0) {
@@ -164,94 +184,73 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
       };
     });
     const { data: cycleRows, error: cycleRowsError } = await supabase.from("training_cycles")
-      .select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at")
+      .select("id, enrollment_id, cycle_number, start_date, end_date, status, prescribed_offline_at, prescription_cleared_at, superseded_by_cycle_id")
+      .eq("company_id", companyId)
+      .is("superseded_by_cycle_id", null)
       .in("enrollment_id", enrollIds)
       .neq("status", "superseded")
       .order("cycle_number");
     if (cycleRowsError) throw new Error(`Falha ao carregar trocas de treino: ${cycleRowsError.message}`);
-    const allCycles = cycleRows || [];
-    // Keep the last cycle in the renewal window even after it expires. The
-    // dashboard is an operational queue, not a snapshot that drops overdue work.
-    const currentCycleCandidates = Array.from(
-      allCycles
-        .filter((cycle: any) => cycle.start_date <= today && cycle.end_date <= renewalDate)
-        .reduce((map: Map<string, any>, cycle: any) => {
-          const current = map.get(cycle.enrollment_id);
-          if (!current || Number(cycle.cycle_number) > Number(current.cycle_number)) map.set(cycle.enrollment_id, cycle);
-          return map;
-        }, new Map<string, any>())
-        .values(),
-    );
-    const currentCycleIds = currentCycleCandidates.map((cycle: any) => cycle.id);
-    const [{ data: currentWorkouts, error: currentWorkoutsError }, { data: currentBundles, error: currentBundlesError }] = currentCycleIds.length > 0
-      ? await Promise.all([
-          supabase.from("workouts").select("cycle_id, exercises").is("superseded_at", null).in("cycle_id", currentCycleIds),
-          (supabase as any).from("prescription_bundles").select("training_cycle_id").in("training_cycle_id", currentCycleIds).neq("status", "failed"),
-        ])
-      : [{ data: [] as any[], error: null }, { data: [] as any[], error: null }];
-    if (currentWorkoutsError) throw new Error(`Falha ao conferir treinos vigentes: ${currentWorkoutsError.message}`);
-    if (currentBundlesError) throw new Error(`Falha ao conferir prescrições vigentes: ${currentBundlesError.message}`);
-    const preparedCurrentCycles = new Set([
-      ...filterMaterializedWorkouts(currentWorkouts || []).map((row) => row.cycle_id),
-      ...(currentBundles || []).map((row: any) => row.training_cycle_id),
-      ...currentCycleCandidates.filter((cycle: any) => cycle.prescribed_offline_at).map((cycle: any) => cycle.id),
-    ]);
-    const activeCycles = currentCycleCandidates.map((cycle: any) => ({
-      ...cycle,
-      has_workouts: preparedCurrentCycles.has(cycle.id),
-      has_bundle: preparedCurrentCycles.has(cycle.id),
-    }));
-    const nextCycles = activeCycles.map((cycle: any) => allCycles.find((candidate: any) =>
-      candidate.enrollment_id === cycle.enrollment_id && candidate.cycle_number === cycle.cycle_number + 1,
-    )).filter(Boolean);
-    const nextCycleIds = nextCycles.map((cycle: any) => cycle.id);
-    const [{ data: nextWorkouts, error: nextWorkoutsError }, { data: nextBundles, error: nextBundlesError }] = nextCycleIds.length > 0
-      ? await Promise.all([
-          supabase.from("workouts").select("cycle_id, exercises").is("superseded_at", null).in("cycle_id", nextCycleIds),
-          (supabase as any).from("prescription_bundles").select("training_cycle_id").in("training_cycle_id", nextCycleIds).neq("status", "failed"),
-        ])
-      : [{ data: [] as any[], error: null }, { data: [] as any[], error: null }];
-    if (nextWorkoutsError) throw new Error(`Falha ao conferir treinos futuros: ${nextWorkoutsError.message}`);
-    if (nextBundlesError) throw new Error(`Falha ao conferir prescrições futuras: ${nextBundlesError.message}`);
-    const preparedNextCycles = new Set([
-      ...filterMaterializedWorkouts(nextWorkouts || []).map((row) => row.cycle_id),
-      ...(nextBundles || []).map((row: any) => row.training_cycle_id),
-      ...nextCycles.filter((cycle) => cycle.prescribed_offline_at).map((cycle) => cycle.id),
-    ]);
-    activeCycles.forEach((c: any) => {
-      const info = enrollInfoMap[c.enrollment_id];
-      const daysLeft = differenceInCalendarDays(parseISO(c.end_date), businessToday);
-      if (daysLeft > experience.renewal_notice_days) return;
-      const nextCycle = nextCycles.find((candidate: any) => candidate.enrollment_id === c.enrollment_id);
-      const nextReady = Boolean(nextCycle && preparedNextCycles.has(nextCycle.id));
-      if (nextReady) return;
-      countdowns.push({
-        student_name: info?.name || "—",
-        student_id: info?.student_id,
-        cycle_number: c.cycle_number,
-        end_date: c.end_date,
-        days_left: daysLeft,
-        trainer_id: info?.trainer_id,
-        next_cycle_id: nextCycle?.id || null,
-        next_cycle_number: nextCycle?.cycle_number || null,
-        next_start_date: nextCycle?.start_date || null,
-        next_ready: nextReady,
-      });
+    const schedules = new Map<string, NonNullable<typeof cycleRows>>();
+    for (const cycle of cycleRows ?? []) {
+      const schedule = schedules.get(cycle.enrollment_id) ?? [];
+      schedule.push(cycle);
+      schedules.set(cycle.enrollment_id, schedule);
+    }
+    const windows = [...schedules.values()].flatMap(schedule => {
+      const ordered = schedule.sort((a, b) => a.start_date.localeCompare(b.start_date) || a.cycle_number - b.cycle_number);
+      const current = ordered.filter(cycle => cycle.start_date <= today).at(-1);
+      if (!current) return [];
+      return [{
+        current,
+        previous: ordered.filter(cycle => cycle.end_date < current.start_date).at(-1),
+        next: ordered.find(cycle => cycle.start_date > current.end_date),
+      }];
     });
+    const targetIds = [...new Set(windows.flatMap(({ current, next }) => next ? [current.id, next.id] : [current.id]))];
+    const [workouts, bundles] = targetIds.length ? await Promise.all([
+      supabase.from("workouts").select("cycle_id, exercises").is("superseded_at", null).in("cycle_id", targetIds),
+      supabase.from("prescription_bundles").select("training_cycle_id").eq("company_id", companyId)
+        .in("training_cycle_id", targetIds).in("status", ["active", "scheduled"]),
+    ]) : [{ data: [], error: null }, { data: [], error: null }];
+    if (workouts.error) throw new Error(`Falha ao conferir treinos: ${workouts.error.message}`);
+    if (bundles.error) throw new Error(`Falha ao conferir prescrições: ${bundles.error.message}`);
+    const prepared = new Set([
+      ...filterMaterializedWorkouts(workouts.data).map(row => row.cycle_id),
+      ...(bundles.data ?? []).map(row => row.training_cycle_id),
+    ]);
+    const ready = (cycle: NonNullable<typeof cycleRows>[number]) =>
+      !cycle.prescription_cleared_at && (Boolean(cycle.prescribed_offline_at) || prepared.has(cycle.id));
+    for (const { current, previous, next } of windows) {
+      // Keep a missed handoff visible when its projected cycle has already started.
+      const missedHandoff = previous && !ready(current);
+      const reference = missedHandoff ? previous : current;
+      const target = missedHandoff ? current : next;
+      if (reference.end_date > renewalDate || (target && ready(target))) continue;
+      const info = enrollInfoMap[reference.enrollment_id];
+      countdowns.push({
+        student_name: info.name,
+        student_id: info.student_id,
+        cycle_number: reference.cycle_number,
+        end_date: reference.end_date,
+        days_left: differenceInCalendarDays(parseISO(reference.end_date), businessToday),
+        trainer_id: info.trainer_id,
+        next_cycle_id: target?.id ?? null,
+        next_cycle_number: target?.cycle_number ?? null,
+        next_start_date: target?.start_date ?? null,
+        next_ready: false,
+      });
+    }
   }
-  countdowns.sort((a, b) => String(b.end_date).localeCompare(String(a.end_date)));
+  countdowns.sort((a, b) => a.days_left - b.days_left);
 
-  // Resolve trainer names once
-  const allTrainerIds = new Set<string>();
-  expiringContracts.forEach((e: any) => { if (e.trainer_id) allTrainerIds.add(e.trainer_id); });
-  countdowns.forEach((m: any) => { if (m.trainer_id) allTrainerIds.add(m.trainer_id); });
-  const trainerMap: Record<string, string> = {};
-  if (allTrainerIds.size > 0) {
-    const { data: profiles } = await supabase.from("profiles").select("user_id, full_name").in("user_id", Array.from(allTrainerIds));
-    (profiles || []).forEach((p: any) => { trainerMap[p.user_id] = p.full_name || ""; });
-  }
+  return countdowns;
+}
 
-  return { stats, planChart, expiringContracts, cycleCountdowns: countdowns, trainerMap };
+export function prescriptionDeadlineTone(daysLeft: number) {
+  if (daysLeft < 0) return "bg-destructive/20 text-destructive";
+  if (daysLeft === 0) return "bg-amber-500/15 text-amber-700 dark:text-amber-300";
+  return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 }
 
 const chartColors = ["hsl(220, 70%, 25%)", "hsl(220, 60%, 35%)", "hsl(220, 50%, 45%)", "hsl(220, 40%, 55%)"];
@@ -288,6 +287,7 @@ interface AdminDashboardProps {
   title?: string;
   subtitle?: string;
   includeCoordinatorPanels?: boolean;
+  operationalExtras?: ReactNode;
 }
 
 export default function AdminDashboard({
@@ -296,19 +296,52 @@ export default function AdminDashboard({
   title = "DASHBOARD",
   subtitle,
   includeCoordinatorPanels = false,
+  operationalExtras,
 }: AdminDashboardProps = {}) {
-  const { role, companyId } = useAuth();
+  const { role, companyId, user } = useAuth();
+  const { canAccess, loading: permissionsLoading } = useRolePermissions();
   const { viewingCompany, isViewingCompany } = useMaster();
   const navigate = useNavigate();
+  const [view, setView] = useState<"all" | "mine">("all");
+  const mine = view === "mine";
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [renewalFilter, setRenewalFilter] = useState<"all" | "pending" | "overdue">("all");
   const [cycleFilter, setCycleFilter] = useState<"all" | "pending" | "overdue">("all");
   const routePrefix = routePrefixOverride ?? (role === "master" && isViewingCompany ? "admin" : role);
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
+  const actorScope = effectiveCompanyId && user?.id && role ? { companyId: effectiveCompanyId, actorId: user.id, role } : null;
+  const roster = useAssignedDashboardStudents(mine ? actorScope : null);
+  const studentIds = new Set((roster.data ?? []).map(student => student.id));
+  const assignedScope = actorScope && roster.data && !roster.error ? { ...actorScope, studentIds: [...studentIds] } : null;
+  const operationalScope = mine ? assignedScope : readOnly ? null : actorScope;
+  const safeRoutePrefix = routePrefix || "admin";
+  const canOpenStudent = (mine || !readOnly) && (role !== "coordinator" || (!permissionsLoading && canAccess("students")));
+  const canOpenChat = !permissionsLoading && canAccess("whatsapp");
+  const canRunAdminOperations = !readOnly && (role === "admin" || role === "master");
   const { policy, isPending: policyPending, error: policyError } = useCompanyExperiencePolicy(effectiveCompanyId);
 
+  const day = businessDateYmd();
+  const myCycles = useQuery({
+    queryKey: ["dashboard-my-prescriptions", assignedScope, day, policy.renewal_notice_days],
+    enabled: mine && !!assignedScope && !policyPending && !policyError,
+    queryFn: async () => {
+      const { companyId, studentIds } = assignedScope!;
+      const deadline = format(addDays(parseISO(day), policy.renewal_notice_days), "yyyy-MM-dd");
+      const rows = [];
+      for (let start = 0; start < studentIds.length; start += 100) {
+        const { data, error } = await supabase.from("enrollments")
+          .select("id, student_id, training_start_date, trainer_id, students(full_name, assigned_trainer_id)")
+          .eq("company_id", companyId).in("student_id", studentIds.slice(start, start + 100))
+          .in("status", ["active", "awaiting_training", "awaiting_renewal"]);
+        if (error) throw error;
+        rows.push(...await fetchPrescriptionCountdowns(companyId, data ?? [], day, deadline));
+      }
+      return rows;
+    },
+  });
+
   const { data: snapshotData, error: snapshotError, isLoading: snapshotLoading } = useQuery({
-    queryKey: ["company-dashboard-snapshot", effectiveCompanyId ?? "none", policy.risk_no_workout_days, policy.renewal_notice_days],
+    queryKey: ["company-dashboard-snapshot", effectiveCompanyId ?? "none", policy.risk_no_workout_days, policy.renewal_notice_days, user?.id, role, day],
     queryFn: async () => {
       if (!effectiveCompanyId) return null;
       const { data, error } = await supabase.rpc("get_company_dashboard_snapshot", { _company_id: effectiveCompanyId });
@@ -320,7 +353,7 @@ export default function AdminDashboard({
   });
 
   const { data: liveData, error: liveDashboardError, isLoading: liveDashboardLoading } = useQuery({
-    queryKey: ["admin-dashboard", effectiveCompanyId ?? "all", policy.renewal_notice_days],
+    queryKey: ["admin-dashboard", effectiveCompanyId ?? "all", policy.renewal_notice_days, user?.id, role, day],
     queryFn: () => fetchDashboardData(effectiveCompanyId),
     staleTime: 60_000,
     enabled: !readOnly && Boolean(effectiveCompanyId) && !policyPending,
@@ -334,19 +367,19 @@ export default function AdminDashboard({
     queryKey: ["student-chat-map", effectiveCompanyId ?? "all"],
     queryFn: () => buildStudentChatMap(effectiveCompanyId),
     staleTime: 60_000,
-    enabled: !readOnly,
+    enabled: !readOnly && canRunAdminOperations && !mine && !!effectiveCompanyId && canOpenChat,
   });
 
   const navigateWhenInteractive = (target: string, options?: any) => {
-    if (readOnly) return;
+    if (!canOpenStudent) return;
     navigate(target, options);
   };
 
-  const handleRenew = async (studentId: string, fullName?: string, planName?: string, daysLeft?: number) => {
-    if (readOnly || !effectiveCompanyId) return;
+  const handleRenew = async (studentId: string, enrollmentId: string, fullName?: string, planName?: string, daysLeft?: number) => {
+    if (!canRunAdminOperations || !effectiveCompanyId) return;
     try {
-      const paymentLink = await createPlansLink(studentId);
-      const message = renewalMessage({ fullName, planName, daysLeft, paymentLink, overdue: typeof daysLeft === "number" && daysLeft <= 0 });
+      const paymentLink = await createPlansLink(studentId, { enrollmentId });
+      const message = renewalMessage({ fullName, planName, daysLeft, paymentLink });
       await openStudentChat({
         navigate,
         routePrefix: (routePrefix as string) || "admin",
@@ -354,7 +387,7 @@ export default function AdminDashboard({
         studentId,
         message,
         companyId: effectiveCompanyId,
-        messageEvent: typeof daysLeft === 'number' && daysLeft <= 0 ? 'renewal_overdue' : 'renewal_due',
+        messageEvent: isRenewalOverdue(daysLeft) ? 'renewal_overdue' : 'renewal_due',
         messageValues: { nome: fullName ?? '', primeiro_nome: (fullName ?? '').trim().split(/\s+/)[0], link: paymentLink, prazo: typeof daysLeft === 'number' ? String(daysLeft) : '' },
         onNoChat: (m) => { void navigator.clipboard?.writeText(m); toast.success("Aluno sem WhatsApp — mensagem de renovação copiada."); },
       });
@@ -363,34 +396,26 @@ export default function AdminDashboard({
     }
   };
 
-  const handleCycleNotice = async (cycle: any) => {
-    if (readOnly) return;
-    const firstName = String(cycle.student_name || "").trim().split(/\s+/)[0];
-    const startLabel = cycle.next_start_date ? format(parseISO(cycle.next_start_date), "dd/MM") : "na próxima troca";
-    const message = `Oi, ${firstName}! Seu próximo ciclo de treino já está programado e entra no app em ${startLabel}. Quando ele liberar, me conta como se sentiu no bloco anterior para eu acompanhar sua evolução.`;
-    await openStudentChat({
-      navigate,
-      routePrefix: (routePrefix as string) || "admin",
-      chatId: studentChatMap?.[cycle.student_id],
-      studentId: cycle.student_id,
-      message,
-      onNoChat: (draft) => { void navigator.clipboard?.writeText(draft); toast.success("Aluno sem conversa interna — mensagem copiada."); },
-    });
-  };
-
   const stats = data?.stats ?? { totalStudents: 0, interestedStudents: 0, pendingStudents: 0, awaitingRenewalStudents: 0, inactiveStudents: 0, trainers: 0 };
   const planChart = data?.planChart ?? [];
-  const expiringContracts = data?.expiringContracts ?? [];
-  const cycleCountdowns = data?.cycleCountdowns ?? [];
+  const expiringContracts = (data?.expiringContracts ?? []).filter(row => !mine || studentIds.has(row.student_id));
+  const cycleCountdowns = ((mine ? myCycles.data : data?.cycleCountdowns) ?? [])
+    .filter(row => !row.next_ready && (!mine || studentIds.has(row.student_id)))
+    .sort((a, b) => a.days_left - b.days_left);
   const trainerMap = data?.trainerMap ?? {};
   const businessToday = parseISO(businessDateYmd());
   const visibleRenewals = expiringContracts.filter((contract: any) => {
     const daysLeft = differenceInCalendarDays(parseISO(contract.end_date), businessToday);
-    return renewalFilter === "pending" ? daysLeft >= 0 : renewalFilter === "overdue" ? daysLeft < 0 : true;
+    return renewalFilter === "pending" ? Number.isFinite(daysLeft) && !isRenewalOverdue(daysLeft) : renewalFilter === "overdue" ? isRenewalOverdue(daysLeft) : true;
   });
   const visibleCycleCountdowns = cycleCountdowns.filter((cycle: any) => (
     cycleFilter === "pending" ? Number(cycle.days_left) >= 0 : cycleFilter === "overdue" ? Number(cycle.days_left) < 0 : true
   ));
+
+  const queueLoading = dashboardLoading || (mine && roster.isLoading);
+  const queueError = dashboardError || (mine && roster.error);
+  const cycleLoading = mine ? roster.isLoading || myCycles.isLoading || policyPending : dashboardLoading;
+  const cycleError = mine ? roster.error || myCycles.error || policyError : dashboardError;
 
   return (
     <>
@@ -401,14 +426,20 @@ export default function AdminDashboard({
           <p className="text-muted-foreground font-sans">
             {subtitle ?? (isViewingCompany ? `Visualizando: ${viewingCompany?.name}` : "Visão geral da consultoria")}
           </p>
-          {readOnly && (
+          {readOnly && !mine && (
             <p className="mt-1 text-xs text-muted-foreground font-sans">
               Visualização completa da empresa. Ações administrativas permanecem restritas a admin/coordenador.
             </p>
           )}
         </div>
 
-        {!readOnly && effectiveCompanyId && <CompanyOperationsReports companyId={effectiveCompanyId}/>}
+        <div role="group" aria-label="Carteira do dashboard" className="flex flex-wrap gap-2">
+          {([["all", "Todos os alunos"], ["mine", "Meus alunos"]] as const).map(([value, label]) => (
+            <Button key={value} type="button" size="sm" variant={view === value ? "default" : "outline"}
+              aria-pressed={view === value} disabled={value === "mine" && !actorScope}
+              onClick={() => setView(value)}>{label}</Button>
+          ))}
+        </div>
 
         {dashboardError && (
           <Card className="border-destructive/40 bg-destructive/5">
@@ -419,162 +450,25 @@ export default function AdminDashboard({
           </Card>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-primary/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=active`)}>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="p-3 rounded-lg bg-primary/10"><Users className="h-6 w-6 text-primary" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{dashboardLoading ? "—" : stats.totalStudents}</p>
-                <p className="text-sm text-muted-foreground font-sans">Alunos Ativos</p>
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          {!mine && <DashboardCard title="Interessados" icon={UserPlus}>
+            {!data || dashboardError ? <DashboardQueueState loading={dashboardLoading} error={dashboardError}
+              empty="Selecione uma empresa para consultar os interessados." /> : (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">{stats.interestedStudents} contatos na fila de interessados</p>
+                {!readOnly && !permissionsLoading && canAccess("registration") && <Button size="sm" variant="outline" onClick={() => navigate(`/${safeRoutePrefix}/registration`)}>Ver interessados</Button>}
               </div>
-            </CardContent>
-          </Card>
-          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-blue-500/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/registration`)}>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="p-3 rounded-lg bg-blue-500/10"><UserPlus className="h-6 w-6 text-blue-600" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{dashboardLoading ? "—" : stats.interestedStudents}</p>
-                <p className="text-sm text-muted-foreground font-sans">Interessados</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-warning/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=pending`)}>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="p-3 rounded-lg bg-warning/10"><Clock className="h-6 w-6 text-warning" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{dashboardLoading ? "—" : stats.pendingStudents}</p>
-                <p className="text-sm text-muted-foreground font-sans">Alunos Pendentes</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-warning/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=awaiting_renewal`)}>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="p-3 rounded-lg bg-warning/10"><RotateCcw className="h-6 w-6 text-warning" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{dashboardLoading ? "—" : stats.awaitingRenewalStudents}</p>
-                <p className="text-sm text-muted-foreground font-sans">Aguardando Renovação</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-muted-foreground/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=inactive`)}>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="p-3 rounded-lg bg-muted"><UserX className="h-6 w-6 text-muted-foreground" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{dashboardLoading ? "—" : stats.inactiveStudents}</p>
-                <p className="text-sm text-muted-foreground font-sans">Alunos Inativos</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-card border-border">
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div className="p-3 rounded-lg bg-primary/10"><TrendingUp className="h-6 w-6 text-primary" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground font-sans">{dashboardLoading ? "—" : stats.trainers}</p>
-                <p className="text-sm text-muted-foreground font-sans">Treinadores</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <DashboardAlerts
-          readOnly={readOnly}
-          showRecentStudents
-          birthdayCompanion={(
-            <ContactCadenceCard
-              companyId={effectiveCompanyId}
-              routePrefix={(routePrefix as string) || "admin"}
-              readOnly={readOnly}
-            />
-          )}
-        />
-
-        {includeCoordinatorPanels && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <RenewalsAndCyclesPanel
-              effectiveCompanyId={effectiveCompanyId}
-              routePrefix={(routePrefix as string) || "trainer"}
-              readOnly={readOnly}
-              renewalsOnly
-            />
-            <RenewalsAndCyclesPanel
-              effectiveCompanyId={effectiveCompanyId}
-              routePrefix={(routePrefix as string) || "trainer"}
-              readOnly={readOnly}
-              cyclesOnly
-            />
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            )}
+          </DashboardCard>}
+          {mine ? <FirstTrainingDashboardCard scope={operationalScope} students={roster.data ?? []}
+            routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} rosterLoading={roster.isLoading} rosterError={roster.error} />
+            : <AssessmentDashboardCard scope={operationalScope} routePrefix={safeRoutePrefix} allowChat={canOpenChat} />}
+          <OperationalContactCadenceCard scope={canOpenChat ? operationalScope : null} routePrefix={safeRoutePrefix} />
           <Card className="bg-card border-border">
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <CardTitle className="text-primary text-xl flex items-center gap-2">
-                <RefreshCw className="h-5 w-5" />RENOVAÇÃO
-                </CardTitle>
-                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar renovações">
-                  {([['all', 'Todas'], ['pending', 'Pendentes'], ['overdue', 'Atrasadas']] as const).map(([value, label]) => (
-                    <Button key={value} type="button" size="sm" variant={renewalFilter === value ? "default" : "outline"} className="h-7 px-2 text-xs" onClick={() => setRenewalFilter(value)}>{label}</Button>
-                  ))}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {visibleRenewals.length > 0 ? (
-                <div className="space-y-3 max-h-[250px] overflow-auto">
-                  {visibleRenewals.map((contract: any) => {
-                    const daysLeft = differenceInCalendarDays(parseISO(contract.end_date), businessToday);
-                    return (
-                      <div key={contract.id} className={`flex items-center justify-between p-3 rounded-lg bg-secondary/50 border border-border transition-all ${readOnly ? "" : "cursor-pointer hover:brightness-110"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students/${contract.student_id}`)}>
-                        <div>
-                          <button
-                            type="button"
-                            className="text-left font-sans text-sm font-medium text-foreground hover:text-primary hover:underline"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              navigateWhenInteractive(`/${routePrefix}/students/${contract.student_id}`);
-                            }}
-                          >
-                            <span className="inline-flex min-w-0 items-center gap-1.5">
-                              <span className="truncate">{contract.students?.full_name}</span>
-                              <AthleticClubStar studentId={contract.student_id} companyId={effectiveCompanyId} className="shrink-0" />
-                            </span>
-                          </button>
-                          <p className="text-muted-foreground text-xs font-sans">{contract.plans?.name}</p>
-                          {contract.trainer_id && trainerMap[contract.trainer_id] && (
-                            <p className="text-muted-foreground/70 text-[11px] font-sans">Treinador: {trainerMap[contract.trainer_id]}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="rounded bg-destructive/20 px-2 py-1 text-xs font-medium text-destructive font-mono-data">
-                            {daysLeft < 0 ? `${Math.abs(daysLeft)}d em atraso` : daysLeft === 0 ? "Vence hoje" : `${daysLeft}d restantes`}
-                          </span>
-                          {!readOnly && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs border-primary/40 text-primary hover:bg-primary/5"
-                              onClick={(e) => { e.stopPropagation(); handleRenew(contract.student_id, contract.students?.full_name, contract.plans?.name, daysLeft); }}
-                            >
-                              <MessageCircle className="h-3.5 w-3.5 mr-1" /> Renovar agora
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-muted-foreground font-sans text-center py-8">Nenhuma renovação pendente</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-primary text-xl flex items-center gap-2">
-                  <Timer className="h-5 w-5" />TROCA DE TREINO
+                  <Timer className="h-5 w-5" />Próximas prescrições
                 </CardTitle>
                 <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar trocas de treino">
                   {([['all', 'Todas'], ['pending', 'Pendentes'], ['overdue', 'Atrasadas']] as const).map(([value, label]) => (
@@ -584,10 +478,10 @@ export default function AdminDashboard({
               </div>
             </CardHeader>
             <CardContent>
-              {visibleCycleCountdowns.length > 0 ? (
+              {!cycleLoading && !cycleError && visibleCycleCountdowns.length > 0 ? (
                 <div className="space-y-3 max-h-[300px] overflow-auto">
-                  {visibleCycleCountdowns.map((m: any, i: number) => (
-                    <div key={i} className={`flex flex-col gap-3 rounded-lg border border-border bg-secondary/50 p-3 sm:flex-row sm:items-center sm:justify-between ${readOnly ? "" : "cursor-pointer hover:brightness-110 transition-all"}`} onClick={() => m.student_id && navigateWhenInteractive(`/${routePrefix}/students/${m.student_id}`)}>
+                  {visibleCycleCountdowns.map((m: any) => (
+                    <div key={m.next_cycle_id ?? `${m.student_id}-${m.cycle_number}-${m.end_date}`} className={`flex flex-col gap-3 rounded-lg border border-border bg-secondary/50 p-3 sm:flex-row sm:items-center sm:justify-between ${!canOpenStudent ? "" : "cursor-pointer hover:brightness-110 transition-all"}`} onClick={() => m.student_id && navigateWhenInteractive(`/${routePrefix}/students/${m.student_id}`)}>
                       <div>
                         <button
                           type="button"
@@ -605,51 +499,120 @@ export default function AdminDashboard({
                           </span>
                         </button>
                         <p className="text-muted-foreground text-xs font-sans">Ciclo {m.cycle_number} · vence {format(parseISO(m.end_date), "dd/MM")}</p>
-                        <p className={`mt-1 text-xs font-medium ${m.next_ready ? "text-emerald-700" : "text-amber-700"}`}>
-                          {m.next_ready ? `Próximo ciclo ${m.next_cycle_number} pronto` : "Próxima prescrição pendente"}
+                        <p className="mt-1 text-xs font-medium text-muted-foreground">
+                          {m.next_cycle_number ? `Ciclo ${m.next_cycle_number} · prescrição pendente` : "Próxima prescrição pendente"}
                         </p>
                         {m.trainer_id && trainerMap[m.trainer_id] && (
                           <p className="text-muted-foreground/70 text-[11px] font-sans">Treinador: {trainerMap[m.trainer_id]}</p>
                         )}
                       </div>
                       <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
-                        <span className={`rounded px-2 py-1 text-xs font-medium font-mono-data ${m.days_left <= 0 ? "bg-destructive/20 text-destructive" : "bg-warning/20 text-warning"}`}>
+                        <span className={`rounded px-2 py-1 text-xs font-medium font-mono-data ${prescriptionDeadlineTone(m.days_left)}`}>
                           {m.days_left < 0 ? `${Math.abs(m.days_left)}d em atraso` : m.days_left === 0 ? "Hoje" : `${m.days_left}d para troca`}
                         </span>
-                        {!readOnly && (m.next_ready ? (
-                          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => handleCycleNotice(m)}>
-                            <MessageCircle className="mr-1.5 h-3.5 w-3.5" /> Avisar aluno
+                        {canOpenStudent && m.student_id && (
+                          <Button asChild size="sm" className="h-8 text-xs">
+                            <Link to={`/${safeRoutePrefix}/students/${m.student_id}?tab=prescricao${m.next_cycle_id ? `&cycle=${encodeURIComponent(m.next_cycle_id)}` : ""}`}>
+                              <CalendarRange className="mr-1.5 h-3.5 w-3.5" /> Prescrever
+                            </Link>
                           </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            className="h-8 text-xs"
-                            onClick={() => navigate(`/${routePrefix}/students/${m.student_id}`, { state: { studentId: m.student_id, tab: "prescricao" } })}
-                          >
-                            <CalendarRange className="mr-1.5 h-3.5 w-3.5" /> Prescrever
-                          </Button>
-                        ))}
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-muted-foreground font-sans text-center py-8">Nenhuma troca prevista para os próximos 7 dias</p>
+                <DashboardQueueState loading={cycleLoading} error={cycleError} empty="Nenhuma próxima prescrição no período configurado." />
               )}
             </CardContent>
           </Card>
-        </div>
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="text-primary text-xl flex items-center gap-2">
+                <RefreshCw className="h-5 w-5" />Renovações
+                </CardTitle>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar renovações">
+                  {([['all', 'Todas'], ['pending', 'Pendentes'], ['overdue', 'Atrasadas']] as const).map(([value, label]) => (
+                    <Button key={value} type="button" size="sm" variant={renewalFilter === value ? "default" : "outline"} className="h-7 px-2 text-xs" onClick={() => setRenewalFilter(value)}>{label}</Button>
+                  ))}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!queueLoading && !queueError && visibleRenewals.length > 0 ? (
+                <div className="space-y-3 max-h-[250px] overflow-auto">
+                  {visibleRenewals.map((contract: any) => {
+                    const daysLeft = differenceInCalendarDays(parseISO(contract.end_date), businessToday);
+                    return (
+                      <div key={contract.id} className={`flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg bg-secondary/50 border border-border transition-all ${!canOpenStudent ? "" : "cursor-pointer hover:brightness-110"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students/${contract.student_id}?tab=enrollments`)}>
+                        <div>
+                          <button
+                            type="button"
+                            className="text-left font-sans text-sm font-medium text-foreground hover:text-primary hover:underline"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              navigateWhenInteractive(`/${routePrefix}/students/${contract.student_id}?tab=enrollments`);
+                            }}
+                          >
+                            <span className="inline-flex min-w-0 items-center gap-1.5">
+                              <span className="truncate">{contract.students?.full_name}</span>
+                              <AthleticClubStar studentId={contract.student_id} companyId={effectiveCompanyId} className="shrink-0" />
+                            </span>
+                          </button>
+                          <p className="text-muted-foreground text-xs font-sans">{contract.plans?.name}</p>
+                          {contract.trainer_id && trainerMap[contract.trainer_id] && (
+                            <p className="text-muted-foreground/70 text-[11px] font-sans">Treinador: {trainerMap[contract.trainer_id]}</p>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded bg-destructive/20 px-2 py-1 text-xs font-medium text-destructive font-mono-data">
+                            {daysLeft < 0 ? `${Math.abs(daysLeft)}d em atraso` : daysLeft === 0 ? "Vence hoje" : `${daysLeft}d restantes`}
+                          </span>
+                          {canOpenStudent && (
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={event => {
+                              event.stopPropagation();
+                              navigateWhenInteractive("/" + safeRoutePrefix + "/students/" + contract.student_id + "?tab=enrollments");
+                            }}>Ver matrícula</Button>
+                          )}
+                          {canRunAdminOperations && !mine && canOpenChat && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs border-primary/40 text-primary hover:bg-primary/5"
+                              onClick={(e) => { e.stopPropagation(); handleRenew(contract.student_id, contract.id, contract.students?.full_name, contract.plans?.name, daysLeft); }}
+                            >
+                              <MessageCircle className="h-3.5 w-3.5 mr-1" /> Renovar agora
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <DashboardQueueState loading={queueLoading} error={queueError} empty="Nenhuma renovação pendente." />
+              )}
+            </CardContent>
+          </Card>
 
+
+          <DashboardAlerts section="birthdays" readOnly={readOnly} studentIds={mine ? studentIds : undefined}
+            birthdayLoading={readOnly ? queueLoading : mine && roster.isLoading}
+            birthdayError={readOnly ? queueError : mine && roster.error}
+            agendaPath={!permissionsLoading && canAccess("agenda") && canOpenStudent ? "/" + safeRoutePrefix + "/agenda" : undefined}
+            allowStudentNavigation={canOpenStudent} allowBirthdayMessage={canOpenChat} />
+          <WorkoutFeedbackDashboardCard scope={operationalScope} routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} />
         <Collapsible open={insightsOpen} onOpenChange={setInsightsOpen}>
           <Card className="bg-card border-border">
             <CollapsibleTrigger asChild>
               <button type="button" className="flex w-full items-center justify-between gap-4 p-6 text-left">
                 <div>
                   <CardTitle className="text-primary text-xl flex items-center gap-2">
-                    <BarChart3 className="h-5 w-5" />ANÁLISES E ACOMPANHAMENTO
+                    <BarChart3 className="h-5 w-5" />Análises e acompanhamento
                   </CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground font-sans">
-                    Coorte, evasão, feedbacks e distribuição por plano quando precisar investigar com mais calma.
+                    NPS, matrículas por plano e acompanhamento de alunos.
                   </p>
                 </div>
                 <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform ${insightsOpen ? "rotate-180" : ""}`} />
@@ -657,8 +620,9 @@ export default function AdminDashboard({
             </CollapsibleTrigger>
             <CollapsibleContent>
               <CardContent className="space-y-6 pt-0">
+                {mine ? <AssignedDashboardInsights scope={assignedScope} /> : <>
                 <section className="rounded-lg border border-border bg-secondary/20 p-4">
-                  <h2 className="text-primary text-xl">PLANOS MAIS VENDIDOS</h2>
+                  <h2 className="text-primary text-xl">Matrículas por plano</h2>
                   <div className="mt-4">
                     {planChart.length > 0 ? (
                       <Suspense fallback={<div className="h-[250px] flex items-center justify-center"><div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
@@ -670,15 +634,79 @@ export default function AdminDashboard({
                   </div>
                 </section>
 
-                {/* EVASÃO embutida na dashboard (antes era a rota separada /admin/evasao). */}
-                <AtRiskStudents readOnly={readOnly} routePrefix={(routePrefix as string) || "admin"} />
-                <MonthlyPrescriptionsCard companyId={effectiveCompanyId} routePrefix={(routePrefix as string) || "admin"} readOnly={readOnly} />
-                <PendingFeedbackCard companyId={effectiveCompanyId} routePrefix={(routePrefix as string) || "admin"} readOnly={readOnly} />
                 <CohortInsightsCard companyId={effectiveCompanyId} readOnly={readOnly} />
+                {role !== "coordinator" && <>
+                  <AtRiskStudents readOnly={readOnly} routePrefix={safeRoutePrefix} />
+                  <MonthlyPrescriptionsCard companyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} />
+                  <PendingFeedbackCard companyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} />
+                </>}
+                </>}
               </CardContent>
             </CollapsibleContent>
           </Card>
         </Collapsible>
+        </div>
+
+        {!mine && <details className="rounded-xl border border-border bg-card">
+          <summary className="cursor-pointer p-4 text-sm font-semibold text-primary">Mais operações</summary>
+          <div className="space-y-4 p-4 pt-0">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-primary/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=active`)}>
+            <CardContent className="flex items-center gap-4 pt-6">
+              <div className="p-3 rounded-lg bg-primary/10"><Users className="h-6 w-6 text-primary" /></div>
+              <div>
+                <p className="text-2xl font-bold text-foreground font-sans">{(dashboardLoading || dashboardError || !data) ? "—" : stats.totalStudents}</p>
+                <p className="text-sm text-muted-foreground font-sans">Alunos Ativos</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-warning/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=pending`)}>
+            <CardContent className="flex items-center gap-4 pt-6">
+              <div className="p-3 rounded-lg bg-warning/10"><Clock className="h-6 w-6 text-warning" /></div>
+              <div>
+                <p className="text-2xl font-bold text-foreground font-sans">{(dashboardLoading || dashboardError || !data) ? "—" : stats.pendingStudents}</p>
+                <p className="text-sm text-muted-foreground font-sans">Alunos Pendentes</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-warning/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=awaiting_renewal`)}>
+            <CardContent className="flex items-center gap-4 pt-6">
+              <div className="p-3 rounded-lg bg-warning/10"><RotateCcw className="h-6 w-6 text-warning" /></div>
+              <div>
+                <p className="text-2xl font-bold text-foreground font-sans">{(dashboardLoading || dashboardError || !data) ? "—" : stats.awaitingRenewalStudents}</p>
+                <p className="text-sm text-muted-foreground font-sans">Aguardando Renovação</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className={`bg-card border-border transition-colors ${readOnly ? "" : "cursor-pointer hover:border-muted-foreground/50"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students?status=inactive`)}>
+            <CardContent className="flex items-center gap-4 pt-6">
+              <div className="p-3 rounded-lg bg-muted"><UserX className="h-6 w-6 text-muted-foreground" /></div>
+              <div>
+                <p className="text-2xl font-bold text-foreground font-sans">{(dashboardLoading || dashboardError || !data) ? "—" : stats.inactiveStudents}</p>
+                <p className="text-sm text-muted-foreground font-sans">Alunos Inativos</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-card border-border">
+            <CardContent className="flex items-center gap-4 pt-6">
+              <div className="p-3 rounded-lg bg-primary/10"><TrendingUp className="h-6 w-6 text-primary" /></div>
+              <div>
+                <p className="text-2xl font-bold text-foreground font-sans">{(dashboardLoading || dashboardError || !data) ? "—" : stats.trainers}</p>
+                <p className="text-sm text-muted-foreground font-sans">Treinadores</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+            <DashboardAlerts section="extras" readOnly={readOnly} showRecentStudents />
+            {(canOpenChat || readOnly) && <ContactCadenceCard companyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} />}
+            {canRunAdminOperations && effectiveCompanyId && <CompanyOperationsReports companyId={effectiveCompanyId} />}
+            {includeCoordinatorPanels && <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <RenewalsAndCyclesPanel effectiveCompanyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} renewalsOnly />
+              <RenewalsAndCyclesPanel effectiveCompanyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} cyclesOnly />
+            </div>}
+            {operationalExtras}
+          </div>
+        </details>}
       </div>
       </DashboardSnapshotContext.Provider>
     </>

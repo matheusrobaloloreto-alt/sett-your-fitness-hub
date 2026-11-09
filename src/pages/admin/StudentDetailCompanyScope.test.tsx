@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderWithProviders, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,11 +9,14 @@ const mocks = vi.hoisted(() => ({
   from: vi.fn(), rpc: vi.fn(), invoke: vi.fn(), openChat: vi.fn(), toast: vi.fn(), navigate: vi.fn(), studentCompany: "company-a",
   search: "?tab=program&draft=keep&returnTo=%2Fadmin%2Fstudents",
   studentTrainer: "profile-trainer",
+  studentStatus: "active",
   studentCountry: "BR" as string | null,
   studentPhone: "48999990001",
   studentWhatsApp: "48999990001",
+  latestStudent: null as Record<string, unknown> | null,
   functional: [] as Array<Record<string, unknown>>,
   cycles: [] as Array<Record<string, unknown>>,
+  cycleUpdates: [] as Array<{ filters: Record<string, unknown>; patch: Record<string, unknown> }>,
   cycleReadError: false,
   invalidPlanCalls: [] as unknown[],
   reassignError: null as { message: string; code: string } | null,
@@ -70,20 +74,29 @@ vi.mock('@/components/trainer/StudentVolumePanel', () => ({ StudentVolumePanel: 
 vi.mock('@/lib/studentChat', async original => ({ ...await original<typeof import('@/lib/studentChat')>(), openStudentChat: mocks.openChat }));
 import StudentDetail from "./StudentDetail";
 
+function render(element: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return renderWithProviders(element, {
+    wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+  });
+}
+
 beforeEach(() => {
-  mocks.search = "?tab=program&draft=keep&returnTo=%2Fadmin%2Fstudents";
+  mocks.search = "?tab=enrollments&draft=keep&returnTo=%2Fadmin%2Fstudents";
   mocks.functional = [];
   mocks.auth.role = "trainer";
   mocks.auth.companyId = "company-a";
   mocks.master = { viewingCompany: null, isViewingCompany: false };
   mocks.studentCompany = "company-a";
   mocks.studentTrainer = "profile-trainer";
+  mocks.studentStatus = "active";
   mocks.studentCountry = "BR";
   mocks.studentPhone = "48999990001"; mocks.studentWhatsApp = "48999990001";
+  mocks.latestStudent = null;
   mocks.openChat.mockReset().mockResolvedValue(undefined);
   mocks.invoke.mockReset().mockImplementation(async (name: string) => name === "student-login-credentials" ? { data: { email: "student@example.invalid", password: "synthetic-only" }, error: null } : { data: { error: "whatsapp_student_phone_ambiguous" }, error: null });
   mocks.reassignError = null;
-  mocks.cycles = []; mocks.cycleReadError = false;
+  mocks.cycles = []; mocks.cycleUpdates = []; mocks.cycleReadError = false;
   mocks.enrollments = [
     { id: "enrollment-a", student_id: "student-a", plan_id: "plan-a", trainer_id: "other-trainer",
       status: "active", start_date: "2026-10-01", end_date: "2026-11-11" },
@@ -110,27 +123,49 @@ beforeEach(() => {
         ? { ...enrollment, trainer_id: args._trainer_id } : enrollment);
       return { data: [], error: null };
     }
+    if (name === "activate_student_enrollment_manually") {
+      mocks.studentStatus = "active";
+      return { data: "manual-enrollment", error: null };
+    }
     throw new Error(`Unexpected RPC ${name}`);
   });
   mocks.invalidPlanCalls = [];
   mocks.studentFilters = [];
   mocks.from.mockReset().mockImplementation((table: string) => {
     const filters: Record<string, unknown> = {};
+    const excluded: Record<string, unknown> = {};
+    let patch: Record<string, unknown> | undefined;
+    const updateCycles = () => {
+      mocks.cycleUpdates.push({ filters, patch: patch! });
+      return mocks.cycles.filter(cycle => Object.entries(filters).every(([key, value]) =>
+        Array.isArray(value) ? value.includes(cycle[key]) : (cycle[key] ?? null) === value)
+        && Object.entries(excluded).every(([key, value]) => cycle[key] !== value))
+        .map(cycle => Object.assign(cycle, patch));
+    };
     const query = {
-      select: () => query, order: () => query, in: (key: string, values: unknown[]) => { filters[key] = values; if(table === "plans" && values.includes(null)) mocks.invalidPlanCalls.push(values); return query; }, is: () => query, not: () => query,
-      update: () => { mocks.writes.push(table); return query; },
+      select: () => query, order: () => query, in: (key: string, values: unknown[]) => { filters[key] = values; if(table === "plans" && values.includes(null)) mocks.invalidPlanCalls.push(values); return query; },
+      is: (key: string, value: unknown) => { filters[key] = value; return query; }, not: () => query,
+      neq: (key: string, value: unknown) => { excluded[key] = value; return query; },
+      limit: () => query, or: () => query,
+      update: (value: Record<string, unknown>) => { mocks.writes.push(table); patch = value; return query; },
       eq: (key: string, value: unknown) => { filters[key] = value; return query; },
-      maybeSingle: async () => ({ data: null, error: null }),
+      maybeSingle: async () => ({
+        data: table === "training_cycles" && patch ? updateCycles()[0] ?? null
+          : table === "students" && filters.company_id === mocks.studentCompany ? mocks.latestStudent : null,
+        error: null,
+      }),
       single: async () => {
         mocks.studentFilters.push({ ...filters });
         const companyMatches = !filters.company_id || filters.company_id === mocks.studentCompany;
         return { data: companyMatches ? {
-          id: "student-a", company_id: mocks.studentCompany, full_name: "Fixture Student", status: "active",
+          id: "student-a", company_id: mocks.studentCompany, full_name: "Fixture Student", status: mocks.studentStatus,
+          sales_stage: mocks.studentStatus === "pending" ? "payment_pending" : "active",
           assigned_trainer_id: mocks.studentTrainer, country_code: mocks.studentCountry,
           email: "student@example.invalid", phone: mocks.studentPhone, whatsapp: mocks.studentWhatsApp, updated_at: "2026-10-29T10:00:00Z",
         } : null, error: null };
       },
       then: (resolve: (result: object) => unknown) => {
+        if (table === "training_cycles" && patch) return Promise.resolve({ data: updateCycles(), error: null }).then(resolve);
         const data = table === "functional_assessments" ? mocks.functional : table === "training_cycles" ? mocks.cycles : table === "enrollments" ? mocks.enrollments
           : table === "plans" ? [
             { id: "plan-a", name: "Fixture Plan", duration_weeks: 6, plan_kind: "paid" },
@@ -149,6 +184,28 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("StudentDetail staff company scope", () => {
+  it("activates a pending student manually from the profile after selecting a plan", async () => {
+    mocks.auth.role = "coordinator";
+    mocks.studentStatus = "pending";
+    mocks.enrollments = [];
+    render(<StudentDetail />);
+    fireEvent.click(await screen.findByRole("button", { name: "Nova Matrícula" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    const activate = dialog.getByRole("button", { name: "Ativar matrícula" });
+    expect(activate).toBeDisabled();
+    fireEvent.change(await dialog.findByRole("combobox", { name: "Plano da matrícula" }), { target: { value: "plan-a" } });
+    expect(dialog.queryByText("Treinador *")).not.toBeInTheDocument();
+    fireEvent.change(dialog.getByLabelText("Motivo da ativação manual *"), { target: { value: "Ativação de teste autorizada" } });
+    fireEvent.click(activate);
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith("activate_student_enrollment_manually", {
+      _company_id: "company-a", _student_id: "student-a", _plan_id: "plan-a",
+      _start_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), _reason: "Ativação de teste autorizada",
+    }));
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Matrícula ativada" }));
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(mocks.writes).toEqual([]);
+  });
+
   it.each(["trainer", "coordinator", "admin"])("allows %s to manage another trainer's enrollment within the company", async (role) => {
     mocks.auth.role = role;
     render(<StudentDetail />);
@@ -241,6 +298,55 @@ describe("StudentDetail staff company scope", () => {
   });
 });
 
+describe("StudentDetail offline prescription", () => {
+  const clearedAt = "2026-10-29T12:00:00Z";
+
+  beforeEach(() => {
+    mocks.cycles = [{
+      id: "cycle-a", enrollment_id: "enrollment-a", student_id: "student-a", company_id: "company-a",
+      cycle_number: 1, start_date: "2026-10-01", end_date: "2026-11-11", status: "active",
+      prescription_cleared_at: null, prescribed_offline_at: null,
+    }];
+    mocks.navigate.mockClear();
+  });
+
+  it("shows a cleared cycle instead of an old offline stamp and preserves manual prescribing", async () => {
+    Object.assign(mocks.cycles[0], { prescription_cleared_at: clearedAt, prescribed_offline_at: clearedAt });
+    render(<StudentDetail />);
+    expect(await screen.findByText("Prescrição removida")).toBeInTheDocument();
+    expect(screen.queryByText("Fora do app")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Feito" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Prescrever" }));
+    expect(mocks.navigate).toHaveBeenCalledWith(expect.stringContaining("/workout/cycle-a?"));
+    expect(mocks.writes).toEqual([]);
+  });
+
+  it("refreshes on a concurrent clear and leaves the offline marker untouched", async () => {
+    render(<StudentDetail />);
+    const done = await screen.findByRole("button", { name: "Feito" });
+    mocks.cycles[0].prescription_cleared_at = clearedAt;
+    fireEvent.click(done);
+    expect(await screen.findByText("Prescrição removida")).toBeInTheDocument();
+    expect(mocks.cycles[0].prescribed_offline_at).toBeNull();
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Não foi possível marcar o ciclo" }));
+    expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: "Ciclo marcado como prescrito fora do app." }));
+  });
+
+  it("confirms and displays an ordinary offline prescription", async () => {
+    render(<StudentDetail />);
+    fireEvent.click(await screen.findByRole("button", { name: "Feito" }));
+    expect(await screen.findByText("Fora do app")).toBeInTheDocument();
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Ciclo marcado como prescrito fora do app." }));
+    expect(mocks.cycleUpdates).toEqual([{
+      filters: {
+        id: "cycle-a", company_id: "company-a", prescription_cleared_at: null,
+        superseded_at: null, superseded_by_cycle_id: null,
+      },
+      patch: { prescribed_offline_at: expect.any(String), prescribed_offline_by: "actor" },
+    }]);
+  });
+});
+
 
 it('shows pending contracted slots and preserves superseded offline history with original labels', async () => {
   mocks.enrollments[0].end_date = '2027-04-25';
@@ -251,14 +357,14 @@ it('shows pending contracted slots and preserves superseded offline history with
   ];
   render(<StudentDetail />);
   await screen.findByRole('heading', { name: 'FIXTURE STUDENT' });
-  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Análise' }), { button: 0, ctrlKey: false });
-  const history = await screen.findByRole('region', { name: 'Histórico anterior e fora da vigência' });
+  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Acompanhamento' }), { button: 0, ctrlKey: false });
+  const history = await screen.findByRole('region', { name: 'Ciclos anteriores' });
   expect(within(history).getByText(/CICLO 18/)).toBeInTheDocument();
   expect(within(history).getByText('Prescrito fora do app')).toBeInTheDocument();
-  const current = screen.getByRole('region', { name: 'Vigência contratual — ciclos persistidos' });
+  const current = screen.getByRole('region', { name: 'Ciclos da matrícula selecionada' });
   expect(within(current).getByText(/CICLO 31/)).toBeInTheDocument();
   expect(within(current).getByText(/CICLO 45/)).toBeInTheDocument();
-  expect(screen.getByRole('region', { name: 'Cobertura contratual Fixture Plan' })).toHaveTextContent('25/04/2027');
+  expect(screen.getByText(/Plano atual · .*25\/04\/2027/)).toBeInTheDocument();
   expect(mocks.writes).toEqual([]);
 });
 
@@ -266,14 +372,14 @@ it('shows an explicit coverage read error instead of claiming an empty schedule'
   mocks.cycleReadError = true;
   render(<StudentDetail />);
   await screen.findByRole('heading', { name: 'FIXTURE STUDENT' });
-  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Análise' }), { button: 0, ctrlKey: false });
+  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Acompanhamento' }), { button: 0, ctrlKey: false });
   expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível confirmar a cobertura');
   expect(mocks.writes).toEqual([]);
 });
 
 it('opening access conversation preflights identity and never generates credentials on a blocked read', async () => {
  render(<StudentDetail />);
- fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Visão geral' }), { button: 0, ctrlKey: false });
+ fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Cadastro' }), { button: 0, ctrlKey: false });
  fireEvent.click(await screen.findByRole('button', { name: /ACESSO DO APP/ }));
  fireEvent.click(await screen.findByRole('button', { name: 'Abrir conversa' }));
  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('whatsapp-manager', expect.objectContaining({ body: expect.objectContaining({ action: 'preflight-student-login' }) })));
@@ -284,7 +390,7 @@ it('opening access conversation preflights identity and never generates credenti
 it('shows legacy contact ambiguity explicitly without selecting a hidden number', async () => {
  mocks.studentPhone = '48988880002';
  render(<StudentDetail />);
- fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Visão geral' }), { button: 0, ctrlKey: false });
+ fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Cadastro' }), { button: 0, ctrlKey: false });
  fireEvent.click(await screen.findByRole('button', { name: /ACESSO DO APP/ }));
  expect(await screen.findByText(/Contatos legados divergentes/)).toBeInTheDocument();
  expect(mocks.invoke).not.toHaveBeenCalled();
@@ -292,7 +398,7 @@ it('shows legacy contact ambiguity explicitly without selecting a hidden number'
 
 
 async function openAccessPanel() {
- fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Visão geral' }), { button: 0, ctrlKey: false });
+ fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Cadastro' }), { button: 0, ctrlKey: false });
  fireEvent.click(await screen.findByRole('button', { name: /ACESSO DO APP/ }));
 }
 const accessAck = () => ({ ready: true, companyId: 'company-a', studentId: 'student-a', chatId: null,
@@ -426,7 +532,37 @@ it('reopens a persisted full Brazilian WhatsApp without truncating or changing i
  expect(within(dialog).queryByRole('checkbox', { name: /Conferi a identidade/ })).not.toBeInTheDocument();
  fireEvent.click(within(dialog).getByRole('button', { name: /Salvar/ }));
  await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('update_student_contact', expect.objectContaining({ _contact: '5548999990001', _confirmed_contact: false })));
- await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining('Recarregue o aluno') })));
+ expect(await within(dialog).findByText(/Seu rascunho foi preservado/)).toBeInTheDocument();
+ expect(within(dialog).getByRole('button', { name: /Salvar/ })).toBeDisabled();
+});
+
+it('reviews a newer scoped contact version without discarding the draft or overwriting unrelated edits', async () => {
+ mocks.latestStudent = {
+   id: "student-a", company_id: "company-a", full_name: "Fixture Student", status: "active",
+   country_code: "BR", phone: mocks.studentPhone, whatsapp: mocks.studentWhatsApp,
+   updated_at: "2026-10-29T11:00:00Z", email: "updated@example.invalid",
+ };
+ const originalRpc = mocks.rpc.getMockImplementation()!;
+ const attempts = vi.fn().mockResolvedValue({ data: null, error: { code: "PT409", message: "contact_version_conflict" } });
+ mocks.rpc.mockImplementation((name: string, args: Record<string, unknown>) =>
+   name === "update_student_contact" ? attempts(args) : originalRpc(name, args));
+ render(<StudentDetail />);
+ fireEvent.click(await screen.findByRole("button", { name: "Editar aluno" }));
+ const dialog = await screen.findByRole("dialog");
+ fireEvent.change(within(dialog).getByLabelText("WhatsApp"), { target: { value: "48999990003" } });
+ fireEvent.click(within(dialog).getByRole("checkbox", { name: /Conferi a identidade/ }));
+ fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+ fireEvent.click(await within(dialog).findByRole("button", { name: "Revisar com os dados atuais" }));
+ expect(within(dialog).getByLabelText("WhatsApp")).toHaveValue("(48) 99999-0003");
+ expect(within(dialog).getByRole("checkbox", { name: /Conferi a identidade/ })).not.toBeChecked();
+ expect(attempts).toHaveBeenCalledTimes(1);
+ fireEvent.click(within(dialog).getByRole("checkbox", { name: /Conferi a identidade/ }));
+ fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+ await waitFor(() => expect(attempts).toHaveBeenLastCalledWith(expect.objectContaining({
+   _expected_updated_at: "2026-10-29T11:00:00Z", _confirmed_contact: true,
+   _profile_patch: expect.objectContaining({ email: "updated@example.invalid" }),
+ })));
+ expect(mocks.invoke).not.toHaveBeenCalled();
 });
 
 
@@ -469,14 +605,14 @@ it('shows a persisted full thirteen-digit BR contact correctly in the header and
 
 it('persists tab navigation in the URL while preserving other parameters', async () => {
  render(<StudentDetail />);
- fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Avaliação' }), { button: 0, ctrlKey: false });
+ fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Avaliação e anamnese' }), { button: 0, ctrlKey: false });
  expect(mocks.navigate).toHaveBeenCalledWith(expect.objectContaining({ search: '?tab=evaluations&draft=keep&returnTo=%2Fadmin%2Fstudents' }), expect.objectContaining({ replace: false }));
 });
 
 it('follows back/forward URL changes without stale tab state', async () => {
  mocks.search = '?tab=analytics&draft=keep';
  const view = render(<StudentDetail />);
- await waitFor(() => expect(screen.getByRole('tab', { name: 'Análise' })).toHaveAttribute('data-state', 'active'));
+ await waitFor(() => expect(screen.getByRole('tab', { name: 'Acompanhamento' })).toHaveAttribute('data-state', 'active'));
  mocks.search = '?draft=keep';
  view.rerender(<StudentDetail />);
  await waitFor(() => expect(screen.getByRole('tab', { name: 'Visão geral' })).toHaveAttribute('data-state', 'active'));
@@ -486,7 +622,7 @@ it('follows back/forward URL changes without stale tab state', async () => {
 it('labels functional records separately from manual evaluations without clinical inference', async () => {
  mocks.functional = [{ id: 'functional-1', assessment_date: '2026-10-29', created_at: '2026-10-29', status: 'completed' }];
  render(<StudentDetail />);
- fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Avaliação' }), { button: 0, ctrlKey: false });
+ fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Avaliação e anamnese' }), { button: 0, ctrlKey: false });
  expect(await screen.findByText(/Avaliação funcional · 29\/10\/2026/)).toBeInTheDocument();
  expect(screen.getByText(/Registros manuais/)).toBeInTheDocument();
  expect(screen.getByText(/arquivos não representam achados clínicos estruturados/)).toBeInTheDocument();
@@ -499,4 +635,21 @@ it('loads an existing enrollment with no catalog plan instead of losing the enti
  render(<StudentDetail/>);
  expect((await screen.findAllByRole('button',{name:'Excluir matrícula Plano desconhecido'})).length).toBeGreaterThan(0);
  expect(mocks.invalidPlanCalls).toEqual([]);
+});
+
+it.each([
+  { status: "pending", trainer: "other-trainer", message: "Concluir avaliação antes de definir a data", canSet: false },
+  { status: "completed", trainer: "", message: "Vincule um professor para definir a data.", canSet: false },
+  { status: "completed", trainer: "other-trainer", message: "Definir data", canSet: true },
+])("only offers initial training dates after completed assessment and trainer assignment ($status, $trainer)", async ({ status, trainer, message, canSet }) => {
+  mocks.functional = [{ id: "functional-1", status, created_at: "2026-10-29" }];
+  mocks.enrollments[0].trainer_id = trainer;
+  render(<StudentDetail />);
+  expect(await screen.findByText(message)).toBeInTheDocument();
+  if (canSet) {
+    expect(screen.getByRole("button", { name: "Definir data" })).toBeEnabled();
+  } else {
+    expect(screen.queryByRole("button", { name: "Definir data" })).not.toBeInTheDocument();
+  }
+  expect(mocks.writes).toEqual([]);
 });

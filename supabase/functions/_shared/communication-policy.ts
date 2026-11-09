@@ -1,4 +1,4 @@
-import { type CompanyProductSettings, type MessagePart, type WhatsAppEvent } from "./company-product-settings.ts";
+import { DEFAULT_COMPANY_PRODUCT_SETTINGS, type CompanyProductSettings, type MessagePart, type WhatsAppEvent } from "./company-product-settings.ts";
 export const COMPANY_MESSAGE_VARIABLES = ['nome', 'primeiro_nome', 'empresa', 'link', 'prazo', 'profissional', 'email', 'data'] as const;
 
 /** A single pass prevents a supplied value from becoming another template. */
@@ -25,7 +25,16 @@ export function messageValues(context: Record<string, unknown>, companyName = ''
 }
 
 export function eventMessage(messages: Record<string, string>, event: string, values: Record<string, string>, fallback: string): string {
-  return renderCompanyMessage(messages[event]?.trim() ? messages[event] : fallback, values);
+  return renderCompanyMessage(eventTemplate(event, messages[event], fallback), values);
+}
+
+function eventTemplate(event: string, configured: string | undefined, fallback: string): string {
+  return configured?.trim() && !isLegacyAssessmentTemplate(event, configured) ? configured : fallback;
+}
+
+function isLegacyAssessmentTemplate(event: string, configured: string): boolean {
+  return event === "assessment_onboarding"
+    && configured.trim() === DEFAULT_COMPANY_PRODUCT_SETTINGS.messages.assessment_onboarding;
 }
 
 export function weeklyFlowMessage(messages: Record<string, string>, _defaultTemplate: string, node: Record<string, unknown>, values: Record<string, string>, fallback: string): string {
@@ -44,6 +53,9 @@ export function reminderSlot(now: Date, enabled: boolean, hour: number, timezone
 /** Ordered, detached and rendered once before durable snapshot creation. */
 export function eventMessageSequence(settings: CompanyProductSettings, event: WhatsAppEvent, values: Record<string, string>, fallback: string): MessagePart[] {
   const configured = settings.message_sequences?.[event];
-  return configured ? configured.map(part => ({ ...structuredClone(part), text: renderCompanyMessage(part.text, values) }))
+  return configured ? configured.map(part => ({
+    ...structuredClone(part),
+    text: renderCompanyMessage(isLegacyAssessmentTemplate(event, part.text) ? fallback : part.text, values),
+  }))
     : [{ id: 'legacy', type: 'text', text: eventMessage(settings.messages, event, values, fallback) }];
 }

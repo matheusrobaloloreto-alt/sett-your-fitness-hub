@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -94,7 +94,10 @@ export default function PublicPayment() {
   const [pixPayload, setPixPayload] = useState("");
   const [pixPaymentId, setPixPaymentId] = useState("");
   const pollingRef = useRef<number | null>(null);
-  const pollAttemptsRef = useRef<number>(0);
+  const stopPixPolling = useCallback(() => {
+    if (pollingRef.current !== null) window.clearInterval(pollingRef.current);
+    pollingRef.current = null;
+  }, []);
 
   // Card state
   const [cardForm, setCardForm] = useState({
@@ -191,10 +194,8 @@ export default function PublicPayment() {
 
     loadAll();
 
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, [token]);
+    return stopPixPolling;
+  }, [token, stopPixPolling]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -337,19 +338,34 @@ export default function PublicPayment() {
       setPixPayload(payload);
       setStep("pix");
 
-      pollAttemptsRef.current = 0;
-      pollingRef.current = window.setInterval(async () => {
-        pollAttemptsRef.current += 1;
+      stopPixPolling();
+      let pollAttempts = 0;
+      let checkingStatus = false;
+      const intervalId = window.setInterval(async () => {
+        pollAttempts += 1;
         // Para de pollar após ~15 min (90 × 10s) para não rodar indefinidamente em background.
-        if (pollAttemptsRef.current > 90) {
-          if (pollingRef.current) clearInterval(pollingRef.current);
+        if (pollAttempts > 90) {
+          stopPixPolling();
           toast({ title: "Tempo de espera esgotado", description: "Se você já pagou, a confirmação chega em instantes. Pode atualizar a página." });
           return;
         }
+        if (checkingStatus) return;
+        checkingStatus = true;
         try {
           const { status } = await callAsaas(token, "get-payment-status", { paymentId });
+          if (pollingRef.current !== intervalId) return;
+          if (status === "DELETED") {
+            stopPixPolling();
+            abandonedRecordedRef.current = true;
+            setPixImage("");
+            setPixPayload("");
+            setPixPaymentId("");
+            setStep("choose");
+            toast({ title: "Cobrança Pix cancelada", description: "Confira as opções de pagamento ou fale com a equipe." });
+            return;
+          }
           if (status === "RECEIVED" || status === "CONFIRMED") {
-            if (pollingRef.current) clearInterval(pollingRef.current);
+            stopPixPolling();
             abandonedRecordedRef.current = true;
             await recordRecoveryEvent(token, "payment_completed", {
               method: "PIX",
@@ -357,13 +373,16 @@ export default function PublicPayment() {
               plan_name: planName,
               amount: planValue,
               asaas_payment_id: paymentId,
-            }, selectedPlanOptionId);
+            }, selectedPlanOptionId, paymentId);
             setStep("success");
           }
         } catch {
           // A próxima tentativa de polling reconcilia falhas transitórias.
+        } finally {
+          checkingStatus = false;
         }
       }, 10000);
+      pollingRef.current = intervalId;
     } catch (err: any) {
       toast({ title: "Erro ao gerar Pix", description: err.message, variant: "destructive" });
     } finally {
@@ -503,7 +522,7 @@ export default function PublicPayment() {
             </p>
             {!isRenewal && (
               <p className="text-xs text-muted-foreground font-sans">
-                A avaliação e o início do treino serão conduzidos em até {business.assessment_sla_business_days} dias úteis.
+                Após receber o material completo, a equipe tem até 2 dias úteis para avaliar e até {Math.max(2, business.assessment_sla_business_days)} dias úteis para entregar a primeira prescrição.
               </p>
             )}
           </CardContent>
@@ -699,7 +718,7 @@ export default function PublicPayment() {
               <p className="text-xs text-muted-foreground">
                 QR Code dinâmico e cobrança identificada emitidos pelo Asaas.
               </p>
-              <Button variant="ghost" size="sm" onClick={() => { if (pollingRef.current) clearInterval(pollingRef.current); setStep("choose"); }}>
+              <Button variant="ghost" size="sm" onClick={() => { stopPixPolling(); setStep("choose"); }}>
                 ← Voltar
               </Button>
             </CardContent>

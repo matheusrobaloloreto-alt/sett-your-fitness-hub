@@ -114,6 +114,7 @@ class Query implements PromiseLike<DbResult> {
     return this;
   }
   in(key: string, values: unknown[]) { this.filters[key] = values; return this; }
+  is(key: string, value: unknown) { this.filters[key] = value; return this; }
   insert(payload: Row) {
     this.operation = "insert";
     this.payload = payload;
@@ -159,6 +160,9 @@ class Query implements PromiseLike<DbResult> {
         return result({id:CHAT,...this.payload});
       }
       assert(this.table === "whatsapp_messages", "Unexpected database insert");
+      if (f.providerEcho && this.payload.message_id_external === f.providerEcho.message_id_external) {
+        return { data: null, error: { code: "23505", message: "Synthetic provider echo arrived first" } };
+      }
       if (this.payload.message_id_external === "signature-id") {
         if (f.failure === "db-throw") {
           throw new Error("Synthetic persistence exception");
@@ -175,6 +179,14 @@ class Query implements PromiseLike<DbResult> {
       return result(row);
     }
     if (this.operation === "update") {
+      if (this.table === "whatsapp_messages" && f.providerEcho) {
+        const matches = Object.entries(this.filters).every(([key, value]) =>
+          Array.isArray(value) ? value.includes(f.providerEcho?.[key]) : value === f.providerEcho?.[key]
+        );
+        if (!matches) return result(null);
+        f.providerEcho = { ...f.providerEcho, ...this.payload };
+        return result(f.providerEcho);
+      }
       f.writes.push({ table: this.table, ...this.payload });
       return result(null);
     }
@@ -251,6 +263,7 @@ export class Fixture {
   sequenceStates: string[] = [];
   signedUrls: string[] = [];
   calls: Call[] = [];
+  providerEcho: Row | null = null;
   writes: Row[] = [];
   queries: { table: string; operation: string; filters: Row }[] = [];
   client = {
@@ -490,6 +503,25 @@ for (
       "chat preview without undelivered signature",
     );
     equal(f.sends.length, 2);
+  });
+}
+
+for (const [label, request] of [
+  ["text", { action: "send-message" }], ["media", media("image")],
+  ["manual sequence", { action: "send-message-sequence", requestId: "echo-replay-001",
+    parts: [{ id: "1", type: "text", text: "Hello" }] }],
+] as const) {
+  Deno.test(`handler attributes a ${label} provider echo without changing its ACK or sending twice`, async () => {
+    const f = new Fixture();
+    const delivered = { timestamp: "2026-11-08T10:00:00Z", status: "delivered", provider_status: "DELIVERY_ACK" };
+    f.providerEcho = { id: "echo", company_id: COMPANY, chat_id: CHAT, message_id_external: "primary-id",
+      is_from_me: true, sender_id: null, origin: "provider_live", ...delivered };
+    const response = await f.request(request);
+    equal(response.status, 200);
+    equal(response.body.success, true);
+    equal(f.sends.length, 1);
+    equal(f.providerEcho, { id: "echo", company_id: COMPANY, chat_id: CHAT, message_id_external: "primary-id",
+      is_from_me: true, sender_id: USER, origin: "panel_manual", ...delivered });
   });
 }
 

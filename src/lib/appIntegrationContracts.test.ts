@@ -68,7 +68,13 @@ describe("SETT integration contracts", () => {
     expect(studio).toContain("selectPreviousPrescriptionCycle(scheduleCycles, cycle)");
     expect(studio).toContain("isPrescriptionHistoryBeforeTarget(row, firstTarget, scheduleCycles)");
     expect(studio).toContain("training_cycle_id: cycle.id");
-    expect(studio).toContain("targetCycleId: cycle.id");
+    const generation = studio.slice(studio.indexOf("async function generate("), studio.indexOf("async function saveCardioDraft("));
+    expect(generation).not.toContain("publishStrengthDraftToStudent(");
+    expect(generation).toContain("draft_only: true");
+    expect(generation).toContain("expected_cycle_start: cycle.start_date, expected_cycle_end: cycle.end_date");
+    expect(studio).toContain("publishStrengthDraftToStudent({");
+    expect(studio).toContain("draftVersion: draft.draftVersion");
+    expect(studio).toContain('.eq("studio_strength_draft", true).eq("status", "draft")');
     expect(studio).toContain("start_date: cycle.start_date");
     expect(studio).toContain("end_date: cycle.end_date");
     expect(studio).not.toMatch(/from\("training_cycles"\)[\s\S]{0,160}\.update\(/);
@@ -94,11 +100,14 @@ describe("SETT integration contracts", () => {
     expect(studio).toContain("PrescriptionStudio schedule load failed");
   });
 
-  it("does not link cardio bundle items or bundle summaries without a persisted running plan id", () => {
+  it("only links generated cardio and nutrition in the integrated publication transaction", () => {
     const studio = source("src/pages/admin/PrescriptionStudio.tsx");
-    expect(studio).toContain('throw new Error(`A prescrição de ${modality} foi gerada sem ID persistido.`)');
-    expect(studio).toMatch(/await linkBundleItem\(modality, "running_plan", data\.id\)/);
-    expect(studio).toContain("updateBundleRunningPlanPointer");
+    expect(studio).toContain("studio_modalities_draft: true");
+    expect(studio).toContain("captureGeneratedCardioPlan(");
+    expect(studio).toContain("modalityVersions.nutricao");
+    expect(studio).toContain("publishIntegratedStudioDraft(");
+    expect(studio).not.toContain("updateBundleRunningPlanPointer");
+    expect(studio).not.toMatch(/await linkBundleItem\(modality, "running_plan"/);
   });
 
   it("clears Studio anamnesis on student changes and separates loading, error, and unanswered states", () => {

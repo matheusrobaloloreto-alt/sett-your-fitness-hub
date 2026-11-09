@@ -452,7 +452,11 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
                     dragStateRef.current = null;
                     openBnito();
                   }}
-                  style={{ left: buttonPosition.x, top: buttonPosition.y, touchAction: "none" }}
+                  style={{
+                    left: buttonPosition.x,
+                    top: `min(${buttonPosition.y}px, var(--sett-bnito-max-top, 100dvh))`,
+                    touchAction: "none",
+                  }}
                   className="fixed z-40 flex h-[76px] w-[76px] cursor-grab items-center justify-center p-0 text-navy outline-none transition-transform duration-200 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
                 >
                   <BenitoSprite state={petState} size={60} alt="" className="benito-sprite-prominent" />

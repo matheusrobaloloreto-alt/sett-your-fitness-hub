@@ -56,9 +56,10 @@ describe("student-first experience contract", () => {
       .toEqual({ kind: "stale", workoutId: "removed-workout" });
     expect(resolveStudentHomeWorkoutTarget([{ id: "another-workout", title: "Outro treino", day_of_week: 1 }], 1, "removed-workout"))
       .toEqual({ kind: "stale_active", workout: null });
+    const terminalChecks = sessionMocks.from.mock.calls.length;
     await act(async () => { expect(await result.current.startSession("another-workout")).toEqual({ ok: false, reason: "conflict" }); });
     expect(sessionMocks.rpc).not.toHaveBeenCalled();
-    expect(sessionMocks.from).not.toHaveBeenCalled();
+    expect(sessionMocks.from).toHaveBeenCalledTimes(terminalChecks);
     expect(result.current.activeSession?.id).toBe("session-1");
     expect(JSON.parse(localStorage.getItem("sett_active_session_student-1")!)).toEqual(stored);
   });

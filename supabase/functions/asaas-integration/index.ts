@@ -1,9 +1,9 @@
+import { asaasPaymentStatus } from "../_shared/asaas-payment-status.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
 import { effectiveBillingCountryCode, supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
 import { assertInstallmentCountAllowed } from "../_shared/payment-installments.ts";
 import { getCompanyProductSettings, type SettingsReadClient } from "../_shared/company-product-settings.ts";
-import { assessmentDeadline } from "../_shared/assessment-deadline.ts";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import { HttpError as FeatureHttpError } from "../_shared/tenant-auth.ts";
 import {
@@ -12,10 +12,8 @@ import {
   resolveAsaasApiConfig,
 } from "../_shared/asaas-environment.ts";
 import {
-  buildAssessmentOnboardingMessage,
   claimFunnelEvent,
   completeFunnelEvent,
-  isoDate,
   sendFunnelWhatsAppMessage,
 } from "../_shared/sales-funnel.ts";
 import {
@@ -194,7 +192,7 @@ async function requireCheckoutToken(body: any, action: string) {
 
   const { data: link, error: linkError } = await supabaseAdmin
     .from("public_payment_links")
-    .select("id, student_id, company_id, expires_at, revoked_at")
+    .select("id, student_id, company_id, expires_at, revoked_at, renewal_of_enrollment_id")
     .eq("token", token)
     .maybeSingle();
   if (linkError) throw new HttpError(500, `Falha ao validar link de pagamento: ${linkError.message}`);
@@ -229,7 +227,7 @@ async function requireCheckoutToken(body: any, action: string) {
     .update({ last_used_at: new Date().toISOString() })
     .eq("id", link.id);
   if (touchError) console.error("asaas-integration: failed to touch checkout link", touchError);
-  return { studentId: link.student_id, companyId: link.company_id };
+  return link;
 }
 
 async function createCustomer(body: any) {
@@ -301,7 +299,7 @@ async function updateCustomer(body: any) {
   if (province) payload.province = province;
 
   const customer = await asaasFetch(`/customers/${student.asaas_customer_id}`, {
-    method: "POST",
+    method: "PUT",
     body: JSON.stringify(payload),
   });
 
@@ -345,6 +343,53 @@ type ExistingCheckoutPayment = {
   asaas_payment_id?: string | null;
   status?: string | null;
 };
+
+async function assertCheckoutCanStartPayment(
+  token: string,
+  studentId: string,
+  companyId: string,
+  planId: string,
+  renewalOfEnrollmentId: string | null,
+) {
+  if (renewalOfEnrollmentId) {
+    const { data: enrollment, error } = await supabaseAdmin.from("enrollments")
+      .select("id").eq("id", renewalOfEnrollmentId)
+      .eq("student_id", studentId).eq("company_id", companyId)
+      .in("status", ["active", "awaiting_training", "awaiting_renewal"]).maybeSingle();
+    if (error) throw new HttpError(500, "Falha ao verificar a matrícula de origem.");
+    if (!enrollment) throw new HttpError(409, "Esta matrícula já foi substituída. Solicite um novo link.");
+
+    const { data: outstanding, error: outstandingError } = await supabaseAdmin.from("payments")
+      .select("id").eq("student_id", studentId).eq("company_id", companyId).eq("plan_id", planId)
+      .like("checkout_request_key", "checkout:%:plan:%")
+      .in("status", ["CREATING", "PENDING", "AWAITING_RISK_ANALYSIS", "AUTHORIZED"])
+      .limit(1).maybeSingle();
+    if (outstandingError) throw new HttpError(500, "Falha ao verificar cobranças anteriores.");
+    if (outstanding) throw new HttpError(409, "Existe uma cobrança pendente para este plano. Concilie a tentativa anterior antes de renovar.");
+    return;
+  }
+
+  // An original checkout can still replay its payment. Starting it with a different
+  // method after that plan was paid must use a separate renewal link.
+  const { data: paid, error } = await supabaseAdmin.from("payments")
+    .select("id").eq("student_id", studentId).eq("company_id", companyId).eq("plan_id", planId)
+    .like("checkout_request_key", `checkout:${token}:plan:${planId}:%`)
+    .or("lifecycle_applied_at.not.is.null,status.in.(RECEIVED,CONFIRMED,RECEIVED_IN_CASH)")
+    .limit(1).maybeSingle();
+  if (error) throw new HttpError(500, "Falha ao verificar o pagamento anterior.");
+  if (paid) throw new HttpError(409, "Este plano já foi pago neste link. Use o link de renovação para uma nova compra.");
+}
+
+function assertRenewalPaymentChoice(
+  payment: { plan_id: string | null; billing_type: string | null; installment_count: number | null },
+  planId: string,
+  billingType: string,
+  installments: number,
+) {
+  if (payment.plan_id !== planId || payment.billing_type !== billingType || payment.installment_count !== installments) {
+    throw new HttpError(409, "Este link já tem uma cobrança de renovação. Retome usando o plano e a forma de pagamento originais.");
+  }
+}
 
 function assertExistingPaymentScope(
   existingPayment: ExistingCheckoutPayment,
@@ -422,46 +467,56 @@ async function createPayment(body: any) {
   const value = plan.price;
   const paymentDueDate = dueDate || businessDateYmd();
   const checkoutRequestKey = body.checkoutToken
-    ? `checkout:${body.checkoutToken}:plan:${plan.id}:${billingType}`
+    ? (body.renewalOfEnrollmentId
+      ? `checkout:${body.checkoutToken}:renewal`
+      : `checkout:${body.checkoutToken}:plan:${plan.id}:${billingType}`)
     : null;
 
   // A retry in the same checkout/day must not create another Pix charge.
   if (checkoutRequestKey) {
     const { data: existingPayment, error: existingError } = await supabaseAdmin
       .from("payments")
-      .select("id, student_id, company_id, plan_id, asaas_payment_id, status, invoice_url")
+      .select("id, student_id, company_id, plan_id, asaas_payment_id, status, invoice_url, billing_type, installment_count")
       .eq("checkout_request_key", checkoutRequestKey)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (existingError) throw new HttpError(500, `Falha ao verificar cobrança pendente: ${existingError.message}`);
+    if (existingPayment && body.renewalOfEnrollmentId) {
+      assertRenewalPaymentChoice(existingPayment, plan.id, billingType, 1);
+    }
     if (existingPayment?.asaas_payment_id) {
       assertExistingPaymentScope(existingPayment, studentId, student.company_id);
       const providerPayment = await asaasFetch(`/payments/${existingPayment.asaas_payment_id}`);
-      const { error: updateError } = await supabaseAdmin
+      const { data: savedPayment, error: updateError } = await supabaseAdmin
         .from("payments")
         .update({
-          status: providerPayment.status || existingPayment.status,
+          status: asaasPaymentStatus(providerPayment) || existingPayment.status,
           invoice_url: providerPayment.invoiceUrl || existingPayment.invoice_url,
           asaas_invoice_url: providerPayment.invoiceUrl || existingPayment.invoice_url,
         })
         .eq("asaas_payment_id", existingPayment.asaas_payment_id)
-        .eq("company_id", student.company_id);
+        .eq("company_id", student.company_id)
+        .select("status")
+        .single();
       if (updateError) throw new HttpError(500, "Cobrança confirmada no provedor, mas pendente de conciliação local.");
-      if (["PENDING", "RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"].includes(providerPayment.status)) {
+      if (savedPayment.status === "PENDING" || PAID_PAYMENT_STATUSES.has(savedPayment.status)) {
         await applyExistingPaymentLifecycle(
           existingPayment,
-          providerPayment,
+          { ...providerPayment, status: savedPayment.status },
           studentId,
           student.company_id,
           plan.id,
         );
         return {
           paymentId: existingPayment.asaas_payment_id,
-          status: providerPayment.status,
+          status: savedPayment.status,
           invoiceUrl: providerPayment.invoiceUrl || existingPayment.invoice_url,
           reused: true,
         };
+      }
+      if (body.renewalOfEnrollmentId) {
+        throw new HttpError(409, "A cobrança de renovação precisa ser revisada pela equipe antes de uma nova tentativa.");
       }
       const { error: releaseError } = await supabaseAdmin
         .from("payments")
@@ -476,29 +531,33 @@ async function createPayment(body: any) {
       );
       const reconciled = Array.isArray(reconciliation?.data) ? reconciliation.data[0] : null;
       if (reconciled?.id) {
-        const { error: updateError } = await supabaseAdmin.from("payments").update({
+        const { data: savedPayment, error: updateError } = await supabaseAdmin.from("payments").update({
           asaas_payment_id: reconciled.id,
-          status: reconciled.status || existingPayment.status,
+          status: asaasPaymentStatus(reconciled) || existingPayment.status,
           invoice_url: reconciled.invoiceUrl || null,
           asaas_invoice_url: reconciled.invoiceUrl || null,
-        }).eq("id", existingPayment.id).eq("company_id", student.company_id);
+        }).eq("id", existingPayment.id).eq("company_id", student.company_id).select("status").single();
         if (updateError) throw new HttpError(500, "Cobrança confirmada no provedor, mas pendente de conciliação local.");
         await applyExistingPaymentLifecycle(
           existingPayment,
-          reconciled,
+          { ...reconciled, status: savedPayment.status },
           studentId,
           student.company_id,
           plan.id,
         );
         return {
           paymentId: reconciled.id,
-          status: reconciled.status,
+          status: savedPayment.status,
           invoiceUrl: reconciled.invoiceUrl || null,
           reconciled: true,
         };
       }
       throw new HttpError(409, "A cobrança Pix anterior ainda está sendo conciliada.");
     }
+  }
+
+  if (body.checkoutToken) {
+    await assertCheckoutCanStartPayment(body.checkoutToken, studentId, student.company_id, plan.id, body.renewalOfEnrollmentId);
   }
 
   // Auto-create Asaas customer if missing
@@ -531,6 +590,7 @@ async function createPayment(body: any) {
     installment_count: 1,
     notes: checkoutRequestKey,
     checkout_request_key: checkoutRequestKey,
+    renewal_of_enrollment_id: body.renewalOfEnrollmentId ?? null,
     plan_id: plan.id,
     plan_name_snapshot: plan.name,
     plan_duration_weeks_snapshot: plan.duration_weeks,
@@ -562,23 +622,23 @@ async function createPayment(body: any) {
     throw error;
   }
 
-  const { error: updateError } = await supabaseAdmin.from("payments").update({
+  const { data: savedPayment, error: updateError } = await supabaseAdmin.from("payments").update({
     asaas_payment_id: payment.id,
-    status: payment.status || "PENDING",
+    status: asaasPaymentStatus(payment) || "PENDING",
     due_date: payment.dueDate || paymentDueDate,
     asaas_invoice_url: payment.invoiceUrl || null,
     invoice_url: payment.invoiceUrl || null,
-  }).eq("id", localOrder.id);
+  }).eq("id", localOrder.id).select("status").single();
   if (updateError) throw new HttpError(500, "Cobrança Pix criada, mas pendente de conciliação local.");
 
   // Ativar aluno automaticamente se pagamento já confirmado
-  if (["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"].includes(payment.status)) {
-    await applyPaymentStatusEffects(studentId, payment.status, payment.id, plan.id);
+  if (PAID_PAYMENT_STATUSES.has(savedPayment.status)) {
+    await applyPaymentStatusEffects(studentId, savedPayment.status, payment.id, plan.id);
   }
 
   return {
     paymentId: payment.id,
-    status: payment.status,
+    status: savedPayment.status,
     invoiceUrl: payment.invoiceUrl,
   };
 }
@@ -642,35 +702,40 @@ async function createCardPayment(body: any) {
     (await getCompanyProductSettings(supabaseAdmin as unknown as SettingsReadClient, student.company_id)).business,
   );
   const checkoutRequestKey = body.checkoutToken
-    ? `checkout:${body.checkoutToken}:plan:${plan.id}:CREDIT_CARD:${allowedInstallmentCount}`
+    ? (body.renewalOfEnrollmentId
+      ? `checkout:${body.checkoutToken}:renewal`
+      : `checkout:${body.checkoutToken}:plan:${plan.id}:CREDIT_CARD:${allowedInstallmentCount}`)
     : null;
 
   if (checkoutRequestKey) {
     const { data: existingPayment, error: existingError } = await supabaseAdmin
       .from("payments")
-      .select("id, student_id, company_id, plan_id, asaas_payment_id, status, invoice_url")
+      .select("id, student_id, company_id, plan_id, asaas_payment_id, status, invoice_url, billing_type, installment_count")
       .eq("checkout_request_key", checkoutRequestKey)
       .maybeSingle();
     if (existingError) throw new HttpError(500, "Falha ao verificar tentativa de pagamento.");
+    if (existingPayment && body.renewalOfEnrollmentId) {
+      assertRenewalPaymentChoice(existingPayment, plan.id, "CREDIT_CARD", allowedInstallmentCount);
+    }
     if (existingPayment?.asaas_payment_id) {
       assertExistingPaymentScope(existingPayment, studentId, student.company_id);
       const providerPayment = await asaasFetch(`/payments/${existingPayment.asaas_payment_id}`);
-      const { error: updateError } = await supabaseAdmin.from("payments").update({
-        status: providerPayment.status || existingPayment.status,
+      const { data: savedPayment, error: updateError } = await supabaseAdmin.from("payments").update({
+        status: asaasPaymentStatus(providerPayment) || existingPayment.status,
         invoice_url: providerPayment.invoiceUrl || existingPayment.invoice_url,
         asaas_invoice_url: providerPayment.invoiceUrl || existingPayment.invoice_url,
-      }).eq("id", existingPayment.id).eq("company_id", student.company_id);
+      }).eq("id", existingPayment.id).eq("company_id", student.company_id).select("status").single();
       if (updateError) throw new HttpError(500, "Pagamento confirmado no provedor, mas pendente de conciliação local.");
       await applyExistingPaymentLifecycle(
         existingPayment,
-        providerPayment,
+        { ...providerPayment, status: savedPayment.status },
         studentId,
         student.company_id,
         plan.id,
       );
       return {
         paymentId: existingPayment.asaas_payment_id,
-        status: providerPayment.status || existingPayment.status,
+        status: savedPayment.status,
         invoiceUrl: providerPayment.invoiceUrl || existingPayment.invoice_url,
         reused: true,
       };
@@ -682,29 +747,33 @@ async function createCardPayment(body: any) {
       );
       const reconciled = Array.isArray(reconciliation?.data) ? reconciliation.data[0] : null;
       if (reconciled?.id) {
-        const { error: updateError } = await supabaseAdmin.from("payments").update({
+        const { data: savedPayment, error: updateError } = await supabaseAdmin.from("payments").update({
           asaas_payment_id: reconciled.id,
-          status: reconciled.status || existingPayment.status,
+          status: asaasPaymentStatus(reconciled) || existingPayment.status,
           invoice_url: reconciled.invoiceUrl || null,
           asaas_invoice_url: reconciled.invoiceUrl || null,
-        }).eq("id", existingPayment.id).eq("company_id", student.company_id);
+        }).eq("id", existingPayment.id).eq("company_id", student.company_id).select("status").single();
         if (updateError) throw new HttpError(500, "Pagamento confirmado no provedor, mas pendente de conciliação local.");
         await applyExistingPaymentLifecycle(
           existingPayment,
-          reconciled,
+          { ...reconciled, status: savedPayment.status },
           studentId,
           student.company_id,
           plan.id,
         );
         return {
           paymentId: reconciled.id,
-          status: reconciled.status,
+          status: savedPayment.status,
           invoiceUrl: reconciled.invoiceUrl || null,
           reconciled: true,
         };
       }
       throw new HttpError(409, "Este pagamento ainda está sendo conciliado. Aguarde antes de tentar novamente.");
     }
+  }
+
+  if (body.checkoutToken) {
+    await assertCheckoutCanStartPayment(body.checkoutToken, studentId, student.company_id, plan.id, body.renewalOfEnrollmentId);
   }
 
   // Auto-create Asaas customer if missing
@@ -736,6 +805,7 @@ async function createCardPayment(body: any) {
       due_date: dueDate || businessDateYmd(),
       installment_count: allowedInstallmentCount,
       checkout_request_key: checkoutRequestKey,
+      renewal_of_enrollment_id: body.renewalOfEnrollmentId ?? null,
       plan_id: plan.id,
       plan_name_snapshot: plan.name,
       plan_duration_weeks_snapshot: plan.duration_weeks,
@@ -797,23 +867,23 @@ async function createCardPayment(body: any) {
     throw error;
   }
 
-  const { error: updateError } = await supabaseAdmin.from("payments").update({
+  const { data: savedPayment, error: updateError } = await supabaseAdmin.from("payments").update({
     asaas_payment_id: payment.id,
-    status: payment.status || "PENDING",
+    status: asaasPaymentStatus(payment) || "PENDING",
     due_date: payment.dueDate || dueDate || businessDateYmd(),
     asaas_invoice_url: payment.invoiceUrl || null,
     invoice_url: payment.invoiceUrl || null,
-  }).eq("id", localOrder.id);
+  }).eq("id", localOrder.id).select("status").single();
   if (updateError) throw new HttpError(500, "Pagamento criado, mas pendente de conciliação local.");
 
   // Ativar aluno automaticamente se pagamento já confirmado
-  if (["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"].includes(payment.status)) {
-    await applyPaymentStatusEffects(studentId, payment.status, payment.id, plan.id);
+  if (PAID_PAYMENT_STATUSES.has(savedPayment.status)) {
+    await applyPaymentStatusEffects(studentId, savedPayment.status, payment.id, plan.id);
   }
 
   return {
     paymentId: payment.id,
-    status: payment.status,
+    status: savedPayment.status,
     invoiceUrl: payment.invoiceUrl,
   };
 }
@@ -928,8 +998,6 @@ async function applyPaymentStatusEffects(
     const lifecycleEventKey = asaasPaymentId ? `payment_lifecycle:${asaasPaymentId}` : null;
     try {
     if (!asaasPaymentId) throw new Error("Pagamento confirmado sem identificador do provedor.");
-    const productSettings = await getCompanyProductSettings(supabaseAdmin as unknown as SettingsReadClient, companyId);
-    const dueDate = assessmentDeadline(new Date(), productSettings.business.assessment_sla_business_days);
     const { data: lifecycleRows, error: lifecycleError } = await supabaseAdmin.rpc(
       "apply_paid_payment_lifecycle",
       {
@@ -938,7 +1006,7 @@ async function applyPaymentStatusEffects(
         _plan_id: planId,
         _asaas_payment_id: asaasPaymentId,
         _business_date: businessDateYmd(),
-        _assessment_due_date: isoDate(dueDate),
+        _assessment_due_date: null,
       },
     );
     if (lifecycleError) throw new Error(`Falha ao aplicar lifecycle do pagamento: ${lifecycleError.message}`);
@@ -985,7 +1053,6 @@ async function applyPaymentStatusEffects(
         .eq("student_id", studentId)
         .limit(1)
         .maybeSingle();
-      const formattedDueDate = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(dueDate);
       const result = await sendFunnelWhatsAppMessage({
         admin: supabaseAdmin,
         studentId,
@@ -993,17 +1060,11 @@ async function applyPaymentStatusEffects(
         fullName: previousStudent.full_name,
         phone: previousStudent.whatsapp || previousStudent.phone,
         countryCode: previousStudent.country_code,
-        text: buildAssessmentOnboardingMessage({
-          fullName: previousStudent.full_name,
-          dueDate: formattedDueDate,
-          hasAnamnesis: !!anamnesis,
-        }),
         eventType: "assessment_instructions_sent",
         eventKey: `assessment_instructions:${asaasPaymentId}`,
         payload: {
           payment_id: asaasPaymentId,
           enrollment_id: enrollmentId,
-          assessment_due_at: isoDate(dueDate),
           has_anamnesis: !!anamnesis,
         },
       });
@@ -1032,46 +1093,13 @@ async function applyPaymentStatusEffects(
     }
   }
 
-  if (paymentStatus === "OVERDUE") {
-    const { error } = await supabaseAdmin
-      .from("enrollments")
-      .update({ payment_status: "overdue" })
-      .eq("student_id", studentId)
-      .eq("company_id", companyId)
-      .eq("status", "active");
-
-    if (error) {
-      console.error("Erro ao marcar matrícula como overdue:", error);
-    }
-
-    return;
-  }
-
-  if (
-    paymentStatus === "REFUNDED" ||
-    paymentStatus === "DELETED" ||
-    paymentStatus === "REFUND_REQUESTED"
-  ) {
-    const { error: studentError } = await supabaseAdmin
-      .from("students")
-      .update({ status: "pending" })
-      .eq("id", studentId)
-      .eq("company_id", companyId);
-
-    if (studentError) {
-      console.error("Erro ao desativar aluno:", studentError);
-    }
-
-    const { error: enrollmentError } = await supabaseAdmin
-      .from("enrollments")
-      .update({ payment_status: "refunded" })
-      .eq("student_id", studentId)
-      .eq("company_id", companyId)
-      .eq("status", "active");
-
-    if (enrollmentError) {
-      console.error("Erro ao atualizar matrícula para refunded:", enrollmentError);
-    }
+  if (asaasPaymentId && (paymentStatus === "OVERDUE" || paymentStatus === "REFUNDED")) {
+    const { error } = await supabaseAdmin.rpc("apply_asaas_payment_reversal", {
+      _asaas_payment_id: asaasPaymentId,
+      _company_id: companyId,
+      _expected_status: paymentStatus,
+    });
+    if (error) throw new Error(`Falha ao atualizar a matrícula da cobrança: ${error.message}`);
   }
 }
 
@@ -1082,7 +1110,9 @@ async function getPaymentStatus(body: any) {
   const payment = await asaasFetch(`/payments/${paymentId}`);
 
   // Update local payment status + installment count if available
-  const updateData: any = { status: payment.status };
+  const providerStatus = asaasPaymentStatus(payment);
+  if (!providerStatus) throw new HttpError(502, "Pagamento Asaas sem status.");
+  const updateData: any = { status: providerStatus };
   if (payment.installmentCount && payment.installmentCount > 1) {
     updateData.installment_count = payment.installmentCount;
   }
@@ -1090,19 +1120,23 @@ async function getPaymentStatus(body: any) {
     .from("payments")
     .update(updateData)
     .eq("asaas_payment_id", paymentId)
-    .select("student_id, company_id, plan_id, enrollment_id")
+    .select("student_id, company_id, plan_id, status")
     .single();
 
   if (paymentError) {
     console.error("Erro ao atualizar pagamento no fallback:", paymentError);
-  } else if (localPayment?.student_id) {
-    const confirmedStatus = ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"].includes(payment.status);
+    throw new HttpError(500, "Não foi possível conferir o estado da cobrança no SETT.");
+  }
+
+  const status = localPayment.status;
+  if (localPayment.student_id) {
+    const confirmedStatus = PAID_PAYMENT_STATUSES.has(status);
     if (confirmedStatus && !localPayment.plan_id) {
       throw new HttpError(409, "Pagamento confirmado, mas o plano pago precisa de conciliação manual.");
     }
     await applyPaymentStatusEffects(
       localPayment.student_id,
-      payment.status,
+      status,
       paymentId,
       localPayment.plan_id || undefined,
       localPayment.company_id || undefined,
@@ -1110,7 +1144,7 @@ async function getPaymentStatus(body: any) {
   }
 
   return {
-    status: payment.status,
+    status,
     value: payment.value,
     billingType: payment.billingType,
     invoiceUrl: payment.invoiceUrl,
@@ -1471,6 +1505,8 @@ async function syncPayments(body: any) {
       }
 
       for (const ap of asaasPayments) {
+        const providerStatus = asaasPaymentStatus(ap);
+
         // Determine correct installment_count:
         // If payment belongs to an installment group, count how many in the group
         // Otherwise it's a single payment (à vista)
@@ -1490,14 +1526,16 @@ async function syncPayments(body: any) {
           const { error: updateError } = await supabaseAdmin
             .from("payments")
             .update({
-              status: ap.status,
+              status: providerStatus,
               invoice_url: ap.invoiceUrl || null,
               installment_count: installmentCount,
             })
             .eq("id", existing.id);
           if (updateError) throw updateError;
-          if (existing.status !== ap.status && existing.plan_id && existing.company_id) {
-            await applyPaymentStatusEffects(student.id, ap.status, ap.id, existing.plan_id, existing.company_id);
+          if (providerStatus && existing.company_id &&
+            ((existing.status !== providerStatus && existing.plan_id) ||
+              providerStatus === "REFUNDED" || providerStatus === "OVERDUE")) {
+            await applyPaymentStatusEffects(student.id, providerStatus, ap.id, existing.plan_id, existing.company_id);
           }
         } else {
           // Insert new
@@ -1508,7 +1546,7 @@ async function syncPayments(body: any) {
             asaas_payment_id: ap.id,
             billing_type: ap.billingType || null,
             value: Number(ap.value) || 0,
-            status: ap.status || "PENDING",
+            status: providerStatus || "PENDING",
             due_date: ap.dueDate || null,
             invoice_url: ap.invoiceUrl || null,
             installment_count: installmentCount,
@@ -1549,10 +1587,12 @@ Deno.serve(async (req) => {
       await requireCompanyFeature(supabaseAdmin, tenant.companyId, "hasFinancial");
     } else if (checkoutActions.has(action)) {
       if (body.checkoutToken) {
-        await requireCheckoutToken(body, action);
+        const link = await requireCheckoutToken(body, action);
+        body.renewalOfEnrollmentId = link.renewal_of_enrollment_id;
       } else {
         const tenant = await requireAdminTenant(req, body);
         body.companyId = body.companyId || tenant.companyId;
+        body.renewalOfEnrollmentId = null;
       }
       const forwardedFor = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
       const connectingIp = req.headers.get("cf-connecting-ip")?.trim();

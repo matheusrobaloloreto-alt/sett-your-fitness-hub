@@ -1,5 +1,6 @@
 import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { cva, type VariantProps } from "class-variance-authority";
+import { motion, type Transition } from "framer-motion";
 import { X } from "lucide-react";
 import * as React from "react";
 
@@ -49,21 +50,48 @@ const sheetVariants = cva(
 
 interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
-    VariantProps<typeof sheetVariants> {}
+    VariantProps<typeof sheetVariants> {
+  portalContainer?: HTMLElement | null;
+  springTransition?: Transition;
+  showSpringClose?: boolean;
+}
 
 const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Content>, SheetContentProps>(
-  ({ side = "right", className, children, ...props }, ref) => (
-    <SheetPortal>
+  ({ side = "right", className, children, portalContainer, springTransition, showSpringClose, ...props }, ref) => {
+    const closeButton = (
+      <SheetPrimitive.Close className="absolute right-2 top-2 flex h-10 w-10 items-center justify-center rounded-md opacity-70 ring-offset-background transition-opacity data-[state=open]:bg-secondary hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none sm:right-3 sm:top-3">
+        <X className="h-4 w-4" />
+        <span className="sr-only">Close</span>
+      </SheetPrimitive.Close>
+    );
+    if (springTransition) {
+      return (
+        <SheetPortal container={portalContainer}>
+          <SheetOverlay className="!animate-none !bg-black/25" />
+          <SheetPrimitive.Content asChild ref={ref} aria-describedby={undefined} {...props}>
+            <motion.div
+              className={cn(sheetVariants({ side }), "!animate-none !transition-none", className)}
+              initial={{ x: side === "left" ? "-102%" : "102%" }}
+              animate={{ x: "0%" }}
+              transition={springTransition}
+            >
+              {children}
+              {showSpringClose && closeButton}
+            </motion.div>
+          </SheetPrimitive.Content>
+        </SheetPortal>
+      );
+    }
+    return (
+    <SheetPortal container={portalContainer}>
       <SheetOverlay />
       <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
         {children}
-        <SheetPrimitive.Close className="absolute right-2 top-2 flex h-10 w-10 items-center justify-center rounded-md opacity-70 ring-offset-background transition-opacity data-[state=open]:bg-secondary hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none sm:right-3 sm:top-3">
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </SheetPrimitive.Close>
+        {closeButton}
       </SheetPrimitive.Content>
     </SheetPortal>
-  ),
+    );
+  },
 );
 SheetContent.displayName = SheetPrimitive.Content.displayName;
 

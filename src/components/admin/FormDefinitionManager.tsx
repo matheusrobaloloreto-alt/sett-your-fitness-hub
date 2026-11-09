@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SettingHelp } from '@/components/admin/SettingHelp';
+import { useSettingsDraft } from '@/lib/settingsDraftProtection';
 import { defaultFormDefinition, fetchFormDefinition, publishFormDefinition, isFormDefinitionConflict, FORM_KINDS, type FormDefinition, type FormKind, type QuestionType } from '@/lib/formDefinitions';
 
-export default function FormDefinitionManager({companyId}:{companyId:string}) {
+export default function FormDefinitionManager({companyId, visible = true}:{companyId:string; visible?:boolean}) {
   const [kind,setKind]=useState<FormKind>('initial');
   const [form,setForm]=useState<FormDefinition>(defaultFormDefinition('initial'));
   const [version,setVersion]=useState(0);
@@ -21,6 +22,7 @@ export default function FormDefinitionManager({companyId}:{companyId:string}) {
   const request=useRef(0);
   const mounted=useRef(true);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+  useSettingsDraft(dirty);
   const [loadedContext,setLoadedContext]=useState('');
   const editable=ready && loadedContext===context;
   useEffect(()=>{
@@ -43,6 +45,7 @@ export default function FormDefinitionManager({companyId}:{companyId:string}) {
     catch(error){if(active())toast.error(isFormDefinitionConflict(error)?'Conflito de versão. Rascunho mantido; recarregue antes de publicar.':error instanceof Error?error.message:'Publicação recusada. Recarregue para conferir a versão.');}
     finally{if(active())setBusy(false);}
   };
+  if (!visible) return null;
   const base=defaultFormDefinition(kind);
   const typeLabels: Record<QuestionType, string> = {text:'Texto curto',textarea:'Texto longo',number:'Número',date:'Data',select:'Escolha única',multiselect:'Múltipla escolha',boolean:'Sim ou não',consent:'Consentimento'};
   return <section className="space-y-3 min-w-0">

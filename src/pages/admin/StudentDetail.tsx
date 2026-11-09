@@ -1,9 +1,9 @@
-import { projectPrescriptionCoverage } from '@/lib/prescriptionCoverage';
+import { projectPrescriptionScheduleReadback } from "@/lib/prescriptionCoverage";
 import { useEffect, useState, useRef, useMemo, lazy, Suspense } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/useAuth";
+import { AssessmentMaterialReceipt } from "@/components/admin/AssessmentMaterialReceipt";
 import { useMaster } from "@/contexts/MasterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useQuery } from "@tanstack/react-query";
+import { SaveWorkoutToLibraryDialog } from "@/components/admin/SaveWorkoutToLibraryDialog";
+import type { WorkoutTemplateDraftExercise } from "@/lib/workoutTemplateDraft";
 import { PlanVersionsCard } from "@/components/admin/PlanVersionsCard";
 import { AssessmentCompareCard } from "@/components/admin/AssessmentCompareCard";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
@@ -38,8 +42,14 @@ import { EditorialPageHeader } from "@/components/EditorialPageHeader";
 import { EditorialTabStrip } from "@/components/EditorialTabStrip";
 import { ProgressPhotosPanel } from "@/components/ProgressPhotosPanel";
 import { loadStudentPreRegistration, updateStudentPreRegistration } from "@/lib/preRegistrationData";
-import type { PreRegistrationData } from "@/lib/preRegistration";
-import { calculateWeeklyMuscleVolume } from "@/lib/workoutVolume";
+import { formatPreRegistrationValue, type PreRegistrationData } from "@/lib/preRegistration";
+import {
+  calculateWeeklyMuscleVolume,
+  hasPlannedVolumeWeeks,
+  plannedVolumeCycleWeek,
+  workoutVolumeExerciseIds,
+  workoutVolumeTargetConfig,
+} from "@/lib/workoutVolume";
 import { useExerciseVolumeTargets } from "@/hooks/useExerciseVolumeTargets";
 import { businessDateYmd } from "@/lib/businessDate";
 
@@ -105,6 +115,7 @@ interface Student {
   email: string | null;
   phone: string | null;
   status: string;
+  sales_stage?: string | null;
   notes: string | null;
   birth_date: string | null;
   cpf: string | null;
@@ -121,6 +132,28 @@ interface Student {
   company_id: string | null;
   updated_at?: string | null;
   user_id?: string | null;
+}
+
+const studentEditFields = {
+  full_name: "Nome", email: "E-mail", birth_date: "Nascimento", cpf: "CPF",
+  cep: "CEP", address: "Rua", address_number: "Número do endereço",
+  neighborhood: "Bairro", city: "Cidade", state: "Estado", status: "Status",
+  notes: "Observações", whatsapp: "WhatsApp", phone: "Telefone legado",
+} as const;
+
+function studentEditValues(student: Student) {
+  const brazilian = isBrazilianCountry(student.country_code);
+  const whatsapp = student.whatsapp || "";
+  const digits = whatsapp.replace(/\D/g, "");
+  return {
+    full_name: student.full_name, email: student.email || "", phone: student.phone || "",
+    birth_date: student.birth_date || "", cpf: student.cpf ? (brazilian ? formatCPF(student.cpf) : student.cpf) : "",
+    cep: student.cep ? (brazilian ? formatCEP(student.cep) : student.cep) : "", address: student.address || "",
+    address_number: student.address_number || "", neighborhood: student.neighborhood || "",
+    city: student.city || "", state: student.state || "",
+    whatsapp: formatPhoneForCountry(brazilian && /^55\d{10,11}$/.test(digits) ? `+${digits}` : whatsapp, student.country_code),
+    status: student.status, notes: student.notes || "",
+  };
 }
 
 interface Enrollment extends PrescriptionEnrollment {
@@ -140,6 +173,7 @@ interface Enrollment extends PrescriptionEnrollment {
   payment_method?: string;
   financial_notes?: string;
   training_start_date?: string;
+  requires_explicit_training_start?: boolean;
 }
 
 interface TrainingCycle extends PrescriptionScheduleCycle {
@@ -160,25 +194,6 @@ interface TrainingCycle extends PrescriptionScheduleCycle {
   prescription_cleared_signature?: string | null;
 }
 
-export function EnrollmentCoverageSummary({ enrollment, cycles, studentId, companyId, readError = false }: {
-  enrollment: Enrollment; cycles: TrainingCycle[]; studentId: string; companyId: string; readError?: boolean;
-}) {
-  const coverage = projectPrescriptionCoverage({ enrollment, cycles, expectedStudentId: studentId, expectedCompanyId: companyId,
-    today: businessDateYmd(), cycleDurationDays: enrollment.cycle_duration_days || 42,
-    planDurationDays: enrollment.plan_duration_days || (enrollment.plan_duration || 6) * 7, readError });
-  if (!coverage.reliable) return <p role="alert">Não foi possível confirmar a cobertura contratual. Recarregue antes de prescrever.</p>;
-  const labels = { missing: 'Lacuna — sem ciclo persistido', scheduled: 'Agenda pendente — sem treino publicado', prepared: 'Conteúdo preparado — conferir liberação', delivered: 'Treino digital vigente', offline: 'Prescrição fora do app', review: 'Revisar sobreposição' };
-  return <section aria-label={`Cobertura contratual ${enrollment.plan_name || ''}`} className="space-y-2 rounded-lg border border-border p-3">
-    <h3 className="text-sm font-semibold">Cobertura contratual</h3>
-    <p className="text-xs">Vigência comercial: {safeFormatDate(coverage.term!.contract_start_date, 'dd/MM/yyyy')} → {safeFormatDate(coverage.term!.end_date, 'dd/MM/yyyy')}. Início operacional: {safeFormatDate(coverage.term!.start_date, 'dd/MM/yyyy')}. Agenda não equivale a treino entregue.</p>
-    {coverage.notStarted && <p>Treinamento ainda não iniciado. Início programado: {safeFormatDate(coverage.term!.start_date, 'dd/MM/yyyy')}.</p>}
-    <div className="grid gap-2 sm:grid-cols-2">{coverage.slots.map(slot => <div key={slot.position} className="rounded border border-border p-2 text-xs">
-      <strong>Período {slot.position}</strong> · {safeFormatDate(slot.start_date, 'dd/MM/yyyy')} a {safeFormatDate(slot.end_date, 'dd/MM/yyyy')}
-      <p>{labels[slot.state]}</p>
-    </div>)}</div>
-  </section>;
-}
-
 interface StudentWorkoutRow {
   id: string;
   cycle_id: string;
@@ -186,9 +201,73 @@ interface StudentWorkoutRow {
   name: string | null;
   exercises: unknown;
   sort_order: number | null;
+  description?: string | null;
+  day_of_week?: number | null;
   superseded_at?: string | null;
   superseded_reason?: string | null;
   student_profile_archive_event_id?: string | null;
+}
+
+function PlannedMuscleVolume({ volume }: { volume: Record<string, number> }) {
+  const entries = Object.entries(volume).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return <p className="text-xs text-muted-foreground">Sem séries mapeadas para grupamentos musculares.</p>;
+  if (entries.length >= 3) {
+    return <MuscleRadar muscleVolumes={entries.map(([muscleGroup, sets]) => ({ muscleGroup, volume: sets }))} unit="sets" />;
+  }
+  return (
+    <ul className="space-y-1 text-xs">
+      {entries.map(([group, sets]) => (
+        <li key={group} className="flex justify-between gap-2">
+          <span>{group}</span>
+          <span>{sets.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} séries</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CyclePlannedVolume({ cycle, workouts, targetConfig, today }: {
+  cycle: TrainingCycle;
+  workouts: StudentWorkoutRow[];
+  targetConfig: ReturnType<typeof workoutVolumeTargetConfig>;
+  today: string;
+}) {
+  const [selectedWeek, setSelectedWeek] = useState<number>();
+  const { weekCount, week: defaultWeek } = plannedVolumeCycleWeek(cycle.start_date, cycle.end_date, today);
+  const hasWeeks = hasPlannedVolumeWeeks(workouts);
+  const week = hasWeeks ? Math.min(weekCount, selectedWeek ?? defaultWeek) : undefined;
+  const weekLabel = week == null ? "Séries-base" : `Semana ${week}`;
+  const { volume, uncoveredExerciseIds } = calculateWeeklyMuscleVolume({ ...targetConfig, workouts, week });
+
+  return (
+    <details className="space-y-3 border-t border-border/50 pt-2">
+      <summary className="cursor-pointer text-sm">Volume semanal prescrito · {weekLabel}</summary>
+      {week != null && weekCount > 1 && (
+        <Select value={String(week)} onValueChange={(value) => setSelectedWeek(Number(value))}>
+          <SelectTrigger className="h-9 w-full sm:w-[180px]" aria-label="Semana do volume prescrito"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {Array.from({ length: weekCount }, (_, index) => index + 1).map((option) => (
+              <SelectItem key={option} value={String(option)}>Semana {option}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      <p className="text-xs font-medium text-muted-foreground">Séries por grupo muscular (todos os treinos)</p>
+      <PlannedMuscleVolume volume={volume} />
+      {uncoveredExerciseIds.length > 0 && (
+        <p className="text-xs text-muted-foreground">{uncoveredExerciseIds.length} exercício(s) sem alvo anatômico não entram no total.</p>
+      )}
+      <details className="space-y-2">
+        <summary className="cursor-pointer text-xs">Volume prescrito por treino</summary>
+        {workouts.map((workout) => (
+          <div key={workout.id} className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">{workout.title || `Treino ${workout.name || ""}`.trim()}</p>
+            <PlannedMuscleVolume volume={calculateWeeklyMuscleVolume({ ...targetConfig, workouts: [workout], week }).volume} />
+          </div>
+        ))}
+      </details>
+    </details>
+  );
 }
 
 interface WorkoutArchiveAction {
@@ -236,11 +315,6 @@ function cyclePrescriptionArchiveErrorMessage(error: unknown, mode: CyclePrescri
     ? "O servidor recusou a remoção da prescrição."
     : "O servidor recusou a restauração da prescrição.");
 }
-
-type TrainingCycleUpdate = Database["public"]["Tables"]["training_cycles"]["Update"] & {
-  prescribed_offline_at?: string | null;
-  prescribed_offline_by?: string | null;
-};
 
 interface Plan {
   id: string;
@@ -308,6 +382,10 @@ const isCyclePrescribed = (cycle: TrainingCycle) =>
   !cycle.prescription_cleared_at
   && Boolean(cycle.has_workout || cycle.has_bundle || cycle.has_cardio_plan || cycle.has_strength_plan || cycle.prescribed_offline_at);
 
+const canMarkCycleOffline = (cycle: TrainingCycle) =>
+  !cycle.prescription_cleared_at && !cycle.superseded_at && !cycle.superseded_by_cycle_id
+  && cycle.status !== "superseded" && !isCyclePrescribed(cycle);
+
 const paymentStatusLabels: Record<string, string> = {
   pending: "Pendente",
   paid: "Pago",
@@ -344,6 +422,7 @@ export default function StudentDetail() {
   const canManageStudent = Boolean(session?.user?.id && effectiveCompanyId && student?.company_id === effectiveCompanyId)
     && ["trainer", "coordinator", "admin", "master"].includes(role || "");
   const [preRegistration, setPreRegistration] = useState<PreRegistrationData | null>(null);
+  const [preRegistrationLoadError, setPreRegistrationLoadError] = useState(false);
   const [preRegistrationLoading, setPreRegistrationLoading] = useState(true);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [cycles, setCycles] = useState<TrainingCycle[]>([]);
@@ -358,21 +437,9 @@ export default function StudentDetail() {
   const evaluationsGeneration = useRef(0);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [allWorkouts, setAllWorkouts] = useState<StudentWorkoutRow[]>([]);
-  const volumeExerciseIds = useMemo(() => allWorkouts.flatMap((workout) =>
-    (Array.isArray(workout.exercises) ? workout.exercises : []).flatMap((exercise: any) => {
-      const exerciseId = exercise?.exercise_id || exercise?.exerciseId;
-      return typeof exerciseId === "string" ? [exerciseId] : [];
-    }),
-  ), [allWorkouts]);
+  const volumeExerciseIds = useMemo(() => workoutVolumeExerciseIds(allWorkouts), [allWorkouts]);
   const volumeTargets = useExerciseVolumeTargets(id, volumeExerciseIds);
-  const volumeTargetConfig = useMemo(() => ({
-    targets: volumeTargets.map((target) => ({
-      exercise_id: target.exerciseId, muscle_group_id: target.muscleGroup,
-      role: target.role, is_primary: target.isPrimary,
-    })),
-    muscleGroups: [...new Set(volumeTargets.map((target) => target.muscleGroup))]
-      .map((name) => ({ id: name, name })),
-  }), [volumeTargets]);
+  const volumeTargetConfig = useMemo(() => workoutVolumeTargetConfig(volumeTargets), [volumeTargets]);
   const [archivedWorkouts, setArchivedWorkouts] = useState<StudentWorkoutRow[]>([]);
   const [workoutUsageCounts, setWorkoutUsageCounts] = useState<Record<string, { logs: number; sessions: number }>>({});
   const [asaasPayments, setAsaasPayments] = useState<AsaasPayment[]>([]);
@@ -389,6 +456,7 @@ export default function StudentDetail() {
   const [assigningTrainer, setAssigningTrainer] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [selectedTrainerId, setSelectedTrainerId] = useState("");
+  const [manualActivationReason, setManualActivationReason] = useState("");
   const [startDate, setStartDate] = useState<Date>(new Date());
   const [saving, setSaving] = useState(false);
   const [enrollmentAction, setEnrollmentAction] = useState<{
@@ -399,8 +467,11 @@ export default function StudentDetail() {
 
   // Edit student dialog state
   const [editStudentOpen, setEditStudentOpen] = useState(false);
+  const [studentEditBase, setStudentEditBase] = useState<Student | null>(null);
+  const [studentEditConflict, setStudentEditConflict] = useState<{ latest: Student | null } | null>(null);
   const [contactConfirmed, setContactConfirmed] = useState(false);
   const profileSaveBusy = useRef(false);
+  const studentEditRefresh = useRef(0);
   const [studentForm, setStudentForm] = useState({
     full_name: "", email: "", phone: "", birth_date: "", cpf: "", cep: "", address: "",
     address_number: "", neighborhood: "", city: "", state: "",
@@ -432,7 +503,30 @@ export default function StudentDetail() {
   const [copiedLogin, setCopiedLogin] = useState(false);
   const [activeTab, setActiveTab] = useState<StudentProgramPrimaryTabValue>("overview");
   const [activePrescriptionPanel, setActivePrescriptionPanel] = useState<"prescricao" | "integrada">("prescricao");
-  const [manualPrescriptionCycleId, setManualPrescriptionCycleId] = useState("");
+  const cycleFromQuery = new URLSearchParams(location.search).get("cycle") || "";
+  const [manualPrescriptionCycleId, setManualPrescriptionCycleId] = useState(cycleFromQuery);
+  useEffect(() => { setManualPrescriptionCycleId(cycleFromQuery); }, [id, cycleFromQuery]);
+  const [historyVolumeCycleId, setHistoryVolumeCycleId] = useState<string | null>(null);
+  const [libraryCycle, setLibraryCycle] = useState<{ studentId: string; cycleId: string } | null>(null);
+  const avatarContact = student ? studentCanonicalContact(student) : null;
+  const avatarPhone = avatarContact?.ready ? avatarContact.whatsapp : null;
+  const avatarCompanyId = student?.company_id;
+  const { data: studentPhoto } = useQuery({
+    queryKey: ["student-profile-whatsapp-photo", avatarCompanyId, id, avatarPhone],
+    enabled: Boolean(avatarCompanyId && id === student?.id && student?.status === "active" && avatarPhone),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("whatsapp_chats")
+        .select("contact_photo, remote_jid")
+        .eq("company_id", avatarCompanyId!)
+        .eq("student_id", id!)
+        .not("contact_photo", "is", null)
+        .order("updated_at", { ascending: false });
+      if (error) return null;
+      return data?.find(chat => /^https:\/\//i.test(chat.contact_photo || "")
+        && /^\d+@s\.whatsapp\.net$/.test(chat.remote_jid)
+        && sameStudentContactRecipient(avatarPhone, chat.remote_jid.split("@")[0]))?.contact_photo ?? null;
+    },
+  });
   const [workoutArchiveAction, setWorkoutArchiveAction] = useState<WorkoutArchiveAction | null>(null);
   const [workoutArchiveReason, setWorkoutArchiveReason] = useState("");
   const [archivingWorkout, setArchivingWorkout] = useState(false);
@@ -452,13 +546,13 @@ export default function StudentDetail() {
     const handoff = location.state && typeof location.state === "object"
       ? location.state as { studentId?: unknown; tab?: unknown }
       : null;
-    if (typeof handoff?.studentId === "string" && handoff.studentId !== id) return;
+    const sameStudent = typeof handoff?.studentId !== "string" || handoff.studentId === id;
     const tabFromQuery = new URLSearchParams(location.search).get("tab");
-    const requestedTab = tabFromQuery ?? (typeof handoff?.tab === "string" ? handoff.tab : "overview");
+    const requestedTab = tabFromQuery ?? (sameStudent && typeof handoff?.tab === "string" ? handoff.tab : "overview");
     const resolved = resolveStudentProgramHandoff(requestedTab);
     setActiveTab(resolved.activeTab || "overview");
-    if (resolved.prescriptionPanel) {
-      setActivePrescriptionPanel(resolved.prescriptionPanel);
+    if (resolved.activeTab === "program") {
+      setActivePrescriptionPanel(resolved.prescriptionPanel || "prescricao");
     }
   }, [id, location.search, location.state]);
 
@@ -600,18 +694,24 @@ export default function StudentDetail() {
     setTrainerName(null);
 
     setPreRegistrationLoading(true);
+    setPreRegistrationLoadError(false);
+    setPreRegistration(null);
     try {
-      setPreRegistration(await loadStudentPreRegistration({
+      const nextPreRegistration = await loadStudentPreRegistration({
         studentId,
         companyId: studentData.company_id,
         phone: studentData.whatsapp || studentData.phone,
-      }));
+        includeIntercycle: true,
+      });
+      if (generation !== scheduleLoadGeneration.current) return;
+      setPreRegistration(nextPreRegistration);
     } catch (error) {
       console.error("Falha ao carregar pré-cadastro do aluno:", error);
-      setPreRegistration(null);
+      if (generation === scheduleLoadGeneration.current) setPreRegistrationLoadError(true);
     } finally {
-      setPreRegistrationLoading(false);
+      if (generation === scheduleLoadGeneration.current) setPreRegistrationLoading(false);
     }
+    if (generation !== scheduleLoadGeneration.current) return;
 
     const { data: enrollmentData, error: enrollmentError } = await supabase
       .from("enrollments").select("*").eq("student_id", studentId).eq("company_id", studentData.company_id)
@@ -691,10 +791,10 @@ export default function StudentDetail() {
     const cycleIds = schedulableCycleData.map((c) => c.id);
     const [activeWorkoutResult, archivedWorkoutResult, bundleResult, strengthPlanResult, runningPlanResult, historyPresenceResult] = cycleIds.length > 0
       ? await Promise.all([
-        supabase.from("workouts").select("id, cycle_id, title, name, exercises, sort_order").is("superseded_at", null).in("cycle_id", cycleIds),
+        supabase.from("workouts").select("id, cycle_id, title, name, description, day_of_week, exercises, sort_order").is("superseded_at", null).in("cycle_id", cycleIds),
         supabase
           .from("workouts")
-          .select("id, cycle_id, title, name, exercises, sort_order, superseded_at, superseded_reason, student_profile_archive_event_id")
+          .select("id, cycle_id, title, name, description, day_of_week, exercises, sort_order, superseded_at, superseded_reason, student_profile_archive_event_id")
           .not("superseded_at", "is", null)
           .not("student_profile_archive_event_id", "is", null)
           .in("cycle_id", cycleIds),
@@ -896,6 +996,7 @@ export default function StudentDetail() {
   const openEnrollDialog = () => {
     setSelectedPlanId(student?.selected_plan_id || "");
     setSelectedTrainerId("");
+    setManualActivationReason("");
     setStartDate(new Date());
     void loadEnrollmentOptions(student?.company_id);
     setEnrollOpen(true);
@@ -903,6 +1004,9 @@ export default function StudentDetail() {
 
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
   const selectedPlanRequirements = planOperationalRequirements(selectedPlan?.plan_kind);
+  const isManualFirstActivation = canManageStudent && ["admin", "coordinator", "master"].includes(role || "")
+    && student?.status === "pending" && (student.sales_stage ?? "payment_pending") === "payment_pending"
+    && !coverageReadError && enrollments.length === 0 && !isInfluencerPlan(selectedPlan);
   const computedEndDate = selectedPlan && selectedPlanRequirements.requiresStartDate
     ? addDays(startDate, (selectedPlan.duration_days || (selectedPlan.duration_weeks ?? 4) * 7) - 1)
     : null;
@@ -976,7 +1080,30 @@ export default function StudentDetail() {
       loadData(id);
       return;
     }
-    if (!selectedTrainerId || !session?.user?.id || !computedEndDate) return;
+    if (!session?.user?.id || !computedEndDate || saving) return;
+    const startDateValue = format(startDate, "yyyy-MM-dd");
+    if (isManualFirstActivation) {
+      if (manualActivationReason.trim().length < 8) return;
+      setSaving(true);
+      try {
+        const { data, error } = await supabase.rpc("activate_student_enrollment_manually", {
+          _company_id: student.company_id,
+          _student_id: id,
+          _plan_id: selectedPlanId,
+          _start_date: startDateValue,
+          _reason: manualActivationReason.trim(),
+        });
+        if (error || !data) throw new Error(error?.message || "O servidor não confirmou a matrícula.");
+        toast({ title: "Matrícula ativada", description: "Registre o material da avaliação quando o aluno enviar." });
+        setEnrollOpen(false);
+        await loadData(id);
+      } catch (error) {
+        toast({ title: "Erro ao ativar matrícula", description: error instanceof Error ? error.message : "Tente novamente.", variant: "destructive" });
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (!student.status || !["active", "awaiting_renewal"].includes(student.status)) {
       toast({
         title: "Pagamento ainda não confirmado",
@@ -985,8 +1112,8 @@ export default function StudentDetail() {
       });
       return;
     }
+    if (!selectedTrainerId) return;
     setSaving(true);
-    const startDateValue = format(startDate, "yyyy-MM-dd");
     const { data: replacementRows, error } = await supabase.rpc("replace_student_enrollment", {
       _student_id: id,
       _company_id: student.company_id,
@@ -1071,31 +1198,69 @@ export default function StudentDetail() {
   };
   const openEditStudent = () => {
     if (!student) return;
-    const brazilian = isBrazilianCountry(student.country_code);
-    setStudentForm({
-      full_name: student.full_name, email: student.email || "", phone: student.phone || "",
-      birth_date: student.birth_date || "", cpf: student.cpf ? (brazilian ? formatCPF(student.cpf) : student.cpf) : "",
-      cep: student.cep ? (brazilian ? formatCEP(student.cep) : student.cep) : "", address: student.address || "",
-      address_number: student.address_number || "", neighborhood: student.neighborhood || "",
-      city: student.city || "", state: student.state || "",
-      whatsapp: student.whatsapp ? formatContactInput(student.whatsapp) : "", status: student.status, notes: student.notes || "",
-    });
+    studentEditRefresh.current += 1;
+    setStudentEditBase(student);
+    setStudentEditConflict(null);
+    setStudentForm(studentEditValues(student));
     setContactConfirmed(false);
     setEditStudentOpen(true);
   };
 
-  const editedContact = studentCanonicalContact({ whatsapp: studentForm.whatsapp, country_code: student?.country_code });
-  const contactChanged = Boolean(student && editedContact.whatsapp !== studentCanonicalContact(student).whatsapp);
-  const contactNeedsConfirmation = Boolean(student && (studentCanonicalContact(student).divergent || contactChanged || !student.country_code));
+  const studentEditKey = JSON.stringify([id, effectiveCompanyId, session?.user?.id, role]);
+  const studentEditKeyRef = useRef(studentEditKey);
+  studentEditKeyRef.current = studentEditKey;
+  const closeEditStudent = () => {
+    studentEditRefresh.current += 1;
+    setEditStudentOpen(false);
+  };
+  const refreshStudentEdit = async () => {
+    if (!id || !effectiveCompanyId || !canManageStudent || studentEditBase?.id !== id
+      || studentEditBase.company_id !== effectiveCompanyId) return;
+    const scope = studentEditKey;
+    const refresh = ++studentEditRefresh.current;
+    setStudentEditConflict({ latest: null });
+    const { data, error } = await supabase.from("students").select("*")
+      .eq("id", id).eq("company_id", effectiveCompanyId).maybeSingle();
+    if (studentEditKeyRef.current !== scope || studentEditRefresh.current !== refresh) return;
+    if (error || !data?.updated_at || data.id !== id || data.company_id !== effectiveCompanyId) {
+      toast({ title: "Cadastro atualizado indisponível", description: "Seu rascunho continua aberto. Tente consultar os dados novamente.", variant: "destructive" });
+      return;
+    }
+    setStudentEditConflict({ latest: data as Student });
+  };
+  const latestStudentEdit = studentEditConflict?.latest;
+  const studentEditFieldKeys = Object.keys(studentEditFields) as Array<keyof typeof studentEditFields>;
+  const concurrentStudentEditFields = latestStudentEdit && studentEditBase
+    ? studentEditFieldKeys.filter(field => latestStudentEdit[field] !== studentEditBase[field]) : [];
+  const reviewStudentEdit = () => {
+    if (!latestStudentEdit || !studentEditBase || latestStudentEdit.id !== id
+      || latestStudentEdit.company_id !== effectiveCompanyId) return;
+    const original = studentEditValues(studentEditBase);
+    const latest = studentEditValues(latestStudentEdit);
+    setStudentForm(draft => {
+      const next = { ...draft };
+      for (const field of studentEditFieldKeys) if (draft[field] === original[field]) next[field] = latest[field];
+      return next;
+    });
+    setStudentEditBase(latestStudentEdit);
+    setStudent(latestStudentEdit);
+    setContactConfirmed(false);
+    setStudentEditConflict(null);
+  };
+
+  const editedContact = studentCanonicalContact({ whatsapp: studentForm.whatsapp, country_code: studentEditBase?.country_code });
+  const contactChanged = Boolean(studentEditBase && editedContact.whatsapp !== studentCanonicalContact(studentEditBase).whatsapp);
+  const contactNeedsConfirmation = Boolean(studentEditBase && (studentCanonicalContact(studentEditBase).divergent || contactChanged || !studentEditBase.country_code));
   const handleSaveStudent = async () => {
-    if (!id || !student || !studentForm.full_name.trim() || profileSaveBusy.current) return;
-    if (!canManageStudent || !effectiveCompanyId || student.company_id !== effectiveCompanyId) return;
+    if (!id || !student || !studentEditBase || studentEditConflict || !studentForm.full_name.trim() || profileSaveBusy.current) return;
+    if (!canManageStudent || !effectiveCompanyId || studentEditBase.company_id !== effectiveCompanyId || studentEditBase.id !== id) return;
     if ((contactChanged && !contactConfirmed) || (contactConfirmed && !editedContact.whatsapp)) {
       toast({ title: "Confirme o contato", description: "Confira a identidade do aluno e confirme o WhatsApp informado antes de salvar.", variant: "destructive" });
       return;
     }
     const reconcileContact = contactNeedsConfirmation && contactConfirmed;
-    const brazilian = isBrazilianCountry(student.country_code);
+    const brazilian = isBrazilianCountry(studentEditBase.country_code);
+    const scope = studentEditKey;
     const patch = {
       full_name: studentForm.full_name.trim(), email: studentForm.email.trim() || null,
       birth_date: studentForm.birth_date || null,
@@ -1110,15 +1275,20 @@ export default function StudentDetail() {
     try {
       const { data, error } = await (supabase as any).rpc('update_student_contact', {
         _student_id: id, _company_id: effectiveCompanyId,
-        _expected_updated_at: student.updated_at ?? null,
-        _expected_phone: student.phone ?? null, _expected_whatsapp: student.whatsapp ?? null,
-        _contact: reconcileContact ? studentForm.whatsapp : student.whatsapp,
-        _country_code: reconcileContact ? (student.country_code ?? 'BR') : (student.country_code ?? null), _confirmed_contact: reconcileContact,
+        _expected_updated_at: studentEditBase.updated_at ?? null,
+        _expected_phone: studentEditBase.phone ?? null, _expected_whatsapp: studentEditBase.whatsapp ?? null,
+        _contact: reconcileContact ? studentForm.whatsapp : studentEditBase.whatsapp,
+        _country_code: reconcileContact ? (studentEditBase.country_code ?? 'BR') : (studentEditBase.country_code ?? null), _confirmed_contact: reconcileContact,
         _profile_patch: patch,
       });
+      if (studentEditKeyRef.current !== scope) return;
+      if (error && error.message === "contact_version_conflict") {
+        await refreshStudentEdit();
+        return;
+      }
       if (error) throw new Error(studentContactErrorMessage(error));
       if (!data || data.id !== id || data.company_id !== effectiveCompanyId || !data.updated_at
-        || data.updated_at === student.updated_at || !Object.keys(patch).every(key => data[key] === patch[key as keyof typeof patch])
+        || data.updated_at === studentEditBase.updated_at || !Object.keys(patch).every(key => data[key] === patch[key as keyof typeof patch])
         || (reconcileContact && (!studentCanonicalContact(data).ready
           || !sameStudentContactRecipient(studentCanonicalContact(data).whatsapp, editedContact.whatsapp) || data.phone !== data.whatsapp))) {
         throw new Error('O servidor não confirmou os dados salvos. Recarregue o cadastro antes de tentar novamente.');
@@ -1131,6 +1301,7 @@ export default function StudentDetail() {
           postalCode: studentForm.cep.replace(/\D/g, '') || undefined, address: patch.address || undefined,
           addressNumber: patch.address_number || undefined, province: patch.neighborhood || undefined,
         } });
+        if (studentEditKeyRef.current !== scope) return;
         if (sync.error || sync.data?.error) {
           setEditStudentOpen(false);
           await loadData(id);
@@ -1286,7 +1457,7 @@ export default function StudentDetail() {
   const { prescribeDays, doneDays, expiredDays } = buildCalendarDays();
 
   const allEnrollmentCycles = (enrollment: Enrollment) =>
-    rawCycles.filter((cycle) => cycle.enrollment_id === enrollment.id);
+    rawCycles.filter((cycle) => cycle.enrollment_id === enrollment.id && cycle.status !== "superseded" && !cycle.superseded_by_cycle_id);
 
   const currentEnrollmentCycles = (enrollment: Enrollment) =>
     selectCurrentPlanCycleWindow(
@@ -1303,6 +1474,9 @@ export default function StudentDetail() {
 
   const studentVisibleCycleForEnrollment = (enrollment: Enrollment) =>
     selectPreferredVisibleCycle(currentEnrollmentCycles(enrollment), new Date(`${businessDateYmd()}T12:00:00`));
+
+  const scheduleRepairBusy = useRef(false);
+  const [preparingSchedule, setPreparingSchedule] = useState(false);
 
   const manualPrescriptionEnrollment = selectPrescriptionEnrollment(enrollments, { today: businessDateYmd(), expectedStudentId: id, expectedCompanyId: student?.company_id });
 
@@ -1325,13 +1499,90 @@ export default function StudentDetail() {
     ? currentEnrollmentCycles(manualPrescriptionEnrollment)
     : [];
 
-  const manualSelectedCycle =
-    manualPrescriptionCycles.find((cycle) => cycle.id === manualPrescriptionCycleId)
-    || (manualPrescriptionEnrollment ? studentVisibleCycleForEnrollment(manualPrescriptionEnrollment) : null)
-    || manualPrescriptionCycles[0]
-    || null;
+  const awaitingTrainingStart = manualPrescriptionEnrollment?.requires_explicit_training_start
+    && !manualPrescriptionEnrollment.training_start_date;
+  const canPrepareSchedule = canManageStudent && manualPrescriptionEnrollment?.status === "active"
+    && Boolean(manualPrescriptionEnrollment.plan_id)
+    && !awaitingTrainingStart
+    && !manualPrescriptionCycles.some((cycle) => cycle.end_date >= businessDateYmd());
 
-  const openManualPrescriptionBuilder = (cycle: TrainingCycle | null = manualSelectedCycle, enrollment: Enrollment | null = manualPrescriptionEnrollment) => {
+  const preparePrescriptionSchedule = async () => {
+    if (!canPrepareSchedule || !manualPrescriptionEnrollment || !id || !student || scheduleRepairBusy.current) return;
+    const expected = { enrollmentId: manualPrescriptionEnrollment.id, studentId: id, companyId: student.company_id };
+    if (expected.companyId !== effectiveCompanyId) return;
+    const scope = loginScopeRef.current;
+    const rpc = supabase.rpc.bind(supabase) as unknown as (
+      name: string, args: Record<string, unknown>
+    ) => Promise<{ data: unknown; error: unknown }>;
+
+    scheduleRepairBusy.current = true;
+    setPreparingSchedule(true);
+    try {
+      const before = await rpc("get_prescription_schedule", { _enrollment_id: expected.enrollmentId });
+      if (scope !== loginScopeRef.current) return;
+      if (before.error) throw before.error;
+      projectPrescriptionScheduleReadback(before.data, expected);
+      const { contract } = before.data as { contract: { status: string } };
+      if (contract.status !== "active") throw new Error("schedule_enrollment_not_active");
+      const result = await rpc("reconcile_prescription_schedule", {
+        _enrollment_id: expected.enrollmentId, _expected_contract: contract,
+      });
+      if (scope !== loginScopeRef.current) return;
+      if (result.error) throw result.error;
+      const readback = await rpc("get_prescription_schedule", { _enrollment_id: expected.enrollmentId });
+      if (scope !== loginScopeRef.current) return;
+      if (readback.error) throw readback.error;
+      projectPrescriptionScheduleReadback(readback.data, expected);
+      const confirmed = readback.data as { cycles: Array<{ status: string; end_date: string; superseded_by_cycle_id?: string | null }> };
+      const nextAvailable = confirmed.cycles.some((cycle) =>
+        cycle.status !== "superseded" && !cycle.superseded_by_cycle_id && cycle.end_date >= businessDateYmd());
+      toast({ title: nextAvailable ? "Calendário atualizado" : "Nenhum próximo ciclo na vigência da matrícula" });
+      void loadData(id);
+    } catch {
+      if (scope === loginScopeRef.current) {
+        toast({ title: "Não foi possível confirmar o calendário", description: "Recarregue o perfil e confira a matrícula antes de tentar novamente.", variant: "destructive" });
+      }
+    } finally {
+      scheduleRepairBusy.current = false;
+      setPreparingSchedule(false);
+    }
+  };
+
+  const visibleTrainingCycle = manualPrescriptionEnrollment && selectPreferredVisibleCycle(
+    manualPrescriptionCycles.filter(cycle => cycle.has_workout && !cycle.prescription_cleared_at),
+    new Date(`${businessDateYmd()}T12:00:00`),
+  );
+  const assessmentCompleted = !evaluationsReadError && functionalEvaluations.some(evaluation => evaluation.status === "completed");
+  const awaitingFirstPrescription = !coverageReadError && student?.status === "active"
+    && Boolean(manualPrescriptionEnrollment?.trainer_id) && assessmentCompleted
+    && !allWorkouts.length && !archivedWorkouts.length;
+  const today = businessDateYmd();
+  const currentTrainingCycle = !coverageReadError
+    && manualPrescriptionCycles.find((cycle) => cycle.start_date <= today && cycle.end_date >= today
+      && cycle.has_workout && !cycle.prescription_cleared_at);
+
+  const openProfileTab = (value: string, assessment = false) => {
+    const resolved = resolveStudentProgramHandoff(value);
+    if (!resolved.activeTab) return;
+    const query = new URLSearchParams(location.search);
+    query.set("tab", value);
+    if (assessment) query.set("step", "avaliacao");
+    else query.delete("step");
+    navigate({ pathname: location.pathname, search: `?${query.toString()}` }, { replace: false, state: location.state });
+    setActiveTab(resolved.activeTab);
+    if (resolved.prescriptionPanel) setActivePrescriptionPanel(resolved.prescriptionPanel);
+  };
+
+  const manualSelectedCycle = manualPrescriptionCycleId
+    ? manualPrescriptionCycles.find(cycle => cycle.id === manualPrescriptionCycleId) || null
+    : (manualPrescriptionEnrollment && studentVisibleCycleForEnrollment(manualPrescriptionEnrollment))
+      || manualPrescriptionCycles[0] || null;
+
+  const openManualPrescriptionBuilder = (
+    cycle: TrainingCycle | null = manualSelectedCycle,
+    enrollment: Enrollment | null = manualPrescriptionEnrollment,
+    openLibrary = false,
+  ) => {
     if (!cycle || !enrollment || !id) {
       toast({
         title: "Nenhum ciclo disponível para prescrição manual",
@@ -1351,7 +1602,56 @@ export default function StudentDetail() {
       });
     }
 
-    navigate(workoutBuilderUrl({ role, studentId: id, cycleId: targetCycle.id }));
+    const target = workoutBuilderUrl({ role, studentId: id, cycleId: targetCycle.id, returnTab: activeTab });
+    navigate(openLibrary ? `${target}&library=1` : target);
+  };
+
+  const markCyclePrescribedOffline = async (cycle: TrainingCycle) => {
+    if (!id || !canManageStudent || !session?.user?.id || !effectiveCompanyId
+      || cycle.company_id !== effectiveCompanyId || !canMarkCycleOffline(cycle)) return;
+    const generation = scheduleLoadGeneration.current;
+    const { data: existing, error: workoutError } = await supabase
+      .from("workouts")
+      .select("id, exercises")
+      .eq("cycle_id", cycle.id)
+      .or(`company_id.eq.${effectiveCompanyId},company_id.is.null`)
+      .is("student_profile_archive_event_id", null)
+      .is("superseded_by_revision_id", null)
+      .is("superseded_at", null)
+      .limit(20);
+    if (generation !== scheduleLoadGeneration.current) return;
+    if (workoutError) {
+      toast({ title: "Não foi possível conferir os treinos do ciclo", description: "Recarregue o perfil antes de tentar novamente.", variant: "destructive" });
+      return;
+    }
+    if (filterMaterializedWorkouts(existing).length > 0) {
+      toast({ title: "Esse ciclo já possui treino." });
+      void loadData(id);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("training_cycles")
+      .update({ prescribed_offline_at: new Date().toISOString(), prescribed_offline_by: session.user.id })
+      .eq("id", cycle.id)
+      .eq("company_id", effectiveCompanyId)
+      .neq("status", "superseded")
+      .is("prescription_cleared_at", null)
+      .is("superseded_at", null)
+      .is("superseded_by_cycle_id", null)
+      .select("id")
+      .maybeSingle();
+    if (generation !== scheduleLoadGeneration.current) return;
+    if (error) {
+      toast({ title: "Erro ao marcar como prescrito", description: error.message, variant: "destructive" });
+      return;
+    }
+    if (data?.id !== cycle.id) {
+      toast({ title: "Não foi possível marcar o ciclo", description: "O perfil será atualizado para você conferir o ciclo." });
+    } else {
+      toast({ title: "Ciclo marcado como prescrito fora do app." });
+    }
+    void loadData(id);
   };
 
   const workoutDisplayTitle = (workout: Pick<StudentWorkoutRow, "title" | "name">) =>
@@ -1555,27 +1855,25 @@ export default function StudentDetail() {
   );
 
   const renderWorkoutCycles = () => {
-    const activeEnroll = selectPrescriptionEnrollment(enrollments, { today: businessDateYmd(), expectedStudentId: id, expectedCompanyId: student?.company_id }) || enrollments[0];
+    const activeEnroll = manualPrescriptionEnrollment || enrollments[0];
     if (coverageReadError) return <p role="alert">Não foi possível confirmar a cobertura contratual. Recarregue antes de prescrever.</p>;
     if (!activeEnroll) return <p className="text-muted-foreground font-sans text-sm text-center py-8">Nenhuma matrícula ativa.</p>;
-    const enrollCycles = selectCyclesForProgramHistory(
-      rawCycles.filter(c => c.enrollment_id === activeEnroll.id),
-      activeEnroll.plan_duration_days || Math.max(1, (activeEnroll.plan_duration || 6) * 7),
-      activeEnroll.cycle_duration_days || 42,
-      { enrollment: activeEnroll, expectedStudentId: id, expectedCompanyId: student?.company_id },
-    );
-    if (coverageReadError) return <p role="alert">Não foi possível confirmar a cobertura contratual. Recarregue antes de prescrever.</p>;
+    const enrollCycles = enrollments.flatMap(enrollment => selectCyclesForProgramHistory(
+      rawCycles.filter(cycle => cycle.enrollment_id === enrollment.id),
+      enrollment.plan_duration_days || Math.max(1, (enrollment.plan_duration || 6) * 7),
+      enrollment.cycle_duration_days || 42,
+      { enrollment, expectedStudentId: id, expectedCompanyId: student?.company_id },
+    )).sort((left, right) => right.start_date.localeCompare(left.start_date));
     const currentIds = new Set(currentEnrollmentCycles(activeEnroll).map(cycle => cycle.id));
     const groups = [
-      { label: "Vigência contratual — ciclos persistidos", items: enrollCycles.filter(cycle => currentIds.has(cycle.id)) },
-      { label: "Histórico anterior e fora da vigência", items: enrollCycles.filter(cycle => !currentIds.has(cycle.id)) },
+      { label: "Ciclos da matrícula selecionada", items: enrollCycles.filter(cycle => currentIds.has(cycle.id)) },
+      { label: "Ciclos anteriores", items: enrollCycles.filter(cycle => !currentIds.has(cycle.id)) },
     ];
     if (enrollCycles.length === 0) {
       return (
         <Card className="bg-card border-border border-dashed">
           <CardContent className="p-8 text-center">
             <CalendarDays className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-            <EnrollmentCoverageSummary enrollment={activeEnroll} cycles={allEnrollmentCycles(activeEnroll)} studentId={id!} companyId={student!.company_id!} />
             <p className="text-muted-foreground font-sans">Nenhum ciclo de treino criado.</p>
             <p className="text-xs text-muted-foreground/60 font-sans mt-1">Defina a data de início do treino na matrícula do aluno.</p>
           </CardContent>
@@ -1585,20 +1883,26 @@ export default function StudentDetail() {
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-primary text-lg font-display">TREINOS DO PROGRAMA</h2>
+          <h2 className="text-primary text-lg font-display">Histórico de ciclos</h2>
           <BnitoContextButton
             label="treinos do programa"
             context={`Treinos e ciclos materializados do aluno ${student?.full_name || "selecionado"}.`}
             question="Como posso revisar a continuidade entre estes ciclos de treino?"
           />
         </div>
-        <EnrollmentCoverageSummary enrollment={activeEnroll} cycles={allEnrollmentCycles(activeEnroll)} studentId={id!} companyId={student!.company_id!} />
+        {manualPrescriptionEnrollment && (
+          <p className="text-sm text-muted-foreground">
+            Plano atual · {safeFormatDate(manualPrescriptionEnrollment.start_date, "dd/MM/yyyy")} a {safeFormatDate(manualPrescriptionEnrollment.end_date, "dd/MM/yyyy")}
+          </p>
+        )}
         {groups.filter(group => group.items.length).map(group => <section key={group.label} aria-label={group.label}>
         <h3 className="my-3 font-semibold">{group.label}</h3>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
           {group.items.map(cycle => {
-            const cycleWorkouts = (allWorkouts || []).filter((w: any) => w.cycle_id === cycle.id);
+            const cycleWorkouts = allWorkouts.filter((workout) => workout.cycle_id === cycle.id);
             const archivedCycleWorkouts = (archivedWorkouts || []).filter((w) => w.cycle_id === cycle.id);
+            const canEditCycle = canManageStudent && currentIds.has(cycle.id)
+              && cycle.end_date >= today && !cycle.prescription_cleared_at;
             return (
               <Card key={cycle.id} className="bg-card border-border">
                 <CardContent className="p-3 space-y-2.5">
@@ -1624,14 +1928,18 @@ export default function StudentDetail() {
                       {cycleWorkouts.map((w: any) => {
                         const exercises = (w.exercises as any[]) || [];
                         return (
-                          <div key={w.id} className="flex flex-wrap items-center justify-between gap-2 bg-secondary/30 rounded-xl px-2.5 py-1.5">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                              <span className="text-xs font-sans text-foreground truncate">{w.title || `Treino ${w.name}`}</span>
-                            </div>
+                          <div key={w.id} className="flex flex-wrap items-start justify-between gap-2 bg-secondary/30 rounded-xl px-2.5 py-1.5">
+                            <details className="min-w-0 flex-1 text-sm">
+                              <summary className="cursor-pointer break-words">{workoutDisplayTitle(w)}</summary>
+                              <ol className="ml-5 mt-2 list-decimal space-y-1 text-xs text-muted-foreground">
+                                {exercises.map((exercise, index) => (
+                                  <li key={index}>{exercise.exercise_name || "Exercício"} · {exercise.sets ?? "—"} × {exercise.reps ?? "—"}</li>
+                                ))}
+                              </ol>
+                            </details>
                             <div className="flex items-center gap-1.5">
                               <Badge variant="outline" className="text-[10px] shrink-0">{exercises.length} ex.</Badge>
-                              <Button
+                              {canEditCycle && <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
@@ -1640,7 +1948,7 @@ export default function StudentDetail() {
                               >
                                 <Trash2 className="h-3 w-3 mr-1" />
                                 Excluir treino
-                              </Button>
+                              </Button>}
                             </div>
                           </div>
                         );
@@ -1648,7 +1956,9 @@ export default function StudentDetail() {
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 text-muted-foreground">
-                      {cycle.prescribed_offline_at ? (
+                      {cycle.prescription_cleared_at ? (
+                        <span className="text-xs font-sans">Prescrição removida</span>
+                      ) : cycle.prescribed_offline_at ? (
                         <>
                           <CheckCircle2 className="h-4 w-4 text-success" />
                           <span className="text-xs font-sans">Prescrito fora do app</span>
@@ -1662,8 +1972,8 @@ export default function StudentDetail() {
                     </div>
                   )}
 
-                  <div className="flex gap-2">
-                    <Button
+                  <div className="flex flex-wrap gap-2">
+                    {canEditCycle && <Button
                       size="sm"
                       variant={cycleWorkouts.length > 0 ? "outline" : "default"}
                       className="h-7 text-xs"
@@ -1674,33 +1984,29 @@ export default function StudentDetail() {
                       ) : (
                         <><Plus className="h-3.5 w-3.5 mr-1" />Prescrever</>
                       )}
-                    </Button>
+                    </Button>}
+                    {cycle.start_date <= today && (
+                      <Button size="sm" variant="outline" aria-expanded={historyVolumeCycleId === cycle.id} onClick={() => setHistoryVolumeCycleId(historyVolumeCycleId === cycle.id ? null : cycle.id)}>
+                        {historyVolumeCycleId === cycle.id ? "Ocultar volume" : "Ver volume realizado"}
+                      </Button>
+                    )}
+                    {cycleWorkouts.length > 0 && canManageStudent && (
+                      <Button size="sm" variant="outline" onClick={() => setLibraryCycle({ studentId: student!.id, cycleId: cycle.id })}>
+                        Salvar na biblioteca
+                      </Button>
+                    )}
                   </div>
+                  {historyVolumeCycleId === cycle.id && (
+                    <Suspense fallback={<InlineFallback />}>
+                      <StudentVolumePanel key={cycle.id} studentId={student!.id} companyId={student!.company_id} cycleId={cycle.id} />
+                    </Suspense>
+                  )}
 
-	                  {cycleWorkouts.length > 0 && (
-	                    <Suspense fallback={<InlineFallback />}>
-                      <div className="grid grid-cols-1 gap-3 pt-2 border-t border-border/50">
-                        {cycleWorkouts.map((w: any) => {
-                          const exercises = (w.exercises as any[]) || [];
-                          const { volume } = calculateWeeklyMuscleVolume({
-                            ...volumeTargetConfig,
-                            workouts: [{ exercises: exercises.map((ex: any) => ({
-                              exercise_id: ex.exercise_id || ex.exerciseId || "",
-                              muscle_group: ex.muscle_group,
-                              sets: ex.sets,
-                            })) }],
-                          });
-                          const muscleVolumes = Object.entries(volume).map(([muscleGroup, sets]) => ({ muscleGroup, volume: sets }));
-                          return (
-                            <div key={w.id} className="space-y-2">
-                              <p className="text-xs font-sans font-medium text-muted-foreground truncate">{w.title || `Treino ${w.name}`}</p>
-                              <MuscleRadar muscleVolumes={muscleVolumes} unit="sets" />
-                            </div>
-                          );
-                        })}
-                      </div>
-	                    </Suspense>
-	                  )}
+                  {cycleWorkouts.length > 0 && (
+                    <Suspense fallback={<InlineFallback />}>
+                      <CyclePlannedVolume cycle={cycle} workouts={cycleWorkouts} targetConfig={volumeTargetConfig} today={today} />
+                    </Suspense>
+                  )}
                   {archivedCycleWorkouts.length > 0 && (
                     <details className="rounded-xl border border-dashed border-border bg-secondary/20 p-2 text-xs font-sans">
                       <summary className="cursor-pointer text-muted-foreground">Treinos arquivados ({archivedCycleWorkouts.length})</summary>
@@ -1713,7 +2019,7 @@ export default function StudentDetail() {
                                 Arquivado em {safeFormatDate(w.superseded_at, "dd/MM/yyyy HH:mm")} · logs preservados
                               </p>
                             </div>
-                            <Button
+                            {canEditCycle && <Button
                               type="button"
                               variant="outline"
                               size="sm"
@@ -1721,7 +2027,7 @@ export default function StudentDetail() {
                               onClick={() => openWorkoutArchiveDialog("restore", w, cycle)}
                             >
                               Restaurar
-                            </Button>
+                            </Button>}
                           </div>
                         ))}
                       </div>
@@ -1760,23 +2066,13 @@ export default function StudentDetail() {
           <PreRegistrationDetails
             data={preRegistration}
             loading={preRegistrationLoading}
+            loadError={preRegistrationLoadError}
             onSave={async (next) => {
               const updated = await updateStudentPreRegistration(next);
               setPreRegistration(updated);
               return updated;
             }}
           />
-          {id && student?.company_id && (
-            <div className="mt-6 border-t pt-5">
-              <div className="mb-3 flex items-center gap-2">
-                <Badge variant="outline">Anamnese interciclos</Badge>
-                <span className="text-sm text-muted-foreground">
-                  Histórico por ciclo, sem alterar o pré-cadastro.
-                </span>
-              </div>
-              <IntercycleAnamnesisTimeline studentId={id} companyId={student.company_id} />
-            </div>
-          )}
         </CardContent>
       </Card>
     );
@@ -1880,21 +2176,50 @@ export default function StudentDetail() {
   return (
     <>
       <div className="space-y-4">
+        {libraryCycle?.studentId === student.id && canManageStudent && (
+          <SaveWorkoutToLibraryDialog
+            open
+            onOpenChange={(open) => { if (!open) setLibraryCycle(null); }}
+            workouts={allWorkouts.filter(workout => workout.cycle_id === libraryCycle.cycleId)
+              .sort((left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0))
+              .map(workout => ({
+                ...workout,
+                exercises: Array.isArray(workout.exercises) ? workout.exercises as WorkoutTemplateDraftExercise[] : [],
+              }))}
+            companyId={student.company_id}
+            defaultName={`Ciclo — ${student.full_name}`}
+            createdBy={session?.user?.id || null}
+          />
+        )}
         <EditorialPageHeader
           overline="Perfil do aluno"
           title={student.full_name.toUpperCase()}
-          titleClassName="text-primary"
+          titleClassName="text-primary max-sm:text-xl"
+          compactMobile
+          className="sett-student-header"
+          innerClassName="max-sm:flex max-sm:gap-0"
           leading={
-            <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => navigate(returnToPath)} aria-label="Voltar para alunos">
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => navigate(returnToPath)} aria-label="Voltar para alunos">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <Avatar className="h-10 w-10 sm:h-12 sm:w-12">
+                {student.status === "active" && studentPhoto && <AvatarImage src={studentPhoto} alt="" referrerPolicy="no-referrer" />}
+                <AvatarFallback>{student.full_name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase()}</AvatarFallback>
+              </Avatar>
+            </div>
           }
           meta={
             <>
               <AthleticClubStar studentId={student.id} companyId={student.company_id} className="shrink-0" />
-              <Badge variant="outline" className={`text-xs ${statusColors[student.status]}`}>
-                {statusLabels[student.status] || student.status}
-              </Badge>
+              <div className="inline-flex items-center gap-1">
+                <Badge variant="outline" className={`text-xs ${statusColors[student.status]}`}>
+                  {statusLabels[student.status] || student.status}
+                </Badge>
+                <Button variant="ghost" size="icon" className="h-9 w-9 sm:h-11 sm:w-11" onClick={openEditStudent} aria-label="Editar aluno">
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </div>
             </>
           }
           context={
@@ -1925,29 +2250,60 @@ export default function StudentDetail() {
                 label={`perfil de ${student.full_name}`}
                 context={`Detalhe do aluno. Status: ${student.status}. Treinador: ${trainerName || "nao definido"}. Matriculas: ${enrollments.length}. Ciclos: ${cycles.length}.`}
                 question="Me ajude a identificar os principais riscos e proximos passos deste aluno."
-                className="h-11 w-11"
+                className="hidden md:inline-flex h-11 w-11"
               />
-              <Button variant="ghost" size="icon" className="h-11 w-11" onClick={openEditStudent} aria-label="Editar aluno">
-                <Pencil className="h-4 w-4" />
-              </Button>
             </>
           }
         />
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={(value) => {
-          const query = new URLSearchParams(location.search);
-          query.set("tab", value);
-          navigate({ pathname: location.pathname, search: `?${query.toString()}` }, { replace: false, state: location.state });
-          setActiveTab(value as StudentProgramPrimaryTabValue);
-        }} className="w-full">
+        <Tabs value={activeTab} onValueChange={(value) => openProfileTab(value)} className="w-full">
           <EditorialTabStrip
             tabs={STUDENT_PROGRAM_PRIMARY_TABS}
             ariaLabel="Seções do aluno"
+            className="sett-student-tabs flex-nowrap max-sm:pr-0 max-sm:[&_[role=tab]]:px-2.5"
           />
 
-          {/* ===== VISÃO GERAL ===== */}
           <TabsContent value="overview" className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader><CardTitle className="text-primary text-lg">{awaitingFirstPrescription ? "Primeiros treinos" : "Situação do treino"}</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  {coverageReadError ? <p role="alert">Não foi possível confirmar a programação.</p> : visibleTrainingCycle ? (
+                    <p>Ciclo {visibleTrainingCycle.cycle_number} · {safeFormatDate(visibleTrainingCycle.start_date, "dd/MM")} a {safeFormatDate(visibleTrainingCycle.end_date, "dd/MM/yyyy")}</p>
+                  ) : (
+                    <p>{awaitingFirstPrescription
+                      ? "Avaliação concluída. Aguardando a primeira prescrição."
+                      : manualPrescriptionEnrollment ? "Consulte a preparação ou a publicação do treino." : "Confira a matrícula para programar um treino."}</p>
+                  )}
+                  <Button variant="outline" onClick={() => openProfileTab("program")}>Ver treino</Button>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle className="text-primary text-lg">Resumo do aluno</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  {manualPrescriptionEnrollment && (
+                    <p className="text-sm">
+                      {manualPrescriptionEnrollment.plan_name} · {safeFormatDate(manualPrescriptionEnrollment.start_date, "dd/MM/yyyy")} a {safeFormatDate(manualPrescriptionEnrollment.end_date, "dd/MM/yyyy")}
+                    </p>
+                  )}
+                  {Boolean(preRegistration?.answers.objective) && (
+                    <p className="text-sm text-muted-foreground">Objetivo · {formatPreRegistrationValue(preRegistration?.answers.objective)}</p>
+                  )}
+                  <Suspense fallback={<InlineFallback />}><TrainerWeeklyBar studentId={student.id} /></Suspense>
+                  <Button variant="outline" onClick={() => openProfileTab("analytics")}>Acompanhamento</Button>
+                </CardContent>
+              </Card>
+            </div>
+            <details className="rounded-2xl border border-border bg-card p-4 group">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-eyebrow">
+                Linha do tempo
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="mt-3">
+                <StudentTimeline studentId={student.id} />
+              </div>
+            </details>
             {id && student?.company_id && (
               <div className="grid gap-3 lg:grid-cols-2">
                 <WeeklyContactToggle
@@ -1958,196 +2314,10 @@ export default function StudentDetail() {
                 <IntercycleAnamnesisControls studentId={id} companyId={student.company_id} initial={(student as { intercycle_anamnesis_enabled?: boolean })?.intercycle_anamnesis_enabled} />
               </div>
             )}
-                {studentCanonicalContact(student).divergent && <div role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm">
-                  <p>Contatos legados divergentes. Confira a identidade e confirme o WhatsApp atual no cadastro antes de preparar o acesso.</p>
-                  <Button type="button" variant="outline" size="sm" onClick={openEditStudent}>Conferir contato</Button>
-                </div>}
-            {/* Acesso do app: copiar login (email+senha+link) ou enviar no WhatsApp */}
-            <CollapsibleCard title="ACESSO DO APP" icon={<KeyRound className="h-4 w-4" />} className="mb-4" contentClassName="space-y-3">
-                <p className="text-xs text-muted-foreground font-sans">
-                  Abrir a conversa apenas verifica o destinatário. Gerar/redefinir acesso é uma ação separada que define uma nova senha e pode substituir a anterior.
-                </p>
-                {loginCreds && (
-                  <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-1.5 text-sm font-mono-data break-all">
-                    <div className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-primary shrink-0" /> {loginCreds.email}</div>
-                    <div className="flex items-center gap-2"><KeyRound className="h-3.5 w-3.5 text-primary shrink-0" /> {loginCreds.password}</div>
-                    <div className="flex items-center gap-2 text-muted-foreground text-xs"><Link className="h-3.5 w-3.5 shrink-0" /> {studentLoginUrl}</div>
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" size="sm" variant="outline" disabled={loadingLogin} onClick={() => void fetchLoginCreds()}>Gerar/redefinir acesso</Button>
-                  <Button
-                    size="sm"
-                    onClick={sendStudentLoginWhatsApp}
-                    disabled={loadingLogin}
-                    className="bg-[#25D366] text-white hover:bg-[#25D366]/90"
-                  >
-                    <MessageCircle className="h-4 w-4 mr-1.5" />
-                    {loadingLogin ? "Gerando..." : "Abrir conversa"}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={copyStudentLogin} disabled={loadingLogin || !loginCreds}>
-                    {copiedLogin ? <Check className="h-4 w-4 mr-1.5 text-green-600" /> : <Copy className="h-4 w-4 mr-1.5" />}
-                    {loadingLogin ? "Gerando..." : "Copiar login"}
-                  </Button>
-                </div>
-            </CollapsibleCard>
-            <CollapsibleCard
-              title="FINANCEIRO"
-              icon={<DollarSign className="h-4 w-4" />}
-              className="mb-4"
-              action={
-                <BnitoContextButton
-                  label="financeiro do aluno"
-                  context={`Financeiro do aluno ${student.full_name}: matriculas, pagamentos, Asaas, links e status de cobranca.`}
-                  question="O que preciso regularizar no financeiro antes de seguir com este aluno?"
-                />
-              }
-            >
-              {renderFinancialSection()}
-            </CollapsibleCard>
-            {id && student?.company_id && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <details className="rounded-2xl border border-border bg-card p-4 group">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-eyebrow">
-                    Linha do tempo
-                    <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
-                  </summary>
-                  <div className="mt-3">
-                    <StudentTimeline studentId={id} />
-                  </div>
-                </details>
-                <StudentFilesPanel studentId={id} companyId={student.company_id} />
-              </div>
-            )}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Left: Active enrollment + cycles + notes */}
-              <div className="space-y-4">
-                {/* Active enrollment summary */}
-                {enrollments.length > 0 && (() => {
-                  const active = selectPrescriptionEnrollment(enrollments, { today: businessDateYmd(), expectedStudentId: id, expectedCompanyId: student.company_id });
-                  if (!active) return <p>Nenhuma matrícula vigente por datas. O histórico permanece na aba Programa.</p>;
-                  const activeCycles = currentEnrollmentCycles(active);
-                  return (
-                      <Card className="bg-card border-border">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="flex items-center gap-2 text-primary text-lg">
-                          MATRÍCULA ATIVA
-                          <BnitoContextButton
-                            label="matricula ativa do aluno"
-                            context={`Matricula ativa do aluno ${student.full_name}. Plano: ${active.plan_name}. Status: ${active.status}. Treinador: ${active.trainer_name || "sem treinador"}.`}
-                            question="O que devo revisar nesta matricula antes de prescrever ou renovar?"
-                            className="ml-auto"
-                          />
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-2 text-sm font-sans">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-foreground">{active.plan_name}</span>
-                          <Badge variant="outline" className={`text-xs ${statusColors[active.status]}`}>
-                            {statusLabels[active.status] || active.status}
-                          </Badge>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                          <TrainerInlineSelect enrollmentId={active.id} trainerId={active.trainer_id} trainerName={active.trainer_name} />
-                          <span><CalendarDays className="h-3 w-3 inline mr-1" />{safeFormatDate(active.start_date, "dd/MM/yyyy")} → {safeFormatDate(active.end_date, "dd/MM/yyyy")}</span>
-                        </div>
-                        <EnrollmentCoverageSummary enrollment={active} cycles={allEnrollmentCycles(active)} studentId={id!} companyId={student.company_id!} readError={coverageReadError} />
-                        {activeCycles.length > 0 && (
-                          <div className="mt-2 space-y-1">
-                            <p className="text-xs font-medium text-foreground">Ciclos:</p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                              {activeCycles.map(c => (
-                              <div key={c.id} className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-xl bg-secondary/40 border border-border">
-                                <span className="truncate">C{c.cycle_number} · {safeFormatDate(c.start_date, "dd/MM")} a {safeFormatDate(c.end_date, "dd/MM/yy")}</span>
-                                <div className="flex items-center gap-1">
-                                  {c.has_workout ? (
-                                    <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Treino</Badge>
-                                  ) : c.prescribed_offline_at ? (
-                                    <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Fora do app</Badge>
-                                  ) : (
-                                    <Badge variant="outline" className="text-[10px] bg-destructive/15 text-destructive border-destructive/30">Sem treino</Badge>
-                                  )}
-                                </div>
-                              </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })()}
-
-                {/* Personal details */}
-                <CollapsibleCard title="DADOS PESSOAIS" action={
-                  <BnitoContextButton
-                    label="dados pessoais do aluno"
-                    context="Dados de contato, idade, CPF, endereco e observacoes que impactam cobranca, acesso e rotina."
-                    question="Quais dados deste cadastro podem impactar cobranca, acesso ou acompanhamento?"
-                  />
-                }>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm font-sans">
-                      {student.birth_date && <div className="flex items-center gap-2 text-muted-foreground"><Cake className="h-4 w-4" />{safeFormatDate(student.birth_date, "dd/MM/yyyy")}</div>}
-                      {student.cpf && <div className="flex items-center gap-2 text-muted-foreground"><CreditCard className="h-4 w-4" />{isBrazilianCountry(student.country_code) ? formatCPF(student.cpf) : student.cpf}</div>}
-                      {student.whatsapp && <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" />WhatsApp: {formatContactInput(student.whatsapp)}</div>}
-                      {student.cep && <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-4 w-4" />{isBrazilianCountry(student.country_code) ? `CEP: ${formatCEP(student.cep)}` : `Código postal: ${student.cep}`}</div>}
-                    </div>
-                    {(student.address || student.neighborhood || student.city) && (
-                      <p className="text-sm text-muted-foreground font-sans mt-2 flex items-start gap-2">
-                        <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
-                        {[student.address, student.address_number ? `nº ${student.address_number}` : null, student.neighborhood, student.city, student.state].filter(Boolean).join(", ")}
-                      </p>
-                    )}
-                    {student.notes && (
-                      <div className="mt-2 p-2 rounded-lg bg-muted/50 border border-border">
-                        <p className="text-xs font-sans font-medium text-foreground mb-1">Observações:</p>
-                        <p className="text-xs text-muted-foreground font-sans whitespace-pre-wrap">{student.notes}</p>
-                      </div>
-                    )}
-                </CollapsibleCard>
-              </div>
-
-              {/* Right: WeeklyBar + quick summary */}
-              <div className="space-y-4">
-                <Suspense fallback={<InlineFallback />}><TrainerWeeklyBar studentId={id!} /></Suspense>
-                {enrollments.length === 0 && (
-                  <Card className="bg-card border-border">
-                    <CardContent className="py-8 text-center">
-                      <p className="text-muted-foreground font-sans text-sm">Nenhuma matrícula encontrada.</p>
-                      <Button size="sm" className="mt-3" onClick={openEnrollDialog}><Plus className="h-4 w-4 mr-1" />Nova Matrícula</Button>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            </div>
-            {renderCycleCalendar()}
           </TabsContent>
 
           {/* ===== PROGRAMA DE TREINO ===== */}
           <TabsContent value="program" className="space-y-4">
-            {rawCycles.some(cycle => cycle.status === "superseded" || cycle.superseded_by_cycle_id) && (
-              <Card><CardHeader><CardTitle>Ciclos substituídos / histórico</CardTitle></CardHeader><CardContent>
-                {rawCycles.filter(cycle => cycle.status === "superseded" || cycle.superseded_by_cycle_id)
-                  .sort((a, b) => a.start_date.localeCompare(b.start_date) || a.cycle_number - b.cycle_number)
-                  .map(cycle => <p key={cycle.id}>Ciclo {cycle.cycle_number} · Substituído / histórico · {safeFormatDate(cycle.start_date, "dd/MM/yyyy")} a {safeFormatDate(cycle.end_date, "dd/MM/yyyy")}</p>)}
-              </CardContent></Card>
-            )}
-            {/* Provas e metas alvo (aparecem no calendário do aluno e na agenda) */}
-            {id && (
-              <CollapsibleCard title="PROVAS E METAS" icon={<CalendarDays className="h-4 w-4" />}>
-                <StudentGoalsManager
-                  studentId={id}
-                  companyId={student?.company_id}
-                  createdBy={session?.user?.id}
-                />
-              </CollapsibleCard>
-            )}
-            <CollapsibleCard title="ANAMNESE" icon={<FileText className="h-4 w-4" />}>
-              {renderAnamnesisSection()}
-            </CollapsibleCard>
-            {id && <AssessmentCompareCard studentId={id} />}
-        {id && <PlanVersionsCard studentId={id} companyId={student.company_id} studentName={student.full_name} createdBy={session?.user?.id || null} />}
-
             <Card className="bg-card border-border">
               <CardHeader>
                 <CardTitle className="flex flex-wrap items-center gap-2 text-primary text-lg">
@@ -2165,21 +2335,38 @@ export default function StudentDetail() {
                   <Button
                     type="button"
                     variant={activePrescriptionPanel === "prescricao" ? "default" : "outline"}
-                    onClick={() => setActivePrescriptionPanel("prescricao")}
+                    onClick={() => openProfileTab("prescricao")}
                   >
                     Prescrição
                   </Button>
                   <Button
                     type="button"
                     variant={activePrescriptionPanel === "integrada" ? "default" : "outline"}
-                    onClick={() => setActivePrescriptionPanel("integrada")}
+                    onClick={() => openProfileTab("integrada")}
                   >
                     Prescrição Integrada
                   </Button>
                 </div>
+                {activePrescriptionPanel === "prescricao" && canManageStudent && manualSelectedCycle && (
+                  <Button type="button" variant="outline" onClick={() => openManualPrescriptionBuilder(manualSelectedCycle, manualPrescriptionEnrollment, true)}>
+                    Usar treino da biblioteca
+                  </Button>
+                )}
+                {activePrescriptionPanel === "prescricao" && canPrepareSchedule && (
+                  <Button type="button" variant="outline" disabled={preparingSchedule} onClick={() => void preparePrescriptionSchedule()}>
+                    {preparingSchedule ? "Preparando calendário…" : "Preparar próximos ciclos"}
+                  </Button>
+                )}
+                {activePrescriptionPanel === "prescricao" && manualPrescriptionCycleId && !manualSelectedCycle && (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    O ciclo solicitado não está disponível para prescrição nesta matrícula. Selecione um ciclo para continuar.
+                  </p>
+                )}
                 {activePrescriptionPanel === "prescricao" && (
                   <ManualPrescriptionPanel
-                    eligibilityMessage={!manualPrescriptionEnrollment ? "Sem matrícula elegível para nova prescrição. O histórico permanece disponível; revise a vigência pelo fluxo de matrícula." : undefined}
+                    eligibilityMessage={awaitingTrainingStart
+                      ? "Conclua a avaliação, vincule um treinador e defina a data de início em Matrículas para gerar os ciclos."
+                      : !manualPrescriptionEnrollment ? "Sem matrícula elegível para nova prescrição. O histórico permanece disponível; revise a vigência pelo fluxo de matrícula." : undefined}
                     cycles={manualPrescriptionCycles}
 	                    selectedCycle={manualSelectedCycle}
 	                    onCycleChange={setManualPrescriptionCycleId}
@@ -2192,293 +2379,97 @@ export default function StudentDetail() {
                 )}
                 {activePrescriptionPanel === "integrada" && (
                   <Suspense fallback={<TabFallback />}>
-                    <EmbeddedPrescriptionStudio embeddedStudentId={id} />
+                    <EmbeddedPrescriptionStudio
+                      key={new URLSearchParams(location.search).get("step") === "avaliacao" ? "assessment" : "default"}
+                      embeddedStudentId={id}
+                      initialTab={new URLSearchParams(location.search).get("step") === "avaliacao" ? "avaliacao" : undefined}
+                    />
                   </Suspense>
                 )}
               </CardContent>
             </Card>
 
-            {/* Enrollments */}
-            <Card className="bg-card border-border">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-primary text-lg">
-                  MATRÍCULAS
-                  <BnitoContextButton
-                    label="programa e matriculas do aluno"
-                    context={`Matriculas, datas de treino, ciclos e status de prescricao do aluno ${student.full_name}.`}
-                    question="Como devo organizar os ciclos e proximas prescricoes deste aluno?"
-                  />
-                </CardTitle>
-                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                  <Button variant="outline" size="sm" onClick={async () => {
-                    try {
-                      const link = await createPlansLink(id!);
-                      try { await navigator.clipboard.writeText(link); } catch {
-                        const ta = document.createElement("textarea");
-                        ta.value = link; ta.style.position = "fixed"; ta.style.left = "-9999px";
-                        document.body.appendChild(ta); ta.focus(); ta.select();
-                        document.execCommand("copy"); document.body.removeChild(ta);
-                      }
-                      toast({ title: "Link de pagamento copiado!", description: "O link é seguro e válido por 30 dias." });
-                    } catch (error) {
-                      toast({
-                        title: "Erro ao criar link de pagamento",
-                        description: error instanceof Error ? error.message : "Tente novamente.",
-                        variant: "destructive",
-                      });
-                    }
-                  }}>
-                    <Copy className="h-4 w-4 mr-1" />Link de Pagamento
-                  </Button>
-                  <Button size="sm" onClick={openEnrollDialog}><Plus className="h-4 w-4 mr-1" />Nova Matrícula</Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {inactiveCurrentPrescription && (
-                  <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
-                    <span>Há um treino vigente em uma matrícula inativa. O aluno não consegue vê-lo até essa matrícula ser ativada.</span>
-                    {canManageEnrollment(inactiveCurrentPrescription) && (
-                      <Button size="sm" variant="outline" onClick={() => setEnrollmentAction({ enrollment: inactiveCurrentPrescription, type: "activate" })}>
-                        Ativar matrícula com treino
-                      </Button>
-                    )}
-                  </div>
-                )}
-                {enrollments.length === 0 ? (
-                  <p className="text-muted-foreground font-sans text-sm">Nenhuma matrícula encontrada.</p>
-                ) : (
-                  <div className="space-y-4">
-                    {enrollments.map((e) => (
-                      <div key={e.id} className="p-3 rounded-2xl bg-secondary/50 border border-border space-y-2">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <span className="min-w-0 break-words font-sans font-medium text-foreground">{e.plan_name}</span>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {canManageEnrollment(e) && (e.status === "active" || e.status === "inactive") ? (
-                              <Select value={e.status} onValueChange={(value) => setEnrollmentAction({ enrollment: e, type: value === "active" ? "activate" : "deactivate" })}>
-                                <SelectTrigger aria-label={`Status da matrícula ${e.plan_name}`} className="h-8 w-[112px] text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="active">Ativo</SelectItem>
-                                  <SelectItem value="inactive">Inativo</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Badge variant="outline" className={`text-xs ${statusColors[e.status]}`}>
-                                {statusLabels[e.status] || e.status}
-                              </Badge>
-                            )}
-                            {canManageEnrollment(e) && (
-                              <Button type="button" size="icon" variant="ghost" aria-label={`Excluir matrícula ${e.plan_name}`} title="Excluir matrícula" onClick={() => setEnrollmentAction({ enrollment: e, type: "delete" })}>
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground font-sans">
-                          <TrainerInlineSelect enrollmentId={e.id} trainerId={e.trainer_id} trainerName={e.trainer_name} />
-                          <span><CalendarDays className="h-3 w-3 inline mr-1" />{safeFormatDate(e.start_date, "dd/MM/yyyy")} → {safeFormatDate(e.end_date, "dd/MM/yyyy")}</span>
-                          {e.plan_duration && <span>{e.plan_duration} semanas</span>}
-                        </div>
-
-                        {/* Training Start Date */}
-                        <div className="flex items-center gap-3 mt-2 p-2 rounded bg-background border border-border flex-wrap">
-                          <span className="text-xs font-sans font-medium text-foreground whitespace-nowrap">Início do treino:</span>
-                          {e.training_start_date ? (
-                            <span className="text-xs font-sans text-muted-foreground">
-                              {safeFormatDate(e.training_start_date, "dd/MM/yyyy")}
-                            </span>
-                          ) : (
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button variant="outline" size="sm" className="h-7 text-xs">
-                                  <CalendarIcon className="h-3 w-3 mr-1" />Definir data
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                  mode="single"
-                                  onSelect={async (date) => {
-                                    if (!date) return;
-                                    const dateStr = format(date, "yyyy-MM-dd");
-                                    const { error } = await supabase.from("enrollments").update({
-                                      training_start_date: dateStr,
-                                      status: "awaiting_training",
-                                    }).eq("id", e.id);
-                                    if (error) {
-                                      toast({ title: "Erro ao definir data", description: error.message, variant: "destructive" });
-                                    } else {
-                                      toast({ title: "Data de início do treino definida! Ciclos gerados." });
-                                      loadData(id!);
-                                    }
-                                  }}
-                                  locale={ptBR}
-                                  className="pointer-events-auto"
-                                />
-                              </PopoverContent>
-                            </Popover>
-                          )}
-                        </div>
-
-                        {displayedEnrollmentCycles(e).length > 0 && (
-                          <div className="mt-3 space-y-1">
-                            <p className="text-xs font-sans font-medium text-foreground">Ciclos de treino:</p>
-                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-1.5">
-                              {displayedEnrollmentCycles(e).map((c) => (
-                                <div key={c.id} className="flex flex-col gap-2 rounded-xl border border-border bg-background px-2 py-2 text-xs font-sans sm:flex-row sm:items-center sm:justify-between">
-                                  <span className="min-w-0 break-words text-[11px] sm:text-xs">C{c.cycle_number} · {safeFormatDate(c.start_date, "dd/MM")} a {safeFormatDate(c.end_date, "dd/MM/yy")}</span>
-                                  <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:justify-end">
-                                    {c.has_workout ? (
-                                      <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Treino</Badge>
-                                    ) : c.prescribed_offline_at ? (
-                                      <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Fora do app</Badge>
-                                    ) : (
-                                      <Badge variant="outline" className="text-[10px] bg-destructive/15 text-destructive border-destructive/30">Sem treino</Badge>
-                                    )}
-                                    <Badge variant="outline" className={`text-[10px] ${statusColors[c.status]}`}>
-                                      {statusLabels[c.status] || c.status}
-                                    </Badge>
-                                    {manualPrescriptionEnrollment?.id === e.id && studentVisibleCycleForEnrollment(e)?.id === c.id && (
-                                      <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/25">
-                                        Exibido ao aluno
-                                      </Badge>
-                                    )}
-                                    {canManageStudent && (
-                                      <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto">
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="h-7 flex-1 px-2 text-[10px] sm:h-5 sm:flex-none"
-                                          onClick={() => openManualPrescriptionBuilder(c, e)}
-                                        >
-                                          <Dumbbell className="h-3 w-3 mr-1" />
-                                          {c.has_workout ? "Editar Treino" : "Prescrever"}
-                                        </Button>
-                                        {!isCyclePrescribed(c) && (
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-7 flex-1 px-2 text-[10px] text-success border-success/30 hover:bg-success/10 sm:h-5 sm:flex-none"
-                                            onClick={async () => {
-                                              if (!session?.user?.id) return;
-                                              // Idempotente: se o ciclo já tem treino materializado, apenas recarrega.
-                                              const { data: existing } = await supabase
-                                                .from("workouts")
-                                                .select("id, exercises")
-                                                .eq("cycle_id", c.id)
-                                                .is("superseded_at", null)
-                                                .limit(20);
-                                              if (filterMaterializedWorkouts(existing || []).length > 0) {
-                                                toast({ title: "Esse ciclo já possui treino." });
-                                                if (id) loadData(id);
-                                                return;
-                                              }
-                                              const offlineUpdate: TrainingCycleUpdate = {
-                                                prescribed_offline_at: new Date().toISOString(),
-                                                prescribed_offline_by: session.user.id,
-                                              };
-                                              const { error } = await supabase
-                                                .from("training_cycles")
-                                                .update(offlineUpdate)
-                                                .eq("id", c.id);
-                                              if (error) {
-                                                toast({ title: "Erro ao marcar como prescrito", description: error.message, variant: "destructive" });
-                                              } else {
-                                                toast({ title: "Ciclo marcado como prescrito fora do app." });
-                                                if (id) loadData(id);
-                                              }
-                                            }}
-                                          >
-                                            <Check className="h-3 w-3 mr-1" />
-                                            Feito
-                                          </Button>
-                                        )}
-                                      </div>
-                                    )}
-                                    {canManageStudent && (
-                                      <Popover>
-                                        <PopoverTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-7 px-2 text-[10px] sm:h-5"
-                                            disabled={reschedulingCycleId !== null}
-                                          >
-                                            <CalendarIcon className="h-3 w-3 mr-0.5" />Alterar data
-                                          </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0" align="start">
-                                          <Calendar
-                                            mode="single"
-                                            selected={parseISO(c.start_date)}
-                                            onSelect={(date) => date && handleRescheduleCycle(e.id, c, date)}
-                                            locale={ptBR}
-                                            className="pointer-events-auto"
-                                          />
-                                        </PopoverContent>
-                                      </Popover>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                            {allEnrollmentCycles(e).length > currentEnrollmentCycles(e).length && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-[11px]"
-                                onClick={() => setExpandedEnrollmentCycles((current) => ({
-                                  ...current,
-                                  [e.id]: !current[e.id],
-                                }))}
-                              >
-                                <ChevronDown className={cn(
-                                  "mr-1 h-3 w-3 transition-transform",
-                                  expandedEnrollmentCycles[e.id] && "rotate-180",
-                                )} />
-                                {expandedEnrollmentCycles[e.id]
-                                  ? "Mostrar somente o ciclo atual do plano"
-                                  : `Ver histórico completo (${allEnrollmentCycles(e).length} ciclos)`}
-                              </Button>
-                            )}
-                          </div>
-                        )}
-                      </div>
+            {renderCycleCalendar()}
+            {id && <PlanVersionsCard studentId={id} companyId={student.company_id} studentName={student.full_name} createdBy={session?.user?.id || null} />}
+            {visibleTrainingCycle && !coverageReadError && (
+              <Card>
+                <CardHeader><CardTitle className="text-primary text-lg">Prescrição publicada no ciclo</CardTitle></CardHeader>
+                <CardContent className="space-y-2">
+                  <p>Ciclo {visibleTrainingCycle.cycle_number} · {safeFormatDate(visibleTrainingCycle.start_date, "dd/MM")} a {safeFormatDate(visibleTrainingCycle.end_date, "dd/MM/yyyy")}</p>
+                  <ul className="list-inside list-disc text-sm text-muted-foreground">
+                    {allWorkouts.filter(workout => workout.cycle_id === visibleTrainingCycle.id).map(workout => (
+                      <li key={workout.id}>{workoutDisplayTitle(workout)}</li>
                     ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  </ul>
+                  <p className="text-xs text-muted-foreground">A exibição após o vencimento depende da configuração da empresa.</p>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
-          {/* ===== ANÁLISES ===== */}
+          {/* ===== ACOMPANHAMENTO ===== */}
           <TabsContent value="analytics" className="space-y-4">
+            <Card>
+              <CardHeader><CardTitle className="text-primary text-lg">Volume realizado por grupamento · ciclo atual</CardTitle></CardHeader>
+              <CardContent>
+                {currentTrainingCycle ? (
+                  <Suspense fallback={<TabFallback />}>
+                    <StudentVolumePanel studentId={student.id} companyId={student.company_id} cycleId={currentTrainingCycle.id} />
+                  </Suspense>
+                ) : <p className="text-sm text-muted-foreground">Sem ciclo atual com treino publicado.</p>}
+              </CardContent>
+            </Card>
             {renderWorkoutCycles()}
-            <StudentWorkoutFeedbackCard studentId={student.id} />
+            {/* Provas e metas alvo (aparecem no calendário do aluno e na agenda) */}
+            {id && (
+              <CollapsibleCard title="PROVAS E METAS" icon={<CalendarDays className="h-4 w-4" />}>
+                <StudentGoalsManager
+                  studentId={id}
+                  companyId={student?.company_id}
+                  createdBy={session?.user?.id}
+                />
+              </CollapsibleCard>
+            )}
             <Suspense fallback={<TabFallback />}>
-              <TrainerWeeklyBar studentId={id!} />
-              <WorkoutAnalysis studentId={id!} companyId={student.company_id} />
-              <StudentVolumePanel studentId={id!} />
+              <WorkoutAnalysis studentId={student.id} companyId={student.company_id} />
             </Suspense>
+            <StudentWorkoutFeedbackCard studentId={student.id} />
           </TabsContent>
 
           {/* ===== AVALIAÇÕES ===== */}
           <TabsContent value="evaluations" className="space-y-4">
-            <Suspense fallback={<TabFallback />}>
-              <StudentBodyMap studentId={id!} />
-            </Suspense>
-            <ProgressPhotosPanel studentId={id!} />
-            {id && student.company_id && <Card><CardHeader><CardTitle>Arquivos anexados</CardTitle></CardHeader><CardContent>
-              <StudentFilesPanel studentId={id} companyId={student.company_id} />
-            </CardContent></Card>}
             <Card><CardHeader><CardTitle>Avaliações funcionais</CardTitle></CardHeader><CardContent>
+              {canManageStudent && student.company_id && (
+                <AssessmentMaterialReceipt key={student.id} studentId={student.id} companyId={student.company_id}
+                  onboarding={student.sales_stage === "active_onboarding" || enrollments.some((enrollment) =>
+                    enrollment.requires_explicit_training_start && !enrollment.training_start_date
+                    && ["active", "awaiting_training"].includes(enrollment.status))} />
+              )}
               {evaluationsReadError && <p role="alert">Não foi possível carregar todas as fontes de avaliação.</p>}
               {evaluationsLoading ? <p>Carregando avaliações…</p> : functionalEvaluations.length ? functionalEvaluations.map(evaluation => <p key={evaluation.id}>
                 Avaliação funcional · {safeFormatDate(evaluation.assessment_date || evaluation.created_at, "dd/MM/yyyy")} · {evaluation.status || "Status não informado"}
               </p>) : <p>Sem registros funcionais disponíveis.</p>}
               <p className="text-xs text-muted-foreground">Avaliações funcionais, anexos e notas manuais são fontes separadas; arquivos não representam achados clínicos estruturados.</p>
+              <Button type="button" variant="outline" className="mt-3" onClick={() => openProfileTab("integrada", true)}>
+                {functionalEvaluations.length ? "Abrir avaliação funcional" : "Realizar avaliação"}
+              </Button>
             </CardContent></Card>
+            <Suspense fallback={<TabFallback />}>
+              <StudentBodyMap studentId={id!} />
+            </Suspense>
+            <ProgressPhotosPanel studentId={id!} />
+            <CollapsibleCard title="ANAMNESE" icon={<FileText className="h-4 w-4" />}>
+              {renderAnamnesisSection()}
+            </CollapsibleCard>
+            {id && <AssessmentCompareCard studentId={id} />}
+            {id && student.company_id && (
+              <CollapsibleCard title="ANAMNESE INTERCICLOS" icon={<FileText className="h-4 w-4" />}>
+                <IntercycleAnamnesisTimeline studentId={id} companyId={student.company_id} />
+                <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => openProfileTab("overview")}>
+                  Abrir opções de envio e link
+                </Button>
+              </CollapsibleCard>
+            )}
             <Card className="bg-card border-border">
               <CardHeader>
                 <CardTitle className="text-primary text-lg flex items-center gap-2">
@@ -2573,6 +2564,349 @@ export default function StudentDetail() {
             </Card>
           </TabsContent>
 
+          <TabsContent value="registration" className="space-y-4">
+                {/* Personal details */}
+                <CollapsibleCard title="DADOS PESSOAIS" action={
+                  <BnitoContextButton
+                    label="dados pessoais do aluno"
+                    context="Dados de contato, idade, CPF, endereco e observacoes que impactam cobranca, acesso e rotina."
+                    question="Quais dados deste cadastro podem impactar cobranca, acesso ou acompanhamento?"
+                  />
+                }>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm font-sans">
+                      {student.birth_date && <div className="flex items-center gap-2 text-muted-foreground"><Cake className="h-4 w-4" />{safeFormatDate(student.birth_date, "dd/MM/yyyy")}</div>}
+                      {student.cpf && <div className="flex items-center gap-2 text-muted-foreground"><CreditCard className="h-4 w-4" />{isBrazilianCountry(student.country_code) ? formatCPF(student.cpf) : student.cpf}</div>}
+                      {student.whatsapp && <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" />WhatsApp: {formatContactInput(student.whatsapp)}</div>}
+                      {student.cep && <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-4 w-4" />{isBrazilianCountry(student.country_code) ? `CEP: ${formatCEP(student.cep)}` : `Código postal: ${student.cep}`}</div>}
+                    </div>
+                    {(student.address || student.neighborhood || student.city) && (
+                      <p className="text-sm text-muted-foreground font-sans mt-2 flex items-start gap-2">
+                        <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
+                        {[student.address, student.address_number ? `nº ${student.address_number}` : null, student.neighborhood, student.city, student.state].filter(Boolean).join(", ")}
+                      </p>
+                    )}
+                    {student.notes && (
+                      <div className="mt-2 p-2 rounded-lg bg-muted/50 border border-border">
+                        <p className="text-xs font-sans font-medium text-foreground mb-1">Observações:</p>
+                        <p className="text-xs text-muted-foreground font-sans whitespace-pre-wrap">{student.notes}</p>
+                      </div>
+                    )}
+                </CollapsibleCard>
+                {studentCanonicalContact(student).divergent && <div role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm">
+                  <p>Contatos legados divergentes. Confira a identidade e confirme o WhatsApp atual no cadastro antes de preparar o acesso.</p>
+                  <Button type="button" variant="outline" size="sm" onClick={openEditStudent}>Conferir contato</Button>
+                </div>}
+            {/* Acesso do app: copiar login (email+senha+link) ou enviar no WhatsApp */}
+            <CollapsibleCard title="ACESSO DO APP" icon={<KeyRound className="h-4 w-4" />} className="mb-4" contentClassName="space-y-3">
+                <p className="text-xs text-muted-foreground font-sans">
+                  Abrir a conversa apenas verifica o destinatário. Gerar/redefinir acesso é uma ação separada que define uma nova senha e pode substituir a anterior.
+                </p>
+                {loginCreds && (
+                  <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-1.5 text-sm font-mono-data break-all">
+                    <div className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-primary shrink-0" /> {loginCreds.email}</div>
+                    <div className="flex items-center gap-2"><KeyRound className="h-3.5 w-3.5 text-primary shrink-0" /> {loginCreds.password}</div>
+                    <div className="flex items-center gap-2 text-muted-foreground text-xs"><Link className="h-3.5 w-3.5 shrink-0" /> {studentLoginUrl}</div>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" disabled={loadingLogin} onClick={() => void fetchLoginCreds()}>Gerar/redefinir acesso</Button>
+                  <Button
+                    size="sm"
+                    onClick={sendStudentLoginWhatsApp}
+                    disabled={loadingLogin}
+                    className="bg-[#25D366] text-white hover:bg-[#25D366]/90"
+                  >
+                    <MessageCircle className="h-4 w-4 mr-1.5" />
+                    {loadingLogin ? "Gerando..." : "Abrir conversa"}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={copyStudentLogin} disabled={loadingLogin || !loginCreds}>
+                    {copiedLogin ? <Check className="h-4 w-4 mr-1.5 text-green-600" /> : <Copy className="h-4 w-4 mr-1.5" />}
+                    {loadingLogin ? "Gerando..." : "Copiar login"}
+                  </Button>
+                </div>
+            </CollapsibleCard>
+            <CollapsibleCard
+              title="FINANCEIRO"
+              icon={<DollarSign className="h-4 w-4" />}
+              className="mb-4"
+              action={
+                <BnitoContextButton
+                  label="financeiro do aluno"
+                  context={`Financeiro do aluno ${student.full_name}: matriculas, pagamentos, Asaas, links e status de cobranca.`}
+                  question="O que preciso regularizar no financeiro antes de seguir com este aluno?"
+                />
+              }
+            >
+              {renderFinancialSection()}
+            </CollapsibleCard>
+            {id && student.company_id && <Card><CardHeader><CardTitle>Arquivos anexados</CardTitle></CardHeader><CardContent>
+              <StudentFilesPanel studentId={id} companyId={student.company_id} />
+            </CardContent></Card>}
+          </TabsContent>
+          <TabsContent value="enrollments" className="space-y-4">
+            {/* Enrollments */}
+            <Card className="bg-card border-border">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-primary text-lg">
+                  MATRÍCULAS
+                  <BnitoContextButton
+                    label="programa e matriculas do aluno"
+                    context={`Matriculas, datas de treino, ciclos e status de prescricao do aluno ${student.full_name}.`}
+                    question="Como devo organizar os ciclos e proximas prescricoes deste aluno?"
+                  />
+                </CardTitle>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                  <Button variant="outline" size="sm" onClick={async () => {
+                    try {
+                      const link = await createPlansLink(id!);
+                      try { await navigator.clipboard.writeText(link); } catch {
+                        const ta = document.createElement("textarea");
+                        ta.value = link; ta.style.position = "fixed"; ta.style.left = "-9999px";
+                        document.body.appendChild(ta); ta.focus(); ta.select();
+                        document.execCommand("copy"); document.body.removeChild(ta);
+                      }
+                      toast({ title: "Link de pagamento copiado!", description: "O link é seguro e válido por 30 dias." });
+                    } catch (error) {
+                      toast({
+                        title: "Erro ao criar link de pagamento",
+                        description: error instanceof Error ? error.message : "Tente novamente.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}>
+                    <Copy className="h-4 w-4 mr-1" />Link de Pagamento
+                  </Button>
+                  <Button size="sm" onClick={openEnrollDialog}><Plus className="h-4 w-4 mr-1" />Nova Matrícula</Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {inactiveCurrentPrescription && (
+                  <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+                    <span>Há um treino vigente em uma matrícula inativa. O aluno não consegue vê-lo até essa matrícula ser ativada.</span>
+                    {canManageEnrollment(inactiveCurrentPrescription) && (
+                      <Button size="sm" variant="outline" onClick={() => setEnrollmentAction({ enrollment: inactiveCurrentPrescription, type: "activate" })}>
+                        Ativar matrícula com treino
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {enrollments.length === 0 ? (
+                  <p className="text-muted-foreground font-sans text-sm">Nenhuma matrícula encontrada.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {enrollments.map((e) => (
+                      <div key={e.id} className="p-3 rounded-2xl bg-secondary/50 border border-border space-y-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="min-w-0 break-words font-sans font-medium text-foreground">{e.plan_name}</span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {canManageEnrollment(e) && (e.status === "active" || e.status === "inactive") ? (
+                              <Select value={e.status} onValueChange={(value) => setEnrollmentAction({ enrollment: e, type: value === "active" ? "activate" : "deactivate" })}>
+                                <SelectTrigger aria-label={`Status da matrícula ${e.plan_name}`} className="h-8 w-[112px] text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="active">Ativo</SelectItem>
+                                  <SelectItem value="inactive">Inativo</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Badge variant="outline" className={`text-xs ${statusColors[e.status]}`}>
+                                {statusLabels[e.status] || e.status}
+                              </Badge>
+                            )}
+                            {canManageEnrollment(e) && (
+                              <Button type="button" size="icon" variant="ghost" aria-label={`Excluir matrícula ${e.plan_name}`} title="Excluir matrícula" onClick={() => setEnrollmentAction({ enrollment: e, type: "delete" })}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground font-sans">
+                          <TrainerInlineSelect enrollmentId={e.id} trainerId={e.trainer_id} trainerName={e.trainer_name} />
+                          <span><CalendarDays className="h-3 w-3 inline mr-1" />{safeFormatDate(e.start_date, "dd/MM/yyyy")} → {safeFormatDate(e.end_date, "dd/MM/yyyy")}</span>
+                          {e.plan_duration && <span>{e.plan_duration} semanas</span>}
+                        </div>
+
+                        {/* Training Start Date */}
+                        <div className="flex items-center gap-3 mt-2 p-2 rounded bg-background border border-border flex-wrap">
+                          <span className="text-xs font-sans font-medium text-foreground whitespace-nowrap">Início do treino:</span>
+                          {e.training_start_date ? (
+                            <span className="text-xs font-sans text-muted-foreground">
+                              {safeFormatDate(e.training_start_date, "dd/MM/yyyy")}
+                            </span>
+                          ) : !canManageEnrollment(e) || !["active", "awaiting_training"].includes(e.status) ? (
+                            <span className="text-xs text-muted-foreground">Sem data definida</span>
+                          ) : evaluationsLoading || evaluationsReadError ? (
+                            <span className="text-xs text-muted-foreground">
+                              {evaluationsLoading ? "Consultando avaliação funcional…" : "Não foi possível verificar a avaliação funcional."}
+                            </span>
+                          ) : !assessmentCompleted ? (
+                            <Button type="button" variant="outline" size="sm" onClick={() => openProfileTab("evaluations")}>
+                              Concluir avaliação antes de definir a data
+                            </Button>
+                          ) : !e.trainer_id ? (
+                            <span className="text-xs text-muted-foreground">Vincule um professor para definir a data.</span>
+                          ) : (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-7 text-xs">
+                                  <CalendarIcon className="h-3 w-3 mr-1" />Definir data
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  mode="single"
+                                  disabled={(date) => {
+                                    const value = format(date, "yyyy-MM-dd");
+                                    return Boolean((e.start_date && value < e.start_date) || (e.end_date && value > e.end_date));
+                                  }}
+                                  onSelect={async (date) => {
+                                    if (!date || !canManageEnrollment(e) || !e.trainer_id || !assessmentCompleted) return;
+                                    const dateStr = format(date, "yyyy-MM-dd");
+                                    const { data, error } = await supabase.from("enrollments").update({
+                                      training_start_date: dateStr,
+                                      status: "awaiting_training",
+                                    }).eq("id", e.id).eq("student_id", student.id).eq("company_id", student.company_id!)
+                                      .eq("trainer_id", e.trainer_id).eq("status", e.status).is("training_start_date", null)
+                                      .select("id").maybeSingle();
+                                    if (error || !data) {
+                                      toast({ title: "Erro ao definir data", description: error?.message || "A matrícula mudou. Recarregue o perfil e tente novamente.", variant: "destructive" });
+                                    } else {
+                                      toast({ title: "Data de início do treino definida! Ciclos gerados." });
+                                      loadData(id!);
+                                    }
+                                  }}
+                                  locale={ptBR}
+                                  className="pointer-events-auto"
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          )}
+                        </div>
+
+                        {displayedEnrollmentCycles(e).length > 0 && (
+                          <div className="mt-3 space-y-1">
+                            <p className="text-xs font-sans font-medium text-foreground">Ciclos de treino:</p>
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-1.5">
+                              {displayedEnrollmentCycles(e).map((c) => (
+                                <div key={c.id} className="flex flex-col gap-2 rounded-xl border border-border bg-background px-2 py-2 text-xs font-sans sm:flex-row sm:items-center sm:justify-between">
+                                  <span className="min-w-0 break-words text-[11px] sm:text-xs">C{c.cycle_number} · {safeFormatDate(c.start_date, "dd/MM")} a {safeFormatDate(c.end_date, "dd/MM/yy")}</span>
+                                  <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:justify-end">
+                                    {c.prescription_cleared_at ? (
+                                      <Badge variant="outline" className="text-[10px]">Prescrição removida</Badge>
+                                    ) : c.has_workout ? (
+                                      <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Treino</Badge>
+                                    ) : c.prescribed_offline_at ? (
+                                      <Badge variant="outline" className="text-[10px] bg-success/15 text-success border-success/30">Fora do app</Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-[10px] bg-destructive/15 text-destructive border-destructive/30">Sem treino</Badge>
+                                    )}
+                                    <Badge variant="outline" className={`text-[10px] ${statusColors[c.status]}`}>
+                                      {statusLabels[c.status] || c.status}
+                                    </Badge>
+                                    {!c.prescription_cleared_at && manualPrescriptionEnrollment?.id === e.id && studentVisibleCycleForEnrollment(e)?.id === c.id && (
+                                      <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/25">
+                                        Exibido ao aluno
+                                      </Badge>
+                                    )}
+                                    {canManageStudent && (
+                                      <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto">
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-7 flex-1 px-2 text-[10px] sm:h-5 sm:flex-none"
+                                          onClick={() => openManualPrescriptionBuilder(c, e)}
+                                        >
+                                          <Dumbbell className="h-3 w-3 mr-1" />
+                                          {c.has_workout ? "Editar Treino" : "Prescrever"}
+                                        </Button>
+                                        {canMarkCycleOffline(c) && (
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 flex-1 px-2 text-[10px] text-success border-success/30 hover:bg-success/10 sm:h-5 sm:flex-none"
+                                            onClick={() => void markCyclePrescribedOffline(c)}
+                                          >
+                                            <Check className="h-3 w-3 mr-1" />
+                                            Feito
+                                          </Button>
+                                        )}
+                                      </div>
+                                    )}
+                                    {canManageStudent && (
+                                      <Popover>
+                                        <PopoverTrigger asChild>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 px-2 text-[10px] sm:h-5"
+                                            disabled={reschedulingCycleId !== null}
+                                          >
+                                            <CalendarIcon className="h-3 w-3 mr-0.5" />Alterar data
+                                          </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                          <Calendar
+                                            mode="single"
+                                            selected={parseISO(c.start_date)}
+                                            onSelect={(date) => date && handleRescheduleCycle(e.id, c, date)}
+                                            locale={ptBR}
+                                            className="pointer-events-auto"
+                                          />
+                                        </PopoverContent>
+                                      </Popover>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            {rawCycles.some((cycle) => cycle.enrollment_id === e.id && (cycle.status === "superseded" || cycle.superseded_by_cycle_id)) && (
+                              <details className="mt-3 rounded-lg border border-border p-3">
+                                <summary className="cursor-pointer text-sm font-medium">Ver mais — Ciclos substituídos</summary>
+                                <p className="mt-2 text-xs text-muted-foreground">Histórico dos ciclos retirados do calendário desta matrícula.</p>
+                                <div className="mt-2 space-y-2">
+                                  {rawCycles.filter((cycle) => cycle.enrollment_id === e.id && (cycle.status === "superseded" || cycle.superseded_by_cycle_id))
+                                    .sort((a, b) => a.start_date.localeCompare(b.start_date) || a.cycle_number - b.cycle_number)
+                                    .map((cycle) => {
+                                      const replacement = rawCycles.find(item => item.id === cycle.superseded_by_cycle_id);
+                                      return (
+                                        <p key={cycle.id} className="text-xs">
+                                          Ciclo {cycle.cycle_number} · {safeFormatDate(cycle.start_date, "dd/MM/yyyy")} a {safeFormatDate(cycle.end_date, "dd/MM/yyyy")} · {replacement ? `Substituído pelo ciclo ${replacement.cycle_number}` : "Substituído"}
+                                        </p>
+                                      );
+                                    })}
+                                </div>
+                              </details>
+                            )}
+                            {allEnrollmentCycles(e).length > currentEnrollmentCycles(e).length && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                onClick={() => setExpandedEnrollmentCycles((current) => ({
+                                  ...current,
+                                  [e.id]: !current[e.id],
+                                }))}
+                              >
+                                <ChevronDown className={cn(
+                                  "mr-1 h-3 w-3 transition-transform",
+                                  expandedEnrollmentCycles[e.id] && "rotate-180",
+                                )} />
+                                {expandedEnrollmentCycles[e.id]
+                                  ? "Mostrar somente o ciclo atual do plano"
+                                  : `Ver histórico completo (${allEnrollmentCycles(e).length} ciclos)`}
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
 
         {/* Workout archive/restore dialog */}
@@ -2744,7 +3078,7 @@ export default function StudentDetail() {
               <div className="space-y-2">
                 <Label className="font-sans">Plano *</Label>
                 <Select value={selectedPlanId} onValueChange={setSelectedPlanId}>
-                  <SelectTrigger className="bg-secondary border-border"><SelectValue placeholder="Selecione um plano" /></SelectTrigger>
+                  <SelectTrigger aria-label="Plano da matrícula" className="bg-secondary border-border"><SelectValue placeholder="Selecione um plano" /></SelectTrigger>
                   <SelectContent>
                     {plans.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
@@ -2754,7 +3088,7 @@ export default function StudentDetail() {
                   </SelectContent>
                 </Select>
               </div>
-              {selectedPlanRequirements.requiresTrainer && <div className="space-y-2">
+              {selectedPlanRequirements.requiresTrainer && !isManualFirstActivation && <div className="space-y-2">
                 <Label className="font-sans">Treinador *</Label>
                 <Select value={selectedTrainerId} onValueChange={setSelectedTrainerId}>
                   <SelectTrigger className="bg-secondary border-border"><SelectValue placeholder="Selecione um treinador" /></SelectTrigger>
@@ -2762,7 +3096,7 @@ export default function StudentDetail() {
                 </Select>
               </div>}
               {selectedPlanRequirements.requiresStartDate && <div className="space-y-2">
-                <Label className="font-sans">Data de início</Label>
+                <Label className="font-sans">Início da matrícula</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className={cn("w-full justify-start text-left font-normal bg-secondary border-border")}>
@@ -2779,6 +3113,14 @@ export default function StudentDetail() {
                   A pessoa será classificada e ativada como Influenciador(a), sem treinador, matrícula, data inicial ou pagamento.
                 </p>
               )}
+              {isManualFirstActivation && selectedPlan && (
+                <div className="space-y-2">
+                  <Label htmlFor="manual-enrollment-reason">Motivo da ativação manual *</Label>
+                  <Textarea id="manual-enrollment-reason" maxLength={500} value={manualActivationReason}
+                    onChange={(event) => setManualActivationReason(event.target.value)} />
+                  <p className="text-sm text-muted-foreground">O aluno segue para a avaliação. A ativação manual não cria cobrança no Asaas.</p>
+                </div>
+              )}
               {computedEndDate && (
                 <div className="space-y-2">
                   <Label className="font-sans">Data de término (calculada)</Label>
@@ -2792,18 +3134,30 @@ export default function StudentDetail() {
               <Button variant="outline" onClick={() => setEnrollOpen(false)}>Cancelar</Button>
               <Button
                 onClick={handleCreateEnrollment}
-                disabled={!selectedPlanId || (selectedPlanRequirements.requiresTrainer && !selectedTrainerId) || saving}
+                disabled={!selectedPlanId || saving || (isManualFirstActivation
+                  ? manualActivationReason.trim().length < 8
+                  : selectedPlanRequirements.requiresTrainer && !selectedTrainerId)}
               >
-                {saving ? "Salvando..." : isInfluencerPlan(selectedPlan) ? "Classificar e ativar" : "Criar Matrícula"}
+                {saving ? "Salvando..." : isInfluencerPlan(selectedPlan) ? "Classificar e ativar"
+                  : isManualFirstActivation ? "Ativar matrícula" : "Criar Matrícula"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
         {/* Edit Student Dialog */}
-        <Dialog open={editStudentOpen} onOpenChange={setEditStudentOpen}>
+        <Dialog open={editStudentOpen} onOpenChange={open => { if (!open && !saving) closeEditStudent(); }}>
           <DialogContent className="max-h-[90vh] w-[calc(100vw-1.5rem)] overflow-y-auto border-border bg-card sm:max-w-2xl">
             <DialogHeader><DialogTitle className="text-primary">EDITAR DADOS PESSOAIS</DialogTitle></DialogHeader>
+            {studentEditConflict && <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-3 text-sm">
+              <p>O cadastro mudou durante a edição. Seu rascunho foi preservado.</p>
+              {latestStudentEdit ? <>
+                {concurrentStudentEditFields.length > 0 && <p>Campos atualizados: {concurrentStudentEditFields.map(field => studentEditFields[field]).join(", ")}.</p>}
+                {(concurrentStudentEditFields.includes("whatsapp") || concurrentStudentEditFields.includes("phone")) && <p>WhatsApp gravado {latestStudentEdit.whatsapp || "não informado"}. No rascunho {studentForm.whatsapp || "não informado"}.</p>}
+                <p>Revise as diferenças. Você pode manter os campos que editou e atualizar os demais antes de salvar.</p>
+                <Button variant="outline" disabled={saving} onClick={reviewStudentEdit}>Revisar com os dados atuais</Button>
+              </> : <Button variant="outline" disabled={saving} onClick={() => void refreshStudentEdit()}>Consultar cadastro atual</Button>}
+            </div>}
             <div className="space-y-4">
               <div className="space-y-2"><Label className="font-sans">Nome completo *</Label><Input value={studentForm.full_name} onChange={e => setStudentForm({ ...studentForm, full_name: e.target.value })} className="bg-secondary border-border" /></div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -2824,7 +3178,7 @@ export default function StudentDetail() {
               </div>
               <div className="space-y-2"><Label className="font-sans">Rua</Label><Input value={studentForm.address} onChange={e => setStudentForm({ ...studentForm, address: e.target.value })} onBlur={fillCepFromAddressStudent} className="bg-secondary border-border" /></div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-2"><Label className="font-sans">Número</Label><Input value={studentForm.address_number} onChange={e => setStudentForm({ ...studentForm, address_number: e.target.value })} className="bg-secondary border-border" /></div>
+                <div className="space-y-2"><Label className="font-sans">Número do endereço</Label><Input placeholder="Ex.: 123 ou s/n" value={studentForm.address_number} onChange={e => setStudentForm({ ...studentForm, address_number: e.target.value })} className="bg-secondary border-border" /></div>
                 <div className="space-y-2"><Label className="font-sans">Bairro</Label><Input value={studentForm.neighborhood} onChange={e => setStudentForm({ ...studentForm, neighborhood: e.target.value })} className="bg-secondary border-border" /></div>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -2849,8 +3203,8 @@ export default function StudentDetail() {
               <div className="space-y-2"><Label className="font-sans">Observações</Label><Textarea value={studentForm.notes} onChange={e => setStudentForm({ ...studentForm, notes: e.target.value })} className="bg-secondary border-border" rows={3} /></div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setEditStudentOpen(false)}>Cancelar</Button>
-              <Button onClick={handleSaveStudent} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</Button>
+              <Button variant="outline" disabled={saving} onClick={closeEditStudent}>Cancelar</Button>
+              <Button onClick={handleSaveStudent} disabled={saving || Boolean(studentEditConflict)}>{saving ? "Salvando..." : "Salvar"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

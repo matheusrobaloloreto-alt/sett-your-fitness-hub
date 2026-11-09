@@ -22,9 +22,10 @@ export function workoutBuilderUrl(args: {
   role: string | null | undefined;
   studentId: string;
   cycleId: string;
+  returnTab?: string;
 }): string {
   return `${routeBasePathForRole(args.role)}/workout/${args.cycleId}?returnTo=${encodeURIComponent(
-    studentProfileReturnPath(args.role, args.studentId),
+    studentProfileReturnPath(args.role, args.studentId) + (args.returnTab ? `?tab=${encodeURIComponent(args.returnTab)}` : ""),
   )}`;
 }
 

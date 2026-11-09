@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   updateFilters: [] as Array<[string, string]>,
   confirmationFilters: [] as Array<[string,string]>,
   readback: vi.fn(),
+  reconciliationRead: vi.fn(),
   selectedColumns: null as string | null,
   startRpc: vi.fn().mockResolvedValue({data:{id:'session-1',student_id:'student-1',company_id:'company-1',workout_id:'workout-1',started_at:new Date().toISOString(),status:'in_progress'},error:null}),
   rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
@@ -38,7 +39,11 @@ vi.mock("@/integrations/supabase/client", () => ({
           }),
         }),
         update: () => updateQuery,
-        select: () => confirmationQuery,
+        select: (columns: string) => {
+          if (columns !== "id,status") return confirmationQuery;
+          const query = { eq: () => query, maybeSingle: async () => mocks.reconciliationRead() };
+          return query;
+        },
       };
     },
     rpc: (name:string,args:unknown)=>name==='start_workout_session'?mocks.startRpc(name,args):mocks.rpc(name,args),
@@ -57,6 +62,7 @@ describe("useWorkoutSession", () => {
     mocks.startRpc.mockReset().mockResolvedValue({data:{id:'session-1',student_id:'student-1',company_id:'company-1',workout_id:'workout-1',started_at:new Date().toISOString(),status:'in_progress'},error:null});
     mocks.updateResult = { data: null, error: new Error("offline") };
     mocks.updateResults = [];
+    mocks.reconciliationRead.mockReset().mockReturnValue({ data: null, error: null });
     mocks.confirmationResult = { data: null, error: null };
     mocks.updateFilters = [];
     mocks.confirmationFilters = [];
@@ -67,6 +73,36 @@ describe("useWorkoutSession", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("clears the old timer only after the server confirms the exact duplicate", async () => {
+    const key = "sett_active_session_student-1";
+    localStorage.setItem(key, JSON.stringify({
+      id: "old-session", workoutId: "workout-1", companyId: "company-1", startedAt: 1,
+    }));
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1"));
+    await waitFor(() => expect(result.current.activeSession?.id).toBe("old-session"));
+    mocks.reconciliationRead.mockReturnValue({ data: { id: "old-session", status: "reconciled" }, error: null });
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(result.current.activeSession).toBeNull();
+    expect(localStorage.getItem(key)).toBeNull();
+    expect(mocks.updateFilters).toEqual([]);
+  });
+
+  it('releases a definitively refused intent but reuses an intent with unknown outcome', async () => {
+    const { result } = renderHook(() => useWorkoutSession('student-1', 'company-1'));
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+    mocks.startRpc.mockResolvedValueOnce({ data: null, error: { code: 'PT409', message: 'session_legacy_ambiguous' } });
+    await act(async () => {
+      expect(await result.current.startSession('legacy-workout')).toEqual({ ok: false, reason: 'duplicate_open_sessions' });
+    });
+    expect(localStorage.getItem('sett_session_start_company-1_student-1')).toBeNull();
+    mocks.startRpc.mockResolvedValueOnce({ data: null, error: new Error('conexão perdida') });
+    await act(async () => { await result.current.startSession('workout-1'); });
+    const pending = JSON.parse(localStorage.getItem('sett_session_start_company-1_student-1')!);
+    await act(async () => { await result.current.startSession('workout-1'); });
+    expect(mocks.startRpc.mock.lastCall?.[1]).toMatchObject({ _workout_id: 'workout-1', _request_id: pending.requestId });
+    expect(result.current.activeSession?.id).toBe('session-1');
   });
 
   it("keeps the active session locally when the guarded completion updates zero rows", async () => {

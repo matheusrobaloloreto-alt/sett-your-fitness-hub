@@ -1,3 +1,4 @@
+import { AccessLookupError } from "@/components/AccessLookupError";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -93,9 +94,10 @@ const PageLoader = () => (
 
 
 function RootRoute() {
-  const { user, role, loading, signOut } = useAuth();
+  const { user, role, loading, signOut, accessLookupFailed } = useAuth();
   if (loading) return <PageLoader />;
   if (!user) return <Landing />;
+  if (accessLookupFailed) return <AccessLookupError />;
   if (role === "master") return <Navigate to="/master" replace />;
   if (role === "admin") return <Navigate to="/admin" replace />;
   if (role === "coordinator") return <Navigate to="/coordinator" replace />;
@@ -189,8 +191,8 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <InstallPrompt />
       <BrowserRouter>
+        <InstallPrompt />
         <AuthProvider>
         <MasterProvider>
         <ThemeProvider>

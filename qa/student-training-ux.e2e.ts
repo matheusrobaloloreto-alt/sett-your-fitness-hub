@@ -30,7 +30,8 @@ test("student mobile training shell keeps compact actions, accordion state and l
 
   await page.getByRole("button", { name: "Prepare-se" }).click();
   const warmupDialog = page.getByRole("dialog", { name: "Prepare-se para o treino" });
-  await expect(page.getByRole("heading", { name: "Demonstrações do aquecimento" })).toBeVisible();
+  await expect(warmupDialog).toBeVisible();
+  await expect(warmupDialog.getByRole("heading", { name: "Demonstrações do aquecimento" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Assistir demonstração de Agachamento livre (air squat)" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Assistir demonstração de Flexão de braço" })).toBeVisible();
   await expect(warmupDialog.getByRole("button", { name: /Agachamento goblet|Supino com halteres/i })).toHaveCount(0);

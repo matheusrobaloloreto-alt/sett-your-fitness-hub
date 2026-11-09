@@ -37,7 +37,10 @@ export function cadenceDisplayName(row: CadenceRow): string {
 
 export type CadenceWindowDays = 7 | 14 | 30 | 90;
 
-export function filterCadenceByWindow(rows: CadenceRow[], days: CadenceWindowDays): CadenceRow[] {
-  const maximumHours = days * 24;
-  return rows.filter((row) => Number.isFinite(row.hours_since) && row.hours_since <= maximumHours);
+export function filterCadenceByWindow(rows: CadenceRow[], days: CadenceWindowDays, now = Date.now()): CadenceRow[] {
+  const oldestInbound = now - days * 86_400_000;
+  return rows.filter((row) => {
+    const inbound = Date.parse(row.last_inbound_at);
+    return Number.isFinite(row.hours_since) && inbound >= oldestInbound && inbound <= now;
+  });
 }

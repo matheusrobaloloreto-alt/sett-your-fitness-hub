@@ -6,7 +6,7 @@ vi.mock('@/contexts/MasterContext',()=>({useMaster:()=>({isViewingCompany:false,
 vi.mock('@/hooks/use-toast',()=>({useToast:()=>({toast:m.toast})}));
 vi.mock('@/hooks/useRolePermissions',()=>({useManageRolePermissions:()=>({isEnabled:()=>false,togglePermission:vi.fn(),loading:false})}));
 vi.mock('@/components/master/CompanyOperatorConsole',()=>({default:()=>null}));
-vi.mock('@/integrations/supabase/client',()=>({supabase:{functions:{invoke:m.invoke},from:(table:string)=>{const filters:Record<string,unknown>={};const q={select:()=>q,is:()=>q,gte:()=>q,lte:()=>q,eq:(k:string,v:unknown)=>{filters[k]=v;return q;},in:(k:string,v:unknown)=>{filters[k]=v;return q;},then:(a:any,b:any)=>Promise.resolve(m.read(table,filters)).then(a,b)};return q;}}}));
+vi.mock('@/integrations/supabase/client',()=>({supabase:{functions:{invoke:m.invoke},from:(table:string)=>{const filters:Record<string,unknown>={};const q={select:()=>q,order:()=>q,range:()=>q,is:()=>q,gte:()=>q,lte:()=>q,eq:(k:string,v:unknown)=>{filters[k]=v;return q;},in:(k:string,v:unknown)=>{filters[k]=v;return q;},then:(a:any,b:any)=>Promise.resolve(m.read(table,filters)).then(a,b)};return q;}}}));
 import TeamManager from './TeamManager';
 function deferred(){let resolve!:(v:any)=>void;const promise=new Promise(r=>{resolve=r;});return{promise,resolve};}
 beforeEach(()=>{m.company='a';m.invoke.mockResolvedValue({data:{emails:[],accounts:[]},error:null});m.read.mockImplementation((table,filters)=>({data:table==='company_members'?[{user_id:filters.company_id}]:table==='user_roles'?[{user_id:(filters.user_id as string[])[0],role:'trainer'}]:table==='profiles'?[{user_id:(filters.user_id as string[])[0],full_name:`Treinador ${(filters.user_id as string[])[0]}`}]:[],error:null}));});
@@ -44,7 +44,7 @@ it('missing company performs no reads and offers no confirmed empty result',()=>
 });
 
 it('performance uses total assigned portfolio including inactive students',async()=>{
- m.read.mockImplementation((table,filters)=>({data:table==='company_members'?[{user_id:'a'}]:table==='user_roles'?[{user_id:'a',role:'trainer'}]:table==='profiles'?[{user_id:'a',full_name:'Treinador a'}]:table==='students'?[{id:'s1',full_name:'Ativo',assigned_trainer_id:'a',status:'active'},{id:'s2',full_name:'Inativo',assigned_trainer_id:'a',status:'inactive'}]:[],error:null}));
+ m.read.mockImplementation((table,filters)=>({data:table==='company_members'?[{user_id:'a'}]:table==='user_roles'?[{user_id:'a',role:'trainer'}]:table==='profiles'?[{user_id:'a',full_name:'Treinador a'}]:table==='students'?[{id:'s1',full_name:'Ativo',company_id:'a',assigned_trainer_id:'a',status:'active'},{id:'s2',full_name:'Inativo',company_id:'a',assigned_trainer_id:'a',status:'inactive'}]:[],error:null}));
  render(<TeamManager/>);await screen.findByText('Treinador a');
  fireEvent.mouseDown(screen.getByRole('tab',{name:/Performance/}),{button:0,ctrlKey:false});
  await screen.findByText('2 alunos na carteira total');

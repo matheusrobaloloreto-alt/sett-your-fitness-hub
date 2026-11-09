@@ -1,7 +1,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useLocation } from "react-router-dom";
 
-export function RouteTransition({ children }: { children: React.ReactNode }) {
+export function RouteTransition({ children, spring = false }: { children: React.ReactNode; spring?: boolean }) {
   const location = useLocation();
   const reduce = useReducedMotion();
 
@@ -12,7 +12,9 @@ export function RouteTransition({ children }: { children: React.ReactNode }) {
         initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         exit={reduce ? { opacity: 0 } : { opacity: 0, y: -4 }}
-        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        transition={spring
+          ? reduce ? { duration: 0 } : { type: "spring", mass: 1, stiffness: 310, damping: 31 }
+          : { duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
       >
         {children}
       </motion.div>

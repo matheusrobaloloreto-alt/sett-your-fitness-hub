@@ -9,10 +9,11 @@ vi.mock('@/hooks/useRolePermissions',()=>({useRolePermissions:()=>({canAccess:(m
 vi.mock('./WhatsAppSettings',()=>({WhatsAppConnectionPanel:()=> <div data-testid="existing-whatsapp-panel">Painel existente</div>}));
 beforeEach(()=>{state.role='trainer';state.companyId='synthetic-a';state.hasWhatsApp=true;state.loading=false;state.allowed=true});
 afterEach(cleanup);
-it.each(['trainer','coordinator'])('keeps %s diagnostics with its existing authorized WhatsApp access',role=>{
+it.each(['trainer','coordinator'])('keeps %s diagnostics and chat without rendering administrator connection actions',role=>{
  state.role=role;render(<MemoryRouter><ConnectionSettings/></MemoryRouter>);
  expect(screen.getByRole('link',{name:'Diagnóstico'})).toHaveAttribute('href','/suporte');
- expect(screen.getByTestId('existing-whatsapp-panel')).toBeInTheDocument();
+ expect(screen.getByRole('link',{name:'Abrir conversas'})).toHaveAttribute('href',`/${role}/whatsapp-chat`);
+ expect(screen.queryByTestId('existing-whatsapp-panel')).not.toBeInTheDocument();
  expect(screen.queryByText(/cofre/i)).not.toBeInTheDocument();
 });
 it.each(['feature','permission','loading'])('keeps diagnostics but never mounts WhatsApp when %s is unavailable',reason=>{
@@ -22,6 +23,7 @@ it.each(['feature','permission','loading'])('keeps diagnostics but never mounts 
  render(<MemoryRouter><ConnectionSettings/></MemoryRouter>);
  expect(screen.getByRole('link',{name:'Diagnóstico'})).toBeInTheDocument();
  expect(screen.queryByTestId('existing-whatsapp-panel')).not.toBeInTheDocument();
+ expect(screen.queryByRole('link',{name:'Abrir conversas'})).not.toBeInTheDocument();
 });
 it.each(['student','admin','master'])('does not render the staff-only settings for %s',role=>{
  state.role=role;render(<MemoryRouter><ConnectionSettings/></MemoryRouter>);

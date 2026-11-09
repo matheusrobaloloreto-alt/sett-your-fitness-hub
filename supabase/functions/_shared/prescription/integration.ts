@@ -366,8 +366,10 @@ function buildRecoveryAlerts(a: AnyRecord) {
 
 function buildFunctionalPriorities(ax: AnyRecord, textCorpus: string) {
   const priorities: string[] = [];
-  if (ax.resumo_para_prescricao) priorities.push(textValue(ax.resumo_para_prescricao));
-  if (ax.direcionamento_protocolo?.motivo) priorities.push(textValue(ax.direcionamento_protocolo.motivo));
+  const summary = textValue(ax.resumo_para_prescricao);
+  const rationale = textValue(ax.direcionamento_protocolo?.motivo);
+  if (summary) priorities.push(summary);
+  if (rationale) priorities.push(rationale);
   for (const item of asArray(ax.sequencia_bn_video)) {
     const movimento = textValue(item?.movimento);
     const achados = stringifyArray(item?.achados || item?.compensacoes);

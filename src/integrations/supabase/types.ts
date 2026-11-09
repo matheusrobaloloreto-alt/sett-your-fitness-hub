@@ -984,6 +984,7 @@ export type Database = {
           trigger_type: string
           trigger_value: string | null
           updated_at: string
+          weekly_contact_inactivity_hours: number
         }
         Insert: {
           company_id: string
@@ -995,6 +996,7 @@ export type Database = {
           trigger_type?: string
           trigger_value?: string | null
           updated_at?: string
+          weekly_contact_inactivity_hours?: number
         }
         Update: {
           company_id?: string
@@ -1006,6 +1008,7 @@ export type Database = {
           trigger_type?: string
           trigger_value?: string | null
           updated_at?: string
+          weekly_contact_inactivity_hours?: number
         }
         Relationships: [
           {
@@ -9706,6 +9709,7 @@ export type Database = {
           company_id: string | null
           completed_at: string | null
           created_at: string | null
+          duplicate_of_session_id: string | null
           duration_seconds: number | null
           exercises_summary: Json | null
           id: string
@@ -9723,6 +9727,7 @@ export type Database = {
           company_id?: string | null
           completed_at?: string | null
           created_at?: string | null
+          duplicate_of_session_id?: string | null
           duration_seconds?: number | null
           exercises_summary?: Json | null
           id?: string
@@ -9740,6 +9745,7 @@ export type Database = {
           company_id?: string | null
           completed_at?: string | null
           created_at?: string | null
+          duplicate_of_session_id?: string | null
           duration_seconds?: number | null
           exercises_summary?: Json | null
           id?: string
@@ -9759,6 +9765,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workout_sessions_duplicate_of_session_id_fkey"
+            columns: ["duplicate_of_session_id"]
+            isOneToOne: false
+            referencedRelation: "workout_sessions"
             referencedColumns: ["id"]
           },
           {
@@ -11084,6 +11097,16 @@ export type Database = {
           p_reason?: string
           p_student_id: string
           p_workout_id: string
+        }
+        Returns: Json
+      }
+      retire_terminal_workout_start: {
+        Args: {
+          _company_id: string
+          _request_id: string
+          _session_id: string | null
+          _student_id: string
+          _workout_id: string
         }
         Returns: Json
       }

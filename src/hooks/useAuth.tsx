@@ -19,6 +19,8 @@ interface AuthContextType {
   role: AppRole;
   companyId: string | null;
   loading: boolean;
+  accessLookupFailed?: boolean;
+  retryAccessLookup?: () => void;
   passwordRecovery: boolean;
   completePasswordRecovery: () => void;
   signOut: () => Promise<void>;
@@ -40,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
+  const [accessLookupFailed, setAccessLookupFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [passwordRecovery, setPasswordRecovery] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get("type") === "recovery");
   const activeUserId = useRef<string | null>(null);
@@ -63,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           supabase.from("company_members").select("company_id").eq("user_id", userId).limit(1),
         ]);
 
+        let lookupFailed = false;
         let resolvedRole = (roleRes.data as AppRole) || null;
 
         if (roleRes.error || !resolvedRole) {
@@ -76,6 +80,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             .eq("user_id", userId);
 
           if (fallbackRes.error) {
+            lookupFailed = true;
+            resolvedRole = null;
             console.error("Failed to resolve role from user_roles:", fallbackRes.error.message);
           } else {
             resolvedRole = resolvePrimaryRole((fallbackRes.data || []).map((row) => row.role));
@@ -89,12 +95,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (activeUserId.current !== userId) return;
         setRole(resolvedRole);
         setCompanyId(companyRes.data?.[0]?.company_id || null);
-        roleFetchedFor.current = userId;
+        setAccessLookupFailed(lookupFailed);
+        if (!lookupFailed) roleFetchedFor.current = userId;
       } catch (err) {
         console.error("Failed to fetch role/company:", err);
         if (activeUserId.current !== userId) return;
         setRole(null);
         setCompanyId(null);
+        setAccessLookupFailed(true);
       }
       if (activeUserId.current === userId) setLoading(false);
     })();
@@ -117,6 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const nextUserId = session?.user.id ?? null;
         activeUserId.current = nextUserId;
         if (nextUserId && roleFetchedFor.current !== nextUserId) {
+          setAccessLookupFailed(false);
           setRole(null);
           setCompanyId(null);
           setLoading(true);
@@ -165,8 +174,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     roleFetchInFlight.current = null;
   };
 
+  const retryAccessLookup = () => {
+    if (!activeUserId.current) return;
+    setLoading(true);
+    void fetchRoleAndCompany(activeUserId.current);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, session, role, companyId, loading, signOut, passwordRecovery, completePasswordRecovery: () => setPasswordRecovery(false) }}>
+    <AuthContext.Provider value={{ user, session, role, companyId, loading, accessLookupFailed, retryAccessLookup, signOut, passwordRecovery, completePasswordRecovery: () => setPasswordRecovery(false) }}>
       {children}
     </AuthContext.Provider>
   );

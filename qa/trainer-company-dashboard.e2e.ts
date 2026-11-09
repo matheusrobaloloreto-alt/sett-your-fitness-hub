@@ -25,7 +25,7 @@ async function openFixture(
     viewport,
   }: {
     role: "admin" | "coordinator" | "trainer" | "master";
-    scenario?: "normal" | "empty" | "error" | "loading";
+    scenario?: "normal" | "empty" | "error" | "loading" | "first";
     theme?: "light" | "dark";
     viewport: { width: number; height: number };
   },
@@ -37,7 +37,7 @@ async function openFixture(
   });
   page.on("pageerror", (error) => consoleErrors.push(error.message));
   const blockedExternalRequests = await installNetworkGuard(page);
-  await page.goto(`${fixturePath}?role=${role}&scenario=${scenario}&theme=${theme}`);
+  await page.goto(`${fixturePath}?role=${role}&scenario=${scenario}&theme=${theme}`, { waitUntil: "domcontentloaded" });
   return { consoleErrors, blockedExternalRequests };
 }
 
@@ -53,49 +53,62 @@ async function expectNoFixtureLeak({
 }
 
 async function visibleSectionTexts(page: Page) {
-  await expect(page.getByText("Alunos Ativos").first()).toBeVisible();
-  return {
-    active: await page.getByText("Alunos Ativos").first().isVisible(),
-    interested: await page.getByText("Interessados").first().isVisible(),
-    pending: await page.getByText("Alunos Pendentes").first().isVisible(),
-    renewalStatus: await page.getByText("Aguardando Renovação").first().isVisible(),
-    inactive: await page.getByText("Alunos Inativos").first().isVisible(),
-    trainers: await page.getByText("Treinadores").first().isVisible(),
-    alerts: await page.getByText("AÇÕES PENDENTES").first().isVisible(),
-    birthdays: await page.getByText("ANIVERSÁRIOS DO MÊS").first().isVisible(),
-    renewal: await page.getByText("RENOVAÇÃO").first().isVisible(),
-    cycles: await page.getByText("TROCA DE TREINO").first().isVisible(),
-    cadence: await page.getByText("Cadência de Contatos").first().isVisible(),
-    analytics: await page.getByText("ANÁLISES E ACOMPANHAMENTO").first().isVisible(),
-  };
+  const sections = ["Interessados", "Aguardando avaliação", "Cadência de contatos", "Próximas prescrições",
+    "Renovações", "Aniversariantes", "Feedbacks de treino", "Análises e acompanhamento"];
+  for (const section of sections) await expect(page.getByText(section, { exact: true })).toBeVisible();
+  return sections;
+
 }
+
+test("human contact cadence uses the operational queues and trainer projection", async ({ page }) => {
+  const adminGuard = await openFixture(page, { role: "admin", viewport: { width: 1440, height: 1000 } });
+  for (const label of ["Sem resposta há 24h · 1", "Sem mensagem da equipe há 7 dias · 1"]) {
+    const queue = page.locator("details").filter({ has: page.getByText(label, { exact: true }) });
+    await queue.getByText(label, { exact: true }).click();
+    await expect(queue.getByRole("link", { name: "Bruno Ativo" })).toHaveAttribute("href", "/admin/whatsapp-chat");
+  }
+  await expectNoFixtureLeak(adminGuard);
+
+  const trainerGuard = await openFixture(page, { role: "trainer", viewport: { width: 390, height: 844 } });
+  await page.getByText("Mais operações", { exact: true }).click();
+  const cadence = page.getByRole("heading", { name: /Cadência de Contatos.*sem resposta/ }).locator("../..");
+  await expect(cadence.getByText("Bruno Ativo", { exact: true })).toBeVisible();
+  await expect(cadence.getByText("4 dias", { exact: true })).toBeVisible();
+  await expect(cadence.getByRole("button", { name: "Abrir conversa" })).toHaveCount(0);
+  await expectNoFixtureLeak(trainerGuard);
+});
 
 test("trainer sees the full company dashboard sections that admin sees without write actions", async ({ page }) => {
   const adminGuard = await openFixture(page, { role: "admin", viewport: { width: 1440, height: 1000 } });
   await expect(page.getByRole("heading", { name: "DASHBOARD" })).toBeVisible();
   const adminSections = await visibleSectionTexts(page);
+  await expect(page.getByRole("link", { name: "Ver avaliação" })).toHaveAttribute("href", "/admin/students/student-active-a?tab=evaluations");
+  await expect(page.getByText(/Anamnese registrada/)).toBeVisible();
+  await expect(page.getByText("Sem resposta há 24h · 1")).toBeVisible();
+  await expect(page.getByText("Sem mensagem da equipe há 7 dias · 1")).toBeVisible();
   await page.getByRole("button", { name: /ANÁLISES E ACOMPANHAMENTO/i }).click();
-  await expect(page.getByText("PLANOS MAIS VENDIDOS")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Matrículas por plano" })).toBeVisible();
   await expect(page.getByText("Prescrições do mês")).toBeVisible();
   await expect(page.getByText("Feedback de ciclo pendente")).toBeVisible();
-  await expect(page.getByText("Coorte — satisfação")).toBeVisible();
+  await expect(page.getByText("Coorte — satisfação (NPS)")).toBeVisible();
   await expectNoFixtureLeak(adminGuard);
 
   const trainerGuard = await openFixture(page, { role: "trainer", viewport: { width: 1440, height: 1000 } });
   await expect(page.getByRole("heading", { name: "PAINEL DA EMPRESA" })).toBeVisible();
   await expect(page.getByText("Visualização completa da empresa")).toBeVisible();
+  await page.getByText("Mais operações", { exact: true }).click();
   await expect(page.getByText("Ana Ativa").first()).toBeVisible();
   await expect(page.getByText("Bruno Ativo").first()).toBeVisible();
   await expect(page.getByText("Outro Tenant")).toHaveCount(0);
   expect(await visibleSectionTexts(page)).toEqual(adminSections);
 
   await page.getByRole("button", { name: /ANÁLISES E ACOMPANHAMENTO/i }).click();
-  await expect(page.getByText("PLANOS MAIS VENDIDOS")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Matrículas por plano" })).toBeVisible();
   await expect(page.getByText("Prescrições do mês")).toBeVisible();
   await expect(page.getByText("Feedback de ciclo pendente")).toBeVisible();
-  await expect(page.getByText("Coorte — satisfação")).toBeVisible();
+  await expect(page.getByText("Coorte — satisfação (NPS)")).toBeVisible();
   await expect(page.getByRole("button", { name: /Renovar agora/i })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /Prescrever/i })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Prescrever" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Mensagem/i })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Revisado/i })).toHaveCount(0);
   const dashboardPath = new URL(page.url()).pathname;
@@ -107,7 +120,7 @@ test("trainer sees the full company dashboard sections that admin sees without w
   expect(await page.evaluate(() => (window as any).__trainerDashboardFixture.getReads().filter((table: string) => [
     "students", "enrollments", "training_cycles", "workouts", "admin_alerts", "prescription_bundles",
     "prescription_bundle_items", "cycle_feedback", "payments", "workout_sessions", "student_body_limitations",
-    "functional_assessments", "whatsapp_chats",
+    "functional_assessments", "whatsapp_chats", "workout_feedback",
   ].includes(table)))).toEqual([]);
   await expectNoFixtureLeak(trainerGuard);
 });
@@ -116,20 +129,26 @@ test("master company view keeps the same dashboard inventory for the selected te
   const guard = await openFixture(page, { role: "master", viewport: { width: 1440, height: 1000 } });
   await expect(page.getByRole("heading", { name: "DASHBOARD" })).toBeVisible();
   await expect(page.getByText("Visualizando: BN QA")).toBeVisible();
+  await page.getByText("Mais operações", { exact: true }).click();
   await expect(page.getByText("Alunos Ativos").first()).toBeVisible();
   await expect(page.getByText("Treinadores").first()).toBeVisible();
-  await expect(page.getByText("RENOVAÇÃO").first()).toBeVisible();
-  await expect(page.getByText("TROCA DE TREINO").first()).toBeVisible();
+  await expect(page.getByText("Renovações", { exact: true })).toBeVisible();
+  await expect(page.getByText("Próximas prescrições", { exact: true })).toBeVisible();
   await expect(page.getByText("Outro Tenant")).toHaveCount(0);
   await expectNoFixtureLeak(guard);
 });
 
 test("coordinator keeps renewal, cycle and birthday visibility for the same company", async ({ page }) => {
   const guard = await openFixture(page, { role: "coordinator", viewport: { width: 1366, height: 900 } });
+  await page.getByText("Mais operações", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "MATRÍCULAS" })).toBeVisible();
-  await expect(page.getByText("RENOVAÇÃO").first()).toBeVisible();
-  await expect(page.getByText("TROCA DE TREINO").first()).toBeVisible();
-  await expect(page.getByText("ANIVERSÁRIOS DO MÊS").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Novo Aluno" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ver avaliação" })).toHaveAttribute("href", "/coordinator/students/student-active-a?tab=evaluations");
+  await expect(page.getByRole("link", { name: "Prescrever" }).and(page.locator('[href*="student-active-b"]')))
+    .toHaveAttribute("href", "/coordinator/students/student-active-b?tab=prescricao&cycle=cycle-next-b");
+  await expect(page.getByText("Renovações", { exact: true })).toBeVisible();
+  await expect(page.getByText("Próximas prescrições", { exact: true })).toBeVisible();
+  await expect(page.getByText("Aniversariantes", { exact: true })).toBeVisible();
   await expect(page.getByText("Bruno Ativo").first()).toBeVisible();
   await expect(page.getByText("Outro Tenant")).toHaveCount(0);
   await expectNoFixtureLeak(guard);
@@ -139,9 +158,9 @@ test("trainer dashboard handles empty and error states", async ({ page }) => {
   const emptyGuard = await openFixture(page, { role: "trainer", scenario: "empty", viewport: { width: 1280, height: 900 } });
   await expect(page.getByRole("heading", { name: "PAINEL DA EMPRESA" })).toBeVisible();
   await expect(page.getByText("Nenhuma renovação pendente").first()).toBeVisible();
-  await expect(page.getByText("Nenhuma troca prevista para os próximos 7 dias")).toBeVisible();
+  await expect(page.getByText("Nenhuma próxima prescrição no período configurado.")).toBeVisible();
   await page.getByRole("button", { name: /ANÁLISES E ACOMPANHAMENTO/i }).click();
-  await expect(page.getByText("Ninguém precisando de atenção agora")).toBeVisible();
+  await expect(page.getByText(/Resumo sem alertas/)).toBeVisible();
   await expectNoFixtureLeak(emptyGuard);
 
   const errorGuard = await openFixture(page, { role: "trainer", scenario: "error", viewport: { width: 1280, height: 900 } });
@@ -154,22 +173,39 @@ test("trainer dashboard handles empty and error states", async ({ page }) => {
 test("trainer dashboard keeps a snapshot-only loading state without table fallbacks", async ({ page }) => {
   const guard = await openFixture(page, { role: "trainer", scenario: "loading", viewport: { width: 1280, height: 900 } });
   await expect(page.getByRole("heading", { name: "PAINEL DA EMPRESA" })).toBeVisible();
-  await expect(page.getByText("—").first()).toBeVisible();
+  await expect(page.getByRole("status").first()).toBeVisible();
   expect(await page.evaluate(() => (window as any).__trainerDashboardFixture.getReads().filter((table: string) => [
     "students", "enrollments", "training_cycles", "workouts", "admin_alerts", "prescription_bundles",
     "cycle_feedback", "payments", "workout_sessions", "student_body_limitations", "functional_assessments",
   ].includes(table)))).toEqual([]);
-  await expect(page.getByText("Ana Ativa").first()).toBeVisible({ timeout: 4_000 });
+  await expect(page.getByText("Renovações", { exact: true })).toBeVisible();
   await expectNoFixtureLeak(guard);
 });
 
 test("trainer dashboard smoke passes on mobile dark mode", async ({ page }) => {
   const guard = await openFixture(page, { role: "trainer", theme: "dark", viewport: { width: 390, height: 844 } });
   await expect(page.getByRole("heading", { name: "PAINEL DA EMPRESA" })).toBeVisible();
-  await expect(page.getByText("Alunos Ativos").first()).toBeVisible();
-  await expect(page.getByText("RENOVAÇÃO").first()).toBeVisible();
-  await expect(page.getByText("ANIVERSÁRIOS DO MÊS").first()).toBeVisible();
+  await expect(page.getByText("Interessados", { exact: true })).toBeVisible();
+  await expect(page.getByText("Renovações", { exact: true })).toBeVisible();
+  await expect(page.getByText("Aniversariantes", { exact: true })).toBeVisible();
   await page.screenshot({ path: "/tmp/sett-dashboard-playwright/trainer-dashboard-mobile-dark.png", fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await expectNoFixtureLeak(guard);
+});
+
+test("Meus alunos excludes company onboarding and links only the authenticated trainer's first training and feedback", async ({ page }) => {
+  const guard = await openFixture(page, { role: "trainer", scenario: "first", viewport: { width: 390, height: 844 } });
+  await page.getByRole("button", { name: "Meus alunos" }).click();
+  await expect(page.getByText("Aguardando avaliação", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Primeiros treinos", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Abrir treino" })).toHaveAttribute("href", "/trainer/students/student-pending?tab=prescricao");
+  await expect(page.getByRole("link", { name: "Ver feedback" })).toHaveAttribute("href", "/trainer/students/student-active-a?tab=analytics");
+  await expect(page.getByText("Força B", { exact: false })).toHaveCount(0);
+  await page.getByRole("button", { name: /Análises e acompanhamento/i }).click();
+  await expect(page.getByText("Matrículas por plano", { exact: true })).toBeVisible();
+  await expect(page.getByText("Plano Elite · 1", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Outro Tenant", { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__trainerDashboardFixture.getWrites())).toEqual([]);
   await expectNoFixtureLeak(guard);
 });

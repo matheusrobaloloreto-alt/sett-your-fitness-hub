@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,15 +11,17 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, ComposedChart, Area, Legend, Cell,
 } from "recharts";
-import { format, parseISO, differenceInCalendarDays, subDays } from "date-fns";
+import { format, parseISO, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { MuscleRadar } from "./MuscleRadar";
-import { buildExerciseMeta, fractionalSetsByMuscleGroup } from "@/lib/volumeStats";
-import { useExerciseVolumeTargets } from "@/hooks/useExerciseVolumeTargets";
+import { buildExerciseMeta, effectiveCoverageWindow } from "@/lib/volumeStats";
+import { summarizeRealizedTraining, type RealizedLog, type RealizedSession } from "@/lib/realizedTraining";
 
 interface StatsChartsProps {
-  studentId?: string;
-  allLogs: any[];
+  studentId: string;
+  companyId: string;
+  sessions: RealizedSession[];
+  allLogs: (RealizedLog & { exercise_index?: number | null; rpe?: number | null })[];
   cycles: { id: string; cycle_number: number; workouts: { id: string; exercises: { exercise_id?: string; exerciseId?: string; exercise_name: string; muscle_group: string; sets: string }[] }[] }[];
   todayStr: string;
 }
@@ -29,7 +31,7 @@ type Period = "7" | "30" | "90" | "all";
 // Epley 1RM: peso * (1 + reps/30)
 const epley = (weight: number, reps: number) => (reps > 0 ? weight * (1 + reps / 30) : weight);
 
-export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChartsProps) {
+export function StatsCharts({ allLogs, cycles, todayStr, studentId, companyId, sessions }: StatsChartsProps) {
   const [selectedExercise, setSelectedExercise] = useState<string>("all");
   const [period, setPeriod] = useState<Period>("all");
   const [show1RM, setShow1RM] = useState<boolean>(false);
@@ -39,30 +41,24 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
   const allExercisesMeta = useMemo(() => {
     return buildExerciseMeta(cycles);
   }, [cycles]);
-  const targets = useExerciseVolumeTargets(studentId, allExercisesMeta.flatMap((item) => item.exerciseId ? [item.exerciseId] : []));
 
   const allExercises = useMemo(() => Array.from(new Set(allExercisesMeta.map(m => m.name))).sort(), [allExercisesMeta]);
 
-  const findMeta = (workoutId: string, idx: number) => allExercisesMeta.find(m => m.workoutId === workoutId && m.index === idx);
+  const findMeta = useCallback((workoutId: string, idx?: number | null) =>
+    allExercisesMeta.find(m => m.workoutId === workoutId && m.index === idx), [allExercisesMeta]);
 
-  // Filtro de período
-  const periodCutoff = useMemo(() => {
-    if (period === "all") return null;
-    return subDays(parseISO(todayStr), Number(period));
-  }, [period, todayStr]);
+  const periodStart = period === "all" ? undefined : effectiveCoverageWindow({ today: todayStr, requestedDays: Number(period) }).start;
+  const history = useMemo(() => ({ sessions, logs: allLogs, studentId, companyId }), [sessions, allLogs, studentId, companyId]);
+  const realized = useMemo(() => summarizeRealizedTraining({ ...history, start: periodStart, end: todayStr }),
+    [history, periodStart, todayStr]);
 
-  const filteredLogs = useMemo(() => {
-    // Descarta registros sem session_date para não quebrar parseISO/sort/localeCompare.
-    const valid = allLogs.filter((l: any) => l.session_date && l.completed === true);
-    if (!periodCutoff) return valid;
-    return valid.filter((l: any) => parseISO(l.session_date) >= periodCutoff);
-  }, [allLogs, periodCutoff]);
+  // Load progression, PRs and RPE use the individual set records.
+  const completedLogs = useMemo(() => allLogs.filter(log => log.completed === true &&
+    /^\d{4}-\d{2}-\d{2}$/.test(log.session_date ?? "") && log.session_date <= todayStr), [allLogs, todayStr]);
+  const filteredLogs = useMemo(() => completedLogs.filter(log => !periodStart || log.session_date >= periodStart),
+    [completedLogs, periodStart]);
 
-  // Anatomical exposure counts work sets; external kg x reps stays separate.
-  const muscleVolumes = useMemo(() => {
-    return fractionalSetsByMuscleGroup(filteredLogs, allExercisesMeta, targets)
-      .map(({ group, sets }) => ({ muscleGroup: group, volume: sets }));
-  }, [filteredLogs, allExercisesMeta, targets]);
+  const muscleVolumes = realized.muscles.map(({ group: muscleGroup, sets: volume }) => ({ muscleGroup, volume }));
 
   const sessionDates = useMemo(
     () => Array.from(new Set(filteredLogs.map((l: any) => l.session_date))).sort() as string[],
@@ -78,7 +74,7 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
       counts[meta.name].add(l.session_date);
     });
     return Object.entries(counts).sort(([, a], [, b]) => b.size - a.size).slice(0, 5).map(([n]) => n);
-  }, [filteredLogs, allExercisesMeta]);
+  }, [filteredLogs, findMeta]);
 
   // Evolução por SESSÃO: top set + 1RM estimado
   const evolutionData = useMemo(() => {
@@ -106,10 +102,10 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
       });
       return point;
     }).filter(p => Object.keys(p).length > 2);
-  }, [sessionDates, filteredLogs, allExercisesMeta, selectedExercise, topExercises]);
+  }, [sessionDates, filteredLogs, findMeta, selectedExercise, topExercises]);
 
   // Volume + Intensidade média por sessão
-  const volumeData = useMemo(() => {
+  const intensityData = useMemo(() => {
     return sessionDates.map(date => {
       const logs = filteredLogs.filter((l: any) => l.session_date === date);
       let tonnage = 0, totalReps = 0;
@@ -122,7 +118,6 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
       return {
         name: format(parseISO(date), "dd/MM"),
         date,
-        total: Math.round(tonnage),
         intensity: totalReps > 0 ? Math.round((tonnage / totalReps) * 10) / 10 : 0,
       };
     });
@@ -148,19 +143,8 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
     return Math.round((vals.reduce((s: number, v: number) => s + v, 0) / vals.length) * 10) / 10;
   }, [filteredLogs]);
 
-  // Frequência por grupamento (nº de sessões em que o grupo apareceu)
-  const muscleFrequency = useMemo(() => {
-    const map: Record<string, Set<string>> = {};
-    filteredLogs.forEach((l: any) => {
-      for (const { group } of fractionalSetsByMuscleGroup([l], allExercisesMeta, targets)) {
-        if (!map[group]) map[group] = new Set();
-        map[group].add(l.session_date);
-      }
-    });
-    return Object.entries(map)
-      .map(([muscle, dates]) => ({ muscle, sessions: dates.size }))
-      .sort((a, b) => b.sessions - a.sessions);
-  }, [filteredLogs, allExercisesMeta, targets]);
+  const muscleFrequency = realized.muscles.map(({ group: muscle, sessions }) => ({ muscle, sessions }))
+    .sort((a, b) => b.sessions - a.sessions);
 
   const maxFreq = Math.max(1, ...muscleFrequency.map(m => m.sessions));
 
@@ -168,25 +152,21 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
   const comparison = useMemo(() => {
     const days = period === "all" ? 30 : Number(period);
     const today = parseISO(todayStr);
-    const cutoffA = subDays(today, days);
-    const cutoffB = subDays(today, days * 2);
+    const cutoffA = subDays(today, days - 1);
+    const cutoffB = subDays(cutoffA, days);
 
-    let tonnageA = 0, tonnageB = 0;
-    const sessionsA = new Set<string>(), sessionsB = new Set<string>();
+    const a = summarizeRealizedTraining({ ...history, start: format(cutoffA, "yyyy-MM-dd"), end: todayStr });
+    const b = summarizeRealizedTraining({ ...history, start: format(cutoffB, "yyyy-MM-dd"), end: format(subDays(cutoffA, 1), "yyyy-MM-dd") });
     let prsA = 0, prsB = 0;
     const bestBefore: Record<string, number> = {};
-    const sortedAll = [...allLogs].filter((l: any) => l.session_date).sort((a, b) => a.session_date.localeCompare(b.session_date));
+    const sortedAll = [...completedLogs].sort((a, b) => a.session_date.localeCompare(b.session_date));
     sortedAll.forEach((l: any) => {
       const meta = findMeta(l.workout_id, l.exercise_index);
       if (!meta) return;
       const w = Number(l.weight) || 0;
-      const r = Number(l.reps_done) || 0;
-      const t = w * r;
       const d = parseISO(l.session_date);
       const isA = d >= cutoffA;
       const isB = d >= cutoffB && d < cutoffA;
-      if (isA) { tonnageA += t; sessionsA.add(l.session_date); }
-      if (isB) { tonnageB += t; sessionsB.add(l.session_date); }
       const prev = bestBefore[meta.name] || 0;
       if (w > prev) {
         if (isA) prsA++;
@@ -196,13 +176,16 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
     });
 
     const pct = (a: number, b: number) => (b === 0 ? (a > 0 ? 100 : 0) : Math.round(((a - b) / b) * 100));
+    const hasCoverageGap = (result: typeof a) => result.incompleteLoad || result.overlappingLogs > 0;
+    const displayLoad = (result: typeof a) => hasCoverageGap(result) && !result.knownDays ? "—" : result.totalVolume.toLocaleString("pt-BR");
     return {
       days,
-      tonnageA: Math.round(tonnageA), tonnageB: Math.round(tonnageB), tonnagePct: pct(tonnageA, tonnageB),
-      sessionsA: sessionsA.size, sessionsB: sessionsB.size, sessionsPct: pct(sessionsA.size, sessionsB.size),
+      tonnageA: displayLoad(a), tonnageB: displayLoad(b),
+      tonnagePct: hasCoverageGap(a) || hasCoverageGap(b) ? null : pct(a.totalVolume, b.totalVolume),
+      sessionsA: a.completed.length, sessionsB: b.completed.length, sessionsPct: pct(a.completed.length, b.completed.length),
       prsA, prsB, prsPct: pct(prsA, prsB),
     };
-  }, [allLogs, allExercisesMeta, period, todayStr]);
+  }, [completedLogs, history, findMeta, period, todayStr]);
 
   // PRs gerais
   const personalRecords = useMemo(() => {
@@ -219,17 +202,18 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
       }
     });
     return Object.entries(best).map(([exercise, v]) => ({ exercise, ...v })).sort((a, b) => b.weight - a.weight);
-  }, [filteredLogs, allExercisesMeta]);
+  }, [filteredLogs, findMeta]);
 
-  const totalSessions = sessionDates.length;
-  const totalTonnage = useMemo(() => volumeData.reduce((s, v) => s + v.total, 0), [volumeData]);
-  const avgTonnage = totalSessions > 0 ? Math.round(totalTonnage / totalSessions) : 0;
+  const totalSessions = realized.completed.length;
+  const totalTonnage = realized.totalVolume;
+  const avgTonnage = realized.knownDays ? Math.round(totalTonnage / realized.knownDays) : 0;
+  const volumeData = realized.days.map(day => ({ name: format(parseISO(day.date), "dd/MM"), total: day.volume }));
   const topPR = personalRecords[0];
 
   const exerciseColors = ["hsl(var(--primary))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
   const filteredExerciseNames = selectedExercise === "all" ? topExercises : [selectedExercise];
 
-  if (allLogs.length === 0) {
+  if (completedLogs.length === 0 && sessions.length === 0) {
     return (
       <Card className="bg-card border-border border-dashed">
         <CardContent className="p-8 text-center">
@@ -287,7 +271,8 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
         <TabsContent value="bodymap" className="space-y-4">
           <Card className="bg-card border-border">
             <CardContent className="p-4">
-              <h3 className="text-sm font-mono-data font-semibold text-muted-foreground uppercase tracking-wider mb-4">Volume por Grupamento</h3>
+              <h3 className="text-sm font-mono-data font-semibold text-muted-foreground uppercase tracking-wider mb-4">Séries registradas por músculo principal</h3>
+              {realized.incompleteMuscles && <p className="text-xs text-muted-foreground">Cobertura muscular parcial neste período.</p>}
               <MuscleRadar muscleVolumes={muscleVolumes} unit="sets" />
             </CardContent>
           </Card>
@@ -296,7 +281,7 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Flame className="h-4 w-4 text-orange-500" />
-                <h3 className="text-sm font-mono-data font-semibold text-muted-foreground uppercase tracking-wider">Frequência por Grupamento</h3>
+                <h3 className="text-sm font-mono-data font-semibold text-muted-foreground uppercase tracking-wider">Sessões concluídas por músculo principal</h3>
               </div>
               {muscleFrequency.length === 0 ? (
                 <p className="text-xs text-muted-foreground font-sans">Sem dados no período.</p>
@@ -500,10 +485,13 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
 
         {/* Volume + comparativo */}
         <TabsContent value="volume" className="space-y-4">
+          {(realized.incompleteLoad || realized.overlappingLogs > 0) && <p className="text-xs text-muted-foreground">
+            Carga baseada nas sessões concluídas e séries legadas independentes. Registros sem valor verificável ou com sobreposição de treino e dia podem reduzir a cobertura.
+          </p>}
           <Card className="bg-card border-border">
             <CardContent className="p-4">
               <h3 className="text-sm font-mono-data font-semibold text-muted-foreground uppercase tracking-wider mb-4">
-                Tonelagem por Sessão (kg)
+                Carga × repetições por dia (kg)
               </h3>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -529,7 +517,7 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
               </h3>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { label: "Tonelagem", a: comparison.tonnageA.toLocaleString("pt-BR"), b: comparison.tonnageB.toLocaleString("pt-BR"), pct: comparison.tonnagePct, suffix: "kg" },
+                  { label: "Tonelagem", a: comparison.tonnageA, b: comparison.tonnageB, pct: comparison.tonnagePct, suffix: "kg" },
                   { label: "Sessões", a: comparison.sessionsA, b: comparison.sessionsB, pct: comparison.sessionsPct, suffix: "" },
                   { label: "Novos PRs", a: comparison.prsA, b: comparison.prsB, pct: comparison.prsPct, suffix: "" },
                 ].map((m, i) => (
@@ -537,12 +525,12 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
                     <p className="text-[10px] text-muted-foreground font-sans uppercase mb-1">{m.label}</p>
                     <p className="text-lg font-bold font-mono text-foreground">{m.a}{m.suffix && ` ${m.suffix}`}</p>
                     <p className="text-[10px] text-muted-foreground font-mono">vs {m.b}{m.suffix && ` ${m.suffix}`}</p>
-                    <Badge
+                    {m.pct !== null && <Badge
                       variant="outline"
                       className={`mt-1 text-[10px] ${m.pct >= 0 ? "border-green-500/40 text-green-500" : "border-red-500/40 text-red-500"}`}
                     >
                       {m.pct >= 0 ? "+" : ""}{m.pct}%
-                    </Badge>
+                    </Badge>}
                   </div>
                 ))}
               </div>
@@ -555,19 +543,19 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-secondary/50 rounded-lg p-3 text-center">
                   <p className="text-2xl font-bold font-mono text-foreground">{totalSessions}</p>
-                  <p className="text-[10px] text-muted-foreground font-sans uppercase">Sessões</p>
+                  <p className="text-[10px] text-muted-foreground font-sans uppercase">Sessões concluídas</p>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-3 text-center">
                   <p className="text-2xl font-bold font-mono text-foreground">{personalRecords.length}</p>
                   <p className="text-[10px] text-muted-foreground font-sans uppercase">Recordes</p>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold font-mono text-foreground">{totalTonnage.toLocaleString("pt-BR")}</p>
+                  <p className="text-2xl font-bold font-mono text-foreground">{(realized.incompleteLoad || realized.overlappingLogs > 0) && !realized.knownDays ? "—" : totalTonnage.toLocaleString("pt-BR")}</p>
                   <p className="text-[10px] text-muted-foreground font-sans uppercase">Tonelagem (kg)</p>
                 </div>
                 <div className="bg-secondary/50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold font-mono text-foreground">{avgTonnage.toLocaleString("pt-BR")}</p>
-                  <p className="text-[10px] text-muted-foreground font-sans uppercase">Média/sessão (kg)</p>
+                  <p className="text-2xl font-bold font-mono text-foreground">{realized.knownDays ? avgTonnage.toLocaleString("pt-BR") : "—"}</p>
+                  <p className="text-[10px] text-muted-foreground font-sans uppercase">Média/dia com carga registrada (kg)</p>
                 </div>
                 {topPR && (
                   <div className="col-span-2 bg-secondary/50 rounded-lg p-3 text-center">
@@ -585,14 +573,14 @@ export function StatsCharts({ allLogs, cycles, todayStr, studentId }: StatsChart
           <Card className="bg-card border-border">
             <CardContent className="p-4">
               <h3 className="text-sm font-mono-data font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                Intensidade Média por Sessão
+                Carga média por repetição nos logs de séries
               </h3>
               <p className="text-[10px] text-muted-foreground font-sans mb-3">
-                Tonelagem dividida pelo total de repetições (kg/rep). Mostra densidade de carga.
+                Carga × repetições dividida pelo total de repetições registradas no dia (kg/rep).
               </p>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={volumeData}>
+                  <ComposedChart data={intensityData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
                     <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />

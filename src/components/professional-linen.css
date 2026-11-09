@@ -1,0 +1,238 @@
+.sett-linen {
+  --linen-glass: hsl(var(--card) / .68);
+  --linen-rim: hsl(0 0% 100% / .82);
+  --linen-shadow: 0 10px 30px hsl(var(--foreground) / .10);
+  --linen-glint: inset 0 1px 1px hsl(0 0% 100% / .82), inset 0 -1px 1px hsl(var(--foreground) / .08);
+  background:
+    radial-gradient(ellipse at 0% 0%, hsl(var(--card)) 0%, transparent 60%),
+    radial-gradient(ellipse at 100% 6%, hsl(var(--primary) / .13), transparent 60%),
+    hsl(var(--paper));
+  background-attachment: fixed;
+}
+
+.dark .sett-linen {
+  --linen-rim: hsl(0 0% 100% / .16);
+  --linen-glint: inset 0 1px 1px hsl(0 0% 100% / .16);
+}
+
+.sett-linen :is(.sett-panel-header, .sett-linen-sidebar > [data-sidebar="sidebar"], .sett-linen-drawer, .sett-linen-dock) {
+  border: 1px solid var(--linen-rim);
+  border-radius: 1.5rem;
+  background: hsl(var(--card));
+  box-shadow: var(--linen-glint), var(--linen-shadow);
+}
+
+.sett-linen .sett-panel-header {
+  top: .625rem;
+  margin: .625rem .75rem 0;
+}
+
+.sett-linen .sett-linen-sidebar {
+  padding: .875rem .5rem .875rem .75rem;
+}
+
+.sett-linen .sett-linen-sidebar > [data-sidebar="sidebar"] {
+  overflow: hidden;
+}
+
+.sett-linen .sett-linen-drawer {
+  inset: .75rem auto .75rem .75rem;
+  width: min(18rem, calc(100vw - 1.5rem));
+  height: auto;
+  overflow: hidden;
+  padding: 0;
+}
+
+.sett-linen .sett-sidebar-brand {
+  min-height: 4rem;
+  padding: .625rem .75rem;
+}
+
+.sett-linen .sett-linen-sidebar-toggle {
+  width: 2rem;
+  height: 2rem;
+  border-radius: .75rem;
+}
+
+.sett-linen .sett-linen-sidebar [data-sidebar="menu-button"],
+.sett-linen .sett-linen-drawer [data-sidebar="menu-button"] {
+  border-radius: .75rem;
+}
+
+.sett-linen .sett-linen-sidebar [data-sidebar="menu-button"] > span[aria-hidden="true"] {
+  border-radius: inherit;
+}
+
+.sett-linen [data-collapsible="icon"] .sett-sidebar-brand {
+  flex-direction: column;
+  padding-inline: .15rem;
+  gap: .125rem;
+}
+
+.sett-linen [data-collapsible="icon"] .sett-sidebar-brand img {
+  height: 2rem;
+  max-width: 2rem;
+  width: 2rem;
+}
+
+.sett-linen [data-collapsible="icon"] [data-sidebar="menu-button"] > svg {
+  margin-right: 0;
+}
+
+.sett-linen [data-collapsible="icon"] :is(.sett-sidebar-label, [data-sidebar="menu-sub"]) {
+  display: none;
+}
+
+.sett-linen .sett-linen-content :is(.bg-card, [role="tablist"]) {
+  border-radius: 1rem;
+}
+
+.sett-linen .sett-linen-content [role="tablist"] {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.sett-linen .sett-linen-content [role="tab"] {
+  flex-shrink: 0;
+}
+
+.sett-linen .sett-linen-content button:not([role="tab"]):is(.bg-primary, .bg-background, .bg-secondary) {
+  box-shadow: var(--linen-glint), 0 3px 8px hsl(var(--foreground) / .07);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .sett-linen :is(.sett-panel-header, .sett-linen-sidebar > [data-sidebar="sidebar"], .sett-linen-drawer, .sett-linen-dock),
+  .sett-linen .sett-linen-content [role="tablist"] {
+    background: var(--linen-glass);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    backdrop-filter: blur(24px) saturate(150%);
+  }
+
+  .sett-linen .sett-linen-content button:not([role="tab"]).bg-primary {
+    background-color: hsl(var(--primary) / .91);
+    -webkit-backdrop-filter: blur(9px);
+    backdrop-filter: blur(9px);
+  }
+
+  .sett-linen .sett-linen-content button:not([role="tab"]):is(.bg-background, .bg-secondary) {
+    background-color: hsl(var(--card) / .72);
+    -webkit-backdrop-filter: blur(9px);
+    backdrop-filter: blur(9px);
+  }
+}
+
+.sett-linen-dock {
+  position: fixed;
+  z-index: 35;
+  inset-inline: .75rem;
+  bottom: calc(var(--sett-install-height, 0px) + max(.75rem, env(safe-area-inset-bottom, 0px)));
+  width: min(30rem, calc(100% - 1.5rem));
+  margin-inline: auto;
+  padding: .3rem;
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+}
+
+.sett-linen-dock > :is(a, button) {
+  flex: 1;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  min-height: 2.75rem;
+  padding: .25rem;
+  gap: .2rem;
+  border-radius: 1.125rem;
+  color: hsl(var(--muted-foreground));
+  font-size: .6875rem;
+  line-height: 1;
+}
+
+.sett-linen-dock > :is(a, button):is(:hover, .sett-dock-active, [aria-expanded="true"]) {
+  color: hsl(var(--foreground));
+  background: hsl(var(--primary) / .13);
+}
+
+.sett-linen-dock > :is(a, button):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.sett-linen-dock svg {
+  height: 1.0625rem;
+  width: 1.0625rem;
+}
+
+@media (max-width: 767px) {
+  .group\/sidebar-wrapper:has(.sett-linen-dock) {
+    --sett-mobile-dock-height: 3.75rem;
+  }
+
+  .sett-linen .sett-linen-content {
+    padding-bottom: calc(7rem + var(--sett-install-height, 0px) + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* The fixed launcher also appears on routes outside the Linho shell. */
+.sett-chat-launcher {
+  min-height: 2.875rem;
+  border-radius: 1.25rem;
+  border: 1px solid var(--linen-rim, hsl(var(--border)));
+  color: hsl(var(--foreground));
+  background: hsl(var(--card));
+  box-shadow: var(--linen-glint, inset 0 1px 1px hsl(0 0% 100% / .28)),
+    var(--linen-shadow, 0 8px 24px hsl(var(--foreground) / .11));
+  font-size: .875rem;
+  font-weight: 600;
+}
+
+.sett-chat-launcher:hover {
+  background: hsl(var(--accent));
+}
+
+.sett-chat-launcher:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.sett-chat-launcher:disabled {
+  opacity: .55;
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .sett-chat-launcher {
+    background: var(--linen-glass, hsl(var(--card) / .8));
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    backdrop-filter: blur(20px) saturate(150%);
+  }
+}
+
+.sett-student-tabs {
+  touch-action: pan-x pan-y;
+}
+
+.sett-linen .sett-linen-content [role="tablist"] {
+  padding: .25rem;
+  border: 1px solid var(--linen-rim);
+  box-shadow: var(--linen-glint), 0 5px 18px hsl(var(--foreground) / .06);
+}
+
+.sett-linen .sett-linen-content [role="tab"] {
+  border-radius: .75rem;
+  border-color: transparent;
+}
+
+.sett-linen .sett-linen-content [role="tab"][data-state="active"] {
+  background: hsl(var(--primary) / .14);
+}
+
+@media (max-width: 767px) {
+  .group\/sidebar-wrapper:has(.sett-linen-dock) {
+    --sett-bnito-max-top: max(.75rem, calc(100dvh - 76px - var(--sett-mobile-dock-height) - var(--sett-install-height, 0px) - max(1rem, env(safe-area-inset-bottom, 0px))));
+  }
+}
+
+.sett-linen .sett-linen-content :is(h1, h2, h3) {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -.025em;
+}

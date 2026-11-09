@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   DEFAULT_COMPANY_PRODUCT_SETTINGS as defaults,
   normalizeCompanyProductSettings as normalize,
-  getCompanyProductSettings,
+  getCompanyProductSettings, WHATSAPP_EVENTS,
 } from '../../supabase/functions/_shared/company-product-settings';
 
 const { from, rpc } = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn() }));
@@ -93,6 +93,16 @@ describe('company product settings contract', () => {
     await expect(fetchCompanyProductSettings('')).rejects.toThrow();
   });
 
+  it('projects the birthday column by company and keeps it outside automated sequences', async () => {
+    const template = 'Parabéns, {{primeiro_nome}}! Abraços da {{empresa}}.';
+    respond({ settings: {}, birthday_message_template: template, version: 3 });
+    expect((await fetchCompanyProductSettings('company-a')).settings.messages.birthday).toBe(template);
+    expect(WHATSAPP_EVENTS).not.toContain('birthday');
+    respond({ settings: {}, birthday_message_template: null, version: 2 });
+    expect((await fetchCompanyProductSettings('company-b')).settings.messages.birthday).toBe(defaults.messages.birthday);
+    expect(() => normalize({ messages: { birthday: '{{link}}' } })).toThrow('messages.birthday.variable.link');
+  });
+
   it('uses optimistic concurrency and exposes version conflicts', async () => {
     rpc.mockResolvedValue({ data: { settings: defaults, version: 2 }, error: null });
     expect((await saveCompanyProductSettings('a', defaults, 1)).version).toBe(2);
@@ -137,6 +147,7 @@ describe('company product settings contract', () => {
     expect(json).toBeDefined();
     const persistedDefaults = structuredClone(defaults);
     delete (persistedDefaults.prescription as Partial<typeof persistedDefaults.prescription>).expired_workout_behavior;
+    delete (persistedDefaults.messages as Partial<typeof persistedDefaults.messages>).birthday;
     expect(JSON.parse(json!)).toEqual(persistedDefaults);
   });
 });

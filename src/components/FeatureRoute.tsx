@@ -1,3 +1,4 @@
+import { AccessLookupError } from "@/components/AccessLookupError";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useCompanyFeatures, CompanyFeatures } from "@/hooks/useCompanyFeatures";
@@ -14,11 +15,13 @@ interface FeatureRouteProps {
 }
 
 export function FeatureRoute({ children, allowedRoles, requiredFeature, requiredModule }: FeatureRouteProps) {
-  const { user, role, loading: authLoading } = useAuth();
+  const { user, role, loading: authLoading, accessLookupFailed } = useAuth();
   const features = useCompanyFeatures();
   const { canAccess, loading: permLoading } = useRolePermissions();
   const { viewingCompany, contextLoading, contextError } = useMaster();
   const location = useLocation();
+
+  if (!authLoading && user && accessLookupFailed) return <AccessLookupError />;
 
   if (authLoading || contextLoading || features.loading || permLoading) {
     return (

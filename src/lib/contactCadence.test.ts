@@ -46,18 +46,22 @@ describe("contact cadence", () => {
     expect(cadenceDisplayName(row({ contact_name: null }))).toBe("Contato sem nome");
   });
 
-  it("filtra a cadência pelas janelas de 1 semana a 3 meses", () => {
+  it("filtra pela última entrada cronológica, independentemente das horas do SLA", () => {
+    const now = Date.parse("2026-11-09T12:00:00Z");
+    const age = (days: number) => new Date(now - days * 86_400_000).toISOString();
     const rows = [
-      row({ chat_id: "1", hours_since: 6 * 24 }),
-      row({ chat_id: "2", hours_since: 10 * 24 }),
-      row({ chat_id: "3", hours_since: 25 * 24 }),
-      row({ chat_id: "4", hours_since: 70 * 24 }),
-      row({ chat_id: "5", hours_since: 91 * 24 }),
+      row({ chat_id: "1", last_inbound_at: age(7), hours_since: 24 }),
+      row({ chat_id: "2", last_inbound_at: age(10), hours_since: 24 }),
+      row({ chat_id: "3", last_inbound_at: age(25) }),
+      row({ chat_id: "4", last_inbound_at: age(70) }),
+      row({ chat_id: "5", last_inbound_at: age(91) }),
+      row({ chat_id: "6", last_inbound_at: age(-1) }),
+      row({ chat_id: "7", last_inbound_at: "invalid" }),
     ];
 
-    expect(filterCadenceByWindow(rows, 7).map((item) => item.chat_id)).toEqual(["1"]);
-    expect(filterCadenceByWindow(rows, 14).map((item) => item.chat_id)).toEqual(["1", "2"]);
-    expect(filterCadenceByWindow(rows, 30).map((item) => item.chat_id)).toEqual(["1", "2", "3"]);
-    expect(filterCadenceByWindow(rows, 90).map((item) => item.chat_id)).toEqual(["1", "2", "3", "4"]);
+    expect(filterCadenceByWindow(rows, 7, now).map((item) => item.chat_id)).toEqual(["1"]);
+    expect(filterCadenceByWindow(rows, 14, now).map((item) => item.chat_id)).toEqual(["1", "2"]);
+    expect(filterCadenceByWindow(rows, 30, now).map((item) => item.chat_id)).toEqual(["1", "2", "3"]);
+    expect(filterCadenceByWindow(rows, 90, now).map((item) => item.chat_id)).toEqual(["1", "2", "3", "4"]);
   });
 });

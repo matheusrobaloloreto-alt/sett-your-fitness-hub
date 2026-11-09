@@ -281,18 +281,26 @@ function extractWebhookMessages(body: any): any[] {
   return [];
 }
 
-function messageDate(value: unknown): Date {
-  const numeric = Number(value);
-  if (Number.isFinite(numeric) && numeric > 0) {
-    const milliseconds = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
-    const parsed = new Date(milliseconds);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
+export function messageDate(value: unknown): Date | null {
+  // Baileys serializes some timestamps as protobuf Long objects.
+  if (typeof value === "object" && value !== null && "low" in value && "high" in value) {
+    const { low, high } = value;
+    if (typeof low !== "number" || typeof high !== "number" ||
+      !Number.isInteger(low) || !Number.isInteger(high) ||
+      low < -2147483648 || low > 4294967295 || high < 0 || high > 2097151) return null;
+    value = high * 4294967296 + (low >>> 0);
   }
-  if (typeof value === "string") {
+  const numeric = typeof value === "number" ||
+    (typeof value === "string" && /^\d+$/.test(value)) ? Number(value) : NaN;
+  if (Number.isSafeInteger(numeric) && numeric > 0) {
+    const parsed = new Date(numeric < 10_000_000_000 ? numeric * 1000 : numeric);
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
+  }
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
     const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
+    if (Number.isFinite(parsed.getTime())) return parsed;
   }
-  return new Date();
+  return null;
 }
 
 function extensionFromMime(mimetype: string | null) {
@@ -529,6 +537,7 @@ export async function sendText(
   expectedStudentId: string | null,
   context: Record<string, unknown> = {},
   sequence?: { parts: MessagePart[]; configured: boolean; version: number },
+  assertFlowActive?: () => Promise<void>,
 ): Promise<void> {
   await requireCompanyFeature(adminClient, companyId, "hasWhatsApp");
   await requireCompanyFeature(adminClient, companyId, "hasAutomation");
@@ -571,6 +580,7 @@ export async function sendText(
       });
       if (consent.error || consent.data !== true) throw new Error('weekly_contact_consent_missing');
     }
+    await assertFlowActive?.();
     if (!evoUrl || !evoHeaders.apikey) throw new Error('dispatch_provider_unavailable');
   };
   if (sequence && await dispatchConfiguredMessageSequence({
@@ -597,7 +607,7 @@ export async function sendText(
   if (receipt) {
     const logged = await adminClient.from('whatsapp_messages').insert({
       chat_id: chatId, company_id: companyId, content: text, source: 'outgoing',
-      type: 'text', is_from_me: true, message_id_external: receipt, timestamp: new Date().toISOString(),
+      type: 'text', is_from_me: true, message_id_external: receipt, origin: "automation", timestamp: new Date().toISOString(),
     });
     if (logged.error) throw new Error('dispatch_history_pending'); // Durable ACK still prevents duplicate sends.
   }
@@ -769,8 +779,15 @@ export async function executeFlow(
   if (subject !== null && (typeof subject !== 'string' || !subject)) throw new Error('dispatch_subject_snapshot_missing');
   if (isStudentContact !== Boolean(subject)) throw new Error('dispatch_subject_changed');
   context = { ...context, _dispatch_student_id: subject };
-  const ownedFlow = await adminClient.from('automation_flows').select('id').eq('id', flowId).eq('company_id', companyId).eq('is_active', true).maybeSingle();
-  if (ownedFlow.error || !ownedFlow.data) throw new Error('flow_target_missing_inactive_or_foreign');
+  const assertFlowActive = async () => {
+    const flowPath = Array.isArray(context._flow_path) ? context._flow_path.map(String) : [];
+    for (const activeFlowId of new Set([...flowPath, flowId])) {
+      const flow = await adminClient.from('automation_flows').select('id').eq('id', activeFlowId)
+        .eq('company_id', companyId).eq('is_active', true).maybeSingle();
+      if (flow.error || !flow.data) throw new Error('flow_target_missing_inactive_or_foreign');
+    }
+  };
+  await assertFlowActive();
   const [nodesRes, edgesRes] = await Promise.all([
     adminClient.from("automation_flow_nodes").select("*").eq("flow_id", flowId),
     adminClient.from("automation_flow_edges").select("*").eq("flow_id", flowId),
@@ -837,6 +854,7 @@ export async function executeFlow(
           subject,
           context,
           sequence,
+          assertFlowActive,
         );
       }
 
@@ -895,6 +913,8 @@ export async function executeFlow(
           () => webhookOccurrence(context._dispatch_inbound_event, `${flowId}:${currentId}`),
           subject,
           context,
+          undefined,
+          assertFlowActive,
         );
       }
 
@@ -977,9 +997,17 @@ async function resumeFlowSession(
   const { data: sessionChat } = await adminClient.from('whatsapp_chats').select('student_id').eq('id', chatId).eq('company_id', companyId).maybeSingle();
   const isStudentContact = Boolean(sessionChat?.student_id);
 
-  // Find the node that triggered the wait to get its save_response_as config
-  const { data: currentNode } = await adminClient.from("automation_flow_nodes")
-    .select("*").eq("id", session.current_node_id).maybeSingle();
+  const advanceSession = async (nextNodeId: string | null) => {
+    const queue = ctx.trigger_type === 'weekly_contact' && nextNodeId !== null;
+    const result = await adminClient.from('flow_sessions').update({
+      status: queue ? 'active' : 'completed',
+      ...(queue ? { current_node_id: nextNodeId } : {}),
+      context: ctx,
+      updated_at: new Date().toISOString(),
+    }).eq('id', session.id).eq('status', 'waiting_response').select('id').maybeSingle();
+    if (result.error) throw new Error('flow_resume_unavailable');
+    return Boolean(result.data && !queue && nextNodeId);
+  };
 
   // If it was a menu pause, handle option routing
   if (ctx._menu_node) {
@@ -1002,13 +1030,7 @@ async function resumeFlowSession(
       const nextNodeId = matchEdge?.target_node_id ||
         (edges && edges.length > 0 ? edges[0].target_node_id : null);
 
-      // Mark session complete
-      await adminClient.from("flow_sessions").update({
-        status: "completed",
-        updated_at: new Date().toISOString(),
-      }).eq("id", session.id);
-
-      if (nextNodeId) {
+      if (await advanceSession(nextNodeId)) {
         await executeFlow(
           adminClient,
           companyId,
@@ -1065,15 +1087,9 @@ async function resumeFlowSession(
     ctx.nome = nameValue;
   }
 
-  // Mark session completed
-  await adminClient.from("flow_sessions").update({
-    status: "completed",
-    context: ctx,
-    updated_at: new Date().toISOString(),
-  }).eq("id", session.id);
-
-  if (ctx._reply_terminal) return;
+  const nextNodeId = ctx._reply_terminal ? null : session.current_node_id;
   delete ctx._reply_save_as;
+  if (!await advanceSession(nextNodeId)) return;
 
   // Resume flow from next node
   await executeFlow(
@@ -1354,7 +1370,7 @@ if (import.meta.main) Deno.serve(async (req) => {
         const remoteJid = String(key.remoteJid || "");
         if (!remoteJid) continue;
         const providerDate = messageDate(msg.messageTimestamp ?? msg.timestamp);
-        if (providerDate < since) {
+        if (!providerDate || providerDate < since) {
           skippedOld += 1;
           continue;
         }
@@ -1489,8 +1505,7 @@ if (import.meta.main) Deno.serve(async (req) => {
           await adminClient.from("whatsapp_chats").update({
             last_message: content,
             last_message_at: providerDate.toISOString(),
-            ...(isFromMe ? { unread_count: 0 } : {}),
-          }).eq("id", chat.id);
+          }).eq("id", chat.id).or(`last_message_at.is.null,last_message_at.lte.${providerDate.toISOString()}`);
         }
       }
 
@@ -1682,9 +1697,9 @@ if (import.meta.main) Deno.serve(async (req) => {
         const key = msg.key || {};
         const remoteJid = key.remoteJid || "";
         if (!remoteJid) continue;
-        const providerMessageDate = messageDate(
-          msg.messageTimestamp ?? msg.timestamp,
-        );
+        const sourceDate = messageDate(msg.messageTimestamp ?? msg.timestamp);
+        if (isHistoryEvent && !sourceDate) continue;
+        const providerMessageDate = sourceDate ?? new Date();
         const providerMessageAt = providerMessageDate.toISOString();
 
         const contactName = remoteJid.includes("@g.us")
@@ -1931,7 +1946,7 @@ if (import.meta.main) Deno.serve(async (req) => {
               last_message: content,
               last_message_at: providerMessageAt,
             })
-            .eq("id", chat.id);
+            .eq("id", chat.id).or(`last_message_at.is.null,last_message_at.lte.${providerMessageAt}`);
         }
 
         // Increment unread
@@ -1954,6 +1969,9 @@ if (import.meta.main) Deno.serve(async (req) => {
             .order("created_at", { ascending: false }).limit(1).maybeSingle();
 
           if (activeSession) {
+            const waitingSince = Date.parse(activeSession.last_activity_at || activeSession.created_at || "");
+            if (!sourceDate || (Number.isFinite(waitingSince) &&
+              sourceDate.getTime() < Math.floor(waitingSince / 1000) * 1000)) continue;
             // Check if the flow is still active before resuming
             const { data: sessionFlow } = await adminClient.from(
               "automation_flows",
@@ -1968,7 +1986,7 @@ if (import.meta.main) Deno.serve(async (req) => {
               );
               await adminClient.from("flow_sessions").update({
                 status: "cancelled",
-              }).eq("id", activeSession.id);
+              }).eq("id", activeSession.id).eq("status", "waiting_response");
             } else {
               console.log("[webhook] Resuming flow session:", activeSession.id);
               try {

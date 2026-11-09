@@ -97,9 +97,9 @@ export const settingsHelpRegistry: Record<string, Omit<SettingHelpProps, 'label'
     "effect": "Novas concessões seguem a política; o histórico de pontos é preservado."
   },
   "assessment_sla_business_days": {
-    "what": "Prazo informado para avaliação e treino.",
-    "edits": "De 1 a 30 dias úteis.",
-    "effect": "Usado no contexto das novas ocorrências e mensagens com {{prazo}}; não garante entrega automática."
+    "what": "Prazo da primeira prescrição a partir do recebimento do material completo.",
+    "edits": "De 2 a 30 dias úteis. A avaliação tem prazo de 2 dias úteis.",
+    "effect": "O valor é usado ao registrar um novo recebimento e nas mensagens com {{prazo}}."
   },
   "beginner_max_weekly_sets": {
     "what": "Teto semanal de séries para iniciantes.",

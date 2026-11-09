@@ -38,16 +38,18 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     const { data: existing, error: lookupError } = await admin.from("ai_strength_plans")
-      .select("id,student_id,company_id,updated_at").eq("id", body.plan_id).maybeSingle();
+      .select("id,student_id,company_id,updated_at,studio_draft_cycle_id").eq("id", body.plan_id).maybeSingle();
     if (lookupError) throw new HttpError(503, "Falha ao carregar a prescrição.");
     if (!existing) return json(404, { error: "Plano não encontrado." });
     await assertTenantAccess(admin, { sub: userData.user.id }, { studentId: existing.student_id, companyId: existing.company_id, requireStaff: true });
     await requireCompanyFeature(admin, existing.company_id, "hasPrescription");
+    if (!existing.studio_draft_cycle_id) return json(409, { error: "Este plano não está mais em rascunho." });
     if (existing.updated_at !== body.expected_updated_at) return json(409, { error: "Este plano foi atualizado em outra sessão. Recarregue antes de salvar." });
 
     const { data: updated, error: updateError } = await admin.from("ai_strength_plans")
       .update({ plan: body.plan }).eq("id", existing.id).eq("student_id", existing.student_id)
       .eq("company_id", existing.company_id).eq("updated_at", body.expected_updated_at)
+      .eq("studio_draft_cycle_id", existing.studio_draft_cycle_id)
       .select("id,updated_at,plan").maybeSingle();
     if (updateError) throw new HttpError(503, "Falha ao salvar a prescrição.");
     if (!updated) return json(409, { error: "Este plano foi atualizado em outra sessão. Recarregue antes de salvar." });

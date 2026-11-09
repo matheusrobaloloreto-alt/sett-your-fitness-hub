@@ -19,6 +19,7 @@ interface NodeEditorProps {
 export function NodeEditor({ node, onUpdate, onDelete, onClose, triggerType }: NodeEditorProps) {
   const data = node.data as Record<string, any>;
   const nodeType = node.type || "content";
+  const usesCentralMessage = data.use_company_template === "weekly_contact";
 
   const update = (key: string, value: any) => {
     onUpdate(node.id, { ...data, [key]: value });
@@ -47,17 +48,24 @@ export function NodeEditor({ node, onUpdate, onDelete, onClose, triggerType }: N
         {nodeType === "content" && (
           <>
             {triggerType === 'weekly_contact' && <div className="flex items-center gap-2">
-              <Checkbox id="company-weekly-template" checked={data.use_company_template === 'weekly_contact'} onCheckedChange={checked => update('use_company_template', checked ? 'weekly_contact' : undefined)} />
+              <Checkbox id="company-weekly-template" checked={usesCentralMessage} onCheckedChange={checked => update('use_company_template', checked === true ? 'weekly_contact' : undefined)} />
               <Label htmlFor="company-weekly-template">Usar mensagem semanal da empresa</Label>
             </div>}
             <div className="space-y-1.5">
-              <Label className="text-xs">Mensagem</Label>
+              <p className="text-xs font-medium">
+                {usesCentralMessage ? "Origem: mensagem central da empresa" : "Origem: mensagem personalizada do bloco"}
+              </p>
+              <Label htmlFor="flow-content-message" className="text-xs">
+                {usesCentralMessage ? "Texto alternativo" : "Mensagem"}
+              </Label>
               <Textarea
+                id="flow-content-message"
                 value={data.message || ""}
                 onChange={e => update("message", e.target.value)}
                 placeholder="Use {{nome}} para o nome do aluno"
                 className="min-h-[100px] text-sm"
               />
+              {usesCentralMessage && <p className="text-xs text-muted-foreground">A mensagem central é editada em Configurações → Mensagens. Este texto só é usado quando não houver modelo central.</p>}
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Aguardar (minutos)</Label>

@@ -122,12 +122,13 @@ describe("workout archive migration contract", () => {
 
   it("keeps the restore UI scoped to manually archived workouts, not old superseded revisions", () => {
     const studentDetail = source("src/pages/admin/StudentDetail.tsx");
-    const archivedQueryStart = studentDetail.indexOf(".select(\"id, cycle_id, title, name, exercises, sort_order, superseded_at, superseded_reason, student_profile_archive_event_id\")");
-    const archivedQuery = studentDetail.slice(archivedQueryStart, archivedQueryStart + 500);
+    const archivedQuery = studentDetail.match(
+      /\.from\("workouts"\)\s*\.select\("([^"\n]*student_profile_archive_event_id[^"\n]*)"\)([^;]*?)\.in\("cycle_id", cycleIds\)/,
+    );
 
-    expect(archivedQueryStart).toBeGreaterThan(-1);
-    expect(archivedQuery).toContain(".not(\"superseded_at\", \"is\", null)");
-    expect(archivedQuery).toContain(".not(\"student_profile_archive_event_id\", \"is\", null)");
+    expect(archivedQuery).not.toBeNull();
+    expect(archivedQuery?.[2]).toContain('.not("superseded_at", "is", null)');
+    expect(archivedQuery?.[2]).toContain('.not("student_profile_archive_event_id", "is", null)');
     expect(studentDetail).toContain("student_profile_archive_event_id?: string | null");
     expect(studentDetail).not.toContain(".select(\"id, cycle_id, title, name, exercises, sort_order, superseded_at, superseded_reason\").not(\"superseded_at\"");
   });

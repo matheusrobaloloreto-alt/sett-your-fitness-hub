@@ -152,6 +152,22 @@ describe('WhatsApp event sequences in company settings', () => {
     expect(mocks.save).not.toHaveBeenCalled();
   });
 
+  it('keeps an in-flight attachment when navigating to another settings tab', async () => {
+    let finish!: (value: MessageMedia) => void;
+    mocks.upload.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    render(<ProductSettings />);
+    await screen.findByLabelText('Mensagem');
+    fireEvent.change(screen.getByLabelText('Tipo da mensagem 1'), { target: { value: 'image' } });
+    fireEvent.change(screen.getByLabelText('Anexar arquivo à mensagem 1'), {
+      target: { files: [new File(['fixture'], 'imagem.png', { type: 'image/png' })] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Contatos' }));
+    expect(screen.getByRole('button', { name: 'Salvar' })).toBeDisabled();
+    await act(async () => finish(media()));
+    fireEvent.click(screen.getByRole('button', { name: 'Mensagens' }));
+    expect(await screen.findByAltText('imagem.png')).toBeInTheDocument();
+  });
+
   it('clears media metadata when switching back to text and never deletes storage objects', async () => {
     const record = initial();
     (record.settings as SequenceSettings).message_sequences = { weekly_contact: [{ id: 'part-image', type: 'image', text: '', media: media() }] };

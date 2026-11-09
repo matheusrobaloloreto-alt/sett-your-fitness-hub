@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { PersonalThemeSegmentedControl } from "@/components/PersonalThemeToggle";
 import { toast } from "sonner";
 import { Loader2, Palette, Sparkles, Upload, RotateCcw, Save } from "lucide-react";
+import { LINEN_PALETTE } from "@/lib/linenPalette";
 import { prepareLogoImage, type PreparedLogo } from "@/lib/logoImage";
 
 // Alinhado ao default canônico do ThemeContext (evita uma academia nova ver o tema
@@ -309,6 +310,14 @@ export default function AppearanceSettings() {
           <Card>
             <CardHeader>
               <CardTitle className="text-xl">Cores</CardTitle>
+              <Button type="button" variant="outline" className="w-fit" onClick={() => {
+                setPrimaryColor(LINEN_PALETTE.primary_color);
+                setBackgroundColor(LINEN_PALETTE.background_color);
+                setCardColor(LINEN_PALETTE.card_color);
+                setTextColor(LINEN_PALETTE.text_color);
+              }}>
+                Usar paleta Linho
+              </Button>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">

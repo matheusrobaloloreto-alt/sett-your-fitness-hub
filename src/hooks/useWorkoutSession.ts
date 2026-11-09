@@ -25,7 +25,7 @@ export interface SessionSummary {
   exercisesSummary: ExerciseSummaryItem[];
 }
 
-export type SessionOperationResult<T> = {ok:true; value:T} | {ok:false; reason:'busy'|'context'|'conflict'|'unavailable'|'storage'|'invalid_metrics'};
+export type SessionOperationResult<T> = {ok:true; value:T} | {ok:false; reason:'busy'|'context'|'conflict'|'unavailable'|'storage'|'invalid_metrics'|'duplicate_open_sessions'};
 
 const STORAGE_KEY = (studentId: string) => `sett_active_session_${studentId}`;
 
@@ -34,6 +34,24 @@ function clearStoredSession(studentId:string,expectedId:string) {
     const raw=localStorage.getItem(STORAGE_KEY(studentId));
     if(raw && JSON.parse(raw).id===expectedId) localStorage.removeItem(STORAGE_KEY(studentId));
   } catch { /* An acknowledged remote transition does not authorize deleting another session. */ }
+}
+
+async function recoverPendingStart(
+  studentId: string, companyId: string, workoutId: string, requestId: string, terminalId: string | null,
+): Promise<{ active: ActiveSession | null } | null> {
+  const { data, error } = await supabase.rpc("retire_terminal_workout_start", {
+    _student_id: studentId, _company_id: companyId, _workout_id: workoutId,
+    _request_id: requestId, _session_id: terminalId,
+  });
+  if (error || !data || typeof data !== "object" || Array.isArray(data)) return null;
+  if (data.state === "retired") return { active: null };
+  const row = data.state === "active" ? data.session : null;
+  if (!row || typeof row !== "object" || Array.isArray(row)
+    || row.student_id !== studentId || row.company_id !== companyId || row.workout_id !== workoutId
+    || typeof row.id !== "string" || typeof row.started_at !== "string") return null;
+  const startedAt = Date.parse(row.started_at);
+  if (!Number.isFinite(startedAt)) return null;
+  return { active: { id: row.id, workoutId, companyId, startedAt, elapsedSeconds: 0 } };
 }
 
 export function useWorkoutSession(studentId: string | null, companyId: string | null) {
@@ -95,6 +113,53 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     window.addEventListener('storage',sync);return ()=>window.removeEventListener('storage',sync);
   },[studentId,companyId]);
 
+  useEffect(() => {
+    if (!studentId || !companyId || !activeSession) return;
+    const { id, workoutId } = activeSession;
+    let cancelled = false;
+    const checkTerminalSession = async () => {
+      try {
+        const { data, error } = await supabase.from("workout_sessions").select("id,status")
+          .eq("id", id).eq("student_id", studentId).eq("company_id", companyId)
+          .eq("workout_id", workoutId).maybeSingle();
+        if (cancelled || error || data?.id !== id
+          || !["completed", "abandoned", "reconciled"].includes(data.status ?? "")) return;
+        const pendingKey = `sett_session_start_${companyId}_${studentId}`;
+        const storedPending = localStorage.getItem(pendingKey);
+        const pending = storedPending ? JSON.parse(storedPending) : null;
+        if (pending?.workoutId === workoutId && typeof pending.requestId === "string") {
+          const recovered = await recoverPendingStart(studentId, companyId, workoutId, pending.requestId, id);
+          if (cancelled || !recovered || contextRef.current !== context || activeRef.current?.id !== id
+            || localStorage.getItem(pendingKey) !== storedPending) return;
+          if (recovered.active) {
+            const current = localStorage.getItem(STORAGE_KEY(studentId));
+            if (current && JSON.parse(current).id !== id) return;
+            localStorage.setItem(STORAGE_KEY(studentId), JSON.stringify(recovered.active));
+            activeRef.current = recovered.active;
+            setActiveSession(recovered.active);
+            setElapsed(Math.max(0, Math.floor((Date.now() - recovered.active.startedAt) / 1000)));
+            finishingRef.current = false;
+            localStorage.removeItem(pendingKey);
+            return;
+          }
+          localStorage.removeItem(pendingKey);
+        }
+        clearStoredSession(studentId, id);
+        if (contextRef.current === context && activeRef.current?.id === id) {
+          activeRef.current = null;
+          setActiveSession(null);
+          setElapsed(0);
+        }
+      } catch { /* Keep the local session until a server response confirms the terminal state. */ }
+    };
+    void checkTerminalSession();
+    window.addEventListener("focus", checkTerminalSession);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", checkTerminalSession);
+    };
+  }, [activeSession, companyId, context, studentId]);
+
   // Timer tick
   useEffect(() => {
     if (activeSession) {
@@ -117,21 +182,54 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     let requestId:string;
     try {
       const stored=localStorage.getItem(pendingKey);
-      const pending=stored ? JSON.parse(stored) : null;
-      if(pending && pending.workoutId!==workoutId){operationRef.current=false;return {ok:false,reason:'conflict'};}
+      let pending=stored ? JSON.parse(stored) : null;
+      if (pending && pending.workoutId !== workoutId) {
+        if (typeof pending.workoutId !== "string" || typeof pending.requestId !== "string") {
+          operationRef.current=false;
+          return {ok:false,reason:'storage'};
+        }
+        const recovered = await recoverPendingStart(studentId, companyId, pending.workoutId, pending.requestId, null);
+        if (!recovered || contextRef.current !== context || localStorage.getItem(pendingKey) !== stored) {
+          operationRef.current=false;
+          return {ok:false,reason:'conflict'};
+        }
+        if (recovered.active) {
+          const current = localStorage.getItem(STORAGE_KEY(studentId));
+          if (!current || JSON.parse(current).id === recovered.active.id) {
+            localStorage.setItem(STORAGE_KEY(studentId), JSON.stringify(recovered.active));
+            activeRef.current = recovered.active;
+            setActiveSession(recovered.active);
+            setElapsed(Math.max(0, Math.floor((Date.now() - recovered.active.startedAt) / 1000)));
+            finishingRef.current = false;
+            localStorage.removeItem(pendingKey);
+          }
+          operationRef.current=false;
+          return {ok:false,reason:'conflict'};
+        }
+        localStorage.removeItem(pendingKey);
+        pending=null;
+      }
       requestId=pending?.requestId || crypto.randomUUID();
       localStorage.setItem(pendingKey,JSON.stringify({requestId,workoutId}));
     } catch {operationRef.current=false;return {ok:false,reason:'storage'};}
     try {
       // New RPC is mandatory: no unsafe insert fallback when migration is absent.
       const {data,error}=await (supabase.rpc as unknown as (name:string,args:Record<string,unknown>)=>Promise<{data:unknown;error:unknown}>)('start_workout_session',{_student_id:studentId,_company_id:companyId,_workout_id:workoutId,_request_id:requestId});
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'PT409'
+        && 'message' in error && (error.message === 'session_legacy_ambiguous' || error.message === 'session_already_in_progress' || error.message === 'session_request_retired' || error.message === 'session_workout_no_longer_published')) {
+        // These two errors are raised after receipt lookup and before any insert.
+        // An uncertain network result still retains the request ID for replay.
+        const current = localStorage.getItem(pendingKey);
+        if (current && JSON.parse(current).requestId === requestId) localStorage.removeItem(pendingKey);
+        return { ok: false, reason: error.message === 'session_legacy_ambiguous' ? 'duplicate_open_sessions' : 'conflict' };
+      }
       if(error || !data) return {ok:false,reason:error && typeof error==='object' && 'code' in error && error.code==='PT409' ? 'conflict' : 'unavailable'};
       const row=data as {id:string;workout_id:string;student_id:string;company_id:string;started_at:string;status:string};
       if(row.student_id!==studentId || row.company_id!==companyId || row.workout_id!==workoutId) return {ok:false,reason:'conflict'};
       if(row.status!=='in_progress') {
         // A receipt remains bound forever. A terminal replay is a conflict,
         // never a new start; release only this acknowledged pending intent.
-        if(row.status==='completed' || row.status==='abandoned') localStorage.removeItem(pendingKey);
+        if(row.status==='completed' || row.status==='abandoned' || row.status==='reconciled') localStorage.removeItem(pendingKey);
         return {ok:false,reason:'conflict'};
       }
       const startedAt=Date.parse(row.started_at);

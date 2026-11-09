@@ -35,7 +35,7 @@ import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { useMaster } from "@/contexts/MasterContext";
 import { PreRegistrationDetails } from "@/components/admin/PreRegistrationDetails";
 import { SaveWorkoutToLibraryDialog } from "@/components/admin/SaveWorkoutToLibraryDialog";
-import { loadStudentPreRegistration, updateStudentPreRegistration } from "@/lib/preRegistrationData";
+import { loadStudentPreRegistration, resolveStudioAnamnesis, updateStudentPreRegistration } from "@/lib/preRegistrationData";
 import {
   copyWeeklyPrescriptionMetrics,
   defaultWeeklyTempoForUiVersion,
@@ -54,7 +54,13 @@ import {
 import type { PreRegistrationData } from "@/lib/preRegistration";
 import { saveCycleWorkoutRevision, WorkoutRevisionConflictError } from "@/lib/workoutRevision";
 import { ensureWorkoutLibraryReferences } from "@/lib/workoutLibraryRecovery";
-import { calculateWeeklyMuscleVolume } from "@/lib/workoutVolume";
+import {
+  calculateWeeklyMuscleVolume,
+  hasPlannedVolumeWeeks,
+  workoutVolumeExerciseIds,
+  workoutVolumeTargetConfig,
+} from "@/lib/workoutVolume";
+import { useExerciseVolumeTargets } from "@/hooks/useExerciseVolumeTargets";
 import {
   buildWorkoutTemplateDraft,
   hasEditableWorkoutContent,
@@ -564,7 +570,18 @@ export default function WorkoutBuilder() {
   };
   const [videoModal, setVideoModal] = useState<{ input: ExerciseMediaInput; resolve: () => Promise<string> } | null>(null);
   const [cycleInfo, setCycleInfo] = useState<CycleInfo | null>(null);
+  const libraryHandoff = searchParams.get("library") === "1";
+  const [loadedLibraryHandoffScope, setLoadedLibraryHandoffScope] = useState<string | null>(null);
+  const openedLibraryHandoff = useRef<string | null>(null);
+  useEffect(() => {
+    if (!libraryHandoff || isTemplate || !cycleId || !cycleInfo || cycleInfo.company_id !== effectiveCompanyId
+      || loadedLibraryHandoffScope !== saveScopeKey || openedLibraryHandoff.current === saveScopeKey) return;
+    openedLibraryHandoff.current = saveScopeKey;
+    setPendingTemplate(null);
+    setTemplatePickerOpen(true);
+  }, [cycleId, cycleInfo, effectiveCompanyId, isTemplate, libraryHandoff, loadedLibraryHandoffScope, saveScopeKey]);
   const [preRegistration, setPreRegistration] = useState<PreRegistrationData | null>(null);
+  const [preRegistrationLoadError, setPreRegistrationLoadError] = useState(false);
   const [preRegistrationLoading, setPreRegistrationLoading] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
   const [bnitoLoading, setBnitoLoading] = useState<"review" | null>(null);
@@ -630,6 +647,8 @@ export default function WorkoutBuilder() {
   useEffect(() => {
     setWorkouts([]);
     setActiveTab("");
+    setEditingWeekStart(1);
+    setCycleInfo(null);
     if (isTemplate) {
       setWorkoutRevisionSnapshot([]);
       if (tplId && tplId !== "new") loadTemplate(tplId);
@@ -640,12 +659,16 @@ export default function WorkoutBuilder() {
         setWorkouts([{ title: "Treino A", description: "", exercises: [] }]);
         setActiveTab(workoutsRef.current[0]?.clientKey || "");
       }
-    } else if (cycleId) {
-      loadExisting();
-      loadCycleInfo();
+    } else if (cycleId && effectiveCompanyId) {
+      const isCurrent = captureSaveScope();
+      void loadCycleInfo().then(async (info) => {
+        if (!info || !isCurrent()) return;
+        const loaded = await loadExisting();
+        if (loaded && isCurrent()) setLoadedLibraryHandoffScope(saveScopeKey);
+      });
     }
     loadLibrary();
-    loadMuscleTargets();
+    if (isTemplate) void loadMuscleTargets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycleId, tplId, effectiveCompanyId, user?.id]);
 
@@ -720,7 +743,8 @@ export default function WorkoutBuilder() {
   };
 
   const resolveCycleInfo = async (): Promise<CycleInfo> => {
-    if (!cycleId) throw new Error("Ciclo nao informado para salvar o treino.");
+    if (!cycleId || !effectiveCompanyId) throw new Error("Ciclo ou empresa indisponível para carregar o treino.");
+    const isCurrent = captureSaveScope();
 
     const { data, error: cycleError } = await supabase
       .from("training_cycles")
@@ -729,6 +753,7 @@ export default function WorkoutBuilder() {
       .maybeSingle();
     if (cycleError) throw cycleError;
     if (!data) throw new Error("Ciclo de treino nao encontrado.");
+    if (data.company_id && data.company_id !== effectiveCompanyId) throw new Error("Ciclo fora da empresa selecionada.");
     if (data.status === "superseded") throw new Error("Este ciclo foi substituido por uma prescricao mais recente.");
 
     const { data: enrollment, error: enrollmentError } = await supabase
@@ -740,8 +765,8 @@ export default function WorkoutBuilder() {
     if (!enrollment?.student_id) throw new Error("Matricula do ciclo nao encontrada.");
 
     const companyId = data.company_id || enrollment.company_id;
-    if (!companyId) {
-      throw new Error("Empresa do ciclo nao encontrada. Reabra a matricula antes de salvar o treino.");
+    if (companyId !== effectiveCompanyId || enrollment.company_id !== effectiveCompanyId) {
+      throw new Error("Ciclo e matrícula precisam pertencer à empresa selecionada.");
     }
 
     const { data: student } = await supabase
@@ -757,24 +782,31 @@ export default function WorkoutBuilder() {
       company_id: companyId,
       gender: normalizeGender((student as any)?.gender) ?? "male",
     };
-    setCycleInfo(info);
+    if (isCurrent()) setCycleInfo(info);
     return info;
   };
 
   const loadCycleInfo = async () => {
+    const isCurrent = captureSaveScope();
     setPreRegistrationLoading(true);
+    setPreRegistrationLoadError(false);
+    setPreRegistration(null);
     try {
       const info = await resolveCycleInfo();
-      const data = await loadStudentPreRegistration({
-        studentId: info.student_id,
-        companyId: info.company_id,
-      });
-      setPreRegistration(data);
+      if (!isCurrent()) return null;
+      void Promise.resolve()
+        .then(() => loadStudentPreRegistration({ studentId: info.student_id, companyId: info.company_id, includeIntercycle: true }))
+        .then(data => { if (isCurrent()) setPreRegistration(data); })
+        .catch(() => { if (isCurrent()) setPreRegistrationLoadError(true); })
+        .finally(() => { if (isCurrent()) setPreRegistrationLoading(false); });
+      return info;
     } catch (error) {
-      console.warn("Nao foi possivel carregar contexto do ciclo", error);
-      setPreRegistration(null);
-    } finally {
-      setPreRegistrationLoading(false);
+      if (isCurrent()) {
+        console.warn("Não foi possível carregar contexto do ciclo", error);
+        setPreRegistration(null);
+        setPreRegistrationLoading(false);
+      }
+      return null;
     }
   };
 
@@ -809,6 +841,7 @@ export default function WorkoutBuilder() {
       setWorkouts(loaded);
       setActiveTab(workoutsRef.current[0]?.clientKey || "");
       setWorkoutRevisionSnapshot(workoutRevisionRows(loaded));
+      return true;
     } catch (error) {
       toast({
         title: "Erro ao carregar treino",
@@ -867,7 +900,7 @@ export default function WorkoutBuilder() {
         .eq("company_id", templateCompanyId)
         .order("updated_at", { ascending: false })
         .limit(200);
-      const [{ data, error }] = await Promise.all([query, loadLibrary(), loadMuscleTargets()]);
+      const [{ data, error }] = await Promise.all([query, loadLibrary()]);
       if (error) throw error;
       const templates = (data || []) as WorkoutTemplatePickerItem[];
       setWorkoutTemplates(templates);
@@ -1255,12 +1288,15 @@ export default function WorkoutBuilder() {
     if (!revisionConflict || !cycleId || saveInFlightRef.current) return;
     const isCurrent = captureSaveScope();
     if (!keepDraft) {
+      const selectedWorkoutId = workoutsRef.current.find(workout => workout.clientKey === activeTab)?.id;
       setWorkouts(revisionConflict.latest);
       rememberPersistedExerciseIds(revisionConflict.latest);
       setWeeklyPrescriptionMode(weeklyPrescriptionModeForLoadedWorkouts(revisionConflict.latest));
       setWeeklyUiVersion(individualWeeklyUiVersionForLoadedWorkouts(revisionConflict.latest) || INDIVIDUAL_WEEKLY_UI_VERSION);
       setWorkoutRevisionSnapshot(workoutRevisionRows(revisionConflict.latest));
-      setActiveTab("");
+      const selectedWorkout = (selectedWorkoutId ? workoutsRef.current.find(workout => workout.id === selectedWorkoutId) : undefined)
+        ?? workoutsRef.current[0];
+      setActiveTab(selectedWorkout?.clientKey ?? "");
       setRevisionConflict(null);
       toast({ title: "Versão mais recente carregada" });
       return;
@@ -1346,12 +1382,8 @@ export default function WorkoutBuilder() {
       let assessmentContext: any = null;
 
       if (context?.student_id) {
-        const [{ data: anamnese }, { data: assessment }] = await Promise.all([
-          supabase
-            .from("student_anamneses")
-            .select("*")
-            .eq("student_id", context.student_id)
-            .maybeSingle(),
+        const [anamnese, { data: assessment }] = await Promise.all([
+          resolveStudioAnamnesis({ studentId: context.student_id, companyId: context.company_id }),
           supabase
             .from("functional_assessments")
             .select("nivel, assessment_json, report_text, created_at")
@@ -1439,25 +1471,21 @@ export default function WorkoutBuilder() {
     }
   };
 
-  // Volume calculation
-  const volumeWorkouts = useMemo(() => workouts.map((workout) => ({
-      ...workout,
-      exercises: workout.exercises.map((exercise) => {
-        if (individualWeeklyUiVersionForExercise(exercise, weeklyPrescriptionMode) !== INDIVIDUAL_WEEKLY_UI_VERSION) return exercise;
-        const selectedWeek = ensureWeeklyPrescription(exercise, INDIVIDUAL_WEEKLY_UI_VERSION)
-          .find((item) => item.week === editingWeekStart);
-        return selectedWeek ? { ...exercise, sets: String(selectedWeek.sets) } : exercise;
-      }),
-    })), [editingWeekStart, weeklyPrescriptionMode, workouts]);
+  const hasVolumeWeeks = weeklyPrescriptionMode === "weekly" || hasPlannedVolumeWeeks(workouts);
+  const volumeWeekLabel = hasVolumeWeeks ? `Semana ${editingWeekStart}` : "Séries-base";
+  const volumeExerciseIds = useMemo(() => workoutVolumeExerciseIds(workouts), [workouts]);
+  const effectiveVolumeTargets = useExerciseVolumeTargets(isTemplate ? undefined : cycleInfo?.student_id, volumeExerciseIds);
+  const volumeTargetConfig = useMemo(() => isTemplate
+    ? { targets: muscleTargets, muscleGroups: muscleGroupsList }
+    : workoutVolumeTargetConfig(effectiveVolumeTargets),
+  [isTemplate, muscleTargets, muscleGroupsList, effectiveVolumeTargets]);
   const weeklyVolumeResult = useMemo(() => calculateWeeklyMuscleVolume({
-    workouts: volumeWorkouts,
-    targets: muscleTargets,
-    muscleGroups: muscleGroupsList,
-  }), [volumeWorkouts, muscleTargets, muscleGroupsList]);
+    ...volumeTargetConfig,
+    workouts,
+    week: hasVolumeWeeks ? editingWeekStart : undefined,
+  }), [volumeTargetConfig, workouts, hasVolumeWeeks, editingWeekStart]);
   const weeklyVolume = weeklyVolumeResult.volume;
   const uncoveredVolumeExercises = weeklyVolumeResult.uncoveredExerciseIds.length;
-
-  const maxVolume = Math.max(...Object.values(weeklyVolume), 1);
 
   const getVolumeColor = (sets: number) => {
     if (sets <= 10) return "bg-emerald-500";
@@ -1681,6 +1709,7 @@ export default function WorkoutBuilder() {
                     <PreRegistrationDetails
                       data={preRegistration}
                       loading={preRegistrationLoading}
+                      loadError={preRegistrationLoadError}
                       compact
                       className="p-4"
                       onSave={async (next) => {
@@ -1727,11 +1756,15 @@ export default function WorkoutBuilder() {
         <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
           {/* Main content */}
           <div className="min-w-0 flex-1 space-y-4">
-            {weeklyPrescriptionMode === "weekly" && (
+            {hasVolumeWeeks && (
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <Label className="text-sm font-medium text-foreground">Semana da prescrição</Label>
-                  <p className="text-xs text-muted-foreground">Edite cada semana separadamente. Você pode copiar as métricas de um exercício para várias semanas.</p>
+                  <p className="text-xs text-muted-foreground">
+                    {weeklyPrescriptionMode === "weekly"
+                      ? "Edite cada semana separadamente. Você pode copiar as métricas de um exercício para várias semanas."
+                      : "Selecione a semana para consultar o volume prescrito. Os campos de edição abaixo são da ficha-base."}
+                  </p>
                 </div>
                 <Select value={String(editingWeekStart)} onValueChange={(value) => setEditingWeekStart(Number(value))}>
                   <SelectTrigger className="h-9 w-full bg-background sm:w-[180px]" aria-label="Semana da prescrição">
@@ -2269,16 +2302,16 @@ export default function WorkoutBuilder() {
                 <CardHeader className="pb-3">
                   <CardTitle className="text-primary text-sm flex items-center gap-2">
                     <BarChart3 className="h-4 w-4" />
-                    VOLUME SEMANAL
+                    VOLUME SEMANAL PRESCRITO
                     <BnitoContextButton
                       label="volume semanal do treino"
-                      context={`Resumo de volume semanal por grupos musculares: ${JSON.stringify(weeklyVolume)}`}
+                      context={`${volumeWeekLabel} · Volume prescrito por grupos musculares: ${JSON.stringify(weeklyVolume)}`}
                       question="Esse volume semanal esta alto, baixo ou adequado para o contexto do aluno?"
                       className="ml-auto"
                     />
                   </CardTitle>
                   <p className="text-xs text-muted-foreground font-sans">
-                    Séries totais por grupo muscular (todos os treinos)
+                    {volumeWeekLabel} · Séries por grupo muscular (todos os treinos)
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-3">

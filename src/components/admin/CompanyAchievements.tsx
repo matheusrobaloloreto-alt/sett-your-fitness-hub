@@ -1,4 +1,5 @@
 import { SettingHelp } from './SettingHelp';
+import { useSettingsDraft } from '@/lib/settingsDraftProtection';
 import { PlatformExperienceAdoption } from '@/components/content/PlatformExperienceAdoption';
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
@@ -24,6 +25,13 @@ export default function CompanyAchievements({ companyId }: { companyId: string }
   const [loadedCompany, setLoadedCompany] = useState<string | null>(null);
   const companyRef = useRef(companyId);
   const pendingSave = useRef(false);
+  const dirty = Boolean(draft && (draft.code !== (editing?.code ?? empty.code) ||
+    draft.title !== (editing?.title ?? empty.title) || draft.description !== (editing?.description ?? empty.description) ||
+    draft.criteria_type !== (editing?.criteria_type ?? empty.criteria_type) ||
+    draft.criteria_value !== (editing?.criteria_value ?? empty.criteria_value) ||
+    draft.xp_reward !== (editing?.xp_reward ?? empty.xp_reward) || draft.is_active !== (editing?.is_active ?? empty.is_active)));
+  useSettingsDraft(dirty || saving);
+  const allowDraftReplacement = () => !dirty || window.confirm('Descartar as alterações nesta conquista?');
   companyRef.current = companyId;
   useEffect(() => {
     let current = true;
@@ -47,11 +55,12 @@ export default function CompanyAchievements({ companyId }: { companyId: string }
   return <section className="space-y-4" aria-label="Conquistas da empresa">
     <PlatformExperienceAdoption key={companyId} companyId={companyId} />
     <div className="flex items-center justify-between gap-3"><h2 className="text-base font-semibold">Conquistas</h2>
-      <Button type="button" variant="outline" disabled={loadedCompany !== companyId || saving} onClick={() => { setEditing(undefined); setDraft({ ...empty }); }}><Plus className="mr-2 h-4 w-4" />Nova conquista</Button></div>
+      <Button type="button" variant="outline" disabled={loadedCompany !== companyId || saving} onClick={() => { if (allowDraftReplacement()) { setEditing(undefined); setDraft({ ...empty }); } }}><Plus className="mr-2 h-4 w-4" />Nova conquista</Button></div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <div className="divide-y">{(loadedCompany === companyId ? rows : []).map(row => <div key={row.id} className="flex items-center gap-3 py-3">
       <div className="min-w-0 flex-1"><p className="font-medium break-words">{row.title}</p><p className="text-sm text-muted-foreground">{labels[row.criteria_type] ?? row.criteria_type}: {row.criteria_value} · {row.xp_reward} XP · {row.is_active ? 'Ativa' : 'Inativa'}</p></div>
       <Button type="button" size="icon" variant="ghost" disabled={saving} title={`Editar ${row.title}`} aria-label={`Editar ${row.title}`} onClick={() => {
+        if (!allowDraftReplacement()) return;
         setEditing(row); setDraft({ code: row.code, title: row.title, description: row.description ?? '', criteria_type: row.criteria_type, criteria_value: row.criteria_value, xp_reward: row.xp_reward, is_active: row.is_active });
       }}><Pencil className="h-4 w-4" /></Button></div>)}</div>
     {draft && loadedCompany === companyId && <div className="space-y-4 border-t pt-4">

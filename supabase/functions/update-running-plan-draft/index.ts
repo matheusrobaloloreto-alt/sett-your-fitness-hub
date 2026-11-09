@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
+import { writeStudioModalityDraft } from "../_shared/studio-modality-draft.ts";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import {
   CardioPlanValidationError,
@@ -61,6 +62,34 @@ Deno.serve(async (req) => {
     if (!isTimestamp(expectedUpdatedAt)) return json(400, { error: "expected_updated_at inválido." });
 
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    const { data: draft, error: draftError } = await adminClient.from("studio_modality_drafts")
+      .select("id,modality,plan,payload,updated_at,prescription_bundles!inner(id,student_id,company_id,training_cycle_id)")
+      .eq("id", planId).maybeSingle();
+    if (draftError) throw new HttpError(503, "Falha ao carregar o rascunho.");
+    if (draft) {
+      // The FK is many-to-one. The untyped SDK otherwise assumes an array.
+      const bundle = draft.prescription_bundles as unknown as {
+        id: string; student_id: string; company_id: string; training_cycle_id: string;
+      };
+      await assertTenantAccess(adminClient, { sub: userData.user.id }, {
+        studentId: bundle.student_id, companyId: bundle.company_id, requireStaff: true,
+      });
+      await requireCompanyFeature(adminClient, bundle.company_id, "hasPrescription");
+      if (draft.modality === "nutricao") return json(409, { error: "Este rascunho não é aeróbico." });
+      const normalized = normalizeCardioPlanUpdate(body.plan, draft.modality as EditableCardioSport);
+      const patch = {
+        ...normalized,
+        plan_name: normalized.plan_name || draft.payload.plan_name,
+        goal: normalized.goal || draft.payload.goal,
+        model: normalized.model || draft.payload.model,
+      };
+      const saved = await writeStudioModalityDraft(adminClient, {
+        bundleId: bundle.id, cycleId: bundle.training_cycle_id, companyId: bundle.company_id,
+        studentId: bundle.student_id, modality: draft.modality,
+      }, { ...draft.plan, ...patch }, patch, { id: planId, updatedAt: expectedUpdatedAt });
+      return json(200, saved);
+    }
+
     const { data: existing, error: lookupError } = await adminClient
       .from("running_plans")
       .select("id, student_id, company_id, sport, updated_at, plan_name, goal, model")

@@ -634,6 +634,7 @@ async function createPaymentLink(studentId: string, companyId: string) {
     .select("id, token, expires_at")
     .eq("student_id", studentId)
     .eq("company_id", companyId)
+    .is("renewal_of_enrollment_id", null)
     .is("revoked_at", null)
     .gt("expires_at", now)
     .order("created_at", { ascending: false })
@@ -804,7 +805,7 @@ async function completeFiscalRegistration(link: RegistrationLink, studentInput: 
     .maybeSingle();
   if (linkError) throw new HttpError(503, "Não foi possível confirmar a conclusão do cadastro. Tente novamente.");
   if (!completedLink || completedLink.id !== link.id || completedLink.student_id !== currentStudent.id
-    || completedLink.company_id !== link.company_id || completedLink.completed_at !== completedAt) {
+    || completedLink.company_id !== link.company_id || Date.parse(completedLink.completed_at ?? "") !== Date.parse(completedAt)) {
     throw new HttpError(409, "O link de cadastro mudou ou expirou. Solicite um novo link.");
   }
 

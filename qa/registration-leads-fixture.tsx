@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "../src/components/ui/tooltip";
 import "../src/index.css";
+import { companyFeatureKeys } from "../supabase/functions/_shared/platform-product-settings";
 
 type Row = Record<string, unknown>;
 type Tables = Record<string, Row[]>;
@@ -165,6 +166,15 @@ Object.defineProperty(supabase, "from", { configurable: true, value: (table: str
 Object.defineProperty(supabase, "rpc", { configurable: true, value: async (name: string, args: Row = {}): Promise<Result> => {
   if (name === "get_user_role") return { data: "admin", error: null };
   if (name === "has_staff_permission") return { data: false, error: null };
+  if (["get_company_feature_entitlements", "get_company_operations", "assert_company_operation_transition"].includes(name)) {
+    if (args._company_id !== companyId) return { data: null, error: new Error("Foreign fixture company") };
+    if (name === "get_company_feature_entitlements") {
+      return { data: { company_id: companyId, tier: "advanced", source: "legacy", version: 0,
+        catalog_version: null, adopted_tier: null, features: Object.fromEntries(companyFeatureKeys.map(key => [key, true])) }, error: null };
+    }
+    if (name === "get_company_operations") return { data: { version: 0, settings: null }, error: null };
+    return { data: args._source === "lost" && args._target === "contacted", error: null };
+  }
   if (name !== "set_registration_lead_stage") throw new Error(`Unmocked RPC: ${name}`);
   const table = args._entity_type === "student" ? "students" : "leads";
   const column = table === "students" ? "sales_stage" : "stage";

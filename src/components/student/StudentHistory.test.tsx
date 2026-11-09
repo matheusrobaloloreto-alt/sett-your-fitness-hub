@@ -23,6 +23,30 @@ const sessions = [
 ];
 
 describe("StudentHistory workout feedback loop", () => {
+  it("shows a single completed history card even when the technical duplicate shares the set logs", () => {
+    render(<StudentHistory workouts={workouts} allLogs={allLogs} sessions={[
+      { ...sessions[0], status: "completed" },
+      { ...sessions[0], id: "duplicate-session", status: "reconciled", duration_seconds: null },
+    ]} />);
+    expect(screen.getAllByText("Treino A")).toHaveLength(1);
+    expect(screen.getByText("0.8t")).toBeInTheDocument();
+  });
+
+  it("retains the recorded volume of a reconciled session without a matching completion", () => {
+    const recordedSets = Array.from({ length: 12 }, (_, index) => ({
+      ...allLogs[0],
+      exercise_index: index % 5,
+      set_number: Math.floor(index / 5) + 1,
+      weight: 20,
+      completed: true,
+    }));
+    render(<StudentHistory workouts={workouts} allLogs={recordedSets} sessions={[
+      { ...sessions[0], status: "reconciled", duration_seconds: null },
+    ]} />);
+    expect(screen.getAllByText("Treino A")).toHaveLength(1);
+    expect(screen.getByText("2.4t")).toBeInTheDocument();
+  });
+
   it("associates trainer replies to the concrete workout session", () => {
     render(
       <StudentHistory

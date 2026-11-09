@@ -5,12 +5,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SettingHelp } from './SettingHelp';
+import { useSettingsDraft } from '@/lib/settingsDraftProtection';
 import { fetchIntegrationStatus, saveIntegrationCredentials, removeIntegrationCredentials, type IntegrationProvider, type IntegrationStatus } from '@/lib/companyIntegrationCredentials';
 const LABELS: Record<IntegrationProvider, string> = { asaas: 'Asaas', whatsapp_evolution: 'WhatsApp Evolution' };
 const unavailable = 'Não foi possível preparar a integração. Confira acesso e disponibilidade do cofre.';
-function CredentialForm({ row, busy, onSave, onRemove }: { row: IntegrationStatus; busy: boolean; onSave: (key: string, option: string) => Promise<void>; onRemove: () => Promise<void> }) {
+function CredentialForm({ row, busy, pendingProviders, onSave, onRemove }: { row: IntegrationStatus; busy: boolean; pendingProviders: Set<IntegrationProvider>; onSave: (key: string, option: string) => Promise<void>; onRemove: () => Promise<void> }) {
   const [key, setKey] = useState('');
   const [option, setOption] = useState(row.provider === 'asaas' ? 'sandbox' : '');
+  const dirty = Boolean(key) || option !== (row.provider === 'asaas' ? 'sandbox' : '');
+  useSettingsDraft(dirty);
+  const { provider } = row;
+  useEffect(() => {
+    if (!dirty) return;
+    pendingProviders.add(provider);
+    return () => { pendingProviders.delete(provider); };
+  }, [dirty, pendingProviders, provider]);
   const id = `integration-${row.provider}`;
   const valid = /^[!-~]{16,4096}$/.test(key) && (row.provider === 'asaas' || option.startsWith('https://'));
   async function submit() {
@@ -39,9 +48,11 @@ export default function CompanyIntegrationCredentials({ companyId }: { companyId
   const [rows, setRows] = useState<IntegrationStatus[] | null>(null);
   const [loadedCompany, setLoadedCompany] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  useSettingsDraft(busy);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const pendingProviders = useRef(new Set<IntegrationProvider>()).current;
   const epoch = useRef(0);
   const current = useRef({ companyId, authorized });
   current.current = { companyId, authorized };
@@ -80,8 +91,8 @@ export default function CompanyIntegrationCredentials({ companyId }: { companyId
     <h2 className="text-lg font-semibold">Preparar integrações</h2>
     <p className="text-sm text-muted-foreground">Asaas e WhatsApp Evolution: cofre da empresa, com chave oculta após salvar. Somente o formato é validado. Esta preparação não conecta provedores nem altera cobranças ou a conexão WhatsApp atual. Z-API não está incluída nesta preparação.</p>
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
-    <Button variant="outline" disabled={busy} onClick={() => setRefresh(value => value + 1)}>Recarregar estado das integrações</Button>
-    {rows && loadedCompany === companyId ? <div className="grid gap-4 lg:grid-cols-2">{rows.map(row => <CredentialForm key={`${companyId}:${row.provider}:${row.version}`} row={row} busy={busy}
+    <Button variant="outline" disabled={busy} onClick={() => { if (!pendingProviders.size || window.confirm('Descartar as alterações nas integrações e recarregar?')) setRefresh(value => value + 1); }}>Recarregar estado das integrações</Button>
+    {rows && loadedCompany === companyId ? <div className="grid gap-4 lg:grid-cols-2">{rows.map(row => <CredentialForm key={`${companyId}:${row.provider}:${row.version}`} row={row} busy={busy} pendingProviders={pendingProviders}
       onSave={(key, option) => mutate(row, key, option)} onRemove={() => mutate(row)} />)}</div> : !error && <p>Carregando estado das integrações…</p>}
   </section>;
 }

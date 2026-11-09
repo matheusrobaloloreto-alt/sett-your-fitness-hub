@@ -1,4 +1,7 @@
 // Carteira — visão da empresa com filtro opcional por colaborador.
+import { readForIds, readPages } from "@/lib/pagedRead";
+import { readCurrentStudentContracts } from "@/lib/studentRosterReads";
+import { PORTFOLIO_TRAINER_COLUMN, PORTFOLIO_TRAINER_LABEL, STUDENT_RECORD_STATUS_FILTERS, countStudentRecords, studentContractLabel, studentRecordStatusLabel, type StudentContractSummary } from "@/lib/studentRoster";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -44,7 +47,7 @@ interface PortfolioStudent {
   address: string | null; address_number: string | null; neighborhood: string | null;
   city: string | null; state: string | null; notes: string | null;
   assigned_trainer_id: string | null;
-  enrollment_trainer_id?: string | null;
+  currentContract?: StudentContractSummary | null;
   country_code: string | null;
   cycle_end?: string | null; chat_id?: string | null; hours_since_contact?: number | null;
 }
@@ -54,9 +57,6 @@ const emptyStudentForm = {
   address: "", address_number: "", neighborhood: "", city: "", state: "", status: "active", notes: "",
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  active: "Ativo", pending: "Pendente", awaiting_renewal: "Renovação", inactive: "Inativo",
-};
 const STATUS_CLASS: Record<string, string> = {
   active: "bg-emerald-500/15 text-emerald-600",
   pending: "bg-amber-500/15 text-amber-600",
@@ -172,47 +172,51 @@ export default function Portfolio() {
     ) return;
     setLoading(true); setLoadError("");
     try {
-    let studentsQuery = supabase
-      .from("students")
-      .select("id, company_id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, country_code, notes, assigned_trainer_id")
-      .eq("company_id", companyIdAtRequest)
-      .order("full_name");
-    if (selectedIdAtRequest !== ALL_STUDENTS) {
-      studentsQuery = studentsQuery.eq("assigned_trainer_id", selectedIdAtRequest);
+    const list: PortfolioStudent[] = await readPages((from, to) => {
+      let query = supabase.from("students")
+        .select("id, company_id, full_name, status, whatsapp, phone, email, birth_date, cpf, cep, address, address_number, neighborhood, city, state, country_code, notes, assigned_trainer_id")
+        .eq("company_id", companyIdAtRequest);
+      if (selectedIdAtRequest !== ALL_STUDENTS) {
+        query = query.eq(PORTFOLIO_TRAINER_COLUMN, selectedIdAtRequest);
+      }
+      return query.order("full_name").order("id").range(from, to);
+    });
+    if (list.some(student => student.company_id !== companyIdAtRequest ||
+      (selectedIdAtRequest !== ALL_STUDENTS && student[PORTFOLIO_TRAINER_COLUMN] !== selectedIdAtRequest))) {
+      throw new Error("Alunos fora do escopo da carteira.");
     }
-    const { data: studs, error } = await studentsQuery;
-    if (error) throw error;
-    const list: PortfolioStudent[] = (studs || []) as any[];
     const ids = list.map((s) => s.id);
     if (ids.length) {
-      const [cyclesResult, chatsResult, enrollmentsResult, cad] = await Promise.all([
-        (supabase as any).from("training_cycles").select("student_id, end_date").in("student_id", ids).eq("status", "active"),
-        (supabase as any).from("whatsapp_chats").select("id, student_id").in("student_id", ids),
-        (supabase as any).from("enrollments").select("student_id, trainer_id, status").in("student_id", ids).in("status", ["active", "awaiting_training", "awaiting_renewal"]),
+      const [cycles, chats, contracts, cad] = await Promise.all([
+        readForIds(ids, (batch, from, to) => supabase.from("training_cycles").select("student_id, end_date")
+          .eq("company_id", companyIdAtRequest).in("student_id", batch).eq("status", "active").order("id").range(from, to)),
+        readForIds(ids, (batch, from, to) => supabase.from("whatsapp_chats").select("id, student_id")
+          .eq("company_id", companyIdAtRequest).in("student_id", batch).order("id").range(from, to)),
+        readCurrentStudentContracts(companyIdAtRequest, ids),
         (supabase as any).rpc("contact_cadence", { _company_id: companyIdAtRequest }).then((r: any) => r, () => ({ data: null, error: true })),
       ]);
-      if ([cyclesResult, chatsResult, enrollmentsResult, cad].some(result => result.error)) throw new Error("Dados complementares indisponíveis");
-      const cycles = cyclesResult.data, chats = chatsResult.data, enrollments = enrollmentsResult.data;
+      if (cad.error) throw new Error("Dados complementares indisponíveis");
       const cycleMap = new Map<string, string>();
-      (cycles || []).forEach((c: any) => {
+      cycles.forEach((c) => {
         const cur = cycleMap.get(c.student_id);
-        if (!cur || (c.end_date && c.end_date < cur)) cycleMap.set(c.student_id, c.end_date);
+        if (c.end_date && (!cur || c.end_date < cur)) cycleMap.set(c.student_id, c.end_date);
       });
       const chatMap = new Map<string, string>();
-      (chats || []).forEach((c: any) => { if (c.student_id) chatMap.set(c.student_id, c.id); });
+      chats.forEach((c) => { if (c.student_id) chatMap.set(c.student_id, c.id); });
       const cadMap = new Map<string, number>();
-      ((cad?.data || []) as any[]).forEach((r: any) => { if (r.student_id) cadMap.set(r.student_id, Number(r.hours_since)); });
-      const enrollmentTrainerMap = new Map<string, string>();
-      (enrollments || []).forEach((enrollment: any) => {
-        if (enrollment.student_id && enrollment.trainer_id && !enrollmentTrainerMap.has(enrollment.student_id)) {
-          enrollmentTrainerMap.set(enrollment.student_id, enrollment.trainer_id);
+      ((cad?.data || []) as any[]).forEach((r: any) => {
+        if (!r.student_id) return;
+        const hours = Number(r.hours_since);
+        if (Number.isFinite(hours) && hours > (cadMap.get(r.student_id) ?? -1)) {
+          cadMap.set(r.student_id, hours);
+          chatMap.set(r.student_id, r.chat_id);
         }
       });
       list.forEach((s) => {
         s.cycle_end = cycleMap.get(s.id) || null;
         s.chat_id = chatMap.get(s.id) || null;
         s.hours_since_contact = cadMap.has(s.id) ? cadMap.get(s.id)! : null;
-        s.enrollment_trainer_id = enrollmentTrainerMap.get(s.id) || null;
+        s.currentContract = contracts.get(s.id) ?? null;
       });
     }
     if (
@@ -315,7 +319,7 @@ export default function Portfolio() {
 
   const trainerName = useCallback((trainerId: string | null | undefined) => {
     if (!trainerId) return "Sem professor";
-    return collaborators.find((collaborator) => collaborator.user_id === trainerId)?.full_name || "Professor atual";
+    return collaborators.find((collaborator) => collaborator.user_id === trainerId)?.full_name || "Nome indisponível";
   }, [collaborators]);
 
   const eligibleTransferTargets = useMemo(() => {
@@ -431,7 +435,7 @@ export default function Portfolio() {
     const scopeAtConfirm = transferScope;
     const proceed = window.confirm(
       `Trocar professor de ${transferStudent.full_name}?\n\n` +
-      `Origem: ${trainerName(transferStudent.assigned_trainer_id || selectedId)}\n` +
+      `Origem: ${trainerName(transferStudent[PORTFOLIO_TRAINER_COLUMN])}\n` +
       `Destino: ${destination.full_name}\n\n` +
       "Histórico, ciclos, treinos, pagamentos e conversas serão preservados."
     );
@@ -533,11 +537,7 @@ export default function Portfolio() {
     setBulkScope({ companyId: effectiveCompanyId, trainerId: selectedId });
   };
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { todos: students.length };
-    students.forEach((s) => { c[s.status] = (c[s.status] || 0) + 1; });
-    return c;
-  }, [students]);
+  const counts = useMemo(() => countStudentRecords(students), [students]);
 
   const canManageStudent = useCallback((student: PortfolioStudent) => (
     canManageCompanyStudents && student.company_id === effectiveCompanyId
@@ -554,7 +554,7 @@ export default function Portfolio() {
         <h1 className="flex items-center gap-2 text-xl font-semibold text-primary">
           <Briefcase className="h-5 w-5" /> Carteira
         </h1>
-        <Badge variant="outline" className="text-sm">{effectiveCompanyId && !loading && !loadError ? `${students.length} aluno(s)` : "Carteira não consolidada"}</Badge>
+        <Badge variant="outline" className="text-sm">{effectiveCompanyId && !loading && !loadError ? `${counts.total} aluno(s)` : "Carteira não consolidada"}</Badge>
         {canPickOthers && (
           <Select value={selectedId} onValueChange={handleSelectedTrainerChange} disabled={bulkInteractionLocked}>
             <SelectTrigger className="ml-auto h-9 w-[240px]"><SelectValue placeholder="Escolher colaborador" /></SelectTrigger>
@@ -575,12 +575,12 @@ export default function Portfolio() {
 
       {/* Mini-CRM: filtros por status + busca */}
       <div className="flex flex-wrap items-center gap-2">
-        {["todos", "active", "pending", "awaiting_renewal", "inactive"].map((st) => (
+        {[{ id: "todos", plural: "Todos" }, ...STUDENT_RECORD_STATUS_FILTERS].map(({ id: st, plural }) => (
           <button key={st} type="button" onClick={() => setStatusFilter(st)} disabled={bulkInteractionLocked}
             className={cn("rounded-full border px-3 py-1 text-xs transition",
               bulkInteractionLocked && "cursor-not-allowed opacity-60",
               statusFilter === st ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground")}>
-            {st === "todos" ? "Todos" : STATUS_LABEL[st] || st} {effectiveCompanyId && !loading && !loadError ? `(${counts[st] || 0})` : "(—)"}
+            {plural} {effectiveCompanyId && !loading && !loadError ? `(${st === "todos" ? counts.total : counts.byStatus.get(st) ?? 0})` : "(—)"}
           </button>
         ))}
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar aluno..." className="ml-auto h-8 w-52" disabled={bulkInteractionLocked} />
@@ -660,7 +660,9 @@ export default function Portfolio() {
                         <AthleticClubStar studentId={s.id} companyId={effectiveCompanyId} className="shrink-0" />
                       </div>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                        <Badge className={cn("text-[10px]", STATUS_CLASS[s.status] || "bg-muted")}>{STATUS_LABEL[s.status] || s.status}</Badge>
+                        <Badge className={cn("text-[10px]", STATUS_CLASS[s.status] || "bg-muted")}>{studentRecordStatusLabel(s.status)}</Badge>
+                        <span className="text-[11px] text-muted-foreground">{PORTFOLIO_TRAINER_LABEL}: {trainerName(s[PORTFOLIO_TRAINER_COLUMN])}</span>
+                        <Badge variant="outline" className="text-[10px]">{studentContractLabel(s.currentContract)}</Badge>
                         {s.hours_since_contact != null && (
                           <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-mono-data font-bold", CAD_CLASS[cadenceTone(s.hours_since_contact, policy)])}>
                             sem resposta há {formatCadence(s.hours_since_contact)}
@@ -679,7 +681,7 @@ export default function Portfolio() {
                         <>
                           <BnitoContextButton
                             label={`aluno ${s.full_name}`}
-                            context={`Aluno da carteira. Status: ${STATUS_LABEL[s.status] || s.status}. ${s.cycle_end ? `Ciclo atual termina em ${format(parseISO(s.cycle_end), "dd/MM/yyyy")}.` : "Sem ciclo ativo identificado."}`}
+                            context={`Aluno da carteira. Status: ${studentRecordStatusLabel(s.status)}. ${s.cycle_end ? `Ciclo atual termina em ${format(parseISO(s.cycle_end), "dd/MM/yyyy")}.` : "Sem ciclo ativo identificado."}`}
                             question="Qual é a ação técnica ou operacional prioritária para este aluno?"
                           />
                           <StudentChatButton
@@ -760,11 +762,7 @@ export default function Portfolio() {
                 <Select value={studentForm.status} onValueChange={(value) => setStudentForm({ ...studentForm, status: value })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="interested">Interessado</SelectItem>
-                    <SelectItem value="active">Ativo</SelectItem>
-                    <SelectItem value="pending">Pendente</SelectItem>
-                    <SelectItem value="awaiting_renewal">Aguardando renovação</SelectItem>
-                    <SelectItem value="inactive">Inativo</SelectItem>
+                    {STUDENT_RECORD_STATUS_FILTERS.map(({ id, label }) => <SelectItem key={id} value={id}>{label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -861,7 +859,7 @@ export default function Portfolio() {
               <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
                 <p className="font-medium text-foreground">{transferStudent.full_name}</p>
                 <p className="text-muted-foreground">
-                  Professor atual: <span className="text-foreground">{trainerName(transferStudent.assigned_trainer_id || selectedId)}</span>
+                  {PORTFOLIO_TRAINER_LABEL}: <span className="text-foreground">{trainerName(transferStudent[PORTFOLIO_TRAINER_COLUMN])}</span>
                 </p>
                 <p className="mt-2 text-xs text-muted-foreground">
                   Histórico, ciclos, treinos, pagamentos e conversas serão preservados.

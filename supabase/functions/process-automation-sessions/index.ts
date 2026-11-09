@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DEFAULT_COMPANY_PRODUCT_SETTINGS, getCompanyProductSettings, readCompanyProductSettings } from "../_shared/company-product-settings.ts";
 import { eventMessage, eventMessageSequence, messageValues, renderCompanyMessage, weeklyFlowMessage } from "../_shared/communication-policy.ts";
 import { delayDecision, enterFlow, evaluateFlowCondition, loadCompanyFlow, validateFlowNode } from "../_shared/automation-flow.ts";
-import { acknowledgeDispatch, assertAcyclicDispatchGraph, authorizeDispatch, beginDispatch, DispatchUncertain, fencedDispatchUpdate, type DispatchAttempt } from "../_shared/automation-recovery.ts";
+import { acknowledgeDispatch, assertAcyclicDispatchGraph, authorizeDispatch, prepareDispatch, DispatchUncertain, fencedDispatchUpdate, type DispatchAttempt } from "../_shared/automation-recovery.ts";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import {
   providerErrorDetails,
@@ -128,6 +128,7 @@ async function resolveCurrentSessionRecipient(
   chatId: string,
   companyId: string,
   expectedStudentId: string,
+  expectedInstanceId: string | null,
   context: Record<string, unknown> | null,
 ) {
   const isWeeklyContact = context?.trigger_type === "weekly_contact";
@@ -140,6 +141,7 @@ async function resolveCurrentSessionRecipient(
   if (chatResult.error) throw chatResult.error;
   if (!chatResult.data?.remote_jid) throw new Error("weekly_contact_recipient_missing");
   const currentChat = chatResult.data;
+  if (currentChat.instance_id !== expectedInstanceId) throw new Error("dispatch_instance_unavailable");
   if (String(currentChat.student_id || '') !== expectedStudentId) throw new Error('dispatch_subject_changed');
   let student: { id: string; phone: string | null; whatsapp: string | null; country_code?: unknown } | null = null;
   if (expectedStudentId) {
@@ -172,9 +174,10 @@ async function verifyWeeklyRecipientImmediatelyBeforeSend(
   chatId: string,
   studentId: string,
   companyId: string,
+  instanceId: string | null,
 ) {
   const verifiedRemoteJid = await resolveCurrentSessionRecipient(
-    admin,chatId,companyId,studentId,context,
+    admin,chatId,companyId,studentId,instanceId,context,
   );
   assertQueuedWeeklyRecipient(context,verifiedRemoteJid);
   await assertCurrentWeeklyContactConsent(
@@ -197,15 +200,14 @@ export async function sendText(args: {
 }) {
   await requireCompanyFeature(args.admin, args.companyId, "hasAutomation");
   await requireCompanyFeature(args.admin, args.companyId, "hasWhatsApp");
-  if (await beginDispatch(args.admin, args.attempt) === "acked") return;
+  if (await prepareDispatch(args.admin, args.attempt) === "acked") return;
+  // Preparation may fail or be interrupted before any provider request.
+  await args.prepare?.();
+  await requireCompanyFeature(args.admin, args.companyId, "hasAutomation");
+  await requireCompanyFeature(args.admin, args.companyId, "hasWhatsApp");
+  await authorizeDispatch(args.admin, args.attempt);
   let receipt: string | null = null;
-  // Once the durable send boundary is crossed, even a 503 may follow acceptance.
-  // Never turn an unknown provider outcome into an automatic retry.
   try {
-    await args.prepare?.();
-    await requireCompanyFeature(args.admin, args.companyId, "hasAutomation");
-    await requireCompanyFeature(args.admin, args.companyId, "hasWhatsApp");
-    await authorizeDispatch(args.admin, args.attempt);
     const response = await fetch(`${args.evoUrl}/message/sendText/${args.instanceName}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: args.evoKey },
@@ -222,8 +224,7 @@ export async function sendText(args: {
     receipt = typeof payload?.key?.id === "string" ? payload.key.id.trim() : null;
     if (!receipt || receipt.length > 200 || Array.from(receipt).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) throw new DispatchUncertain();
     await acknowledgeDispatch(args.admin, args.attempt, receipt);
-  } catch (error) {
-    if (error instanceof Error && ["company_feature_denied", "company_feature_unavailable"].includes(error.message)) throw error;
+  } catch {
     throw new DispatchUncertain();
   }
   const sentAt = new Date().toISOString();
@@ -463,6 +464,7 @@ export async function processSession(admin: any, session: FlowSession, provider:
   if (chatResult.error) throw chatResult.error;
   if (!chatResult.data) throw new Error("weekly_contact_recipient_missing");
   const chat = chatResult.data;
+  if (isWeeklyContact && !chat.instance_id) throw new Error("dispatch_instance_unavailable");
   if (!chat.remote_jid) throw new Error("weekly_contact_recipient_missing");
   const savedContext = session.context || {};
   const subject = Object.prototype.hasOwnProperty.call(savedContext, '_dispatch_student_id')
@@ -556,6 +558,10 @@ export async function processSession(admin: any, session: FlowSession, provider:
       edges = target.edges;
       assertAcyclicDispatchGraph(edges);
       currentId = target.startId;
+      await fencedDispatchUpdate(admin, "flow", session, { flow_id: flowId, current_node_id: currentId, context });
+      session.flow_id = flowId;
+      session.current_node_id = currentId;
+      session.context = { ...context };
       continue;
     }
 
@@ -578,7 +584,7 @@ export async function processSession(admin: any, session: FlowSession, provider:
         : replaceVariables(fallback, context);
       if ((message.trim() || nodeData.use_company_template === 'weekly_contact') && !alreadyAcknowledged) {
         const currentVerifiedRemoteJid = await verifyWeeklyRecipientImmediatelyBeforeSend(
-          admin,context,chat.id,identityStudentId,chat.company_id,
+          admin,context,chat.id,identityStudentId,chat.company_id,chat.instance_id,
         );
         const handledSequence = nodeData.use_company_template === 'weekly_contact' && await dispatchConfiguredMessageSequence({
           admin, companyId: chat.company_id, chatId: chat.id,
@@ -589,10 +595,13 @@ export async function processSession(admin: any, session: FlowSession, provider:
           metadata: { settingsVersion: settingsEnvelope.version },
           scope: { kind: 'flow', ownerId: session.id, leaseToken: session.dispatch_lease_token || '' },
           beforeSend: async () => {
+            const eligibility = await admin.rpc("weekly_contact_dispatch_check", { _owner_id: session.id });
+            if (eligibility.error) throw new Error("weekly_contact_dispatch_check_failed");
+            if (eligibility.data !== "eligible") throw new Error(eligibility.data || "weekly_contact_dispatch_check_failed");
             await requireCompanyFeature(admin, chat.company_id, 'hasAutomation');
             const live = await admin.from('whatsapp_instances').select('instance_name,status').eq('id', chat.instance_id).eq('company_id', chat.company_id).maybeSingle();
             if (live.error || live.data?.status !== 'connected' || live.data?.instance_name !== instance.instance_name) throw new Error('dispatch_instance_unavailable');
-            const recipient = await verifyWeeklyRecipientImmediatelyBeforeSend(admin, context, chat.id, identityStudentId, chat.company_id);
+            const recipient = await verifyWeeklyRecipientImmediatelyBeforeSend(admin, context, chat.id, identityStudentId, chat.company_id, chat.instance_id);
             if (!sameWhatsAppRecipient(recipient, currentVerifiedRemoteJid)) throw new Error('dispatch_recipient_changed');
           },
         });
@@ -608,7 +617,7 @@ export async function processSession(admin: any, session: FlowSession, provider:
           attempt: { kind: "flow", owner: session, key: contentKey },
           prepare: async () => {
             const recipient = await verifyWeeklyRecipientImmediatelyBeforeSend(
-              admin,context,chat.id,identityStudentId,chat.company_id,
+              admin,context,chat.id,identityStudentId,chat.company_id,chat.instance_id,
             );
             if (!sameWhatsAppRecipient(recipient, currentVerifiedRemoteJid)) throw new Error('dispatch_recipient_changed');
           },
@@ -651,7 +660,7 @@ export async function processSession(admin: any, session: FlowSession, provider:
         message += `\n\n${options.map((option: any) => `${option.number}. ${replaceVariables(option.text || "", context)}`).join("\n")}`;
       }
       const currentVerifiedRemoteJid = await verifyWeeklyRecipientImmediatelyBeforeSend(
-        admin,context,chat.id,identityStudentId,chat.company_id,
+        admin,context,chat.id,identityStudentId,chat.company_id,chat.instance_id,
       );
       await sendText({
         admin,
@@ -665,7 +674,7 @@ export async function processSession(admin: any, session: FlowSession, provider:
         attempt: { kind: "flow", owner: session, key: `${flowId}:${currentId}` },
         prepare: async () => {
           const recipient = await verifyWeeklyRecipientImmediatelyBeforeSend(
-            admin,context,chat.id,identityStudentId,chat.company_id,
+            admin,context,chat.id,identityStudentId,chat.company_id,chat.instance_id,
           );
           if (!sameWhatsAppRecipient(recipient, currentVerifiedRemoteJid)) throw new Error('dispatch_recipient_changed');
         },

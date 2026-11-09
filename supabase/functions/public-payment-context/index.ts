@@ -129,6 +129,7 @@ async function createLink(req: Request, studentId: unknown) {
     .select("token, expires_at")
     .eq("student_id", studentId)
     .eq("company_id", tenant.companyId)
+    .is("renewal_of_enrollment_id", null)
     .is("revoked_at", null)
     .gt("expires_at", now)
     .order("created_at", { ascending: false })
@@ -150,12 +151,47 @@ async function createLink(req: Request, studentId: unknown) {
   return data;
 }
 
+async function createRenewalLink(req: Request, studentId: unknown, enrollmentId: unknown) {
+  const tenant = await requireStaff(req, studentId);
+  if (enrollmentId != null && !isUuid(enrollmentId)) throw new HttpError(400, "Matrícula inválida.");
+  const { data, error } = await supabase.rpc("get_or_create_renewal_payment_link", {
+    _student_id: studentId,
+    _company_id: tenant.companyId,
+    _actor_id: tenant.userId,
+    _enrollment_id: enrollmentId ?? null,
+  }).single();
+  if (error?.code === "P0002") throw new HttpError(404, error.message);
+  if (error?.code === "23514") throw new HttpError(409, error.message);
+  if (error || !data) throw new HttpError(500, "Falha ao criar link de renovação.");
+  return data;
+}
+
 async function recordRecoveryEvent(link: CheckoutLink, body: Record<string, unknown>) {
   const eventType = typeof body.eventType === "string" ? body.eventType : "";
   if (!RECOVERY_EVENTS.has(eventType)) throw new HttpError(400, "Tipo de evento inválido.");
 
   let planId: string | null = null;
   if (body.planId != null) planId = await validatePlan(body.planId, link.company_id);
+
+  const rawMetadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+    ? body.metadata as Record<string, unknown>
+    : {};
+  if (JSON.stringify(rawMetadata).length > 8_000) throw new HttpError(413, "Metadados do evento excedem o limite.");
+
+  if (eventType === "payment_completed") {
+    // Older Pix clients sent the Asaas ID only in the metadata.
+    const paymentId = body.paymentId || rawMetadata.asaas_payment_id;
+    if (typeof paymentId !== "string" || !paymentId) throw new HttpError(400, "Informe o pagamento confirmado.");
+    const { data: recorded, error } = await supabase.rpc("record_public_checkout_completion", {
+      _student_id: link.student_id,
+      _company_id: link.company_id,
+      _asaas_payment_id: paymentId,
+      _metadata: rawMetadata,
+    });
+    if (error) throw new HttpError(500, `Falha ao registrar evento do checkout: ${error.message}`);
+    if (!recorded) throw new HttpError(409, "Pagamento ainda não confirmado para este link.");
+    return;
+  }
 
   let localPaymentId: string | null = null;
   let enrollmentId: string | null = null;
@@ -172,12 +208,6 @@ async function recordRecoveryEvent(link: CheckoutLink, body: Record<string, unkn
     localPaymentId = payment.id;
     enrollmentId = payment.enrollment_id;
   }
-
-  const rawMetadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
-    ? body.metadata
-    : {};
-  const metadataJson = JSON.stringify(rawMetadata);
-  if (metadataJson.length > 8_000) throw new HttpError(413, "Metadados do evento excedem o limite.");
 
   const { error } = await supabase.from("payment_recovery_events").insert({
     student_id: link.student_id,
@@ -257,6 +287,10 @@ Deno.serve(async (req) => {
     if (action === "create-link") {
       const link = await createLink(req, body.studentId);
       return json(link);
+    }
+
+    if (action === "create-renewal-link") {
+      return json(await createRenewalLink(req, body.studentId, body.renewalOfEnrollmentId));
     }
 
     const link = await resolveCheckoutToken(body?.token);

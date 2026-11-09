@@ -17,7 +17,10 @@ export function ContentNode({ data, selected }: NodeProps) {
           </span>
         )}
       </div>
-      {nodeData.message && (
+      <p className="mb-1 text-[10px] font-medium text-muted-foreground">
+        {nodeData.use_company_template === "weekly_contact" ? "Mensagem central da empresa" : "Mensagem personalizada do bloco"}
+      </p>
+      {nodeData.use_company_template !== "weekly_contact" && nodeData.message && (
         <p className="text-xs text-muted-foreground line-clamp-3 mb-1">{nodeData.message}</p>
       )}
       <div className="flex items-center gap-2">

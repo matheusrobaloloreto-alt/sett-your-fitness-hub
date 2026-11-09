@@ -1,23 +1,22 @@
-// Painel de volume: LOAD externo por semana + séries fracionárias por grupamento.
+// Painel de volume: carga externa por semana e séries por músculo principal.
 // As métricas ficam separadas para não atribuir percentuais biomecânicos à carga externa.
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { BarChart3, PieChart as PieIcon } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import {
-  buildExerciseMeta, fractionalSetsByMuscleGroup, volumeLoadByWeek, type CycleLike,
-  type ExerciseMuscleTarget,
-} from "@/lib/volumeStats";
-import { businessDateYmd } from "@/lib/businessDate";
-import { supabase } from "@/integrations/supabase/client";
+import { effectiveCoverageWindow } from "@/lib/volumeStats";
+import { summarizeRealizedTraining, type RealizedLog, type RealizedSession } from "@/lib/realizedTraining";
+import { format, parseISO, startOfWeek } from "date-fns";
 
 interface VolumeInsightsProps {
-  allLogs: any[];
-  cycles: CycleLike[];
+  allLogs: RealizedLog[];
+  sessions: RealizedSession[];
   studentId: string;
+  companyId: string;
+  todayStr: string;
   className?: string;
 }
 
@@ -27,54 +26,25 @@ const PIE_COLORS = [
   "#f59e0b", "#ec4899", "#84cc16", "#06b6d4", "#a855f7", "#ef4444", "#22c55e",
 ];
 
-export function VolumeInsights({ allLogs, cycles, studentId, className }: VolumeInsightsProps) {
+export function VolumeInsights({ allLogs, sessions, studentId, companyId, todayStr, className }: VolumeInsightsProps) {
   const [range, setRange] = useState<"all" | "8w" | "4w">("all");
-  const [targets, setTargets] = useState<ExerciseMuscleTarget[]>([]);
-  const exerciseIds = useMemo(() => Array.from(new Set(
-    buildExerciseMeta(cycles).map((item) => item.exerciseId).filter((id): id is string => Boolean(id)),
-  )), [cycles]);
-  useEffect(() => {
-    let active = true;
-    if (exerciseIds.length === 0) {
-      setTargets([]);
-      return () => { active = false; };
+  const realized = useMemo(() => summarizeRealizedTraining({
+    sessions, logs: allLogs, studentId, companyId, end: todayStr,
+    start: range === "all" ? undefined : effectiveCoverageWindow({ today: todayStr, requestedDays: range === "4w" ? 28 : 56 }).start,
+  }), [allLogs, sessions, studentId, companyId, todayStr, range]);
+  const weekly = useMemo(() => {
+    const weeks = new Map<string, { label: string; volume: number | null; sessions: number }>();
+    for (const day of realized.days) {
+      const week = startOfWeek(parseISO(day.date), { weekStartsOn: 1 });
+      const key = format(week, "yyyy-MM-dd");
+      const total = weeks.get(key) ?? { label: format(week, "dd/MM"), volume: null, sessions: 0 };
+      if (day.volume !== null) total.volume = (total.volume ?? 0) + day.volume;
+      total.sessions += day.sessions;
+      weeks.set(key, total);
     }
-    (async () => {
-      const { data: targetRows, error } = await (supabase as any).rpc("get_effective_exercise_targets", {
-        p_student_id: studentId,
-        p_exercise_ids: exerciseIds,
-      });
-      if (active) {
-        if (error) {
-          console.error("effective exercise targets:", error.message);
-          setTargets([]);
-          return;
-        }
-        setTargets((targetRows || []).flatMap((target) => {
-          return target.muscle_group_name ? [{
-            exerciseId: target.exercise_id,
-            muscleGroup: target.muscle_group_name,
-            role: target.role,
-            isPrimary: target.is_primary,
-            volumePercentage: target.volume_percentage,
-          }] : [];
-        }));
-      }
-    })();
-    return () => { active = false; };
-  }, [exerciseIds, studentId]);
-  const filteredLogs = useMemo(() => {
-    const completedLogs = (allLogs || []).filter((log: any) => log?.completed === true);
-    if (range === "all") return completedLogs;
-    const days = range === "4w" ? 28 : 56;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-    const cut = businessDateYmd(cutoff);
-    return completedLogs.filter((l: any) => (l?.session_date || "") >= cut);
-  }, [allLogs, range]);
-  const meta = useMemo(() => buildExerciseMeta(cycles), [cycles]);
-  const weekly = useMemo(() => volumeLoadByWeek(filteredLogs), [filteredLogs]);
-  const byMuscle = useMemo(() => fractionalSetsByMuscleGroup(filteredLogs, meta, targets), [filteredLogs, meta, targets]);
+    return [...weeks.values()];
+  }, [realized]);
+  const byMuscle = realized.muscles;
   const totalSets = useMemo(() => byMuscle.reduce((sum, item) => sum + item.sets, 0), [byMuscle]);
   const rangeTabs = [["all", "Tudo"], ["8w", "8 sem"], ["4w", "4 sem"]] as const;
 
@@ -105,6 +75,8 @@ export function VolumeInsights({ allLogs, cycles, studentId, className }: Volume
         </Card>
       )}
 
+      {realized.incompleteLoad && <p className="text-xs text-muted-foreground">Há registros sem carga ou repetições verificáveis.</p>}
+      {realized.overlappingLogs > 0 && <p className="text-xs text-muted-foreground">Séries do mesmo treino e dia de uma sessão não são somadas separadamente.</p>}
       {hasData && (<>
       {/* Volume-load por semana */}
       <Card className="bg-card border-border">
@@ -116,7 +88,7 @@ export function VolumeInsights({ allLogs, cycles, studentId, className }: Volume
             </h3>
           </div>
           <p className="text-[10px] text-muted-foreground font-sans mb-3">
-            Soma de carga × repetições por semana (kg). Acompanha a progressão de volume.
+            Carga × repetições das sessões concluídas e das séries legadas independentes (kg).
           </p>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -128,7 +100,7 @@ export function VolumeInsights({ allLogs, cycles, studentId, className }: Volume
                 <Tooltip
                   contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
                   formatter={(v: any, _n: any, p: any) => [
-                    `${Number(v).toLocaleString("pt-BR")} kg · ${p?.payload?.sessions ?? 0} ${p?.payload?.sessions === 1 ? "dia" : "dias"}`,
+                    `${Number(v).toLocaleString("pt-BR")} kg · ${p?.payload?.sessions ?? 0} ${p?.payload?.sessions === 1 ? "sessão concluída" : "sessões concluídas"}`,
                     "Volume-load",
                   ]}
                   labelFormatter={(l: any) => `Semana de ${l}`}
@@ -146,9 +118,10 @@ export function VolumeInsights({ allLogs, cycles, studentId, className }: Volume
           <div className="flex items-center gap-2 mb-3">
             <PieIcon className="h-4 w-4 text-primary" />
             <h3 className="text-sm font-mono-data font-semibold text-muted-foreground uppercase tracking-wider">
-              Séries por grupamento
+              Séries registradas por músculo principal
             </h3>
           </div>
+          {realized.incompleteMuscles && <p className="text-xs text-muted-foreground">Cobertura muscular parcial neste período.</p>}
           {byMuscle.length === 0 ? (
             <p className="text-xs text-muted-foreground font-sans">Sem dados de grupamento no período.</p>
           ) : (

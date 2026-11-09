@@ -9,8 +9,9 @@ import { projectPrescriptionCoverage } from '@/lib/prescriptionCoverage';
 //
 // Instalar:  npm i jspdf
 // ============================================================================
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { FunctionsFetchError, FunctionsHttpError, FunctionsRelayError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
@@ -30,9 +31,9 @@ import {
   buildBnitoOrchestrationPlan,
   buildPrescriptionIntegration,
   formatPrescriptionIntegrationSummary,
-} from "@/lib/prescriptionIntegration";
+} from "../../../supabase/functions/_shared/prescription/integration";
 import { readEdgeError } from "@/lib/edgeError";
-import { buildPublishDecisionLog, publishStrengthPlanToStudent } from "@/lib/publishStrengthPlan";
+import { buildPublishDecisionLog, publishIntegratedStudioDraft, publishStrengthDraftToStudent, type StudioModalityVersions } from "@/lib/publishStrengthPlan";
 import { businessDateYmd } from "@/lib/businessDate";
 import { PeriodizationRoadmap } from "@/components/admin/PeriodizationRoadmap";
 import { openStudentChat } from "@/lib/studentChat";
@@ -56,7 +57,6 @@ import {
   saveCardioPlanDraft,
   saveStrengthPlanDraft,
 } from "@/lib/cardioPlanPersistence";
-import { updateBundleRunningPlanPointer } from "@/lib/prescriptionBundleIntegrity";
 import {
   describeLongitudinalPhase,
   isCycleCurrent,
@@ -81,6 +81,40 @@ import {
 type Modality = "musculacao" | "corrida" | "natacao" | "ciclismo" | "nutricao";
 type GenStatus = "idle" | "generating" | "done" | "error";
 const db = supabase as any;
+
+type PendingStrength = { bundleId: string; cycleId: string } & (
+  { mixed: true; body?: never } | { mixed?: false; body?: Record<string, unknown> }
+);
+type GeneratedStrength = ReturnType<typeof captureGeneratedStrengthPlan>;
+
+function readPendingStrength(key: string): PendingStrength | null {
+  try {
+    const [bundleId, cycleId, kind] = (sessionStorage.getItem(key) || "").split(":");
+    return bundleId && cycleId ? { bundleId, cycleId, mixed: kind === "mixed" } : null;
+  } catch {
+    return null;
+  }
+}
+
+function isAmbiguousStrengthFailure(error: unknown) {
+  return error instanceof FunctionsFetchError || error instanceof FunctionsRelayError
+    || (error instanceof FunctionsHttpError && [502, 503, 504].includes(error.context?.status))
+    // A successful HTTP response can also be lost while the SDK reads or parses its body.
+    || (error instanceof Error && ["AbortError", "TypeError", "SyntaxError"].includes(error.name));
+}
+
+async function requestStudioStrength(body: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke("ai-prescribe-workout", { body });
+  if (isAmbiguousStrengthFailure(error)) return { outcome: "unconfirmed" } as const;
+  if (error || data?.error) {
+    throw new Error((await readEdgeError(error, data)) || "Falha na musculação.", { cause: error });
+  }
+  if (!data?.id) throw new Error("A musculação foi gerada sem ID persistido.");
+  if (data.draft_only !== true) {
+    throw new Error("O servidor precisa ser atualizado para confirmar o rascunho da musculação.");
+  }
+  return { outcome: "draft", strength: captureGeneratedStrengthPlan(data) } as const;
+}
 
 type StudioLibraryExercise = {
   id: string;
@@ -144,9 +178,10 @@ export function projectStudioSchedule(enrollment: StudioEnrollment, cycles: Pres
 
 interface PrescriptionStudioProps {
   embeddedStudentId?: string;
+  initialTab?: "avaliacao";
 }
 
-export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionStudioProps = {}) {
+export default function PrescriptionStudio({ embeddedStudentId, initialTab }: PrescriptionStudioProps = {}) {
   const nav = useNavigate();
   // Empresa efetiva: master usa a empresa visualizada (MasterContext); staff usa a sua.
   // (Antes filtrava por company_members → master sem linha ficava travado.)
@@ -187,13 +222,40 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
     setTemplates((t) => [data, ...t]);
     toast.success(`Template "${name.trim()}" salvo — aparece pra todos os seus alunos.`);
   };
-  const applyCycleTemplate = (t: { id: string; name: string; plan: any }) => {
-    const clone = JSON.parse(JSON.stringify(t.plan));
-    setResults((r: any) => ({ ...r, musculacao: clone }));
-    setStatus((s) => ({ ...s, musculacao: "done" }));
-    setEditPlan(JSON.parse(JSON.stringify(clone)));
-    setShowEdit(true);
-    toast.success(`Template "${t.name}" carregado — revise e personalize antes de publicar.`);
+  const applyCycleTemplate = async (template: { id: string; name: string }) => {
+    if (generationInFlight.current || generating || savingStrength || publishingStrengthRef.current || !studentId || !companyId) return;
+    const cycle = selectedScheduleCycle;
+    if (!cycle) { setError("Selecione o ciclo que receberá o modelo."); return; }
+    if (generatedStrengthDrafts.some(draft => draft.cycle.id === cycle.id)
+      && !window.confirm("Abrir um novo rascunho deste ciclo a partir do modelo?")) return;
+
+    setGenerating(true);
+    setError("");
+    try {
+      const { data, error: stageError } = await db.rpc("stage_studio_strength_template", {
+        p_cycle_id: cycle.id, p_template_id: template.id,
+      });
+      if (stageError || !data?.bundle_id || !data.start_date || !data.end_date) {
+        throw new Error("Não foi possível criar o rascunho do modelo para este ciclo.");
+      }
+      const staged = captureGeneratedStrengthPlan(data);
+      const target = { ...cycle, start_date: data.start_date, end_date: data.end_date };
+      const draft = { studentId, companyId, cycle: target, bundleId: data.bundle_id,
+        draftId: staged.planId, draftVersion: staged.planVersion, plan: staged.plan };
+      setGeneratedStrengthDrafts(current => [...current.filter(item => item.cycle.id !== cycle.id), draft]);
+      setStrengthPlanId(staged.planId);
+      setStrengthPlanVersion(staged.planVersion);
+      setActiveIntegratedBundleId(null);
+      setResults({ musculacao: staged.plan });
+      setStatus(current => ({ ...current, musculacao: "done" }));
+      setSavedStrength(false);
+      setPublished(null);
+      toast.success(`Modelo "${template.name}" carregado. Revise o rascunho antes de publicar.`);
+    } catch (stageError) {
+      setError(stageError instanceof Error ? stageError.message : "Falha ao carregar o modelo.");
+    } finally {
+      setGenerating(false);
+    }
   };
   const deleteTemplate = async (id: string) => {
     if (!window.confirm("Excluir este template?")) return;
@@ -207,7 +269,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   const [dropTarget, setDropTarget] = useState<{ wi: number; unitIndex: number } | null>(null);
   const dragPointerRef = useRef<{ wi: number; unitIndex: number; targetIndex: number | null } | null>(null);
   const [exerciseVideoPlayer, setExerciseVideoPlayer] = useState<{ url: string; title: string } | null>(null);
-  const [tab, setTab]             = useState("anamnese");
+  const [tab, setTab]             = useState(initialTab ?? "anamnese");
 
   // Anamnese state
   const [anamnese, setAnamnese]       = useState<any>(null);
@@ -236,13 +298,14 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   const [savingStrength, setSavingStrength] = useState(false);
   const [savedStrength, setSavedStrength] = useState(false);
   const [generating, setGenerating]   = useState(false);
+  const generationInFlight = useRef(false);
+  const [pendingStrengthAttempts, setPendingStrengthAttempts] = useState<Record<string, PendingStrength | null>>({});
   const [error, setError]             = useState("");
   const [pdfs, setPdfs]               = useState<any[]>([]);
   // Publicação do treino de força para o app do aluno.
   const [publishing, setPublishing]   = useState(false);
-  const [published, setPublished]     = useState<{ workoutsCreated: number; createdEnrollment: boolean; scheduled?: boolean } | null>(null);
-  const [activeBundleId, setActiveBundleId] = useState<string | null>(null);
-  const [resultCycleId, setResultCycleId] = useState<string | null>(null);
+  const [publicationError, setPublicationError] = useState<{ draftId: string; message: string } | null>(null);
+  const [published, setPublished]     = useState<{ workoutsCreated: number; current: boolean; scheduled: boolean; integrated: boolean } | null>(null);
   const [scheduleCycles, setScheduleCycles] = useState<PrescriptionScheduleCycle[]>([]);
   const [scheduleCoverage, setScheduleCoverage] = useState<ReturnType<typeof projectStudioSchedule> | null>(null);
   const [scheduleMode, setScheduleMode] = useState<PrescriptionScheduleMode>("single");
@@ -252,6 +315,29 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   const [hasCurrentEnrollment, setHasCurrentEnrollment] = useState(false);
   const [scheduleProgress, setScheduleProgress] = useState<{ current: number; total: number; label: string } | null>(null);
   const [scheduledSummaries, setScheduledSummaries] = useState<Array<{ cycle: PrescriptionScheduleCycle; modalities: string[] }>>([]);
+  const [generatedStrengthDrafts, setGeneratedStrengthDrafts] = useState<Array<{
+    studentId: string;
+    companyId: string;
+    cycle: PrescriptionScheduleCycle;
+    bundleId: string;
+    draftId: string;
+    draftVersion: string;
+    plan: any;
+    integrated?: boolean;
+  }>>([]);
+  const [integratedDrafts, setIntegratedDrafts] = useState<Array<{
+    cycle: PrescriptionScheduleCycle;
+    bundleId: string;
+    versions: StudioModalityVersions;
+    plans: Record<string, CardioPlanDraft>;
+    hasStrength: boolean;
+  }>>([]);
+  const [activeIntegratedBundleId, setActiveIntegratedBundleId] = useState<string | null>(null);
+  const activeIntegratedDraft = integratedDrafts.find(item => item.bundleId === activeIntegratedBundleId
+    && item.cycle.student_id === studentId && item.cycle.company_id === companyId);
+  const activePublicationDraft = activeIntegratedDraft ?? generatedStrengthDrafts.find(item =>
+    !item.integrated && item.draftId === strengthPlanId && item.studentId === studentId && item.companyId === companyId);
+  const publishingStrengthRef = useRef(false);
   const [intercycleWaiverReason, setIntercycleWaiverReason] = useState("");
   // Vídeo vindo do WhatsApp, vinculado a aluno + conversa + mensagem.
   const [pendingWhatsAppVideo, setPendingWhatsAppVideo] = useState<WhatsAppAssessmentVideoHandoff | null>(null);
@@ -266,10 +352,26 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
 
   const formatCycleDate = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
   const selectedScheduleCycle = scheduleCycles.find((cycle) => cycle.id === selectedCycleId) || null;
-  const generationButtonLabel = scheduleMode === "remaining"
-    ? `Gerar e agendar ${scheduleTargets.length} ${scheduleTargets.length === 1 ? "ciclo" : "ciclos"}`
+  const pendingStrengthKey = user?.id && companyId && companyId === effectiveCompanyId && studentId
+    ? `sett:studio-pending-strength:${user.id}:${companyId}:${studentId}` : null;
+  const activeStrengthScope = useRef(pendingStrengthKey);
+  useLayoutEffect(() => {
+    activeStrengthScope.current = pendingStrengthKey;
+    return () => { activeStrengthScope.current = null; };
+  }, [pendingStrengthKey]);
+  const pendingStrength = pendingStrengthKey
+    ? pendingStrengthAttempts[pendingStrengthKey] === undefined
+      ? readPendingStrength(pendingStrengthKey)
+      : pendingStrengthAttempts[pendingStrengthKey]
+    : null;
+  const pendingStrengthCycle = scheduleCycles.find(cycle => cycle.id === pendingStrength?.cycleId
+    && cycle.student_id === studentId && cycle.company_id === companyId);
+  const generatesStrengthOnly = modalities.size === 1 && modalities.has("musculacao");
+  const generateLabel = generatesStrengthOnly ? "Gerar rascunho" : "Gerar rascunho integrado";
+  const generationButtonLabel = pendingStrength ? "Iniciar nova geração" : scheduleMode === "remaining"
+    ? `${generateLabel} · ${scheduleTargets.length} ${scheduleTargets.length === 1 ? "ciclo" : "ciclos"}`
     : selectedScheduleCycle
-      ? `Gerar ${modalities.size} ${modalities.size === 1 ? "prescrição" : "prescrições"} · ciclo ${selectedScheduleCycle.cycle_number}`
+      ? `${generateLabel} · ciclo ${selectedScheduleCycle.cycle_number}`
       : "Selecione um ciclo";
 
   // ── Gate de auth ─────────────────────────────────────────────────────────
@@ -517,6 +619,113 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
     return () => { active = false; };
   }, [studentId, companyId]);
 
+  useEffect(() => {
+    if (scheduleLoading || !studentId || !companyId || scheduleCycles.length === 0) return;
+    const pendingBundleId = pendingStrengthKey ? readPendingStrength(pendingStrengthKey)?.bundleId : null;
+    const cyclesById = new Map(scheduleCycles.map(cycle => [cycle.id, cycle]));
+    let active = true;
+    (async () => {
+      const { data: bundles, error: bundleError } = await db.from("prescription_bundles")
+        .select("id,training_cycle_id,studio_strength_snapshot,studio_modalities_draft,modalities").eq("company_id", companyId).eq("student_id", studentId)
+        .eq("studio_strength_draft", true).eq("status", "draft").in("training_cycle_id", [...cyclesById.keys()]);
+      if (!active || bundleError || !bundles?.length) return;
+      const bundleById = new Map<string, any>(bundles.map((bundle: any) => [bundle.id, bundle]));
+
+      const { data: plans, error: draftError } = await db.from("ai_strength_plans")
+        .select("id,bundle_id,studio_draft_cycle_id,updated_at,plan").eq("company_id", companyId).eq("student_id", studentId)
+        .in("bundle_id", [...bundleById.keys()]).order("created_at", { ascending: false });
+      if (!active || draftError || !plans?.length) return;
+      const recovered = new Map<string, typeof generatedStrengthDrafts[number]>();
+      for (const row of plans) {
+        const cycle = cyclesById.get(row.studio_draft_cycle_id);
+        const bundle = bundleById.get(row.bundle_id);
+        const snapshot = bundle?.studio_strength_snapshot;
+        if (!bundle?.studio_modalities_draft && bundle?.modalities?.some((modality: string) => modality !== "musculacao")) continue;
+        if (!cycle || row.bundle_id === pendingBundleId || recovered.has(cycle.id)
+          || !snapshot?.start_date || !snapshot.end_date || !row.updated_at || !row.plan
+          || (cycle.bundle_id ?? null) !== snapshot.bundle_id) continue;
+        recovered.set(cycle.id, { studentId, companyId, bundleId: row.bundle_id, draftId: row.id,
+          draftVersion: row.updated_at, plan: row.plan, integrated: bundle.studio_modalities_draft, cycle: { ...cycle, start_date: snapshot.start_date, end_date: snapshot.end_date } });
+      }
+      setGeneratedStrengthDrafts(current => [
+        ...current,
+        ...[...recovered.values()].filter(draft => !current.some(item => item.cycle.id === draft.cycle.id)),
+      ]);
+    })();
+    return () => { active = false; };
+  }, [studentId, companyId, scheduleLoading, scheduleCycles, pendingStrengthKey]);
+
+  useEffect(() => {
+    if (scheduleLoading || !studentId || !companyId || scheduleCycles.length === 0) return;
+    const cycles = new Map(scheduleCycles.map(cycle => [cycle.id, cycle]));
+    let active = true;
+    (async () => {
+      const { data: bundles, error: bundleError } = await db.from("prescription_bundles")
+        .select("id,training_cycle_id,modalities,studio_modalities_snapshot").eq("company_id", companyId).eq("student_id", studentId)
+        .eq("studio_modalities_draft", true).eq("status", "draft").in("training_cycle_id", [...cycles.keys()]);
+      if (!active || bundleError || !bundles?.length) return;
+      const { data: rows, error: draftError } = await db.from("studio_modality_drafts")
+        .select("id,bundle_id,modality,plan,updated_at").in("bundle_id", bundles.map((bundle: any) => bundle.id));
+      if (!active || draftError || !rows) return;
+      const recovered: typeof integratedDrafts = [];
+      for (const bundle of bundles) {
+        const cycle = cycles.get(bundle.training_cycle_id);
+        const snapshot = bundle.studio_modalities_snapshot;
+        if (!cycle || cycle.start_date !== snapshot?.start_date || cycle.end_date !== snapshot?.end_date
+          || (cycle.bundle_id ?? null) !== snapshot.bundle_id) continue;
+        const drafts = rows.filter((row: any) => row.bundle_id === bundle.id);
+        const modalities = bundle.modalities.filter((modality: string) => modality !== "musculacao");
+        if (drafts.length !== modalities.length || !modalities.every((modality: string) => drafts.some((row: any) => row.modality === modality))) continue;
+        recovered.push({
+          cycle, bundleId: bundle.id, hasStrength: bundle.modalities.includes("musculacao"),
+          versions: Object.fromEntries(drafts.map((row: any) => [row.modality, { id: row.id, updated_at: row.updated_at }])),
+          plans: Object.fromEntries(drafts.map((row: any) => [row.modality, row.plan])),
+        });
+      }
+      setIntegratedDrafts(current => [...current, ...recovered.filter(draft => !current.some(item => item.bundleId === draft.bundleId))]);
+    })();
+    return () => { active = false; };
+  }, [studentId, companyId, scheduleLoading, scheduleCycles]);
+
+  function openIntegratedDraft(draft: typeof integratedDrafts[number], strength?: typeof generatedStrengthDrafts[number]) {
+    const versions = { ...draft.versions };
+    delete versions.nutricao;
+    setActiveIntegratedBundleId(draft.bundleId);
+    setCardioPlanIds(Object.fromEntries(Object.entries(versions).map(([key, value]) => [key, value.id])));
+    setCardioPlanVersions(Object.fromEntries(Object.entries(versions).map(([key, value]) => [key, value.updated_at])));
+    setSavedCardio({});
+    const plans = { ...draft.plans, ...(strength ? { musculacao: strength.plan } : {}) };
+    setResults(plans);
+    setStatus(Object.fromEntries(Object.keys(plans).map(modality => [modality, "done"])));
+    setStrengthPlanId(strength?.draftId ?? null);
+    setStrengthPlanVersion(strength?.draftVersion ?? null);
+    setSavedStrength(false);
+    setPublished(null);
+    setError("");
+  }
+
+  function openStrengthDraft(draft: typeof generatedStrengthDrafts[number]) {
+    const current = generatedStrengthDrafts.find(item => item.draftId === strengthPlanId);
+    if (current && JSON.stringify(editPlan) !== JSON.stringify(current.plan)
+      && !window.confirm("Você tem alterações sem salvar no rascunho aberto. Trocar de rascunho mesmo assim?")) return;
+    if (draft.integrated) {
+      const integrated = integratedDrafts.find(item => item.bundleId === draft.bundleId);
+      if (integrated) openIntegratedDraft(integrated, draft);
+      return;
+    }
+    setActiveIntegratedBundleId(null);
+    setCardioPlanIds({});
+    setCardioPlanVersions({});
+    setResults({ musculacao: draft.plan });
+    setEditPlan(draft.plan);
+    setStrengthPlanId(draft.draftId);
+    setStrengthPlanVersion(draft.draftVersion);
+    setStatus(current => ({ ...current, musculacao: "done" }));
+    setSavedStrength(false);
+    setPublished(null);
+    setError("");
+  }
+
   const filteredStudents = useMemo(() => {
     const q = studentSearch.trim().toLowerCase();
     const matches = q
@@ -530,6 +739,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   }, [student, studentSearch]);
 
   const handleStudentSearchChange = (value: string) => {
+    if (generationInFlight.current) return;
     setStudentSearch(value);
     setStudentPickerOpen(true);
     const normalized = value.trim().toLowerCase();
@@ -538,6 +748,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   };
 
   const selectStudent = (id: string) => {
+    if (generationInFlight.current) return;
     const selected = students.find((s) => s.id === id);
     setStudentId(id);
     setStudentSearch(selected?.name || "");
@@ -560,10 +771,10 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
       .order("checkin_date", { ascending: false }).limit(1).maybeSingle())
       .then(({ data }: any) => setLastCheckin(data));
   }, [studentId]);
-  const prescriptionIntegration = useMemo(
-    () => {
+  const buildStudentIntegration = useCallback(
+    (currentAnamnesis: Record<string, unknown> | null) => {
       const base = buildPrescriptionIntegration({
-        anamnese,
+        anamnese: currentAnamnesis,
         assessment: assessmentContext,
         assessmentId,
         assessmentCreatedAt: assessment?.created_at,
@@ -582,8 +793,9 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
       }
       return base;
     },
-    [anamnese, assessmentContext, assessmentId, assessment?.created_at, lastCheckin],
+    [assessmentContext, assessmentId, assessment?.created_at, lastCheckin],
   );
+  const prescriptionIntegration = useMemo(() => buildStudentIntegration(anamnese), [buildStudentIntegration, anamnese]);
   const bnitoOrchestration = useMemo(
     () => buildBnitoOrchestrationPlan(prescriptionIntegration),
     [prescriptionIntegration],
@@ -686,46 +898,178 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
     };
   }
 
+  function rememberPendingStrength(key: string, attempt: PendingStrength | null) {
+    setPendingStrengthAttempts(current => ({ ...current, [key]: attempt }));
+    // The request contains anamnesis and assessment details. Keep only IDs across reloads.
+    try {
+      if (attempt) sessionStorage.setItem(key, `${attempt.bundleId}:${attempt.cycleId}${attempt.mixed ? ":mixed" : ""}`);
+      else sessionStorage.removeItem(key);
+    } catch { /* In-memory retry still works if storage is unavailable. */ }
+  }
+
+  async function finalizeStrengthDraft(bundleId: string, cycle: PrescriptionScheduleCycle, integrated = false) {
+    const { data, error } = await db.from("prescription_bundles")
+      .update({ status: "draft", generation_error: null })
+      .eq("id", bundleId).eq("company_id", cycle.company_id).eq("student_id", cycle.student_id)
+      .eq("training_cycle_id", cycle.id).eq(integrated ? "studio_modalities_draft" : "studio_strength_draft", true)
+      .in("status", ["generating", "draft"]).select("id").maybeSingle();
+    if (error || data?.id !== bundleId) {
+      throw new Error(`Não foi possível confirmar o pacote do ciclo ${cycle.cycle_number}. Consulte o rascunho pendente.`);
+    }
+  }
+
+  function showStrengthDraft(cycle: PrescriptionScheduleCycle, bundleId: string, strength: GeneratedStrength, integrated = false) {
+    const { plan, planId: draftId, planVersion: draftVersion } = strength;
+    const draft = { studentId: cycle.student_id, companyId: cycle.company_id, cycle, bundleId, draftId, draftVersion, plan, integrated };
+    setStrengthPlanId(draftId);
+    setStrengthPlanVersion(draftVersion);
+    setSavedStrength(false);
+    setPublished(null);
+    setGeneratedStrengthDrafts(current => [...current.filter(item => item.cycle.id !== cycle.id), draft]);
+  }
+
+  async function retryPendingStrength() {
+    if (generationInFlight.current || generating || savingStrength || publishingStrengthRef.current
+      || scheduleLoading || !pendingStrengthKey || !pendingStrength || pendingStrength.mixed || !pendingStrengthCycle) return;
+    generationInFlight.current = true;
+    setGenerating(true);
+    setError("");
+    setStatus(current => ({ ...current, musculacao: "generating" }));
+    const { bundleId, body } = pendingStrength;
+    const cycle = pendingStrengthCycle;
+
+    try {
+      let strength: GeneratedStrength;
+      let draftCycle = cycle;
+      let needsFinalize = true;
+      if (body) {
+        const response = await requestStudioStrength(body);
+        if (response.outcome === "unconfirmed") {
+          throw new Error("A resposta da musculação ainda não foi confirmada. Retente quando a conexão voltar.");
+        }
+        strength = response.strength;
+      } else {
+        const [bundle, plan] = await Promise.all([
+          db.from("prescription_bundles").select("status,studio_strength_snapshot,studio_strength_draft")
+            .eq("id", bundleId).eq("company_id", cycle.company_id).eq("student_id", cycle.student_id)
+            .eq("training_cycle_id", cycle.id).maybeSingle(),
+          db.from("ai_strength_plans").select("studio_draft_cycle_id,studio_publication")
+            .eq("bundle_id", bundleId).eq("company_id", cycle.company_id).eq("student_id", cycle.student_id)
+            .maybeSingle(),
+        ]);
+        if (activeStrengthScope.current !== pendingStrengthKey) return;
+        if (bundle.error || plan.error) throw new Error("Não foi possível consultar o rascunho pendente. Tente novamente.");
+        const receipt = plan.data?.studio_publication;
+        if (bundle.data?.studio_strength_draft === false && receipt?.cycle_id === cycle.id && receipt.bundle_id === bundleId) {
+          rememberPendingStrength(pendingStrengthKey, null);
+          setStatus(current => ({ ...current, musculacao: "done" }));
+          toast.info("Esta geração de musculação já foi publicada. Consulte o ciclo na agenda.");
+          return;
+        }
+        if (!plan.data) {
+          throw new Error("Ainda não há rascunho salvo para esta tentativa. Consulte novamente ou inicie uma nova geração.");
+        }
+        const snapshot = bundle.data?.studio_strength_snapshot;
+        if (!bundle.data?.studio_strength_draft || plan.data.studio_draft_cycle_id !== cycle.id
+          || !snapshot?.start_date || !snapshot.end_date || (cycle.bundle_id ?? null) !== snapshot.bundle_id) {
+          throw new Error("O rascunho pendente não corresponde mais ao ciclo atual.");
+        }
+        draftCycle = { ...cycle, start_date: snapshot.start_date, end_date: snapshot.end_date };
+        const response = await requestStudioStrength({
+          student_id: cycle.student_id, company_id: cycle.company_id,
+          bundle_id: bundleId, training_cycle_id: cycle.id, draft_only: true, recover_draft_only: true,
+          expected_cycle_start: snapshot.start_date, expected_cycle_end: snapshot.end_date,
+        });
+        if (response.outcome === "unconfirmed") {
+          throw new Error("Não foi possível confirmar o rascunho pendente. Tente novamente.");
+        }
+        strength = response.strength;
+        needsFinalize = bundle.data.status !== "draft";
+      }
+
+      if (activeStrengthScope.current !== pendingStrengthKey) return;
+      if (needsFinalize) await finalizeStrengthDraft(bundleId, cycle);
+      if (activeStrengthScope.current !== pendingStrengthKey) return;
+      rememberPendingStrength(pendingStrengthKey, null);
+      setActiveIntegratedBundleId(null);
+      showStrengthDraft(draftCycle, bundleId, strength);
+      setResults(current => ({ ...current, musculacao: strength.plan }));
+      setStatus(current => ({ ...current, musculacao: "done" }));
+    } catch (retryError) {
+      if (activeStrengthScope.current !== pendingStrengthKey) return;
+      if (body && retryError instanceof Error && retryError.cause instanceof FunctionsHttpError
+        && [409, 422].includes(retryError.cause.context?.status)) {
+        rememberPendingStrength(pendingStrengthKey, { bundleId, cycleId: cycle.id });
+      }
+      setStatus(current => ({ ...current, musculacao: "error" }));
+      setError(retryError instanceof Error ? retryError.message : "Falha ao recuperar a musculação.");
+    } finally {
+      generationInFlight.current = false;
+      setGenerating(false);
+    }
+  }
+
   // ── Geração integrada e longitudinal das prescrições marcadas ────────────
   async function generate() {
-    if (!studentId || !companyId) { setError("Selecione um aluno."); return; }
+    if (generationInFlight.current || generating || savingStrength || publishingStrengthRef.current) return;
+    if (!studentId || !companyId || !pendingStrengthKey) { setError("Selecione um aluno."); return; }
     if (anamneseGenerationBlockReason) { setError(anamneseGenerationBlockReason); return; }
     if (modalities.size === 0) { setError("Marque ao menos uma modalidade."); return; }
     if (scheduleTargets.length === 0) { setError("Não há ciclo disponível para esta opção de agendamento."); return; }
-    if (scheduleTargets.some((cycle) => cycle.has_workouts || cycle.has_bundle)) {
-      const confirmed = window.confirm("Um dos ciclos selecionados já tem prescrição. Deseja substituir esse bloco mantendo as mesmas datas?");
+    if (pendingStrength && !window.confirm("Iniciar uma nova geração? A musculação da tentativa pendente ainda pode ter sido salva. A nova geração vai criar outro pacote.")) return;
+    if (!pendingStrength && generatedStrengthDrafts.some(draft => draft.studentId === studentId && draft.companyId === companyId)
+      && !window.confirm("Iniciar outra geração? Ela substituirá os rascunhos abertos nesta tela.")) return;
+    if (!generatesStrengthOnly) {
+      const message = modalities.has("musculacao")
+        ? "As outras modalidades selecionadas podem ser publicadas agora. A musculação fica para revisão. Continuar?"
+        : "As modalidades selecionadas podem ser publicadas nesta etapa. Continuar?";
+      const confirmed = window.confirm(message);
       if (!confirmed) return;
     }
 
+    generationInFlight.current = true;
+    if (pendingStrength) rememberPendingStrength(pendingStrengthKey, null);
     setGenerating(true); setError(""); setPdfs([]); setScheduledSummaries([]);
     const st: Record<string, GenStatus> = {};
     modalities.forEach((modality) => { st[modality] = "idle"; });
+    setActiveIntegratedBundleId(null);
     setStatus(st); setResults({}); setCardioPlanIds({}); setCardioPlanVersions({}); setSavingCardio({}); setSavedCardio({});
     setStrengthPlanId(null); setStrengthPlanVersion(null); setSavedStrength(false);
-    setPublished(null); setActiveBundleId(null); setResultCycleId(null);
+    setPublished(null);
 
-    const firstTarget = scheduleTargets[0];
-    const [strengthHistoryRes, runningHistoryRes, nutritionHistoryRes] = await Promise.all([
-      db.from("ai_strength_plans").select("id, plan, sequence_number, training_cycle_id, created_at")
-        .eq("student_id", studentId).order("created_at", { ascending: false }),
-      db.from("running_plans").select("id, sport, plan_name, goal, duration_weeks, weeks, fc_zones, safety_check, sequence_number, training_cycle_id, created_at")
-        .eq("student_id", studentId).order("created_at", { ascending: false }),
-      db.from("nutrition_plans").select("id, plan_name, goal, target_calories, target_protein_g, target_carbs_g, target_fat_g, meals, sequence_number, training_cycle_id, created_at")
-        .eq("student_id", studentId).order("created_at", { ascending: false }),
-    ]);
-    const priorToFirst = (row: any) => isPrescriptionHistoryBeforeTarget(row, firstTarget, scheduleCycles);
-    let previousStrength: any = (strengthHistoryRes.data || []).find(priorToFirst) || null;
-    const previousCardio: Record<string, any> = {};
-    for (const row of runningHistoryRes.data || []) {
-      const key = String(row.sport || "corrida").toLowerCase();
-      if (!previousCardio[key] && priorToFirst(row)) previousCardio[key] = row;
-    }
-    let previousNutrition: any = (nutritionHistoryRes.data || []).find(priorToFirst) || null;
-    const summaries: Array<{ cycle: PrescriptionScheduleCycle; modalities: string[] }> = [];
-    const preparedCycleIds = new Set<string>();
     let lastBundleId: string | null = null;
-
+    let bundleCanFail = true;
     try {
+      const latestAnamnesis = await resolveStudioAnamnesis({ db, studentId, companyId, phone: student?.whatsapp || student?.phone });
+      if (activeStrengthScope.current !== pendingStrengthKey) return;
+      setAnamnese(latestAnamnesis);
+      const integrationCtx = buildStudentIntegration(latestAnamnesis);
+      const a = latestAnamnesis || {};
+      const firstTarget = scheduleTargets[0];
+      const [strengthHistoryRes, runningHistoryRes, nutritionHistoryRes] = await Promise.all([
+        db.from("ai_strength_plans").select("id, plan, sequence_number, training_cycle_id, created_at")
+          .eq("student_id", studentId).is("studio_draft_cycle_id", null).is("studio_superseded_cycle_id", null)
+          .or("studio_publication.is.null,training_cycle_id.not.is.null")
+          .order("created_at", { ascending: false }),
+        db.from("running_plans").select("id, sport, plan_name, goal, duration_weeks, weeks, fc_zones, safety_check, sequence_number, training_cycle_id, created_at")
+          .eq("student_id", studentId).order("created_at", { ascending: false }),
+        db.from("nutrition_plans").select("id, plan_name, goal, target_calories, target_protein_g, target_carbs_g, target_fat_g, meals, sequence_number, training_cycle_id, created_at")
+          .eq("student_id", studentId).order("created_at", { ascending: false }),
+      ]);
+      const priorToFirst = (row: any) => isPrescriptionHistoryBeforeTarget(row, firstTarget, scheduleCycles);
+      let previousStrength: any = (strengthHistoryRes.data || [])
+        .find((row: any) => row.plan?.studio_draft_only !== true && priorToFirst(row)) || null;
+      const previousCardio: Record<string, any> = {};
+      for (const row of runningHistoryRes.data || []) {
+        const key = String(row.sport || "corrida").toLowerCase();
+        if (!previousCardio[key] && priorToFirst(row)) previousCardio[key] = row;
+      }
+      let previousNutrition: any = (nutritionHistoryRes.data || []).find(priorToFirst) || null;
+      const summaries: Array<{ cycle: PrescriptionScheduleCycle; modalities: string[] }> = [];
+      const preparedCycleIds = new Set<string>();
+      if (modalities.has("musculacao") && strengthHistoryRes.error) {
+        throw new Error("Não foi possível carregar o histórico seguro de musculação.");
+      }
       for (let cycleIndex = 0; cycleIndex < scheduleTargets.length; cycleIndex += 1) {
         const cycle = scheduleTargets[cycleIndex];
         const phase = longitudinalPhase(cycle.cycle_number, cycle);
@@ -746,21 +1090,21 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
           planIds: {} as Partial<Record<"corrida" | "natacao" | "ciclismo", string>>,
           planVersions: {} as Partial<Record<"corrida" | "natacao" | "ciclismo", string>>,
         };
-        let strengthPlan: any = null;
-        let strengthPlanId: string | null = null;
+        let generatedStrength: GeneratedStrength | null = null;
         const cardioPlans: Record<string, any> = {};
-        let firstRunningPlanId: string | null = null;
+        const integrated = !generatesStrengthOnly;
+        const modalityVersions: StudioModalityVersions = {};
         const bundleId = crypto.randomUUID();
-        lastBundleId = bundleId;
+        lastBundleId = null;
+        bundleCanFail = true;
         const assessmentCtx = assessmentContext;
-        const integrationCtx = prescriptionIntegration;
         const orchestrationCtx = buildBnitoOrchestrationPlan(integrationCtx);
         const previousCycle = selectPreviousPrescriptionCycle(scheduleCycles, cycle);
         const performanceCtx = previousCycle && preparedCycleIds.has(previousCycle.id)
           ? null
           : await loadPreviousPerformance(cycle);
-        const a = anamnese || {};
 
+        if (activeStrengthScope.current !== pendingStrengthKey) return;
         const { error: bundleCreateError } = await db.from("prescription_bundles").insert({
           id: bundleId, company_id: companyId, student_id: studentId,
           anamnese_id: a.id || null, assessment_id: assessmentId,
@@ -774,9 +1118,11 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
             `Continuidade: ciclo ${cycle.cycle_number}/${scheduleCycles.length}, fase ${phase}, vigência ${cycle.start_date} a ${cycle.end_date}.`,
           ].join("\n"),
           status: "generating",
+          ...(modalities.has("musculacao") ? { studio_strength_draft: true } : {}),
+          ...(integrated ? { studio_modalities_draft: true } : {}),
         });
         if (bundleCreateError) throw new Error(`Falha ao iniciar o ciclo ${cycle.cycle_number}: ${bundleCreateError.message}`);
-        setActiveBundleId(bundleId);
+        lastBundleId = bundleId;
 
         const linkBundleItem = async (modality: Modality | "avaliacao", entityType: string, entityId: string) => {
           const { error: itemError } = await db.from("prescription_bundle_items").insert({
@@ -798,36 +1144,59 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
             "experience_months", "strength_experience_months", "muscle_training_months",
             "training_experience_months", "tempo_treino_meses", "tempo_de_treino_meses",
           ]);
-          const { data, error: edgeError } = await supabase.functions.invoke("ai-prescribe-workout", { body: {
+          const body = {
             student_id: studentId, student_name: student?.name, company_id: companyId,
             anamnese_id: a.id, objective: a.objective,
             fitness_level: fitnessLevel,
             experience_months: experienceMonths,
-            days_per_week: Number(a.days_per_week_strength) || 3, duration_weeks: 6,
+            days_per_week: Number(a.days_per_week_strength ?? 3), duration_weeks: 6,
             equipment: a.equipment, block_number: cycle.sequence_number ?? cycle.cycle_number,
             is_endurance_athlete: a.is_endurance_athlete, restrictions: a.injuries, notes: a.notes,
             running_days_context: cardioDays > 0 ? { days_per_week: cardioDays, sport: a.sport } : null,
             assessment_context: assessmentCtx, anamnese_context: a,
             prescription_integration: integrationCtx, bnito_orchestration: orchestrationCtx,
-            bundle_id: bundleId, training_cycle_id: cycle.id,
+            bundle_id: bundleId, training_cycle_id: cycle.id, draft_only: true,
+            expected_cycle_start: cycle.start_date, expected_cycle_end: cycle.end_date,
             previous_plan_id: previousStrength?.id || null,
             previous_plan_context: previousStrength?.plan || null,
             previous_performance_context: performanceCtx,
             program_sequence: programSequence,
             intercycle_waiver_reason: intercycleWaiverReason.trim() || null,
-          } });
-          if (edgeError || data?.error) throw new Error((await readEdgeError(edgeError, data)) || `Falha na musculação do ciclo ${cycle.cycle_number}.`);
-          if (!data?.id) throw new Error("A musculação foi gerada sem ID persistido.");
-          const generatedStrength = captureGeneratedStrengthPlan(data);
-          strengthPlanId = generatedStrength.planId; strengthPlan = generatedStrength.plan; newResults.musculacao = generatedStrength.plan;
-          setStrengthPlanId(generatedStrength.planId);
-          setStrengthPlanVersion(generatedStrength.planVersion);
-          await linkBundleItem("musculacao", "ai_strength_plan", data.id);
-          const { error: linkError } = await db.from("prescription_bundles").update({ strength_plan_id: data.id }).eq("id", bundleId);
-          if (linkError) throw new Error(`Falha ao ligar musculação: ${linkError.message}`);
+          };
+          if (activeStrengthScope.current !== pendingStrengthKey) return;
+          rememberPendingStrength(pendingStrengthKey, generatesStrengthOnly
+            ? { bundleId, cycleId: cycle.id, body }
+            : { bundleId, cycleId: cycle.id, mixed: true });
+
+          let response;
+          try {
+            response = await requestStudioStrength(body);
+          } catch (strengthError) {
+            rememberPendingStrength(pendingStrengthKey, null);
+            throw strengthError;
+          }
+          if (response.outcome === "unconfirmed") {
+            bundleCanFail = false;
+            if (!generatesStrengthOnly) {
+              await new Promise(resolve => window.setTimeout(resolve, 350));
+              if (activeStrengthScope.current !== pendingStrengthKey) return;
+              response = await requestStudioStrength(body);
+            }
+          }
+          if (response.outcome === "unconfirmed") {
+            throw new Error(generatesStrengthOnly
+              ? "A resposta da musculação se perdeu. Retente a mesma geração quando a conexão voltar."
+              : "A resposta da musculação não foi confirmada. Confira o ciclo antes de iniciar outra geração.");
+          }
+          if (activeStrengthScope.current !== pendingStrengthKey) return;
+          bundleCanFail = !generatesStrengthOnly;
+          if (!generatesStrengthOnly) rememberPendingStrength(pendingStrengthKey, null);
+          generatedStrength = response.strength;
+          newResults.musculacao = generatedStrength.plan;
           setStatus((current) => ({ ...current, musculacao: "done" }));
         }
 
+        const strengthPlan = generatedStrength?.plan as { workouts?: unknown[] } | undefined;
         const sportMap: Record<string, string> = { corrida: "corrida", natacao: "natacao", ciclismo: "ciclismo" };
         for (const modality of ["corrida", "natacao", "ciclismo"] as Modality[]) {
           if (!modalities.has(modality)) continue;
@@ -836,13 +1205,13 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
           const { data, error: edgeError } = await supabase.functions.invoke("ai-running-plan", { body: {
             student_id: studentId, student_name: student?.name, company_id: companyId,
             anamnese_id: a.id, sport: sportMap[modality], goal: a.cardio_goal || "Melhora de performance",
-            duration_weeks: 6, days_per_week: Number(a.days_per_week_cardio) || 3,
-            session_duration: Number(a.endurance_session_duration_min ?? a.session_duration_min) || 60,
+            duration_weeks: 6, days_per_week: Number(a.days_per_week_cardio ?? 3),
+            session_duration: Number(a.endurance_session_duration_min ?? a.session_duration_min ?? 60),
             current_volume: (cycle.sequence_number ?? cycle.cycle_number) === 1 ? a.current_volume_weekly : null,
             current_volume_unit: (cycle.sequence_number ?? cycle.cycle_number) === 1 ? a.current_volume_unit : null,
             fcmax: a.fcmax, fcrep: a.fcrep, experience_months: a.experience_months, injuries: a.injuries,
             strength_plan_context: strengthPlan ? {
-              days_per_week: Number(a.days_per_week_strength) || 3,
+              days_per_week: Number(a.days_per_week_strength ?? 3),
               workouts: (strengthPlan.workouts || []).map((workout: any) => ({
                 day: workout.day_of_week, focus: workout.split_focus,
                 has_heavy_legs: (workout.exercises || []).some((exercise: any) =>
@@ -852,30 +1221,26 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
             other_cardio_context: Object.keys(cardioPlans).length ? cardioPlans : null,
             assessment_context: assessmentCtx, anamnese_context: a,
             prescription_integration: integrationCtx, bnito_orchestration: orchestrationCtx,
-            bundle_id: bundleId, training_cycle_id: cycle.id,
+            bundle_id: bundleId, training_cycle_id: cycle.id, draft_only: true,
             previous_plan_id: prior?.id || null, previous_plan_context: prior || null,
             block_number: cycle.sequence_number ?? cycle.cycle_number, program_sequence: programSequence,
           } });
           if (edgeError || data?.error) throw new Error((await readEdgeError(edgeError, data)) || `Falha em ${modality} no ciclo ${cycle.cycle_number}.`);
-          if (!data?.id) throw new Error(`A prescrição de ${modality} foi gerada sem ID persistido.`);
+          if (data?.draft_only !== true) throw new Error(`O servidor não confirmou o rascunho de ${modality}.`);
           generatedCardio = captureGeneratedCardioPlan(
             generatedCardio,
             modality as "corrida" | "natacao" | "ciclismo",
             { id: data?.id, plan: data?.plan, updated_at: data?.updated_at },
           );
-          await linkBundleItem(modality, "running_plan", data.id);
-          if (!firstRunningPlanId) firstRunningPlanId = data.id;
+          modalityVersions[modality as "corrida" | "natacao" | "ciclismo"] = { id: data.id, updated_at: data.updated_at };
           previousCardio[sportMap[modality]] = { id: data.id, ...data.plan };
           cardioPlans[modality] = data.plan; newResults[modality] = data.plan;
           setStatus((current) => ({ ...current, [modality]: "done" }));
         }
-        if (firstRunningPlanId) {
-          await updateBundleRunningPlanPointer(db, { bundleId, runningPlanId: firstRunningPlanId });
-        }
 
         if (modalities.has("nutricao")) {
           setStatus((current) => ({ ...current, nutricao: "generating" }));
-          const { data: studentData } = await db.from("students").select("weight_kg, height_cm, gender, birth_date").eq("id", studentId).maybeSingle();
+          const { data: studentData } = await db.from("students").select("weight_kg, height_cm, gender, birth_date").eq("id", studentId).eq("company_id", companyId).maybeSingle();
           const age = a.age || (studentData?.birth_date ? Math.floor((Date.now() - new Date(studentData.birth_date).getTime()) / 31557600000) : null);
           const totalCardioHours = Object.values(cardioPlans).reduce((sum: number, plan: any) => sum + (Number(plan?.volume_weekly_hours) || 0), 0);
           const { data, error: edgeError } = await supabase.functions.invoke("ai-nutrition-plan", { body: {
@@ -883,86 +1248,76 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
             anamnese_id: a.id, age, gender: studentData?.gender || "M", weight_kg: studentData?.weight_kg,
             height_cm: studentData?.height_cm, body_fat_percent: a.body_fat_percent, objective: a.objective,
             activity_level: a.activity_level, is_endurance_athlete: a.is_endurance_athlete,
-            meals_per_day: Number(a.meals_per_day) || 5, food_restrictions: a.food_restrictions,
+            meals_per_day: Number(a.meals_per_day ?? 5), food_restrictions: a.food_restrictions,
             budget: a.budget_food, stress_score: a.stress_score, sleep_quality: a.sleep_quality,
             has_microwave: a.has_kitchen, nutrition_context: a.nutrition_context,
             training_modality: Array.from(modalities).filter((modality) => modality !== "nutricao").join(" + "),
             strength_plan_context: strengthPlan ? {
-              sessions_per_week: Number(a.days_per_week_strength) || 3,
-              session_duration_min: Number(a.session_duration_min) || 60,
-              estimated_weekly_kcal: (Number(a.days_per_week_strength) || 3) * (Number(a.session_duration_min) || 60) / 60 * 450,
+              sessions_per_week: Number(a.days_per_week_strength ?? 3),
+              session_duration_min: Number(a.session_duration_min ?? 60),
+              estimated_weekly_kcal: (Number(a.days_per_week_strength ?? 3)) * (Number(a.session_duration_min ?? 60)) / 60 * 450,
             } : null,
             running_plan_context: Object.keys(cardioPlans).length ? {
               modalities: Object.keys(cardioPlans), volume_weekly_hours: totalCardioHours,
               estimated_weekly_kcal: totalCardioHours * 700,
             } : null,
             anamnese_context: a, prescription_integration: integrationCtx, bnito_orchestration: orchestrationCtx,
-            bundle_id: bundleId, training_cycle_id: cycle.id,
+            bundle_id: bundleId, training_cycle_id: cycle.id, draft_only: true,
             previous_plan_id: previousNutrition?.id || null, previous_plan_context: previousNutrition || null,
             block_number: cycle.sequence_number ?? cycle.cycle_number, program_sequence: programSequence,
           } });
           if (edgeError || data?.error) throw new Error((await readEdgeError(edgeError, data)) || `Falha na nutrição do ciclo ${cycle.cycle_number}.`);
-          if (!data?.id) throw new Error("A nutrição foi gerada sem ID persistido.");
-          await linkBundleItem("nutricao", "nutrition_plan", data.id);
-          const { error: linkError } = await db.from("prescription_bundles").update({ nutrition_plan_id: data.id }).eq("id", bundleId);
-          if (linkError) throw new Error(`Falha ao ligar nutrição: ${linkError.message}`);
+          if (data?.draft_only !== true || !data.id || !data.updated_at || !data.plan) {
+            throw new Error("O servidor não confirmou o rascunho de nutrição.");
+          }
+          modalityVersions.nutricao = { id: data.id, updated_at: data.updated_at };
           previousNutrition = { id: data.id, ...data.plan };
           newResults.nutricao = data.plan;
           setStatus((current) => ({ ...current, nutricao: "done" }));
         }
 
-        // Gerar e publicar são uma única operação operacional: deixar o ciclo
-        // atual apenas em ai_strength_plans fazia a prescrição parecer concluída
-        // no Studio, mas invisível para o aluno até um segundo clique manual.
-        const shouldMaterializeStrength = Boolean(strengthPlan);
-        if (shouldMaterializeStrength) {
-          const publication = await publishStrengthPlanToStudent({
-            plan: strengthPlan, studentId, companyId, createdBy: user?.id ?? null,
-            aiOriginal: strengthPlan, bundleId, targetCycleId: cycle.id, replaceTargetCycle: true,
-          });
-          setPublished({
-            workoutsCreated: publication.workoutsCreated,
-            createdEnrollment: publication.createdEnrollment,
-            scheduled: !isCycleCurrent(cycle),
-          });
+        if (activeStrengthScope.current !== pendingStrengthKey) return;
+        await finalizeStrengthDraft(bundleId, cycle, integrated);
+        if (activeStrengthScope.current !== pendingStrengthKey) return;
+        if (generatesStrengthOnly) rememberPendingStrength(pendingStrengthKey, null);
+        if (generatedStrength) showStrengthDraft(cycle, bundleId, generatedStrength, integrated);
+        else {
+          setStrengthPlanId(null);
+          setStrengthPlanVersion(null);
+        }
+        if (integrated) {
+          const plans = Object.fromEntries(Object.keys(modalityVersions).map(modality => [modality, newResults[modality]]));
+          setIntegratedDrafts(current => [...current, { cycle, bundleId, versions: modalityVersions, plans, hasStrength: Boolean(generatedStrength) }]);
+          setActiveIntegratedBundleId(bundleId);
         }
 
-        const finalStatus = isCycleCurrent(cycle) ? "active" : "scheduled";
-        const { error: bundleFinalizeError } = await db.from("prescription_bundles")
-          .update({ status: finalStatus, generation_error: null, training_cycle_id: cycle.id })
-          .eq("id", bundleId);
-        if (bundleFinalizeError) throw new Error(`Falha ao finalizar ciclo ${cycle.cycle_number}: ${bundleFinalizeError.message}`);
-
-        // Mantém a auditoria das versões antigas sem deixar mais de um pacote
-        // vigente para o mesmo bloco. Só supersede depois que o novo pacote
-        // terminou com sucesso, preservando o anterior em caso de falha.
-        const { error: supersedeError } = await db.from("prescription_bundles")
-          .update({ status: "superseded" })
-          .eq("training_cycle_id", cycle.id)
-          .neq("id", bundleId)
-          .neq("status", "failed");
-        if (supersedeError) throw new Error(`Ciclo ${cycle.cycle_number} gerado, mas falhou ao arquivar a versão anterior: ${supersedeError.message}`);
-
-        if (strengthPlanId) previousStrength = { id: strengthPlanId, plan: strengthPlan };
+        if (generatedStrength) previousStrength = { id: generatedStrength.planId, plan: strengthPlan };
+        lastBundleId = null;
         summaries.push({ cycle, modalities: Array.from(modalities) });
         preparedCycleIds.add(cycle.id);
         setResults({ ...newResults });
         setCardioPlanIds({ ...generatedCardio.planIds });
         setCardioPlanVersions({ ...generatedCardio.planVersions });
-        setResultCycleId(cycle.id);
       }
 
       setScheduledSummaries(summaries);
-      setScheduleCycles((current) => current.map((cycle) => preparedCycleIds.has(cycle.id)
-        ? { ...cycle, has_bundle: true, has_workouts: cycle.has_workouts || modalities.has("musculacao") }
-        : cycle));
-      if (scheduleMode === "remaining") toast.success(`${summaries.length} ciclo(s) de 6 semanas foram gerados e agendados em progressão.`);
+      if (scheduleMode === "remaining") toast.success(`${summaries.length} ciclo(s) gerados. Revise os rascunhos antes de publicar.`);
     } catch (generationError: any) {
-      setError(generationError?.message || "Falha ao gerar a sequência de prescrições.");
-      if (lastBundleId) await db.from("prescription_bundles").update({
-        status: "failed", generation_error: String(generationError?.message || "Falha na geração").slice(0, 1000),
-      }).eq("id", lastBundleId);
+      if (activeStrengthScope.current === pendingStrengthKey) {
+        setError(generationError?.message || "Falha ao gerar a sequência de prescrições.");
+        setStatus(current => Object.fromEntries(Object.entries(current).map(([modality, state]) => (
+          [modality, state === "generating" ? "error" : state]
+        ))));
+      }
+      if (lastBundleId && bundleCanFail && activeStrengthScope.current === pendingStrengthKey) {
+        try {
+          await db.from("prescription_bundles").update({
+            status: "failed", generation_error: String(generationError?.message || "Falha na geração").slice(0, 1000),
+          }).eq("id", lastBundleId).eq("company_id", companyId).eq("student_id", studentId).eq("status", "generating");
+        } catch { /* Preserve the original generation error if the status write also fails. */ }
+      }
     } finally {
+      generationInFlight.current = false;
       setScheduleProgress(null);
       setGenerating(false);
     }
@@ -977,13 +1332,19 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
     }
     setSavingCardio((current) => ({ ...current, [modality]: true }));
     setSavedCardio((current) => ({ ...current, [modality]: false }));
+    const scope = pendingStrengthKey;
     try {
       const saved = await saveCardioPlanDraft(supabase, { planId, expectedUpdatedAt, plan });
+      if (activeStrengthScope.current !== scope) return;
       setResults((current) => ({ ...current, [modality]: saved.plan }));
       setCardioPlanVersions((current) => ({ ...current, [modality]: saved.updatedAt }));
       setSavedCardio((current) => ({ ...current, [modality]: true }));
+      setIntegratedDrafts(current => current.map(draft => draft.bundleId === activeIntegratedBundleId ? {
+        ...draft, plans: { ...draft.plans, [modality]: saved.plan },
+        versions: { ...draft.versions, [modality]: { id: saved.id, updated_at: saved.updatedAt } },
+      } : draft));
       const modalityName = modality === "natacao" ? "natação" : modality === "ciclismo" ? "ciclismo" : "corrida";
-      toast.success(`Plano de ${modalityName} salvo no app do aluno.`);
+      toast.success(`Rascunho de ${modalityName} salvo.`);
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : "Falha ao salvar a prescrição aeróbica.";
       toast.error(message);
@@ -993,6 +1354,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
   }
 
   async function saveStrengthDraft() {
+    if (generationInFlight.current || savingStrength || publishingStrengthRef.current || generating) return;
     if (!strengthPlanId || !strengthPlanVersion || !editPlan) {
       toast.error("Não encontrei a versão persistida da musculação. Gere a prescrição novamente.");
       return;
@@ -1008,6 +1370,8 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
       setEditPlan(saved.plan);
       setResults((current) => ({ ...current, musculacao: saved.plan }));
       setStrengthPlanVersion(saved.updatedAt);
+      setGeneratedStrengthDrafts(current => current.map(draft => draft.draftId === saved.id
+        ? { ...draft, draftVersion: saved.updatedAt, plan: saved.plan } : draft));
       setSavedStrength(true);
       toast.success("Alterações da musculação salvas.");
     } catch (saveError) {
@@ -1017,11 +1381,24 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
     }
   }
 
-  // ── Publica o treino de força gerado para o app do aluno ────────────────
-  async function publishToStudent() {
-    if (!results.musculacao || !studentId || !companyId) return;
+  async function publishToStudent(bundleId: string) {
+    if (generationInFlight.current || generating || savingStrength || Object.values(savingCardio).some(Boolean)
+      || publishingStrengthRef.current || !studentId || !companyId) return;
+    const integrated = activeIntegratedDraft?.bundleId === bundleId ? activeIntegratedDraft : null;
+    const draft = generatedStrengthDrafts.find(item => item.bundleId === bundleId && item.studentId === studentId && item.companyId === companyId);
+    if ((draft && draft.draftId !== strengthPlanId) || (draft?.integrated && !integrated)
+      || (integrated?.hasStrength && !draft) || (!integrated && !draft)) return;
+    const targetCycle = integrated?.cycle ?? draft?.cycle;
+    if (!targetCycle) return;
+    const cycleId = targetCycle.id;
+    if (integrated && Object.keys(integrated.plans).some(key => JSON.stringify(integrated.plans[key]) !== JSON.stringify(results[key]))) {
+      setPublicationError({ draftId: bundleId, message: "Salve as alterações aeróbicas do rascunho antes de publicar." });
+      return;
+    }
+    const label = integrated ? "o pacote completo" : "musculação";
+    if (!window.confirm(`Publicar ${label} de ${student?.name || "este aluno"} no ciclo ${targetCycle.cycle_number} (${formatCycleDate(targetCycle.start_date)} a ${formatCycleDate(targetCycle.end_date)})? As modalidades deste pacote podem substituir prescrições desse ciclo.`)) return;
     // P13 — checagem pré-publicação: avisa exercícios fora da biblioteca (sem vídeo/ligação).
-    const plan0: any = editPlan || results.musculacao;
+    const plan0 = draft ? editPlan || draft.plan : null;
     const noLib: string[] = [];
     (plan0?.workouts || []).forEach((w: any) => (w?.exercises || []).forEach((e: any) => {
       if (!e?.exercise_id) noLib.push(e?.exercise_name || e?.library_exercise_name || "exercício");
@@ -1031,19 +1408,36 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
       const ok = window.confirm(`${noLib.length} exercício(s) fora da biblioteca (sem vídeo/ligação): ${sample}${noLib.length > 6 ? "…" : ""}.\n\nDá pra trocá-los pela biblioteca na edição (clique no nome do exercício). Publicar assim mesmo?`);
       if (!ok) return;
     }
-    setPublishing(true); setError(""); setPublished(null);
+    const scope = pendingStrengthKey;
+    publishingStrengthRef.current = true;
+    setPublishing(true); setPublicationError(null); setPublished(null);
     try {
-      const r = await publishStrengthPlanToStudent({
-        plan: editPlan || results.musculacao, studentId, companyId, createdBy: user?.id ?? null,
-        aiOriginal: results.musculacao, // P9/P15 — versiona + resume edições do professor.
-        bundleId: activeBundleId,
-        targetCycleId: resultCycleId,
-        replaceTargetCycle: Boolean(resultCycleId),
-      });
-      const targetCycle = scheduleCycles.find((cycle) => cycle.id === resultCycleId);
-      const scheduledForFuture = Boolean(targetCycle && !isCycleCurrent(targetCycle));
-      setPublished({ workoutsCreated: r.workoutsCreated, createdEnrollment: r.createdEnrollment, scheduled: scheduledForFuture });
-      if (!scheduledForFuture) {
+      const target = { bundleId, cycleId, companyId };
+      const strength = draft ? { draftId: draft.draftId, draftVersion: draft.draftVersion, plan: plan0 } : undefined;
+      const r = integrated
+        ? await publishIntegratedStudioDraft({ ...target, modalities: integrated.versions, strength })
+        : await publishStrengthDraftToStudent({ ...target, ...strength! });
+      if (activeStrengthScope.current !== scope) return;
+      setIntegratedDrafts(current => current.filter(item => item.bundleId !== bundleId));
+      setActiveIntegratedBundleId(null);
+      setCardioPlanIds({});
+      setCardioPlanVersions({});
+      if (draft) {
+        setGeneratedStrengthDrafts(current => current.filter(item => item.cycle.id !== cycleId));
+        setStrengthPlanId(null);
+        setStrengthPlanVersion(null);
+      }
+      setScheduleCycles(current => current.map(cycle => cycle.id === cycleId ? {
+        ...cycle, has_bundle: true,
+        ...(draft ? {
+          bundle_id: bundleId, has_workouts: true, has_usable_workouts: true,
+          prescription_cleared_at: null, prescription_cleared_event_id: null, prescription_cleared_signature: null,
+          prescribed_offline_at: null, prescribed_offline_by: null, prescribed_offline_note: null,
+        } : {}),
+      } : cycle));
+      const scheduledForFuture = r.scheduled;
+      setPublished({ workoutsCreated: r.workoutsCreated, current: r.current, scheduled: scheduledForFuture, integrated: Boolean(integrated) });
+      if (draft && r.current && !r.replayed) {
         // #5 Push — avisa o aluno no celular somente quando o bloco já está vigente.
         supabase.functions.invoke("push-send", {
           body: { action: "notify", event: 'new_workout', student_ids: [studentId], title: "Prescrição nova no app", body: "Seu novo ciclo de treino já está disponível.", url: "/aluno" },
@@ -1052,19 +1446,19 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
       // P14 — trilha de decisão desta publicação (best-effort; não bloqueia).
       try {
         const readiness = (prescriptionIntegration as any)?.readiness?.status ?? null;
-        const editedFlag = JSON.stringify(results.musculacao?.workouts || []) !== JSON.stringify((editPlan || results.musculacao)?.workouts || []);
-        await db.from("ai_decision_logs").insert(buildPublishDecisionLog({
+        const editedFlag = JSON.stringify(draft?.plan?.workouts || []) !== JSON.stringify(plan0?.workouts || []);
+        if (draft && !r.replayed) await db.from("ai_decision_logs").insert(buildPublishDecisionLog({
           studentId,
           companyId,
           readiness,
           edited: editedFlag,
           noLibrary: noLib.length,
-          workouts: (editPlan || results.musculacao)?.workouts?.length || 0,
+          workouts: plan0?.workouts?.length || 0,
         }));
       } catch { /* log opcional */ }
       if (scheduledForFuture) {
         toast.success(`Ciclo ${targetCycle?.cycle_number || "futuro"} agendado. Ele aparecerá ao aluno em ${targetCycle ? formatCycleDate(targetCycle.start_date) : "sua data de início"}.`);
-      } else {
+      } else if (r.current && draft && !r.replayed) {
         // Abre a conversa interna com o aviso pronto; o professor confirma o envio.
         const nome = (student?.name || "").trim().split(/\s+/)[0] || "";
         void openStudentChat({
@@ -1074,10 +1468,13 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
           message: `Oi, ${nome}! Sua nova prescrição já está no seu app. É só abrir e treinar. Qualquer dúvida, me chama!`,
         });
       }
-    } catch (e: any) {
-      setError(e?.message || "Falha ao publicar o treino para o aluno.");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Falha ao publicar o treino para o aluno.";
+      if (activeStrengthScope.current === scope) setPublicationError({ draftId: bundleId, message });
+    } finally {
+      publishingStrengthRef.current = false;
+      setPublishing(false);
     }
-    setPublishing(false);
   }
 
   // Espelha o plano de força gerado num rascunho editável (publicar usa esta versão).
@@ -1521,6 +1918,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
               <div className="relative">
                 <Input
                   value={studentSearch}
+                  disabled={generating}
                   onChange={e => handleStudentSearchChange(e.target.value)}
                   onFocus={() => setStudentPickerOpen(true)}
                   onBlur={() => window.setTimeout(() => setStudentPickerOpen(false), 120)}
@@ -1540,6 +1938,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                       <button
                         key={s.id}
                         type="button"
+                        disabled={generating}
                         role="option"
                         aria-selected={s.id === studentId}
                         onMouseDown={(event) => event.preventDefault()}
@@ -1635,9 +2034,13 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                       <div>Objetivo: <span className="font-medium text-slate-800">{anamnese.objective || "—"}</span></div>
                       <div>Nível: <span className="font-medium text-slate-800">{anamnese.activity_level || "—"}</span></div>
                       <div>Modalidade: <span className="font-medium text-slate-800">{anamnese.training_modality || "—"}</span></div>
-                      <div>Dias força/sem: <span className="font-medium text-slate-800">{anamnese.days_per_week_strength || "—"}</span></div>
+                      <div>Dias força/sem: <span className="font-medium text-slate-800">{anamnese.days_per_week_strength ?? "—"}</span></div>
                     </div>
                     {anamnese.injuries && <p className="text-xs bg-slate-50 rounded p-2 mt-2">Lesões: {anamnese.injuries}</p>}
+                    {anamnese.current_pain != null && <p className="text-xs mt-2">Dor atual · {anamnese.current_pain === false ? "Não relatada" : anamnese.current_pain}</p>}
+                    {anamnese.intercycle_update?.new_goals && <p className="text-xs mt-2">Meta relatada · {anamnese.intercycle_update.new_goals}</p>}
+                    {anamnese.intercycle_update?.goal_needs_review && <p className="text-xs mt-2">Revise a meta relatada com o aluno. O objetivo classificado segue em uso.</p>}
+                    {anamnese.intercycle_update?.equipment_needs_review && <p className="text-xs mt-2">Confirme os equipamentos no novo local antes de publicar.</p>}
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -1967,11 +2370,43 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                   </div>
                 )}
 
+                {pendingStrength && (
+                  <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    {pendingStrength.mixed ? (
+                      <p>A musculação da geração integrada pode ter sido salva. Uma nova geração exige confirmação.</p>
+                    ) : <p>Há uma geração de musculação com resultado pendente.</p>}
+                    {!pendingStrength.mixed && (pendingStrengthCycle ? (
+                      <Button type="button" variant="outline" size="sm" className="mt-2"
+                        disabled={generating || publishing || savingStrength || scheduleLoading}
+                        onClick={retryPendingStrength}>
+                        {pendingStrength.body ? "Retentar musculação" : "Consultar rascunho pendente"} · ciclo {pendingStrengthCycle.cycle_number}
+                      </Button>
+                    ) : <p>O ciclo da tentativa pendente está indisponível na agenda atual.</p>)}
+                  </div>
+                )}
+
                 <Button className="w-full mt-4 bg-[#1B2B4A] hover:bg-[#1B2B4A]/90"
-                  onClick={generate} disabled={generating || scheduleLoading || Boolean(scheduleLoadError) || Boolean(anamneseGenerationBlockReason) || modalities.size === 0 || scheduleTargets.length === 0}>
+                  onClick={generate} disabled={generating || publishing || savingStrength || scheduleLoading || Boolean(scheduleLoadError) || Boolean(anamneseGenerationBlockReason) || modalities.size === 0 || scheduleTargets.length === 0}>
                   {generating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {scheduleProgress ? `Gerando ${scheduleProgress.label.toLowerCase()} (${scheduleProgress.current}/${scheduleProgress.total})` : "Gerando"}</>
                     : generationButtonLabel}
                 </Button>
+
+                {integratedDrafts.filter(draft => !draft.hasStrength && draft.cycle.student_id === studentId
+                  && draft.cycle.company_id === companyId).map(draft => (
+                  <Button key={draft.bundleId} type="button" variant="outline" size="sm" className="mr-2 mt-2"
+                    disabled={generating || publishing || Object.values(savingCardio).some(Boolean) || draft.bundleId === activeIntegratedBundleId}
+                    onClick={() => openIntegratedDraft(draft)}>
+                    Revisar pacote · ciclo {draft.cycle.cycle_number}
+                  </Button>
+                ))}
+                {generatedStrengthDrafts.filter(draft => draft.studentId === studentId && draft.companyId === companyId
+                  && (!draft.integrated || integratedDrafts.some(item => item.bundleId === draft.bundleId))).map(draft => (
+                  <Button key={draft.draftId} type="button" variant="outline" size="sm" className="mr-2 mt-2"
+                    disabled={generating || publishing || savingStrength || Object.values(savingCardio).some(Boolean) || draft.draftId === strengthPlanId}
+                    onClick={() => openStrengthDraft(draft)}>
+                    Revisar rascunho · ciclo {draft.cycle.cycle_number}
+                  </Button>
+                ))}
 
                 {/* #4 Templates de ciclo — começar de um treino salvo em vez de gerar do zero */}
                 {templates.length > 0 && studentId && (
@@ -1980,7 +2415,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                     <div className="flex flex-wrap gap-1.5">
                       {templates.map((t) => (
                         <span key={t.id} className="inline-flex items-center rounded-full border border-slate-200 bg-white overflow-hidden">
-                          <button type="button" onClick={() => applyCycleTemplate(t)}
+                          <button type="button" onClick={() => void applyCycleTemplate(t)} disabled={generating || publishing || savingStrength || !selectedScheduleCycle}
                             className="px-2.5 py-1 text-xs text-[#1B2B4A] hover:bg-[#F5EDD8]/60">{t.name}</button>
                           <button type="button" title="Excluir template" onClick={() => deleteTemplate(t.id)}
                             className="px-1.5 py-1 text-[10px] text-slate-400 hover:text-red-500 border-l border-slate-100">✕</button>
@@ -2038,7 +2473,7 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                         <button type="button" onClick={() => setShowEdit(s => !s)} className="text-left text-sm font-medium text-[#1B2B4A] underline">
                           {showEdit ? "Ocultar ajuste da musculação" : "✏️ Ajustar musculação"}
                         </button>
-                        <Button type="button" size="sm" className="w-full sm:w-auto" onClick={() => void saveStrengthDraft()} disabled={savingStrength || !strengthPlanId || !strengthPlanVersion}>
+                        <Button type="button" size="sm" className="w-full sm:w-auto" onClick={() => void saveStrengthDraft()} disabled={savingStrength || generating || publishing || !strengthPlanId || !strengthPlanVersion}>
                           {savingStrength ? "Salvando…" : savedStrength ? "Musculação salva" : "Salvar alterações de musculação"}
                         </Button>
                         <button type="button" onClick={saveAsTemplate} disabled={savingTemplate}
@@ -2323,29 +2758,29 @@ export default function PrescriptionStudio({ embeddedStudentId }: PrescriptionSt
                     </p>
                   )}
 
-                  {/* A geração já publica. Este botão permite republicar após ajustes do professor. */}
-                  {results.musculacao && scheduledSummaries.length <= 1 && (
+                  {activePublicationDraft && (
                     <>
-                      <Button onClick={publishToStudent} disabled={publishing} variant="outline"
-                        className="w-full border-[#1B2B4A] text-[#1B2B4A] hover:bg-[#1B2B4A]/5">
-                        {publishing
-                          ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Publicando…</>
-                          : <><Dumbbell className="h-4 w-4 mr-2" /> Republicar ajustes no app do aluno</>}
+                      <Button onClick={() => void publishToStudent(activePublicationDraft.bundleId)}
+                        disabled={publishing || generating || savingStrength || Object.values(savingCardio).some(Boolean)}
+                        variant="outline" className="w-full border-[#1B2B4A] text-[#1B2B4A] hover:bg-[#1B2B4A]/5">
+                        {publishing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Publicando…</>
+                          : <><Dumbbell className="h-4 w-4 mr-2" /> Publicar {activeIntegratedDraft ? "pacote completo" : "musculação"} · ciclo {activePublicationDraft.cycle.cycle_number}</>}
                       </Button>
-                      {published && (
-                        <p className="text-xs text-green-600 flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          {published.scheduled
-                            ? `Treino agendado (${published.workoutsCreated} sessões). Ele aparecerá no app somente na data de início do ciclo.`
-                            : `Treino publicado (${published.workoutsCreated} sessões)${published.createdEnrollment ? " · matrícula criada" : ""}. O aluno já vê no app dele.`}
-                        </p>
+                      {publicationError?.draftId === activePublicationDraft.bundleId && (
+                        <p role="alert" className="text-sm text-destructive">{publicationError.message}</p>
                       )}
                     </>
                   )}
-                  {results.musculacao && scheduledSummaries.length > 1 && (
-                    <p className="flex items-center gap-1.5 text-xs text-emerald-700">
+                  {published && (
+                    <p className="text-xs text-green-600 flex items-center gap-1.5">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      A sequência de força já foi vinculada aos ciclos. Cada bloco aparece ao aluno apenas durante a própria vigência.
+                      {published.integrated
+                        ? published.scheduled ? "Pacote agendado para o início do ciclo." : "Pacote completo publicado para o ciclo."
+                        : published.scheduled
+                          ? `Treino agendado (${published.workoutsCreated} sessões). Ele aparecerá no app somente na data de início do ciclo.`
+                          : published.current
+                            ? `Treino publicado (${published.workoutsCreated} sessões) para o ciclo vigente.`
+                            : `Treino registrado no ciclo encerrado (${published.workoutsCreated} sessões).`}
                     </p>
                   )}
                   {pdfs.length > 0 && (

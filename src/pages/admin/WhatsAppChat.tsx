@@ -574,6 +574,7 @@ export default function WhatsAppChat({
   const [isConversationCollapsed, setIsConversationCollapsed] = useState(false);
   const [isContextCollapsed, setIsContextCollapsed] = useState(false);
   const [selectedPreRegistration, setSelectedPreRegistration] = useState<PreRegistrationData | null>(null);
+  const [preRegistrationLoadError, setPreRegistrationLoadError] = useState(false);
   const [preRegistrationLoading, setPreRegistrationLoading] = useState(false);
 
   // Templates state
@@ -2264,8 +2265,9 @@ export default function WhatsAppChat({
   const selectedPreRegistrationPhone = selectedChat?.student?.whatsapp || selectedChat?.remote_jid || null;
   useEffect(() => {
     let cancelled = false;
+    setPreRegistrationLoadError(false);
+    setSelectedPreRegistration(null);
     if (!selectedPreRegistrationChatId) {
-      setSelectedPreRegistration(null);
       setPreRegistrationLoading(false);
       return () => { cancelled = true; };
     }
@@ -2275,11 +2277,12 @@ export default function WhatsAppChat({
       studentId: selectedPreRegistrationStudentId,
       companyId: effectiveCompanyId,
       phone: selectedPreRegistrationPhone,
+      includeIntercycle: true,
     }).then((data) => {
       if (!cancelled) setSelectedPreRegistration(data);
     }).catch((error) => {
       console.error("Falha ao carregar pré-cadastro no WhatsApp:", error);
-      if (!cancelled) setSelectedPreRegistration(null);
+      if (!cancelled) setPreRegistrationLoadError(true);
     }).finally(() => {
       if (!cancelled) setPreRegistrationLoading(false);
     });
@@ -3254,6 +3257,7 @@ export default function WhatsAppChat({
                           <PreRegistrationDetails
                             data={selectedPreRegistration}
                             loading={preRegistrationLoading}
+                            loadError={preRegistrationLoadError}
                             className="p-4"
                             onSave={async (next) => {
                               const updated = await updateStudentPreRegistration(next);

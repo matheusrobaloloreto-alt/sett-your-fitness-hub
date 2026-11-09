@@ -168,7 +168,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await descriptionInput(page).fill("Segunda sessão já no rascunho");
     await activeWorkoutPanel(page).getByRole("button", { name: "Adicionar", exact: true }).click();
     const exerciseDialog = page.getByRole("dialog", { name: "Biblioteca de exercícios" });
-    await exerciseDialog.getByTitle("Supino reto").click();
+    await exerciseDialog.getByTitle("Supino reto").getByRole("button", { name: "Adicionar ao treino", exact: true }).click();
     await exerciseDialog.getByRole("button", { name: "Ver treino completo" }).click();
     await closeFixtureToast(page, "Adicionado ao treino");
 
@@ -315,7 +315,7 @@ test("desktop save persists added and removed workouts with exact row count", as
 
   await page.getByRole("button", { name: "Adicionar", exact: true }).click();
   const libraryDialog = page.getByRole("dialog", { name: "Biblioteca de exercícios" });
-  await libraryDialog.getByTitle("Supino reto").click();
+  await libraryDialog.getByTitle("Supino reto").getByRole("button", { name: "Adicionar ao treino", exact: true }).click();
   await libraryDialog.getByRole("button", { name: "Ver treino completo" }).click();
   await expect(activeWorkoutPanel(page).getByText("Supino reto", { exact: true })).toBeVisible();
 

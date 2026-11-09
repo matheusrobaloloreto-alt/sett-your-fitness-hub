@@ -1,4 +1,4 @@
-export type StudentProgramPrimaryTabValue = "overview" | "program" | "analytics" | "evaluations";
+export type StudentProgramPrimaryTabValue = "overview" | "program" | "analytics" | "evaluations" | "registration" | "enrollments";
 
 export type StudentProgramHandoffTab =
   | StudentProgramPrimaryTabValue
@@ -15,9 +15,11 @@ export const STUDENT_PROGRAM_PRIMARY_TABS: ReadonlyArray<{
   label: string;
 }> = [
   { value: "overview", label: "Visão geral" },
-  { value: "program", label: "Programa" },
-  { value: "analytics", label: "Análise" },
-  { value: "evaluations", label: "Avaliação" },
+  { value: "program", label: "Treino" },
+  { value: "evaluations", label: "Avaliação e anamnese" },
+  { value: "analytics", label: "Acompanhamento" },
+  { value: "registration", label: "Cadastro" },
+  { value: "enrollments", label: "Matrículas" },
 ] as const;
 
 export function isStudentProgramPrimaryTab(value: unknown): value is StudentProgramPrimaryTabValue {

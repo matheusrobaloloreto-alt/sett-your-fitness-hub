@@ -15,7 +15,7 @@ vi.mock('@/integrations/supabase/client', () => ({ supabase: {
   const filters: Record<string, unknown> = {}; let selection = '';
   const query: any = { select: (value: string) => { selection = value; return query; },
    eq: (key: string, value: unknown) => { filters[key] = value; return query; },
-   in: (key: string, value: unknown) => { filters[key] = value; return query; }, order: () => query,
+   in: (key: string, value: unknown) => { filters[key] = value; return query; }, order: () => query, range: () => query,
    then: (resolve: any, reject: any) => Promise.resolve(mock.read(table, filters, selection)).then(resolve, reject) };
   return query;
  }

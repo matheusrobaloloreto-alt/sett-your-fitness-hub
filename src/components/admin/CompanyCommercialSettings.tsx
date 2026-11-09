@@ -1,4 +1,5 @@
 import { SettingHelp } from './SettingHelp';
+import { useSettingsDraft } from '@/lib/settingsDraftProtection';
 import { useEffect,useRef,useState } from "react";
 import { Save,Plus,Trash2,CheckCircle,RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,8 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select,SelectContent,SelectItem,SelectTrigger,SelectValue } from "@/components/ui/select";
-import { FUNNEL_STAGE_META } from "@/lib/salesFunnelView";
-import { commercialStageKeys,fetchCompanyCommercialSettings,saveCompanyCommercialSettings,publishCompanyPage,publicPageKeys,type PublicPageKey,type CommercialEnvelope } from "@/lib/companyCommercialSettings";
+import { fetchCompanyCommercialSettings,saveCompanyCommercialSettings,publishCompanyPage,publicPageKeys,type PublicPageKey,type CommercialEnvelope } from "@/lib/companyCommercialSettings";
 
 export default function CompanyCommercialSettings({companyId}:{companyId:string}) {
  const request=useRef({companyId,alive:true,pending:false,generation:0});
@@ -17,6 +17,7 @@ export default function CompanyCommercialSettings({companyId}:{companyId:string}
  const [loadedCompany,setLoadedCompany]=useState("");
  const [page,setPage]=useState<PublicPageKey>("sobre");
  const [busy,setBusy]=useState(false);const [error,setError]=useState("");const [notice,setNotice]=useState("");const [dirty,setDirty]=useState(false);
+ useSettingsDraft(dirty || busy);
  useEffect(()=>{const scope=request.current;scope.alive=true;const generation=++scope.generation;setRecord(null);setLoadedCompany("");setDirty(false);setError("");setNotice("");setBusy(false);void fetchCompanyCommercialSettings(companyId).then(value=>{if(current(scope,generation)){setRecord(value);setLoadedCompany(companyId);}},()=>{if(current(scope,generation))setError("Configuração comercial indisponível.");});return()=>{scope.alive=false;scope.pending=false;scope.generation++;};},[companyId]);
  const reload=async()=>{const scope=request.current,generation=scope.generation;if(scope.pending)return;scope.pending=true;setBusy(true);setError("");try{const value=await fetchCompanyCommercialSettings(companyId);if(current(scope,generation)){setRecord(value);setLoadedCompany(companyId);setDirty(false);}}catch{if(current(scope,generation))setError("Não foi possível recarregar.");}finally{if(current(scope,generation)){scope.pending=false;setBusy(false);}}};
  const save=async()=>{const scope=request.current,generation=scope.generation;if(!record || loadedCompany!==companyId || scope.pending)return;scope.pending=true;setBusy(true);setError("");setNotice("");try{const value=await saveCompanyCommercialSettings(companyId,record.settings,record.version);if(current(scope,generation)){setRecord(value);setDirty(false);setNotice("Configuração comercial salva. Documentos continuam dependendo de publicação explícita.");}}catch(cause){if(current(scope,generation))setError(cause instanceof Error?cause.message:"Falha ao salvar.");}finally{if(current(scope,generation)){scope.pending=false;setBusy(false);}}};
@@ -26,10 +27,9 @@ export default function CompanyCommercialSettings({companyId}:{companyId:string}
  const doc=record.settings.pages[page];
  const document=(value:typeof doc)=>update({...record.settings,pages:{...record.settings.pages,[page]:value}});
  return <section className="border-t pt-6 mt-6 space-y-5">
-  <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Funil, condições comerciais e páginas públicas</h2><div className="flex gap-2"><Button variant="outline" disabled={busy} onClick={reload}><RefreshCw className="mr-2 h-4 w-4"/>Recarregar</Button><Button disabled={busy || !dirty} onClick={save}><Save className="mr-2 h-4 w-4"/>Salvar comercial</Button></div></div>
+  <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Condições comerciais e páginas públicas</h2><div className="flex min-w-0 flex-wrap gap-2"><Button variant="outline" disabled={busy} onClick={() => { if (!dirty || window.confirm('Descartar as alterações comerciais e recarregar?')) void reload(); }}><RefreshCw className="mr-2 h-4 w-4"/>Recarregar</Button><Button disabled={busy || !dirty} onClick={save}><Save className="mr-2 h-4 w-4"/>Salvar comercial</Button></div></div>
   {error&&<p role="alert" className="text-destructive">{error}</p>}{notice&&<p role="status">{notice}</p>}
   <fieldset disabled={busy} className="space-y-5">
-   <div className="grid gap-3 sm:grid-cols-2">{commercialStageKeys.map(key=><div key={key}><Label htmlFor={`funnel-${key}`}>{FUNNEL_STAGE_META[key].label}</Label><SettingHelp label={FUNNEL_STAGE_META[key].label} what="Nome apresentado para esta etapa do funil." edits="Texto de até 60 caracteres." effect="Altera o rótulo exibido; não muda a chave da etapa nem movimenta alunos." /><Input id={`funnel-${key}`} maxLength={60} value={record.settings.funnel_labels[key] ?? FUNNEL_STAGE_META[key].label} onChange={e=>update({...record.settings,funnel_labels:{...record.settings.funnel_labels,[key]:e.target.value}})}/></div>)}</div>
    <div><Label htmlFor="pre-registration-template">Convite universal de pré-cadastro</Label><SettingHelp label="Convite universal de pré-cadastro" what="Modelo do convite universal." edits="Até 2000 caracteres com {{empresa}} e {{link}}; link obrigatório." effect="Usado para novos convites que consultam este modelo. Salvar não envia mensagens." /><Textarea id="pre-registration-template" maxLength={2000} value={record.settings.pre_registration_invite} onChange={e=>update({...record.settings,pre_registration_invite:e.target.value})}/><p className="text-xs text-muted-foreground">Variáveis: {"{{empresa}}"} e {"{{link}}"}. O link é obrigatório.</p></div>
    <div className="border-t pt-4 space-y-3"><h3 className="font-medium">Conteúdo público fornecido pela empresa</h3><SettingHelp label="Página pública" what="Documento da empresa em edição." edits="Selecione apresentação, termos ou privacidade." effect="Trocar a seleção não publica; cada documento permanece no rascunho comercial." /><Select value={page} onValueChange={v=>setPage(v as PublicPageKey)}><SelectTrigger aria-label="Página pública"><SelectValue/></SelectTrigger><SelectContent>{publicPageKeys.map(key=><SelectItem key={key} value={key}>{{sobre:"Apresentação",termos:"Termos",privacidade:"Privacidade"}[key]}</SelectItem>)}</SelectContent></Select>
     <Label htmlFor="public-document-title">Título do documento</Label><SettingHelp label="Título do documento" what="Título do conteúdo público selecionado." edits="Até 120 caracteres." effect="O rascunho precisa ser salvo e depois aprovado para publicação explícita." /><Input id="public-document-title" maxLength={120} value={doc.title} onChange={e=>document({...doc,title:e.target.value})}/>

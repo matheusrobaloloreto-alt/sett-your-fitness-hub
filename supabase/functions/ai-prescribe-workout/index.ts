@@ -1,6 +1,7 @@
+import { applyEffectivePrescriptionInput, preferredPrescriptionValue, readEffectivePrescriptionAnamnesis } from "../_shared/prescription/effective-input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { canonicalMuscleSlug, normalizeExerciseCategories } from "../_shared/exerciseTaxonomy.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertBundleAccess, assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
 import { buildPrescriptionInputFromEdgePayload } from "../_shared/prescription/adapters/inputAdapter.ts";
@@ -87,6 +88,32 @@ async function loadAuthorizedCycle(adminClient: any, args: {
     throw new HttpError(409, "Ciclo inválido ou substituído para prescrição.");
   }
   return cycle;
+}
+
+type StudioStrengthScope = {
+  bundleId: string;
+  companyId: string;
+  studentId: string;
+  cycleId: string;
+};
+
+async function readStudioStrengthDraft(adminClient: SupabaseClient, scope: StudioStrengthScope) {
+  const { data, error } = await adminClient.from("ai_strength_plans")
+    .select("id,plan,updated_at")
+    .eq("bundle_id", scope.bundleId)
+    .eq("company_id", scope.companyId)
+    .eq("student_id", scope.studentId)
+    .eq("studio_draft_cycle_id", scope.cycleId)
+    .maybeSingle();
+  if (error) throw new HttpError(503, "Não foi possível conferir o rascunho de musculação salvo.");
+  return data;
+}
+
+function studioStrengthDraftResponse(draft: { id: string; plan: unknown; updated_at: string | null }) {
+  if (!draft.updated_at) throw new HttpError(503, "Falha ao confirmar a versão do rascunho de musculação.");
+  return new Response(JSON.stringify({
+    id: draft.id, plan: draft.plan, updated_at: draft.updated_at, draft_only: true,
+  }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 
 async function resolveCycleContext(adminClient: any, args: {
@@ -1362,32 +1389,11 @@ serve(async (req) => {
     const userSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
     });
+    const payload = await req.json();
     const {
-      student_id, student_name, company_id,
-      objective,          // "hipertrofia" | "forca" | "emagrecimento" | "performance"
-      fitness_level,      // "iniciante" | "intermediario" | "avancado"
-      experience_months,  // experiência específica em musculação
-      days_per_week,      // dias disponíveis para musculação
-      duration_weeks,
-      equipment,          // "academia_completa" | "casa_halteres" | "funcional"
-      restrictions,       // lesões e restrições
-      block_number,       // 1 | 2 | 3 (para liberar pliometria)
-      is_endurance_athlete, // true/false — atleta de corrida/triathlon
-      assessment_context,   // JSON da avaliação funcional BN
-      anamnese_context,     // JSON bruto/resumido da anamnese
-      prescription_integration, // resultado integrado anamnese + avaliação
-      bnito_orchestration, // contrato do BNITO para sincronizar agentes
-      running_days_context, // { days_per_week, sport } — anti-interferência
-      anamnese_id,
-      bundle_id,
-      training_cycle_id,
-      previous_plan_id,
-      previous_plan_context,
-      previous_performance_context,
-      program_sequence,
-      intercycle_waiver_reason,
-      notes,
-    } = await req.json();
+      student_id, company_id, bundle_id, draft_only, recover_draft_only,
+      expected_cycle_start, expected_cycle_end, training_cycle_id, intercycle_waiver_reason,
+    } = payload;
 
     const authz = await assertTenantAccess(supabase, claims, {
       companyId: company_id,
@@ -1397,12 +1403,38 @@ serve(async (req) => {
     const authorizedCompanyId = authz.companyId;
     await requireCompanyFeature(supabase, authorizedCompanyId, "hasPrescription");
     const authorizedBundleId = await assertBundleAccess(supabase, bundle_id, authorizedCompanyId, student_id);
+    const draftOnly = draft_only === true;
+    const recoverDraftOnly = recover_draft_only === true;
+    if (recoverDraftOnly && !draftOnly) throw new HttpError(400, "A recuperação exige um rascunho do Studio.");
+    if (draftOnly && (!authorizedBundleId || !isUuid(training_cycle_id))) {
+      throw new HttpError(400, "O rascunho exige pacote e ciclo de destino.");
+    }
     const cycleContext: any = await resolveCycleContext(supabase, {
       explicitCycleId: training_cycle_id,
       bundleId: authorizedBundleId,
       companyId: authorizedCompanyId,
       studentId: student_id,
     });
+    let studioStrengthScope: StudioStrengthScope | null = null;
+    let studioBundleStatus: string | null = null;
+    if (draftOnly && authorizedBundleId) {
+      const { data: draftBundle, error: draftBundleError } = await supabase.from("prescription_bundles")
+        .select("status, studio_strength_snapshot").eq("id", authorizedBundleId).eq("training_cycle_id", training_cycle_id)
+        .eq("company_id", authorizedCompanyId).eq("student_id", student_id)
+        .eq("studio_strength_draft", true).in("status", ["generating", "draft"]).eq("has_strength", true).maybeSingle();
+      if (draftBundleError) throw new HttpError(503, "Não foi possível conferir o pacote de musculação.");
+      if (!draftBundle || cycleContext?.id !== training_cycle_id) {
+        throw new HttpError(409, "O pacote de musculação não está em geração para o ciclo selecionado.");
+      }
+      const snapshot = draftBundle.studio_strength_snapshot;
+      if (!snapshot || snapshot.start_date !== expected_cycle_start || snapshot.end_date !== expected_cycle_end
+        || cycleContext.start_date !== expected_cycle_start || cycleContext.end_date !== expected_cycle_end) {
+        throw new HttpError(409, "As datas do ciclo mudaram. Recarregue a vigência antes de gerar o rascunho.");
+      }
+      studioStrengthScope = { bundleId: authorizedBundleId, companyId: authorizedCompanyId,
+        studentId: student_id, cycleId: training_cycle_id };
+      studioBundleStatus = draftBundle.status;
+    }
     let intercycleContext: Record<string, unknown> | null = null;
     if (cycleContext && Number(cycleContext.cycle_number) > 1) {
       const priorResult = await supabase.from("training_cycles")
@@ -1444,7 +1476,7 @@ serve(async (req) => {
             waived_at: persistedWaiver.data.waived_at,
           };
         } else {
-          const reason = clean(intercycle_waiver_reason).trim().slice(0, 1000);
+          const reason = recoverDraftOnly ? "" : clean(intercycle_waiver_reason).trim().slice(0, 1000);
           if (reason.length < 3) throw new HttpError(409, "A próxima prescrição exige Anamnese interciclos respondida ou dispensa explícita com motivo.");
           const waiver = await userSupabase.rpc("record_intercycle_anamnesis_waiver", {
             _company_id: authorizedCompanyId,
@@ -1462,11 +1494,45 @@ serve(async (req) => {
         intercycleContext = { status: "completed", prior_cycle_id: prior.id, ...response };
       }
     }
-    const effectiveAnamnesisContext = intercycleContext
-      ? { ...(anamnese_context && typeof anamnese_context === "object" ? anamnese_context as Record<string, unknown> : {}), intercycle_update: intercycleContext }
-      : anamnese_context;
-    const effectiveRestrictions = intercycleContext && (intercycleContext.pain_present || intercycleContext.prescription_evaluation === "worse")
-      ? `${clean(restrictions)} | Atualização interciclos: regra mais conservadora; ${clean(intercycleContext.pain_location)} EVA ${clean(intercycleContext.pain_eva)} ${clean(intercycleContext.pain_movement)}`
+    if (studioStrengthScope) {
+      const saved = await readStudioStrengthDraft(supabase, studioStrengthScope);
+      if (saved) return studioStrengthDraftResponse(saved);
+      if (recoverDraftOnly) throw new HttpError(409, "Ainda não há rascunho salvo para esta tentativa.");
+      if (studioBundleStatus !== "generating") {
+        throw new HttpError(409, "O pacote de musculação não está em geração para o ciclo selecionado.");
+      }
+    }
+    const effective = await readEffectivePrescriptionAnamnesis(userSupabase, {
+      studentId: student_id, companyId: authorizedCompanyId,
+    });
+    const effectivePayload = applyEffectivePrescriptionInput(payload, effective, "strength");
+    const {
+      objective: requestedObjective,          // "hipertrofia" | "forca" | "emagrecimento" | "performance"
+      fitness_level,      // "iniciante" | "intermediario" | "avancado"
+      experience_months,  // experiência específica em musculação
+      days_per_week: requestedDays,      // dias disponíveis para musculação
+      duration_weeks,
+      equipment,          // "academia_completa" | "casa_halteres" | "funcional"
+      restrictions,       // lesões e restrições
+      block_number,       // 1 | 2 | 3 (para liberar pliometria)
+      is_endurance_athlete, // true/false — atleta de corrida/triathlon
+      assessment_context,   // JSON da avaliação funcional BN
+      anamnese_context,     // JSON bruto/resumido da anamnese
+      prescription_integration, // resultado integrado anamnese + avaliação
+      bnito_orchestration, // contrato do BNITO para sincronizar agentes
+      running_days_context, // { days_per_week, sport } — anti-interferência
+      anamnese_id,
+      previous_plan_id,
+      previous_plan_context,
+      previous_performance_context,
+      program_sequence,
+      notes,
+    } = effectivePayload;
+    const { student_name } = payload;
+    const accumulated = effective.intercycle?.update;
+    const effectiveAnamnesisContext = anamnese_context;
+    const effectiveRestrictions = accumulated?.pain_present === true || accumulated?.prescription_evaluation === "worse"
+      ? `${clean(restrictions)} | Atualização interciclos: regra mais conservadora; ${clean(String(anamnese_context?.current_pain ?? ""))}`
       : restrictions;
     let effectivePreviousPlan = previous_plan_context ?? null;
     let authorizedPreviousPlanId: string | null = null;
@@ -1506,14 +1572,19 @@ serve(async (req) => {
     const adaptedPrescription = buildPrescriptionInputFromEdgePayload({
       payload: {
         student_name,
-        objective,
+        objective: requestedObjective,
         fitness_level,
         experience_months,
-        days_per_week,
+        days_per_week: requestedDays,
         duration_weeks,
         equipment,
         restrictions: effectiveRestrictions,
-        injuries: (effectiveAnamnesisContext as any)?.injuries ?? effectiveRestrictions,
+        injuries: effectivePayload.injuries ?? effectiveRestrictions,
+        pain_eva: payload.painEva ?? payload.pain_eva,
+        pain_reports: [
+          ...(Array.isArray(payload.painReports) ? payload.painReports : Array.isArray(payload.pain_reports) ? payload.pain_reports : []),
+          ...(accumulated?.pain_present === true ? [{ region: accumulated.pain_location, eva: accumulated.pain_eva }] : []),
+        ],
         block_number,
         is_endurance_athlete,
         assessment_context,
@@ -1527,20 +1598,56 @@ serve(async (req) => {
       },
       catalog: exerciseCatalog.exercises as any,
     });
+    const sessionDuration = Number(preferredPrescriptionValue(payload, payload.session_duration_min, effectiveAnamnesisContext?.session_duration_min));
+    if (Number.isInteger(sessionDuration) && sessionDuration >= 5 && sessionDuration <= 360) {
+      adaptedPrescription.input.sessionDurationMinutes = sessionDuration;
+    }
     try {
       if (productSettings.prescription.answer_mappings.length) {
         const { data: snapshot, error: snapshotError } = await supabase.from('company_form_responses')
-          .select('answers').eq('company_id', authorizedCompanyId).eq('student_id', student_id)
+          .select('answers, created_at').eq('company_id', authorizedCompanyId).eq('student_id', student_id)
           .eq('source_kind', 'initial').order('created_at', { ascending: false }).limit(1).maybeSingle();
         if (snapshotError) throw new Error('Não foi possível ler as respostas adicionais salvas.');
-        adaptedPrescription.input = projectAdditionalPrescriptionAnswers(adaptedPrescription.input, snapshot?.answers, productSettings.prescription);
+        const targetFields: Record<string, string> = {
+          objective: "objective", equipment: "available_equipment",
+          daysPerWeek: "available_days", sessionDurationMinutes: "session_duration_minutes",
+        };
+        const snapshotAt = Date.parse(snapshot?.created_at ?? "");
+        const mappings = productSettings.prescription.answer_mappings.filter(mapping => {
+          const correctedAt = Date.parse(String(effective.staffCorrections[targetFields[mapping.target]] ?? ""));
+          if (mapping.target === "equipment" && effective.intercycle?.equipmentNeedsReview) return false;
+          if (!draftOnly && (
+            (mapping.target === "equipment" && typeof payload.equipment === "string" && payload.equipment.trim())
+            || (mapping.target === "objective" && typeof payload.objective === "string" && payload.objective.trim())
+            || (mapping.target === "daysPerWeek" && payload.days_per_week != null && payload.days_per_week !== "")
+            || (mapping.target === "sessionDurationMinutes" && payload.session_duration_min != null && payload.session_duration_min !== "")
+          )) return false;
+          return !Number.isFinite(correctedAt) || correctedAt < snapshotAt;
+        });
+        adaptedPrescription.input = projectAdditionalPrescriptionAnswers(adaptedPrescription.input, snapshot?.answers, {
+          ...productSettings.prescription, answer_mappings: mappings,
+        });
       }
       // A completed intercycle update is newer than the initial questionnaire.
-      adaptedPrescription.input = projectIntercycleInputs(adaptedPrescription.input, intercycleContext);
+      if (accumulated && effective.intercycle) {
+        const patch = effective.intercycle.patch;
+        const objective = preferredPrescriptionValue(payload, payload.objective, patch.objective);
+        if (typeof objective === "string" && objective.trim()) adaptedPrescription.input.objective = objective;
+        adaptedPrescription.input = projectIntercycleInputs(adaptedPrescription.input, {
+          status: "completed", sensitive_consent: true, goals_continue: true, availability_changed: true,
+          available_days: draftOnly || payload.days_per_week == null || payload.days_per_week === ""
+            ? accumulated.available_days : null,
+          session_duration_minutes: patch.session_duration_min != null ? sessionDuration : null,
+          available_equipment: patch.equipment != null || effective.intercycle.equipmentNeedsReview ? equipment : null,
+        });
+        if (effective.intercycle.goalNeedsReview) adaptedPrescription.warnings.push("Meta em texto livre: mantenha o objetivo classificado e revise com o professor.");
+        if (effective.intercycle.equipmentNeedsReview) adaptedPrescription.warnings.push("Local de treino atualizado: confirme os equipamentos antes de publicar.");
+      }
       adaptedPrescription.input.companyPolicy = productSettings.prescription;
     } catch (error) {
       throw new HttpError(409, error instanceof Error ? error.message : 'Atualizacao interciclos exige revisao profissional.');
     }
+    const { objective, daysPerWeek: days_per_week } = adaptedPrescription.input;
     const effectiveFitnessLevel = adaptedPrescription.input.fitnessLevel;
     const effectiveExperienceMonths = adaptedPrescription.input.experienceMonths;
     const presetKey = selectMethodologyPreset(
@@ -1583,7 +1690,7 @@ ${bnito_orchestration
   : "Sem orquestracao explicita — ainda assim prescrever 6 semanas em 3 blocos de 2 semanas."}
 
 ANAMNESE E CONTEXTO CLÍNICO/ROTINA:
-${anamnese_context ? compactJson(anamnese_context, 8000) : "Sem anamnese estruturada adicional."}
+${effectiveAnamnesisContext ? compactJson(effectiveAnamnesisContext, 8000) : "Sem anamnese estruturada adicional."}
 
 BIBLIOTECA DE EXERCÍCIOS DO APP:
 ${formatExerciseCatalog(exerciseCatalog)}
@@ -1742,26 +1849,13 @@ INSTRUÇÕES:
     if (engineFlag === "shadow" || engineFlag === "on") {
       const shadowStart = Date.now();
       try {
-        const [{ buildPrescriptionInputFromEdgePayload }, { adaptTrainingProgramForAiStrengthPlan }, { generateTrainingProgram }, shadow] = await Promise.all([
-          import("../_shared/prescription/adapters/inputAdapter.ts"),
+        const [{ adaptTrainingProgramForAiStrengthPlan }, { generateTrainingProgram }, shadow] = await Promise.all([
           import("../_shared/prescription/adapters/outputAdapter.ts"),
           import("../_shared/prescription/engine.ts"),
           import("../_shared/prescription/shadow.ts"),
         ]);
         const mode = shadow.resolveEngineFlag(engineFlag) === "on" ? "on" : "shadow";
-        const { input } = buildPrescriptionInputFromEdgePayload({
-          payload: {
-            student_name, objective, fitness_level: effectiveFitnessLevel,
-            experience_months: effectiveExperienceMonths,
-            days_per_week, duration_weeks,
-            equipment, restrictions, block_number, is_endurance_athlete,
-            assessment_context, anamnese_context, prescription_integration,
-            running_days_context, previous_plan_context: effectivePreviousPlan,
-            previous_performance_context, program_sequence: effectiveProgramSequence, notes,
-          },
-          catalog: exerciseCatalog.exercises as any,
-        });
-        const program = generateTrainingProgram(input);
+        const program = generateTrainingProgram(adaptedPrescription.input);
         const output = adaptTrainingProgramForAiStrengthPlan({ program });
         const comparison = shadow.buildShadowComparison({
           mode,
@@ -1843,9 +1937,11 @@ INSTRUÇÕES:
     }
 
     // Salva o plano de força gerado pela IA (JSON, desacoplado da execução)
-    const { data: existingCyclePlan } = cycleContext
-      ? await supabase.from("ai_strength_plans").select("id").eq("training_cycle_id", cycleContext.id).maybeSingle()
-      : { data: null };
+    const { data: existingCyclePlan, error: existingCycleError } = cycleContext && !draftOnly
+      ? await supabase.from("ai_strength_plans").select("id, studio_publication").eq("training_cycle_id", cycleContext.id).maybeSingle()
+      : { data: null, error: null };
+    if (existingCycleError) throw new HttpError(503, "Não foi possível conferir o plano de musculação existente.");
+    if (existingCyclePlan?.studio_publication) throw new HttpError(409, "Abra um rascunho no Studio para substituir a musculação publicada.");
     const planId = existingCyclePlan?.id || crypto.randomUUID();
     const persistencePayload = {
       id: planId,
@@ -1857,11 +1953,30 @@ INSTRUÇÕES:
       plan: planJson,
       anamnese_id: anamnese_id ?? null,
       bundle_id: authorizedBundleId,
-      training_cycle_id: cycleContext?.id ?? null,
+      training_cycle_id: draftOnly ? null : cycleContext?.id ?? null,
+      ...(draftOnly ? { studio_draft_cycle_id: cycleContext.id } : {}),
       previous_plan_id: authorizedPreviousPlanId,
       sequence_number: Number(effectiveProgramSequence.sequence_number) || 1,
       sequence_phase: planJson.program_sequence?.phase ?? null,
     };
+    if (studioStrengthScope) {
+      const { data: saved, error: saveError } = await supabase.from("ai_strength_plans")
+        .insert(persistencePayload).select("id,plan,updated_at").single();
+      if (saveError?.code === "23505") {
+        // A concurrent request can win after the initial lookup. Return what
+        // it actually saved, including its revision, without updating the row.
+        const winner = await readStudioStrengthDraft(supabase, studioStrengthScope);
+        if (winner) return studioStrengthDraftResponse(winner);
+      }
+      if (saveError?.code === "PT409" && saveError.message === "studio_strength_generation_closed") {
+        throw new HttpError(409, "O pacote de musculação foi encerrado antes de salvar o rascunho.");
+      }
+      if (saveError || !saved) {
+        console.error("Studio strength draft persistence failed", { code: saveError?.code ?? "missing_row" });
+        throw new HttpError(503, "Falha ao salvar o rascunho de musculação.");
+      }
+      return studioStrengthDraftResponse(saved);
+    }
     const persistence = existingCyclePlan?.id
       ? await supabase.from("ai_strength_plans").update(persistencePayload).eq("id", existingCyclePlan.id).select("updated_at").single()
       : await supabase.from("ai_strength_plans").insert(persistencePayload).select("updated_at").single();
@@ -1876,7 +1991,7 @@ INSTRUÇÕES:
     }
 
     return new Response(
-      JSON.stringify({ id: planId, plan: planJson, updated_at: persistence.data.updated_at }),
+      JSON.stringify({ id: planId, plan: planJson, updated_at: persistence.data.updated_at, draft_only: draftOnly }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {

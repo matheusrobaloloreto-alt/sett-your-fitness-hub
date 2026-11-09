@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import {
   DEFAULT_COMPANY_PRODUCT_SETTINGS, MESSAGE_EVENTS, TEMPLATE_VARIABLES,
@@ -9,7 +9,7 @@ const base = ['primeiro_nome', 'nome', 'empresa'];
 const additional = {
   weekly_contact: [], pre_registration_confirmation: [], fiscal_invite: ['link'], payment_link: ['link'],
   assessment_onboarding: ['prazo', 'data'], anamnesis_invite: ['link'], renewal_due: ['link'],
-  renewal_overdue: ['link'], intercycle_invite: ['link'], first_contact: ['profissional'],
+  renewal_overdue: ['link'], intercycle_invite: ['link'], first_contact: ['profissional'], birthday: [],
   daily_reminder_title: ['link', 'data'], daily_reminder_body: ['link', 'data'],
   new_workout_push_title: [], new_workout_push_body: [],
 };
@@ -44,7 +44,13 @@ it('preserves all defaults and rejects malformed or unknown event tokens', () =>
 it('mirrors the complete SQL matrix, not the global variable vocabulary', () => {
   const sql = readFileSync('supabase/migrations/20261026092601_company_product_settings.sql', 'utf8');
   const matrix = JSON.parse(sql.match(/v_message_variables jsonb := '([^']+)'::jsonb/)?.[1] ?? '{}');
-  expect(Object.keys(matrix).sort()).toEqual([...MESSAGE_EVENTS].sort());
-  for (const event of MESSAGE_EVENTS) expect(matrix[event]).toEqual(getMessageEventVariables(event));
+  const persistedEvents = MESSAGE_EVENTS.filter(event => event !== 'birthday');
+  expect(Object.keys(matrix).sort()).toEqual([...persistedEvents].sort());
+  for (const event of persistedEvents) expect(matrix[event]).toEqual(getMessageEventVariables(event));
+  const directory = 'supabase/migrations';
+  const birthdayMigration = readdirSync(directory).find(file => file.endsWith('_company_birthday_message_template.sql'));
+  expect(birthdayMigration).toBeDefined();
+  const birthdaySql = readFileSync(`${directory}/${birthdayMigration}`, 'utf8');
+  expect(birthdaySql.match(/\(([a-z_]+\|[a-z_|]+)\)\\s\*\\}/)?.[1].split('|')).toEqual(getMessageEventVariables('birthday'));
   expect(sql).toContain("(v_message_variables -> v_key) ? v_match[1]");
 });

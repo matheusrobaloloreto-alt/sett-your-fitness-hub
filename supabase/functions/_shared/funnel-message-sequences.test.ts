@@ -3,7 +3,8 @@ function assert(value: unknown, message = 'assertion failed') { if (!value) thro
 const company='11111111-1111-1111-1111-111111111111',jid='12025550123@s.whatsapp.net';
 type Row=Record<string,any>;
 function fixture(event: string) {
- const sequence=[{id:'a',type:'text',text:'Primeira {{nome}}'},{id:'b',type:'text',text:'Segunda {{primeiro_nome}}'}];
+ const secondText=event==='assessment_onboarding'?'Segunda {{primeiro_nome}}. Prazo: {{prazo}} dias úteis, até {{data}}.':'Segunda {{primeiro_nome}}';
+ const sequence=[{id:'a',type:'text',text:'Primeira {{nome}}'},{id:'b',type:'text',text:secondText}];
  let settings:Row={message_sequences:{[event]:sequence}};
  let snapshot:Row|null=null;let states:string[]=[];let status:string|null=null;let identityReads=0;let failAt=Infinity;
  const posts:Row[]=[];const writes:Row[]=[];
@@ -37,17 +38,21 @@ function fixture(event: string) {
   },
  };
  const args={admin,companyId:company,studentId:'student',leadId:'lead',fullName:'Ana Teste',phone:'+1 202 555 0123',countryCode:'US',text:'Legacy',eventType:'payment_link_sent',eventKey:'event-one',templateValues:{link:'https://example.test/payment'}};
- const invoke=()=>event==='pre_registration_confirmation'?sendPreRegistrationConfirmation(args):sendFunnelWhatsAppMessage(args);
+ const invoke=()=>event==='pre_registration_confirmation'?sendPreRegistrationConfirmation(args)
+   :event==='assessment_onboarding'?sendFunnelWhatsAppMessage({...args,text:undefined,eventType:'assessment_instructions_sent'})
+   :sendFunnelWhatsAppMessage(args);
  return {invoke,posts,writes,states:()=>states,setFailAt:(n:number)=>failAt=n,edit:()=>settings={message_sequences:{[event]:[{id:'new',type:'text',text:'Edited'}]}}};
 }
-for(const event of ['payment_link','pre_registration_confirmation'])Deno.test('funnel '+event+' snapshot/partial retry and completion after ACK only',async()=>{
+for(const event of ['payment_link','pre_registration_confirmation','assessment_onboarding'])Deno.test('funnel '+event+' snapshot/partial retry and completion after ACK only',async()=>{
  const f=fixture(event);const fetch=globalThis.fetch;const descriptor=Object.getOwnPropertyDescriptor(Deno.env,'get')!;
  try {
   Object.defineProperty(Deno.env,'get',{configurable:true,value:(key:string)=>key==='EVOLUTION_API_URL'?'https://provider.invalid':'synthetic'});
   globalThis.fetch=async(input,init)=>{assert(String(input).startsWith('https://provider.invalid/'),'external network forbidden');f.posts.push(JSON.parse(String(init?.body)));return Response.json({key:{id:'receipt'+f.posts.length}});};
   f.setFailAt(3);assert((await f.invoke()).sent===false,'pre-second failure must not complete event');
   assert(f.posts.length===1 && f.states()[0]==='acked' && f.states()[1]==='pending','first receipt not retained');
-  f.edit();assert((await f.invoke()).sent,'retry failed');assert(f.posts.length===2,'ACK repeated');assert(f.posts[1].text==='Segunda Ana','mixed configuration versions');
+  f.edit();assert((await f.invoke()).sent,'retry failed');assert(f.posts.length===2,'ACK repeated');
+  const expected=event==='assessment_onboarding'?'Segunda Ana. Prazo: 5 dias úteis, até a data definida a partir do recebimento do material.':'Segunda Ana';
+  assert(f.posts[1].text===expected,'mixed configuration versions or wrong assessment timing');
   assert((await f.invoke()).sent,'completed event replay failed');assert(f.posts.length===2,'completed event called provider');
  }finally{globalThis.fetch=fetch;Object.defineProperty(Deno.env,'get',descriptor);}
 });

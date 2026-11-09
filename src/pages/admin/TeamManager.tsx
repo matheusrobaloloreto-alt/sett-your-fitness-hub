@@ -1,3 +1,5 @@
+import { readForIds, readPages } from "@/lib/pagedRead";
+import { PORTFOLIO_TRAINER_COLUMN } from "@/lib/studentRoster";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Trash2, UserPlus, Shield, KeyRound, Plus, Eye, EyeOff, Pencil, Users, BarChart3, CalendarPlus, ListChecks } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -417,25 +419,22 @@ export default function TeamManager() {
     const rangeStart = performanceMonths[0].start;
     const rangeEnd = performanceMonths[performanceMonths.length - 1].end;
 
-    const [profilesRes, studentsRes, historyRes] = await Promise.all([
+    const [profilesRes, students, history] = await Promise.all([
       supabase.from("profiles").select("user_id, full_name").in("user_id", trainerIds),
-      supabase.from("students").select("id, full_name, assigned_trainer_id")
-        .eq("company_id", effectiveCompanyId),
-      (supabase as any).from("trainer_assignments_history")
+      readPages((from, to) => supabase.from("students").select("id, company_id, full_name, assigned_trainer_id")
+        .eq("company_id", effectiveCompanyId).order("id").range(from, to)),
+      readPages<TrainerAssignmentPeriod>((from, to) => (supabase as any).from("trainer_assignments_history")
         .select("student_id, trainer_id, assigned_at, unassigned_at")
-        .eq("company_id", effectiveCompanyId)
-        .is("deleted_at", null), // P17 — exclui períodos removidos do cálculo de performance
+        .eq("company_id", effectiveCompanyId).is("deleted_at", null).order("id").range(from, to)),
     ]);
 
     if (!current()) return;
-    if ([profilesRes, studentsRes, historyRes].some(result => result.error)) throw new Error();
+    if (profilesRes.error || students.some(student => student.company_id !== effectiveCompanyId)) throw new Error();
     const profiles = profilesRes.data || [];
-    const students = studentsRes.data || [];
-    const history = (historyRes.data || []) as TrainerAssignmentPeriod[];
     const studentNameById = new Map(students.map((student) => [student.id, student.full_name]));
     const studentIds = students.map((s) => s.id);
     const activeTrainerIds = new Set(trainerIds);
-    const currentTrainerByStudent = new Map(students.map((student) => [student.id, student.assigned_trainer_id]));
+    const currentTrainerByStudent = new Map(students.map((student) => [student.id, student[PORTFOLIO_TRAINER_COLUMN]]));
 
     // Helper: who was the trainer of `studentId` at instant `date`?
     const trainerAt = (studentId: string, date: Date): string | null => {
@@ -448,88 +447,42 @@ export default function TeamManager() {
       });
     };
 
-    // 1) Manual/off-app completed sessions (workout_id is null). These are shown apart
-    // from agenda cycles so the performance numbers match the Agenda view.
-    let manualSessions: {
-      id: string;
-      student_id: string;
-      completed_at: string | null;
-      notes: string | null;
-      exercises_summary: unknown;
-    }[] = [];
-    let scheduledCycles: { cycle_id: string; student_id: string; start_date: string }[] = [];
-    let prescribedCycles: { cycle_id: string; student_id: string; start_date: string }[] = [];
-
-    if (studentIds.length > 0) {
-      const { data: sessRes, error: sessionError } = await supabase
-        .from("workout_sessions")
-        .select("id, student_id, completed_at, workout_id, notes, exercises_summary")
-        .eq("status", "completed")
-        .is("workout_id", null)
-        .in("student_id", studentIds)
-        .gte("completed_at", rangeStart)
-        .lte("completed_at", rangeEnd);
+    // Keep historical performance separate from the current portfolio count.
+    const [manualSessions, enrollments] = await Promise.all([
+      readForIds(studentIds, (ids, from, to) => supabase.from("workout_sessions")
+        .select("id, student_id, completed_at, notes, exercises_summary")
+        .eq("company_id", effectiveCompanyId)
+        .eq("status", "completed").is("workout_id", null).in("student_id", ids)
+        .gte("completed_at", rangeStart).lte("completed_at", rangeEnd)
+        .order("id").range(from, to)),
+      readForIds(studentIds, (ids, from, to) => supabase.from("enrollments")
+        .select("id, student_id").eq("company_id", effectiveCompanyId)
+        .in("student_id", ids).order("id").range(from, to)),
+    ]);
     if (!current()) return;
-    if (sessionError) throw sessionError;
-      manualSessions = (sessRes || []).map((s) => ({
-        id: s.id,
-        student_id: s.student_id,
-        completed_at: s.completed_at,
-        notes: s.notes,
-        exercises_summary: s.exercises_summary,
-      }));
-
-      const { data: enrolls, error: enrollmentError } = await supabase
-        .from("enrollments")
-        .select("id, student_id")
-        .in("student_id", studentIds);
+    const enrollStudent = new Map(enrollments.map(enrollment => [enrollment.id, enrollment.student_id]));
+    const cycles = await readForIds(enrollments.map(enrollment => enrollment.id), (ids, from, to) =>
+      supabase.from("training_cycles").select("id, enrollment_id, start_date, prescribed_offline_at")
+        .eq("company_id", effectiveCompanyId).in("enrollment_id", ids)
+        .in("status", ["active", "pending", "completed"])
+        .gte("start_date", rangeStart.slice(0, 10)).lte("start_date", rangeEnd.slice(0, 10))
+        .order("id").range(from, to));
     if (!current()) return;
-    if (enrollmentError) throw enrollmentError;
-      const enrollmentIds = (enrolls || []).map((e) => e.id);
-      const enrollStudent = new Map((enrolls || []).map((e) => [e.id, e.student_id]));
-
-      if (enrollmentIds.length > 0) {
-        const { data: cycles, error: cycleError } = await supabase
-          .from("training_cycles")
-          .select("id, enrollment_id, start_date, status, prescribed_offline_at")
-          .in("enrollment_id", enrollmentIds)
-          .in("status", ["active", "pending", "completed"])
-          .gte("start_date", rangeStart.slice(0, 10))
-          .lte("start_date", rangeEnd.slice(0, 10));
-
+    const workouts = await readForIds(cycles.map(cycle => cycle.id), (ids, from, to) => supabase.from("workouts")
+      .select("cycle_id, exercises").is("superseded_at", null)
+      .in("cycle_id", ids).order("id").range(from, to));
     if (!current()) return;
-    if (cycleError) throw cycleError;
-        const cycleIds = (cycles || []).map((c) => c.id);
-        if (cycleIds.length > 0) {
-          const { data: workouts, error: workoutError } = await supabase
-            .from("workouts")
-            .select("cycle_id, exercises")
-            .is("superseded_at", null)
-            .in("cycle_id", cycleIds);
-    if (!current()) return;
-    if (workoutError) throw workoutError;
-          const cyclesWithWorkout = new Set(filterMaterializedWorkouts(workouts || []).map((w) => w.cycle_id));
-          scheduledCycles = (cycles || []).map((c) => ({
-            cycle_id: c.id,
-            student_id: enrollStudent.get(c.enrollment_id) as string,
-            start_date: c.start_date,
-          })).filter((c) => Boolean(c.student_id));
-
-          prescribedCycles = (cycles || [])
-            .filter((c) => cyclesWithWorkout.has(c.id) || c.prescribed_offline_at)
-            .map((c) => ({
-              cycle_id: c.id,
-              student_id: enrollStudent.get(c.enrollment_id) as string,
-              start_date: c.start_date,
-            }))
-            .filter((c) => Boolean(c.student_id));
-        }
-      }
-    }
+    const cyclesWithWorkout = new Set(filterMaterializedWorkouts(workouts).map(workout => workout.cycle_id));
+    const scheduledCycles = cycles.flatMap(cycle => {
+      const studentId = cycle.enrollment_id && enrollStudent.get(cycle.enrollment_id);
+      return studentId && cycle.start_date
+        ? [{ studentId, startDate: cycle.start_date, delivered: cyclesWithWorkout.has(cycle.id) || Boolean(cycle.prescribed_offline_at) }]
+        : [];
+    });
 
     const performance: TrainerPerformance[] = trainerIds.map((tid) => {
       const profile = profiles.find((p) => p.user_id === tid);
-      const trainerStudents = students.filter((s) => s.assigned_trainer_id === tid);
+      const trainerStudents = students.filter((s) => s[PORTFOLIO_TRAINER_COLUMN] === tid);
 
       const sessionsByMonth: Record<string, number> = {};
       const scheduledByMonth: Record<string, number> = {};
@@ -543,24 +496,15 @@ export default function TeamManager() {
       let totalManual = 0;
       const manualDetails: ManualPerformanceSession[] = [];
 
-      // Attribute scheduled cycles using historical trainer at cycle start_date.
-      // This is the denominator that should match the Agenda prescription events.
-      for (const c of scheduledCycles) {
-        const cycleDate = new Date(c.start_date);
-        if (trainerAt(c.student_id, cycleDate) !== tid) continue;
+      // Attribute scheduled and delivered cycles to the trainer at the start date.
+      for (const cycle of scheduledCycles) {
+        const cycleDate = new Date(cycle.startDate);
+        if (trainerAt(cycle.studentId, cycleDate) !== tid) continue;
         const key = format(cycleDate, "yyyy-MM");
-        if (scheduledByMonth[key] !== undefined) {
-          scheduledByMonth[key]++;
-          totalScheduled++;
-        }
-      }
-
-      // Attribute prescribed cycles using historical trainer at cycle start_date
-      for (const c of prescribedCycles) {
-        const cycleDate = new Date(c.start_date);
-        if (trainerAt(c.student_id, cycleDate) !== tid) continue;
-        const key = format(cycleDate, "yyyy-MM");
-        if (sessionsByMonth[key] !== undefined) {
+        if (scheduledByMonth[key] === undefined) continue;
+        scheduledByMonth[key]++;
+        totalScheduled++;
+        if (cycle.delivered) {
           sessionsByMonth[key]++;
           total++;
         }
@@ -1347,7 +1291,7 @@ export default function TeamManager() {
                                 </Badge>
                               )}
 	                           </div>
-                           <Badge variant="secondary" className="gap-1 shrink-0">
+                           <Badge variant="secondary" className="gap-1 shrink-0" title="Cadastros atribuídos hoje, incluindo inativos">
                              <Users className="h-3 w-3" />
                              {t.portfolioStudents} alunos na carteira total
                            </Badge>
