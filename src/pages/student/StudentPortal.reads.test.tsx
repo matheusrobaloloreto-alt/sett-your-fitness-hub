@@ -48,6 +48,7 @@ vi.mock('@/components/student/StudentHome', async (importOriginal) => {
   StudentHome: (props: Parameters<typeof StudentHome>[0]) => renewalScenario ? <StudentHome {...props} /> : <div>
    <p>Portal carregado</p><button onClick={() => props.onNavigate("treino")}>Abrir treino</button>
    <button onClick={() => props.onNavigate("calendario")}>Calendário</button>
+   <output data-testid="home-training-summary">{props.weeklySessionCount}/{props.totalSessions}/{props.streak}</output>
    {props.selectedCycle?.workouts.map(w => <p key={w.title}>{w.title}</p>)}
   </div>,
  };
@@ -237,6 +238,15 @@ describe('StudentPortal authoritative reads', () => {
     expect(mocks.start).toHaveBeenCalledWith('workout-a');
   });
 
+  it('keeps saved unchecked sets outside the Home goal, total and streak', async () => {
+    withPrescription = true;
+    student = { ...student, weekly_workout_goal: 1 };
+    sessionLogs = [{ id: 'pending-log', workout_id: 'workout-a', exercise_index: 0, set_number: 1,
+      weight: 20, reps_done: 10, session_date: '2026-10-28', completed: false }];
+    render(<StudentPortal />);
+    expect(await screen.findByTestId('home-training-summary', {}, { timeout: 10000 })).toHaveTextContent('0/0/0');
+  });
+
   it('opens the logged workout from the previous cycle as a read-only calendar detail', async () => {
     withPrescription = true; pendingSlot = true; continuityScenario = 'published';
     sessionLogs = [{ id: 'log-old', workout_id: 'workout-old', exercise_index: 0, set_number: 1,
@@ -244,9 +254,9 @@ describe('StudentPortal authoritative reads', () => {
     render(<StudentPortal />);
     await screen.findByText('Nova prescrição');
     fireEvent.click(screen.getByRole('button', { name: 'Calendário' }));
-    fireEvent.click(await screen.findByRole('button', { name: '2026-10-08: treino registrado' }));
+    fireEvent.click(await screen.findByRole('button', { name: '2026-10-08: treino registrado' }, { timeout: 10000 }));
     fireEvent.click(screen.getByRole('button', { name: 'Ver ficha do treino' }));
-    const detail = await screen.findByRole('dialog', { name: 'Treino anterior' });
+    const detail = await screen.findByRole('dialog', { name: 'Treino anterior' }, { timeout: 10000 });
     expect(detail).toHaveTextContent('Ciclo 12 · 08/10/2026 · Somente consulta');
     expect(detail).toHaveTextContent('Fixture exercise');
     expect(screen.queryByRole('button', { name: 'Test iniciar' })).not.toBeInTheDocument();

@@ -48,7 +48,8 @@ import { WeeklyGoalEditor } from "@/components/student/WeeklyGoalEditor";
 import { hasIndividualWeeklyPrescription, resolveActiveWorkoutInCycles, resolveWorkoutForCycleWeek, type ResolvedWeekContext, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import { currentWeekIndex } from "@/lib/periodization";
 import { StudentWeekSelector } from "@/components/student/StudentWeekSelector";
-import { collectTrainedDaysForWeek, mergeTrainingLogsForDisplay, upsertCompletedWorkoutSession } from "@/lib/studentWeek";
+import { collectTrainedDates, collectTrainedDaysForWeek, mergeTrainingLogsForDisplay, upsertCompletedWorkoutSession } from "@/lib/studentWeek";
+import { readStudentCardioSports, readStudentNutritionPlan } from "@/components/student/studentPlanReads";
 
 import { CycleFeedbackBanner } from "@/components/student/CycleFeedbackBanner";
 import {usePublishedInstrumentState} from '@/hooks/usePublishedInstrument';
@@ -352,20 +353,18 @@ export default function StudentPortal() {
   const portalReady = loadedUserScope === userScope && !loadError && Boolean(studentId && companyId)
     && (!authCompanyId || authCompanyId === companyId) && !studentIsInactive;
   const sectionScope = [userScope, studentId, companyId, todayStr] as const;
-  const isVisibleToday = (row: { start_date: string | null; end_date: string | null }) =>
-    (!row.start_date || row.start_date <= todayStr) && (!row.end_date || row.end_date >= todayStr);
   const nutritionAvailability = useQuery({
     queryKey: ["student-portal-nutrition", ...sectionScope],
     enabled: portalReady,
     retry: false,
     queryFn: async () => {
       const [plans, anamnese] = await Promise.allSettled([
-        supabase.from("nutrition_plans").select("id, start_date, end_date").eq("student_id", studentId!),
+        readStudentNutritionPlan(studentId!, todayStr),
         supabase.from("student_anamneses").select("wants_nutrition, has_nutritionist").eq("student_id", studentId!).maybeSingle(),
       ]);
-      if (plans.status === "fulfilled" && !plans.value.error && plans.value.data?.some(isVisibleToday)) return true;
+      if (plans.status === "fulfilled" && plans.value) return true;
       if (anamnese.status === "fulfilled" && !anamnese.value.error && anamnese.value.data?.wants_nutrition && anamnese.value.data?.has_nutritionist) return true;
-      if (plans.status === "rejected" || plans.value.error || anamnese.status === "rejected" || anamnese.value.error) {
+      if (plans.status === "rejected" || anamnese.status === "rejected" || anamnese.value.error) {
         throw new Error("Disponibilidade do Nutri não confirmada");
       }
       return false;
@@ -375,11 +374,7 @@ export default function StudentPortal() {
     queryKey: ["student-portal-cardio", ...sectionScope],
     enabled: portalReady && !preferredCyclePrescriptionCleared,
     retry: false,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("running_plans").select("sport, start_date, end_date").eq("student_id", studentId!);
-      if (error) throw error;
-      return new Set((data ?? []).filter(isVisibleToday).map(row => String(row.sport).toLowerCase()));
-    },
+    queryFn: () => readStudentCardioSports(studentId!, todayStr),
   });
   const goalQuery = useQuery({
     queryKey: ["student-portal-goals", ...sectionScope],
@@ -1467,15 +1462,9 @@ export default function StudentPortal() {
   const weeklySessionCount = useMemo(() => trainedDays.size, [trainedDays]);
 
 
-  const totalSessions = useMemo(() => {
-    const dates = new Set(allLogs.map((l: any) => l.session_date));
-    return dates.size;
-  }, [allLogs]);
-
-  const streak = useMemo(() => {
-    const dates = Array.from(new Set(allLogs.map((l: any) => l.session_date).filter(Boolean)));
-    return calculateStreak(dates, weeklyGoal);
-  }, [allLogs, weeklyGoal]);
+  const trainedDates = useMemo(() => collectTrainedDates(displayLogs, workoutSessions), [displayLogs, workoutSessions]);
+  const totalSessions = trainedDates.size;
+  const streak = useMemo(() => calculateStreak([...trainedDates], weeklyGoal), [trainedDates, weeklyGoal]);
 
 
   const handleNavigate = (view: ActiveView, workoutId?: string | null) => {
@@ -1565,11 +1554,9 @@ export default function StudentPortal() {
   );
 
 
-  // Modalidades de cardio disponíveis (running_plans.sport). Corrida engloba triathlon.
-  const runningSports = cardioAvailability.data ?? new Set<string>();
-  const hasCorrida = !preferredCyclePrescriptionCleared && (runningSports.has("corrida") || runningSports.has("triathlon"));
-  const hasNatacao = !preferredCyclePrescriptionCleared && (runningSports.has("natacao") || runningSports.has("natação"));
-  const hasCiclismo = !preferredCyclePrescriptionCleared && runningSports.has("ciclismo");
+  const hasCorrida = !preferredCyclePrescriptionCleared && cardioAvailability.data?.has("corrida");
+  const hasNatacao = !preferredCyclePrescriptionCleared && cardioAvailability.data?.has("natacao");
+  const hasCiclismo = !preferredCyclePrescriptionCleared && cardioAvailability.data?.has("ciclismo");
 
   const viewTitles: Record<ActiveView, string> = {
     home: "Meu treino",

@@ -1,7 +1,18 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { hasReactionReceipt, isFeedbackOrigin, mayAcknowledgeFeedback, type FeedbackOrigin } from "../_shared/dashboard-feedback.ts";
+import { hasReactionReceipt, isFeedbackMessage, isFeedbackOrigin, mayAcknowledgeFeedback, type FeedbackOrigin } from "../_shared/dashboard-feedback.ts";
 import { resolveVerifiedWhatsAppRecipient } from "../_shared/whatsappIdentity.ts";
 import { HttpError, isUuid } from "../_shared/tenant-auth.ts";
+
+export async function readVerifiedFeedbackMessage(db: SupabaseClient, origin: FeedbackOrigin) {
+  const { data, error } = await db.from("whatsapp_messages")
+    .select("id, chat_id, company_id, content, type, timestamp, created_at, source, is_from_me, sender_id, origin, message_id_external, status, media_type")
+    .eq("id", origin.message_id).eq("chat_id", origin.chat_id).eq("company_id", origin.company_id).maybeSingle();
+  if (error) throw new HttpError(503, "Não foi possível verificar a origem do feedback.");
+  if (!data || !isFeedbackMessage(origin, data)) {
+    throw new HttpError(409, "A mensagem original do feedback não pôde ser confirmada.");
+  }
+  return data;
+}
 
 export async function loadDashboardFeedbackOrigin(
   staff: SupabaseClient, db: SupabaseClient, companyId: string, feedbackId: unknown,
@@ -22,23 +33,23 @@ export async function loadDashboardFeedbackOrigin(
       .eq("id", feedbackId).eq("company_id", companyId).eq("student_id", origin.student_id).maybeSingle(),
     db.from("students").select("id, phone, whatsapp, country_code")
       .eq("id", origin.student_id).eq("company_id", companyId).maybeSingle(),
-    db.from("whatsapp_messages").select("id, chat_id, company_id, content, type, timestamp, created_at, source, is_from_me, origin, message_id_external, status, media_type")
-      .eq("id", origin.message_id).eq("chat_id", origin.chat_id).eq("company_id", companyId).maybeSingle(),
+    readVerifiedFeedbackMessage(db, origin),
     db.from("whatsapp_chats").select("id, company_id, student_id, instance_id, remote_jid")
       .eq("id", origin.chat_id).eq("company_id", companyId).maybeSingle(),
   ]);
-  if (feedback.error || student.error || message.error || chat.error) throw new HttpError(503, "Não foi possível verificar a origem do feedback.");
+  if (feedback.error || student.error || chat.error) throw new HttpError(503, "Não foi possível verificar a origem do feedback.");
   const recipient = resolveVerifiedWhatsAppRecipient({
     clientRemoteJid: origin.remote_jid, chatRemoteJid: chat.data?.remote_jid,
     chatStudentId: chat.data?.student_id, requestedStudentId: origin.student_id, student: student.data,
   });
-  if (!feedback.data || !message.data || !chat.data || !recipient.ok
-    || recipient.remoteJid !== origin.remote_jid || !isFeedbackOrigin(origin, message.data, chat.data)) {
+  if (!feedback.data || !chat.data || !recipient.ok
+    || recipient.remoteJid !== origin.remote_jid || !isFeedbackOrigin(origin, message, chat.data)) {
     throw new HttpError(409, "A mensagem original do feedback não pôde ser confirmada.");
   }
+  const { sender_id: _providerSender, ...messageForQuote } = message;
   return {
     origin: origin as FeedbackOrigin & { reviewed_at: string | null; reaction_attempted_at: string | null },
-    message: message.data,
+    message: messageForQuote,
     eligible: mayAcknowledgeFeedback({ ...feedback.data, needs_adjustment: origin.needs_adjustment }),
   };
 }

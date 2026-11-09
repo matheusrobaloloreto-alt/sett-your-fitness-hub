@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { readStudentCardioPlan, type StudentCardioSport } from "./studentPlanReads";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -122,7 +122,7 @@ export function CardioPlanView({
   suppressBecauseCurrentCycleCleared = false,
 }: {
   studentId: string;
-  sport: "corrida" | "natacao" | "ciclismo";
+  sport: StudentCardioSport;
   suppressBecauseCurrentCycleCleared?: boolean;
 }) {
   const [plan, setPlan] = useState<CardioPlan | null>(null);
@@ -143,29 +143,7 @@ export function CardioPlanView({
       }
       try {
         const today = businessDateYmd();
-        const { data, error } = await supabase
-          .from("running_plans")
-          .select("*")
-          .eq("student_id", studentId)
-          .eq("sport", sport)
-          .lte("start_date", today)
-          .or(`end_date.is.null,end_date.gte.${today}`)
-          .or("status.is.null,status.in.(active,scheduled)")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (error) throw error;
-        let visible = data;
-        // Compatibilidade com prescrições legadas, que não tinham vigência.
-        if (!visible) {
-          const { data: legacy, error: legacyError } = await supabase.from("running_plans").select("*")
-            .eq("student_id", studentId).eq("sport", sport).is("start_date", null)
-            .or(`end_date.is.null,end_date.gte.${today}`)
-            .or("status.is.null,status.in.(active,scheduled)")
-            .order("created_at", { ascending: false }).limit(1).maybeSingle();
-          if (legacyError) throw legacyError;
-          visible = legacy;
-        }
+        const visible = await readStudentCardioPlan(studentId, sport, today);
         if (!active) return;
         setPlan((visible as CardioPlan) || null);
       } catch {

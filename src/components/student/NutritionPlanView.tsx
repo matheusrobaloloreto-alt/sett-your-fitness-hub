@@ -10,10 +10,10 @@ import { businessDateYmd } from "@/lib/businessDate";
 import { extractDietPdfText } from "@/lib/dietPdf";
 import {
   prepareImportedNutritionPlan,
-  selectCurrentNutritionPlan,
   type ExternalNutritionDocumentLike,
   type ImportedNutritionItem,
 } from "@/lib/nutritionPlanDisplay";
+import { readStudentNutritionPlan } from "./studentPlanReads";
 
 // Espelha o schema VIVO de nutrition_plans (Supabase zshrcgbyhzxpnlccssyz): macros em target_*,
 // objetivo em goal, restrições em context_dietary_restrictions, e o PLANO DE REFEIÇÕES prático em
@@ -191,24 +191,19 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
       setLoadFailed(false);
       try {
         const today = businessDateYmd();
-        const [{ data, error }, { data: anamneseRow, error: anamneseError }] = await Promise.all([
-          (supabase as any)
-          .from("nutrition_plans")
-          .select("*")
-          .eq("student_id", studentId)
-          .order("created_at", { ascending: false })
-          .limit(20),
+        const [plan, { data: anamneseRow, error: anamneseError }] = await Promise.all([
+          readStudentNutritionPlan(studentId, today, true),
           (supabase as any)
             .from("student_anamneses")
             .select("wants_nutrition, has_nutritionist, nutrition_context, meals_per_day")
             .eq("student_id", studentId)
             .maybeSingle(),
         ]);
-        if (error || anamneseError) throw new Error("Nutri indisponível");
-        const visible = selectCurrentNutritionPlan((data as NutritionRow[] | null) ?? [], today);
+        if (anamneseError) throw new Error("Nutri indisponível");
+        const visible = plan as NutritionRow | null;
         if (!active) return;
         setAnamnese((anamneseRow as StudentNutritionContext) ?? null);
-        setRow((visible as NutritionRow) ?? null);
+        setRow(visible);
         setLoading(false);
         // Gera o plano de refeições sob demanda se ainda não existe (preenche nutrition_plans.meals).
         const existing = Array.isArray((visible as any)?.meals) ? (visible as any).meals : [];

@@ -47,7 +47,7 @@ const historyFeedback = {
 };
 const historyLog = {
   workout_id: historySession.workout_id, session_date: historySession.session_date,
-  exercise_index: 0, set_number: 1, weight: 10, reps_done: 5,
+  exercise_index: 0, set_number: 1, weight: 10, reps_done: 5, completed: true,
 };
 const historyWorkouts = [{ id: historySession.workout_id, title: 'Synthetic history workout' }];
 

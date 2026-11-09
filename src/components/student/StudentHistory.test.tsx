@@ -11,6 +11,7 @@ const allLogs = [
     session_date: "2026-08-20",
     weight: 80,
     reps_done: 10,
+    completed: true,
   },
 ];
 const sessions = [
@@ -23,6 +24,24 @@ const sessions = [
 ];
 
 describe("StudentHistory workout feedback loop", () => {
+  it("keeps unchecked saved sets visible as pending without counting their volume", () => {
+    render(<StudentHistory workouts={workouts} allLogs={[
+      { ...allLogs[0], completed: false },
+      { ...allLogs[0], set_number: 2, completed: false, deleted: true },
+    ]} sessions={sessions} />);
+    expect(screen.getByText("1 série pendente")).toBeInTheDocument();
+    expect(screen.queryByText("0.8t")).not.toBeInTheDocument();
+  });
+
+  it("counts only checked volume when completed and pending sets share a session", () => {
+    render(<StudentHistory workouts={workouts} allLogs={[
+      allLogs[0], { ...allLogs[0], set_number: 2, completed: false },
+    ]} sessions={sessions} />);
+    expect(screen.getByText("1 série pendente")).toBeInTheDocument();
+    expect(screen.getByText("0.8t")).toBeInTheDocument();
+    expect(screen.queryByText("1.6t")).not.toBeInTheDocument();
+  });
+
   it("shows a single completed history card even when the technical duplicate shares the set logs", () => {
     render(<StudentHistory workouts={workouts} allLogs={allLogs} sessions={[
       { ...sessions[0], status: "completed" },

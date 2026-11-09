@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Clock, Dumbbell, CalendarDays, MessageSquareReply } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { isCompletedTrainingLog } from "@/lib/studentWeek";
 
 interface WorkoutData {
   id: string;
@@ -33,6 +34,7 @@ interface SessionGroup {
   workoutSessionId: string | null;
   totalVolume: number | null;
   totalSets: number | null;
+  pendingSets: number;
   durationSeconds: number | null;
   unassignedLogs?: boolean;
 }
@@ -54,38 +56,36 @@ export function StudentHistory({ allLogs, workouts, sessions, feedbacks = [] }: 
   }, [workouts]);
 
   const groupedSessions = useMemo(() => {
-    // Group logs by date + workout_id
-    const groups: Record<string, { date: string; workoutId: string; logs: any[] }> = {};
+    const groups: Record<string, { date: string; workoutId: string; volume: number; completed: number; pending: number }> = {};
 
     allLogs.forEach((log: any) => {
-      if (!log.session_date) return;
+      if (!log.session_date || log.deleted) return;
       const key = `${log.session_date}-${log.workout_id}`;
-      if (!groups[key]) {
-        groups[key] = { date: log.session_date, workoutId: log.workout_id, logs: [] };
+      const group = groups[key] ??= { date: log.session_date, workoutId: log.workout_id, volume: 0, completed: 0, pending: 0 };
+      if (isCompletedTrainingLog(log)) {
+        group.completed++;
+        group.volume += (Number(log.weight) || 0) * (Number(log.reps_done) || 0);
+      } else {
+        group.pending++;
       }
-      groups[key].logs.push(log);
     });
 
     const historySessions = sessions.filter(session => session.status !== "reconciled");
     const result: SessionGroup[] = [];
     Object.values(groups).forEach(g => {
-      const totalVolume = g.logs.reduce((sum: number, l: any) =>
-        sum + (Number(l.weight) || 0) * (Number(l.reps_done) || 0), 0
-      );
-      const totalSets = g.logs.length;
-
-      // Find matching workout_session for duration
       const matching = historySessions.filter((s: any) => s.workout_id === g.workoutId && s.session_date === g.date);
       const unassignedLogs = matching.length > 1 && matching.every(session => session.total_volume == null && session.total_sets_completed == null);
-      if (matching.length === 0 || unassignedLogs) result.push({
+      const showTotals = matching.length === 0 || unassignedLogs;
+      if (showTotals || (matching.length > 1 && g.pending > 0)) result.push({
         date: g.date,
         workoutTitle: workoutMap[g.workoutId] || "Treino",
         workoutId: g.workoutId,
         workoutSessionId: null,
-        totalVolume,
-        totalSets,
+        totalVolume: showTotals ? g.volume : null,
+        totalSets: showTotals ? g.completed : null,
+        pendingSets: g.pending,
         durationSeconds: null,
-        unassignedLogs,
+        unassignedLogs: matching.length > 1,
       });
     });
     // Concrete sessions remain visible without set logs and keep their own replies.
@@ -94,13 +94,15 @@ export function StudentHistory({ allLogs, workouts, sessions, feedbacks = [] }: 
       const group = groups[`${session.session_date}-${session.workout_id}`];
       if (!group && session.status !== 'completed' && !session.completed_at) return;
       const onlySession = historySessions.filter((s: any) => s.workout_id === session.workout_id && s.session_date === session.session_date).length === 1;
+      const matchedGroup = onlySession ? group : null;
       result.push({
         date: session.session_date,
         workoutTitle: workoutMap[session.workout_id] || 'Treino',
         workoutId: session.workout_id,
         workoutSessionId: session.id,
-        totalVolume: session.total_volume ?? (onlySession && group ? group.logs.reduce((sum: number, log: any) => sum + (Number(log.weight) || 0) * (Number(log.reps_done) || 0), 0) : null),
-        totalSets: session.total_sets_completed ?? (onlySession && group ? group.logs.length : null),
+        totalVolume: session.total_volume ?? matchedGroup?.volume ?? null,
+        totalSets: session.total_sets_completed ?? matchedGroup?.completed ?? null,
+        pendingSets: matchedGroup?.pending ?? 0,
         durationSeconds: session.duration_seconds || null,
       });
     });
@@ -168,6 +170,9 @@ export function StudentHistory({ allLogs, workouts, sessions, feedbacks = [] }: 
                     <div>
                       <p className="text-sm font-medium text-foreground font-sans">{s.workoutTitle}</p>
                       {s.unassignedLogs && <p className="text-xs text-muted-foreground">Registros de séries sem sessão identificada</p>}
+                      {s.pendingSets > 0 && <p className="text-xs text-muted-foreground">
+                        {s.pendingSets === 1 ? "1 série pendente" : `${s.pendingSets} séries pendentes`}
+                      </p>}
                       <p className="text-xs text-muted-foreground font-mono-data">
                         {format(parseISO(s.date), "dd/MM/yyyy (EEEE)", { locale: ptBR })}
                       </p>

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Dumbbell, CheckCircle2, ArrowRight, TrendingUp, TrendingDown, Clock, Target, Flag } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { collectTrainedDates } from "@/lib/studentWeek";
+import { collectTrainedDates, isCompletedTrainingLog } from "@/lib/studentWeek";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, format, isSameMonth, isSameDay,
@@ -82,7 +82,7 @@ export function StudentCalendar({ workouts, availableWorkouts = workouts, allowH
   const logsByDate = useMemo(() => {
     const map: Record<string, { workout_id: string; logs: WorkoutLog[] }[]> = {};
     allLogs.forEach(l => {
-      if (!l.session_date || !l.completed || l.deleted) return;
+      if (!l.session_date || !isCompletedTrainingLog(l)) return;
       if (!map[l.session_date]) map[l.session_date] = [];
       const existing = map[l.session_date].find(g => g.workout_id === l.workout_id);
       if (existing) {

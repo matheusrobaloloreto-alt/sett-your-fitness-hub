@@ -1,4 +1,4 @@
-import { acknowledgeDashboardFeedback, loadDashboardFeedbackOrigin } from "./dashboard-feedback.ts";
+import { acknowledgeDashboardFeedback, loadDashboardFeedbackOrigin, readVerifiedFeedbackMessage } from "./dashboard-feedback.ts";
 import { completeStudentLoginClaim, claimStudentLoginGeneration, issueStudentLoginToken, loadStudentLoginSnapshot, LoginPreflightError, verifyStudentLoginToken } from "../_shared/student-login-credentials.ts";
 import { dispatchMessageSequence } from "../_shared/message-sequence.ts";
 import { attributeManualWhatsAppEcho } from "../_shared/whatsappManualAttribution.ts";
@@ -1103,7 +1103,15 @@ Deno.serve(async (req) => {
         ? quotedMessageType
         : null;
 
-      if (quotedMessageDbId && chatId) {
+      if (dashboardFeedback) {
+        // Recheck the exact provider message after preflight, including sender and direction.
+        const message = await readVerifiedFeedbackMessage(adminClient, dashboardFeedback.origin);
+        quotedDbId = message.id;
+        quotedExternalId = message.message_id_external;
+        quotedPreview = truncatePreview(message.content) || (message.media_type ? "Mídia" : "Mensagem");
+        quotedSource = "incoming";
+        quotedType = message.type;
+      } else if (quotedMessageDbId && chatId) {
         const { data: quotedRow, error: quotedError } = await adminClient
           .from("whatsapp_messages")
           .select(
@@ -1129,11 +1137,6 @@ Deno.serve(async (req) => {
           quotedSource = quotedRow.source || quotedSource;
           quotedType = quotedRow.type || quotedType;
         }
-      }
-
-      if (dashboardFeedback && (quotedDbId !== dashboardFeedback.origin.message_id
-        || quotedExternalId !== dashboardFeedback.origin.provider_message_id)) {
-        throw new HttpError(409, "A citação original do feedback está indisponível.");
       }
 
       if (quotedExternalId) {

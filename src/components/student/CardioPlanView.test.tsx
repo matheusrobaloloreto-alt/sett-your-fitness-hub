@@ -74,4 +74,21 @@ describe("CardioPlanView", () => {
     fireEvent.click(screen.getByRole("button", { name: /Semana 1/i }));
     expect(screen.getByText("Rodagem leve")).toBeInTheDocument();
   });
+
+  it.each([
+    ["corrida", "triathlon"],
+    ["natacao", "natação"],
+    ["ciclismo", "bike"],
+  ] as const)("loads an eligible %s plan stored with alias %s", async (sport, alias) => {
+    const query = makeQuery({ data: {
+      plan_name: "Plano da modalidade", sport: alias,
+      weeks: [{ week_number: 1, sessions: [{ day: "Segunda", title: "Sessão de teste" }] }],
+    }, error: null });
+    fromMock.mockReturnValueOnce(makeQuery({ data: null, error: null }))
+      .mockReturnValueOnce(makeQuery({ data: null, error: null })).mockReturnValue(query);
+    render(<CardioPlanView studentId="student-1" sport={sport} />);
+    expect(await screen.findByText("Plano da modalidade")).toBeInTheDocument();
+    expect(query.or).toHaveBeenCalledWith(expect.stringContaining(`sport.ilike.${alias}`));
+    expect(query.or).toHaveBeenCalledWith("status.is.null,status.in.(active,scheduled)");
+  });
 });

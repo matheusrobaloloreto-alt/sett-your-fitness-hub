@@ -7,6 +7,10 @@ interface TrainingLogLike {
   deleted?: boolean | null;
 }
 
+export function isCompletedTrainingLog(log: TrainingLogLike): boolean {
+  return log.completed === true && !log.deleted;
+}
+
 export function mergeTrainingLogsForDisplay<T extends TrainingLogLike>(persisted: T[], local: T[], sessionDate: string): T[] {
   const key = (log: T) => `${log.workout_id}|${log.exercise_index}|${log.set_number}|${log.session_date || sessionDate}`;
   const rows = new Map(persisted.map(log => [key(log), log]));
@@ -18,7 +22,7 @@ export function mergeTrainingLogsForDisplay<T extends TrainingLogLike>(persisted
 export function collectTrainedDates(logs: TrainingLogLike[], sessions: CompletedSessionLike[] = []): Set<string> {
   const dates = new Set<string>();
   logs.forEach(log => {
-    if (log.completed === true && !log.deleted && log.session_date) dates.add(log.session_date);
+    if (isCompletedTrainingLog(log) && log.session_date) dates.add(log.session_date);
   });
   sessions.forEach(session => {
     if (session.status === "completed" && session.completed_at && session.session_date) dates.add(session.session_date);
