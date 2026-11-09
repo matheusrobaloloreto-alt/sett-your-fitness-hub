@@ -1,3 +1,5 @@
+import type { OperationsEnvelope } from "./companyOperationsStore";
+
 export type SalesStage =
   | "interested"
   | "contacted"
@@ -81,7 +83,7 @@ export const FUNNEL_STAGE_META: Record<FunnelStageKey, {
 /** Use the same labels in the pipeline and in its Dashboard preview. */
 export function resolveFunnelStageMeta(
   legacy: Partial<Record<FunnelStageKey, string>>,
-  operations?: { version: number; settings: { stages: readonly { code?: string; label?: string }[] } } | null,
+  operations?: OperationsEnvelope | null,
 ) {
   return Object.fromEntries(FUNNEL_STAGE_ORDER.map(key => {
     const label = operations?.version
