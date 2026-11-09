@@ -136,6 +136,15 @@ for (const signMessages of [false, true]) {
     await expect(page.getByRole("button", { name: "Remover foto.png", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Remover video.mp4", exact: true })).toHaveCount(0);
     await settleToasts(page);
+    if (signMessages) {
+      // On mobile, exercise recovery from the list, then verify the original draft.
+      const backToList = page.getByRole("button", { name: "Voltar para conversas", exact: true });
+      if (await backToList.isVisible()) await backToList.click();
+      await page.getByRole("button", { name: "Abrir conversa com Contato QA sintetico", exact: true }).click();
+    }
+    await expect(page.getByRole("button", { name: "Remover audio.wav", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Remover manual.pdf", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Remover foto.png", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Enviar mensagem", exact: true }).click();
     await expect(page.getByText("Mensagem rápida enviada.", { exact: true })).toBeVisible();
     expect(guard.sends.map((item) => item.mediatype || "text")).toEqual(["text", "image", "video", "audio", "audio", "document"]);
