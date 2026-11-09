@@ -43,6 +43,7 @@ export function createLinenPortalFixture(
     unexpectedRequests: [] as string[],
     nutritionOutage: Boolean(options.nutritionOutage),
     nutritionReads: 0,
+    authRefreshes: 0,
     enrollmentReads: 0,
     activeSessionReads: [] as { context: string; id: unknown; scoped: boolean }[],
     sessionLogReads: [] as { context: string; student: string | null; workout: string | null; date: string | null }[],
@@ -51,7 +52,7 @@ export function createLinenPortalFixture(
   };
   const user = { id: userId, email: fixtureLogin.email, aud: "authenticated", role: "authenticated", app_metadata: {}, user_metadata: {} };
   const encoded = (value: Row) => Buffer.from(JSON.stringify(value)).toString("base64url");
-  const token = `${encoded({ alg: "none", typ: "JWT" })}.${encoded({ aud: "authenticated", exp: 4102444800, sub: userId })}.fixture`;
+  const token = `${encoded({ alg: "none", typ: "JWT" })}.${encoded({ iss: `${backendOrigin}/auth/v1`, aud: "authenticated", exp: 4102444800, sub: userId })}.fixture`;
   const auth = { access_token: token, refresh_token: "linen-test-refresh", expires_at: 4102444800,
     expires_in: 4102444800 - Date.parse(fixtureTime) / 1000, token_type: "bearer", user };
   const student = { id: studentId, user_id: userId, full_name: "Lia Fixture", company_id: companyId,
@@ -155,6 +156,10 @@ export function createLinenPortalFixture(
       if (url.pathname === "/auth/v1/user" && method === "GET") return json(user);
       if (url.pathname === "/auth/v1/token" && method === "POST") {
         const body = request.postDataJSON() as Row;
+        if (url.searchParams.get("grant_type") === "refresh_token" && body.refresh_token === auth.refresh_token) {
+          state.authRefreshes += 1;
+          return json(auth);
+        }
         if (url.searchParams.get("grant_type") !== "password" || body.email !== fixtureLogin.email
           || body.password !== fixtureLogin.password) return deny();
         return json(auth);
@@ -303,5 +308,5 @@ export function createLinenPortalFixture(
     });
   }
 
-  return { install, state, seedSet };
+  return { install, state, seedSet, auth };
 }

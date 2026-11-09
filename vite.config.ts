@@ -1,6 +1,34 @@
-import { defineConfig } from "vite";
+import { defineConfig, transformWithEsbuild, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import { readFile } from "node:fs/promises";
+
+function inlineAuthTheme(): Plugin {
+  let backend = "";
+  let projectRef: string | undefined;
+  const file = path.resolve(__dirname, "src/lib/supabaseAuthBootstrap.ts");
+  return {
+    name: "sett-inline-auth-theme",
+    configResolved(config) {
+      backend = config.env.VITE_SUPABASE_URL || "";
+      projectRef = config.env.VITE_SUPABASE_PROJECT_ID;
+    },
+    transformIndexHtml: {
+      order: "pre",
+      async handler(html) {
+        const marker = "/* sett-auth-theme-bootstrap */";
+        if (!html.includes(marker)) return html;
+        const { code } = await transformWithEsbuild(await readFile(file, "utf8"), file, {
+          format: "iife", globalName: "settAuthTheme", target: "es2020", minify: true,
+        });
+        const args = JSON.stringify([backend, projectRef]).replace(/</g, "\\u003c");
+        return html.replace(marker, () =>
+          `{ ${code}\nsettAuthTheme.bootstrapAuthTheme(...${args}); }`,
+        );
+      },
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -11,7 +39,7 @@ export default defineConfig({
       overlay: false,
     },
   },
-  plugins: [react()],
+  plugins: [inlineAuthTheme(), react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
