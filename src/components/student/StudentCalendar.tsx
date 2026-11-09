@@ -65,7 +65,9 @@ interface StudentCalendarProps {
   workouts: Workout[];
   trainedDays: Set<number>;
   currentDayOfWeek: number;
-  onSelectWorkout: (workoutId: string) => void;
+  onSelectWorkout: (workoutId: string, historyDate?: string) => void;
+  availableWorkouts?: Workout[];
+  allowHistoricalLookup?: boolean;
   allLogs?: WorkoutLog[];
   cycleStartDate?: string;
   cycleEndDate?: string;
@@ -73,7 +75,7 @@ interface StudentCalendarProps {
   goals?: StudentGoal[];
 }
 
-export function StudentCalendar({ workouts, onSelectWorkout, allLogs = [], workoutSessions = [], goals = [] }: StudentCalendarProps) {
+export function StudentCalendar({ workouts, availableWorkouts = workouts, allowHistoricalLookup = false, onSelectWorkout, allLogs = [], workoutSessions = [], goals = [] }: StudentCalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
@@ -179,12 +181,12 @@ export function StudentCalendar({ workouts, onSelectWorkout, allLogs = [], worko
   // Deduplicate workouts for the "available" list (when clicking untrained day)
   const uniqueWorkouts = useMemo(() => {
     const seen = new Set<string>();
-    return workouts.filter(w => {
+    return availableWorkouts.filter(w => {
       if (seen.has(w.id)) return false;
       seen.add(w.id);
       return true;
     });
-  }, [workouts]);
+  }, [availableWorkouts]);
 
   return (
     <div className="space-y-4">
@@ -373,8 +375,8 @@ export function StudentCalendar({ workouts, onSelectWorkout, allLogs = [], worko
                         })}
                       </div>
 
-                      {workouts.some(current => current.id === workout.id) && <Button size="sm" className="w-full font-sans" onClick={() => onSelectWorkout(workout!.id)}>
-                        Ir para o treino <ArrowRight className="h-4 w-4 ml-1" />
+                      {(allowHistoricalLookup || workouts.some(current => current.id === workout.id)) && <Button size="sm" className="w-full font-sans" onClick={() => onSelectWorkout(workout.id, format(selectedDate, "yyyy-MM-dd"))}>
+                        Ver ficha do treino <ArrowRight className="h-4 w-4 ml-1" />
                       </Button>}
                     </div>
                   );

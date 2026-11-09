@@ -1,5 +1,9 @@
 import { expect, type Page, test } from "@playwright/test";
-import { createLinenPortalFixture, fixtureLogin, fixtureTime, sessionId, studentId, workoutId } from "./student-linen-portal-fixture";
+import {
+  companyId, createLinenPortalFixture, cycleId, enrollmentId, fixtureLogin, fixtureTime, historyCycleId,
+  historyDate, historyExerciseName, historyWorkoutId, historyWorkoutTitle, priorEnrollmentId, priorSessionDate,
+  sessionId, studentId, userId, workoutId,
+} from "./student-linen-portal-fixture";
 
 const mobile = {
   viewport: { width: 390, height: 844 },
@@ -8,6 +12,7 @@ const mobile = {
   reducedMotion: "no-preference",
   serviceWorkers: "block",
   timezoneId: "America/Sao_Paulo",
+  proxy: { server: "http://127.0.0.1:1", bypass: "127.0.0.1" },
 } as const;
 test.use({ ...mobile, actionTimeout: 15_000 });
 test.setTimeout(150_000);
@@ -176,3 +181,186 @@ test("Linho mobile keeps the dock visible without plans and guards inactive pres
     await inactiveContext.close();
   }
 });
+
+test("Nutri outage preserves an executable workout and retries only its own section", async ({ page, baseURL }) => {
+  const fixture = createLinenPortalFixture("published", { nutritionOutage: true });
+  await fixture.install(page.context(), new URL(baseURL!).origin);
+  await openPortal(page);
+  await expect.poll(() => fixture.state.nutritionReads).toBeGreaterThan(0);
+  await tab(page, "Treino").click();
+  await expect(page.getByRole("heading", { name: "Treino A · Linho", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Iniciar Treino", exact: true }).click();
+  const finish = page.getByRole("button", { name: "Finalizar Treino", exact: true });
+  await expect(finish).toBeVisible();
+  await tab(page, "Nutri").click();
+  const retry = page.getByRole("alert").getByRole("button", { name: "Tentar novamente", exact: true });
+  await expect(retry).toBeVisible();
+  await expect(dock(page)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Nenhuma dica nutricional publicada" })).toHaveCount(0);
+  const enrollmentReads = fixture.state.enrollmentReads;
+  const nutritionReads = fixture.state.nutritionReads;
+  fixture.state.nutritionOutage = false;
+  await retry.click();
+  await expect(page.getByRole("heading", { name: "Plano alimentar", exact: true })).toBeVisible();
+  await page.locator("summary").filter({ hasText: "Café da manhã" }).click();
+  await expect(page.getByText("Iogurte com banana", { exact: true })).toBeVisible();
+  expect(fixture.state.nutritionReads).toBeGreaterThan(nutritionReads);
+  expect(fixture.state.enrollmentReads).toBe(enrollmentReads);
+  await tab(page, "Treino").click();
+  await expect(finish).toBeVisible();
+  expect(fixture.state.session).toMatchObject({ id: sessionId, status: "in_progress", workout_id: workoutId });
+  expect(fixture.state.starts).toHaveLength(1);
+  expect(fixture.state.unexpectedRequests).toEqual([]);
+});
+
+test("an isolated browser recovers active A on focus and prevents starting B", async ({ page, browser, baseURL }) => {
+  const fixture = createLinenPortalFixture("published", { twoWorkouts: true });
+  let releaseLogs!: () => void;
+  fixture.state.sessionLogBarrier = new Promise<void>(resolve => { releaseLogs = resolve; });
+  const origin = new URL(baseURL!).origin;
+  await fixture.install(page.context(), origin, "first");
+  const second = await browser.newContext(mobile);
+  try {
+    await fixture.install(second, origin, "second");
+    const other = await second.newPage();
+    const start = (target: Page) => target.getByRole("button", { name: "Iniciar Treino", exact: true });
+    const finish = (target: Page) => target.getByRole("button", { name: "Finalizar Treino", exact: true });
+    const a = (target: Page) => target.getByRole("button", { name: "Treino A", exact: true });
+    const b = (target: Page) => target.getByRole("button", { name: "Treino B", exact: true });
+    const headingA = (target: Page) => target.getByRole("heading", { name: "Treino A · Linho", exact: true });
+
+    await openPortal(page);
+    await openPortal(other);
+    await tab(other, "Treino").click();
+    await b(other).click();
+    await expect(other.getByRole("heading", { name: "Treino B · Linho", exact: true })).toBeVisible();
+    await expect(start(other)).toBeEnabled();
+    await tab(other, "Início").click();
+    const resume = other.getByRole("button", { name: "Retomar de onde parei", exact: true });
+    await expect(resume).toHaveCount(0);
+
+    await tab(page, "Treino").click();
+    await a(page).click();
+    await start(page).click();
+    await expect(finish(page)).toBeVisible();
+    expect(fixture.state.starts).toHaveLength(1);
+    expect(fixture.state.session).toMatchObject({ id: sessionId, workout_id: workoutId, status: "in_progress" });
+    fixture.seedSet(fixtureTime.slice(0, 10), 24);
+
+    // Browser focus events are dispatched explicitly for headless WebKit and Chromium.
+    await other.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect.poll(() => fixture.state.activeSessionReads.some(read =>
+      read.context === "second" && read.id === sessionId && read.scoped)).toBe(true);
+    await expect(resume).toBeVisible();
+    await resume.click();
+    await expect.poll(() => fixture.state.sessionLogReads).toContainEqual({
+      context: "second", student: `eq.${studentId}`, workout: `eq.${workoutId}`, date: "eq.2026-11-09",
+    });
+    await expect(finish(other)).toHaveCount(0);
+    await expect(other.getByRole("spinbutton")).toHaveCount(0);
+    releaseLogs();
+    await expect(headingA(other)).toBeVisible();
+    await expect(a(other)).toHaveAttribute("aria-pressed", "true");
+    await expect(finish(other)).toBeVisible();
+    await expect(start(other)).toHaveCount(0);
+    await other.getByText("Agachamento de teste", { exact: true }).click();
+    await expect(other.getByRole("spinbutton").first()).toHaveValue("24");
+    expect(fixture.state.starts).toHaveLength(1);
+
+    for (const target of [page, other]) {
+      await expect(b(target)).toBeDisabled();
+      await expect(a(target)).toHaveAttribute("aria-pressed", "true");
+      await expect(b(target)).toHaveAttribute("aria-pressed", "false");
+      await expect(headingA(target)).toBeVisible();
+      await expect(finish(target)).toBeVisible();
+      await expect(start(target)).toHaveCount(0);
+    }
+    expect(fixture.state.starts).toHaveLength(1);
+    expect(fixture.state.unexpectedRequests).toEqual([]);
+  } finally {
+    releaseLogs();
+    await second.close();
+  }
+});
+
+test("a fresh browser resumes the prior-day session with its own persisted sets", async ({ page, baseURL }) => {
+  const fixture = createLinenPortalFixture("published", { twoWorkouts: true, priorDayActive: true });
+  let releaseLogs!: () => void;
+  fixture.state.sessionLogBarrier = new Promise<void>(resolve => { releaseLogs = resolve; });
+  try {
+    await fixture.install(page.context(), new URL(baseURL!).origin);
+    await openPortal(page);
+    await page.getByRole("button", { name: "Retomar de onde parei", exact: true }).click();
+    await expect.poll(() => fixture.state.sessionLogReads).toContainEqual({
+      context: "primary", student: `eq.${studentId}`, workout: `eq.${workoutId}`, date: `eq.${priorSessionDate}`,
+    });
+    const finish = page.getByRole("button", { name: "Finalizar Treino", exact: true });
+    await expect(finish).toHaveCount(0);
+    await expect(page.getByRole("spinbutton")).toHaveCount(0);
+    releaseLogs();
+    await expect(finish).toBeVisible();
+    await expect(page.getByRole("button", { name: "Treino B", exact: true })).toBeDisabled();
+    await page.getByText("Agachamento de teste", { exact: true }).click();
+    await expect(page.getByRole("spinbutton").first()).toHaveValue("24");
+    expect(fixture.state.starts).toEqual([]);
+    expect(fixture.state.session).toMatchObject({ id: sessionId, workout_id: workoutId, session_date: priorSessionDate });
+    expect(fixture.state.unexpectedRequests).toEqual([]);
+  } finally {
+    releaseLogs();
+  }
+});
+
+for (const history of ["current", "renewal"] as const) {
+  test(`calendar opens the exact previous cycle read-only and leaves current A executable (${history})`, async ({ page, baseURL }) => {
+    const fixture = createLinenPortalFixture("published", { history });
+    await fixture.install(page.context(), new URL(baseURL!).origin);
+    await openPortal(page);
+    await page.getByRole("navigation", { name: "Acompanhamento" }).getByRole("button", { name: /Calendário/ }).click();
+    await page.getByRole("button", { name: `${historyDate}: treino registrado`, exact: true }).click();
+    await expect(page.getByText(history === "renewal" ? "Treino anterior" : historyWorkoutTitle, { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Treino de outro tenant", { exact: true })).toHaveCount(0);
+    const beforeClick = fixture.state.prescriptionReads.length;
+    if (history === "renewal") {
+      await expect(page.getByText(historyWorkoutTitle, { exact: true })).toHaveCount(0);
+      expect(fixture.state.prescriptionReads).toContainEqual({ table: "training_cycles", query: expect.objectContaining({
+        enrollment_id: `eq.${enrollmentId}`, student_id: `eq.${studentId}`, company_id: `eq.${companyId}`,
+      }) });
+      const operationalWorkouts = fixture.state.prescriptionReads.filter(read => read.table === "workouts");
+      expect(operationalWorkouts).toEqual([{ table: "workouts", query: expect.objectContaining({ cycle_id: `in.(${cycleId})` }) }]);
+    }
+    await page.getByRole("button", { name: "Ver ficha do treino", exact: true }).click();
+    const previous = page.getByRole("dialog", { name: historyWorkoutTitle, exact: true });
+    await expect(previous).toBeVisible();
+    await expect(previous.getByText("Ciclo 1 · 06/11/2026 · Somente consulta", { exact: true })).toBeVisible();
+    await expect(previous.getByText(historyExerciseName, { exact: true })).toBeVisible();
+    if (history === "renewal") {
+      const owner = { student_id: `eq.${studentId}`, company_id: `eq.${companyId}` };
+      const workoutScope = { id: `eq.${historyWorkoutId}`, company_id: `eq.${companyId}`,
+        superseded_at: "is.null", superseded_by_revision_id: "is.null", student_profile_archive_event_id: "is.null" };
+      expect(fixture.state.prescriptionReads.slice(beforeClick)).toEqual([
+        { table: "students", query: expect.objectContaining({ id: `eq.${studentId}`, company_id: owner.company_id, user_id: `eq.${userId}` }) },
+        { table: "workouts", query: expect.objectContaining({ ...workoutScope, select: "id,cycle_id" }) },
+        { table: "training_cycles", query: expect.objectContaining({ ...owner, id: `eq.${historyCycleId}`,
+          start_date: "lte.2026-11-09", status: "in.(active,completed)", prescription_cleared_at: "is.null", superseded_at: "is.null" }) },
+        { table: "enrollments", query: expect.objectContaining({ ...owner, id: `in.(${priorEnrollmentId})` }) },
+        { table: "workouts", query: expect.objectContaining({ ...workoutScope, cycle_id: `in.(${historyCycleId})`,
+          select: expect.stringContaining("exercises") }) },
+      ]);
+    }
+    await expect(previous.getByRole("button", { name: /Iniciar|Finalizar|Salvar|Adicionar série/ })).toHaveCount(0);
+    await expect(previous.getByRole("spinbutton")).toHaveCount(0);
+    expect(fixture.state.starts).toEqual([]);
+    expect(fixture.state.logs.size).toBe(0);
+    expect(fixture.state.completions).toEqual([]);
+    await page.keyboard.press("Escape");
+    await expect(previous).toHaveCount(0);
+    await expect(page.getByRole("button", { name: `${historyDate}: treino registrado`, exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "Ver ficha do treino", exact: true })).toBeVisible();
+    await tab(page, "Treino").click();
+    await expect(page.getByRole("heading", { name: "Treino A · Linho", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Iniciar Treino", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Finalizar Treino", exact: true })).toBeVisible();
+    expect(fixture.state.starts).toEqual([expect.objectContaining({ _workout_id: workoutId })]);
+    expect(fixture.state.unexpectedRequests).toEqual([]);
+  });
+}

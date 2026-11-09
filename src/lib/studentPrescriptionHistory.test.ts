@@ -22,13 +22,19 @@ import { loadPublishedPrescriptions } from './studentPrescriptionHistory';
 import { vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/integrations/supabase/types';
-function fakeClient(options: { inactive?: boolean; foreignOwner?: boolean; error?: string; stale?: boolean } = {}) {
+function fakeClient(options: { inactive?: boolean; foreignOwner?: boolean; error?: string; stale?: boolean; historicalLink?: boolean } = {}) {
  const calls: Array<[string, string, ...unknown[]]> = [];
  const from = vi.fn((table: string) => {
   const rows: Record<string, unknown> = { students: { id: options.foreignOwner ? 'foreign' : scope.studentId, company_id: scope.companyId, status: options.inactive ? 'inactive' : 'active' }, enrollments: [enrollment], training_cycles: [cycle], workouts: [workout] };
   const query: Record<string, unknown> = {};
   for (const method of ['select', 'eq', 'lte', 'in', 'is', 'order', 'range', 'maybeSingle']) query[method] = (...args: unknown[]) => { calls.push([table, method, ...args]); return query; };
-  query.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data: rows[table], error: options.error === table ? new Error('denied') : null }).then(resolve);
+  query.then = (resolve: (v: unknown) => unknown) => {
+   const lastCall = calls.at(-1);
+   const data = options.historicalLink && table === 'workouts' && lastCall?.[1] === 'maybeSingle'
+    ? { id: workout.id, cycle_id: workout.cycle_id }
+    : rows[table];
+   return Promise.resolve({ data, error: options.error === table ? new Error('denied') : null }).then(resolve);
+  };
   return query;
  });
  return { client: { from } as unknown as SupabaseClient<Database>, from, calls };
@@ -45,6 +51,15 @@ describe('owner/RLS scoped prescription loader', () => {
   expect(calls).toContainEqual(['workouts', 'is', 'student_profile_archive_event_id', null]);
   expect(calls).toContainEqual(['training_cycles', 'range', 0, 19]);
   expect(calls.some(c => c[1] === 'select' && c[2] === '*')).toBe(false);
+ });
+ it('fetches the exact historical calendar workout only after verifying its owning cycle', async () => {
+  const { client, calls } = fakeClient({ historicalLink: true });
+  const result = await loadPublishedPrescriptions(client, { ...scope, userId: 'user' }, 0, undefined, workout.id);
+  expect(result.prescriptions[0].workouts).toEqual([workout]);
+  expect(calls).toContainEqual(['training_cycles', 'eq', 'id', cycle.id]);
+  expect(calls.filter(call => call[0] === 'workouts' && call[1] === 'eq' && call[2] === 'id'))
+   .toEqual([['workouts', 'eq', 'id', workout.id], ['workouts', 'eq', 'id', workout.id]]);
+  expect(calls.findIndex(call => call[0] === 'enrollments')).toBeLessThan(calls.findIndex(call => call[0] === 'workouts' && call[1] === 'select' && String(call[2]).includes('exercises')));
  });
  it.each([{ inactive: true }, { foreignOwner: true }])('stops before history for invalid owner %j', async options => {
   const { client, from } = fakeClient(options);

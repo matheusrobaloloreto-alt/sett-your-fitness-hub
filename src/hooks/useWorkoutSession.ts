@@ -10,6 +10,7 @@ interface ActiveSession {
   workoutId: string;
   startedAt: number; // timestamp ms
   companyId?: string;
+  sessionDate?: string;
   elapsedSeconds: number;
 }
 
@@ -26,6 +27,16 @@ export interface SessionSummary {
 }
 
 export type SessionOperationResult<T> = {ok:true; value:T} | {ok:false; reason:'busy'|'context'|'conflict'|'unavailable'|'storage'|'invalid_metrics'|'duplicate_open_sessions'};
+
+interface WorkoutSessionOptions {
+  discoverRemote?: boolean;
+}
+
+function readSessionDate(value: unknown): string | undefined {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+  const date = new Date(value);
+  if (Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value) return value;
+}
 
 const STORAGE_KEY = (studentId: string) => `sett_active_session_${studentId}`;
 
@@ -51,11 +62,17 @@ async function recoverPendingStart(
     || typeof row.id !== "string" || typeof row.started_at !== "string") return null;
   const startedAt = Date.parse(row.started_at);
   if (!Number.isFinite(startedAt)) return null;
-  return { active: { id: row.id, workoutId, companyId, startedAt, elapsedSeconds: 0 } };
+  const sessionDate = readSessionDate(row.session_date);
+  return { active: { id: row.id, workoutId, companyId, startedAt, elapsedSeconds: 0, ...(sessionDate && { sessionDate }) } };
 }
 
-export function useWorkoutSession(studentId: string | null, companyId: string | null) {
+export function useWorkoutSession(
+  studentId: string | null,
+  companyId: string | null,
+  { discoverRemote = false }: WorkoutSessionOptions = {},
+) {
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
+  const [remoteSessionId, setRemoteSessionId] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [summary, setSummary] = useState<SessionSummary | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -68,11 +85,56 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
   contextRef.current = context;
   const finishingRef = useRef(false); // A9 — evita conceder XP em dobro (double-click / corrida com autosave).
 
+  const discoveryVersion = useRef(0);
+  const discoveryEnabledRef = useRef(discoverRemote);
+  discoveryEnabledRef.current = discoverRemote;
+
+  const discoverActiveSession = useCallback(async (duringStart = false) => {
+    if (!discoverRemote || !discoveryEnabledRef.current || !studentId || !companyId
+      || contextRef.current !== context || operationRef.current !== duringStart || activeRef.current) return;
+    const version = ++discoveryVersion.current;
+    const key = STORAGE_KEY(studentId);
+    try {
+      const stored = localStorage.getItem(key);
+      const { data, error } = await supabase.from("workout_sessions")
+        .select("id,student_id,company_id,workout_id,started_at,status,session_date")
+        .eq("student_id", studentId)
+        .eq("company_id", companyId)
+        .eq("status", "in_progress")
+        .limit(2);
+      if (error || !Array.isArray(data) || data.length !== 1) return;
+      const [row] = data;
+      if (!row || row.student_id !== studentId || row.company_id !== companyId || row.status !== "in_progress"
+        || typeof row.id !== "string" || !row.id.trim() || typeof row.workout_id !== "string" || !row.workout_id.trim()
+        || typeof row.started_at !== "string") return;
+      const startedAt = Date.parse(row.started_at);
+      if (!Number.isFinite(startedAt)) return;
+      if (version !== discoveryVersion.current || contextRef.current !== context || !discoveryEnabledRef.current
+        || operationRef.current !== duringStart || activeRef.current || localStorage.getItem(key) !== stored
+        || (stored && JSON.parse(stored)?.id !== row.id)) return;
+
+      const sessionDate = readSessionDate(row.session_date);
+      const discovered: ActiveSession = {
+        id: row.id, workoutId: row.workout_id, companyId, startedAt, elapsedSeconds: 0,
+        ...(sessionDate && { sessionDate }),
+      };
+      localStorage.setItem(key, JSON.stringify(discovered));
+      activeRef.current = discovered;
+      finishingRef.current = false;
+      setRemoteSessionId(discovered.id);
+      setActiveSession(discovered);
+      setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    } catch { /* Preserve local state and pending requests when discovery is unavailable. */ }
+  }, [studentId, companyId, context, discoverRemote]);
+
+  useEffect(() => () => { discoveryVersion.current += 1; }, [context, discoverRemote]);
+
   // Restore from localStorage
   useEffect(() => {
     setIsHydrated(false);
     activeRef.current=null;
     setSummary(null);
+    setRemoteSessionId(null);
     if (!studentId) {
       setActiveSession(null);
       setIsHydrated(true);
@@ -83,6 +145,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
       if (stored) {
         const parsed: ActiveSession = JSON.parse(stored);
         if(parsed.companyId && parsed.companyId!==companyId) throw new Error('Different company');
+        if (parsed.sessionDate !== undefined) parsed.sessionDate = readSessionDate(parsed.sessionDate);
         activeRef.current=parsed;
         setActiveSession(parsed);
         const now = Date.now();
@@ -107,6 +170,8 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
         const session:ActiveSession|null=event.newValue ? JSON.parse(event.newValue) : null;
         if(!session && event.oldValue && JSON.parse(event.oldValue).id!==activeRef.current?.id)return;
         if(session?.companyId && session.companyId!==companyId)return;
+        if (session && session.sessionDate !== undefined) session.sessionDate = readSessionDate(session.sessionDate);
+        discoveryVersion.current += 1;
         activeRef.current=session;setActiveSession(session);setElapsed(session?Math.max(0,Math.floor((Date.now()-session.startedAt)/1000)):0);
       } catch { /* Corrupt cross-tab storage cannot acknowledge a transition. */ }
     };
@@ -114,22 +179,30 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
   },[studentId,companyId]);
 
   useEffect(() => {
-    if (!studentId || !companyId || !activeSession) return;
-    const { id, workoutId } = activeSession;
+    if (!studentId || !companyId || (!activeSession && !discoverRemote)) return;
     let cancelled = false;
-    const checkTerminalSession = async () => {
+    const reconcileSession = async () => {
+      if (!activeSession) {
+        await discoverActiveSession();
+        return;
+      }
+      const { id, workoutId } = activeSession;
+      const version = discoveryVersion.current;
+      const stale = () => cancelled || contextRef.current !== context || (discoverRemote
+        && (version !== discoveryVersion.current || operationRef.current || activeRef.current?.id !== id));
+      if (stale()) return;
       try {
         const { data, error } = await supabase.from("workout_sessions").select("id,status")
           .eq("id", id).eq("student_id", studentId).eq("company_id", companyId)
           .eq("workout_id", workoutId).maybeSingle();
-        if (cancelled || error || data?.id !== id
+        if (stale() || error || data?.id !== id
           || !["completed", "abandoned", "reconciled"].includes(data.status ?? "")) return;
         const pendingKey = `sett_session_start_${companyId}_${studentId}`;
         const storedPending = localStorage.getItem(pendingKey);
         const pending = storedPending ? JSON.parse(storedPending) : null;
         if (pending?.workoutId === workoutId && typeof pending.requestId === "string") {
           const recovered = await recoverPendingStart(studentId, companyId, workoutId, pending.requestId, id);
-          if (cancelled || !recovered || contextRef.current !== context || activeRef.current?.id !== id
+          if (stale() || !recovered || activeRef.current?.id !== id
             || localStorage.getItem(pendingKey) !== storedPending) return;
           if (recovered.active) {
             const current = localStorage.getItem(STORAGE_KEY(studentId));
@@ -152,20 +225,25 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
         }
       } catch { /* Keep the local session until a server response confirms the terminal state. */ }
     };
-    void checkTerminalSession();
-    window.addEventListener("focus", checkTerminalSession);
+    const reconcileVisibleSession = () => {
+      if (document.visibilityState === "visible") void reconcileSession();
+    };
+    void reconcileSession();
+    window.addEventListener("focus", reconcileSession);
+    if (discoverRemote) document.addEventListener("visibilitychange", reconcileVisibleSession);
     return () => {
       cancelled = true;
-      window.removeEventListener("focus", checkTerminalSession);
+      window.removeEventListener("focus", reconcileSession);
+      if (discoverRemote) document.removeEventListener("visibilitychange", reconcileVisibleSession);
     };
-  }, [activeSession, companyId, context, studentId]);
+  }, [activeSession, companyId, context, studentId, discoverRemote, discoverActiveSession]);
 
   // Timer tick
   useEffect(() => {
     if (activeSession) {
       intervalRef.current = setInterval(() => {
         const now = Date.now();
-        setElapsed(Math.floor((now - activeSession.startedAt) / 1000));
+        setElapsed(Math.max(0, Math.floor((now - activeSession.startedAt) / 1000)));
       }, 1000);
     }
     return () => {
@@ -178,6 +256,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     if(operationRef.current) return {ok:false,reason:'busy'};
     if(activeRef.current && activeRef.current.workoutId!==workoutId) return {ok:false,reason:'conflict'};
     operationRef.current=true;
+    discoveryVersion.current += 1;
     const pendingKey=`sett_session_start_${companyId}_${studentId}`;
     let requestId:string;
     try {
@@ -217,14 +296,15 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
       const {data,error}=await (supabase.rpc as unknown as (name:string,args:Record<string,unknown>)=>Promise<{data:unknown;error:unknown}>)('start_workout_session',{_student_id:studentId,_company_id:companyId,_workout_id:workoutId,_request_id:requestId});
       if (error && typeof error === 'object' && 'code' in error && error.code === 'PT409'
         && 'message' in error && (error.message === 'session_legacy_ambiguous' || error.message === 'session_already_in_progress' || error.message === 'session_request_retired' || error.message === 'session_workout_no_longer_published')) {
-        // These two errors are raised after receipt lookup and before any insert.
+        // These definitive refusals are raised after receipt lookup and before any insert.
         // An uncertain network result still retains the request ID for replay.
         const current = localStorage.getItem(pendingKey);
         if (current && JSON.parse(current).requestId === requestId) localStorage.removeItem(pendingKey);
+        if (error.message === "session_already_in_progress") await discoverActiveSession(true);
         return { ok: false, reason: error.message === 'session_legacy_ambiguous' ? 'duplicate_open_sessions' : 'conflict' };
       }
       if(error || !data) return {ok:false,reason:error && typeof error==='object' && 'code' in error && error.code==='PT409' ? 'conflict' : 'unavailable'};
-      const row=data as {id:string;workout_id:string;student_id:string;company_id:string;started_at:string;status:string};
+      const row=data as {id:string;workout_id:string;student_id:string;company_id:string;started_at:string;status:string;session_date?:unknown};
       if(row.student_id!==studentId || row.company_id!==companyId || row.workout_id!==workoutId) return {ok:false,reason:'conflict'};
       if(row.status!=='in_progress') {
         // A receipt remains bound forever. A terminal replay is a conflict,
@@ -234,7 +314,8 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
       }
       const startedAt=Date.parse(row.started_at);
       if(!row.id || !Number.isFinite(startedAt)) return {ok:false,reason:'unavailable'};
-      const session:ActiveSession={id:row.id,workoutId,companyId,startedAt,elapsedSeconds:0};
+      const sessionDate = readSessionDate(row.session_date);
+      const session:ActiveSession={id:row.id,workoutId,companyId,startedAt,elapsedSeconds:0,...(sessionDate && { sessionDate })};
       const existing=localStorage.getItem(STORAGE_KEY(studentId));
       if(existing && JSON.parse(existing).id!==session.id) return {ok:false,reason:'conflict'};
       localStorage.setItem(STORAGE_KEY(studentId),JSON.stringify(session));
@@ -243,7 +324,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
       return contextRef.current===context ? {ok:true,value:session} : {ok:false,reason:'context'};
     } catch {return {ok:false,reason:'unavailable'};}
     finally {operationRef.current=false;}
-  }, [studentId,companyId,context]);
+  }, [studentId,companyId,context,discoverActiveSession]);
 
   const finishSessionResult = useCallback(async (
     logs: Record<string, SessionLog>,
@@ -254,6 +335,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     if (!activeSession || !activeRef.current || activeSession.id!==activeRef.current.id || !studentId || !companyId) return {ok:false,reason:'context'};
     if(finishingRef.current || operationRef.current) return {ok:false,reason:'busy'};
     operationRef.current=true;
+    discoveryVersion.current += 1;
     finishingRef.current = true; // A9 — trava reentrância: só um award_xp por sessão.
 
     try {
@@ -370,6 +452,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
     if(!session || !studentId || !companyId) return {ok:false,reason:'context'};
     if(operationRef.current) return {ok:false,reason:'busy'};
     operationRef.current=true;
+    discoveryVersion.current += 1;
     try {
       let acknowledged=false;
       let failureReason:'conflict'|'unavailable'='conflict';
@@ -410,6 +493,7 @@ export function useWorkoutSession(studentId: string | null, companyId: string | 
   return {
     activeSession,
     isHydrated,
+    isRemoteSession: !!activeSession && remoteSessionId === activeSession.id,
     elapsed,
     summary,
     startSession,

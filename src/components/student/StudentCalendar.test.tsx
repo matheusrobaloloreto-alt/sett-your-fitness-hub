@@ -19,7 +19,7 @@ describe("calendar and home training consistency", () => {
     expect(screen.getByLabelText("Seg: treino registrado")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "2026-09-14: treino registrado" }));
     expect(screen.getByText("Treino anterior")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Ir para o treino" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ver ficha do treino" })).not.toBeInTheDocument();
   });
 
   it("does not mark saved but unchecked sets or abandoned sessions as trained", () => {

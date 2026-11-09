@@ -1,6 +1,7 @@
 import { selectStudentPrescriptionEnrollment } from "@/lib/studentEnrollmentContinuity";
 import { useStudentPrescriptionPolicy } from "@/hooks/useStudentPrescriptionPolicy";
-import { PublishedPrescriptionHistory } from "@/components/student/PublishedPrescriptionHistory";
+import { useQuery } from "@tanstack/react-query";
+import { PublishedPrescriptionHistory, PublishedWorkoutDetails } from "@/components/student/PublishedPrescriptionHistory";
 import { useEffect, useState, useCallback, useMemo, useRef, Fragment, Suspense, lazy } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,7 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
@@ -28,7 +29,8 @@ import { CheckinCard } from "@/components/student/CheckinCard";
 import { PushBanner } from "@/components/student/PushBanner";
 import { ExerciseVideoPlayer } from "@/components/student/ExerciseVideoPlayer";
 import { useExerciseVideo } from "@/hooks/useExerciseVideo";
-import { loadStudentTrainingHistory } from "@/lib/studentTrainingHistory";
+import { loadPublishedPrescriptions } from "@/lib/studentPrescriptionHistory";
+import { loadStudentTrainingHistory, WORKOUT_LOG_COLUMNS } from "@/lib/studentTrainingHistory";
 import { useRestTimer } from "@/components/student/RestTimer";
 import { useWakeLock } from "@/hooks/useWakeLock";
 import { WeeklyBar } from "@/components/student/WeeklyBar";
@@ -301,9 +303,11 @@ export default function StudentPortal() {
   currentUserScope.current = userScope;
   const dataUserScope = useRef<string | null>(null);
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
-  const [logs, setLogs] = useState<Record<string, WorkoutLog>>({});
+  const [dailyLogs, setDailyLogs] = useState<Record<string, WorkoutLog>>({});
+  const [priorSessionLogs, setPriorSessionLogs] = useState<Record<string, WorkoutLog>>({});
   const [logsRestoredKey, setLogsRestoredKey] = useState<string | null>(null);
-  const logsRef = useRef<Record<string, WorkoutLog>>({});
+  const dailyLogsRef = useRef<Record<string, WorkoutLog>>({});
+  const priorSessionLogsRef = useRef<Record<string, WorkoutLog>>({});
   const workoutLogSaveQueueRef = useRef(createWorkoutLogSaveQueue());
   const [previousLogs, setPreviousLogs] = useState<Record<string, WorkoutLog>>({});
   const [savingLogs, setSavingLogs] = useState(false);
@@ -311,27 +315,25 @@ export default function StudentPortal() {
   const finishingWorkoutRef = useRef(false);
   const [enrollmentInfo, setEnrollmentInfo] = useState<{ plan_name: string; start_date: string; end_date: string } | null>(null);
   const [allLogs, setAllLogs] = useState<any[]>([]);
-  const [studentGoals, setStudentGoals] = useState<any[]>([]);
   const [extraSets, setExtraSets] = useState<Record<number, number>>({});
   const [workoutSessions, setWorkoutSessions] = useState<any[]>([]);
   const [workoutFeedbacks, setWorkoutFeedbacks] = useState<any[]>([]);
   const [weeklyGoal, setWeeklyGoal] = useState<number>(3);
   const [activeEnrollmentId, setActiveEnrollmentId] = useState<string | null>(null);
   // Prescrições por modalidade (abas condicionais): nutrição + esportes de cardio existentes.
-  const [hasNutrition, setHasNutrition] = useState(false);
-  const [runningSports, setRunningSports] = useState<Set<string>>(new Set());
+  const [calendarWorkout, setCalendarWorkout] = useState<{ workoutId: string; date: string } | null>(null);
   const [preferredCyclePrescriptionCleared, setPreferredCyclePrescriptionCleared] = useState(false);
 
-  const commitLogs = useCallback((updater: (current: Record<string, WorkoutLog>) => Record<string, WorkoutLog>) => {
-    const next = updater(logsRef.current);
-    logsRef.current = next;
-    setLogs(next);
+  const commitDailyLogs = useCallback((updater: (current: Record<string, WorkoutLog>) => Record<string, WorkoutLog>) => {
+    const next = updater(dailyLogsRef.current);
+    dailyLogsRef.current = next;
+    setDailyLogs(next);
     return next;
   }, []);
   
 
   const todayStr = businessDateYmd();
-  const logsBackupKey = studentId ? `sett_logs_${studentId}_${todayStr}` : null;
+  const dailyLogsBackupKey = studentId ? `sett_logs_${studentId}_${todayStr}` : null;
   const awaitingPrescription = !studentIsInactive && !(coverage?.reliable && selectedCycle && coverage.currentWorkoutCycleIds.includes(selectedCycle.id));
   const expiredContinuation = Boolean((selectedCycle?.end_date && selectedCycle.end_date < todayStr) || (digitalContinuation?.enrollmentEndDate && digitalContinuation.enrollmentEndDate < todayStr));
   const prescriptionPolicy = useStudentPrescriptionPolicy(
@@ -347,7 +349,168 @@ export default function StudentPortal() {
     .sort((a, b) => b.end_date.localeCompare(a.end_date))[0];
 
 
-  const session = useWorkoutSession(studentId, companyId);
+  const portalReady = loadedUserScope === userScope && !loadError && Boolean(studentId && companyId)
+    && (!authCompanyId || authCompanyId === companyId) && !studentIsInactive;
+  const sectionScope = [userScope, studentId, companyId, todayStr] as const;
+  const isVisibleToday = (row: { start_date: string | null; end_date: string | null }) =>
+    (!row.start_date || row.start_date <= todayStr) && (!row.end_date || row.end_date >= todayStr);
+  const nutritionAvailability = useQuery({
+    queryKey: ["student-portal-nutrition", ...sectionScope],
+    enabled: portalReady,
+    retry: false,
+    queryFn: async () => {
+      const [plans, anamnese] = await Promise.allSettled([
+        supabase.from("nutrition_plans").select("id, start_date, end_date").eq("student_id", studentId!),
+        supabase.from("student_anamneses").select("wants_nutrition, has_nutritionist").eq("student_id", studentId!).maybeSingle(),
+      ]);
+      if (plans.status === "fulfilled" && !plans.value.error && plans.value.data?.some(isVisibleToday)) return true;
+      if (anamnese.status === "fulfilled" && !anamnese.value.error && anamnese.value.data?.wants_nutrition && anamnese.value.data?.has_nutritionist) return true;
+      if (plans.status === "rejected" || plans.value.error || anamnese.status === "rejected" || anamnese.value.error) {
+        throw new Error("Disponibilidade do Nutri não confirmada");
+      }
+      return false;
+    },
+  });
+  const cardioAvailability = useQuery({
+    queryKey: ["student-portal-cardio", ...sectionScope],
+    enabled: portalReady && !preferredCyclePrescriptionCleared,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("running_plans").select("sport, start_date, end_date").eq("student_id", studentId!);
+      if (error) throw error;
+      return new Set((data ?? []).filter(isVisibleToday).map(row => String(row.sport).toLowerCase()));
+    },
+  });
+  const goalQuery = useQuery({
+    queryKey: ["student-portal-goals", ...sectionScope],
+    enabled: portalReady && activeView === "calendario",
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("student_goals")
+        .select("id, target_date, title, kind, status, description, metric")
+        .eq("student_id", studentId!).order("target_date");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const feedbackHistory = useQuery({
+    queryKey: ["student-portal-feedback", ...sectionScope],
+    enabled: portalReady && activeView === "calendario",
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("workout_feedback")
+        .select("id, workout_session_id, notes, trainer_reply, trainer_replied_at, trainer_reply_author_name")
+        .eq("student_id", studentId!).order("created_at", { ascending: false }).limit(50);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const mediaIds = useMemo(() => [...new Set(cycles.flatMap(cycle =>
+    cycle.workouts.flatMap(workout => workout.exercises.map(exercise => exercise.exercise_id).filter(Boolean))
+  ))].sort(), [cycles]);
+  const exerciseMedia = useQuery({
+    queryKey: ["student-portal-media", ...sectionScope, mediaIds],
+    enabled: portalReady && activeView === "treino" && mediaIds.length > 0,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("exercise_library")
+        .select("id, video_url, video_path, youtube_video_id, thumbnail_url").in("id", mediaIds);
+      if (error) throw error;
+      return new Map((data ?? []).map(row => [row.id, row]));
+    },
+  });
+  const calendarSelection = calendarWorkout && resolveActiveWorkoutInCycles(cycles, calendarWorkout.workoutId);
+  const historicalWorkout = useQuery({
+    queryKey: ["student-portal-calendar-workout", ...sectionScope, calendarWorkout?.workoutId],
+    enabled: portalReady && activeView === "calendario" && Boolean(calendarWorkout)
+      && calendarSelection?.kind !== "resolved",
+    retry: false,
+    queryFn: async () => {
+      const { prescriptions } = await loadPublishedPrescriptions(supabase, {
+        userId: user!.id, studentId: studentId!, companyId: companyId!, today: todayStr,
+      }, 0, undefined, calendarWorkout!.workoutId);
+      for (const cycle of prescriptions) {
+        const workout = cycle.workouts.find(item => item.id === calendarWorkout!.workoutId);
+        if (workout) return { cycle, workout };
+      }
+      return null;
+    },
+  });
+  const session = useWorkoutSession(studentId, companyId, { discoverRemote: portalReady });
+  const activeSessionDate = session.activeSession?.sessionDate ?? todayStr;
+  const isPriorDaySession = activeSessionDate !== todayStr;
+  const activeSessionId = session.activeSession?.id;
+  const activeSessionWorkoutId = session.activeSession?.workoutId;
+  const sessionStartedAt = session.activeSession?.startedAt ?? 0;
+  const sessionStartedOn = new Date(sessionStartedAt);
+  const sessionDateUnverified = Boolean(activeSessionId && !session.activeSession?.sessionDate
+    && (!Number.isFinite(sessionStartedOn.getTime()) || businessDateYmd(sessionStartedOn) !== todayStr));
+  const sessionAlreadyCompleted = Boolean(isPriorDaySession && activeSessionWorkoutId && workoutSessions.some(row =>
+    row.id !== activeSessionId && row.workout_id === activeSessionWorkoutId && row.session_date === activeSessionDate
+    && row.status === "completed" && Date.parse(row.completed_at ?? "") > sessionStartedAt));
+  const sessionNeedsReview = sessionAlreadyCompleted || sessionDateUnverified;
+  const needsSessionLogRead = Boolean(portalReady && activeSessionId && (session.isRemoteSession || isPriorDaySession)
+    && !sessionNeedsReview);
+  const sessionLogScope = needsSessionLogRead ? `${userScope}:${activeSessionId}:${activeSessionDate}` : null;
+  const [hydratedSessionLogScope, setHydratedSessionLogScope] = useState<string | null>(null);
+  const resumedLogQuery = useQuery({
+    queryKey: ["student-portal-resumed-logs", ...sectionScope, activeSessionId, activeSessionDate],
+    enabled: needsSessionLogRead,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("workout_logs").select(WORKOUT_LOG_COLUMNS)
+        .eq("student_id", studentId!).eq("workout_id", activeSessionWorkoutId!).eq("session_date", activeSessionDate);
+      if (error || (data ?? []).some(row => row.workout_id !== activeSessionWorkoutId || row.session_date !== activeSessionDate)) {
+        throw new Error("Séries da sessão não confirmadas");
+      }
+      return data ?? [];
+    },
+  });
+  const priorBackupKey = studentId && isPriorDaySession && activeSessionId
+    ? `sett_resumed_logs_${studentId}_${activeSessionId}_${activeSessionDate}` : null;
+  const logsBackupKey = priorBackupKey ?? dailyLogsBackupKey;
+  const logs = isPriorDaySession ? priorSessionLogs : dailyLogs;
+  const logsRef = isPriorDaySession ? priorSessionLogsRef : dailyLogsRef;
+  const commitPriorSessionLogs = useCallback((updater: (current: Record<string, WorkoutLog>) => Record<string, WorkoutLog>) => {
+    const next = updater(priorSessionLogsRef.current);
+    priorSessionLogsRef.current = next;
+    setPriorSessionLogs(next);
+    return next;
+  }, []);
+  const commitLogs = isPriorDaySession ? commitPriorSessionLogs : commitDailyLogs;
+  const waitingForSessionLogs = Boolean(sessionLogScope && hydratedSessionLogScope !== sessionLogScope);
+  const activeSessionWriteBlocked = sessionNeedsReview || waitingForSessionLogs;
+  const currentSessionLogScope = useRef("");
+  const writeScope = `${userScope}:${studentId ?? ""}:${activeSessionId ?? ""}:${activeSessionDate}`;
+  currentSessionLogScope.current = writeScope;
+  useEffect(() => {
+    if (!sessionLogScope || !resumedLogQuery.data) return;
+    const serverLogs = Object.fromEntries(resumedLogQuery.data.map(row => [
+      `${row.workout_id}-${row.exercise_index}-${row.set_number}`, row,
+    ]));
+    const belongsToSession = (log: WorkoutLog) => log.workout_id === activeSessionWorkoutId
+      && (!log.session_date || log.session_date === activeSessionDate);
+    if (priorBackupKey) {
+      let draft: Record<string, WorkoutLog> = {};
+      try {
+        const priorDayKey = `sett_logs_${studentId}_${activeSessionDate}`;
+        const raw = localStorage.getItem(priorBackupKey) ?? localStorage.getItem(priorDayKey);
+        if (raw) draft = Object.fromEntries(Object.entries(JSON.parse(raw) as Record<string, WorkoutLog>)
+          .filter(([, log]) => belongsToSession(log)));
+      } catch { /* An unreadable local backup cannot replace server data. */ }
+      commitPriorSessionLogs(() => mergeWorkoutDraftLogs(serverLogs, draft));
+    } else {
+      commitDailyLogs(current => {
+        const entries = Object.entries(current);
+        const other = Object.fromEntries(entries.filter(([, log]) => !belongsToSession(log)));
+        const draft = Object.fromEntries(entries.filter(([, log]) => belongsToSession(log)));
+        return { ...other, ...mergeWorkoutDraftLogs(serverLogs, draft) };
+      });
+    }
+    setHydratedSessionLogScope(sessionLogScope);
+  }, [sessionLogScope, resumedLogQuery.data, activeSessionWorkoutId, activeSessionDate, priorBackupKey,
+    studentId, commitDailyLogs, commitPriorSessionLogs]);
+
   const activeWorkoutResolution = useMemo(
     () => resolveActiveWorkoutInCycles(cycles, session.activeSession?.workoutId ?? null),
     [cycles, session.activeSession?.workoutId],
@@ -359,8 +522,9 @@ export default function StudentPortal() {
     : activeWorkoutResolution.kind === "resolved"
       ? activeWorkoutResolution.workout
       : selectedCycle?.workouts.find(w => w.id === selectedWorkoutId) || selectedCycle?.workouts[0] || null;
+  const workoutDate = useMemo(() => isPriorDaySession ? parseISO(activeSessionDate) : undefined, [activeSessionDate, isPriorDaySession]);
   const currentCycleWeek = selectedWorkoutCycle
-    ? currentWeekIndex(selectedWorkoutCycle.start_date, selectedWorkoutCycle.duration_weeks || 6) + 1
+    ? currentWeekIndex(selectedWorkoutCycle.start_date, selectedWorkoutCycle.duration_weeks || 6, workoutDate) + 1
     : 1;
   const effectiveWeekStart = selectedWeekStart && selectedWeekStart <= (selectedWorkoutCycle?.duration_weeks || 6)
     ? selectedWeekStart
@@ -371,17 +535,28 @@ export default function StudentPortal() {
       selectedWorkoutBase,
       selectedWorkoutCycle?.start_date,
       selectedWorkoutCycle?.duration_weeks,
-      undefined,
+      workoutDate,
       selectedWeek,
     ),
-    [selectedWorkoutBase, selectedWorkoutCycle?.start_date, selectedWorkoutCycle?.duration_weeks, selectedWeek],
+    [selectedWorkoutBase, selectedWorkoutCycle?.start_date, selectedWorkoutCycle?.duration_weeks, workoutDate, selectedWeek],
   );
+  const comparisonLogs = useMemo(() => {
+    if (!isPriorDaySession) return previousLogs;
+    const beforeSession: Record<string, WorkoutLog> = {};
+    for (const log of allLogs) {
+      if (!log.session_date || log.session_date >= activeSessionDate) continue;
+      const key = `${log.workout_id}-${log.exercise_index}-${log.set_number}`;
+      if ((beforeSession[key]?.session_date ?? "") < log.session_date) beforeSession[key] = log;
+    }
+    return beforeSession;
+  }, [isPriorDaySession, previousLogs, allLogs, activeSessionDate]);
   const hasWeeklyPrescriptions = hasIndividualWeeklyPrescription(selectedWorkoutBase?.exercises);
 
+  const displayedWorkoutCycleId = selectedWorkoutCycle?.id;
   useEffect(() => {
-    if (!selectedCycle) return;
+    if (!displayedWorkoutCycleId) return;
     setSelectedWeekStart(null);
-  }, [selectedCycle?.id]);
+  }, [displayedWorkoutCycleId, isPriorDaySession]);
   const startBlockedReason = hasUnresolvedActiveSession
     ? STALE_ACTIVE_SESSION_MESSAGE
     : session.activeSession?.workoutId && selectedWorkout && session.activeSession.workoutId !== selectedWorkout.id
@@ -416,18 +591,19 @@ export default function StudentPortal() {
       if (target.source === "active_session") {
         setSelectedWorkoutId(null);
         setExpandedExercise(null);
-        setActiveView("treino");
+        if (!session.isRemoteSession) setActiveView("treino");
       }
       return;
     }
-    setSelectedCycle(cycle);
+    if (target.source === "draft" && cycle.id !== selectedCycle?.id) return;
     setSelectedWorkoutId(target.workoutId);
     setExpandedExercise(target.expandedExercise);
     extraSetsWorkoutRef.current = target.workoutId;
     extraSetsByWorkoutRef.current[target.workoutId] = target.extraSets;
     setExtraSets(target.extraSets);
-    setActiveView("treino");
-  }, [cycles, loading, session.activeSession?.workoutId, session.isHydrated, workoutUiDraftStorageKey]);
+    if (!session.isRemoteSession) setActiveView("treino");
+  }, [cycles, loading, selectedCycle?.id, session.activeSession?.workoutId, session.isHydrated,
+    session.isRemoteSession, workoutUiDraftStorageKey]);
 
   useEffect(() => {
     if (!session.isHydrated || workoutUiRestoredKeyRef.current !== workoutUiDraftStorageKey) return;
@@ -447,8 +623,8 @@ export default function StudentPortal() {
     selectedWorkout,
     persistedLogs: allLogs,
     draftLogs: logs,
-    draftReady: !!logsBackupKey && logsRestoredKey === logsBackupKey,
-    todayStr,
+    draftReady: isPriorDaySession ? !waitingForSessionLogs : !!dailyLogsBackupKey && logsRestoredKey === dailyLogsBackupKey,
+    todayStr: activeSessionDate,
     setExtraSets,
     extraSetsWorkoutRef,
     extraSetsByWorkoutRef,
@@ -490,9 +666,9 @@ export default function StudentPortal() {
       setStudentId(null); setCompanyId(null); setStudentName("");
       setCycles([]); setSelectedCycle(null); setSelectedWorkoutId(null);
       setEnrollmentInfo(null); setActiveEnrollmentId(null);
-      setAllLogs([]); setWorkoutSessions([]); setWorkoutFeedbacks([]); setStudentGoals([]);
-      setHasNutrition(false); setRunningSports(new Set());
-      commitLogs(() => ({})); setPreviousLogs({});
+      setAllLogs([]); setWorkoutSessions([]); setWorkoutFeedbacks([]); setCalendarWorkout(null);
+      commitDailyLogs(() => ({})); commitPriorSessionLogs(() => ({}));
+      setHydratedSessionLogScope(null); setPreviousLogs({});
       setExtraSets({}); extraSetsWorkoutRef.current = null; extraSetsByWorkoutRef.current = {};
       setActiveView("home");
     }
@@ -539,22 +715,6 @@ export default function StudentPortal() {
       recordLoadPerformance("content_ready");
       return;
     }
-
-    // Detecta quais prescrições existem para mostrar as abas condicionais (nutrição/corrida/natação/ciclismo).
-    // RLS já permite o aluno ler nutrition_plans e running_plans próprios.
-    {
-      const [{ data: nutritionRows }, { data: runs }, { data: anamnese }] = await Promise.all([
-        read((supabase as any).from("nutrition_plans").select("id, start_date, end_date").eq("student_id", student.id)),
-        read((supabase as any).from("running_plans").select("sport, start_date, end_date").eq("student_id", student.id)),
-        read((supabase as any).from("student_anamneses").select("wants_nutrition, has_nutritionist").eq("student_id", student.id).maybeSingle()),
-      ]);
-      const isVisibleToday = (row: any) => (!row.start_date || row.start_date <= todayStr) && (!row.end_date || row.end_date >= todayStr);
-      setHasNutrition((nutritionRows ?? []).some(isVisibleToday) || (!!(anamnese as any)?.wants_nutrition && !!(anamnese as any)?.has_nutritionist));
-      const sports = new Set<string>();
-      (runs ?? []).filter(isVisibleToday).forEach((r: any) => { if (r.sport) sports.add(String(r.sport).toLowerCase()); });
-      setRunningSports(sports);
-    }
-
 
     const { data: enrollmentRows } = await read(supabase
       .from("enrollments")
@@ -698,25 +858,6 @@ export default function StudentPortal() {
         const schedulableCycleIds = new Set(schedulableCycles.map((cycle) => cycle.id));
         const materializedWorkouts = allMaterializedWorkouts.filter((workout) => schedulableCycleIds.has(workout.cycle_id));
 
-        const exerciseIds = new Set<string>();
-        materializedWorkouts.forEach(w => {
-          const exs = (w.exercises as unknown as WorkoutExercise[]) || [];
-          exs.forEach(ex => { if (ex.exercise_id) exerciseIds.add(ex.exercise_id); });
-        });
-
-        const videoMap: Record<string, { video_url: string | null; video_path: string | null; youtube_video_id: string | null; thumbnail_url: string | null }> = {};
-        if (exerciseIds.size > 0) {
-          const { data: libraryData } = await read((supabase as any)
-            .from("exercise_library")
-            .select("id, video_url, video_path, youtube_video_id, thumbnail_url")
-            .in("id", Array.from(exerciseIds)));
-          if (libraryData) {
-            libraryData.forEach((lib: any) => {
-              videoMap[lib.id] = { video_url: lib.video_url, video_path: lib.video_path, youtube_video_id: lib.youtube_video_id ?? null, thumbnail_url: lib.thumbnail_url ?? null };
-            });
-          }
-        }
-
         const enriched: Cycle[] = schedulableCycles.map(c => {
           const isFutureCycle = Boolean(c.start_date && c.start_date > businessDateYmd());
           const cycleWorkouts = c.prescription_cleared_at || isFutureCycle
@@ -729,13 +870,7 @@ export default function StudentPortal() {
                 description: w.description,
                 day_of_week: (w as any).day_of_week as number | null,
                 sort_order: (w as any).sort_order as number | null,
-                exercises: ((w.exercises as unknown as WorkoutExercise[]) || []).map(ex => ({
-                  ...ex,
-                  video_url: (ex.video_url && ex.video_url.trim()) || videoMap[ex.exercise_id]?.video_url || null,
-                  video_path: (ex.video_path && ex.video_path.trim()) || videoMap[ex.exercise_id]?.video_path || null,
-                  youtube_video_id: (ex as any).youtube_video_id || videoMap[ex.exercise_id]?.youtube_video_id || null,
-                  thumbnail_url: (ex as any).thumbnail_url || videoMap[ex.exercise_id]?.thumbnail_url || null,
-                })),
+                exercises: (w.exercises as unknown as WorkoutExercise[]) || [],
               })))
               .map((workout) => resolveWorkoutForCycleWeek(
                 workout,
@@ -772,27 +907,11 @@ export default function StudentPortal() {
 
       }
     }
-    const [
-      { logs: logsData, sessions: sessionsData },
-      { data: feedbackData },
-      { data: goalsData },
-    ] = await Promise.all([
-      loadStudentTrainingHistory(supabase, student.id, student.company_id ? { companyId: student.company_id } : undefined),
-      read(supabase
-        .from("workout_feedback")
-        .select("id, workout_session_id, notes, trainer_reply, trainer_replied_at, trainer_reply_author_name")
-        .eq("student_id", student.id)
-        .order("created_at", { ascending: false })
-        .limit(50)),
-      read((supabase as any).from("student_goals")
-        .select("id, target_date, title, kind, status, description, metric")
-        .eq("student_id", student.id).order("target_date")),
-    ]);
+    const { logs: logsData, sessions: sessionsData } = await loadStudentTrainingHistory(
+      supabase, student.id, student.company_id ? { companyId: student.company_id } : undefined,
+    );
     if (isStale()) return;
-    setStudentGoals(goalsData || []);
-
     setWorkoutSessions(sessionsData);
-    setWorkoutFeedbacks(feedbackData || []);
     setAllLogs(logsData);
     const todayLogMap: Record<string, WorkoutLog> = {};
     const prevLogMap: Record<string, WorkoutLog> = {};
@@ -813,7 +932,7 @@ export default function StudentPortal() {
     });
 
     // Keep pending local changes when reloading server revisions.
-    commitLogs((current) => mergeWorkoutDraftLogs(todayLogMap, current));
+    commitDailyLogs((current) => mergeWorkoutDraftLogs(todayLogMap, current));
     setPreviousLogs(prevLogMap);
     setContentLoading(false);
     recordLoadPerformance("content_ready");
@@ -834,10 +953,10 @@ export default function StudentPortal() {
     `${workoutId}-${exIdx}-${setNum}`;
 
   const updateLog = (exIdx: number, setNum: number, field: string, value: number | string | boolean) => {
-    if (!selectedWorkout) return;
+    if (!selectedWorkout || activeSessionWriteBlocked) return;
     const workoutId = selectedWorkout.id;
     const key = getLogKey(workoutId, exIdx, setNum);
-    const editDate = businessDateYmd();
+    const editDate = activeSessionDate;
     commitLogs(prev => {
       const current = workoutLogForDate(prev[key] || {} as WorkoutLog, editDate);
       const next = {
@@ -859,8 +978,8 @@ export default function StudentPortal() {
       };
       // iOS pode suspender a PWA antes de React executar um effect ou pagehide.
       // Grave cada edição imediatamente; o autosave remoto continua em paralelo.
-      if (studentId) {
-        try { localStorage.setItem(`sett_logs_${studentId}_${editDate}`, JSON.stringify(next)); } catch { /* quota/private mode */ }
+      if (logsBackupKey) {
+        try { localStorage.setItem(logsBackupKey, JSON.stringify(next)); } catch { /* quota/private mode */ }
       }
       return next;
     });
@@ -911,16 +1030,17 @@ export default function StudentPortal() {
   };
 
   const saveCurrentLogs = async (opts?: { silent?: boolean; notifyConflict?: boolean }) => {
-    if (!selectedWorkout || !studentId) return { ok: false, reason: "not_ready" } as const;
+    if (!selectedWorkout || !studentId || activeSessionWriteBlocked) return { ok: false, reason: "not_ready" } as const;
     const silent = opts?.silent === true;
     if (!silent) setSavingLogs(true);
     const workoutId = selectedWorkout.id;
     const requestedStudentId = studentId;
-    const requestedDate = businessDateYmd();
+    const requestedDate = activeSessionDate;
     const requestedExercises = selectedWorkout.exercises;
 
     return workoutLogSaveQueueRef.current.run(async (): Promise<WorkoutLogSaveResult> => {
     try {
+    if (currentSessionLogScope.current !== writeScope) return { ok: false, reason: "not_ready" };
     if (silent && Object.values(logsRef.current).some(log => isWorkoutLogAwaitingConfirmation(log, workoutId, requestedDate))) {
       return { ok: false, reason: "conflict" };
     }
@@ -971,6 +1091,7 @@ export default function StudentPortal() {
           return { data: response.data, error: response.error };
         },
       });
+      if (currentSessionLogScope.current !== writeScope) return { ok: false, reason: "not_ready" };
       if (persistence.reason === "rpc_error") {
         hadError = true;
         failureReason = "rpc_error";
@@ -993,7 +1114,7 @@ export default function StudentPortal() {
           // acabou de perder o CAS para uma edição mais nova de outro aparelho.
           const recovered = commitLogs(prev => discardConflictedWorkoutLogDeletions(prev, logsToSave, conflictRows));
           try {
-            localStorage.setItem(`sett_logs_${requestedStudentId}_${requestedDate}`, JSON.stringify(recovered));
+            if (logsBackupKey) localStorage.setItem(logsBackupKey, JSON.stringify(recovered));
           } catch { /* quota/private mode */ }
           await loadStudentData();
         } else {
@@ -1044,23 +1165,23 @@ export default function StudentPortal() {
   // Backup local a cada mudança. Espera o restore deste aluno/dia para não
   // sobrescrever um rascunho offline com a versão antiga recém-lida do banco.
   useEffect(() => {
-    if (logsRestoredKeyRef.current !== logsBackupKey) return;
+    if (isPriorDaySession ? waitingForSessionLogs : logsRestoredKeyRef.current !== dailyLogsBackupKey) return;
     if (!logsBackupKey || Object.keys(logs).length === 0) return;
     try { localStorage.setItem(logsBackupKey, JSON.stringify(logs)); } catch { /* quota */ }
-  }, [logs, logsBackupKey]);
+  }, [logs, logsBackupKey, dailyLogsBackupKey, isPriorDaySession, waitingForSessionLogs]);
 
   // Restaura, uma vez após o load, entradas locais que o banco não trouxe (edições offline).
   useEffect(() => {
-    if (loading || !logsBackupKey || logsRestoredKeyRef.current === logsBackupKey) return;
-    logsRestoredKeyRef.current = logsBackupKey;
+    if (loading || !dailyLogsBackupKey || logsRestoredKeyRef.current === dailyLogsBackupKey) return;
+    logsRestoredKeyRef.current = dailyLogsBackupKey;
     try {
-      const raw = localStorage.getItem(logsBackupKey);
+      const raw = localStorage.getItem(dailyLogsBackupKey);
       if (!raw) return;
       const local = JSON.parse(raw) as Record<string, WorkoutLog>;
-      commitLogs(prev => mergeWorkoutDraftLogs(prev, local));
+      commitDailyLogs(prev => mergeWorkoutDraftLogs(prev, local));
     } catch { /* ignore */ }
-    finally { setLogsRestoredKey(logsBackupKey); }
-  }, [commitLogs, loading, logsBackupKey]);
+    finally { setLogsRestoredKey(dailyLogsBackupKey); }
+  }, [commitDailyLogs, loading, dailyLogsBackupKey]);
 
   // Autosave com debounce (silencioso) — o atleta não depende mais de lembrar de salvar.
   useEffect(() => {
@@ -1130,7 +1251,7 @@ export default function StudentPortal() {
   const getWorkoutLabel = (index: number) => String.fromCharCode(65 + index);
 
   const handleStartSession = async () => {
-    if (!selectedWorkout) return;
+    if (!selectedWorkout || session.isActive) return;
     if (workoutUnavailable) {
       toast({ title: "Aguardando prescrição", description: "Não há treino publicado para o período atual. Fale com sua equipe.", variant: "destructive" });
       return;
@@ -1151,6 +1272,10 @@ export default function StudentPortal() {
       });
       return;
     }
+    if (result?.ok === false && result.reason === "conflict") {
+      toast({ title: "Não foi possível abrir outra sessão", description: "Se houver um treino em andamento, retome a sessão nesta tela.", variant: "destructive" });
+      return;
+    }
     if (result?.ok !== true) {
       toast({ title: "Não foi possível iniciar o treino", description: "O início não foi confirmado. Tente novamente.", variant: "destructive" });
       return;
@@ -1160,7 +1285,7 @@ export default function StudentPortal() {
   };
 
   const handleFinishSession = async () => {
-    if (!selectedWorkout || finishingWorkoutRef.current) return;
+    if (!selectedWorkout || finishingWorkoutRef.current || activeSessionWriteBlocked) return;
     finishingWorkoutRef.current = true;
     setFinishingWorkout(true);
 
@@ -1169,7 +1294,7 @@ export default function StudentPortal() {
     const previousBestWeights: Record<string, number> = {};
     const unknownPreviousExercises = new Set<number>();
     selectedWorkout.exercises.forEach((ex, idx) => {
-      const exLogs = allLogs.filter((l: any) => l.workout_id === selectedWorkout.id && l.exercise_index === idx && l.session_date !== todayStr);
+      const exLogs = allLogs.filter((l: any) => l.workout_id === selectedWorkout.id && l.exercise_index === idx && l.session_date < activeSessionDate);
       const maxW = exLogs.filter((log: any) => log.completed === true)
         .reduce((max: number, log: any) => {
           const weight = Number(log.weight);
@@ -1185,7 +1310,7 @@ export default function StudentPortal() {
       saveCurrentLogs: () => saveCurrentLogs({ silent: true, notifyConflict: false }),
       finishSession: () => session.finishSession(logsRef.current, selectedWorkout.exercises, previousBestWeights, unknownPreviousExercises),
       onCompleted: (finishedSession) => {
-        setWorkoutSessions((current) => upsertCompletedWorkoutSession(current, finishedSession, todayStr));
+        setWorkoutSessions((current) => upsertCompletedWorkoutSession(current, finishedSession, activeSessionDate));
       },
     });
     if (completion.status === "save_failed") {
@@ -1283,6 +1408,7 @@ export default function StudentPortal() {
 
 
   const handleAbandonSession = async () => {
+    if (sessionNeedsReview) return;
     const operationScope = userScope;
     const result = await session.abandonSession();
     if (currentUserScope.current !== operationScope) return;
@@ -1294,7 +1420,7 @@ export default function StudentPortal() {
   };
 
   const getExerciseHistory = (workoutId: string, idx: number) => {
-    const exLogs = allLogs.filter((l: any) => l.workout_id === workoutId && l.exercise_index === idx && l.session_date !== todayStr);
+    const exLogs = allLogs.filter((l: any) => l.workout_id === workoutId && l.exercise_index === idx && l.session_date < activeSessionDate);
     const byDate: Record<string, { weight: number; reps_done: number; set_number: number }[]> = {};
     exLogs.forEach((l: any) => {
       if (!byDate[l.session_date]) byDate[l.session_date] = [];
@@ -1331,7 +1457,7 @@ export default function StudentPortal() {
   }, [selectedWorkout, expandedExercise, selectedCycle, logs]);
 
   // Computed values for Home — based on actual sessions, not day_of_week
-  const displayLogs = useMemo(() => mergeTrainingLogsForDisplay(allLogs, Object.values(logs), todayStr), [allLogs, logs, todayStr]);
+  const displayLogs = useMemo(() => mergeTrainingLogsForDisplay(allLogs, Object.values(dailyLogs), todayStr), [allLogs, dailyLogs, todayStr]);
   const trainedDays = useMemo(() => collectTrainedDaysForWeek({
     now: new Date(`${todayStr}T12:00:00`),
     persistedLogs: displayLogs,
@@ -1362,16 +1488,25 @@ export default function StudentPortal() {
       setActiveView("home");
       return;
     }
-    if (view === "treino" && workoutId) {
+    if (view === "treino" && workoutId && !session.isActive) {
       setSelectedWorkoutId(workoutId);
       setExpandedExercise(null);
     }
     setActiveView(view);
   };
 
-  const handleCalendarSelectWorkout = (workoutId: string) => {
-    setSelectedWorkoutId(workoutId);
-    setActiveView("treino");
+  const calendarDetail = calendarSelection?.kind === "resolved" ? calendarSelection : historicalWorkout.data;
+  const handleCalendarSelectWorkout = (workoutId: string, historyDate?: string) => {
+    if (studentIsInactive) return;
+    if (historyDate) {
+      setCalendarWorkout({ workoutId, date: historyDate });
+      return;
+    }
+    if (!workoutUnavailable && !activeSessionWriteBlocked
+      && (!session.isActive || activeSessionWorkoutId === workoutId)
+      && selectedWorkoutCycle?.workouts.some(workout => workout.id === workoutId)) {
+      handleNavigate("treino", workoutId);
+    }
   };
 
   if (loading || loadedUserScope !== userScope) {
@@ -1423,14 +1558,15 @@ export default function StudentPortal() {
         {lastPublishedCycle && <p className="text-sm text-muted-foreground">Último treino publicado: ciclo {lastPublishedCycle.cycle_number}, válido até {format(parseISO(lastPublishedCycle.end_date), "dd/MM/yyyy")}.</p>}
         {prescriptionHistory}
         <Button variant="outline" onClick={() => setActiveView("calendario")}>Ver calendário e sessões</Button>
-        {canFinalizeHiddenSession && <Button variant="outline" disabled={finishingWorkout} onClick={handleFinishSession}>Finalizar sessão em andamento</Button>}
-        {session.isActive && <Button variant="outline" onClick={handleAbandonSession}>Encerrar sessão ativa</Button>}
+        {canFinalizeHiddenSession && !activeSessionWriteBlocked && <Button variant="outline" disabled={finishingWorkout} onClick={handleFinishSession}>Finalizar sessão em andamento</Button>}
+        {session.isActive && !sessionNeedsReview && <Button variant="outline" onClick={handleAbandonSession}>Encerrar sessão ativa</Button>}
       </CardContent>
     </Card>
   );
 
 
   // Modalidades de cardio disponíveis (running_plans.sport). Corrida engloba triathlon.
+  const runningSports = cardioAvailability.data ?? new Set<string>();
   const hasCorrida = !preferredCyclePrescriptionCleared && (runningSports.has("corrida") || runningSports.has("triathlon"));
   const hasNatacao = !preferredCyclePrescriptionCleared && (runningSports.has("natacao") || runningSports.has("natação"));
   const hasCiclismo = !preferredCyclePrescriptionCleared && runningSports.has("ciclismo");
@@ -1463,6 +1599,36 @@ export default function StudentPortal() {
       </CardContent>
     </Card>
   );
+
+  const sectionError = (message: string, retry: () => unknown) => (
+    <Card className="border-border bg-card">
+      <CardContent className="flex flex-wrap items-center gap-3 p-4" role="alert">
+        <p className="text-sm">{message}</p>
+        <Button variant="outline" size="sm" onClick={() => void retry()}>Tentar novamente</Button>
+      </CardContent>
+    </Card>
+  );
+  const sessionReview = sessionNeedsReview ? (
+    <Card className="border-amber-300 bg-card">
+      <CardContent className="space-y-2 p-5" role="status">
+        <h2 className="font-semibold">Sessão antiga em revisão</h2>
+        <p className="text-sm">{sessionAlreadyCompleted
+          ? "Já existe uma conclusão para a mesma ficha e data."
+          : "A data original desta sessão não pôde ser confirmada."} Fale com sua equipe para revisar a sessão aberta e preservar as séries registradas.</p>
+      </CardContent>
+    </Card>
+  ) : waitingForSessionLogs ? (
+    resumedLogQuery.isError
+      ? sectionError("Não foi possível carregar as séries do treino em andamento.", resumedLogQuery.refetch)
+      : <p role="status" className="p-4 text-sm text-muted-foreground">Recuperando as séries do treino em andamento…</p>
+  ) : null;
+  const modalityContent = (query: typeof nutritionAvailability | typeof cardioAvailability, content: React.ReactNode) => {
+    if (query.isError) return sectionError("Não foi possível carregar esta área.", query.refetch);
+    if (query.isPending) return <p role="status" className="p-4 text-sm text-muted-foreground">Carregando esta área…</p>;
+    return content;
+  };
+  const cardioContent = (content: React.ReactNode) =>
+    preferredCyclePrescriptionCleared ? content : modalityContent(cardioAvailability, content);
 
   return (
     <AthleticClubProvider companyId={companyId}>
@@ -1540,13 +1706,16 @@ export default function StudentPortal() {
           ) : (
           <>
           {awaitingDigitalPrescription && pendingPrescriptionNotice}
+          {session.isActive && (workoutUnavailable || !selectedCycle) && !studentIsInactive && (
+            <Button onClick={() => handleNavigate("treino")}>Ver sessão em andamento</Button>
+          )}
           <StudentHome
             nameBadge={<AthleticClubStar studentId={studentId} />}
             studentName={studentName}
             enrollmentInfo={enrollmentInfo}
             overallProgress={getOverallProgress()}
-            selectedCycle={studentIsInactive || workoutUnavailable ? null : selectedCycle}
-            cycleProgress={selectedCycle ? getCycleProgress(selectedCycle) : 0}
+            selectedCycle={studentIsInactive || workoutUnavailable ? null : selectedWorkoutCycle}
+            cycleProgress={selectedWorkoutCycle ? getCycleProgress(selectedWorkoutCycle) : 0}
             weeklySessionCount={weeklySessionCount}
             trainedDays={trainedDays}
             currentDayOfWeek={new Date().getDay()}
@@ -1568,10 +1737,10 @@ export default function StudentPortal() {
         )}
 
         {/* A barra é fixa. A disponibilidade continua seguindo a prescrição do aluno. */}
-        {!studentIsInactive && activeView === "nutricao" && (hasNutrition ? <NutritionPlanView studentId={studentId} /> : emptyModality("Nenhuma dica nutricional publicada"))}
-        {!studentIsInactive && activeView === "corrida" && (hasCorrida ? <CardioPlanView studentId={studentId} sport="corrida" /> : emptyModality("Nenhum plano de corrida publicado"))}
-        {!studentIsInactive && activeView === "natacao" && (hasNatacao ? <CardioPlanView studentId={studentId} sport="natacao" /> : emptyModality("Nenhum plano de natação publicado"))}
-        {!studentIsInactive && activeView === "ciclismo" && (hasCiclismo ? <CardioPlanView studentId={studentId} sport="ciclismo" /> : emptyModality("Nenhum plano de ciclismo publicado"))}
+        {!studentIsInactive && activeView === "nutricao" && modalityContent(nutritionAvailability, nutritionAvailability.data ? <NutritionPlanView studentId={studentId} /> : emptyModality("Nenhuma dica nutricional publicada"))}
+        {!studentIsInactive && activeView === "corrida" && cardioContent(hasCorrida ? <CardioPlanView studentId={studentId} sport="corrida" /> : emptyModality("Nenhum plano de corrida publicado"))}
+        {!studentIsInactive && activeView === "natacao" && cardioContent(hasNatacao ? <CardioPlanView studentId={studentId} sport="natacao" /> : emptyModality("Nenhum plano de natação publicado"))}
+        {!studentIsInactive && activeView === "ciclismo" && cardioContent(hasCiclismo ? <CardioPlanView studentId={studentId} sport="ciclismo" /> : emptyModality("Nenhum plano de ciclismo publicado"))}
         {activeView === "integracoes" && <WearableIntegrations />}
 
 
@@ -1580,15 +1749,17 @@ export default function StudentPortal() {
           <div className="space-y-6">
             {/* (seletor de ciclos removido — o ciclo atual já é mostrado abaixo) */}
             {(!selectedCycle || awaitingDigitalPrescription) && pendingPrescriptionNotice}
-            {selectedCycle && !workoutUnavailable && (
+            {sessionReview}
+            {selectedWorkoutCycle && !workoutUnavailable && !activeSessionWriteBlocked && (
               <div className="space-y-4">
+                {exerciseMedia.isError && sectionError("Não foi possível carregar os vídeos da biblioteca.", exerciseMedia.refetch)}
                 <Card className="bg-card border-border">
                   <CardContent className="p-4 space-y-2">
                     <div className="flex items-center justify-between">
-                      <h2 className="text-xl font-bold tracking-tight text-foreground">Ciclo {selectedCycle.cycle_number}</h2>
-                      {selectedCycle.start_date && selectedCycle.end_date && (
+                      <h2 className="text-xl font-bold tracking-tight text-foreground">Ciclo {selectedWorkoutCycle.cycle_number}</h2>
+                      {selectedWorkoutCycle.start_date && selectedWorkoutCycle.end_date && (
                         <span className="text-xs text-muted-foreground font-sans">
-                          {format(parseISO(selectedCycle.start_date), "dd/MM", { locale: ptBR })} — {format(parseISO(selectedCycle.end_date), "dd/MM", { locale: ptBR })}
+                          {format(parseISO(selectedWorkoutCycle.start_date), "dd/MM", { locale: ptBR })} — {format(parseISO(selectedWorkoutCycle.end_date), "dd/MM", { locale: ptBR })}
                         </span>
                       )}
                     </div>
@@ -1613,12 +1784,12 @@ export default function StudentPortal() {
                   </Card>
                 )}
 
-                {!hasUnresolvedActiveSession && (selectedCycle.workouts.length > 0 ? (
+                {!hasUnresolvedActiveSession && (selectedWorkoutCycle.workouts.length > 0 ? (
                   <div className="space-y-3">
                     {selectedWorkout && hasWeeklyPrescriptions && (
                       <StudentWeekSelector
                         currentWeek={currentCycleWeek}
-                        durationWeeks={selectedCycle.duration_weeks}
+                        durationWeeks={selectedWorkoutCycle.duration_weeks}
                         selectedStartWeek={effectiveWeekStart}
                         hasWeeklyPrescriptions={hasWeeklyPrescriptions}
                         onChange={(week) => { setSelectedWeekStart(week); setExpandedExercise(null); }}
@@ -1626,16 +1797,17 @@ export default function StudentPortal() {
                         compact
                       />
                     )}
-                    {selectedCycle.workouts.length > 1 && (
+                    {selectedWorkoutCycle.workouts.length > 1 && (
                       <div className="flex gap-2 overflow-x-auto pb-1">
-                        {selectedCycle.workouts.map((w, i) => (
+                        {selectedWorkoutCycle.workouts.map((w, i) => (
                           <button
                             key={w.id}
                             type="button"
-                            aria-pressed={selectedWorkoutId === w.id}
+                            aria-pressed={selectedWorkout?.id === w.id}
+                            disabled={session.isActive && selectedWorkout?.id !== w.id}
                             onClick={() => { setSelectedWorkoutId(w.id); setExpandedExercise(null); }}
                             className={`student-linen-control min-h-11 flex-1 whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-medium transition-colors ${
-                              selectedWorkoutId === w.id
+                              selectedWorkout?.id === w.id
                                 ? "bg-primary text-primary-foreground"
                                 : "bg-secondary text-muted-foreground hover:bg-secondary/80"
                             }`}
@@ -1698,13 +1870,13 @@ export default function StudentPortal() {
                           const workoutId = selectedWorkout.id;
                           const sessionDates = [...new Set(allLogs.filter(l => l.workout_id === workoutId).map(l => l.session_date))].sort();
                           const sessionCount = sessionDates.length;
-                          const isNewSession = !sessionDates.includes(todayStr);
+                          const isNewSession = !sessionDates.includes(activeSessionDate);
                           const totalSessions = isNewSession ? sessionCount + 1 : sessionCount;
                           return (
                             <div className="flex items-center gap-3 flex-wrap">
                               <Badge variant="outline" className="gap-1.5 text-xs font-sans border-primary/30 text-primary">
                                 <CalendarDays className="h-3 w-3" />
-                                {format(new Date(), "dd/MM/yyyy")}
+                                {format(parseISO(activeSessionDate), "dd/MM/yyyy")}
                               </Badge>
                               {sessionCount > 0 && (
                                 <Badge variant="secondary" className="gap-1.5 text-xs font-sans">
@@ -1722,17 +1894,25 @@ export default function StudentPortal() {
                             const firstGroupedKey = workoutGroups.find((group) => group.grouping)?.key;
                             let methodBlockNumber = 0;
                             return workoutGroups.map((grp) => {
-                            const cards = grp.items.map(({ ex, idx }) => (
-                            <ExerciseCard
+                            const cards = grp.items.map(({ ex, idx }) => {
+                              const media = exerciseMedia.data?.get(ex.exercise_id);
+                              const exercise = media ? {
+                                ...ex,
+                                video_url: ex.video_url?.trim() || media.video_url,
+                                video_path: ex.video_path?.trim() || media.video_path,
+                                youtube_video_id: ex.youtube_video_id || media.youtube_video_id,
+                                thumbnail_url: ex.thumbnail_url || media.thumbnail_url,
+                              } : ex;
+                              return <ExerciseCard
                               key={idx}
-                              exercise={ex}
+                              exercise={exercise}
                               index={idx}
                               workoutId={selectedWorkout.id}
                               isExpanded={expandedExercise === idx}
                               onToggle={() => setExpandedExercise(expandedExercise === idx ? null : idx)}
-                              onVideoPlay={() => openVideoForExercise(ex)}
+                              onVideoPlay={() => openVideoForExercise(exercise)}
                               logs={logs}
-                              previousLogs={previousLogs}
+                              previousLogs={comparisonLogs}
                               onUpdateLog={updateLog}
                               exerciseHistory={getExerciseHistory(selectedWorkout.id, idx)}
                               isSessionActive={isSessionForCurrentWorkout}
@@ -1742,8 +1922,8 @@ export default function StudentPortal() {
                               totalSets={getTotalSets(idx)}
                               onAddSet={handleAddSet}
                               onRemoveSet={handleRemoveSet}
-                            />
-                            ));
+                            />;
+                            });
                             if (grp.grouping) {
                               const meta = WORKOUT_METHODS[grp.method as MethodId];
                               const rounds = parseInt(String(grp.items[0]?.ex.sets ?? "")) || null;
@@ -1792,10 +1972,10 @@ export default function StudentPortal() {
                 ))}
 
                 <PeriodizationBanner
-                  objective={selectedCycle.objective}
-                  durationWeeks={selectedCycle.duration_weeks}
-                  startDate={selectedCycle.start_date}
-                  endDate={selectedCycle.end_date}
+                  objective={selectedWorkoutCycle.objective}
+                  durationWeeks={selectedWorkoutCycle.duration_weeks}
+                  startDate={selectedWorkoutCycle.start_date}
+                  endDate={selectedWorkoutCycle.end_date}
                   prescribedWeek={selectedWorkout?.weekly_context}
                 />
 
@@ -1827,8 +2007,12 @@ export default function StudentPortal() {
         {/* CALENDARIO VIEW */}
         {activeView === "calendario" && studentId && (
           <div className="space-y-6">
+          {goalQuery.isError && sectionError("Não foi possível carregar as metas do calendário.", goalQuery.refetch)}
           <StudentCalendar
+            allowHistoricalLookup={portalReady}
             workouts={cycles.flatMap(c => c.workouts)}
+            availableWorkouts={studentIsInactive || workoutUnavailable || activeSessionWriteBlocked ? []
+              : (selectedWorkoutCycle?.workouts ?? []).filter(workout => !session.isActive || workout.id === activeSessionWorkoutId)}
             trainedDays={trainedDays}
             currentDayOfWeek={new Date().getDay()}
             onSelectWorkout={handleCalendarSelectWorkout}
@@ -1836,13 +2020,31 @@ export default function StudentPortal() {
             cycleStartDate={selectedCycle?.start_date}
             cycleEndDate={selectedCycle?.end_date}
             workoutSessions={workoutSessions}
-            goals={studentGoals}
+            goals={goalQuery.data ?? []}
           />
+          {calendarWorkout && portalReady && (
+            <Dialog open onOpenChange={open => { if (!open) setCalendarWorkout(null); }}>
+              <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>{calendarDetail?.workout.title || "Ficha do treino"}</DialogTitle>
+                  <DialogDescription>
+                    {calendarDetail && `Ciclo ${calendarDetail.cycle.cycle_number} · `}
+                    {format(parseISO(calendarWorkout.date), "dd/MM/yyyy")} · Somente consulta
+                  </DialogDescription>
+                </DialogHeader>
+                {calendarDetail ? <PublishedWorkoutDetails workout={calendarDetail.workout} />
+                  : historicalWorkout.isError ? sectionError("Não foi possível consultar esta ficha.", historicalWorkout.refetch)
+                  : historicalWorkout.isPending ? <p role="status">Carregando a ficha…</p>
+                  : <p>Esta ficha não está mais disponível para consulta.</p>}
+              </DialogContent>
+            </Dialog>
+          )}
+          {feedbackHistory.isError && sectionError("Não foi possível carregar os feedbacks do histórico.", feedbackHistory.refetch)}
           <StudentHistory
             allLogs={displayLogs}
             workouts={cycles.flatMap(c => c.workouts)}
             sessions={workoutSessions}
-            feedbacks={workoutFeedbacks}
+            feedbacks={[...(feedbackHistory.data ?? []), ...workoutFeedbacks.filter(item => !feedbackHistory.data?.some(row => row.id === item.id))]}
           />
           </div>
         )}

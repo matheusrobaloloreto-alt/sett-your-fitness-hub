@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   confirmationFilters: [] as Array<[string,string]>,
   readback: vi.fn(),
   reconciliationRead: vi.fn(),
+  discoveryRead: vi.fn(),
   selectedColumns: null as string | null,
   startRpc: vi.fn().mockResolvedValue({data:{id:'session-1',student_id:'student-1',company_id:'company-1',workout_id:'workout-1',started_at:new Date().toISOString(),status:'in_progress'},error:null}),
   rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
@@ -17,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: () => {
+    from: (table: string) => {
       const updateQuery = {
         eq: (column: string, value: string) => {
           mocks.updateFilters.push([column, value]);
@@ -40,6 +41,14 @@ vi.mock("@/integrations/supabase/client", () => ({
         }),
         update: () => updateQuery,
         select: (columns: string) => {
+          if (columns === "id,student_id,company_id,workout_id,started_at,status,session_date") {
+            const filters: Array<[string, string]> = [];
+            const query = {
+              eq: (column: string, value: string) => { filters.push([column, value]); return query; },
+              limit: async (limit: number) => mocks.discoveryRead({ table, filters, limit }),
+            };
+            return query;
+          }
           if (columns !== "id,status") return confirmationQuery;
           const query = { eq: () => query, maybeSingle: async () => mocks.reconciliationRead() };
           return query;
@@ -62,6 +71,7 @@ describe("useWorkoutSession", () => {
     mocks.startRpc.mockReset().mockResolvedValue({data:{id:'session-1',student_id:'student-1',company_id:'company-1',workout_id:'workout-1',started_at:new Date().toISOString(),status:'in_progress'},error:null});
     mocks.updateResult = { data: null, error: new Error("offline") };
     mocks.updateResults = [];
+    mocks.discoveryRead.mockReset().mockResolvedValue({ data: [], error: null });
     mocks.reconciliationRead.mockReset().mockReturnValue({ data: null, error: null });
     mocks.confirmationResult = { data: null, error: null };
     mocks.updateFilters = [];
@@ -74,6 +84,177 @@ describe("useWorkoutSession", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
+
+  const activeKey = "sett_active_session_student-1";
+  const pendingKey = "sett_session_start_company-1_student-1";
+  const discoverOptions = { discoverRemote: true };
+  const remoteRow = {
+    id: "session-remote", student_id: "student-1", company_id: "company-1",
+    workout_id: "workout-remote", status: "in_progress",
+    started_at: "2026-11-08T23:55:00.000Z", session_date: "2026-11-08",
+  };
+
+  it("discovers a scoped active session on a fresh device without starting it", async () => {
+    const pending = JSON.stringify({ requestId: "uncertain-request", workoutId: "workout-remote" });
+    localStorage.setItem(pendingKey, pending);
+    mocks.discoveryRead.mockResolvedValue({ data: [remoteRow], error: null });
+    const { result, unmount } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+
+    await waitFor(() => expect(result.current.activeSession?.id).toBe("session-remote"));
+    expect(result.current.activeSession).toMatchObject({
+      workoutId: "workout-remote", companyId: "company-1", sessionDate: "2026-11-08",
+    });
+    expect(result.current.isRemoteSession).toBe(true);
+    expect(mocks.discoveryRead).toHaveBeenCalledWith({
+      table: "workout_sessions",
+      filters: [["student_id", "student-1"], ["company_id", "company-1"], ["status", "in_progress"]],
+      limit: 2,
+    });
+    expect(JSON.parse(localStorage.getItem(activeKey)!)).toMatchObject({ id: "session-remote", sessionDate: "2026-11-08" });
+    expect(localStorage.getItem(pendingKey)).toBe(pending);
+    expect(mocks.startRpc).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.updateFilters).toEqual([]);
+
+    unmount();
+    const restored = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+    expect(restored.result.current.activeSession?.id).toBe("session-remote");
+    expect(restored.result.current.isRemoteSession).toBe(false);
+  });
+
+  it("discovers the other workout after a definite start conflict without a second start", async () => {
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+    await waitFor(() => expect(mocks.discoveryRead).toHaveBeenCalledOnce());
+    mocks.startRpc.mockResolvedValueOnce({ data: null, error: { code: "PT409", message: "session_already_in_progress" } });
+    mocks.discoveryRead.mockResolvedValue({ data: [remoteRow], error: null });
+
+    await act(async () => {
+      expect(await result.current.startSession("workout-1")).toEqual({ ok: false, reason: "conflict" });
+    });
+    expect(result.current.activeSession?.id).toBe("session-remote");
+    expect(result.current.isRemoteSession).toBe(true);
+    expect(localStorage.getItem(pendingKey)).toBeNull();
+    await act(async () => {
+      expect(await result.current.startSession("workout-1")).toEqual({ ok: false, reason: "conflict" });
+    });
+    expect(mocks.startRpc).toHaveBeenCalledOnce();
+    expect(mocks.updateFilters).toEqual([]);
+  });
+
+  it.each([
+    ["zero rows", { data: [], error: null }],
+    ["a read error", { data: [remoteRow], error: new Error("offline") }],
+    ["multiple rows", { data: [remoteRow, { ...remoteRow, id: "other" }], error: null }],
+    ["an invalid start timestamp", { data: [{ ...remoteRow, started_at: "invalid" }], error: null }],
+    ["a non-active row", { data: [{ ...remoteRow, status: "completed" }], error: null }],
+    ["another student's row", { data: [{ ...remoteRow, student_id: "student-2" }], error: null }],
+    ["another company's row", { data: [{ ...remoteRow, company_id: "company-2" }], error: null }],
+  ])("does not adopt a session after %s", async (_reason, response) => {
+    mocks.discoveryRead.mockResolvedValue(response);
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+    await waitFor(() => expect(mocks.discoveryRead).toHaveBeenCalledOnce());
+    expect(result.current.activeSession).toBeNull();
+    expect(result.current.isRemoteSession).toBe(false);
+    expect(localStorage.getItem(activeKey)).toBeNull();
+    expect(mocks.startRpc).not.toHaveBeenCalled();
+  });
+
+  it.each(["focus", "visibilitychange"])("discovers a new session when returning via %s", async (event) => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      const { result } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+      await waitFor(() => expect(mocks.discoveryRead).toHaveBeenCalledOnce());
+      mocks.discoveryRead.mockResolvedValue({ data: [remoteRow], error: null });
+      await act(async () => {
+        (event === "focus" ? window : document).dispatchEvent(new Event(event));
+      });
+      expect(result.current.activeSession?.id).toBe("session-remote");
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
+  it("keeps a restored local session when its terminal read fails", async () => {
+    const stored = JSON.stringify({ id: "local-session", workoutId: "workout-1", companyId: "company-1", startedAt: 1 });
+    localStorage.setItem(activeKey, stored);
+    mocks.reconciliationRead.mockReturnValue({ data: null, error: new Error("offline") });
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+    await waitFor(() => expect(mocks.reconciliationRead).toHaveBeenCalled());
+    expect(result.current.activeSession?.id).toBe("local-session");
+    expect(localStorage.getItem(activeKey)).toBe(stored);
+    expect(mocks.discoveryRead).not.toHaveBeenCalled();
+  });
+
+  it("discovers a successor after the server confirms that the local session ended", async () => {
+    localStorage.setItem(activeKey, JSON.stringify({
+      id: "local-session", workoutId: "workout-1", companyId: "company-1", startedAt: 1,
+    }));
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+    expect(result.current.activeSession?.id).toBe("local-session");
+    mocks.reconciliationRead.mockResolvedValue({ data: { id: "local-session", status: "completed" }, error: null });
+    mocks.discoveryRead.mockResolvedValue({ data: [remoteRow], error: null });
+
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(result.current.activeSession?.id).toBe("session-remote");
+    expect(JSON.parse(localStorage.getItem(activeKey)!)).toMatchObject({ id: "session-remote" });
+    expect(mocks.updateFilters).toEqual([]);
+    expect(mocks.startRpc).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite storage changed by another tab during discovery", async () => {
+    let resolveRead!: (response: unknown) => void;
+    mocks.discoveryRead.mockImplementationOnce(() => new Promise(resolve => { resolveRead = resolve; }));
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+    await waitFor(() => expect(mocks.discoveryRead).toHaveBeenCalledOnce());
+    const otherTab = JSON.stringify({ id: "other-tab", workoutId: "workout-1", companyId: "company-1", startedAt: 1 });
+    localStorage.setItem(activeKey, otherTab);
+
+    await act(async () => { resolveRead({ data: [remoteRow], error: null }); });
+    expect(localStorage.getItem(activeKey)).toBe(otherTab);
+    expect(result.current.activeSession).toBeNull();
+  });
+
+  it("ignores a discovery response from a previous student scope", async () => {
+    let resolveRead!: (response: unknown) => void;
+    mocks.discoveryRead.mockImplementationOnce(() => new Promise(resolve => { resolveRead = resolve; }));
+    const { result, rerender } = renderHook(
+      ({ student }) => useWorkoutSession(student, "company-1", discoverOptions),
+      { initialProps: { student: "student-1" } },
+    );
+    await waitFor(() => expect(mocks.discoveryRead).toHaveBeenCalledOnce());
+    rerender({ student: "student-2" });
+    await act(async () => { resolveRead({ data: [remoteRow], error: null }); });
+    expect(result.current.activeSession).toBeNull();
+    expect(localStorage.getItem(activeKey)).toBeNull();
+  });
+
+  it("does not resurrect an in-flight discovery after a local start and finish", async () => {
+    let resolveRead!: (response: unknown) => void;
+    mocks.discoveryRead.mockImplementationOnce(() => new Promise(resolve => { resolveRead = resolve; }));
+    mocks.updateResult = { data: { id: "session-1" }, error: null };
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+    await waitFor(() => expect(mocks.discoveryRead).toHaveBeenCalledOnce());
+    await act(async () => { await result.current.startSession("workout-1"); });
+    await act(async () => { await result.current.finishSession({}, [], {}); });
+    await act(async () => { resolveRead({ data: [remoteRow], error: null }); });
+    expect(result.current.summary?.id).toBe("session-1");
+    expect(result.current.activeSession).toBeNull();
+    expect(localStorage.getItem(activeKey)).toBeNull();
+  });
+
+  it.each([["2026-11-08", "2026-11-08"], ["2026-02-30", undefined], ["2026-11-08T00:00:00Z", undefined]])(
+    "exposes only a valid date-only session_date from start (%s)",
+    async (session_date, sessionDate) => {
+      mocks.startRpc.mockResolvedValueOnce({
+        data: { ...remoteRow, id: "session-1", workout_id: "workout-1", session_date }, error: null,
+      });
+      const { result } = renderHook(() => useWorkoutSession("student-1", "company-1"));
+      await act(async () => { await result.current.startSession("workout-1"); });
+      expect(result.current.activeSession?.sessionDate).toBe(sessionDate);
+      expect(result.current.isRemoteSession).toBe(false);
+      expect(mocks.discoveryRead).not.toHaveBeenCalled();
+    },
+  );
 
   it("clears the old timer only after the server confirms the exact duplicate", async () => {
     const key = "sett_active_session_student-1";

@@ -59,6 +59,16 @@ function PublishedExercise({ exercise, number }: { exercise: PrescriptionDetails
  </li>;
 }
 
+export function PublishedWorkoutDetails({ workout }: { workout: { description?: string | null; exercises: unknown } }) {
+ return <>
+  {workout.description && <p>{workout.description}</p>}
+  <ol className="space-y-2">{(Array.isArray(workout.exercises) ? workout.exercises : []).map((exercise, i) => {
+   const details = asDetails(exercise);
+   return details && <PublishedExercise key={i} exercise={details} number={i + 1} />;
+  })}</ol>
+ </>;
+}
+
 export function PublishedPrescriptionHistory({ userId, studentId, companyId, today }: { userId: string; studentId: string; companyId: string; today: string }) {
  const [open, setOpen] = useState(false);
  const [page, setPage] = useState(0);
@@ -91,11 +101,7 @@ export function PublishedPrescriptionHistory({ userId, studentId, companyId, tod
     <p>{cycle.enrollmentExpired ? 'Matrícula vencida: renovação pendente.' : cycle.end_date && cycle.end_date < today ? 'Período encerrado: consulte sua equipe sobre a prescrição atual.' : 'Prescrição publicada. A disponibilidade para iniciar depende da matrícula e do período atual.'}</p>
     {cycle.workouts.map(workout => <article key={workout.id} className="space-y-2">
      <h4 className="font-semibold">{workout.title || workout.name || 'Treino'}</h4>
-     {workout.description && <p>{workout.description}</p>}
-     <ol className="space-y-2">{(Array.isArray(workout.exercises) ? workout.exercises : []).map((exercise, i) => {
-      if (!exercise || typeof exercise !== 'object' || Array.isArray(exercise)) return null;
-      return <PublishedExercise key={i} exercise={exercise} number={i + 1} />;
-     })}</ol>
+     <PublishedWorkoutDetails workout={workout} />
     </article>)}
    </section>)}
    <div className="flex gap-2">

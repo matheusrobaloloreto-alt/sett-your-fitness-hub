@@ -161,6 +161,8 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
   const [row, setRow] = useState<NutritionRow | null>(null);
   const [anamnese, setAnamnese] = useState<StudentNutritionContext | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [generatingMeals, setGeneratingMeals] = useState(false);
   const [savingExternalPlan, setSavingExternalPlan] = useState(false);
   const [readingExternalPdf, setReadingExternalPdf] = useState(false);
@@ -186,9 +188,10 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
     let active = true;
     (async () => {
       setLoading(true);
+      setLoadFailed(false);
       try {
         const today = businessDateYmd();
-        const [{ data }, { data: anamneseRow }] = await Promise.all([
+        const [{ data, error }, { data: anamneseRow, error: anamneseError }] = await Promise.all([
           (supabase as any)
           .from("nutrition_plans")
           .select("*")
@@ -201,6 +204,7 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
             .eq("student_id", studentId)
             .maybeSingle(),
         ]);
+        if (error || anamneseError) throw new Error("Nutri indisponível");
         const visible = selectCurrentNutritionPlan((data as NutritionRow[] | null) ?? [], today);
         if (!active) return;
         setAnamnese((anamneseRow as StudentNutritionContext) ?? null);
@@ -219,13 +223,13 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
           finally { if (active) setGeneratingMeals(false); }
         }
       } catch {
-        if (active) setRow(null);
+        if (active) setLoadFailed(true);
       } finally {
         if (active) setLoading(false);
       }
     })();
     return () => { active = false; };
-  }, [studentId]);
+  }, [studentId, retryCount]);
 
   const saveExternalPlan = async (rawTextOverride?: string, fileNameOverride?: string) => {
     const rawText = rawTextOverride ?? externalPlanText;
@@ -345,6 +349,15 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
+  }
+
+  if (loadFailed) {
+    return <Card className="bg-card border-border">
+      <CardContent className="space-y-3 p-4" role="alert">
+        <p className="text-sm">Não foi possível carregar o Nutri.</p>
+        <Button variant="outline" onClick={() => setRetryCount(count => count + 1)}>Tentar novamente</Button>
+      </CardContent>
+    </Card>;
   }
 
   if (!row) {

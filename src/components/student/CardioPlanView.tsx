@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Accordion,
@@ -126,48 +127,58 @@ export function CardioPlanView({
 }) {
   const [plan, setPlan] = useState<CardioPlan | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
       setLoading(true);
+      setLoadFailed(false);
       if (suppressBecauseCurrentCycleCleared) {
         if (!active) return;
         setPlan(null);
         setLoading(false);
         return;
       }
-      const today = businessDateYmd();
-      const { data } = await supabase
-        .from("running_plans")
-        .select("*")
-        .eq("student_id", studentId)
-        .eq("sport", sport)
-        .lte("start_date", today)
-        .or(`end_date.is.null,end_date.gte.${today}`)
-        .or("status.is.null,status.in.(active,scheduled)")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      let visible = data;
-      // Compatibilidade com prescrições legadas, que não tinham vigência.
-      if (!visible) {
-        const { data: legacy } = await supabase.from("running_plans").select("*")
-          .eq("student_id", studentId).eq("sport", sport).is("start_date", null)
+      try {
+        const today = businessDateYmd();
+        const { data, error } = await supabase
+          .from("running_plans")
+          .select("*")
+          .eq("student_id", studentId)
+          .eq("sport", sport)
+          .lte("start_date", today)
           .or(`end_date.is.null,end_date.gte.${today}`)
           .or("status.is.null,status.in.(active,scheduled)")
-          .order("created_at", { ascending: false }).limit(1).maybeSingle();
-        visible = legacy;
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error) throw error;
+        let visible = data;
+        // Compatibilidade com prescrições legadas, que não tinham vigência.
+        if (!visible) {
+          const { data: legacy, error: legacyError } = await supabase.from("running_plans").select("*")
+            .eq("student_id", studentId).eq("sport", sport).is("start_date", null)
+            .or(`end_date.is.null,end_date.gte.${today}`)
+            .or("status.is.null,status.in.(active,scheduled)")
+            .order("created_at", { ascending: false }).limit(1).maybeSingle();
+          if (legacyError) throw legacyError;
+          visible = legacy;
+        }
+        if (!active) return;
+        setPlan((visible as CardioPlan) || null);
+      } catch {
+        if (active) setLoadFailed(true);
+      } finally {
+        if (active) setLoading(false);
       }
-      if (!active) return;
-      setPlan((visible as CardioPlan) || null);
-      setLoading(false);
     };
     load();
     return () => {
       active = false;
     };
-  }, [studentId, sport, suppressBecauseCurrentCycleCleared]);
+  }, [studentId, sport, suppressBecauseCurrentCycleCleared, retryCount]);
 
   const meta = SPORT_META[sport] ?? SPORT_META.corrida;
   const { label: sportLabel, Icon: SportIcon } = meta;
@@ -178,6 +189,15 @@ export function CardioPlanView({
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
+  }
+
+  if (loadFailed) {
+    return <Card className="bg-card border-border">
+      <CardContent className="space-y-3 p-4" role="alert">
+        <p className="text-sm">Não foi possível carregar o plano de {sportLabel}.</p>
+        <Button variant="outline" onClick={() => setRetryCount(count => count + 1)}>Tentar novamente</Button>
+      </CardContent>
+    </Card>;
   }
 
   if (!plan) {

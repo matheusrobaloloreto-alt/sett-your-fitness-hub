@@ -207,6 +207,6 @@ describe("StudentPortal extra-set React reconciliation", () => {
   it("uses the tested React effect with both persisted and draft state in the portal", () => {
     const source = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");
     expect(source).toMatch(/useStudentPortalExtraSetReconciliation\(\{\s*selectedWorkout,\s*persistedLogs: allLogs,\s*draftLogs: logs,/);
-    expect(source).toContain("draftReady: !!logsBackupKey && logsRestoredKey === logsBackupKey");
+    expect(source).toContain("draftReady: isPriorDaySession ? !waitingForSessionLogs : !!dailyLogsBackupKey && logsRestoredKey === dailyLogsBackupKey");
   });
 });

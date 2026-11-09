@@ -11,7 +11,7 @@ function render(ui: ReactNode) {
  return renderWithTestingLibrary(ui, { wrapper: ({ children }: PropsWithChildren) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
 }
 
-const mocks = vi.hoisted(() => ({ user: { id: 'user-a' }, from: vi.fn(), toast: vi.fn(), start: vi.fn(), abandon: vi.fn(), event: vi.fn(), rpc: vi.fn(), finish: vi.fn(), active: null as null | { id: string; workoutId: string; startedAt: number } }));
+const mocks = vi.hoisted(() => ({ user: { id: 'user-a' }, from: vi.fn(), toast: vi.fn(), start: vi.fn(), abandon: vi.fn(), event: vi.fn(), rpc: vi.fn(), finish: vi.fn(), active: null as null | { id: string; workoutId: string; startedAt: number; sessionDate?: string } }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: mocks.user, signOut: vi.fn() }) }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: mocks.from, rpc: mocks.rpc } }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }));
@@ -47,6 +47,7 @@ vi.mock('@/components/student/StudentHome', async (importOriginal) => {
  return {
   StudentHome: (props: Parameters<typeof StudentHome>[0]) => renewalScenario ? <StudentHome {...props} /> : <div>
    <p>Portal carregado</p><button onClick={() => props.onNavigate("treino")}>Abrir treino</button>
+   <button onClick={() => props.onNavigate("calendario")}>Calendário</button>
    {props.selectedCycle?.workouts.map(w => <p key={w.title}>{w.title}</p>)}
   </div>,
  };
@@ -193,7 +194,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); queryClients.forEach(client => client.clear()); queryClients.length = 0; vi.useRealTimers(); });
 
 describe('StudentPortal authoritative reads', () => {
-  it.each(['students', 'nutrition_plans', 'running_plans', 'student_anamneses', 'enrollments', 'workout_logs', 'workout_sessions', 'workout_feedback', 'student_goals'])('shows unavailable rather than empty after %s RLS error, then retries', async table => {
+  it.each(['students', 'enrollments', 'workout_logs', 'workout_sessions'])('shows unavailable rather than empty after %s RLS error, then retries', async table => {
     failureTable = table;
     render(<StudentPortal />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível carregar seus dados');
@@ -204,7 +205,7 @@ describe('StudentPortal authoritative reads', () => {
     expect(await screen.findByText('Portal carregado')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
-  it.each(['plans', 'training_cycles', 'workouts', 'exercise_library'])('keeps %s failures distinct from a missing prescription and recovers existing content', async table => {
+  it.each(['plans', 'training_cycles', 'workouts'])('keeps %s failures distinct from a missing prescription and recovers existing content', async table => {
     withPrescription = true; failureTable = table;
     render(<StudentPortal />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível carregar seus dados');
@@ -213,6 +214,68 @@ describe('StudentPortal authoritative reads', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }));
     expect(await screen.findByText('Prescrição existente')).toBeInTheDocument();
   });
+  it.each([
+    ['nutrition_plans', 'Nutri'],
+    ['student_anamneses', 'Nutri'],
+    ['running_plans', 'Corrida'],
+    ['exercise_library', 'Treino'],
+  ])('keeps strength available when %s fails and retries the affected area', async (table, destination) => {
+    withPrescription = true;
+    failureTable = table;
+    mocks.start.mockResolvedValue({ ok: true });
+    render(<StudentPortal />);
+    await screen.findByText('Prescrição existente');
+    const navigation = within(screen.getByRole('navigation', { name: 'Navegação do aluno' }));
+    fireEvent.click(navigation.getByRole('button', { name: destination }));
+    const retry = await screen.findByRole('button', { name: 'Tentar novamente' });
+    if (destination === 'Treino') expect(screen.getByRole('button', { name: 'Test iniciar' })).toBeVisible();
+    failureTable = null;
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Tentar novamente' })).not.toBeInTheDocument());
+    fireEvent.click(navigation.getByRole('button', { name: 'Treino' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Test iniciar' }));
+    expect(mocks.start).toHaveBeenCalledWith('workout-a');
+  });
+
+  it('opens the logged workout from the previous cycle as a read-only calendar detail', async () => {
+    withPrescription = true; pendingSlot = true; continuityScenario = 'published';
+    sessionLogs = [{ id: 'log-old', workout_id: 'workout-old', exercise_index: 0, set_number: 1,
+      weight: 15, reps_done: 10, session_date: '2026-10-08', completed: true }];
+    render(<StudentPortal />);
+    await screen.findByText('Nova prescrição');
+    fireEvent.click(screen.getByRole('button', { name: 'Calendário' }));
+    fireEvent.click(await screen.findByRole('button', { name: '2026-10-08: treino registrado' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ver ficha do treino' }));
+    const detail = await screen.findByRole('dialog', { name: 'Treino anterior' });
+    expect(detail).toHaveTextContent('Ciclo 12 · 08/10/2026 · Somente consulta');
+    expect(detail).toHaveTextContent('Fixture exercise');
+    expect(screen.queryByRole('button', { name: 'Test iniciar' })).not.toBeInTheDocument();
+    fireEvent.click(within(detail).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(detail).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '2026-10-29: sem treino registrado' }));
+    expect(screen.queryByRole('button', { name: 'Treino anterior' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Nova prescrição' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Test iniciar' }));
+    expect(mocks.start).toHaveBeenCalledWith('workout-next');
+  });
+  it('uses the original session date and saved sets when completing a workout after midnight', async () => {
+    withPrescription = true;
+    mocks.active = { id: 'session-active', workoutId: 'workout-a', startedAt: Date.parse('2026-10-28T23:00:00Z'), sessionDate: '2026-10-28' };
+    sessionLogs = [{ id: 'log-original', workout_id: 'workout-a', exercise_index: 0, set_number: 1,
+      weight: 15, reps_done: 10, session_date: '2026-10-28', completed: true }];
+    mocks.finish.mockResolvedValue({ id: 'session-active', workoutId: 'workout-a', completedAt: '2026-10-29T15:00:00Z',
+      totalSetsCompleted: 1, totalVolume: 150, exercisesSummary: [] });
+    render(<StudentPortal />);
+    expect(await screen.findByText('28/10/2026')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Test finalizar' }));
+    await waitFor(() => expect(mocks.finish).toHaveBeenCalledWith(
+      expect.objectContaining({ 'workout-a-0-1': expect.objectContaining({ weight: 15, session_date: '2026-10-28' }) }),
+      expect.any(Array), expect.any(Object), expect.any(Set),
+    ));
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalledWith('save_workout_logs_if_current', expect.anything());
+  });
+
   it('uses the contract window rather than hiding current content behind a historical active cycle and catalog cap', async () => {
     withPrescription = true; longContract = true;
     render(<StudentPortal />);
