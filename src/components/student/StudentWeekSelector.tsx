@@ -11,6 +11,7 @@ export function StudentWeekSelector({
   onChange,
   onBlocked,
   className,
+  compact = false,
 }: {
   currentWeek: number;
   durationWeeks?: number | null;
@@ -19,6 +20,7 @@ export function StudentWeekSelector({
   onChange: (startWeek: number) => void;
   onBlocked?: (label: string) => void;
   className?: string;
+  compact?: boolean;
 }) {
   if (!hasWeeklyPrescriptions) return null;
 
@@ -28,8 +30,12 @@ export function StudentWeekSelector({
 
   return (
     <div className={cn("flex min-w-0 items-center gap-2", className)}>
-      <CalendarDays className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-      <span className="shrink-0 text-xs font-medium text-muted-foreground">Semana</span>
+      {!compact && (
+        <>
+          <CalendarDays className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">Semana</span>
+        </>
+      )}
       <Select value={String(current.startWeek)} onValueChange={(value) => {
         const option = options.find((item) => item.startWeek === Number(value));
         if (!option) return;
@@ -39,7 +45,10 @@ export function StudentWeekSelector({
         }
         onChange(option.startWeek);
       }}>
-        <SelectTrigger className="h-9 min-w-0 flex-1 bg-card text-xs sm:w-[170px] sm:flex-none">
+        <SelectTrigger
+          aria-label="Semana do treino"
+          className={cn("min-w-0 flex-1 bg-card", compact ? "student-linen-week text-sm" : "h-9 text-xs sm:w-[170px] sm:flex-none")}
+        >
           <SelectValue aria-label={current.label}>{current.label}</SelectValue>
         </SelectTrigger>
         <SelectContent>

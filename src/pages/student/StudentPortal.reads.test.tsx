@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render as renderWithTestingLibrary, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as renderWithTestingLibrary, screen, waitFor, within } from '@testing-library/react';
 import type { PropsWithChildren, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { calculateSessionMetrics, type SessionLog } from '@/lib/sessions/metrics';
@@ -16,11 +16,6 @@ vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: mocks.user, signOut:
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: mocks.from, rpc: mocks.rpc } }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock('@/hooks/useWorkoutSession', () => ({ useWorkoutSession: () => ({ isHydrated: true, activeSession: mocks.active, isActive: Boolean(mocks.active), summary: null, elapsed: 0, formatTime: () => '00:00', startSession: mocks.start, abandonSession: mocks.abandon, finishSession: mocks.finish }) }));
-// Exercise view navigation without waiting on animation frames in jsdom.
-vi.mock('framer-motion', async (importOriginal) => ({
-  ...await importOriginal<typeof import('framer-motion')>(),
-  AnimatePresence: ({ children }: PropsWithChildren) => <>{children}</>,
-}));
 vi.mock('@/lib/benitoProductEvents', () => ({ emitBenitoProductEvent: mocks.event }));
 vi.mock('@/components/student/WorkoutTimer', async (importOriginal) => {
  const { WorkoutTimer } = await importOriginal<typeof import('@/components/student/WorkoutTimer')>();
@@ -77,6 +72,8 @@ let offlinePrescription: boolean;
 let overlappingPrescription: boolean | 'different-start' | 'empty';
 let sessionLogs: Array<SessionLog & { id: string; session_date: string }> = [];
 beforeEach(() => {
+  window.localStorage?.clear();
+  window.sessionStorage?.clear();
   mocks.user = { id: 'user-a' }; mocks.toast.mockReset(); mocks.start.mockReset(); mocks.abandon.mockReset(); mocks.event.mockReset(); mocks.rpc.mockReset(); mocks.finish.mockReset(); sessionLogs = [];
   mocks.active = null;
   policyMode = 'keep_until_replaced'; policyFailure = false; policyRead = null;
@@ -258,8 +255,10 @@ describe('StudentPortal authoritative reads', () => {
     mocks.start.mockResolvedValue({ ok: true });
     render(<StudentPortal />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Abrir treino' }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Abrir treino' })).not.toBeInTheDocument());
+    const dock = await screen.findByRole('navigation', { name: 'Navegação do aluno' });
+    const trainingTab = within(dock).getByRole('button', { name: 'Treino' });
+    fireEvent.click(trainingTab);
+    await waitFor(() => expect(trainingTab).toHaveAttribute('aria-current', 'page'));
     if (renewal === 'empty') {
       expect(await screen.findByRole('heading', { name: 'Aguardando prescrição' })).toBeInTheDocument();
       expect(mocks.rpc).not.toHaveBeenCalledWith('mark_training_cycle_viewed', expect.anything());
@@ -298,10 +297,13 @@ describe('StudentPortal authoritative reads', () => {
       ...calculateSessionMetrics('workout-old', logs, exercises, bests, unknown),
     }));
     render(<StudentPortal />);
+    const trainingTab = within(await screen.findByRole('navigation', { name: 'Navegação do aluno' }))
+      .getByRole('button', { name: /^Treino$/ });
+    await waitFor(() => expect(trainingTab).toHaveAttribute('aria-current', 'page'));
     const finish = await screen.findByRole('button', { name: 'Finalizar sessão em andamento' });
     expect(screen.queryByRole('button', { name: 'Test iniciar' })).toBeNull();
     await act(async () => { fireEvent.click(finish); });
-    expect(mocks.finish).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.finish).toHaveBeenCalledTimes(1));
     expect(mocks.start).not.toHaveBeenCalled();
     expect(mocks.abandon).not.toHaveBeenCalled();
   });

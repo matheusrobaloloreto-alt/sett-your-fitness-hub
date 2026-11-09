@@ -5,10 +5,10 @@ const studentDetailSource = readFileSync("src/pages/admin/StudentDetail.tsx", "u
 const studentPortalSource = readFileSync("src/pages/student/StudentPortal.tsx", "utf8");
 
 describe("editorial visual contract", () => {
-  it("uses shared editorial primitives in professor and student headers", () => {
+  it("uses the editorial header for staff and the approved Linho header for students", () => {
     expect(studentDetailSource).toContain("EditorialPageHeader");
     expect(studentDetailSource).toContain("EditorialTabStrip");
-    expect(studentPortalSource).toContain("EditorialPageHeader");
+    expect(studentPortalSource).toContain('<header className="student-linen-header student-linen-glass">');
   });
 
   it("does not truncate the professor student name in the page header", () => {
@@ -23,6 +23,7 @@ describe("editorial visual contract", () => {
 
   it("keeps header icon actions at a 44px target in professor and student headers", () => {
     expect(studentDetailSource).toMatch(/<Button[\s\S]*?className="h-11 w-11"[\s\S]*?aria-label="Voltar para alunos"/);
-    expect(studentPortalSource).toMatch(/<Button[\s\S]*?className="h-11 w-11"[\s\S]*?aria-label="Voltar ao início"/);
+    expect(studentPortalSource).toMatch(/<Button[^\n]*className="h-11 w-11\b[^"]*"[^\n]*aria-label="Voltar ao início"/);
+    expect(studentPortalSource).toMatch(/<Button[^\n]*className="h-11 w-11\b[^"]*"[^\n]*aria-label="Sair"/);
   });
 });

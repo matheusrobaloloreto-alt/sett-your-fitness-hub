@@ -455,7 +455,7 @@ export function StudentBnitoAssistantProvider({ children }: { children: ReactNod
           </Tooltip>
 
           {!open && mission && !missionDismissed && (
-            <div className="pointer-events-none fixed bottom-[calc(11rem+env(safe-area-inset-bottom,0px))] right-4 z-40 w-[min(20rem,calc(100vw-2rem))] rounded-[22px] border border-line bg-background/95 p-3 text-sm shadow-xl backdrop-blur [@media(max-height:740px)]:hidden md:bottom-24 md:right-6">
+            <div data-student-benito-mission className="pointer-events-none fixed bottom-[calc(11rem+env(safe-area-inset-bottom,0px))] right-4 z-40 w-[min(20rem,calc(100vw-2rem))] rounded-[22px] border border-line bg-background/95 p-3 text-sm shadow-xl backdrop-blur [@media(max-height:740px)]:hidden md:bottom-24 md:right-6">
               <div className="flex items-start gap-2">
                 <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center text-navy">
                   <BenitoSprite state={missionLoading ? "processing" : mission.urgency === "parar_e_avisar" ? "alert" : "waiting"} size={36} alt="" className="benito-sprite-prominent" />

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeriodizationBanner } from "./PeriodizationBanner";
 import { StudentHome } from "./StudentHome";
 
@@ -35,7 +35,6 @@ function renderHome(overrides: Partial<Parameters<typeof StudentHome>[0]> = {}) 
     overallProgress: 0,
     selectedCycle: baseCycle,
     cycleProgress: 50,
-    workoutCount: baseCycle.workouts.length,
     weeklySessionCount: 0,
     trainedDays: new Set<number>(),
     currentDayOfWeek: 1,
@@ -48,7 +47,8 @@ function renderHome(overrides: Partial<Parameters<typeof StudentHome>[0]> = {}) 
   return render(<StudentHome {...props} />);
 }
 
-describe("StudentHome progression highlight", () => {
+describe("StudentHome", () => {
+  afterEach(() => vi.useRealTimers());
   it("renders the progression title and body in the active workout hero", () => {
     renderHome({ activeWorkoutId: "workout-a" });
 
@@ -86,59 +86,71 @@ describe("StudentHome progression highlight", () => {
       onNavigate,
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Treino em andamento/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Ver treinos do ciclo" }));
     expect(onNavigate).toHaveBeenCalledWith("treino", null);
   });
 
-  it("orders the student index by training flow and removes only the history shortcut", () => {
+  it("opens today's workout from the primary action", () => {
     const onNavigate = vi.fn();
-    renderHome({
-      onNavigate,
-      hasNutrition: true,
-      hasCorrida: true,
-      hasNatacao: true,
-      hasCiclismo: true,
-    });
+    renderHome({ onNavigate });
 
-    const index = screen.getByRole("navigation", { name: "Explorar áreas do app" });
-    expect(index).toBeInTheDocument();
-    const destinationList = screen.getByRole("list", { name: "Destinos do portal do aluno" });
-    expect(destinationList).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Abrir treino" }));
 
-    const expectedDestinations = [
-      "Treino",
-      "Corrida",
-      "Ciclismo",
-      "Natação",
-      "Dicas nutricionais",
-      "Estatísticas",
-      "Calendário",
-      "Integrações",
-    ];
-
-    const destinationButtons = within(destinationList).getAllByRole("button");
-    expect(destinationButtons.map((item) => item.getAttribute("aria-label")?.split(":")[0]))
-      .toEqual(expectedDestinations);
-    expect(within(destinationList).queryByRole("button", { name: /^Histórico:/i })).not.toBeInTheDocument();
-
-    for (const item of destinationButtons) {
-      expect(item).toHaveClass("min-h-11");
-    }
-
-    fireEvent.click(within(destinationList).getByRole("button", { name: /^Dicas nutricionais:/i }));
-    expect(onNavigate).toHaveBeenCalledWith("nutricao");
+    expect(onNavigate).toHaveBeenCalledWith("treino", "workout-a");
   });
 
-  it("restores the home ranking and compact two-column icon index", () => {
-    renderHome({ leaderboard: <div>Ranking mensal restaurado</div> });
+  it("shows the calendar week and the elapsed weeks of a dated cycle", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 6, 14, 12));
+    renderHome({ cycleProgress: 19 });
 
-    expect(screen.getByText("Ranking mensal restaurado")).toBeInTheDocument();
-    const destinationList = screen.getByRole("list", { name: "Destinos do portal do aluno" });
-    expect(destinationList).toHaveClass("grid", "grid-cols-2");
+    expect(screen.getByRole("heading", { name: "Ciclo 1 · Semana 2" })).toBeInTheDocument();
+    expect(screen.getByText("1 de 6 semanas")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Progresso do ciclo" })).toHaveAttribute("aria-valuenow", "19");
+  });
 
-    for (const item of within(destinationList).getAllByRole("button")) {
-      expect(item.querySelector("svg")).toBeTruthy();
-    }
+  it("does not invent a current week before the cycle starts", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 6, 5, 12));
+    renderHome({ cycleProgress: 0 });
+
+    expect(screen.getByRole("heading", { name: "Ciclo 1" })).toBeInTheDocument();
+    expect(screen.getByText("Início em 06/07")).toBeInTheDocument();
+    expect(screen.queryByText(/de 6 semanas/)).not.toBeInTheDocument();
+  });
+
+  it("shows the weekly count, goal, streak and goal editor", () => {
+    const editGoal = vi.fn();
+    renderHome({
+      weeklySessionCount: 2,
+      trainedDays: new Set([1, 3]),
+      streak: 4,
+      goalEditor: <button onClick={editGoal}>Editar meta</button>,
+    });
+
+    expect(screen.getByRole("heading", { name: "Meta semanal" })).toBeInTheDocument();
+    expect(screen.getByText("2 de 3 treinos")).toBeInTheDocument();
+    expect(screen.getByText("4 semanas seguidas")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Editar meta" }));
+    expect(editGoal).toHaveBeenCalledOnce();
+  });
+
+  it("keeps only the three tracking destinations ahead of the ranking", () => {
+    const onNavigate = vi.fn();
+    renderHome({ onNavigate, leaderboard: <section aria-label="Ranking mensal" /> });
+
+    const tracking = screen.getByRole("navigation", { name: "Acompanhamento" });
+    const buttons = within(tracking).getAllByRole("button");
+    expect(buttons).toHaveLength(3);
+    expect(buttons[0]).toHaveAccessibleName(/^Calendário/);
+    expect(buttons[1]).toHaveAccessibleName(/^Estatísticas/);
+    expect(buttons[2]).toHaveAccessibleName(/^Integrações/);
+    expect(screen.queryByText("Explorar")).not.toBeInTheDocument();
+    const ranking = screen.getByRole("region", { name: "Ranking mensal" });
+    expect(tracking.compareDocumentPosition(ranking) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    buttons.forEach((button) => fireEvent.click(button));
+    expect(onNavigate.mock.calls).toEqual([["calendario"], ["stats"], ["integracoes"]]);
   });
 });
 

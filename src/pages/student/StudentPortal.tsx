@@ -35,7 +35,10 @@ import { WeeklyBar } from "@/components/student/WeeklyBar";
 import { AnnouncementsBell } from "@/components/student/AnnouncementsBell";
 import { StudentHome } from "@/components/student/StudentHome";
 import { StudentHistory } from "@/components/student/StudentHistory";
-import { EditorialPageHeader } from "@/components/EditorialPageHeader";
+import { StudentPortalNavigation, studentSpring, type StudentPrimaryView } from "@/components/student/StudentPortalNavigation";
+import { useTheme } from "@/contexts/ThemeContext";
+import bnMark from "@/assets/bn-mark-transparent.png";
+import "./student-linen.css";
 import { PersonalThemeIconToggle } from "@/components/PersonalThemeToggle";
 import { businessDateYmd } from "@/lib/businessDate";
 import { PlatformAdSlot } from "@/components/PlatformAdSlot";
@@ -52,7 +55,7 @@ import {validateFormAnswers} from '@/lib/formDefinitions';
 import { calculateStreak } from "@/lib/streakCalculator";
 import type { Gender } from "@/components/student/BodyMeasurements";
 import { Megaphone, Activity } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { filterMaterializedWorkouts, orderWorkoutsByPrescription } from "@/lib/workoutPresence";
 import { canonicalizeWorkoutLogBatchRows } from "@/lib/workoutLogBatch";
 import {
@@ -92,7 +95,7 @@ const AnnouncementsFeed = lazy(() => import("@/components/student/AnnouncementsF
 const BodyMeasurements = lazy(() => import("@/components/student/BodyMeasurements").then((module) => ({ default: module.BodyMeasurements })));
 
 
-type ActiveView = "home" | "treino" | "stats" | "calendario" | "atividades" | "avisos" | "medidas" | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
+type ActiveView = StudentPrimaryView | "stats" | "calendario" | "atividades" | "avisos" | "medidas" | "integracoes";
 const MAX_EXTRA_SETS = 5;
 const STALE_ACTIVE_SESSION_MESSAGE = "Há uma sessão ativa que não está mais na sua ficha. Encerre essa sessão antes de iniciar outro treino.";
 
@@ -262,6 +265,12 @@ export default function StudentPortal() {
   const userScope = `${user?.id ?? ""}:${authCompanyId ?? ""}`;
   const { toast } = useToast();
   const [activeView, setActiveView] = useState<ActiveView>("home");
+  const { settings: themeSettings } = useTheme();
+  const reducedMotion = useReducedMotion() ?? false;
+
+  useEffect(() => {
+    if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+  }, [activeView]);
   const [studentId, setStudentId] = useState<string | null>(null);
   const [studentName, setStudentName] = useState("");
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -1331,7 +1340,6 @@ export default function StudentPortal() {
 
   const weeklySessionCount = useMemo(() => trainedDays.size, [trainedDays]);
 
-  const workoutCount = useMemo(() => selectedCycle?.workouts.length || 0, [selectedCycle]);
 
   const totalSessions = useMemo(() => {
     const dates = new Set(allLogs.map((l: any) => l.session_date));
@@ -1428,62 +1436,61 @@ export default function StudentPortal() {
   const hasCiclismo = !preferredCyclePrescriptionCleared && runningSports.has("ciclismo");
 
   const viewTitles: Record<ActiveView, string> = {
-    home: "MEU TREINO",
-    treino: "TREINO",
-    stats: "ESTATÍSTICAS",
-    calendario: "CALENDÁRIO",
-    atividades: "ATIVIDADES",
-    avisos: "AVISOS",
-    medidas: "MEDIDAS",
-    nutricao: "DICAS NUTRICIONAIS",
-    corrida: "CORRIDA",
-    natacao: "NATAÇÃO",
-    ciclismo: "CICLISMO",
-    integracoes: "INTEGRAÇÕES",
+    home: "Meu treino",
+    treino: "Treino",
+    stats: "Estatísticas",
+    calendario: "Calendário",
+    atividades: "Atividades",
+    avisos: "Avisos",
+    medidas: "Medidas",
+    nutricao: "Nutri",
+    corrida: "Corrida",
+    natacao: "Natação",
+    ciclismo: "Ciclismo",
+    integracoes: "Integrações",
   };
 
 
+  const companyTheme = themeSettings?.company_id === companyId ? themeSettings : null;
+  const isBn = companyId === "dad65c62-e700-4ae9-930a-43b18357c171"
+    || /^bn performance training$/i.test(companyTheme?.platform_title?.trim() ?? "");
+  const brandLogo = isBn ? bnMark : companyTheme?.logo_url;
+  const emptyModality = (title: string) => (
+    <Card className="border-border bg-card">
+      <CardContent className="space-y-1 p-5" role="status">
+        <h2 className="font-semibold">{title}</h2>
+        <p className="text-sm text-muted-foreground">Quando sua equipe publicar uma prescrição, ela aparecerá aqui.</p>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <AthleticClubProvider companyId={companyId}>
-    <div className="min-h-screen bg-background">
-      <EditorialPageHeader
-        compactMobile
-        className="bg-card sm:px-6"
-        innerClassName="mx-auto max-w-2xl"
-        overline="Portal do aluno"
-        title={viewTitles[activeView]}
-        titleClassName="text-xl text-primary sm:text-2xl"
-        leading={
-          activeView !== "home" ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-11 w-11"
-              onClick={() => setActiveView("home")}
-              aria-label="Voltar ao início"
-              title="Voltar ao início"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          ) : (
-            <span className="flex h-11 w-11 items-center justify-center rounded-md bg-primary/10" aria-hidden="true">
-              <Dumbbell className="h-5 w-5 text-primary" />
-            </span>
-          )
-        }
-        context={activeView === "home" ? <span className="text-foreground">{studentName}<AthleticClubStar studentId={studentId} /></span> : null}
-        actions={
-          <>
-            {studentId && companyId && <AnnouncementsBell studentId={studentId} companyId={companyId} />}
-            <PersonalThemeIconToggle />
-            <Button variant="ghost" size="icon" className="h-11 w-11" onClick={signOut} aria-label="Sair" title="Sair">
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </>
-        }
-      />
+    <div className="student-linen min-h-dvh pt-2">
+      <header className="student-linen-header student-linen-glass">
+        {activeView !== "home" ? (
+          <Button variant="ghost" size="icon" className="h-11 w-11 shrink-0 rounded-xl" onClick={() => handleNavigate("home")} aria-label="Voltar ao início" title="Voltar ao início">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        ) : brandLogo ? (
+          <img src={brandLogo} alt={isBn ? "BN Performance Training" : companyTheme?.platform_title ?? "SETT"} className="h-11 w-11 shrink-0 object-contain" draggable={false} />
+        ) : (
+          <Dumbbell className="m-2.5 h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[9px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs">Portal do aluno</p>
+          <h1 className="truncate text-[clamp(16px,4.5vw,22px)] font-bold leading-tight tracking-tight">{viewTitles[activeView]}</h1>
+        </div>
+        <div className="flex shrink-0 items-center">
+          {companyId && <AnnouncementsBell studentId={studentId} companyId={companyId} />}
+          <PersonalThemeIconToggle />
+          <Button variant="ghost" size="icon" className="h-11 w-11 rounded-xl" onClick={signOut} aria-label="Sair" title="Sair">
+            <LogOut className="h-5 w-5" />
+          </Button>
+        </div>
+      </header>
 
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6">
+      <main className="student-linen-main">
         {studentIsInactive && (
           <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-100" role="status">
             <div className="flex items-start gap-3">
@@ -1514,13 +1521,11 @@ export default function StudentPortal() {
             <span className="ml-2 text-sm text-muted-foreground">Carregando esta área…</span>
           </div>
         )}>
-        <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={activeView}
-            initial={{ opacity: 0, y: 8 }}
+            initial={reducedMotion ? false : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            transition={reducedMotion ? { duration: 0 } : studentSpring}
           >
         {/* HOME VIEW */}
         {activeView === "home" && (
@@ -1534,10 +1539,7 @@ export default function StudentPortal() {
             </Card>
           ) : (
           <>
-          {user?.id && <PushBanner userId={user.id} companyId={companyId} />}
-          {studentId && <CheckinCard studentId={studentId} companyId={companyId} />}
-          <PlatformAdSlot audience="student" placement="dashboard_banner" companyId={companyId} />
-          {awaitingDigitalPrescription ? pendingPrescriptionNotice : prescriptionHistory}
+          {awaitingDigitalPrescription && pendingPrescriptionNotice}
           <StudentHome
             nameBadge={<AthleticClubStar studentId={studentId} />}
             studentName={studentName}
@@ -1545,7 +1547,6 @@ export default function StudentPortal() {
             overallProgress={getOverallProgress()}
             selectedCycle={studentIsInactive || workoutUnavailable ? null : selectedCycle}
             cycleProgress={selectedCycle ? getCycleProgress(selectedCycle) : 0}
-            workoutCount={studentIsInactive || workoutUnavailable ? 0 : workoutCount}
             weeklySessionCount={weeklySessionCount}
             trainedDays={trainedDays}
             currentDayOfWeek={new Date().getDay()}
@@ -1555,22 +1556,22 @@ export default function StudentPortal() {
             activeWorkoutId={workoutUnavailable ? null : session.activeSession?.workoutId ?? null}
             goalEditor={studentId ? <WeeklyGoalEditor studentId={studentId} currentGoal={weeklyGoal} onSaved={setWeeklyGoal} /> : null}
             leaderboard={studentId ? <MonthlyLeaderboard companyId={companyId} /> : null}
-            hasNutrition={!studentIsInactive && hasNutrition}
-            hasCorrida={!studentIsInactive && hasCorrida}
-            hasNatacao={!studentIsInactive && hasNatacao}
-            hasCiclismo={!studentIsInactive && hasCiclismo}
             onNavigate={handleNavigate}
           />
+          {!awaitingDigitalPrescription && prescriptionHistory}
+          {user?.id && <PushBanner userId={user.id} companyId={companyId} />}
+          <CheckinCard studentId={studentId} companyId={companyId} />
+          <PlatformAdSlot audience="student" placement="dashboard_banner" companyId={companyId} />
           </>
           )}
           </div>
         )}
 
-        {/* PRESCRIÇÕES — abas condicionais (só aparecem quando o treinador publicou a modalidade) */}
-        {activeView === "nutricao" && studentId && <NutritionPlanView studentId={studentId} />}
-        {activeView === "corrida" && studentId && <CardioPlanView studentId={studentId} sport="corrida" suppressBecauseCurrentCycleCleared={preferredCyclePrescriptionCleared} />}
-        {activeView === "natacao" && studentId && <CardioPlanView studentId={studentId} sport="natacao" suppressBecauseCurrentCycleCleared={preferredCyclePrescriptionCleared} />}
-        {activeView === "ciclismo" && studentId && <CardioPlanView studentId={studentId} sport="ciclismo" suppressBecauseCurrentCycleCleared={preferredCyclePrescriptionCleared} />}
+        {/* A barra é fixa. A disponibilidade continua seguindo a prescrição do aluno. */}
+        {!studentIsInactive && activeView === "nutricao" && (hasNutrition ? <NutritionPlanView studentId={studentId} /> : emptyModality("Nenhuma dica nutricional publicada"))}
+        {!studentIsInactive && activeView === "corrida" && (hasCorrida ? <CardioPlanView studentId={studentId} sport="corrida" /> : emptyModality("Nenhum plano de corrida publicado"))}
+        {!studentIsInactive && activeView === "natacao" && (hasNatacao ? <CardioPlanView studentId={studentId} sport="natacao" /> : emptyModality("Nenhum plano de natação publicado"))}
+        {!studentIsInactive && activeView === "ciclismo" && (hasCiclismo ? <CardioPlanView studentId={studentId} sport="ciclismo" /> : emptyModality("Nenhum plano de ciclismo publicado"))}
         {activeView === "integracoes" && <WearableIntegrations />}
 
 
@@ -1584,7 +1585,7 @@ export default function StudentPortal() {
                 <Card className="bg-card border-border">
                   <CardContent className="p-4 space-y-2">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-primary font-mono-data text-sm font-semibold uppercase tracking-[0.12em]">CICLO {selectedCycle.cycle_number}</h3>
+                      <h2 className="text-xl font-bold tracking-tight text-foreground">Ciclo {selectedCycle.cycle_number}</h2>
                       {selectedCycle.start_date && selectedCycle.end_date && (
                         <span className="text-xs text-muted-foreground font-sans">
                           {format(parseISO(selectedCycle.start_date), "dd/MM", { locale: ptBR })} — {format(parseISO(selectedCycle.end_date), "dd/MM", { locale: ptBR })}
@@ -1594,14 +1595,6 @@ export default function StudentPortal() {
                     <Progress value={getCycleProgress(selectedCycle)} className="h-1.5" />
                   </CardContent>
                 </Card>
-
-                <PeriodizationBanner
-                  objective={selectedCycle.objective}
-                  durationWeeks={selectedCycle.duration_weeks}
-                  startDate={selectedCycle.start_date}
-                  endDate={selectedCycle.end_date}
-                  prescribedWeek={selectedWorkout?.weekly_context}
-                />
 
                 {hasUnresolvedActiveSession && (
                   <Card className="border-amber-300 bg-amber-50">
@@ -1622,24 +1615,26 @@ export default function StudentPortal() {
 
                 {!hasUnresolvedActiveSession && (selectedCycle.workouts.length > 0 ? (
                   <div className="space-y-3">
-                    {trainedDays.size > 0 && (
-                      <WeeklyBar
-                        trainedDays={trainedDays}
-                        currentDayOfWeek={new Date().getDay()}
-                        weeklySessionCount={weeklySessionCount}
-                        weeklyGoal={weeklyGoal}
-                        streak={streak}
+                    {selectedWorkout && hasWeeklyPrescriptions && (
+                      <StudentWeekSelector
+                        currentWeek={currentCycleWeek}
+                        durationWeeks={selectedCycle.duration_weeks}
+                        selectedStartWeek={effectiveWeekStart}
+                        hasWeeklyPrescriptions={hasWeeklyPrescriptions}
+                        onChange={(week) => { setSelectedWeekStart(week); setExpandedExercise(null); }}
+                        onBlocked={(message) => toast({ title: "Semana ainda não liberada", description: message, variant: "destructive" })}
+                        compact
                       />
                     )}
-
-
                     {selectedCycle.workouts.length > 1 && (
                       <div className="flex gap-2 overflow-x-auto pb-1">
                         {selectedCycle.workouts.map((w, i) => (
                           <button
                             key={w.id}
+                            type="button"
+                            aria-pressed={selectedWorkoutId === w.id}
                             onClick={() => { setSelectedWorkoutId(w.id); setExpandedExercise(null); }}
-                            className={`flex-shrink-0 px-4 py-2 rounded-md text-sm font-sans font-medium transition-all ${
+                            className={`student-linen-control min-h-11 flex-1 whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-medium transition-colors ${
                               selectedWorkoutId === w.id
                                 ? "bg-primary text-primary-foreground"
                                 : "bg-secondary text-muted-foreground hover:bg-secondary/80"
@@ -1692,17 +1687,6 @@ export default function StudentPortal() {
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <h3 className="min-w-0 break-words text-lg font-semibold leading-snug text-foreground font-sans">{selectedWorkout.title}</h3>
                           <div className="flex min-w-0 flex-wrap items-center gap-2 sm:shrink-0">
-                            {hasWeeklyPrescriptions && (
-                              <StudentWeekSelector
-                                currentWeek={currentCycleWeek}
-                                durationWeeks={selectedCycle.duration_weeks}
-                                selectedStartWeek={effectiveWeekStart}
-                                hasWeeklyPrescriptions={hasWeeklyPrescriptions}
-                                onChange={(week) => { setSelectedWeekStart(week); setExpandedExercise(null); }}
-                                onBlocked={(message) => toast({ title: "Semana ainda não liberada", description: message, variant: "destructive" })}
-                                className="min-w-[12rem] flex-1"
-                              />
-                            )}
                             <Button size="sm" onClick={() => saveCurrentLogs()} disabled={savingLogs || finishingWorkout}>
                               <Save className="h-3.5 w-3.5 mr-1" />
                               {savingLogs ? "Salvando..." : "Salvar"}
@@ -1806,6 +1790,24 @@ export default function StudentPortal() {
                     </CardContent>
                   </Card>
                 ))}
+
+                <PeriodizationBanner
+                  objective={selectedCycle.objective}
+                  durationWeeks={selectedCycle.duration_weeks}
+                  startDate={selectedCycle.start_date}
+                  endDate={selectedCycle.end_date}
+                  prescribedWeek={selectedWorkout?.weekly_context}
+                />
+
+                {trainedDays.size > 0 && (
+                  <WeeklyBar
+                    trainedDays={trainedDays}
+                    currentDayOfWeek={new Date().getDay()}
+                    weeklySessionCount={weeklySessionCount}
+                    weeklyGoal={weeklyGoal}
+                    streak={streak}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -1865,10 +1867,10 @@ export default function StudentPortal() {
           />
         )}
           </motion.div>
-        </AnimatePresence>
         </Suspense>
         <PlatformAdSlot audience="student" placement="footer" companyId={companyId} className="mt-8" />
-      </div>
+      </main>
+      <StudentPortalNavigation activeView={activeView} onNavigate={handleNavigate} reducedMotion={reducedMotion} />
 
       {/* Feedback pós-treino: app como fonte de verdade, WhatsApp apenas como aviso opcional. */}
       <Dialog open={feedbackOpen} onOpenChange={(o) => { if (!o) setFeedbackOpen(false); }}>

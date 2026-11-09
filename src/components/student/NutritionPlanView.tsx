@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Apple, Utensils, Droplets, Flame, Beef, Wheat, Leaf, Loader2, Coffee, Dumbbell, Moon, Check, ClipboardList, Save, FileText, FileUp, Info, ListChecks } from "lucide-react";
+import { Apple, Utensils, Droplets, Flame, Beef, Wheat, Leaf, Loader2, Coffee, ChevronRight, Dumbbell, Moon, Check, ClipboardList, Save, FileText, FileUp, Info, ListChecks } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { businessDateYmd } from "@/lib/businessDate";
 import { extractDietPdfText } from "@/lib/dietPdf";
@@ -78,6 +78,30 @@ function mealIcon(name?: string | null) {
   if (/(ceia|noite|dormir)/.test(n)) return Moon;
   if (/(lanche|fruta)/.test(n)) return Apple;
   return Utensils;
+}
+
+function MealDisclosure({
+  icon: Icon,
+  label,
+  time,
+  children,
+}: {
+  icon: typeof Coffee;
+  label: string;
+  time?: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="group overflow-hidden rounded-2xl border border-border bg-card">
+      <summary className="student-linen-meal flex min-h-12 cursor-pointer list-none items-center gap-3 px-4 py-2.5 font-semibold text-foreground">
+        <Icon className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+        <span className="min-w-0 flex-1 break-words">{label}</span>
+        {time && <Badge variant="outline" className="shrink-0 font-mono-data text-primary">{time}</Badge>}
+        <ChevronRight className="h-4 w-4 shrink-0 group-open:rotate-90" aria-hidden="true" />
+      </summary>
+      {children}
+    </details>
+  );
 }
 
 function MacroCard({ icon: Icon, value, label, tint }: { icon: typeof Flame; value: string; label: string; tint?: string }) {
@@ -371,19 +395,15 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-start gap-2">
-        <Utensils className="h-5 w-5 text-primary shrink-0 mt-1" />
-        <div>
-          <h2 className="font-display text-2xl text-foreground leading-tight">{title}</h2>
-          <div className="flex flex-wrap items-center gap-2 mt-1">
-            {goal && <Badge variant="outline" className="text-primary border-primary/30">{goal}</Badge>}
-            {row.context_dietary_restrictions && (
-              <Badge variant="outline" className="border-emerald-600/30 bg-emerald-600/10 text-emerald-800 capitalize">
-                {row.context_dietary_restrictions}
-              </Badge>
-            )}
-          </div>
+      <div className="space-y-1">
+        <h2 className="text-2xl font-bold leading-tight tracking-tight text-foreground">Plano alimentar</h2>
+        <p className="text-sm text-muted-foreground">Orientações para a sua rotina.</p>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <span className="text-sm font-medium text-foreground">{title}</span>
+          {goal && <Badge variant="outline" className="border-primary/30 text-primary">{goal}</Badge>}
+          {row.context_dietary_restrictions && (
+            <Badge variant="outline" className="capitalize">{row.context_dietary_restrictions}</Badge>
+          )}
         </div>
       </div>
 
@@ -426,7 +446,76 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
         </Card>
       )}
 
-      {/* Hidratação (interativo) — no topo */}
+      {/* PLANO DE REFEIÇÕES (prático, individualizado pela anamnese) */}
+      <section aria-label="Refeições do dia" className="space-y-3 rounded-2xl border border-border bg-card p-3">
+        <h3 className="px-1 text-lg font-bold tracking-tight text-foreground">Refeições do dia</h3>
+        {(isExternalPlan ? importedDisplay?.meals.length : meals.length) ? (
+          <div className="space-y-2.5">
+            {isExternalPlan && importedDisplay ? importedDisplay.meals.map((m, i) => {
+              const Icon = mealIcon(m.meal);
+              return (
+                <MealDisclosure key={i} icon={Icon} label={m.meal} time={m.time}>
+                  <div className="space-y-3 border-t border-border p-4">
+                    {m.focus && <p className="text-sm font-medium text-primary/90">{m.focus}</p>}
+                    {m.items.length > 0 && (
+                      <div>
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5">Prescrição original</p>
+                        <div className="flex flex-col gap-1.5">
+                          {m.items.map((item, itemIndex) => <ImportedPlanItem key={`${item.kind}-${item.text}-${itemIndex}`} item={item} />)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </MealDisclosure>
+              );
+            }) : meals.map((m, i) => {
+              const Icon = mealIcon(m.meal);
+              const eat = asArray<string>(m.eat).filter(Boolean);
+              const easy = asArray<string>(m.go_easy).filter(Boolean);
+              return (
+                <MealDisclosure key={i} icon={Icon} label={m.meal || 'Refeição ' + (i + 1)} time={m.time}>
+                  <div className="space-y-2.5 border-t border-border p-4">
+                    {m.focus && <p className="text-sm font-medium text-primary/90">{m.focus}</p>}
+                    {eat.length > 0 && (
+                      <div>
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5">Comer</p>
+                        <div className="flex flex-wrap gap-1.5">{eat.map((f, k) => <Chip key={k} variant="eat">{f}</Chip>)}</div>
+                      </div>
+                    )}
+                    {easy.length > 0 && (
+                      <div>
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5">Pegar leve</p>
+                        <div className="flex flex-wrap gap-1.5">{easy.map((f, k) => <Chip key={k} variant="easy">{f}</Chip>)}</div>
+                      </div>
+                    )}
+                    {m.note && <p className="text-xs text-muted-foreground">{m.note}</p>}
+                  </div>
+                </MealDisclosure>
+              );
+            })}
+          </div>
+        ) : anamnese?.has_nutritionist ? (
+          externalPlanCard
+        ) : (
+          <Card className="bg-card border-border border-dashed">
+            <CardContent className="p-5 text-center">
+              {generatingMeals ? (
+                <>
+                  <Loader2 className="h-5 w-5 text-primary mx-auto mb-2 animate-spin" />
+                  <p className="text-sm text-muted-foreground font-sans">Montando seu plano de refeições…</p>
+                </>
+              ) : (
+                <>
+                  <Utensils className="h-5 w-5 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground font-sans">Seu plano de refeições está sendo preparado pelo seu treinador.</p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </section>
+
+      {/* Hidratação interativa */}
       {totalGlasses > 0 && (
         <Card className="bg-card border-border">
           <CardContent className="p-4">
@@ -496,93 +585,6 @@ export function NutritionPlanView({ studentId }: { studentId: string }) {
           </CardContent>
         </Card>
       )}
-
-      {/* PLANO DE REFEIÇÕES (prático, individualizado pela anamnese) */}
-      <div>
-        <p className="text-eyebrow text-muted-foreground mb-2">Plano de refeições</p>
-        {(isExternalPlan ? importedDisplay?.meals.length : meals.length) ? (
-          <div className="space-y-2.5">
-            {isExternalPlan && importedDisplay ? importedDisplay.meals.map((m, i) => {
-              const Icon = mealIcon(m.meal);
-              return (
-                <Card key={`${m.meal}-${i}`} className="bg-card border-border overflow-hidden">
-                  <CardContent className="p-0">
-                    <div className="flex items-center justify-between gap-2 bg-primary/5 px-4 py-2.5 border-b border-border">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Icon className="h-4 w-4 text-primary shrink-0" />
-                        <span className="font-semibold text-foreground truncate">{m.meal}</span>
-                      </div>
-                      {m.time && <Badge variant="outline" className="font-mono-data text-primary border-primary/30 shrink-0">{m.time}</Badge>}
-                    </div>
-                    <div className="p-4 space-y-3">
-                      {m.focus && <p className="text-sm font-medium text-primary/90">{m.focus}</p>}
-                      {m.items.length > 0 && (
-                        <div>
-                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5">Prescrição original</p>
-                          <div className="flex flex-col gap-1.5">
-                            {m.items.map((item, itemIndex) => <ImportedPlanItem key={`${item.kind}-${item.text}-${itemIndex}`} item={item} />)}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            }) : meals.map((m, i) => {
-              const Icon = mealIcon(m.meal);
-              const eat = asArray<string>(m.eat).filter(Boolean);
-              const easy = asArray<string>(m.go_easy).filter(Boolean);
-              return (
-                <Card key={i} className="bg-card border-border overflow-hidden">
-                  <CardContent className="p-0">
-                    <div className="flex items-center justify-between gap-2 bg-primary/5 px-4 py-2.5 border-b border-border">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Icon className="h-4 w-4 text-primary shrink-0" />
-                        <span className="font-semibold text-foreground truncate">{m.meal || `Refeição ${i + 1}`}</span>
-                      </div>
-                      {m.time && <Badge variant="outline" className="font-mono-data text-primary border-primary/30 shrink-0">{m.time}</Badge>}
-                    </div>
-                    <div className="p-4 space-y-2.5">
-                      {m.focus && <p className="text-sm font-medium text-primary/90">{m.focus}</p>}
-                      {eat.length > 0 && (
-                        <div>
-                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5">Comer</p>
-                          <div className="flex flex-wrap gap-1.5">{eat.map((f, k) => <Chip key={k} variant="eat">{f}</Chip>)}</div>
-                        </div>
-                      )}
-                      {easy.length > 0 && (
-                        <div>
-                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5">Pegar leve</p>
-                          <div className="flex flex-wrap gap-1.5">{easy.map((f, k) => <Chip key={k} variant="easy">{f}</Chip>)}</div>
-                        </div>
-                      )}
-                      {m.note && <p className="text-xs text-muted-foreground">{m.note}</p>}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        ) : anamnese?.has_nutritionist ? (
-          externalPlanCard
-        ) : (
-          <Card className="bg-card border-border border-dashed">
-            <CardContent className="p-5 text-center">
-              {generatingMeals ? (
-                <>
-                  <Loader2 className="h-5 w-5 text-primary mx-auto mb-2 animate-spin" />
-                  <p className="text-sm text-muted-foreground font-sans">Montando seu plano de refeições…</p>
-                </>
-              ) : (
-                <>
-                  <Utensils className="h-5 w-5 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground font-sans">Seu plano de refeições está sendo preparado pelo seu treinador.</p>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        )}
-      </div>
 
       {isExternalPlan && importedDisplay?.rawText && (
         <details className="rounded-md border border-border bg-card px-4 py-3">

@@ -41,7 +41,7 @@ export function WorkoutTimer({
     }
 
     return (
-      <Button className="w-full h-14 text-lg gap-3 font-sans" onClick={onStart}>
+      <Button className="w-full h-14 rounded-2xl text-lg gap-3 font-sans" onClick={onStart}>
         <Play className="h-5 w-5" />
         Iniciar Treino
       </Button>

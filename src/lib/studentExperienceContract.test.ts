@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StudentHome } from "@/components/student/StudentHome";
+import { StudentPortalNavigation } from "@/components/student/StudentPortalNavigation";
 import { resolveActiveWorkoutInCycles, resolveStudentHomeWorkoutTarget } from "./weeklyStrengthPeriodization";
 import { useWorkoutSession } from "@/hooks/useWorkoutSession";
 import { StudentHistory } from "@/components/student/StudentHistory";
@@ -39,12 +40,32 @@ describe("student-first experience contract", () => {
     const onNavigate = vi.fn();
     render(createElement(StudentHome, { studentName: "Aluno Teste", enrollmentInfo: null, overallProgress: 0,
       selectedCycle: { id: "cycle-1", cycle_number: 1, start_date: "2026-08-01", end_date: "2026-09-30", status: "active", workouts },
-      cycleProgress: 0, workoutCount: 2, weeklySessionCount: 0, trainedDays: new Set<number>(), currentDayOfWeek: 1,
+      cycleProgress: 0, weeklySessionCount: 0, trainedDays: new Set<number>(), currentDayOfWeek: 1,
       totalSessions: 0, weeklyGoal: 3, streak: 0, activeWorkoutId: "active", onNavigate }));
     expect(screen.getByText("Treino em andamento")).toBeInTheDocument();
     expect(screen.getByText("O que muda agora")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Retomar de onde parei").closest("button")!);
     expect(onNavigate).toHaveBeenCalledWith("treino", "active");
+  });
+
+  it("keeps primary destinations in the dock and tracking destinations on the home", () => {
+    const onNavigate = vi.fn();
+    render(createElement(StudentPortalNavigation, { activeView: "home", onNavigate, reducedMotion: true }));
+    render(createElement(StudentHome, { studentName: "Aluno Teste", enrollmentInfo: null, overallProgress: 0,
+      selectedCycle: null, cycleProgress: 0, weeklySessionCount: 0, trainedDays: new Set<number>(),
+      currentDayOfWeek: 1, totalSessions: 0, weeklyGoal: 3, streak: 0, onNavigate }));
+
+    const dock = within(screen.getByRole("navigation", { name: "Navegação do aluno" }));
+    const tracking = within(screen.getByRole("navigation", { name: "Acompanhamento" }));
+    expect(dock.getAllByRole("button").map((button) => button.textContent))
+      .toEqual(["Início", "Treino", "Corrida", "Ciclismo", "Natação", "Nutri"]);
+    expect(dock.getByRole("button", { name: "Início" })).toHaveAttribute("aria-current", "page");
+    expect(tracking.getAllByRole("button")).toHaveLength(3);
+    expect(screen.queryByRole("navigation", { name: "Explorar áreas do app" })).not.toBeInTheDocument();
+
+    fireEvent.click(dock.getByRole("button", { name: "Treino" }));
+    fireEvent.click(tracking.getByRole("button", { name: /^Calendário/ }));
+    expect(onNavigate.mock.calls).toEqual([["treino"], ["calendario"]]);
   });
 
   it("blocks starting another workout when the active session is no longer in any hydrated cycle", async () => {
@@ -104,7 +125,7 @@ describe("student-first experience contract", () => {
     expect(portalSource).not.toContain(">Aquecer<");
     expect(portalSource).not.toContain("setWarmupOpen(true)");
     expect(portalSource).toContain("<StudentWeekSelector");
-    expect(portalSource).toContain("{hasWeeklyPrescriptions && (");
+    expect(portalSource).toMatch(/hasWeeklyPrescriptions && \(\s*<StudentWeekSelector/);
     expect(weekSelectorSource).toContain("if (!hasWeeklyPrescriptions) return null;");
     expect(portalSource).toContain("Salvar");
     expect(portalSource).not.toContain("<WorkoutHeader");

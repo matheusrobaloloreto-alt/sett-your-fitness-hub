@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Loader2, Megaphone } from "lucide-react";
+import { Bell, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { getUnreadAnnouncementCount } from "@/lib/studentAnnouncements";
@@ -26,7 +26,7 @@ export function AnnouncementsBell({ studentId, companyId }: { studentId: string;
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setUnread(0); }}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" className="relative h-11 w-11" aria-label="Avisos" title="Avisos">
-          <Megaphone className="h-4 w-4" />
+          <Bell className="h-5 w-5" aria-hidden="true" />
           {unread > 0 && (
             <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-card" />
           )}

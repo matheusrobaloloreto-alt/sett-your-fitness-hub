@@ -1,0 +1,143 @@
+body:has(.student-linen) {
+  --student-linen-bottom: max(.625rem, env(safe-area-inset-bottom, 0px), var(--sett-install-height, 0px));
+}
+
+body:has(.student-linen) [data-benito-fab="student"] {
+  bottom: calc(5rem + var(--student-linen-bottom));
+}
+
+body:has(.student-linen) [data-student-benito-mission] {
+  bottom: calc(9.75rem + var(--student-linen-bottom));
+}
+
+.student-linen {
+  --student-linen-width: 42rem;
+  --student-linen-gutter: max(.625rem, env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
+  --student-linen-rim: hsl(0 0% 100% / .76);
+  --student-linen-shadow: 0 .35rem 1.25rem hsl(var(--foreground) / .12);
+  --student-linen-glint: inset 0 1px 1px hsl(0 0% 100% / .8), inset 0 -1px 1px hsl(var(--foreground) / .08);
+  background: hsl(var(--background));
+}
+
+.dark .student-linen {
+  --student-linen-rim: hsl(0 0% 100% / .18);
+  --student-linen-glint: inset 0 1px 1px hsl(0 0% 100% / .16);
+}
+
+.student-linen-glass {
+  border: 1px solid var(--student-linen-rim);
+  background: hsl(var(--card));
+  box-shadow: var(--student-linen-glint), var(--student-linen-shadow);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .student-linen-glass {
+    background: hsl(var(--card) / .74);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+    backdrop-filter: blur(22px) saturate(140%);
+  }
+}
+
+.student-linen-header {
+  position: sticky;
+  top: max(.5rem, env(safe-area-inset-top, 0px));
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: .375rem;
+  width: min(var(--student-linen-width), calc(100% - 2 * var(--student-linen-gutter)));
+  min-height: 3.75rem;
+  margin-inline: auto;
+  padding: .3rem .375rem .3rem .5rem;
+  border-radius: 1.375rem;
+}
+
+.student-linen-main {
+  max-width: var(--student-linen-width);
+  margin-inline: auto;
+  padding: 1rem var(--student-linen-gutter) calc(5.25rem + var(--student-linen-bottom));
+}
+
+.student-linen-dock {
+  position: fixed;
+  z-index: 45;
+  inset-inline: var(--student-linen-gutter);
+  bottom: var(--student-linen-bottom);
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: .125rem;
+  max-width: var(--student-linen-width);
+  margin-inline: auto;
+  padding: .3rem;
+  border-radius: 1.45rem;
+}
+
+.student-linen-dock button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.25rem;
+  min-width: 0;
+  gap: .25rem;
+  border-radius: 1rem;
+  font-size: clamp(10px, 2.65vw, 13px);
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.student-linen-dock svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.student-linen-dock button:hover,
+.student-linen-dock button[aria-current="page"] {
+  background: hsl(var(--primary) / .12);
+  color: hsl(var(--primary));
+}
+
+.student-linen-dock button[aria-current="page"] {
+  font-weight: 650;
+}
+
+.student-linen-dock button:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: -2px;
+}
+
+.student-linen .student-linen-main :is(.bg-card, .student-linen-card):not(button):not([role="combobox"]) {
+  border-radius: 1rem;
+  background-color: hsl(var(--card));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.student-linen .student-linen-main button:is(.bg-primary, .bg-background, .bg-secondary, .student-linen-control) {
+  box-shadow: var(--student-linen-glint), 0 2px 5px hsl(var(--foreground) / .08);
+}
+
+.student-linen .student-linen-main .student-linen-week {
+  min-height: 2.75rem;
+  width: 100%;
+  border-radius: .875rem;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .student-linen *,
+  .student-linen *::before,
+  .student-linen *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0s !important;
+  }
+}
+
+.student-linen-meal::-webkit-details-marker {
+  display: none;
+}
+
+.student-linen-meal:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: -2px;
+}

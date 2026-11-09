@@ -136,6 +136,12 @@ export function useBenitoDrag() {
     const current = positionRef.current;
     const bounds = target.getBoundingClientRect();
     const rendered = readRenderedTranslation(target, current);
+    const viewport = readVisualViewport();
+    const dock = document.querySelector(".student-linen-dock");
+    const safeArea = dock ? {
+      ...safeAreaRef.current,
+      bottom: Math.max(safeAreaRef.current.bottom, viewport.top + viewport.height - dock.getBoundingClientRect().top + 8),
+    } : safeAreaRef.current;
     return clampBenitoDragPosition(candidate, {
       // A resize may fire while the previous CSS transition is still between
       // state positions. Derive the base from the transform actually painted,
@@ -144,7 +150,7 @@ export function useBenitoDrag() {
       baseTop: bounds.top - rendered.y,
       width: bounds.width,
       height: bounds.height,
-    }, readVisualViewport(), safeAreaRef.current);
+    }, viewport, safeArea);
   }, []);
 
   const reclamp = useCallback(() => {

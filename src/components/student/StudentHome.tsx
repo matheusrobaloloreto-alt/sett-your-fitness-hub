@@ -1,11 +1,11 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
-import { Dumbbell, BarChart3, CalendarDays, Megaphone, Play, Moon, ArrowRight, Utensils, Footprints, Waves, Bike, Watch } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import {
+  ArrowRight, BarChart3, CalendarDays, Check, ChevronRight, Dumbbell,
+  Flame, Layers, Link2, Megaphone, Moon, Target,
+} from "lucide-react";
+import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { cn } from "@/lib/utils";
-import { WeeklyBar } from "./WeeklyBar";
 import {
   buildStudentProgressionHighlight,
   resolveStudentHomeWorkoutTarget,
@@ -30,7 +30,6 @@ interface StudentHomeProps {
   overallProgress: number;
   selectedCycle: Cycle | null;
   cycleProgress: number;
-  workoutCount: number;
   weeklySessionCount: number;
   trainedDays: Set<number>;
   currentDayOfWeek: number;
@@ -40,11 +39,6 @@ interface StudentHomeProps {
   activeWorkoutId?: string | null;
   goalEditor?: React.ReactNode;
   leaderboard?: React.ReactNode;
-  // Abas de prescrição condicionais: só aparecem se a prescrição correspondente existir no app do aluno.
-  hasNutrition?: boolean;
-  hasCorrida?: boolean;
-  hasNatacao?: boolean;
-  hasCiclismo?: boolean;
   onNavigate: (view: StudentNavView, workoutId?: string | null) => void;
 }
 
@@ -52,47 +46,33 @@ export type StudentNavView =
   | "treino" | "stats" | "calendario" | "atividades" | "avisos" | "medidas"
   | "nutricao" | "corrida" | "natacao" | "ciclismo" | "integracoes";
 
-type NavItem = { view: StudentNavView; label: string; icon: typeof Dumbbell; sub?: string };
+const trackingItems = [
+  { view: "calendario", label: "Calendário", icon: CalendarDays, sub: "Histórico de treinos" },
+  { view: "stats", label: "Estatísticas", icon: BarChart3, sub: "Volume e evolução" },
+  { view: "integracoes", label: "Integrações", icon: Link2, sub: "Relógios e aplicativos" },
+] as const;
 
-function ProgressionHighlightBlock({
-  title,
-  eyebrow,
-  body,
-  tone = "light",
-}: {
-  title: string;
-  eyebrow: string;
-  body: string;
-  tone?: "light" | "dark";
-}) {
-  const titleClass = tone === "dark" ? "text-foreground" : "text-primary-foreground";
-  const eyebrowClass = tone === "dark" ? "text-primary" : "text-primary-foreground/65";
-  const bodyClass = tone === "dark" ? "text-muted-foreground" : "text-primary-foreground/78";
-  return (
-    <div className="mt-3 max-w-[34rem] space-y-1">
-      <p className={`font-mono-data text-[10px] uppercase tracking-[0.16em] ${eyebrowClass}`}>
-        <span className={titleClass}>{title}</span>
-        <span className="mx-1.5">·</span>
-        {eyebrow}
-      </p>
-      <p className={`text-sm leading-relaxed ${bodyClass}`}>
-        {body}
-      </p>
-    </div>
-  );
+function getCycleCalendarLabel(cycle: Cycle, today: Date, progress: number) {
+  const start = parseISO(cycle.start_date);
+  const end = parseISO(cycle.end_date);
+  const scheduledDays = differenceInCalendarDays(end, start);
+  if (!(scheduledDays > 0)) return { week: null, detail: null };
+
+  const elapsedDays = differenceInCalendarDays(today, start);
+  if (elapsedDays < 0) return { week: null, detail: `Início em ${format(start, "dd/MM")}` };
+  if (elapsedDays > scheduledDays) return { week: null, detail: "Período encerrado" };
+
+  const duration = cycle.duration_weeks;
+  if (duration && Number.isInteger(duration) && duration > 0 && Math.abs(duration * 7 - scheduledDays) <= 1) {
+    const elapsedWeeks = Math.min(Math.floor(elapsedDays / 7), duration);
+    return {
+      week: Math.min(elapsedWeeks + 1, duration),
+      detail: `${elapsedWeeks} de ${duration} ${duration === 1 ? "semana" : "semanas"}`,
+    };
+  }
+
+  return { week: null, detail: `${format(start, "dd/MM")} – ${format(end, "dd/MM")} · ${progress}%` };
 }
-
-const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
-  { view: "treino", label: "Treino", icon: Dumbbell },
-];
-
-const SECONDARY_NAV_ITEMS: readonly NavItem[] = [
-  { view: "stats", label: "Estatísticas", icon: BarChart3, sub: "Volume e força" },
-  { view: "calendario", label: "Calendário", icon: CalendarDays, sub: "Histórico mensal" },
-  { view: "integracoes", label: "Integrações", icon: Watch, sub: "Relógios e aplicativos" },
-  // "Atividades" removido: cada modalidade prescrita (corrida/natação/ciclismo/nutrição) tem sua própria aba.
-  // "Avisos" removido daqui: virou o sino no topo (AnnouncementsBell).
-];
 
 export function StudentHome({
   studentName,
@@ -101,7 +81,6 @@ export function StudentHome({
   overallProgress,
   selectedCycle,
   cycleProgress,
-  workoutCount,
   weeklySessionCount,
   trainedDays,
   currentDayOfWeek,
@@ -110,20 +89,17 @@ export function StudentHome({
   activeWorkoutId,
   goalEditor,
   leaderboard,
-  hasNutrition,
-  hasCorrida,
-  hasNatacao,
-  hasCiclismo,
   onNavigate,
 }: StudentHomeProps) {
   const firstName = studentName.split(" ")[0];
-  const todayLabel = format(new Date(), "EEEE · dd 'de' MMMM", { locale: ptBR });
+  const today = new Date();
   const workoutTarget = resolveStudentHomeWorkoutTarget(
     selectedCycle?.workouts,
     currentDayOfWeek,
     activeWorkoutId,
   );
   const primaryWorkout = workoutTarget?.workout ?? null;
+  const isActiveWorkout = workoutTarget?.kind === "active";
   const isStaleActiveWorkout = workoutTarget?.kind === "stale_active";
   const progressionHighlight = selectedCycle
     ? buildStudentProgressionHighlight({
@@ -132,229 +108,176 @@ export function StudentHome({
       durationWeeks: selectedCycle.duration_weeks,
       startDate: selectedCycle.start_date,
       endDate: selectedCycle.end_date,
+      today,
     })
     : null;
 
-  // Abas de prescrição que só aparecem quando o treinador publicou aquela modalidade.
-  const prescriptionItems: NavItem[] = [
-    hasCorrida ? { view: "corrida", label: "Corrida", icon: Footprints, sub: "Plano de corrida" } : null,
-    hasCiclismo ? { view: "ciclismo", label: "Ciclismo", icon: Bike, sub: "Plano de ciclismo" } : null,
-    hasNatacao ? { view: "natacao", label: "Natação", icon: Waves, sub: "Plano de natação" } : null,
-    hasNutrition ? { view: "nutricao", label: "Dicas nutricionais", icon: Utensils, sub: "Plano alimentar" } : null,
-  ].filter(Boolean) as NavItem[];
-  const navItems: NavItem[] = [...PRIMARY_NAV_ITEMS, ...prescriptionItems, ...SECONDARY_NAV_ITEMS];
-
-  const subFor = (view: StudentNavView, fallback?: string) => {
-    if (view === "treino") return workoutCount > 0 ? `${workoutCount} treinos disponíveis` : "Ver treinos do ciclo";
-    return fallback ?? "";
-  };
+  const cycleCalendar = selectedCycle && getCycleCalendarLabel(selectedCycle, today, cycleProgress);
+  const weeklyDone = weeklySessionCount ?? trainedDays.size;
+  const workoutAction = isActiveWorkout ? "Retomar de onde parei" : primaryWorkout ? "Abrir treino" : "Ver treinos do ciclo";
 
   return (
-    <div className="space-y-7">
-      {/* Greeting — editorial */}
-      <div>
-        <p className="text-eyebrow">{todayLabel}</p>
-        <h2 className="font-display text-3xl sm:text-4xl text-foreground mt-1 leading-tight">
-          Olá, {firstName}.{nameBadge}
+    <div className="space-y-3">
+      <div className="px-1 pb-2">
+        <h2 className="flex flex-wrap items-center gap-x-2 font-sans text-3xl font-bold leading-tight tracking-tight text-foreground sm:text-4xl">
+          <span>Olá, {firstName}</span>{nameBadge}
         </h2>
-        {enrollmentInfo && (
-          <div className="mt-4 space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-mono-data text-[11px] tracking-wide text-muted-foreground">{enrollmentInfo.plan_name}</span>
-              <span className="font-mono-data text-[11px] text-muted-foreground">
-                {format(parseISO(enrollmentInfo.start_date), "dd/MM/yy")} – {format(parseISO(enrollmentInfo.end_date), "dd/MM/yy")} · {overallProgress}%
-              </span>
-            </div>
-            <Progress value={overallProgress} className="h-1.5" />
-          </div>
-        )}
+        <p className="mt-1 text-base text-muted-foreground">
+          {primaryWorkout ? "Bom treino!" : format(today, "EEEE · dd 'de' MMMM", { locale: ptBR })}
+        </p>
       </div>
 
-      {/* Hero — Treino de hoje (maior ação do atleta) */}
-      {selectedCycle && (
-        <button onClick={() => onNavigate("treino", primaryWorkout?.id ?? null)} className="w-full text-left group">
-          <Card className="student-action-surface relative overflow-hidden border-primary transition-shadow group-hover:shadow-lg">
-            <Dumbbell className="absolute -right-4 -bottom-5 h-32 w-32 text-primary-foreground/10 rotate-12 pointer-events-none" />
-            <CardContent className="relative p-5">
-              {primaryWorkout ? (
-                <>
-                  <p className="font-mono-data text-[11px] uppercase tracking-[0.18em] text-primary-foreground/60">
-                    {workoutTarget?.kind === "active" ? "Treino em andamento" : "Treino de hoje"}
-                  </p>
-                  <h3 className="font-display text-2xl mt-1.5 text-primary-foreground leading-snug">
-                    {primaryWorkout.title}
-                  </h3>
-                  {progressionHighlight && (
-                    <ProgressionHighlightBlock
-                      title={progressionHighlight.title}
-                      eyebrow={progressionHighlight.eyebrow}
-                      body={progressionHighlight.body}
-                    />
-                  )}
-                  <span className="inline-flex items-center gap-2 mt-4 text-sm font-semibold">
-                    <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-primary-foreground/15">
-                      <Play className="h-3.5 w-3.5 fill-current" />
-                    </span>
-                    {workoutTarget?.kind === "active" ? "Retomar de onde parei" : "Iniciar treino"}
-                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-                  </span>
-                </>
-              ) : isStaleActiveWorkout ? (
-                <>
-                  <p className="font-mono-data text-[11px] uppercase tracking-[0.18em] text-primary-foreground/60">
-                    Treino em andamento
-                  </p>
-                  <h3 className="font-display text-2xl mt-1.5 text-primary-foreground leading-snug">
-                    Retomar treino em andamento
-                  </h3>
-                  <p className="mt-2 max-w-[34rem] text-sm leading-relaxed text-primary-foreground/75">
-                    Há uma sessão aberta de outro treino. Abra a aba de treino para recuperar antes de iniciar outro.
-                  </p>
-                  {progressionHighlight && (
-                    <ProgressionHighlightBlock
-                      title={progressionHighlight.title}
-                      eyebrow={progressionHighlight.eyebrow}
-                      body={progressionHighlight.body}
-                    />
-                  )}
-                  <span className="inline-flex items-center gap-1.5 mt-4 text-sm font-medium text-primary-foreground/80">
-                    Ver treinos do ciclo
-                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-                  </span>
-                </>
+      {selectedCycle ? (
+        <Card className="rounded-2xl border-border">
+          <CardContent className="space-y-3 p-4">
+            <h3 className="flex items-center gap-3 font-sans text-xl font-semibold leading-tight tracking-tight">
+              {primaryWorkout || isStaleActiveWorkout ? (
+                <Dumbbell className="h-6 w-6 shrink-0" aria-hidden="true" />
               ) : (
-                <>
-                  <p className="font-mono-data text-[11px] uppercase tracking-[0.18em] text-primary-foreground/60">
-                    Hoje
-                  </p>
-                  <h3 className="font-display text-2xl mt-1.5 text-primary-foreground leading-snug flex items-center gap-2">
-                    <Moon className="h-5 w-5" /> Dia de descanso
-                  </h3>
-                  {progressionHighlight && (
-                    <ProgressionHighlightBlock
-                      title={progressionHighlight.title}
-                      eyebrow={progressionHighlight.eyebrow}
-                      body={progressionHighlight.body}
-                    />
-                  )}
-                  <span className="inline-flex items-center gap-1.5 mt-4 text-sm font-medium text-primary-foreground/80">
-                    Ver treinos do ciclo
-                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-                  </span>
-                </>
+                <Moon className="h-6 w-6 shrink-0" aria-hidden="true" />
               )}
-            </CardContent>
-          </Card>
-        </button>
-      )}
-
-      {/* Onboarding — aluno ainda sem ciclo/treino montado */}
-      {!selectedCycle && (
-        <Card className="border-border bg-card">
-          <CardContent className="p-5">
-            <p className="font-mono-data text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Bem-vindo</p>
-            <h3 className="font-display text-xl text-foreground mt-1.5 leading-snug">Seu treino está sendo montado</h3>
-            <p className="text-sm text-muted-foreground mt-2">
+              {isActiveWorkout || isStaleActiveWorkout ? "Treino em andamento" : primaryWorkout ? "Treino de hoje" : "Dia de descanso"}
+            </h3>
+            {primaryWorkout && <p className="text-lg font-semibold leading-snug">{primaryWorkout.title}</p>}
+            {isStaleActiveWorkout && (
+              <div>
+                <p className="font-semibold">Retomar treino em andamento</p>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  Há uma sessão aberta de outro treino. Abra a aba de treino para recuperar antes de iniciar outro.
+                </p>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => onNavigate("treino", primaryWorkout?.id ?? null)}
+              className="flex min-h-12 w-full items-center justify-center gap-3 rounded-xl bg-primary px-4 py-2.5 text-center text-base font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              {workoutAction}
+              <ArrowRight className="h-5 w-5 shrink-0" aria-hidden="true" />
+            </button>
+            {progressionHighlight && (
+              <div className="space-y-1 border-t border-border pt-3 text-sm">
+                <p className="font-medium">
+                  <span>{progressionHighlight.title}</span>
+                  <span className="text-muted-foreground"> · <span>{progressionHighlight.eyebrow}</span></span>
+                </p>
+                <p className="max-w-prose leading-snug text-muted-foreground">{progressionHighlight.body}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="rounded-2xl border-border">
+          <CardContent className="space-y-3 p-4">
+            <h3 className="font-sans text-lg font-semibold tracking-tight">Seu treino está sendo montado</h3>
+            <p className="text-sm text-muted-foreground">
               Seu treinador está preparando seu programa. Enquanto isso, fique de olho nos avisos:
             </p>
-            <div className="mt-4">
-              <button
-                onClick={() => onNavigate("avisos")}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/50"
-              >
-                <Megaphone className="h-4 w-4 text-primary" /> Ver avisos
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate("avisos")}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <Megaphone className="h-4 w-4 text-primary" aria-hidden="true" /> Ver avisos
+            </button>
           </CardContent>
         </Card>
       )}
 
-      {/* Ciclo atual */}
-      {selectedCycle && (
-        <Card className="bg-card border-border">
-          <CardContent className="p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h3 className="font-mono-data text-sm font-semibold uppercase tracking-[0.12em] text-primary">
-                  Ciclo {selectedCycle.cycle_number}
-                </h3>
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/50 text-primary">Atual</Badge>
+      {selectedCycle && cycleCalendar && (
+        <Card className="rounded-2xl border-border">
+          <CardContent className="space-y-2.5 p-4">
+            <h3 className="flex items-center gap-3 font-sans text-lg font-semibold leading-tight tracking-tight">
+              <Layers className="h-6 w-6 shrink-0" aria-hidden="true" />
+              <span>Ciclo {selectedCycle.cycle_number}{cycleCalendar.week && ` · Semana ${cycleCalendar.week}`}</span>
+            </h3>
+            {cycleCalendar.detail && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <Progress
+                  value={cycleProgress}
+                  aria-valuenow={cycleProgress}
+                  aria-label="Progresso do ciclo"
+                  className="h-2.5 min-w-16 flex-1 bg-border/60 [&>div]:rounded-full"
+                />
+                <span className="text-sm tabular-nums text-muted-foreground">{cycleCalendar.detail}</span>
               </div>
-              <span className="font-mono-data text-[11px] text-muted-foreground">
-                {format(parseISO(selectedCycle.start_date), "dd/MM", { locale: ptBR })} – {format(parseISO(selectedCycle.end_date), "dd/MM", { locale: ptBR })} · {cycleProgress}%
-              </span>
-            </div>
-            <Progress value={cycleProgress} className="h-1.5" />
+            )}
           </CardContent>
         </Card>
       )}
 
-      {/* Semana */}
-      <WeeklyBar
-        trainedDays={trainedDays}
-        currentDayOfWeek={currentDayOfWeek}
-        weeklySessionCount={weeklySessionCount}
-        weeklyGoal={weeklyGoal}
-        streak={streak}
-        goalEditor={goalEditor}
-      />
+      <Card className="rounded-2xl border-border">
+        <CardContent className="space-y-2.5 p-4">
+          <h3 className="flex items-center gap-3 font-sans text-lg font-semibold leading-tight tracking-tight">
+            <Target className="h-6 w-6 shrink-0" aria-hidden="true" /> Meta semanal
+          </h3>
+          <p className="text-center text-base font-medium tabular-nums">
+            {weeklyDone} de {weeklyGoal} {weeklyGoal === 1 ? "treino" : "treinos"}
+          </p>
+          {Number.isInteger(weeklyGoal) && weeklyGoal > 0 && weeklyGoal <= 7 && (
+            <div aria-hidden="true" className="mx-auto flex max-w-xs flex-wrap justify-evenly gap-2">
+              {Array.from({ length: weeklyGoal }, (_, index) => (
+                index < weeklyDone ? (
+                  <span key={index} className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check className="h-4 w-4" />
+                  </span>
+                ) : (
+                  <span key={index} className="h-7 w-7 rounded-full border border-border" />
+                )
+              ))}
+            </div>
+          )}
+          {(streak > 0 || goalEditor) && (
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {streak > 0 && (
+                <span className="inline-flex items-center gap-1">
+                  <Flame className="h-4 w-4 text-primary" aria-hidden="true" />
+                  {streak} {streak === 1 ? "semana seguida" : "semanas seguidas"}
+                </span>
+              )}
+              {goalEditor && <div className="ml-auto">{goalEditor}</div>}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <nav aria-label="Acompanhamento" className="space-y-3 pt-3">
+        <h3 className="px-1 font-sans text-2xl font-bold leading-tight tracking-tight text-foreground">Acompanhamento</h3>
+        <Card className="overflow-hidden rounded-2xl border-border">
+          <ul className="divide-y divide-border">
+            {trackingItems.map(({ view, label, icon: Icon, sub }) => (
+              <li key={view}>
+                <button
+                  type="button"
+                  onClick={() => onNavigate(view)}
+                  className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                >
+                  <Icon className="h-6 w-6 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-base font-semibold leading-tight">{label}</span>
+                    <span className="block text-sm leading-tight text-muted-foreground">{sub}</span>
+                  </span>
+                  <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      </nav>
 
       {leaderboard}
 
-      {/* Navegação */}
-      <nav aria-label="Explorar áreas do app" className="border-t border-border pt-5">
-        <div className="mb-3 flex items-end justify-between gap-3">
-          <div>
-            <p className="text-eyebrow">Explorar</p>
-            <h3 className="mt-1 font-display text-xl leading-tight text-foreground">Seu índice de treino</h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => onNavigate("treino")}
-            className="min-h-11 shrink-0 rounded-md border border-primary/40 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-          >
-            Abrir treino
-          </button>
-        </div>
-        <ul aria-label="Destinos do portal do aluno" className="grid grid-cols-2 gap-2">
-          {navItems.map((item) => {
-            const { view, label, icon: Icon } = item;
-            const sub = item.sub;
-            const resolvedSub = subFor(view, sub);
-            const isToday = view === "treino" && !!primaryWorkout;
-            return (
-              <li key={view} className="min-w-0">
-                <button
-                  type="button"
-                  aria-label={`${label}: ${resolvedSub}`}
-                  onClick={() => onNavigate(view)}
-                  className={cn(
-                    "group flex min-h-11 h-full w-full flex-col rounded-xl border border-border bg-card p-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
-                  )}
-                >
-                  <span className="flex w-full items-start justify-between gap-2">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 transition-colors group-hover:bg-primary/15">
-                      <Icon className="h-5 w-5 text-primary" aria-hidden="true" />
-                    </span>
-                    {isToday ? (
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[9px] font-semibold uppercase text-primary">Hoje</span>
-                    ) : (
-                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" aria-hidden="true" />
-                    )}
-                  </span>
-                  <span className="mt-2 min-w-0 w-full flex-1">
-                    <span className="flex flex-wrap items-center gap-2">
-                      <span className="font-sans text-sm font-semibold text-foreground">{label}</span>
-                    </span>
-                    <span className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted-foreground">{resolvedSub}</span>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
+      {enrollmentInfo && (
+        <Card className="rounded-2xl border-border">
+          <CardContent className="space-y-2 p-4">
+            <h3 className="font-sans text-base font-semibold tracking-tight">{enrollmentInfo.plan_name}</h3>
+            <p className="text-xs tabular-nums text-muted-foreground">
+              {format(parseISO(enrollmentInfo.start_date), "dd/MM/yy")} – {format(parseISO(enrollmentInfo.end_date), "dd/MM/yy")} · {overallProgress}%
+            </p>
+            <Progress value={overallProgress} aria-valuenow={overallProgress} aria-label="Progresso do plano" className="h-1.5" />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
