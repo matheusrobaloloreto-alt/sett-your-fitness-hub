@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useCompanyFeatures } from "@/hooks/useCompanyFeatures";
 import { useMaster } from "@/contexts/MasterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -49,7 +50,7 @@ interface PortfolioStudent {
   assigned_trainer_id: string | null;
   currentContract?: StudentContractSummary | null;
   country_code: string | null;
-  cycle_end?: string | null; chat_id?: string | null; hours_since_contact?: number | null;
+  cycle_end?: string | null;
 }
 
 const emptyStudentForm = {
@@ -79,6 +80,8 @@ export default function Portfolio() {
   const { toast } = useToast();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId ?? null;
+  const features = useCompanyFeatures();
+  const canUseWhatsApp = Boolean(effectiveCompanyId && features.hasWhatsApp && !features.loading && !features.refreshing && !features.error);
   const { policy, error: policyError } = useCompanyExperiencePolicy(effectiveCompanyId);
   const canManageCompanyStudents = Boolean(user?.id && effectiveCompanyId)
     && ["trainer", "coordinator", "admin", "master"].includes(role || "");
@@ -88,6 +91,14 @@ export default function Portfolio() {
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [selectedId, setSelectedId] = useState<string>(ALL_STUDENTS);
   const [students, setStudents] = useState<PortfolioStudent[]>([]);
+  const [whatsApp, setWhatsApp] = useState<{
+    roster: PortfolioStudent[];
+    chatIds: Map<string, string> | null;
+    hours: Map<string, number>;
+    unavailable: boolean;
+  } | null>(null);
+  const whatsAppDetails = canUseWhatsApp && students[0]?.company_id === effectiveCompanyId
+    && whatsApp?.roster === students ? whatsApp : null;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
@@ -187,35 +198,18 @@ export default function Portfolio() {
     }
     const ids = list.map((s) => s.id);
     if (ids.length) {
-      const [cycles, chats, contracts, cad] = await Promise.all([
+      const [cycles, contracts] = await Promise.all([
         readForIds(ids, (batch, from, to) => supabase.from("training_cycles").select("student_id, end_date")
           .eq("company_id", companyIdAtRequest).in("student_id", batch).eq("status", "active").order("id").range(from, to)),
-        readForIds(ids, (batch, from, to) => supabase.from("whatsapp_chats").select("id, student_id")
-          .eq("company_id", companyIdAtRequest).in("student_id", batch).order("id").range(from, to)),
         readCurrentStudentContracts(companyIdAtRequest, ids),
-        (supabase as any).rpc("contact_cadence", { _company_id: companyIdAtRequest }).then((r: any) => r, () => ({ data: null, error: true })),
       ]);
-      if (cad.error) throw new Error("Dados complementares indisponíveis");
       const cycleMap = new Map<string, string>();
       cycles.forEach((c) => {
         const cur = cycleMap.get(c.student_id);
         if (c.end_date && (!cur || c.end_date < cur)) cycleMap.set(c.student_id, c.end_date);
       });
-      const chatMap = new Map<string, string>();
-      chats.forEach((c) => { if (c.student_id) chatMap.set(c.student_id, c.id); });
-      const cadMap = new Map<string, number>();
-      ((cad?.data || []) as any[]).forEach((r: any) => {
-        if (!r.student_id) return;
-        const hours = Number(r.hours_since);
-        if (Number.isFinite(hours) && hours > (cadMap.get(r.student_id) ?? -1)) {
-          cadMap.set(r.student_id, hours);
-          chatMap.set(r.student_id, r.chat_id);
-        }
-      });
       list.forEach((s) => {
         s.cycle_end = cycleMap.get(s.id) || null;
-        s.chat_id = chatMap.get(s.id) || null;
-        s.hours_since_contact = cadMap.has(s.id) ? cadMap.get(s.id)! : null;
         s.currentContract = contracts.get(s.id) ?? null;
       });
     }
@@ -233,6 +227,40 @@ export default function Portfolio() {
   }, [effectiveCompanyId, selectedId]);
 
   useEffect(() => { void load(); return () => { loadSeqRef.current++; }; }, [load]);
+
+  useEffect(() => {
+    setWhatsApp(null);
+    if (!effectiveCompanyId || !canUseWhatsApp || !students.length ||
+      students.some(student => student.company_id !== effectiveCompanyId)) return;
+    let current = true;
+    const ids = students.map(student => student.id);
+    void Promise.allSettled([
+      readForIds(ids, (batch, from, to) => supabase.from("whatsapp_chats").select("id, student_id")
+        .eq("company_id", effectiveCompanyId).in("student_id", batch).order("id").range(from, to)),
+      Promise.resolve().then(() => supabase.rpc("contact_cadence", { _company_id: effectiveCompanyId })),
+    ]).then(([chats, cadence]) => {
+      if (!current) return;
+      const chatIds = chats.status === "fulfilled" ? new Map<string, string>() : null;
+      if (chats.status === "fulfilled") {
+        for (const row of chats.value) if (row.student_id) chatIds?.set(row.student_id, row.id);
+      }
+      const cadenceAvailable = cadence.status === "fulfilled" && !cadence.value.error;
+      const rosterIds = new Set(ids);
+      const hours = new Map<string, number>();
+      if (cadenceAvailable) {
+        for (const row of cadence.value.data ?? []) {
+          if (!row.student_id || !rosterIds.has(row.student_id) || row.hours_since == null) continue;
+          const elapsed = Number(row.hours_since);
+          if (Number.isFinite(elapsed) && elapsed >= 0 && elapsed > (hours.get(row.student_id) ?? -1)) {
+            hours.set(row.student_id, elapsed);
+            if (row.chat_id) chatIds?.set(row.student_id, row.chat_id);
+          }
+        }
+      }
+      setWhatsApp({ roster: students, chatIds, hours, unavailable: !chatIds || !cadenceAvailable });
+    });
+    return () => { current = false; };
+  }, [effectiveCompanyId, canUseWhatsApp, students]);
 
   const openEditStudent = (student: PortfolioStudent) => {
     if (bulkInteractionLocked || !canManageStudent(student)) return;
@@ -549,6 +577,7 @@ export default function Portfolio() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
+      {whatsAppDetails?.unavailable && <p role="status" className="text-sm text-muted-foreground">Alguns dados do WhatsApp estão indisponíveis.</p>}
       {policyError && <p role="alert" className="text-sm text-destructive">Nao foi possivel carregar a politica de contatos e renovacao.</p>}
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="flex items-center gap-2 text-xl font-semibold text-primary">
@@ -633,6 +662,7 @@ export default function Portfolio() {
           ) : (
             <div className="divide-y divide-border">
               {filtered.map((s) => {
+                const hoursSinceContact = whatsAppDetails?.hours.get(s.id);
                 const days = s.cycle_end ? differenceInDays(parseISO(s.cycle_end), new Date()) : null;
                 const bulkEligible = isBulkTrainerReassignmentEligible(s);
                 return (
@@ -663,9 +693,9 @@ export default function Portfolio() {
                         <Badge className={cn("text-[10px]", STATUS_CLASS[s.status] || "bg-muted")}>{studentRecordStatusLabel(s.status)}</Badge>
                         <span className="text-[11px] text-muted-foreground">{PORTFOLIO_TRAINER_LABEL}: {trainerName(s[PORTFOLIO_TRAINER_COLUMN])}</span>
                         <Badge variant="outline" className="text-[10px]">{studentContractLabel(s.currentContract)}</Badge>
-                        {s.hours_since_contact != null && (
-                          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-mono-data font-bold", CAD_CLASS[cadenceTone(s.hours_since_contact, policy)])}>
-                            sem resposta há {formatCadence(s.hours_since_contact)}
+                        {hoursSinceContact != null && (
+                          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-mono-data font-bold", CAD_CLASS[cadenceTone(hoursSinceContact, policy)])}>
+                            sem resposta há {formatCadence(hoursSinceContact)}
                           </span>
                         )}
                         {s.cycle_end && (
@@ -684,13 +714,13 @@ export default function Portfolio() {
                             context={`Aluno da carteira. Status: ${studentRecordStatusLabel(s.status)}. ${s.cycle_end ? `Ciclo atual termina em ${format(parseISO(s.cycle_end), "dd/MM/yyyy")}.` : "Sem ciclo ativo identificado."}`}
                             question="Qual é a ação técnica ou operacional prioritária para este aluno?"
                           />
-                          <StudentChatButton
+                          {whatsAppDetails?.chatIds && <StudentChatButton
                             studentId={s.id}
                             studentName={s.full_name}
                             phone={s.whatsapp || s.phone}
-                            chatId={s.chat_id}
+                            chatId={whatsAppDetails.chatIds.get(s.id)}
                             className="text-primary hover:bg-muted/60"
-                          />
+                          />}
                         </>
                       )}
                       {canReassignStudents && canManageStudent(s) && (

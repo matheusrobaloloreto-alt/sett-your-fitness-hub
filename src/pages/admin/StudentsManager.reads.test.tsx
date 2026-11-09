@@ -1,6 +1,8 @@
 import type { PropsWithChildren } from 'react';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+vi.mock('@/lib/businessDate', () => ({ businessDateYmd: () => '2026-11-09' }));
+const contractPlanSelect = 'id, name, company_id, duration_days, duration_weeks';
 const mock = vi.hoisted(() => ({ company: 'company-a', read: vi.fn(), toast: vi.fn() }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ role: 'admin', companyId: mock.company, session: { user: { id: 'admin' } } }) }));
 vi.mock('@/contexts/MasterContext', () => ({ useMaster: () => ({ viewingCompany: null, isViewingCompany: false }) }));
@@ -34,7 +36,7 @@ function response(table: string, filters: Record<string, unknown>, selection: st
  const company = String(filters.company_id || String((filters.student_id as string[])?.[0] || '').replace('student-', ''));
  if (table === 'students') return { data: [student(company)], error: null };
  if (table === 'enrollments') return { data: [{ id: `e-${company}`, student_id: `student-${company}`, company_id: company, status: 'active', start_date: '2020-01-01', end_date: '2030-01-01', plan_id: 'contracted' }], error: null };
- if (table === 'plans') return { data: selection === 'id, name' ? [{ id: 'contracted', name: `Contrato ${company}` }] : [{ id: 'chosen', name: 'Influenciador(a)', plan_kind: 'influencer', duration_weeks: 6 }], error: null };
+ if (table === 'plans') return { data: selection === contractPlanSelect ? [{ id: 'contracted', company_id: company, name: `Contrato ${company}` }] : [{ id: 'chosen', name: 'Influenciador(a)', plan_kind: 'influencer', duration_weeks: 6 }], error: null };
  return { data: [], error: null };
 }
 function deferred() { let resolve!: (value: unknown) => void; const promise = new Promise(value => { resolve = value; }); return { resolve, promise }; }
@@ -43,19 +45,19 @@ afterEach(cleanup);
 it.each(['students', 'plan metadata'])('ignores delayed A %s after B is displayed', async phase => {
  const pending = deferred();
  mock.read.mockImplementation((table, filters, selection) => {
-  if (filters.company_id === 'company-a' && (phase === 'students' ? table === 'students' : table === 'plans' && selection === 'id, name')) return pending.promise;
+  if (filters.company_id === 'company-a' && (phase === 'students' ? table === 'students' : table === 'plans' && selection === contractPlanSelect)) return pending.promise;
   return response(table, filters, selection);
  });
  const view = render(<StudentsManager />);
- await waitFor(() => expect(mock.read).toHaveBeenCalledWith(phase === 'students' ? 'students' : 'plans', expect.objectContaining({ company_id: 'company-a' }), phase === 'students' ? '*' : 'id, name'));
+ await waitFor(() => expect(mock.read).toHaveBeenCalledWith(phase === 'students' ? 'students' : 'plans', expect.objectContaining({ company_id: 'company-a' }), phase === 'students' ? '*' : contractPlanSelect));
  mock.company = 'company-b'; view.rerender(<StudentsManager />);
  await screen.findByRole('button', { name: 'Aluno company-b' });
- await act(async () => { pending.resolve(response(phase === 'students' ? 'students' : 'plans', { company_id: 'company-a' }, phase === 'students' ? '*' : 'id, name')); });
+ await act(async () => { pending.resolve(response(phase === 'students' ? 'students' : 'plans', { company_id: 'company-a' }, phase === 'students' ? '*' : contractPlanSelect)); });
  expect(screen.queryByRole('button', { name: 'Aluno company-a' })).not.toBeInTheDocument();
  expect(screen.getByText('Plano contratado vigente: Contrato company-b')).toBeInTheDocument();
 });
 it.each(['error', 'absent'])('keeps the known contract when its plan metadata is %s', async mode => {
- mock.read.mockImplementation((table, filters, selection) => table === 'plans' && selection === 'id, name'
+ mock.read.mockImplementation((table, filters, selection) => table === 'plans' && selection === contractPlanSelect
   ? { data: [], error: mode === 'error' ? { message: 'metadata unavailable' } : null } : response(table, filters, selection));
  render(<StudentsManager />);
  expect(await screen.findByText('Plano contratado vigente: nome indisponível')).toBeInTheDocument();
@@ -73,7 +75,7 @@ it.each([null, '', '   '])('preserves the current enrollment without inventing a
  mock.read.mockImplementation((table, filters, selection) => {
   const result = response(table, filters, selection);
   if (table === 'enrollments') return { data: result.data.map(row => ({ ...row, plan_id: planId })), error: null };
-  if (table === 'plans' && selection === 'id, name') return { data: [], error: { message: 'invalid input syntax for type uuid' } };
+  if (table === 'plans' && selection === contractPlanSelect) return { data: [], error: { message: 'invalid input syntax for type uuid' } };
   return result;
  });
  render(<StudentsManager />);
@@ -82,5 +84,41 @@ it.each([null, '', '   '])('preserves the current enrollment without inventing a
  expect(screen.queryByText('Sem plano contratado vigente')).not.toBeInTheDocument();
  expect(screen.queryByText('Plano contratado vigente: nome indisponível')).not.toBeInTheDocument();
  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
- expect(mock.read.mock.calls.filter(([table, , selection]) => table === 'plans' && selection === 'id, name')).toEqual([]);
+ expect(mock.read.mock.calls.filter(([table, , selection]) => table === 'plans' && selection === contractPlanSelect)).toEqual([]);
+});
+
+
+it.each([
+ ['long plan', { start_date: '2026-08-01', end_date: null }, { duration_days: 120 }, 'Plano contratado vigente: Contrato company-a'],
+ ['weeks fallback', { start_date: '2026-09-01', end_date: null }, { duration_weeks: 12 }, 'Plano contratado vigente: Contrato company-a'],
+ ['no dates', { start_date: null, end_date: null }, { duration_days: 120 }, 'Vigência do contrato não confirmada'],
+ ['no duration', { start_date: '2026-10-01', end_date: null }, {}, 'Vigência do contrato não confirmada'],
+ ['foreign duration', { start_date: '2026-10-01', end_date: null }, { company_id: 'company-b', duration_days: 120 }, 'Vigência do contrato não confirmada'],
+ ['future training after contract end', { start_date: '2026-10-01', end_date: '2026-11-09', training_start_date: '2026-12-01' }, {}, 'Plano contratado vigente: Contrato company-a'],
+])('resolves commercial coverage for %s', async (_case, dates, metadata, label) => {
+ mock.read.mockImplementation((table, filters, selection) => {
+  const result = response(table, filters, selection);
+  if (table === 'enrollments') return { ...result, data: result.data.map(row => ({ ...row, ...dates })) };
+  if (table === 'plans' && selection !== 'id, name, duration_weeks, duration_days, plan_kind') {
+   return { data: [{ id: 'contracted', name: 'Contrato company-a', company_id: 'company-a', ...metadata }], error: null };
+  }
+  return result;
+ });
+ render(<StudentsManager />);
+ expect(await screen.findByText(label)).toBeInTheDocument();
+});
+
+it('prefers the proven active contract over an awaiting-training contract or undated active record', async () => {
+ mock.read.mockImplementation((table, filters, selection) => {
+  const result = response(table, filters, selection);
+  if (table !== 'enrollments') return result;
+  const active = result.data[0];
+  return { ...result, data: [
+   { ...active, id: 'undated', plan_id: 'unknown', start_date: null, end_date: null, created_at: '2026-11-08' },
+   { ...active, id: 'awaiting', plan_id: 'awaiting', status: 'awaiting_training', created_at: '2026-11-07' },
+   { ...active, created_at: '2026-11-06' },
+  ] };
+ });
+ render(<StudentsManager />);
+ expect(await screen.findByText('Plano contratado vigente: Contrato company-a')).toBeInTheDocument();
 });

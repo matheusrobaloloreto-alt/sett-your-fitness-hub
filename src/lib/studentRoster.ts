@@ -26,11 +26,13 @@ export const OPEN_ENROLLMENT_STATUSES = ["active", "awaiting_training", "awaitin
 export interface StudentContractSummary {
   planId: string | null;
   planName: string | null;
+  termUnverified?: true;
 }
 
 export function studentContractLabel(contract: StudentContractSummary | null | undefined) {
   if (contract === undefined) return "Contrato indisponível: falha de leitura";
   if (contract === null) return "Sem plano contratado vigente";
+  if (contract.termUnverified) return "Vigência do contrato não confirmada";
   if (!contract.planId) return "Matrícula vigente sem plano vinculado";
   return `Plano contratado vigente: ${contract.planName ?? "nome indisponível"}`;
 }
