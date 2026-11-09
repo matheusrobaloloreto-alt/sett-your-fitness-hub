@@ -4,11 +4,12 @@ import { MemoryRouter } from 'react-router-dom';
 const originalScrollIntoView = Element.prototype.scrollIntoView;
 beforeAll(() => { Element.prototype.scrollIntoView = vi.fn(); });
 afterAll(() => { Element.prototype.scrollIntoView = originalScrollIntoView; });
-const m=vi.hoisted(()=>({ company:'a', hasWhatsApp:true, featureLoading:false, read:vi.fn(), rpc:vi.fn(), calls:[] as {table:string;filters:Record<string,unknown>}[], toast:vi.fn() }));
+const m=vi.hoisted(()=>({ company:'a', hasWhatsApp:true, featureLoading:false, roleAllowsChat:true, read:vi.fn(), rpc:vi.fn(), calls:[] as {table:string;filters:Record<string,unknown>}[], toast:vi.fn() }));
 vi.mock('@/hooks/useAuth',()=>({useAuth:()=>({role:'admin',companyId:m.company,user:{id:'operator'}})}));
 vi.mock('@/contexts/MasterContext',()=>({useMaster:()=>({isViewingCompany:false,viewingCompany:null})}));
 vi.mock('@/hooks/use-toast',()=>({useToast:()=>({toast:m.toast})}));
 vi.mock('@/hooks/useCompanyFeatures',()=>({useCompanyFeatures:()=>({hasWhatsApp:m.hasWhatsApp,loading:m.featureLoading,error:null})}));
+vi.mock('@/hooks/useRolePermissions',()=>({useRolePermissions:()=>({loading:false,canAccess:()=>m.roleAllowsChat})}));
 vi.mock('@/hooks/useCompanyExperiencePolicy',()=>({useCompanyExperiencePolicy:()=>({policy:{},error:null})}));
 vi.mock('@/components/BnitoFloatingAssistant',()=>({BnitoContextButton:()=>null}));
 vi.mock('@/components/admin/StudentChatButton',()=>({StudentChatButton:()=> <button>Abrir conversa</button>}));
@@ -17,7 +18,7 @@ import Portfolio from './Portfolio';
 function deferred(){let resolve!:(v:any)=>void;const promise=new Promise(r=>{resolve=r;});return{promise,resolve};}
 const student=(name:string)=>({id:name,company_id:m.company,full_name:name,status:'active',assigned_trainer_id:null});
 const mount=()=>render(<MemoryRouter><Portfolio/></MemoryRouter>);
-beforeEach(()=>{m.company='a';m.hasWhatsApp=true;m.featureLoading=false;m.calls=[];m.read.mockResolvedValue({data:[],error:null});m.rpc.mockResolvedValue({data:[],error:null});});
+beforeEach(()=>{m.company='a';m.hasWhatsApp=true;m.featureLoading=false;m.roleAllowsChat=true;m.calls=[];m.read.mockResolvedValue({data:[],error:null});m.rpc.mockResolvedValue({data:[],error:null});});
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 it('query error is not zero or empty; retry recovers actual students',async()=>{
  m.read.mockResolvedValue({data:null,error:{message:'offline'}});mount();await screen.findByRole('alert');
@@ -91,8 +92,9 @@ it.each(['whatsapp_chats', 'contact_cadence'])('retains roster and counts when %
  expect(screen.queryByText(/sem resposta há/)).toBeNull();
 });
 
-it.each(['denied', 'loading'])('skips WhatsApp reads and chat while entitlement is %s', async state => {
- m.hasWhatsApp=state === 'loading';
+it.each(['denied', 'loading', 'role denied'])('skips WhatsApp reads and chat while access is %s', async state => {
+ m.hasWhatsApp=state !== 'denied';
+ m.roleAllowsChat=state !== 'role denied';
  m.featureLoading=state === 'loading';
  m.read.mockImplementation(table => ({ data: table === 'students' ? [student('Aluno sem WhatsApp')] : [], error: null }));
  mount();

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useCompanyFeatures } from "@/hooks/useCompanyFeatures";
 import { useMaster } from "@/contexts/MasterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,7 +82,9 @@ export default function Portfolio() {
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId ?? null;
   const features = useCompanyFeatures();
-  const canUseWhatsApp = Boolean(effectiveCompanyId && features.hasWhatsApp && !features.loading && !features.refreshing && !features.error);
+  const permissions = useRolePermissions();
+  const canUseWhatsApp = Boolean(effectiveCompanyId && features.hasWhatsApp && !features.loading
+    && !features.refreshing && !features.error && !permissions.loading && permissions.canAccess("whatsapp"));
   const { policy, error: policyError } = useCompanyExperiencePolicy(effectiveCompanyId);
   const canManageCompanyStudents = Boolean(user?.id && effectiveCompanyId)
     && ["trainer", "coordinator", "admin", "master"].includes(role || "");

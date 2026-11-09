@@ -1,7 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { businessDateYmd } from "./businessDate";
-import { projectEnrollmentHistoryByPlan } from "./companyDashboardSnapshot";
-import { readForIds, readPages } from "./pagedRead";
+import { readForIds } from "./pagedRead";
 import { scheduleDay } from "./prescriptionCoverage";
 import { OPEN_ENROLLMENT_STATUSES, type StudentContractSummary } from "./studentRoster";
 
@@ -63,21 +62,4 @@ export async function readCurrentStudentContracts(companyId: string, studentIds:
     else if (unverified) contracts.set(studentId, { planId: null, planName: null, termUnverified: true });
   }
   return contracts;
-}
-
-// Match the snapshot's historical population, including unlinked plans and
-// excluding rows whose student or linked plan belongs to another company.
-export async function readEnrollmentHistoryByPlan(companyId: string, studentIds?: string[]) {
-  const page = (from: number, to: number, ids?: string[]) => {
-    let query = supabase.from("enrollments")
-      .select("plan_id, students!inner(company_id), plans(name, company_id)")
-      .eq("company_id", companyId).eq("students.company_id", companyId);
-    if (ids) query = query.in("student_id", ids);
-    return query.order("id").range(from, to);
-  };
-  const rows = studentIds
-    ? await readForIds(studentIds, (ids, from, to) => page(from, to, ids))
-    : await readPages(page);
-  return projectEnrollmentHistoryByPlan(rows.filter(row =>
-    row.students?.company_id === companyId && (!row.plan_id || row.plans?.company_id === companyId)));
 }

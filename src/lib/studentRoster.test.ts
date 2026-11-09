@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { projectEnrollmentHistoryByPlan } from "./companyDashboardSnapshot";
 import { readForIds } from "./pagedRead";
 import { countStudentRecords, studentContractLabel } from "./studentRoster";
 
@@ -20,10 +19,6 @@ describe("shared SETT indicators", () => {
     expect(studentContractLabel({ planId: "b", planName: null })).toBe("Plano contratado vigente: nome indisponível");
   });
 
-  it("counts historical enrollment rows, including repeated plans and unlinked rows", () => {
-    expect(projectEnrollmentHistoryByPlan([{ plans: { name: "A" } }, { plans: null }, { plans: { name: "A" } }]))
-      .toEqual([{ name: "A", count: 2 }, { name: "Sem plano", count: 1 }]);
-  });
 
   it("reads every page and limits the number of IDs in each request", async () => {
     const ids = Array.from({ length: 101 }, (_, index) => String(index));
