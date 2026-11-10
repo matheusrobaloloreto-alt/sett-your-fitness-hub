@@ -149,6 +149,7 @@ const rows: Record<string, any[]> = {
       trainer_id: userId,
       plan_id: "plan-standard",
       plan_name: "Plano Performance Longo",
+      created_at: "2026-09-01T12:00:00Z",
       start_date: "2026-09-01",
       end_date: "2026-10-13",
       training_start_date: "2026-09-03",
