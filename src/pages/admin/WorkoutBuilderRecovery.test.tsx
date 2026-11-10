@@ -30,6 +30,11 @@ vi.mock("@/lib/preRegistrationData", async (importOriginal) => ({
   updateStudentPreRegistration: vi.fn(),
 }));
 
+const effectiveExerciseTargetsRpc = "get_effective_exercise_targets";
+const mutationRpcNames = () => mocks.rpc.mock.calls
+  .map(([name]) => name)
+  .filter((name) => name !== effectiveExerciseTargetsRpc);
+
 const companyId = "20000000-0000-4000-8000-000000000001";
 const actorId = "10000000-0000-4000-8000-000000000001";
 const recoveredId = "40000000-0000-4000-8000-000000000001";
@@ -130,6 +135,10 @@ beforeEach(() => {
     return { data: { result: { status: "ok", warnings: [], blockers: [] } }, error: null };
   });
   mocks.rpc.mockImplementation(async (name: string, args: Row) => {
+    if (name === effectiveExerciseTargetsRpc) {
+      // These fixtures have no exercise muscle target rows.
+      return { data: [], error: null };
+    }
     if (name === "ensure_workout_library_references") {
       events.push("register");
       return mocks.register(args);
@@ -174,7 +183,7 @@ describe("mounted WorkoutBuilder recovery integration", () => {
     expect(screen.queryByRole("dialog", { name: "Usar treino da biblioteca" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Treino cycle-a QA" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Sessao extra QA" })).toBeInTheDocument();
-    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mutationRpcNames()).toEqual([]);
     expect(rows.get("cycle-a")).toEqual(originalRows);
     expect(templates).toEqual(originalTemplates);
     await act(async () => { fireEvent.click(saveButton()); });
@@ -207,7 +216,7 @@ describe("mounted WorkoutBuilder recovery integration", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Substituir treino atual" }));
     expect(screen.queryByRole("tab", { name: "Treino cycle-a QA" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Sessao extra QA" })).toBeInTheDocument();
-    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mutationRpcNames()).toEqual([]);
   }, 20000);
 
   it("registers missing references before validation and revision RPC; blocks a second pending save", async () => {
@@ -222,7 +231,7 @@ describe("mounted WorkoutBuilder recovery integration", () => {
       await waitFor(() => expect(mocks.register).toHaveBeenCalledTimes(1));
       expect(screen.getByRole("button", { name: /^Salvando\.\.\.$/ })).toBeDisabled();
       expect(mocks.invoke).not.toHaveBeenCalled();
-      expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual(["ensure_workout_library_references"]);
+      expect(mutationRpcNames()).toEqual(["ensure_workout_library_references"]);
       expect(rows.get("cycle-a")).toEqual(before);
     } finally {
       await act(async () => {
@@ -252,7 +261,7 @@ describe("mounted WorkoutBuilder recovery integration", () => {
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Não foi possível preparar os exercícios" })));
     expect(saveButton()).toBeEnabled();
     expect(mocks.invoke).not.toHaveBeenCalled();
-    expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual(["ensure_workout_library_references"]);
+    expect(mutationRpcNames()).toEqual(["ensure_workout_library_references"]);
     expect(rows.get("cycle-a")).toEqual(before);
   }, 20000);
 
@@ -301,7 +310,7 @@ describe("mounted WorkoutBuilder recovery integration", () => {
       fireEvent.click(busyButton); fireEvent.click(busyButton);
       expect(mocks.register).toHaveBeenCalledTimes(2);
       expect(mocks.invoke).not.toHaveBeenCalled();
-      expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual([
+      expect(mutationRpcNames()).toEqual([
         "ensure_workout_library_references", "ensure_workout_library_references",
       ]);
       expect(screen.getByDisplayValue("Treino cycle-b QA")).toBeInTheDocument();
@@ -352,7 +361,7 @@ describe("mounted WorkoutBuilder recovery integration", () => {
     expect(screen.queryByText("Validador pré-salvar")).not.toBeInTheDocument();
     expect(screen.queryByTestId("workout-save-gate-panel")).not.toBeInTheDocument();
     expect(mocks.toast).not.toHaveBeenCalled();
-    expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual(["ensure_workout_library_references"]);
+    expect(mutationRpcNames()).toEqual(["ensure_workout_library_references"]);
     expect(rows.get("cycle-a")).toEqual(sourceRows("cycle-a"));
     expect(rows.get("cycle-b")).toEqual(sourceRows("cycle-b"));
   }, 20000);
@@ -379,7 +388,7 @@ describe("mounted WorkoutBuilder recovery integration", () => {
     expect(saveButton()).toBeEnabled();
     expect(mocks.invoke).not.toHaveBeenCalled();
     expect(mocks.toast).not.toHaveBeenCalled();
-    expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual(["ensure_workout_library_references"]);
+    expect(mutationRpcNames()).toEqual(["ensure_workout_library_references"]);
     expect(rows.get("cycle-a")).toEqual(sourceRows("cycle-a"));
     expect(rows.get("cycle-b")).toEqual(sourceRows("cycle-b"));
   }, 20000);

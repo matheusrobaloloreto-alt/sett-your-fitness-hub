@@ -35,6 +35,11 @@ vi.mock("@/components/admin/SaveWorkoutToLibraryDialog", async (importOriginal) 
  }};
 });
 
+const effectiveExerciseTargetsRpc = "get_effective_exercise_targets";
+const mutationRpcNames = () => mocks.rpc.mock.calls
+  .map(([name]) => name)
+  .filter((name) => name !== effectiveExerciseTargetsRpc);
+
 const companyId = "20000000-0000-4000-8000-000000000001";
 const actorId = "10000000-0000-4000-8000-000000000001";
 const recoveredId = "40000000-0000-4000-8000-000000000001";
@@ -137,6 +142,10 @@ beforeEach(() => {
     return { data: { result: { status: "ok", warnings: [], blockers: [] } }, error: null };
   });
   mocks.rpc.mockImplementation(async (name: string, args: Row) => {
+    if (name === effectiveExerciseTargetsRpc) {
+      // These fixtures have no exercise muscle target rows.
+      return { data: [], error: null };
+    }
     if (name === "ensure_workout_library_references") {
       events.push("register");
       return mocks.register(args);
@@ -192,7 +201,7 @@ describe('mounted selector destinations and persistence', () => {
    const video = await screen.findByRole('dialog', {name:'VÍDEO'});
    await waitFor(() => expect(video.querySelector('video')).toHaveAttribute('src','https://example.com/one.mp4'));
    expect(video.querySelector('iframe')).toBeNull();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(mutationRpcNames()).toEqual([]);
    fireEvent.click(within(video).getByRole('button', {name:'Close'}));
    const button = within(watch.parentElement!).getByRole('button', {name:'Adicionar ao treino'});
    act(() => { fireEvent.click(button); fireEvent.click(button); });
@@ -255,14 +264,14 @@ describe('mounted selector destinations and persistence', () => {
    const video = await screen.findByRole('dialog',{name:'VÍDEO'});
    await waitFor(()=>expect(mocks.sign).toHaveBeenCalledWith('company/private.mp4',300));
    expect(video.querySelector('video')).toBeNull();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(mutationRpcNames()).toEqual([]);
    fireEvent.click(within(video).getByRole('button',{name:'Close'}));
    closeLibrary(dialog);
    fireEvent.click(screen.getByRole('link',{name:'Outro ciclo QA'}));
    await screen.findByDisplayValue('Treino cycle-b QA');
    await act(async()=>{held.resolve({data:{signedUrl:'https://synthetic.supabase.co/storage/v1/object/sign/exercises-videos/company/private.mp4?token=synthetic'},error:null});});
    expect(screen.queryByRole('dialog',{name:'VÍDEO'})).toBeNull();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(mutationRpcNames()).toEqual([]);
    vi.unstubAllEnvs();
  },30000);
 
@@ -277,7 +286,7 @@ describe('mounted selector destinations and persistence', () => {
    expect(addButton).toBeDisabled();
    fireEvent.click(addButton);
    expect(mocks.toast).not.toHaveBeenCalled();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(mutationRpcNames()).toEqual([]);
    expect(within(dialog).getByText('Selecione um treino para adicionar')).toBeInTheDocument();
    closeLibrary(dialog);
    choose('Treino A');
@@ -299,7 +308,7 @@ describe('mounted selector destinations and persistence', () => {
    const video = await screen.findByRole('dialog',{name:'VÍDEO'});
    await waitFor(()=>expect(video.querySelector('iframe')).toHaveAttribute('src','https://www.youtube-nocookie.com/embed/abcdefghijk'));
    expect(mocks.sign).not.toHaveBeenCalled();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(mutationRpcNames()).toEqual([]);
    fireEvent.click(within(video).getByRole('button',{name:'Close'}));
    await act(async()=>{fireEvent.click(saveButton());});
    expect(screen.getByText('Save confirmado QA')).toBeInTheDocument();
@@ -322,7 +331,7 @@ describe('mounted selector destinations and persistence', () => {
    await act(async()=>{held.resolve({data:{signedUrl:'https://synthetic.supabase.co/storage/v1/object/sign/exercises-videos/company/private.mp4?token=synthetic'},error:null});});
    expect(screen.queryByRole('dialog',{name:'VÍDEO'})).toBeNull();
    expect(document.querySelector('video[src*="token=synthetic"]')).toBeNull();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(mutationRpcNames()).toEqual([]);
  },30000);
 
  it('discards pending validation after role loss with the same actor and tenant', async () => {
