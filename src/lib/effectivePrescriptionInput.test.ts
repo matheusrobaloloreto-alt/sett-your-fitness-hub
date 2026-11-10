@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { intercycleProjection, mergeEffectiveAnamnesis } from "../../supabase/functions/_shared/effective-anamnesis";
 import { applyEffectivePrescriptionInput } from "../../supabase/functions/_shared/prescription/effective-input";
+import { buildCardioProgram } from "../../supabase/functions/_shared/prescription/cardio/cardioEngine";
 import { buildPrescriptionInputFromEdgePayload } from "../../supabase/functions/_shared/prescription/adapters/inputAdapter";
 
 const scope = { companyId: "company", studentId: "student" };
@@ -14,7 +15,7 @@ function row(id: string, day: string, answers: Record<string, unknown>) {
   return { id, submitted_at: `2026-10-${day}T10:00:00Z`, company_id: scope.companyId, student_id: scope.studentId,
     sensitive_consent: true, ...answers };
 }
-function effective(rows: Record<string, unknown>[], canonical = base) {
+function effective(rows: Record<string, unknown>[], canonical: Record<string, unknown> = base) {
   const intercycle = intercycleProjection(scope, rows, canonical);
   return { intercycle, anamnesis: mergeEffectiveAnamnesis(canonical, intercycle), staffCorrections: {} };
 }
@@ -44,6 +45,65 @@ describe("effective inputs at the prescription API boundary", () => {
     expect(applyEffectivePrescriptionInput(stale, resolved, "nutrition")).toMatchObject({
       objective: "forca", has_microwave: false, stress_score: 0,
     });
+  });
+
+  it("reads each first-block cardio volume from its own sport in the saved intake", () => {
+    const resolved = effective([], {
+      ...base, current_volume_weekly: 25, current_volume_unit: "km_week",
+      answers: { swim_volume: "3000m/sem" },
+      notes: "CICLISMO: speed, volume 4,5 h/sem, FTP/potência 210 W",
+    });
+    const payload = { ...stale, block_number: 1, current_volume: 25, current_volume_unit: "km_week" };
+    for (const [sport, current_volume, current_volume_unit] of [
+      ["corrida", 25, "km_week"],
+      ["natacao", 3, "km_week"],
+      ["ciclismo", 4.5, "hours_week"],
+    ] as const) {
+      expect(applyEffectivePrescriptionInput({ ...payload, sport }, resolved, "cardio"))
+        .toMatchObject({ current_volume, current_volume_unit });
+    }
+    const swimmingInput = applyEffectivePrescriptionInput({ ...payload, sport: "natacao" }, resolved, "cardio");
+    const swimming = buildCardioProgram(swimmingInput);
+    const swimmingWithRunningVolume = buildCardioProgram({ ...swimmingInput, current_volume: 25 });
+    expect(swimming.weeks[0].volume_hours).toBeLessThan(swimmingWithRunningVolume.weeks[0].volume_hours);
+  });
+
+  it("clears ambiguous first-block and stale later-block volumes while honoring an explicit legacy input", () => {
+    const resolved = effective([], { ...base, current_volume_weekly: 25, notes: "NATAÇÃO: volume treino quando possível" });
+    const payload = { ...stale, sport: "natacao", current_volume_unit: "km_week" };
+    expect(applyEffectivePrescriptionInput({ ...payload, block_number: 1 }, resolved, "cardio"))
+      .toMatchObject({ current_volume: null, current_volume_unit: null });
+    const timed = effective([], { ...base, notes: "NATAÇÃO: volume 2x40min" });
+    expect(applyEffectivePrescriptionInput({ ...payload, block_number: 1 }, timed, "cardio"))
+      .toMatchObject({ current_volume: 80 / 60, current_volume_unit: "hours_week" });
+    const known = effective([], { ...base, notes: "NATAÇÃO: volume 3 km/sem, melhor tempo/pace 2:00" });
+    expect(applyEffectivePrescriptionInput({ ...payload, block_number: 2 }, known, "cardio"))
+      .toMatchObject({ current_volume: null, current_volume_unit: null });
+    expect(applyEffectivePrescriptionInput({ ...payload, draft_only: false, current_volume: 2 }, known, "cardio"))
+      .toMatchObject({ current_volume: 2, current_volume_unit: "km_week" });
+  });
+
+  it("keeps an unambiguous legacy volume for its own sport and refuses to borrow it for another sport", () => {
+    const canonical = { ...base, sport: "ciclismo", current_volume_weekly: 6, current_volume_unit: "hours_week" };
+    const payload = { ...stale, block_number: 1 };
+    expect(applyEffectivePrescriptionInput({ ...payload, sport: "ciclismo" }, effective([], canonical), "cardio"))
+      .toMatchObject({ current_volume: 6, current_volume_unit: "hours_week" });
+    expect(applyEffectivePrescriptionInput({ ...payload, sport: "natacao" }, effective([], canonical), "cardio"))
+      .toMatchObject({ current_volume: null, current_volume_unit: null });
+    expect(applyEffectivePrescriptionInput({ ...payload, sport: "corrida" }, effective([], canonical), "cardio"))
+      .toMatchObject({ current_volume: null, current_volume_unit: null });
+    expect(applyEffectivePrescriptionInput({ ...payload, sport: "ciclismo" }, effective([], { ...canonical, wants_running: true }), "cardio"))
+      .toMatchObject({ current_volume: null, current_volume_unit: null });
+  });
+
+  it("calibrates a new swimming block using the previous swimming plan's hours", () => {
+    const input = { sport: "natacao", duration_weeks: 6, days_per_week: 3, block_number: 2, session_duration: 60 };
+    const previous = buildCardioProgram({ ...input, current_volume: 6, current_volume_unit: "hours_week" });
+    const hours = Math.max(...previous.weeks.filter(week => week.type !== "deload").slice(-2).map(week => week.volume_hours));
+    const inherited = buildCardioProgram({ ...input, previous_plan_context: previous });
+    const reported = buildCardioProgram({ ...input, current_volume: hours, current_volume_unit: "hours_week" });
+    expect(inherited.weeks[0].volume_hours).toBe(reported.weeks[0].volume_hours);
+    expect(inherited.weeks[0].volume_hours).not.toBe(buildCardioProgram(input).weeks[0].volume_hours);
   });
 
   it("keeps the last classified objective and flags free text for review without blocking strength", () => {

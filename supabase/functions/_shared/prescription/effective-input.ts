@@ -2,6 +2,7 @@ import { anamnesisStaffCorrectionTimes, intercycleProjection, mergeEffectiveAnam
 import { convertedLeadAnamnesis, preRegistrationToStudioAnamnesis, readConvertedLead } from "../lead-anamnesis.ts";
 import { isIntercyclePainHandoffRequired } from "../intercycle-anamnesis.ts";
 import { HttpError } from "../tenant-auth.ts";
+import { hasNonRunningLegacyVolume, readSportSpecificWeeklyVolume } from "./cardio/weekly-volume.ts";
 import { buildBnitoOrchestrationPlan, buildPrescriptionIntegration } from "./integration.ts";
 
 export async function readEffectivePrescriptionAnamnesis(db: any, scope: AnamnesisScope) {
@@ -99,11 +100,24 @@ export function applyEffectivePrescriptionInput(
     next.injuries = combineConstraints(next.injuries, payload.restrictions);
     next.session_duration = preferredPrescriptionValue(payload, payload.session_duration,
       answers.endurance_session_duration_min ?? answers.session_duration_min);
-    if (supplied(payload.current_volume) || Number(payload.program_sequence?.sequence_number ?? payload.block_number) === 1) {
-      if (supplied(answers.current_volume_weekly) && (payload.draft_only || !supplied(payload.current_volume))) {
-        next.current_volume = answers.current_volume_weekly;
-        next.current_volume_unit = supplied(answers.current_volume_unit) ? answers.current_volume_unit : payload.current_volume_unit;
+    const sequence = payload.program_sequence?.sequence_number ?? payload.block_number;
+    const firstBlock = Number(sequence) === 1;
+    if (payload.sport === "natacao" || payload.sport === "ciclismo") {
+      if (payload.draft_only || !supplied(payload.current_volume)) {
+        const isInitial = firstBlock || (sequence == null && !payload.training_cycle_id);
+        const volume = isInitial ? readSportSpecificWeeklyVolume(answers, payload.sport) : null;
+        next.current_volume = volume?.value ?? null;
+        next.current_volume_unit = volume?.unit ?? null;
       }
+    } else if (hasNonRunningLegacyVolume(answers)) {
+      if (payload.draft_only || !supplied(payload.current_volume)) {
+        next.current_volume = null;
+        next.current_volume_unit = null;
+      }
+    } else if ((supplied(payload.current_volume) || firstBlock) && supplied(answers.current_volume_weekly)
+      && (payload.draft_only || !supplied(payload.current_volume))) {
+      next.current_volume = answers.current_volume_weekly;
+      next.current_volume_unit = supplied(answers.current_volume_unit) ? answers.current_volume_unit : payload.current_volume_unit;
     }
     next.restrictions = combineConstraints(payload.restrictions, ...activePain);
     const eva = { ...payload.eva };

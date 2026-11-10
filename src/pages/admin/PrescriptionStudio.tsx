@@ -32,6 +32,7 @@ import {
   buildPrescriptionIntegration,
   formatPrescriptionIntegrationSummary,
 } from "../../../supabase/functions/_shared/prescription/integration";
+import { hasNonRunningLegacyVolume, readSportSpecificWeeklyVolume } from "../../../supabase/functions/_shared/prescription/cardio/weekly-volume";
 import { readEdgeError } from "@/lib/edgeError";
 import { buildPublishDecisionLog, publishIntegratedStudioDraft, publishStrengthDraftToStudent, type StudioModalityVersions } from "@/lib/publishStrengthPlan";
 import { businessDateYmd } from "@/lib/businessDate";
@@ -1197,18 +1198,21 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
         }
 
         const strengthPlan = generatedStrength?.plan as { workouts?: unknown[] } | undefined;
-        const sportMap: Record<string, string> = { corrida: "corrida", natacao: "natacao", ciclismo: "ciclismo" };
-        for (const modality of ["corrida", "natacao", "ciclismo"] as Modality[]) {
+        const firstBlock = (cycle.sequence_number ?? cycle.cycle_number) === 1;
+        for (const modality of ["corrida", "natacao", "ciclismo"] as const) {
           if (!modalities.has(modality)) continue;
           setStatus((current) => ({ ...current, [modality]: "generating" }));
-          const prior = previousCardio[sportMap[modality]];
+          const prior = previousCardio[modality];
+          const volume = !firstBlock ? null : modality === "corrida"
+            ? hasNonRunningLegacyVolume(a) ? null : { value: a.current_volume_weekly, unit: a.current_volume_unit }
+            : readSportSpecificWeeklyVolume(a, modality);
           const { data, error: edgeError } = await supabase.functions.invoke("ai-running-plan", { body: {
             student_id: studentId, student_name: student?.name, company_id: companyId,
-            anamnese_id: a.id, sport: sportMap[modality], goal: a.cardio_goal || "Melhora de performance",
+            anamnese_id: a.id, sport: modality, goal: a.cardio_goal || "Melhora de performance",
             duration_weeks: 6, days_per_week: Number(a.days_per_week_cardio ?? 3),
             session_duration: Number(a.endurance_session_duration_min ?? a.session_duration_min ?? 60),
-            current_volume: (cycle.sequence_number ?? cycle.cycle_number) === 1 ? a.current_volume_weekly : null,
-            current_volume_unit: (cycle.sequence_number ?? cycle.cycle_number) === 1 ? a.current_volume_unit : null,
+            current_volume: volume?.value ?? null,
+            current_volume_unit: volume?.unit ?? null,
             fcmax: a.fcmax, fcrep: a.fcrep, experience_months: a.experience_months, injuries: a.injuries,
             strength_plan_context: strengthPlan ? {
               days_per_week: Number(a.days_per_week_strength ?? 3),
@@ -1222,18 +1226,18 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
             assessment_context: assessmentCtx, anamnese_context: a,
             prescription_integration: integrationCtx, bnito_orchestration: orchestrationCtx,
             bundle_id: bundleId, training_cycle_id: cycle.id, draft_only: true,
-            previous_plan_id: prior?.id || null, previous_plan_context: prior || null,
+            previous_plan_id: prior?.id || null,
             block_number: cycle.sequence_number ?? cycle.cycle_number, program_sequence: programSequence,
           } });
           if (edgeError || data?.error) throw new Error((await readEdgeError(edgeError, data)) || `Falha em ${modality} no ciclo ${cycle.cycle_number}.`);
           if (data?.draft_only !== true) throw new Error(`O servidor não confirmou o rascunho de ${modality}.`);
           generatedCardio = captureGeneratedCardioPlan(
             generatedCardio,
-            modality as "corrida" | "natacao" | "ciclismo",
+            modality,
             { id: data?.id, plan: data?.plan, updated_at: data?.updated_at },
           );
-          modalityVersions[modality as "corrida" | "natacao" | "ciclismo"] = { id: data.id, updated_at: data.updated_at };
-          previousCardio[sportMap[modality]] = { id: data.id, ...data.plan };
+          modalityVersions[modality] = { id: data.id, updated_at: data.updated_at };
+          previousCardio[modality] = { id: data.id, ...data.plan };
           cardioPlans[modality] = data.plan; newResults[modality] = data.plan;
           setStatus((current) => ({ ...current, [modality]: "done" }));
         }

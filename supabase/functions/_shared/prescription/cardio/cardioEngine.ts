@@ -346,8 +346,11 @@ export function buildCardioProgram(input: CardioInput): CardioPlan {
   // A unidade vem explícita do formulário para horas não serem interpretadas como quilômetros.
   const reportedVolume = num(input.current_volume);
   const inheritedVolume = previousVolume(input, sport);
-  const currentVol = Number.isFinite(reportedVolume) && reportedVolume > 0 ? reportedVolume : inheritedVolume;
-  const currentVolumeUnit = input.current_volume_unit === "hours_week" ? "hours_week" : "km_week";
+  const hasReportedVolume = Number.isFinite(reportedVolume) && reportedVolume > 0;
+  const currentVol = hasReportedVolume ? reportedVolume : inheritedVolume;
+  const currentVolumeUnit = hasReportedVolume
+    ? input.current_volume_unit === "hours_week" ? "hours_week" : "km_week"
+    : sport === "natacao" ? "hours_week" : "km_week";
   let volCalibrated = false;
   if (!isNaN(currentVol) && currentVol > 0 && currentVolumeUnit === "hours_week") {
     const d0 = clamp(Math.round(num(input.days_per_week)) || 3, 1, 6);

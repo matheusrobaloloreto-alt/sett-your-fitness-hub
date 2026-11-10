@@ -393,7 +393,7 @@ Deno.serve(async (req) => {
     if (training_cycle_id != null && training_cycle_id !== "") {
       if (!isUuid(training_cycle_id)) throw new HttpError(400, "training_cycle_id inválido.");
       const { data: cycle, error: cycleError } = await supabase.from("training_cycles")
-        .select("id, student_id, company_id, cycle_number, start_date, end_date")
+        .select("id, student_id, company_id, cycle_number, sequence_number, start_date, end_date")
         .eq("id", training_cycle_id).maybeSingle();
       if (cycleError) throw new HttpError(500, `Falha ao validar ciclo: ${cycleError.message}`);
       if (!cycle || cycle.student_id !== student_id || cycle.company_id !== authorizedCompanyId) {
@@ -417,7 +417,22 @@ Deno.serve(async (req) => {
     const effective = await readEffectivePrescriptionAnamnesis(userSupabase, {
       studentId: student_id, companyId: authorizedCompanyId,
     });
-    const input = applyEffectivePrescriptionInput(payload, effective, "cardio");
+    const cycleSequence = cycleContext?.sequence_number ?? cycleContext?.cycle_number;
+    const requestedSequence = payload.program_sequence && typeof payload.program_sequence === "object"
+      ? payload.program_sequence : {};
+    const input = applyEffectivePrescriptionInput({
+      ...payload,
+      draft_only: studioDraft,
+      ...(cycleContext ? {
+        block_number: cycleSequence,
+        program_sequence: {
+          ...requestedSequence,
+          sequence_number: cycleSequence,
+          start_date: cycleContext.start_date,
+          end_date: cycleContext.end_date,
+        },
+      } : {}),
+    }, effective, "cardio");
     const {
       student_name,
       sport,            // "corrida" | "ciclismo" | "natacao" | "triathlon"
@@ -447,12 +462,13 @@ Deno.serve(async (req) => {
     } = input;
 
     let authorizedPreviousPlanId: string | null = null;
-    let effectivePreviousPlan = previous_plan_context ?? null;
+    let effectivePreviousPlan = studioDraft ? null : previous_plan_context ?? null;
     if (previous_plan_id != null && previous_plan_id !== "") {
       if (!isUuid(previous_plan_id)) throw new HttpError(400, "previous_plan_id inválido.");
       const { data: previous, error: previousError } = await supabase.from("running_plans")
         .select("id, plan_name, sport, goal, duration_weeks, weeks, fc_zones, safety_check")
-        .eq("id", previous_plan_id).eq("student_id", student_id).eq("company_id", authorizedCompanyId).maybeSingle();
+        .eq("id", previous_plan_id).eq("student_id", student_id).eq("company_id", authorizedCompanyId)
+        .eq("sport", sport).maybeSingle();
       if (previousError) throw new HttpError(500, `Falha ao carregar plano anterior: ${previousError.message}`);
       const stagedPrevious = !previous && studioDraft
         ? await readPreviousStudioModalityDraft(supabase, previous_plan_id, draftScope, cycleContext.start_date)
@@ -462,12 +478,12 @@ Deno.serve(async (req) => {
       effectivePreviousPlan = previous ?? stagedPrevious;
     }
     input.previous_plan_context = effectivePreviousPlan;
-    input.block_number = cycleContext?.cycle_number ?? input.block_number ?? 1;
+    input.block_number = input.block_number ?? 1;
     input.program_sequence = {
       ...(program_sequence && typeof program_sequence === "object" ? program_sequence : {}),
-      sequence_number: cycleContext?.cycle_number ?? program_sequence?.sequence_number ?? input.block_number,
-      start_date: cycleContext?.start_date ?? program_sequence?.start_date ?? null,
-      end_date: cycleContext?.end_date ?? program_sequence?.end_date ?? null,
+      sequence_number: program_sequence?.sequence_number ?? input.block_number,
+      start_date: program_sequence?.start_date ?? null,
+      end_date: program_sequence?.end_date ?? null,
     };
     input.eva = deriveEva(input);
     input.prescription_integration = prescription_integration ?? null;
