@@ -1,9 +1,9 @@
-import { Suspense, useLayoutEffect, useRef } from "react";
+import { lazy, Suspense, useLayoutEffect, useRef } from "react";
 import { AthleticClubProvider } from "@/components/AthleticClubStar";
 import { Outlet, useLocation } from "react-router-dom";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import { BnitoAssistantProvider, BnitoContextButton } from "@/components/BnitoFloatingAssistant";
+import { BnitoAssistantProvider } from "@/components/BnitoFloatingAssistant";
 import { RouteTransition } from "@/components/RouteTransition";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
@@ -13,8 +13,11 @@ import { PlatformAdSlot } from "@/components/PlatformAdSlot";
 import { applyPlatformTheme } from "@/lib/personalTheme";
 import { LINEN_PALETTE } from "@/lib/linenPalette";
 import { useTheme } from "@/contexts/ThemeContext";
+import { appearanceEffectStyles, normalizeProfessionalAppearance } from "@/lib/professionalAppearance";
 import "./professional-linen.css";
 import { WhatsAppChatPanelProvider } from "@/components/WhatsAppChatPanel";
+
+const PanelHeader = lazy(() => import("./PanelHeader"));
 
 const ContentLoader = () => (
   <div className="flex items-center justify-center py-24">
@@ -23,8 +26,25 @@ const ContentLoader = () => (
 );
 
 export function AppLayout() {
+  const { settings } = useTheme();
+  const effects = settings?.professional_appearance
+    ? normalizeProfessionalAppearance(settings.professional_appearance).effects
+    : undefined;
+  const shadows = effects?.softShadows;
+  return (
+    <SidebarProvider
+      style={effects ? appearanceEffectStyles(effects) : undefined}
+      data-sett-soft-shadows={shadows?.enabled && shadows.intensity > 0 ? "" : undefined}
+    >
+      <AppLayoutContent />
+    </SidebarProvider>
+  );
+}
+
+function AppLayoutContent() {
+  const { isMobile } = useSidebar();
   const location = useLocation();
-  const { role, companyId } = useAuth();
+  const { role, companyId, user } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   // Empresa em foco: master vendo uma empresa → a dela; senão a do usuário.
   const effectiveCompanyId =
@@ -40,7 +60,7 @@ export function AppLayout() {
   const isDashboard = ["/admin", "/coordinator", "/trainer"].includes(location.pathname);
   const { settings, isLoading: themeLoading, themeMode } = useTheme();
   const isStudentProfile = /^\/(admin|coordinator|trainer)\/students\/[^/]+\/?$/.test(location.pathname);
-  const linen = (isProfessional || (role === "master" && isViewingCompany)) && (isDashboard || isStudentProfile);
+  const linen = (isProfessional || (role === "master" && isViewingCompany)) && (isMobile || isDashboard || isStudentProfile);
   const surface = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (linen && !themeLoading && !settings && surface.current) {
@@ -52,28 +72,17 @@ export function AppLayout() {
   const isWorkoutBuilder = /\/workout\/[^/]+/.test(location.pathname);
 
   return (
-    <SidebarProvider>
-      <AthleticClubProvider>
-      <div ref={surface} className={`min-h-dvh flex w-full min-w-0 bg-paper ${linen ? "sett-linen" : ""}`}>
+    <AthleticClubProvider>
+      <div ref={surface} className={`min-h-dvh flex w-full min-w-0 bg-paper ${linen ? "sett-linen" : ""} ${isProfessional || isViewingCompany ? "sett-effects" : ""}`}>
       <WhatsAppChatPanelProvider mobileDock={linen}>
         <BnitoAssistantProvider>
           <AppSidebar linen={linen} />
           <main className="flex-1 flex flex-col min-w-0">
-            <header className="sett-panel-header sticky top-0 z-30 h-14 shrink-0 flex items-center gap-3 border-b border-line px-3 sm:px-6 bg-paper md:static">
-              <SidebarTrigger aria-label="Abrir ou recolher menu lateral" className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground" />
-              <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-muted-foreground">
-                Set / Painel
-              </span>
-              {!isWorkoutBuilder && (
-                <BnitoContextButton
-                  label="painel atual"
-                  context="Ajuda contextual geral da rota atual, considerando permissao, modulo e tarefa em andamento."
-                  question="Me orienta sobre esta tela e os proximos passos tecnicos?"
-                  text={assistantName}
-                  className="ml-auto"
-                />
-              )}
-            </header>
+            <Suspense fallback={<div aria-hidden="true" className="h-14 shrink-0" />}>
+              <PanelHeader key={`${effectiveCompanyId}:${user?.id}:${role}`}
+                effectiveCompanyId={effectiveCompanyId} linen={linen} assistantName={assistantName}
+                isWorkoutBuilder={isWorkoutBuilder} />
+            </Suspense>
             <div className={`min-w-0 flex-1 ${noPadding ? "" : "p-3 pb-24 sm:p-6 sm:pb-24 md:p-8"} ${linen ? "sett-linen-content" : ""}`}>
               {isProfessional && isDashboard && !noPadding && (
                 <PlatformAdSlot audience="professional" placement="dashboard_banner" companyId={effectiveCompanyId} className="mb-6" />
@@ -91,7 +100,6 @@ export function AppLayout() {
         </BnitoAssistantProvider>
       </WhatsAppChatPanelProvider>
       </div>
-      </AthleticClubProvider>
-    </SidebarProvider>
+    </AthleticClubProvider>
   );
 }

@@ -3,6 +3,67 @@ import { expect, test, type Page } from "@playwright/test";
 const fixturePath = "/qa/teacher-mobile-fixture.html";
 const artifactDir = "output/teacher-mobile-qa";
 
+test("upcoming prescriptions use student status across dashboard scopes and deadline filters", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-10-10T12:00:00Z"));
+  const guard = await openFixture(page, "/admin", 1440, 900, "light", "admin");
+  const queue = page.locator(".bg-card.border-border").filter({
+    has: page.getByRole("heading", { name: "Próximas prescrições" }),
+  });
+  const active = queue.getByRole("button", { name: /Ana Carolina/ });
+  for (const scope of ["Todos os alunos", "Meus alunos"]) {
+    await page.getByRole("button", { name: scope, exact: true }).click();
+    for (const filter of ["Todas", "Pendentes", "Atrasadas"]) {
+      await queue.getByRole("button", { name: filter, exact: true }).click();
+      if (filter === "Atrasadas") {
+        await expect(queue.getByText("Nenhuma próxima prescrição no período configurado.")).toBeVisible();
+      } else {
+        await expect(active).toBeVisible();
+      }
+      await expect(queue.getByText(/Bruno Lead|Aluno inativo QA/)).toHaveCount(0);
+    }
+  }
+  await page.clock.setFixedTime(new Date("2026-10-16T12:00:00Z"));
+  await page.reload();
+  await queue.getByRole("button", { name: "Atrasadas", exact: true }).click();
+  await expect(active).toBeVisible();
+  await expect(queue.getByText(/Bruno Lead|Aluno inativo QA/)).toHaveCount(0);
+  await expectClean(page, guard, 1440);
+});
+
+test("mobile dock follows the trainer and keeps long student details inside the card", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, "userAgent", { get: () => "iPhone" }));
+  await page.clock.setFixedTime(new Date("2026-09-14T12:00:00Z"));
+  const guard = await openFixture(page, "/trainer", 320, 820);
+  const dock = page.getByRole("navigation", { name: "Navegação rápida" });
+  await dock.getByRole("link", { name: "Alunos" }).click();
+  const email = page.getByText(/^bruno\.enderecolongo/);
+  await expect(email).toBeVisible();
+  const emailFits = await email.evaluate((element) => {
+    const card = element.closest(".bg-card.border-border");
+    if (!card) return false;
+    const textBounds = element.getBoundingClientRect();
+    const cardBounds = card.getBoundingClientRect();
+    return element.scrollWidth <= element.clientWidth + 1
+      && textBounds.left >= cardBounds.left && textBounds.right <= cardBounds.right;
+  });
+  expect(emailFits).toBe(true);
+
+  await dock.getByRole("link", { name: "Agenda" }).click();
+  await expect(page.getByRole("heading", { name: "AGENDA", exact: true })).toBeVisible();
+  const installPrompt = page.locator("[data-sett-install-prompt]");
+  await expect(installPrompt).toBeVisible();
+  const menu = dock.getByRole("button", { name: "Menu", exact: true });
+  await menu.click();
+  const drawer = page.getByRole("dialog", { name: "Menu do painel" });
+  await expect(drawer).toHaveClass(/sett-linen-drawer/);
+  await expect(installPrompt).toBeHidden();
+  await drawer.getByRole("link", { name: "Interessados", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Esteira de fechamento/i })).toBeVisible();
+  await expect(menu).toBeFocused();
+  await expect(installPrompt).toBeVisible();
+  await expectClean(page, guard, 320);
+});
+
 test("Athletic Club star follows current membership without editing a student name", async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-09-14T12:00:00Z"));
   const guard = await openFixture(page, "/trainer/students/student-mobile-1", 390, 844);
@@ -232,7 +293,7 @@ test("WhatsApp dark mode keeps conversation surfaces and controls readable", asy
 test("embedded WhatsApp Sheet respects simulated visualViewport keyboard height", async ({ page }) => {
   await installVisualViewportMock(page, { width: 390, height: 844, offsetTop: 0 });
   const guard = await openFixture(page, "/trainer/registration", 390, 844);
-  await page.getByRole("button", { name: "Abrir conversas do WhatsApp" }).click();
+  await page.getByRole("navigation", { name: "Navegação rápida" }).getByRole("button", { name: "Conversas" }).click();
   await expect(page.getByRole("heading", { name: "Conversas", exact: true })).toBeVisible();
   await page.getByRole("button", { name: /Abrir conversa com Ana Carolina/ }).click();
   const composer = page.getByPlaceholder("Digite / para templates...");
@@ -399,12 +460,13 @@ test("WorkoutBuilder keeps weekly volume clear of the assistant card and floatin
 test("WorkoutBuilder imports a library template, relinks visible exact-name exercise and saves via mocked revision", async ({ page }) => {
   const guard = await openFixture(page, "/trainer/workout/cycle-mobile-1", 390, 900);
   await expect(page.getByRole("heading", { name: "PRESCRIÇÃO DE TREINO" })).toBeVisible();
+  const libraryDialog = page.getByRole("dialog", { name: /Usar treino da biblioteca/ });
   await page.getByRole("button", { name: /Biblioteca de treinos/ }).click();
-  await expect(page.getByRole("dialog", { name: /Usar treino da biblioteca/ })).toBeVisible();
+  await expect(libraryDialog).toBeVisible();
   await page.getByRole("button", { name: /Template QA Nome Visível/ }).click();
   await page.getByRole("button", { name: "Usar este treino" }).click();
   await page.getByRole("button", { name: "Substituir treino atual" }).click();
-  await expect(page.getByText("Template QA Nome Visível")).toHaveCount(0);
+  await expect(libraryDialog).toBeHidden();
   await expect(page.getByText("Agachamento Livre com Barra").first()).toBeVisible();
   await expect(page.locator('input[value="3"]').first()).toBeVisible();
   await page.getByRole("button", { name: "Salvar Tudo" }).click();

@@ -174,7 +174,7 @@ const Sidebar = React.forwardRef<
             springTransition={linen ? spring : undefined}
             onCloseAutoFocus={linen ? (event) => {
               const trigger = portalContainer?.closest(".sett-linen")
-                ?.querySelector<HTMLButtonElement>(".sett-linen-dock button");
+                ?.querySelector<HTMLButtonElement>("[data-sett-mobile-menu-trigger]");
               if (trigger) {
                 event.preventDefault();
                 trigger.focus();

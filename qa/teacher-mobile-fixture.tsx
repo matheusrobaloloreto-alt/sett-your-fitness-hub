@@ -9,13 +9,18 @@ import { AuthProvider, useAuth } from "../src/hooks/useAuth";
 import { MasterProvider } from "../src/contexts/MasterContext";
 import { ThemeProvider } from "../src/contexts/ThemeContext";
 import { AppLayout } from "../src/components/AppLayout";
+import { InstallPrompt } from "../src/components/InstallPrompt";
 import RegistrationManager from "../src/pages/admin/RegistrationManager";
 import WhatsAppChat from "../src/pages/admin/WhatsAppChat";
 import StudentHub from "../src/pages/admin/StudentHub";
 import StudentDetail from "../src/pages/admin/StudentDetail";
+import StudentsManager from "../src/pages/admin/StudentsManager";
+import TrainerDashboard from "../src/pages/trainer/TrainerDashboard";
 import WorkoutBuilder from "../src/pages/admin/WorkoutBuilder";
 import PrescriptionStudio from "../src/pages/admin/PrescriptionStudio";
 import AdminAgenda from "../src/pages/admin/AdminAgenda";
+import AdminDashboard from "../src/pages/admin/AdminDashboard";
+import AppearanceSettings from "../src/pages/admin/AppearanceSettings";
 import { supabase } from "../src/integrations/supabase/client";
 import { unrestrictedMasterFeatures } from "../src/lib/companyFeatureEntitlements";
 import "../src/index.css";
@@ -26,6 +31,8 @@ const userId = "10000000-0000-4000-8000-000000000001";
 const fixtureNow = "2026-09-14T12:00:00.000Z";
 const fixtureParams = new URLSearchParams(window.location.search);
 const fixtureTheme = fixtureParams.get("theme") === "dark" ? "dark" : "light";
+const appearanceStorageKey = "sett-qa:professional-appearance";
+const savedAppearance = JSON.parse(sessionStorage.getItem(appearanceStorageKey) ?? "null");
 const requestedRole = fixtureParams.get("role");
 const fixtureRole = requestedRole === "admin" || requestedRole === "coordinator" || requestedRole === "master"
   ? requestedRole
@@ -42,8 +49,10 @@ const rows: Record<string, any[]> = {
   user_roles: [{ user_id: userId, role: fixtureRole }],
   role_permissions: [
     { company_id: companyId, role: fixtureRole, module: "dashboard", enabled: true },
+    { company_id: companyId, role: fixtureRole, module: "appearance", enabled: true },
     { company_id: companyId, role: fixtureRole, module: "registration", enabled: true },
     { company_id: companyId, role: fixtureRole, module: "students", enabled: true },
+    { company_id: companyId, role: fixtureRole, module: "agenda", enabled: true },
     { company_id: companyId, role: fixtureRole, module: "exercises", enabled: true },
     { company_id: companyId, role: fixtureRole, module: "whatsapp", enabled: true },
   ],
@@ -58,6 +67,8 @@ const rows: Record<string, any[]> = {
       platform_title: "SETT QA",
       logo_url: null,
       layout_style: "classico",
+      updated_at: fixtureNow,
+      ...savedAppearance,
     },
   ],
   profiles: [{ user_id: userId, full_name: "Treinadora QA" }],
@@ -86,7 +97,7 @@ const rows: Record<string, any[]> = {
       company_id: companyId,
       full_name: "Bruno Lead Convertido Com Nome Grande",
       name: "Bruno Lead Convertido Com Nome Grande",
-      email: "bruno.qa@example.test",
+      email: `bruno.${"enderecolongo".repeat(4)}@example.test`,
       phone: "5548999990002",
       whatsapp: "5548999990002",
       country_code: "BR",
@@ -156,6 +167,8 @@ const rows: Record<string, any[]> = {
       start_date: "2026-09-03",
       end_date: "2026-10-14",
       prescribed_offline_at: null,
+      superseded_at: null,
+      superseded_by_cycle_id: null,
       enrollments: { student_id: "student-mobile-1", students: { full_name: longName, assigned_trainer_id: userId } },
     },
   ],
@@ -168,6 +181,8 @@ const rows: Record<string, any[]> = {
       description: "Força",
       day_of_week: 1,
       sort_order: 1,
+      student_profile_archive_event_id: null,
+      superseded_by_revision_id: null,
       superseded_at: null,
       exercises: [
         { exercise_id: "ex-agachamento", exercise_name: "Agachamento Livre com Barra", muscle_group: "Quadríceps", sets: "4", reps: "8-10", rest_seconds: 90, cues: "Controle total" },
@@ -224,6 +239,21 @@ const rows: Record<string, any[]> = {
 };
 
 const hasStrengthDraft = fixtureParams.get("strengthDraft") === "1";
+if (fixtureRole === "admin" && fixtureParams.get("route") === "/admin") {
+  const [active, pending] = rows.students;
+  const inactive = { ...pending, id: "student-inactive", status: "inactive", full_name: "Aluno inativo QA" };
+  rows.students.push(inactive);
+  const [enrollment] = rows.enrollments;
+  const [cycle] = rows.training_cycles;
+  enrollment.students = active;
+  for (const student of [pending, inactive]) {
+    const enrollmentId = `enrollment-${student.id}`;
+    rows.enrollments.push({ ...enrollment, id: enrollmentId, student_id: student.id, students: student });
+    rows.training_cycles.push({ ...cycle, id: `cycle-${student.id}`, enrollment_id: enrollmentId,
+      student_id: student.id, end_date: "2026-09-20" });
+  }
+}
+
 if (hasStrengthDraft) {
   rows.prescription_bundles.push({
     id: "studio-bundle-qa", company_id: companyId, student_id: "student-mobile-1",
@@ -252,6 +282,7 @@ class QueryBuilder {
   private headOnly = false;
   private wantsCount = false;
   private selectedColumns = "";
+  private updateValues: Record<string, unknown> | null = null;
 
   constructor(private table: string) {}
   select(columns?: string, options?: { count?: string; head?: boolean }) { this.selectedColumns = columns || ""; this.headOnly = Boolean(options?.head); this.wantsCount = Boolean(options?.count); return this; }
@@ -271,7 +302,11 @@ class QueryBuilder {
   maybeSingle() { this.wantsMaybeSingle = true; return this.execute(); }
   single() { this.wantsSingle = true; return this.execute(); }
   insert(value?: any) { log.writes.push(`${this.table}:insert:${JSON.stringify(value ?? {})}`); return Promise.resolve({ data: null, error: null }); }
-  update(value?: any) { log.writes.push(`${this.table}:update:${JSON.stringify(value ?? {})}`); return this; }
+  update(value?: any) {
+    log.writes.push(`${this.table}:update:${JSON.stringify(value ?? {})}`);
+    if (this.table === "platform_settings") this.updateValues = value;
+    return this;
+  }
   upsert(value?: any) { log.writes.push(`${this.table}:upsert:${JSON.stringify(value ?? {})}`); return Promise.resolve({ data: null, error: null }); }
   delete() { log.writes.push(`${this.table}:delete`); return this; }
   then<TResult1 = any, TResult2 = never>(onfulfilled?: ((value: any) => TResult1 | PromiseLike<TResult1>) | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null) {
@@ -311,6 +346,10 @@ class QueryBuilder {
       });
     }
     if (this.rowLimit !== null) result = result.slice(0, this.rowLimit);
+    if (this.updateValues && result.length === 1) {
+      Object.assign(result[0], this.updateValues);
+      sessionStorage.setItem(appearanceStorageKey, JSON.stringify(result[0]));
+    }
     if (this.wantsSingle || this.wantsMaybeSingle) return { data: clone(result[0] ?? null), error: null };
     return { data: this.headOnly ? null : clone(result), count: this.wantsCount || this.headOnly ? result.length : null, error: null };
   }
@@ -345,6 +384,7 @@ Object.defineProperty(supabase, "rpc", {
       }, error: null });
     }
     if (name === "has_staff_permission") return Promise.resolve({ data: true, error: null });
+    if (name === "get_company_student_staff_directory") return Promise.resolve({ data: rows.profiles, error: null });
     if (name === "publish_studio_strength_draft" && hasStrengthDraft) {
       const attempts = log.writes.filter(write => write.startsWith(`${name}:rpc:`)).length;
       log.writes.push(`${name}:rpc:${JSON.stringify(params ?? {})}`);
@@ -411,6 +451,10 @@ Object.defineProperty(supabase, "removeChannel", {
 
 (window as any).__teacherMobileFixture = {
   getWrites: () => [...log.writes],
+  editAppearanceConcurrently: () => {
+    rows.platform_settings[0].updated_at = "2026-09-15T12:00:00.000Z";
+    rows.platform_settings[0].professional_appearance = { dashboardOrder: ["birthdays"] };
+  },
   getInvokes: () => [...log.invokes],
   getReads: () => [...log.reads],
   changeMembership: (athletic: boolean) => {
@@ -427,8 +471,13 @@ function ReadyRoutes() {
   if (loading || readyCompanyId !== companyId) return <div>Carregando fixture...</div>;
   return (
     <MemoryRouter initialEntries={[fixtureParams.get("route") || "/trainer/registration"]}>
+      <InstallPrompt />
       <Routes>
         <Route element={<AppLayout />}>
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/appearance" element={<AppearanceSettings />} />
+          <Route path="/trainer" element={<TrainerDashboard />} />
+          <Route path="/trainer/students" element={<StudentsManager />} />
           <Route path="/trainer/registration" element={<RegistrationManager />} />
           <Route path="/admin/registration" element={<RegistrationManager />} />
           <Route path="/coordinator/registration" element={<RegistrationManager />} />

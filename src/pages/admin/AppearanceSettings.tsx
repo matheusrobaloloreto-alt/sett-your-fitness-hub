@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import ProfessionalAppearanceEditor from "@/components/ProfessionalAppearanceEditor";
+import { normalizeProfessionalAppearance, type ProfessionalAppearance } from "@/lib/professionalAppearance";
 import { PersonalThemeSegmentedControl } from "@/components/PersonalThemeToggle";
 import { toast } from "sonner";
 import { Loader2, Palette, Sparkles, Upload, RotateCcw, Save } from "lucide-react";
@@ -38,12 +40,21 @@ const LAYOUTS: LayoutOption[] = [
 ];
 
 export default function AppearanceSettings() {
-  const { user, companyId, role } = useAuth();
+  const { companyId, role } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
+  return <AppearanceForm key={effectiveCompanyId ?? "global"} effectiveCompanyId={effectiveCompanyId ?? null} />;
+}
+
+function AppearanceForm({ effectiveCompanyId }: { effectiveCompanyId: string | null }) {
   const { refetch } = useTheme();
   const queryClient = useQueryClient();
 
+  const [appearanceDraft, setAppearanceDraft] = useState<{
+    value: ProfessionalAppearance;
+    basedOn: string | null;
+  } | null>(null);
+  const [saveConflict, setSaveConflict] = useState(false);
   const [primaryColor, setPrimaryColor] = useState(DEFAULTS.primary_color);
   const [backgroundColor, setBackgroundColor] = useState(DEFAULTS.background_color);
   const [cardColor, setCardColor] = useState(DEFAULTS.card_color);
@@ -56,7 +67,7 @@ export default function AppearanceSettings() {
   const [isProcessingLogo, setIsProcessingLogo] = useState(false);
   const [preparedLogo, setPreparedLogo] = useState<PreparedLogo | null>(null);
 
-  const { data: settings, isLoading } = useQuery({
+  const { data: settings, isLoading, isError, refetch: reloadSettings } = useQuery({
     queryKey: ["platform-settings-admin", effectiveCompanyId],
     queryFn: async () => {
       let query = supabase.from("platform_settings").select("*");
@@ -70,6 +81,11 @@ export default function AppearanceSettings() {
       return data;
     },
   });
+
+  const professionalAppearance = appearanceDraft?.value ?? normalizeProfessionalAppearance(settings?.professional_appearance);
+  const editProfessionalAppearance = (value: ProfessionalAppearance) => {
+    setAppearanceDraft(previous => ({ value, basedOn: previous ? previous.basedOn : settings?.updated_at ?? null }));
+  };
 
   useEffect(() => {
     if (settings) {
@@ -128,6 +144,9 @@ export default function AppearanceSettings() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      const version = settings?.updated_at ?? null;
+      if (appearanceDraft && appearanceDraft.basedOn !== version) return "conflict";
+
       let logoUrl = currentLogoUrl;
 
       if (logoFile) {
@@ -155,28 +174,41 @@ export default function AppearanceSettings() {
         layout_style: layoutStyle,
         updated_at: new Date().toISOString(),
         company_id: effectiveCompanyId,
+        ...(appearanceDraft && { professional_appearance: appearanceDraft.value }),
       };
 
       if (settings?.id) {
-        const { error } = await supabase
-          .from("platform_settings")
+        const update = supabase.from("platform_settings")
           .update(payload)
-          .eq("id", settings.id);
+          .eq("id", settings.id)
+          .eq("updated_at", settings.updated_at);
+        const { data, error } = await (effectiveCompanyId
+          ? update.eq("company_id", effectiveCompanyId)
+          : update.is("company_id", null)).select("id").maybeSingle();
         if (error) throw error;
+        if (!data) return "conflict";
       } else {
         const { error } = await supabase
           .from("platform_settings")
           .insert(payload);
+        if (error?.code === "23505") return "conflict";
         if (error) throw error;
       }
+      return "saved";
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      if (result === "conflict") {
+        setSaveConflict(true);
+        return;
+      }
+      setSaveConflict(false);
       // Revalida AS DUAS famílias de query (a do admin e a do tema global), independente do id.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["platform-settings"] }),
         queryClient.invalidateQueries({ queryKey: ["platform-settings-admin"] }),
       ]);
       await refetch();
+      setAppearanceDraft(null);
       if (logoPreview) URL.revokeObjectURL(logoPreview);
       setLogoPreview(null);
       setLogoFile(null);
@@ -195,6 +227,7 @@ export default function AppearanceSettings() {
     setTextColor(DEFAULTS.text_color);
     setPlatformTitle(DEFAULTS.platform_title);
     setLayoutStyle("classico");
+    editProfessionalAppearance(normalizeProfessionalAppearance(null));
     setLogoFile(null);
     setLogoPreview(null);
     setPreparedLogo(null);
@@ -210,29 +243,51 @@ export default function AppearanceSettings() {
     );
   }
 
+  if (isError && !settings) {
+    return <p role="alert" className="text-sm text-destructive">Não foi possível carregar a aparência da empresa. Recarregue a página para tentar novamente.</p>;
+  }
+
   const displayLogo = logoPreview || currentLogoUrl;
 
   return (
     <>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl text-primary flex items-center gap-2">
               <Palette className="h-8 w-8" /> APARÊNCIA
             </h1>
             <p className="text-muted-foreground font-sans text-sm mt-1">
-              Personalize as cores, logo e título da plataforma
+              Personalize o Dashboard, os efeitos e a identidade da plataforma
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={handleRestore} className="font-sans">
               <RotateCcw className="h-4 w-4 mr-2" /> Restaurar Padrões
             </Button>
-            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="font-sans">
+            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || saveConflict} className="font-sans">
               <Save className="h-4 w-4 mr-2" /> {saveMutation.isPending ? "Salvando..." : "Salvar"}
             </Button>
           </div>
         </div>
+
+        {saveConflict && (
+          <div className="space-y-2 rounded-lg border border-destructive/40 p-3">
+            <p role="alert" className="text-sm text-destructive">
+              A aparência mudou durante a edição ou sua permissão foi atualizada. Seu rascunho está nesta tela.
+            </p>
+            <Button type="button" variant="outline" size="sm" onClick={async () => {
+              const refreshed = await reloadSettings();
+              if (refreshed.isError) return;
+              setAppearanceDraft(null);
+              setSaveConflict(false);
+            }}>
+              Descartar rascunho e recarregar
+            </Button>
+          </div>
+        )}
+
+        <ProfessionalAppearanceEditor value={professionalAppearance} onChange={editProfessionalAppearance} disabled={saveMutation.isPending} />
 
         {/* Layout / skin do app */}
         <Card>

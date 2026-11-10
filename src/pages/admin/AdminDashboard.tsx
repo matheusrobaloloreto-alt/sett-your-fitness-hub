@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,11 +11,10 @@ import { PendingFeedbackCard } from "@/components/admin/PendingFeedbackCard";
 import { useMaster } from "@/contexts/MasterContext";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, useNavigate } from "react-router-dom";
-import { buildStudentChatMap, createPlansLink, isRenewalOverdue, openStudentChat, renewalMessage } from "@/lib/studentChat";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 import { DashboardSnapshotContext, type CompanyDashboardSnapshot } from "@/contexts/DashboardSnapshotContext";
-import { parseCompanyDashboardSnapshot } from "@/lib/companyDashboardSnapshot";
+import { parseCompanyDashboardSnapshot, type DashboardRenewalRow } from "@/lib/companyDashboardSnapshot";
 import { DEFAULT_COMPANY_PRODUCT_SETTINGS, fetchCompanyProductSettings } from '@/lib/companyProductSettings';
 import { useCompanyExperiencePolicy } from '@/hooks/useCompanyExperiencePolicy';
 import { useRolePermissions } from "@/hooks/useRolePermissions";
@@ -27,12 +26,31 @@ import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { useCompanyOperations } from "@/components/admin/operations/OperationsConsumers";
 import { fetchCompanyCommercialSettings } from "@/lib/companyCommercialSettings";
 import { isOpenFunnelStage, normalizeLeadSalesStage, normalizeSalesStage, resolveFunnelStageMeta } from "@/lib/salesFunnelView";
+import { OPEN_ENROLLMENT_STATUSES } from "@/lib/studentRoster";
+import { readPages } from "@/lib/pagedRead";
+import { dashboardRenewalsForPeriod, openDashboardRenewalDraft, readDashboardRenewalQueue, type RenewalPeriod } from "@/lib/dashboardRenewals";
+
+import { useTheme } from "@/contexts/ThemeContext";
+import { normalizeProfessionalAppearance, type DashboardSection } from "@/lib/professionalAppearance";
 
 interface DashboardData {
   stats: { totalStudents: number; interestedStudents: number; awaitingRenewalStudents: number; inactiveStudents: number; trainers: number };
-  expiringContracts: any[];
+  expiringContracts: DashboardRenewalRow[] | null;
   cycleCountdowns: any[];
   trainerMap: Record<string, string>;
+}
+
+const renewalFilters = {
+  currentMonth: { label: "Este mês", empty: "Nenhuma renovação em aberto neste mês." },
+  previousMonth: { label: "Mês passado", empty: "Nenhuma renovação em aberto no mês passado." },
+  all: { label: "Todos", empty: "Nenhuma renovação em aberto." },
+};
+
+function activeStudentPrescriptionEnrollments() {
+  return supabase.from("enrollments")
+    .select("id, student_id, training_start_date, trainer_id, students!inner(full_name, assigned_trainer_id)")
+    .eq("students.status", "active")
+    .in("status", OPEN_ENROLLMENT_STATUSES);
 }
 
 async function fetchClosingPreview(companyId: string) {
@@ -70,23 +88,23 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     .in("stage", ["interested", "contacted"]);
   let awaitingRenewalQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "awaiting_renewal");
   let inactiveQuery = supabase.from("students").select("*", { count: "exact", head: true }).eq("status", "inactive");
-  let expiringQuery = supabase.from("enrollments").select("id, student_id, end_date, trainer_id, students(full_name, status), plans(name)")
-    .in("status", ["active", "awaiting_renewal"]).lte("end_date", renewalDate)
-    .order("end_date", { ascending: false });
+  let expiringQuery = supabase.from("enrollments").select("id, student_id, end_date, trainer_id, status, created_at, students!inner(full_name, status), plans(name)")
+    .in("status", OPEN_ENROLLMENT_STATUSES)
+    .in("students.status", ["active", "pending", "awaiting_renewal"])
+    .order("id");
 
   if (effectiveCompanyId) {
     studentQuery = studentQuery.eq("company_id", effectiveCompanyId);
     interestedQuery = interestedQuery.eq("company_id", effectiveCompanyId);
     awaitingRenewalQuery = awaitingRenewalQuery.eq("company_id", effectiveCompanyId);
     inactiveQuery = inactiveQuery.eq("company_id", effectiveCompanyId);
-    expiringQuery = expiringQuery.eq("company_id", effectiveCompanyId);
+    expiringQuery = expiringQuery.eq("company_id", effectiveCompanyId).eq("students.company_id", effectiveCompanyId);
   }
 
   // Trainer count + cycle enrollments in parallel with the others
-  let cycleEnrollQuery = supabase.from("enrollments")
-    .select("id, student_id, training_start_date, trainer_id, students(full_name, assigned_trainer_id)")
-    .in("status", ["active", "awaiting_training", "awaiting_renewal"]) as any;
-  if (effectiveCompanyId) cycleEnrollQuery = cycleEnrollQuery.eq("company_id", effectiveCompanyId);
+  let cycleEnrollQuery = activeStudentPrescriptionEnrollments();
+  if (effectiveCompanyId) cycleEnrollQuery = cycleEnrollQuery
+    .eq("company_id", effectiveCompanyId).eq("students.company_id", effectiveCompanyId);
 
   const trainerCountPromise = (async () => {
     if (effectiveCompanyId) {
@@ -100,12 +118,12 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     return count || 0;
   })();
 
-  const [studentRes, interestedRes, awaitingRenewalRes, inactiveRes, expiringRes, activeEnrollsRes, trainerCount] = await Promise.all([
+  const [studentRes, interestedRes, awaitingRenewalRes, inactiveRes, expiringContracts, activeEnrollsRes, trainerCount] = await Promise.all([
     studentQuery,
     interestedQuery,
     awaitingRenewalQuery,
     inactiveQuery,
-    expiringQuery,
+    readPages((from, to) => expiringQuery.range(from, to)),
     cycleEnrollQuery,
     trainerCountPromise,
   ]);
@@ -115,7 +133,6 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     ["interessados", interestedRes],
     ["renovações", awaitingRenewalRes],
     ["alunos inativos", inactiveRes],
-    ["contratos a vencer", expiringRes],
     ["ciclos por matrícula", activeEnrollsRes],
   ].find(([, result]) => (result as any)?.error);
   if (failedQuery) {
@@ -131,16 +148,11 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
     trainers: trainerCount,
   };
 
-  const expiringContracts = (expiringRes.data || []).filter((e: any) => {
-    const s = e.students?.status;
-    return s === "active" || s === "pending" || s === "awaiting_renewal";
-  });
-
   const countdowns = await fetchPrescriptionCountdowns(effectiveCompanyId!, activeEnrollsRes.data ?? [], today, renewalDate);
 
   // Resolve trainer names once
   const allTrainerIds = new Set<string>();
-  expiringContracts.forEach((e: any) => { if (e.trainer_id) allTrainerIds.add(e.trainer_id); });
+  expiringContracts.forEach(e => { if (e.trainer_id) allTrainerIds.add(e.trainer_id); });
   countdowns.forEach((m: any) => { if (m.trainer_id) allTrainerIds.add(m.trainer_id); });
   const trainerMap: Record<string, string> = {};
   if (allTrainerIds.size > 0) {
@@ -245,7 +257,7 @@ function dashboardDataFromSnapshot(snapshot: CompanyDashboardSnapshot | null | u
       inactiveStudents: Number(snapshot.stats?.inactiveStudents) || 0,
       trainers: Number(snapshot.stats?.trainers) || 0,
     },
-    expiringContracts: snapshot.expiringContracts || [],
+    expiringContracts: readDashboardRenewalQueue(snapshot),
     cycleCountdowns: snapshot.cycleCountdowns || [],
     trainerMap: snapshot.trainerMap || {},
   };
@@ -282,7 +294,8 @@ export default function AdminDashboard({
   const navigate = useNavigate();
   const [view, setView] = useState<"all" | "mine">("all");
   const mine = view === "mine";
-  const [renewalFilter, setRenewalFilter] = useState<"all" | "pending" | "overdue">("all");
+  const [renewalFilter, setRenewalFilter] = useState<RenewalPeriod>("currentMonth");
+  const [preparingRenewal, setPreparingRenewal] = useState(false);
   const [cycleFilter, setCycleFilter] = useState<"all" | "pending" | "overdue">("all");
   const routePrefix = routePrefixOverride ?? (role === "master" && isViewingCompany ? "admin" : role);
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
@@ -319,10 +332,9 @@ export default function AdminDashboard({
       const deadline = format(addDays(parseISO(day), policy.renewal_notice_days), "yyyy-MM-dd");
       const rows = [];
       for (let start = 0; start < studentIds.length; start += 100) {
-        const { data, error } = await supabase.from("enrollments")
-          .select("id, student_id, training_start_date, trainer_id, students(full_name, assigned_trainer_id)")
-          .eq("company_id", companyId).in("student_id", studentIds.slice(start, start + 100))
-          .in("status", ["active", "awaiting_training", "awaiting_renewal"]);
+        const { data, error } = await activeStudentPrescriptionEnrollments()
+          .eq("company_id", companyId).eq("students.company_id", companyId)
+          .in("student_id", studentIds.slice(start, start + 100));
         if (error) throw error;
         rows.push(...await fetchPrescriptionCountdowns(companyId, data ?? [], day, deadline));
       }
@@ -352,51 +364,39 @@ export default function AdminDashboard({
   const dashboardError = policyError ?? (readOnly ? snapshotError : liveDashboardError);
   const dashboardLoading = readOnly ? snapshotLoading : liveDashboardLoading;
 
-  // Mapa aluno→conversa para os botões "Renovar agora" (abre o chat com a mensagem pronta).
-  const { data: studentChatMap } = useQuery({
-    queryKey: ["student-chat-map", effectiveCompanyId ?? "all"],
-    queryFn: () => buildStudentChatMap(effectiveCompanyId),
-    staleTime: 60_000,
-    enabled: !readOnly && canRunAdminOperations && !mine && !!effectiveCompanyId && canOpenChat,
-  });
-
   const navigateWhenInteractive = (target: string, options?: any) => {
     if (!canOpenStudent) return;
     navigate(target, options);
   };
 
-  const handleRenew = async (studentId: string, enrollmentId: string, fullName?: string, planName?: string, daysLeft?: number) => {
-    if (!canRunAdminOperations || !effectiveCompanyId) return;
+  const handleRenew = async (contract: DashboardRenewalRow, daysLeft: number) => {
+    if (!canRunAdminOperations || !canOpenChat || mine || !effectiveCompanyId || preparingRenewal) return;
+    setPreparingRenewal(true);
     try {
-      const paymentLink = await createPlansLink(studentId, { enrollmentId });
-      const message = renewalMessage({ fullName, planName, daysLeft, paymentLink });
-      await openStudentChat({
-        navigate,
-        routePrefix: (routePrefix as string) || "admin",
-        chatId: studentChatMap?.[studentId],
-        studentId,
-        message,
+      const result = await openDashboardRenewalDraft({
         companyId: effectiveCompanyId,
-        messageEvent: isRenewalOverdue(daysLeft) ? 'renewal_overdue' : 'renewal_due',
-        messageValues: { nome: fullName ?? '', primeiro_nome: (fullName ?? '').trim().split(/\s+/)[0], link: paymentLink, prazo: typeof daysLeft === 'number' ? String(daysLeft) : '' },
-        onNoChat: (m) => { void navigator.clipboard?.writeText(m); toast.success("Aluno sem WhatsApp — mensagem de renovação copiada."); },
+        contract,
+        daysLeft,
+        navigate,
+        routePrefix: safeRoutePrefix,
+        copyDraft: navigator.clipboard?.writeText?.bind(navigator.clipboard),
       });
+      if (result === "copied") toast.success("Aluno sem WhatsApp. Mensagem de renovação copiada.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível criar o link de renovação.");
+      toast.error(dashboardErrorMessage(error));
+    } finally {
+      setPreparingRenewal(false);
     }
   };
 
   const stats = data?.stats ?? { totalStudents: 0, interestedStudents: 0, awaitingRenewalStudents: 0, inactiveStudents: 0, trainers: 0 };
+  const renewalQueueUnavailable = data?.expiringContracts === null;
   const expiringContracts = (data?.expiringContracts ?? []).filter(row => !mine || studentIds.has(row.student_id));
   const cycleCountdowns = ((mine ? myCycles.data : data?.cycleCountdowns) ?? [])
     .filter(row => !row.next_ready && (!mine || studentIds.has(row.student_id)))
     .sort((a, b) => a.days_left - b.days_left);
   const trainerMap = data?.trainerMap ?? {};
-  const businessToday = parseISO(businessDateYmd());
-  const visibleRenewals = expiringContracts.filter((contract: any) => {
-    const daysLeft = differenceInCalendarDays(parseISO(contract.end_date), businessToday);
-    return renewalFilter === "pending" ? Number.isFinite(daysLeft) && !isRenewalOverdue(daysLeft) : renewalFilter === "overdue" ? isRenewalOverdue(daysLeft) : true;
-  });
+  const visibleRenewals = dashboardRenewalsForPeriod(expiringContracts, renewalFilter, day);
   const visibleCycleCountdowns = cycleCountdowns.filter((cycle: any) => (
     cycleFilter === "pending" ? Number(cycle.days_left) >= 0 : cycleFilter === "overdue" ? Number(cycle.days_left) < 0 : true
   ));
@@ -406,19 +406,10 @@ export default function AdminDashboard({
   const cycleLoading = mine ? roster.isLoading || myCycles.isLoading || policyPending : dashboardLoading;
   const cycleError = mine ? roster.error || myCycles.error || policyError : dashboardError;
 
-  return (
-    <>
-      <DashboardSnapshotContext.Provider value={readOnly ? snapshotData ?? null : null}>
-      <div className="space-y-6">
-        <div role="group" aria-label="Carteira do dashboard" className="flex flex-wrap justify-end gap-2">
-          {([["all", "Todos os alunos"], ["mine", "Meus alunos"]] as const).map(([value, label]) => (
-            <Button key={value} type="button" size="sm" variant={view === value ? "default" : "outline"}
-              aria-pressed={view === value} disabled={value === "mine" && !actorScope}
-              onClick={() => setView(value)}>{label}</Button>
-          ))}
-        </div>
-
-        {!mine && <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label="Indicadores da empresa">
+  const { settings: appearanceSettings } = useTheme();
+  const { dashboardOrder } = normalizeProfessionalAppearance(appearanceSettings?.professional_appearance);
+  const sections: Record<DashboardSection, ReactNode> = {
+    indicators: (!mine && <div className="grid grid-cols-2 gap-2 md:col-span-2 lg:grid-cols-4" aria-label="Indicadores da empresa">
           {([
             ["Alunos Ativos", stats.totalStudents, Users, "active"],
             ["Aguardando Renovação", stats.awaitingRenewalStudents, RotateCcw, "awaiting_renewal"],
@@ -437,31 +428,8 @@ export default function AdminDashboard({
               ? <Link key={label} to={`/${safeRoutePrefix}/students?status=${status}`} className={`${className} hover:border-primary/50`}>{content}</Link>
               : <div key={label} className={className}>{content}</div>;
           })}
-        </div>}
-
-        {(readOnly || isViewingCompany || subtitle || title !== "DASHBOARD") && <div>
-          {(readOnly || title !== "DASHBOARD") && <h1 className="text-4xl text-primary">{title}</h1>}
-          {(subtitle || isViewingCompany) && <p className="text-muted-foreground font-sans">
-            {subtitle ?? `Visualizando: ${viewingCompany?.name}`}
-          </p>}
-          {readOnly && !mine && (
-            <p className="mt-1 text-xs text-muted-foreground font-sans">
-              Visualização completa da empresa. Ações administrativas permanecem restritas a admin/coordenador.
-            </p>
-          )}
-        </div>}
-
-        {dashboardError && (
-          <Card className="border-destructive/40 bg-destructive/5">
-            <CardContent className="pt-6">
-              <p className="text-sm font-medium text-destructive">Não foi possível carregar os indicadores do painel.</p>
-              <p className="mt-1 text-xs text-muted-foreground">{dashboardErrorMessage(dashboardError)}</p>
-            </CardContent>
-          </Card>
-        )}
-
-        <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2">
-          {!mine && <DashboardCard title="Interessados" icon={UserPlus}>
+        </div>),
+    interested: (!mine && <DashboardCard title="Interessados" icon={UserPlus}>
             {canViewClosing ? <>
               {closingPreview.data?.length ? <ul className="max-h-56 divide-y overflow-auto" aria-label="Fases da esteira">
                 {closingPreview.data.map(row => <li key={row.key} className="flex items-center justify-between gap-2 py-2 text-sm">
@@ -475,13 +443,10 @@ export default function AdminDashboard({
             </> : !data || dashboardError ? <DashboardQueueState loading={dashboardLoading} error={dashboardError}
               empty="Selecione uma empresa para consultar os interessados." />
               : <p className="text-sm text-muted-foreground">{stats.interestedStudents} contatos iniciais</p>}
-          </DashboardCard>}
-          {mine ? <FirstTrainingDashboardCard scope={operationalScope} students={roster.data ?? []}
-            routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} rosterLoading={roster.isLoading} rosterError={roster.error} />
-            : <AssessmentDashboardCard scope={operationalScope} routePrefix={safeRoutePrefix} allowChat={canOpenChat} />}
-          <OperationalContactCadenceCard scope={canOpenChat ? mine ? assignedScope : actorScope : null}
-            routePrefix={safeRoutePrefix} allowChat={!readOnly || mine} />
-          <Card className="bg-card border-border">
+          </DashboardCard>),
+    firstTraining: (mine && <FirstTrainingDashboardCard scope={operationalScope} students={roster.data ?? []}
+            routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} rosterLoading={roster.isLoading} rosterError={roster.error} />),
+    prescriptions: (<Card className="bg-card border-border">
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <CardTitle className="text-primary text-xl flex items-center gap-2">
@@ -542,25 +507,28 @@ export default function AdminDashboard({
                 <DashboardQueueState loading={cycleLoading} error={cycleError} empty="Nenhuma próxima prescrição no período configurado." />
               )}
             </CardContent>
-          </Card>
-          <Card className="bg-card border-border">
+          </Card>),
+    renewals: (<Card className="bg-card border-border">
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <CardTitle className="text-primary text-xl flex items-center gap-2">
                 <RefreshCw className="h-5 w-5" />Renovações
                 </CardTitle>
                 <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar renovações">
-                  {([['all', 'Todas'], ['pending', 'Pendentes'], ['overdue', 'Atrasadas']] as const).map(([value, label]) => (
-                    <Button key={value} type="button" size="sm" variant={renewalFilter === value ? "default" : "outline"} className="h-7 px-2 text-xs" onClick={() => setRenewalFilter(value)}>{label}</Button>
+                  {(Object.keys(renewalFilters) as RenewalPeriod[]).map(value => (
+                    <Button key={value} type="button" size="sm" variant={renewalFilter === value ? "default" : "outline"} aria-pressed={renewalFilter === value} className="h-7 px-2 text-xs" onClick={() => setRenewalFilter(value)}>{renewalFilters[value].label}</Button>
                   ))}
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              {!queueLoading && !queueError && visibleRenewals.length > 0 ? (
+              {!queueLoading && !queueError && renewalQueueUnavailable ? (
+                <p role="alert" className="py-3 text-sm text-destructive">
+                  Renovações indisponíveis nesta versão dos dados. Atualize a página e tente novamente.
+                </p>
+              ) : !queueLoading && !queueError && visibleRenewals.length > 0 ? (
                 <div className="space-y-3 max-h-[250px] overflow-auto">
-                  {visibleRenewals.map((contract: any) => {
-                    const daysLeft = differenceInCalendarDays(parseISO(contract.end_date), businessToday);
+                  {visibleRenewals.map(({ contract, daysLeft }) => {
                     return (
                       <div key={contract.id} className={`flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg bg-secondary/50 border border-border transition-all ${!canOpenStudent ? "" : "cursor-pointer hover:brightness-110"}`} onClick={() => navigateWhenInteractive(`/${routePrefix}/students/${contract.student_id}?tab=enrollments`)}>
                         <div>
@@ -597,7 +565,8 @@ export default function AdminDashboard({
                               size="sm"
                               variant="outline"
                               className="h-7 px-2 text-xs border-primary/40 text-primary hover:bg-primary/5"
-                              onClick={(e) => { e.stopPropagation(); handleRenew(contract.student_id, contract.id, contract.students?.full_name, contract.plans?.name, daysLeft); }}
+                              disabled={preparingRenewal}
+                              onClick={(e) => { e.stopPropagation(); void handleRenew(contract, daysLeft); }}
                             >
                               <MessageCircle className="h-3.5 w-3.5 mr-1" /> Renovar agora
                             </Button>
@@ -608,26 +577,61 @@ export default function AdminDashboard({
                   })}
                 </div>
               ) : (
-                <DashboardQueueState loading={queueLoading} error={queueError} empty="Nenhuma renovação pendente." />
+                <DashboardQueueState loading={queueLoading} error={queueError} empty={renewalFilters[renewalFilter].empty} />
               )}
             </CardContent>
-          </Card>
-
-
-          <div className="min-w-0 space-y-3">
-          <DashboardAlerts section="birthdays" readOnly={readOnly} studentIds={mine ? studentIds : undefined}
+          </Card>),
+    workoutFeedback: (<WorkoutFeedbackDashboardCard scope={operationalScope} routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} allowWhatsApp={canOpenChat && (!readOnly || mine)} />),
+    contactCadence: (<OperationalContactCadenceCard scope={canOpenChat ? mine ? assignedScope : actorScope : null}
+            routePrefix={safeRoutePrefix} allowChat={!readOnly || mine} />),
+    assessments: (!mine && <AssessmentDashboardCard scope={operationalScope} routePrefix={safeRoutePrefix} allowChat={canOpenChat} />),
+    cycleFeedback: (!mine && role !== "coordinator" && <PendingFeedbackCard companyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} />),
+    birthdays: (<DashboardAlerts section="birthdays" readOnly={readOnly} studentIds={mine ? studentIds : undefined}
             birthdayLoading={readOnly ? queueLoading : mine && roster.isLoading}
             birthdayError={readOnly ? queueError : mine && roster.error}
-            allowStudentNavigation={canOpenStudent} allowBirthdayMessage={canOpenChat} />
-          <WorkoutFeedbackDashboardCard scope={operationalScope} routePrefix={safeRoutePrefix} allowStudentNavigation={canOpenStudent} allowWhatsApp={canOpenChat && (!readOnly || mine)} />
-          </div>
-        </div>
-
-        {!mine && role !== "coordinator" && <PendingFeedbackCard companyId={effectiveCompanyId} routePrefix={safeRoutePrefix} readOnly={readOnly} />}
-        {!mine && includeCoordinatorPanels && operationalExtras && <details className="rounded-xl border border-border bg-card">
+            allowStudentNavigation={canOpenStudent} allowBirthdayMessage={canOpenChat} />),
+    enrollmentQueue: (!mine && includeCoordinatorPanels && operationalExtras && <details className="md:col-span-2 rounded-xl border border-border bg-card">
           <summary className="cursor-pointer p-4 text-sm font-semibold text-primary">Fila de matrículas</summary>
           <div className="overflow-x-auto p-4 pt-0">{operationalExtras}</div>
-        </details>}
+        </details>),
+  };
+
+  return (
+    <>
+      <DashboardSnapshotContext.Provider value={readOnly ? snapshotData ?? null : null}>
+      <div className="space-y-6">
+        <div role="group" aria-label="Carteira do dashboard" className="flex flex-wrap justify-end gap-2">
+          {([["all", "Todos os alunos"], ["mine", "Meus alunos"]] as const).map(([value, label]) => (
+            <Button key={value} type="button" size="sm" variant={view === value ? "default" : "outline"}
+              aria-pressed={view === value} disabled={value === "mine" && !actorScope}
+              onClick={() => setView(value)}>{label}</Button>
+          ))}
+        </div>
+
+        {(readOnly || isViewingCompany || subtitle || title !== "DASHBOARD") && <div>
+          {(readOnly || title !== "DASHBOARD") && <h1 className="text-4xl text-primary">{title}</h1>}
+          {(subtitle || isViewingCompany) && <p className="text-muted-foreground font-sans">
+            {subtitle ?? `Visualizando: ${viewingCompany?.name}`}
+          </p>}
+          {readOnly && !mine && (
+            <p className="mt-1 text-xs text-muted-foreground font-sans">
+              Visualização completa da empresa. Ações administrativas permanecem restritas a admin/coordenador.
+            </p>
+          )}
+        </div>}
+
+        {dashboardError && (
+          <Card className="border-destructive/40 bg-destructive/5">
+            <CardContent className="pt-6">
+              <p className="text-sm font-medium text-destructive">Não foi possível carregar os indicadores do painel.</p>
+              <p className="mt-1 text-xs text-muted-foreground">{dashboardErrorMessage(dashboardError)}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="sett-dashboard-grid grid grid-cols-1 items-start gap-3 md:grid-cols-2">
+          {dashboardOrder.map(id => <Fragment key={id}>{sections[id]}</Fragment>)}
+        </div>
       </div>
       </DashboardSnapshotContext.Provider>
     </>

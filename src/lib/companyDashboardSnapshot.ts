@@ -12,6 +12,11 @@ export interface DashboardContractRow {
   students: { full_name: string; status: string | null };
   plans: { name: string } | null;
 }
+export interface DashboardRenewalRow extends Omit<DashboardContractRow, "payment_status" | "students"> {
+  status: string;
+  created_at: string;
+  students: DashboardContractRow["students"] | null;
+}
 export interface DashboardCycleCountdown {
   student_name: string;
   student_id: string;
@@ -36,7 +41,8 @@ export interface CompanyDashboardSnapshot {
   asOfDate: string;
   stats: { totalStudents: number; interestedStudents: number; pendingStudents: number; awaitingRenewalStudents: number; inactiveStudents: number; trainers: number };
   planChart: Array<{ name: string; count: number }>;
-  expiringContracts: DashboardContractRow[];
+  renewalQueueVersion?: unknown;
+  expiringContracts?: unknown;
   cycleCountdowns: DashboardCycleCountdown[];
   trainerMap: Record<string, string>;
   renewals: DashboardRenewals;
@@ -57,11 +63,11 @@ export interface CompanyDashboardSnapshot {
   atRiskStudents: Array<{ id: string; name: string; status: StudentStatus; reasons: string[]; pain: string | null; tone: "red" | "amber" }>;
 }
 
-/** Reject unavailable/incomplete RPCs rather than silently falling back to RLS-filtered data. */
+/** Validate the shared sections. The dashboard renewal queue has its own compatibility check. */
 export function parseCompanyDashboardSnapshot(value: unknown, companyId: string): CompanyDashboardSnapshot {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Dashboard: resposta inválida.");
   const v = value as Record<string, unknown>;
-  const arrays = ["planChart", "expiringContracts", "cycleCountdowns", "monthlyPrescriptions", "pendingFeedback", "contactCadence", "cohortFeedback", "atRiskStudents"];
+  const arrays = ["planChart", "cycleCountdowns", "monthlyPrescriptions", "pendingFeedback", "contactCadence", "cohortFeedback", "atRiskStudents"];
   const alerts = v.alerts as Record<string, unknown> | undefined;
   const renewals = v.renewals as Record<string, unknown> | undefined;
   const stats = v.stats as Record<string, unknown> | undefined;

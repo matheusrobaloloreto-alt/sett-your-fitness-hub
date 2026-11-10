@@ -1,12 +1,12 @@
 .sett-linen {
-  --linen-glass: hsl(var(--card) / .68);
+  --linen-glass: hsl(var(--card) / calc(1 - .64 * var(--sett-effect-glass, .5)));
   --linen-rim: hsl(0 0% 100% / .82);
   --linen-shadow: 0 10px 30px hsl(var(--foreground) / .10);
   --linen-glint: inset 0 1px 1px hsl(0 0% 100% / .82), inset 0 -1px 1px hsl(var(--foreground) / .08);
-  background:
+  --sett-panel-base:
     radial-gradient(ellipse at 0% 0%, hsl(var(--card)) 0%, transparent 60%),
-    radial-gradient(ellipse at 100% 6%, hsl(var(--primary) / .13), transparent 60%),
-    hsl(var(--paper));
+    radial-gradient(ellipse at 100% 6%, hsl(var(--primary) / .13), transparent 60%);
+  background: var(--sett-panel-base), hsl(var(--paper));
   background-attachment: fixed;
 }
 
@@ -36,6 +36,7 @@
 }
 
 .sett-linen .sett-linen-drawer {
+  --linen-glass: hsl(var(--card) / calc(1 - .16 * var(--sett-effect-glass, .5)));
   inset: .75rem auto .75rem .75rem;
   width: min(18rem, calc(100vw - 1.5rem));
   height: auto;
@@ -101,23 +102,37 @@
 }
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .sett-effects:not(.sett-linen) .sett-panel-header {
+    --sett-chrome-tone: var(--paper);
+  }
+
+  .sett-effects:not(.sett-linen) [data-sidebar="sidebar"]:not([data-mobile]) {
+    --sett-chrome-tone: var(--sidebar-background);
+  }
+
+  .sett-effects:not(.sett-linen) :is(.sett-panel-header, [data-sidebar="sidebar"]:not([data-mobile])) {
+    background-color: hsl(var(--sett-chrome-tone) / calc(1 - .48 * var(--sett-effect-glass, .5)));
+    -webkit-backdrop-filter: var(--sett-glass-bar-filter, blur(24px) saturate(150%));
+    backdrop-filter: var(--sett-glass-bar-filter, blur(24px) saturate(150%));
+  }
+
   .sett-linen :is(.sett-panel-header, .sett-linen-sidebar > [data-sidebar="sidebar"], .sett-linen-drawer, .sett-linen-dock),
   .sett-linen .sett-linen-content [role="tablist"] {
     background: var(--linen-glass);
-    -webkit-backdrop-filter: blur(24px) saturate(150%);
-    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: var(--sett-glass-bar-filter, blur(24px) saturate(150%));
+    backdrop-filter: var(--sett-glass-bar-filter, blur(24px) saturate(150%));
   }
 
   .sett-linen .sett-linen-content button:not([role="tab"]).bg-primary {
-    background-color: hsl(var(--primary) / .91);
-    -webkit-backdrop-filter: blur(9px);
-    backdrop-filter: blur(9px);
+    background-color: hsl(var(--primary) / max(.91, calc(1 - .18 * var(--sett-effect-glass, .5))));
+    -webkit-backdrop-filter: var(--sett-glass-button-filter, blur(9px));
+    backdrop-filter: var(--sett-glass-button-filter, blur(9px));
   }
 
   .sett-linen .sett-linen-content button:not([role="tab"]):is(.bg-background, .bg-secondary) {
-    background-color: hsl(var(--card) / .72);
-    -webkit-backdrop-filter: blur(9px);
-    backdrop-filter: blur(9px);
+    background-color: hsl(var(--card) / max(.72, calc(1 - .56 * var(--sett-effect-glass, .5))));
+    -webkit-backdrop-filter: var(--sett-glass-button-filter, blur(9px));
+    backdrop-filter: var(--sett-glass-button-filter, blur(9px));
   }
 }
 
@@ -136,6 +151,7 @@
 
 .sett-linen-dock > :is(a, button) {
   flex: 1;
+  min-width: 0;
   display: grid;
   justify-items: center;
   align-content: center;
@@ -164,6 +180,10 @@
 }
 
 @media (max-width: 767px) {
+  body:has(.sett-linen-drawer[data-state="open"]) [data-sett-install-prompt] {
+    visibility: hidden;
+  }
+
   .group\/sidebar-wrapper:has(.sett-linen-dock) {
     --sett-mobile-dock-height: 3.75rem;
   }
@@ -201,9 +221,9 @@
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
   .sett-chat-launcher {
-    background: var(--linen-glass, hsl(var(--card) / .8));
-    -webkit-backdrop-filter: blur(20px) saturate(150%);
-    backdrop-filter: blur(20px) saturate(150%);
+    background: var(--linen-glass, hsl(var(--card) / calc(1 - .4 * var(--sett-effect-glass, .5))));
+    -webkit-backdrop-filter: var(--sett-glass-launcher-filter, blur(20px) saturate(150%));
+    backdrop-filter: var(--sett-glass-launcher-filter, blur(20px) saturate(150%));
   }
 }
 
@@ -235,4 +255,23 @@
 .sett-linen .sett-linen-content :is(h1, h2, h3) {
   font-family: ui-sans-serif, system-ui, sans-serif;
   letter-spacing: -.025em;
+}
+
+.sett-effects {
+  --sett-texture-ink: hsl(var(--foreground) / calc(.16 * var(--sett-effect-texture, 0)));
+  background-image:
+    repeating-linear-gradient(0deg, var(--sett-texture-ink) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(90deg, var(--sett-texture-ink) 0 1px, transparent 1px 6px),
+    radial-gradient(ellipse at 64% 0%, hsl(var(--primary) / calc(.44 * var(--sett-effect-ambient, 0))), transparent 58%),
+    var(--sett-panel-base, linear-gradient(transparent, transparent));
+}
+
+.sett-effects :is(.sett-panel-header, .sett-linen-sidebar > [data-sidebar="sidebar"], .sett-linen-drawer, .sett-linen-dock, .sett-chat-launcher, .sett-dashboard-grid .bg-card, .sett-dashboard-card):not(:focus-visible) {
+  outline: 1px solid hsl(var(--primary) / calc(.72 * var(--sett-effect-edge, 0)));
+  outline-offset: -1px;
+}
+
+[data-sett-soft-shadows] :is(.sett-dashboard-grid .bg-card, .sett-dashboard-card) {
+  box-shadow: var(--tw-shadow, 0 0 transparent),
+    0 8px calc(24px * var(--sett-effect-shadow, 0)) hsl(var(--foreground) / calc(.27 * var(--sett-effect-shadow, 0))) !important;
 }

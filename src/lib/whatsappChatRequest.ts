@@ -1,4 +1,4 @@
-import { sameWhatsAppRecipient } from '../../supabase/functions/_shared/whatsappIdentity';
+import { sameWhatsAppRecipient, verifiedWhatsAppJidVariants } from '../../supabase/functions/_shared/whatsappIdentity';
 import { normalizeWhatsAppPhoneKey } from "@/lib/whatsappMessages";
 import type { CompanyEventDraft, WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
 import { validateRenderedMessageParts } from '../../supabase/functions/_shared/company-product-settings';
@@ -24,6 +24,34 @@ export type ResolvedWhatsAppChatRequest = {
 
 export type StudentLoginTarget = { companyId: string | null | undefined; studentId: string | null; chatId: string | null; remoteJid: string };
 export type StudentLoginDraft = StudentLoginTarget & { companyId: string; studentId: string; preflightToken: string };
+
+/** A provider JID without Brazil's DDI can be a different international number. */
+export function sameRenewalRecipient(left: unknown, right: unknown): boolean {
+  const number = (value: unknown) => /^([1-9]\d{7,14})(?:@s\.whatsapp\.net)?$/.exec(String(value ?? ""))?.[1];
+  const first = number(left);
+  const second = number(right);
+  if (!first || !second) return false;
+  return verifiedWhatsAppJidVariants(first + "@s.whatsapp.net").includes(second + "@s.whatsapp.net");
+}
+
+export function canPinRenewalChat(
+  saved: { draft: CompanyEventDraft; studentId: string | null; remoteJid: string },
+  chat: ChatRequestCandidate | null | undefined,
+): boolean {
+  return Boolean(saved.draft.renewalEnrollmentId && saved.studentId && chat
+    && chat.company_id === saved.draft.companyId && chat.student_id === saved.studentId
+    && sameRenewalRecipient(saved.remoteJid, chat.remote_jid));
+}
+
+export function conflictsWithSavedRenewal(
+  saved: { draft: CompanyEventDraft; studentId: string | null; chatId: string | null },
+  next: { draft: CompanyEventDraft; studentId: string | null; chatId: string | null },
+): boolean {
+  return Boolean(saved.draft.renewalEnrollmentId || next.draft.renewalEnrollmentId) && (
+    saved.draft.renewalEnrollmentId !== next.draft.renewalEnrollmentId
+    || saved.studentId !== next.studentId || saved.chatId !== next.chatId
+  );
+}
 export function studentLoginSendPayload(draft: StudentLoginDraft, target: StudentLoginTarget, content: string) {
   if (!draft.preflightToken || draft.companyId !== target.companyId || draft.studentId !== target.studentId
     || draft.chatId !== target.chatId || !sameWhatsAppRecipient(draft.remoteJid, target.remoteJid) || !content.trim()) {
@@ -72,11 +100,14 @@ export function resolveWhatsAppChatRequest(
     : null;
   const digits = (request.phone || "").replace(/\D/g, "");
   const phoneKey = normalizeWhatsAppPhoneKey(digits);
+  const hasSamePhone = (chat: ChatRequestCandidate) => request.eventDraft?.renewalEnrollmentId
+    ? sameRenewalRecipient(chat.remote_jid, digits)
+    : normalizeWhatsAppPhoneKey(chat.remote_jid) === phoneKey;
   const phoneChat = !requestedChat && !studentChat && digits
-    ? chats.find((chat) => normalizeWhatsAppPhoneKey(chat.remote_jid) === phoneKey)
+    ? chats.find(hasSamePhone)
     : null;
   const matchedChat = requestedChat || studentChat || phoneChat || null;
-  if (matchedChat && digits && normalizeWhatsAppPhoneKey(matchedChat.remote_jid) !== phoneKey) throw new Error('message_draft_phone_mismatch');
+  if (matchedChat && digits && !hasSamePhone(matchedChat)) throw new Error('message_draft_phone_mismatch');
   if (matchedChat && request.studentId && matchedChat.student_id && matchedChat.student_id !== request.studentId) throw new Error('message_draft_recipient_mismatch');
 
   let loginDraft: StudentLoginDraft | undefined;

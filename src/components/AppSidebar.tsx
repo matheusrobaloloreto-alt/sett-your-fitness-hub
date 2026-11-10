@@ -40,7 +40,6 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -180,13 +179,18 @@ export function AppSidebar({ linen = false }: { linen?: boolean }) {
   const isTrainer = role === "trainer";
   
   const showAdminView = isMaster && isViewingCompany;
+  const primaryFeatures: Record<string, boolean | undefined> = {
+    Dashboard: features.hasDashboard,
+    Alunos: features.hasStudents,
+    Agenda: features.hasAgenda,
+  };
 
   // Build admin items dynamically based on tier features
   const adminItems = (() => {
-    const items = [...baseAdminItems];
-    if (features.hasDashboard || showAdminView) {
-      items.unshift(...managementItems);
-    }
+    const items = [
+      ...managementItems.filter(item => showAdminView || (primaryFeatures[item.title] ?? features.hasDashboard)),
+      ...baseAdminItems,
+    ];
     if (features.hasFinancial || showAdminView) {
       items.push(financialItem);
     }
@@ -196,6 +200,7 @@ export function AppSidebar({ linen = false }: { linen?: boolean }) {
   // For coordinator/trainer, filter items by permission
   const filterByPermission = (items: typeof coordinatorAllItems) => {
     return items.filter((item) => {
+      if (primaryFeatures[item.title] === false) return false;
       const mod = moduleMap[item.title];
       if (!mod) return true; // If no mapping, show it
       if (isTrainer && trainerAlwaysAvailableModules.has(mod)) return true;
@@ -286,9 +291,6 @@ export function AppSidebar({ linen = false }: { linen?: boolean }) {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="text-muted-foreground font-mono text-[10px] uppercase tracking-[0.2em] px-3 mt-2">
-            — Menu
-          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {items.map((item) => {
@@ -408,16 +410,18 @@ export function AppSidebar({ linen = false }: { linen?: boolean }) {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-line p-4">
-        <p className="text-[10px] font-mono text-muted-foreground truncate mb-2">
+      <SidebarFooter className="border-t border-line p-4 group-data-[collapsible=icon]:px-0">
+        <p className="text-[10px] font-mono text-muted-foreground truncate mb-2 group-data-[collapsible=icon]:hidden">
           {user?.email}
         </p>
         <button
+          type="button"
+          aria-label="Sair"
           onClick={() => runWithSettingsExitConfirmation(() => { void signOut(); })}
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-destructive transition-colors w-full"
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-destructive transition-colors w-full group-data-[collapsible=icon]:min-h-8 group-data-[collapsible=icon]:justify-center"
         >
-          <LogOut className="h-4 w-4" />
-          Sair
+          <LogOut aria-hidden="true" className="h-4 w-4 shrink-0" />
+          <span className="group-data-[collapsible=icon]:hidden">Sair</span>
         </button>
       </SidebarFooter>
     </Sidebar>
@@ -448,7 +452,11 @@ function LinenMobileNav({ items }: { items: typeof managementItems }) {
     <nav className="sett-linen-dock" aria-label="Navegação rápida">
       {shortcut("Dashboard", "Painel")}
       {shortcut("Alunos")}
-      {shortcut("Agenda")}
+      <motion.button type="button" onClick={toggleSidebar} aria-expanded={openMobile} aria-haspopup="dialog"
+        data-sett-mobile-menu-trigger whileTap={press} transition={spring}>
+        <Settings aria-hidden="true" />
+        <span>Menu</span>
+      </motion.button>
       {isAvailable && (
         <motion.button type="button" onClick={() => openChatPanel()} aria-expanded={isChatPanelOpen}
           aria-haspopup="dialog" whileTap={press} transition={spring}>
@@ -456,11 +464,7 @@ function LinenMobileNav({ items }: { items: typeof managementItems }) {
           <span>Conversas</span>
         </motion.button>
       )}
-      <motion.button type="button" onClick={toggleSidebar} aria-expanded={openMobile}
-        whileTap={press} transition={spring}>
-        <Settings aria-hidden="true" />
-        <span>Menu</span>
-      </motion.button>
+      {shortcut("Agenda")}
     </nav>
   );
 }

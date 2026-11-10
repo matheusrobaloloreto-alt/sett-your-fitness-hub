@@ -613,37 +613,39 @@ export default function StudentsManager() {
 
         <div className="space-y-3">
           {filtered.map(s => (
-            <Card key={s.id} className="bg-card border-border">
-              <CardContent className="pt-6 space-y-3">
+            <Card key={s.id} className="min-w-0 bg-card border-border">
+              <CardContent className="space-y-3 p-3 sm:p-6">
                 {(() => {
                   const selectedPlan = plans.find((plan) => plan.id === s.selected_plan_id);
                   const influencer = isInfluencerPlan(selectedPlan);
                   return <>
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
+                <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex min-w-0 items-start gap-2">
                       <button
                         type="button"
-                        className="min-w-0 max-w-full truncate text-left font-sans font-medium text-foreground hover:text-primary hover:underline"
+                        className="min-w-0 max-w-full text-left font-sans font-medium text-foreground [overflow-wrap:anywhere] hover:text-primary hover:underline"
                         onClick={() => navigate(`${rolePrefix}/students/${s.id}`)}
                         title="Abrir perfil do aluno"
                       >
                         {s.full_name}
                       </button>
                       <AthleticClubStar studentId={s.id} companyId={effectiveCompanyId} className="shrink-0" />
+                    </div>
+                    <div className="flex min-w-0 flex-wrap gap-1.5 [&>*]:max-w-full [&>*]:[overflow-wrap:anywhere]">
                       <Badge variant="outline" className={`text-xs ${statusColors[s.status]}`}>{studentRecordStatusLabel(s.status)}</Badge>
                       <Badge variant="outline" className={s.currentContract?.planName ? "text-xs bg-primary/10 text-primary border-primary/30" : undefined}>
                         {studentContractLabel(s.currentContract)}
                       </Badge>
                       {s.status === "active" && !s.user_id && <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">Sem acesso</Badge>}
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground font-sans">
-                      {s.email && <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{s.email}</span>}
-                      {(s.phone || s.whatsapp) && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{s.whatsapp || s.phone}</span>}
+                    <div className="flex min-w-0 flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground font-sans">
+                      {s.email && <span className="inline-flex min-w-0 max-w-full items-start gap-1"><Mail className="mt-0.5 h-3 w-3 shrink-0" /><span className="min-w-0 [overflow-wrap:anywhere]">{s.email}</span></span>}
+                      {(s.phone || s.whatsapp) && <span className="inline-flex min-w-0 max-w-full items-start gap-1"><Phone className="mt-0.5 h-3 w-3 shrink-0" /><span className="min-w-0 [overflow-wrap:anywhere]">{s.whatsapp || s.phone}</span></span>}
                       <span>Cadastro: {format(new Date(s.created_at), "dd/MM/yyyy", { locale: ptBR })}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 ml-4">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1 max-md:[&_button]:min-h-11 max-md:[&_button]:min-w-11">
                     <BnitoContextButton
                       label={`aluno ${s.full_name}`}
                       context={`Aluno na lista. Status: ${studentRecordStatusLabel(s.status)}. ${studentContractLabel(s.currentContract)}. Professor da carteira atribuído: ${s[PORTFOLIO_TRAINER_COLUMN] ? "sim" : "não"}.`}
@@ -674,17 +676,17 @@ export default function StudentsManager() {
 
                 {/* Trainer & Plan assignment */}
                 {canManageStudent(s) && <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border">
-                  <div className="flex-1 space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Label className="text-xs font-sans text-muted-foreground">{PORTFOLIO_TRAINER_LABEL}{influencer ? " (opcional)" : ""}</Label>
                     <Select value={s[PORTFOLIO_TRAINER_COLUMN] || ""} onValueChange={v => handleAssignTrainer(s.id, v)} disabled={influencer || Boolean(assigningStudentId)}>
-                      <SelectTrigger aria-label={`Professor responsável por ${s.full_name}`} className="bg-secondary border-border h-8 text-xs"><SelectValue placeholder={influencer ? "Não exigido" : "Atribuir treinador"} /></SelectTrigger>
+                      <SelectTrigger aria-label={`Professor responsável por ${s.full_name}`} className="min-w-0 gap-2 bg-secondary border-border h-8 text-xs max-md:h-11 [&>span]:min-w-0 [&>span]:[overflow-wrap:anywhere] [&>svg]:shrink-0"><SelectValue placeholder={influencer ? "Não exigido" : "Atribuir treinador"} /></SelectTrigger>
                       <SelectContent>{trainers.map(t => <SelectItem key={t.user_id} value={t.user_id}>{t.full_name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
-                  <div className="flex-1 space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Label className="text-xs font-sans text-muted-foreground">Plano escolhido no cadastro</Label>
                     <Select value={s.selected_plan_id || ""} onValueChange={v => handleChangePlan(s.id, v)}>
-                      <SelectTrigger aria-label="Plano escolhido no cadastro" className="bg-secondary border-border h-8 text-xs"><SelectValue placeholder="Plano escolhido no cadastro" /></SelectTrigger>
+                      <SelectTrigger aria-label="Plano escolhido no cadastro" className="min-w-0 gap-2 bg-secondary border-border h-8 text-xs max-md:h-11 [&>span]:min-w-0 [&>span]:[overflow-wrap:anywhere] [&>svg]:shrink-0"><SelectValue placeholder="Plano escolhido no cadastro" /></SelectTrigger>
                       <SelectContent>{plans.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>

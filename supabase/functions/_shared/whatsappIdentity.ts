@@ -97,6 +97,15 @@ export function directWhatsAppJidVariants(remoteJid: unknown): string[] {
   return [...variants];
 }
 
+/** The recipient has already been resolved to an international provider JID. */
+export function verifiedWhatsAppJidVariants(remoteJid: string): string[] {
+  const mobile = remoteJid.match(/^55([1-9][0-9])9?([6-9][0-9]{7})@s\.whatsapp\.net$/);
+  if (!mobile) return [remoteJid];
+  const [, area, number] = mobile;
+  return [...new Set([remoteJid, `55${area}9${number}${DIRECT_JID_SUFFIX}`,
+    `55${area}${number}${DIRECT_JID_SUFFIX}`])];
+}
+
 export function sameWhatsAppRecipient(left: unknown, right: unknown): boolean {
   const leftRaw = String(left || "").trim();
   const rightRaw = String(right || "").trim();

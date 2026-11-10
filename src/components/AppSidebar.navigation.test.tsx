@@ -6,7 +6,7 @@ import { AppSidebar } from './AppSidebar';
 
 const state = vi.hoisted(() => ({
   role: 'admin', viewing: false, permissions: true,
-  features: { hasDashboard: true, hasFinancial: true, hasWhatsApp: true },
+  features: { hasDashboard: true, hasStudents: true, hasAgenda: true, hasFinancial: true, hasWhatsApp: true },
 }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ role: state.role, user: { id: 'test' }, signOut: vi.fn() }) }));
 vi.mock('@/hooks/useCompanyFeatures', () => ({ useCompanyFeatures: () => state.features }));
@@ -18,7 +18,7 @@ vi.mock('@/components/Logo', () => ({ Logo: () => <span>SETT</span> }));
 
 beforeEach(() => {
   state.role = 'admin'; state.viewing = false; state.permissions = true;
-  state.features = { hasDashboard: true, hasFinancial: true, hasWhatsApp: true };
+  state.features = { hasDashboard: true, hasStudents: true, hasAgenda: true, hasFinancial: true, hasWhatsApp: true };
   window.matchMedia = vi.fn().mockImplementation(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn() }));
 });
 afterEach(cleanup);
@@ -71,9 +71,17 @@ describe('settings-only company navigation', () => {
     expect(screen.queryByText('WhatsApp')).not.toBeInTheDocument();
   });
   it('keeps settings available to the basic admin without enabling paid features', () => {
-    state.features = { hasDashboard: false, hasFinancial: false, hasWhatsApp: false };
+    state.features = { hasDashboard: false, hasStudents: false, hasAgenda: false, hasFinancial: false, hasWhatsApp: false };
     sidebar('admin');
     expect(hrefs()).toEqual(['/admin/settings']);
     expect(screen.queryByText('WhatsApp')).not.toBeInTheDocument();
+  });
+  it.each(['admin', 'coordinator', 'trainer'])('matches the company features of the primary shortcuts for %s', role => {
+    state.features.hasDashboard = false;
+    state.features.hasAgenda = false;
+    sidebar(role);
+    expect(hrefs()).toContain(`/${role}/students`);
+    expect(hrefs()).not.toContain(`/${role}`);
+    expect(hrefs()).not.toContain(`/${role}/agenda`);
   });
 });

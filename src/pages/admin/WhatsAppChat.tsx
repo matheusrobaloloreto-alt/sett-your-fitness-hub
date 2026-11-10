@@ -69,7 +69,7 @@ import {
   shouldApplyWhatsAppMessageEditResult,
 } from "@/lib/whatsappMessageEdit";
 import { consumeTransientLoginNavigation, type CompanyEventDraft, type WhatsAppChatPanelRequest } from "@/lib/whatsappChatPanel";
-import { manualSequencePayload, manualSequenceResult, resolveWhatsAppChatRequest, studentLoginSendPayload, type StudentLoginDraft, type StudentLoginTarget } from "@/lib/whatsappChatRequest";
+import { canPinRenewalChat, conflictsWithSavedRenewal, manualSequencePayload, manualSequenceResult, resolveWhatsAppChatRequest, sameRenewalRecipient, studentLoginSendPayload, type StudentLoginDraft, type StudentLoginTarget } from "@/lib/whatsappChatRequest";
 import { prepareEmojiWhatsAppSticker, prepareWhatsAppSticker, QUICK_STICKER_EMOJIS } from "@/lib/whatsappSticker";
 import { dashboardFeedbackAction } from "@/lib/dashboardFeedback";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
@@ -436,7 +436,17 @@ export default function WhatsAppChat({
   const sequenceScopeRef = useRef('');
   sequenceScopeRef.current = `${user?.id}:${effectiveCompanyId}:${selectedChatId || draftRecipient?.remoteJid || ''}`;
   const selectedSequenceRemote = chats.find(chat => chat.id === selectedChatId && chat.company_id === effectiveCompanyId)?.remote_jid || draftRecipient?.remoteJid;
-  const activeEventDraft = eventDrafts.find(item => item.draft.companyId === effectiveCompanyId && (item.chatId ? item.chatId === selectedChatId : Boolean(selectedSequenceRemote) && normalizeWhatsAppPhoneKey(item.remoteJid) === normalizeWhatsAppPhoneKey(selectedSequenceRemote!)));
+  const activeEventDraft = eventDrafts.find(item => {
+    if (item.draft.companyId !== effectiveCompanyId) return false;
+    if (item.draft.renewalEnrollmentId) {
+      const selectedStudentId = selectedRecipientIdentity?.student_id ?? draftRecipient?.studentId;
+      return sameRenewalRecipient(item.remoteJid, selectedSequenceRemote)
+        && item.chatId === selectedChatId
+        && (!selectedStudentId ? Boolean(item.chatId) : item.studentId === selectedStudentId);
+    }
+    return item.chatId ? item.chatId === selectedChatId : Boolean(selectedSequenceRemote)
+      && normalizeWhatsAppPhoneKey(item.remoteJid) === normalizeWhatsAppPhoneKey(selectedSequenceRemote!);
+  });
   const [chatsLoaded, setChatsLoaded] = useState(false);
   const chatsLoadedRef = useRef(false);
   const [loadingChats, setLoadingChats] = useState(true);
@@ -1352,6 +1362,23 @@ export default function WhatsAppChat({
     let resolved;
     try { resolved = resolveWhatsAppChatRequest(chats, pendingNavigationRequest, effectiveCompanyId); }
     catch { invalidateLoginDraft(); setNewMessage(''); toast.error(pendingNavigationRequest.loginAccess ? 'A conversa ou o contato mudou. Confira o aluno e gere o acesso novamente por ação explícita no perfil.' : 'Não foi possível confirmar a empresa e o destinatário do rascunho.'); setPendingNavigationRequest(null); return; }
+    const chat = chats.find(item => item.id === resolved.chatId);
+    const remoteJid = chat?.remote_jid || resolved.draftRecipient?.remoteJid;
+    const studentId = pendingNavigationRequest.studentId || chat?.student_id || resolved.draftRecipient?.studentId || null;
+    const eventDraft = resolved.eventDraft;
+    const isSameDraftRecipient = (item: ReviewedEventDraft) => {
+      if (item.draft.companyId !== eventDraft?.companyId || !remoteJid) return false;
+      return item.draft.renewalEnrollmentId || eventDraft.renewalEnrollmentId
+        ? item.remoteJid === remoteJid || sameRenewalRecipient(item.remoteJid, remoteJid)
+        : normalizeWhatsAppPhoneKey(item.remoteJid) === normalizeWhatsAppPhoneKey(remoteJid);
+    };
+    const existingDraft = eventDraft
+      ? (reviewedEventDraftSessions.get(eventDraftOwner) || []).find(isSameDraftRecipient) : undefined;
+    if (eventDraft && existingDraft && conflictsWithSavedRenewal(existingDraft, { draft: eventDraft, studentId, chatId: resolved.chatId })) {
+      toast.error('Já existe um rascunho para este número. Revise ou descarte o anterior na conversa original antes de continuar.');
+      setPendingNavigationRequest(null);
+      return;
+    }
     loginDraftGenerationRef.current++;
     loginDraftRef.current = resolved.loginDraft || null;
     loginOwnerRef.current = user?.id;
@@ -1359,14 +1386,11 @@ export default function WhatsAppChat({
     setSelectedChatId(resolved.chatId);
     setDraftRecipient(resolved.draftRecipient);
     setNewMessage(resolved.eventDraft ? '' : resolved.prefillMessage);
-    if (resolved.eventDraft) {
-      const chat = chats.find(item => item.id === resolved.chatId);
-      const remoteJid = chat?.remote_jid || resolved.draftRecipient?.remoteJid;
-      const existingDraft = (reviewedEventDraftSessions.get(eventDraftOwner) || []).find(item => item.draft.companyId === resolved.eventDraft!.companyId && normalizeWhatsAppPhoneKey(item.remoteJid) === normalizeWhatsAppPhoneKey(remoteJid || ''));
-      if (existingDraft && existingDraft.draft.draftId !== resolved.eventDraft.draftId) toast.info('Já existe um rascunho preservado para este contato. Continue a revisão ou descarte-o antes de abrir outro.');
-      if (remoteJid) setEventDrafts(items => items.some(item => item.draft.companyId === resolved.eventDraft!.companyId && normalizeWhatsAppPhoneKey(item.remoteJid) === normalizeWhatsAppPhoneKey(remoteJid)) ? items : [...items, {
-        draft: resolved.eventDraft!, chatId: resolved.chatId, remoteJid,
-        studentId: pendingNavigationRequest.studentId || chat?.student_id || resolved.draftRecipient?.studentId || null,
+    if (eventDraft) {
+      if (existingDraft && existingDraft.draft.draftId !== eventDraft.draftId) toast.info('Já existe um rascunho preservado para este contato. Continue a revisão ou descarte-o antes de abrir outro.');
+      if (remoteJid) setEventDrafts(items => items.some(isSameDraftRecipient) ? items : [...items, {
+        draft: eventDraft, chatId: resolved.chatId, remoteJid,
+        studentId,
         contactName: pendingNavigationRequest.contactName || chat?.contact_name || remoteJid, locked: false, uncertain: false,
       }]);
     }
@@ -2659,12 +2683,29 @@ export default function WhatsAppChat({
       requestStarted = true;
       const { data, error } = await supabase.functions.invoke('whatsapp-manager', { body: request });
       const result = await manualSequenceResult(id, data, error);
-      resultClassified = true;
       if (!result.complete) {
-        // Unknown outcome must not become an automatic retry or a new occurrence.
-        setEventDrafts(items => items.map(value => value.draft.draftId === id ? { ...value, uncertain: result.uncertain } : value));
+        let pinnedChatId = item.chatId;
+        let uncertain = result.uncertain;
+        if (item.draft.renewalEnrollmentId && !pinnedChatId && result.chatId && !uncertain) {
+          // The server keys delivery by chat and request. Only the chat from
+          // this response can be pinned, after reading it in the same tenant.
+          const { data: persistedChat, error: chatError } = await supabase.from('whatsapp_chats')
+            .select('id,company_id,student_id,remote_jid').eq('id', result.chatId).eq('company_id', effectiveCompanyId).maybeSingle();
+          if (!chatError && persistedChat && canPinRenewalChat(item, persistedChat)) pinnedChatId = persistedChat.id;
+          else uncertain = true;
+        }
+        setEventDrafts(items => items.map(value => value.draft.draftId === id ? { ...value, chatId: pinnedChatId, uncertain } : value));
+        resultClassified = true;
+        if (pinnedChatId && !item.chatId && templateActiveRef.current && sequenceScopeRef.current === scope) {
+          await loadChats();
+          if (templateActiveRef.current && sequenceScopeRef.current === scope) {
+            setDraftRecipient(null);
+            setSelectedChatId(pinnedChatId);
+          }
+        }
         throw new Error(result.message);
       }
+      resultClassified = true;
       setEventDrafts(items => items.filter(value => value.draft.draftId !== id));
       if (templateActiveRef.current && sequenceScopeRef.current === scope) {
         setNewMessage('');

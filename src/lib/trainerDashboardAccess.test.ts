@@ -35,8 +35,8 @@ describe("trainer dashboard access contract", () => {
     expect(adminDashboardSource).toContain('rpc("get_company_dashboard_snapshot"');
     expect(adminDashboardSource).toContain("parseCompanyDashboardSnapshot");
     expect(adminDashboardSource).toContain("DashboardSnapshotContext.Provider");
-    expect(adminDashboardSource).toContain('showRecentStudents');
-    expect(adminDashboardSource).not.toContain('showRecentStudents={role !== "trainer"}');
+    expect(adminDashboardSource).toContain('interested: (!mine && <DashboardCard title="Interessados"');
+    expect(adminDashboardSource).not.toContain('showRecentStudents');
     expect(dashboardAlertsSource).toContain("showRecentStudents?: boolean");
     expect(adminDashboardSource).toContain("enabled: !readOnly");
     expect(adminDashboardSource).not.toContain("useStaffPermission");
@@ -94,7 +94,7 @@ describe("trainer dashboard access contract", () => {
   it("hides administrative actions from the read-only company dashboard", () => {
     expect(adminDashboardSource).toContain("(mine || !readOnly)");
     expect(adminDashboardSource).toContain("if (!canOpenStudent) return");
-    expect(adminDashboardSource).toContain("if (!canRunAdminOperations || !effectiveCompanyId) return");
+    expect(adminDashboardSource).toContain("if (!canRunAdminOperations || !canOpenChat || mine || !effectiveCompanyId || preparingRenewal) return");
     expect(adminDashboardSource).toContain("{canRunAdminOperations && !mine && canOpenChat && (");
     expect(adminDashboardSource).toContain("navigateWhenInteractive");
     expect(dashboardAlertsSource).toContain("readOnly?: boolean");

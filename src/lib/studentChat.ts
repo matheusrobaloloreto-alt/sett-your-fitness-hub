@@ -159,6 +159,7 @@ export async function openStudentChat(opts: {
   messageValues?: Record<string, string>;
   eventDraft?: CompanyEventDraft;
   onNoChat?: (message: string) => void;
+  verifiedDraftRecipient?: { chatId: string | null; phone: string; contactName: string; enrollmentId: string };
   verifiedLoginAccess?: StudentLoginAccessReady;
   loginAccess?: { studentId: string; preflightToken: string };
 }): Promise<void> {
@@ -177,12 +178,14 @@ export async function openStudentChat(opts: {
     eventDraft = await draftCompanyEventSequence(opts.companyId, opts.messageEvent, opts.messageValues || {}, message);
     message = eventDraft.parts.length === 1 && eventDraft.parts[0].type === 'text' ? eventDraft.parts[0].text : '';
   }
-  let resolvedChatId = verified ? verified.chatId : opts.chatId ?? null;
+  const verifiedDraft = opts.verifiedDraftRecipient;
+  if (eventDraft && verifiedDraft) eventDraft = { ...eventDraft, renewalEnrollmentId: verifiedDraft.enrollmentId };
+  let resolvedChatId = verified ? verified.chatId : verifiedDraft ? verifiedDraft.chatId : opts.chatId ?? null;
   let resolvedPhone = verified ? verified.remoteJid.replace('@s.whatsapp.net', '') : opts.phone ?? null;
   let resolvedCountryCode = opts.countryCode ?? null;
-  let contactName: string | null = opts.contactName ?? null;
+  let contactName: string | null = verifiedDraft?.contactName ?? opts.contactName ?? null;
 
-  if (!verified && !resolvedChatId && studentId) {
+  if (!verified && !verifiedDraft && !resolvedChatId && studentId) {
     let chatQuery = supabase
       .from("whatsapp_chats")
       .select("id")
@@ -196,7 +199,7 @@ export async function openStudentChat(opts: {
     resolvedChatId = linkedChat?.id ?? null;
   }
 
-  if (!verified && (!resolvedPhone || !contactName || !resolvedCountryCode) && studentId) {
+  if (!verified && !verifiedDraft && (!resolvedPhone || !contactName || !resolvedCountryCode) && studentId) {
     let studentQuery = supabase
       .from("students")
       .select("full_name, whatsapp, phone, country_code")
@@ -210,7 +213,7 @@ export async function openStudentChat(opts: {
     resolvedCountryCode = resolvedCountryCode || (data as any)?.country_code || null;
   }
 
-  const digits = normalizeStudentChatPhone(resolvedPhone, resolvedCountryCode);
+  const digits = verifiedDraft?.phone ?? normalizeStudentChatPhone(resolvedPhone, resolvedCountryCode);
   if (!resolvedChatId && !digits) {
     if (onNoChat) {
       onNoChat(message);

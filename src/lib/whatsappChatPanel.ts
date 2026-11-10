@@ -7,6 +7,7 @@ export type CompanyEventDraft = {
   event: WhatsAppEvent;
   settingsVersion: number;
   parts: MessagePart[];
+  renewalEnrollmentId?: string;
 };
 
 export type WhatsAppChatPanelRequest = {

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { ClipboardList, Dumbbell, MessageCircle, type LucideIcon } from "lucide-react";
@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { WhatsAppChatPanelContext } from "@/components/WhatsAppChatPanelContext";
 import { requestWhatsAppChatPanel } from "@/lib/whatsappChatPanel";
 import { openStudentChat } from "@/lib/studentChat";
 import { hasWorkoutExercises } from "@/lib/workoutPresence";
@@ -312,9 +313,16 @@ const contactCadenceClient = supabase as unknown as {
 
 export function OperationalContactCadenceCard({ scope, routePrefix, allowChat = true }: { scope: Scope | null; routePrefix: string; allowChat?: boolean }) {
   const [filter, setFilter] = useState<"all" | "unanswered" | "without_team_message">("all");
+  const [realtimeUnavailable, setRealtimeUnavailable] = useState(false);
+  const companyId = scope?.companyId;
+  const actorId = scope?.actorId;
+  const queryClient = useQueryClient();
+  const isChatOpen = useContext(WhatsAppChatPanelContext)?.isChatPanelOpen ?? false;
+  const wasChatOpen = useRef(false);
   const query = useQuery({
-    queryKey: ["dashboard-operational-cadence", scope],
+    queryKey: ["dashboard-operational-cadence", companyId, scope],
     enabled: Boolean(scope),
+    refetchInterval: realtimeUnavailable ? 30_000 : false,
     queryFn: async () => {
       const { companyId, studentIds } = scope!;
       const page = (from: number, to: number, ids?: string[]) => contactCadenceClient
@@ -323,6 +331,60 @@ export function OperationalContactCadenceCard({ scope, routePrefix, allowChat = 
       return studentIds ? readForIds(studentIds, (ids, from, to) => page(from, to, ids)) : readPages(page);
     },
   });
+  useEffect(() => {
+    if (!companyId || !actorId) return;
+    const refreshKey = ["dashboard-operational-cadence", companyId];
+    let pendingRefresh: ReturnType<typeof setTimeout> | undefined;
+    let active = true;
+    let reconnecting = false;
+    const refreshFromMessage = (message: Record<string, unknown>, updated: boolean) => {
+      if (message.company_id !== companyId || message.type === "reaction") return;
+      const hasOutgoingIdentity = message.is_from_me === true && Boolean(message.sender_id) && Boolean(message.message_id_external);
+      const confirmedOutgoing = hasOutgoingIdentity && !message.failed_at
+        && (["sent", "delivered", "read"].includes(String(message.status))
+          || (message.status === "accepted" && ["SERVER_ACK", "SENT"].includes(String(message.provider_status))
+            && Boolean(message.provider_status_at)));
+      const failedOutgoing = updated && hasOutgoingIdentity && (message.status === "failed" || Boolean(message.failed_at));
+      if (message.is_from_me !== false && !confirmedOutgoing && !failedOutgoing) return;
+
+      // The RPC decides if a row is eligible and computes the business deadlines.
+      if (pendingRefresh !== undefined) return;
+      pendingRefresh = setTimeout(() => {
+        pendingRefresh = undefined;
+        void queryClient.invalidateQueries({ queryKey: refreshKey });
+      }, 350);
+    };
+    const messageFilter = { schema: "public", table: "whatsapp_messages", filter: `company_id=eq.${companyId}` };
+    const channel = supabase.channel(`dashboard-cadence:${companyId}:${actorId}`, { config: { private: true } })
+      .on("postgres_changes", { ...messageFilter, event: "INSERT" }, ({ new: message }) => refreshFromMessage(message, false))
+      .on("postgres_changes", { ...messageFilter, event: "UPDATE" }, ({ new: message }) => refreshFromMessage(message, true))
+      .subscribe(status => {
+        if (!active) return;
+        if (status === "SUBSCRIBED") {
+          setRealtimeUnavailable(false);
+          if (reconnecting) void queryClient.invalidateQueries({ queryKey: refreshKey });
+          reconnecting = false;
+        } else if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) {
+          reconnecting = true;
+          setRealtimeUnavailable(true);
+        }
+      });
+
+    return () => {
+      active = false;
+      clearTimeout(pendingRefresh);
+      void supabase.removeChannel(channel);
+    };
+  }, [companyId, actorId, queryClient]);
+
+  useEffect(() => {
+    // Re-read on return from the panel even if the realtime connection dropped.
+    if (wasChatOpen.current && !isChatOpen && companyId) {
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-operational-cadence", companyId] });
+    }
+    wasChatOpen.current = isChatOpen;
+  }, [companyId, isChatOpen, queryClient]);
+
   const waitingSince = (row: OperationalCadenceRow) => Date.parse(
     (filter !== "without_team_message" && row.unanswered && row.first_unanswered_at)
     || row.last_team_message_at || row.chat_created_at || row.first_unanswered_at || "",

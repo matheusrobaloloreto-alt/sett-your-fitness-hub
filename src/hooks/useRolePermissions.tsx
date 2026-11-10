@@ -32,13 +32,15 @@ interface UseRolePermissionsReturn {
   canAccess: (module: PermissionModule) => boolean;
   permissions: RolePermission[];
   loading: boolean;
+  lookupFailed: boolean;
 }
 
-export function useRolePermissions(): UseRolePermissionsReturn {
+export function useRolePermissions(companyScope?: string | null): UseRolePermissionsReturn {
   const { user, role, loading: authLoading } = useAuth();
   const [permissions, setPermissions] = useState<RolePermission[]>([]);
   const [userRoles, setUserRoles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lookupFailed, setLookupFailed] = useState(false);
 
   useEffect(() => {
     if (authLoading || !user) {
@@ -54,7 +56,7 @@ export function useRolePermissions(): UseRolePermissionsReturn {
 
     const loadData = async () => {
       // Fetch all roles for the current user
-      const { data: rolesData } = await supabase
+      const { data: rolesData, error: rolesError } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id);
@@ -63,11 +65,15 @@ export function useRolePermissions(): UseRolePermissionsReturn {
       setUserRoles(roles);
 
       // Fetch permissions for all relevant roles
-      const { data: permsData } = await supabase
+      const permissionsQuery = supabase
         .from("role_permissions")
         .select("role, module, enabled");
+      const { data: permsData, error: permissionsError } = await (
+        companyScope ? permissionsQuery.eq("company_id", companyScope) : permissionsQuery
+      );
 
       setPermissions((permsData as RolePermission[]) || []);
+      setLookupFailed(Boolean(rolesError || permissionsError));
       setLoading(false);
     };
 
@@ -96,7 +102,7 @@ export function useRolePermissions(): UseRolePermissionsReturn {
         supabase.removeChannel(channel);
       }
     };
-  }, [user, role, authLoading]);
+  }, [user, role, authLoading, companyScope]);
 
   const canAccess = (module: PermissionModule): boolean => {
     // Admin and master always have full access
@@ -128,7 +134,7 @@ export function useRolePermissions(): UseRolePermissionsReturn {
     return false;
   };
 
-  return { canAccess, permissions, loading };
+  return { canAccess, permissions, loading, lookupFailed };
 }
 
 // Separate hook for admin to manage all permissions for the company

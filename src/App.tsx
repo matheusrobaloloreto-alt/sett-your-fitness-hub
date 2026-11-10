@@ -15,13 +15,13 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { FeatureRoute } from "@/components/FeatureRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { RouteTransition } from "@/components/RouteTransition";
-import { AppLayout } from "@/components/AppLayout";
 import { WhatsAppChatRoute } from "@/components/WhatsAppChatRoute";
 import { StudentBnitoAssistantProvider } from "@/components/StudentBnitoAssistant";
 import { PasswordRecoveryBoundary } from "@/components/PasswordRecoveryBoundary";
 
 
 // Lazy load all pages
+const AppLayout = lazy(() => import("./components/AppLayout").then(({ AppLayout }) => ({ default: AppLayout })));
 const Auth = lazy(() => import("./pages/Auth"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
@@ -310,7 +310,7 @@ const App = () => (
           <Route path="/trainer/students/:id" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasStudents" requiredModule="students"><StudentDetail /></FeatureRoute>} />
           <Route path="/trainer/agenda" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasAgenda" requiredModule="agenda"><AdminAgenda /></FeatureRoute>} />
           <Route path="/trainer/financial" element={<Navigate to="/trainer" replace />} />
-          <Route path="/trainer/appearance" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasAppearance"><AppearanceSettings /></FeatureRoute>} />
+          <Route path="/trainer/appearance" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasAppearance" requiredModule="appearance"><AppearanceSettings /></FeatureRoute>} />
           <Route path="/trainer/exercises" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasPrescription" requiredModule="exercises"><ExerciseLibrary /></FeatureRoute>} />
           <Route path="/trainer/biblioteca-treinos" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasPrescription" requiredModule="exercises"><WorkoutLibrary /></FeatureRoute>} />
           <Route path="/trainer/biblioteca" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasPrescription" requiredModule="exercises"><Biblioteca /></FeatureRoute>} />

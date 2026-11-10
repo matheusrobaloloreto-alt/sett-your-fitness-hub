@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Json } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
@@ -25,6 +26,7 @@ interface PlatformSettings {
   logo_url: string | null;
   layout_style: string | null;
   company_id: string | null;
+  professional_appearance: Json | null;
 }
 
 function normalizePlatformSettings(data: Partial<PlatformSettings> | null): PlatformSettings | null {
@@ -39,6 +41,7 @@ function normalizePlatformSettings(data: Partial<PlatformSettings> | null): Plat
     logo_url: data.logo_url ?? null,
     layout_style: data.layout_style || DEFAULTS.layout_style,
     company_id: data.company_id ?? null,
+    professional_appearance: data.professional_appearance ?? null,
   };
 }
 
@@ -50,6 +53,7 @@ const DEFAULTS: Omit<PlatformSettings, "id" | "company_id"> = {
   platform_title: "Set Training App",
   logo_url: null,
   layout_style: "classico",
+  professional_appearance: null,
 };
 
 interface ThemeContextValue {

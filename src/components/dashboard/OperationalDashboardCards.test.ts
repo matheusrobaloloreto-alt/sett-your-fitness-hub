@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { WhatsAppChatPanelContext } from "@/components/WhatsAppChatPanelContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -6,15 +7,47 @@ import { describe, expect, it, vi } from "vitest";
 import { openStudentChat } from "@/lib/studentChat";
 import { AssessmentDashboardCard, OperationalContactCadenceCard, WorkoutFeedbackDashboardCard, hasPublishedFirstTraining, isPublishedFirstCardioPlan, useAssignedDashboardStudents } from "./OperationalDashboardCards";
 import { prescriptionDeadlineTone } from "@/pages/admin/AdminDashboard";
+import { dashboardRenewalsForPeriod } from "@/lib/dashboardRenewals";
 
-const { rpc, from, invoke } = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn(), invoke: vi.fn() }));
-vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc, from, functions: { invoke } } }));
+const { rpc, from, invoke, channel, removeChannel } = vi.hoisted(() => ({
+  rpc: vi.fn(), from: vi.fn(), invoke: vi.fn(), channel: vi.fn(), removeChannel: vi.fn(),
+}));
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: { rpc, from, channel, removeChannel, functions: { invoke } },
+}));
+const realtime = { on: vi.fn().mockReturnThis(), subscribe: vi.fn().mockReturnThis() };
+channel.mockReturnValue(realtime);
 vi.mock("@/lib/studentChat", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/studentChat")>(),
   openStudentChat: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("functional dashboard queues", () => {
+  it("shows open renewals by contract month, including late-month deadlines and the year boundary", () => {
+    const enrollment = (id: string, end_date: string | null, status = "active", student_id = id) => ({
+      id, student_id, end_date, status, created_at: "2026-12-01T12:00:00Z", trainer_id: null, students: null, plans: null,
+    });
+    const rows = [
+      enrollment("february", "2027-02-01"),
+      enrollment("end-of-month", "2027-01-31"),
+      enrollment("last-year", "2026-12-31", "awaiting_training"),
+      enrollment("today", "2027-01-10"),
+      enrollment("old", "2026-11-30", "awaiting_renewal"),
+      enrollment("overdue-this-month", "2027-01-01", "awaiting_renewal"),
+      enrollment("closed", "2026-12-12", "completed"),
+      enrollment("duplicate", "2026-12-15", "awaiting_renewal", "february"),
+      enrollment("undated", null),
+    ];
+    const results = (period: Parameters<typeof dashboardRenewalsForPeriod>[1]) =>
+      dashboardRenewalsForPeriod(rows, period, "2027-01-10").map(({ contract, daysLeft }) => [contract.id, daysLeft]);
+
+    expect(results("currentMonth")).toEqual([["overdue-this-month", -9], ["today", 0], ["end-of-month", 21]]);
+    expect(results("previousMonth")).toEqual([["last-year", -10]]);
+    expect(results("all")).toEqual([
+      ["old", -41], ["last-year", -10], ["overdue-this-month", -9], ["today", 0], ["end-of-month", 21], ["february", 22],
+    ]);
+  });
+
   it("opens the selected student's WhatsApp conversation without preparing a message", () => {
     const scope = { companyId: "company-a", actorId: "staff-a", role: "admin" };
     const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
@@ -90,6 +123,41 @@ describe("functional dashboard queues", () => {
     expect(screen.getByText("Aguardando contato")).toBeVisible();
     expect(screen.queryByText("Aguardando resposta")).toBeNull();
     expect(screen.queryByText("Relógio pausado")).toBeNull();
+  });
+
+  it("refreshes only the company's cadence after confirmation, subsequent failure or closing the chat panel", async () => {
+    const scope = { companyId: "company-a", actorId: "staff-a", role: "admin" };
+    const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
+    const otherCompany = ["dashboard-operational-cadence", "company-b", null];
+    client.setQueryData(otherCompany, []);
+    const pending = { chat_id: "waiting", student_name: "Contato", unanswered: true, without_team_message: true };
+    const range = vi.fn().mockResolvedValueOnce({ data: [pending], error: null })
+      .mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValue({ data: [pending], error: null });
+    rpc.mockReturnValue({ order: () => ({ range }) });
+    realtime.on.mockClear();
+    const view = (isChatPanelOpen: boolean) => createElement(QueryClientProvider, { client },
+      createElement(MemoryRouter, null, createElement(WhatsAppChatPanelContext.Provider, {
+        value: { isAvailable: true, isChatPanelOpen, openChatPanel: () => true, closeChatPanel: () => {} },
+      }, createElement(OperationalContactCadenceCard, { scope, routePrefix: "admin" }))));
+    const rendered = render(view(true));
+    await screen.findByText("Contato");
+    const callback = realtime.on.mock.calls.find(([, filter]) => filter.event === "UPDATE")?.[2];
+    const message = { company_id: "company-a", is_from_me: true, type: "text", sender_id: "staff-a", message_id_external: "id" };
+    callback({ new: { ...message, status: "accepted" } });
+    callback({ new: { ...message, status: "sent", company_id: "company-b" } });
+    callback({ new: { ...message, status: "sent", type: "reaction" } });
+    await new Promise(resolve => setTimeout(resolve, 400));
+    expect(range).toHaveBeenCalledTimes(1);
+    callback({ new: { ...message, status: "accepted", provider_status: "SERVER_ACK", provider_status_at: "2026-11-10T10:00:00Z" } });
+    await waitFor(() => expect(screen.queryByText("Contato")).toBeNull());
+    expect(range).toHaveBeenCalledTimes(2);
+    expect(client.getQueryState(otherCompany)?.isInvalidated).toBe(false);
+    callback({ new: { ...message, status: "failed", failed_at: "2026-11-10T10:01:00Z" } });
+    await screen.findByText("Contato");
+    expect(range).toHaveBeenCalledTimes(3);
+    rendered.rerender(view(false));
+    await waitFor(() => expect(range).toHaveBeenCalledTimes(4));
   });
 
   it("keeps a generated cardio plan in the queue until its package is published", () => {

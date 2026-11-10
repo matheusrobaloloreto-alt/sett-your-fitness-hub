@@ -13,7 +13,14 @@ type AssessmentMaterialReceiptRow = {
   recorded_by: string;
 };
 
+type PlatformSettings = GeneratedDatabase["public"]["Tables"]["platform_settings"];
+
 type PendingTables = {
+  platform_settings: Omit<PlatformSettings, "Row" | "Insert" | "Update"> & {
+    Row: PlatformSettings["Row"] & { professional_appearance: Json };
+    Insert: PlatformSettings["Insert"] & { professional_appearance?: Json };
+    Update: PlatformSettings["Update"] & { professional_appearance?: Json };
+  };
   assessment_material_receipts: {
     Row: AssessmentMaterialReceiptRow;
     Insert: never;
@@ -59,7 +66,7 @@ type PendingFunctions = {
 
 export type Database = Omit<GeneratedDatabase, "public"> & {
   public: Omit<GeneratedDatabase["public"], "Functions" | "Tables"> & {
-    Tables: GeneratedDatabase["public"]["Tables"] & PendingTables;
+    Tables: Omit<GeneratedDatabase["public"]["Tables"], keyof PendingTables> & PendingTables;
     Functions: GeneratedDatabase["public"]["Functions"] & PendingFunctions;
   };
 };

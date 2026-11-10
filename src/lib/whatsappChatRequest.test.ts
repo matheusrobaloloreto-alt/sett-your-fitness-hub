@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { studentLoginSendPayload, resolveWhatsAppChatRequest } from "./whatsappChatRequest";
+import { canPinRenewalChat, conflictsWithSavedRenewal, sameRenewalRecipient, studentLoginSendPayload, resolveWhatsAppChatRequest } from "./whatsappChatRequest";
+import type { CompanyEventDraft } from "./whatsappChatPanel";
 
 const chats = [
   { id: "chat-a", student_id: "student-a", remote_jid: "5548999990001@s.whatsapp.net" },
@@ -7,6 +8,46 @@ const chats = [
 ];
 
 describe("persistent WhatsApp chat request resolution", () => {
+  const renewal: CompanyEventDraft = { companyId: "company-a", draftId: "renewal-a", event: "renewal_due",
+    settingsVersion: 0, renewalEnrollmentId: "enrollment-a", parts: [{ id: "text-1", type: "text", text: "synthetic draft" }] };
+
+  it("matches the whole international number and checks the resolved student", () => {
+    const chat = { id: "chat-intl", student_id: "student-a", company_id: "company-a", remote_jid: "441234567890@s.whatsapp.net" };
+    const request = { companyId: "company-a", studentId: "student-a", chatId: chat.id, phone: "441234567890", eventDraft: renewal };
+    expect(resolveWhatsAppChatRequest([chat], request, "company-a").chatId).toBe(chat.id);
+    expect(() => resolveWhatsAppChatRequest([{ ...chat, student_id: "student-b" }],
+      { ...request, chatId: null }, "company-a")).toThrow("message_draft_recipient_mismatch");
+  });
+
+  it("keeps a saved renewal separate from another student, enrollment or conversation", () => {
+    const original = { studentId: "student-a", chatId: null, draft: renewal };
+    expect(conflictsWithSavedRenewal(original, { ...original, draft: { ...renewal, draftId: "retry" } })).toBe(false);
+    expect(conflictsWithSavedRenewal(original, { ...original, studentId: "student-b" })).toBe(true);
+    expect(conflictsWithSavedRenewal(original, { ...original, chatId: "changed-chat" })).toBe(true);
+    expect(conflictsWithSavedRenewal(original, { ...original, draft: { ...renewal, renewalEnrollmentId: "enrollment-b" } })).toBe(true);
+  });
+
+  it("keeps a Singapore number separate from a Brazilian alias but accepts Brazil's provider variants", () => {
+    expect(sameRenewalRecipient("6581234567", "5565981234567@s.whatsapp.net")).toBe(false);
+    expect(sameRenewalRecipient("6581234567", "6581234567@s.whatsapp.net")).toBe(true);
+    expect(sameRenewalRecipient("556581234567", "5565981234567@s.whatsapp.net")).toBe(true);
+  });
+
+  it("resumes the same renewal on a newly persisted chat only for the original student and number", () => {
+    const saved = { studentId: "student-a", chatId: null, remoteJid: "6581234567", draft: renewal };
+    const persisted = { id: "new-chat", company_id: "company-a", student_id: "student-a", remote_jid: "6581234567@s.whatsapp.net" };
+    expect(canPinRenewalChat(saved, persisted)).toBe(true);
+    for (const changed of [
+      { company_id: "other" }, { student_id: "student-b" }, { student_id: null },
+      { remote_jid: "5565981234567@s.whatsapp.net" },
+    ]) {
+      expect(canPinRenewalChat(saved, { ...persisted, ...changed })).toBe(false);
+    }
+    const attached = { ...saved, chatId: persisted.id };
+    expect(conflictsWithSavedRenewal(attached, { ...attached, draft: { ...renewal, draftId: "new-request" } })).toBe(false);
+    expect(conflictsWithSavedRenewal(attached, { ...attached, chatId: "other-same-number" })).toBe(true);
+    expect(attached.draft.draftId).toBe("renewal-a");
+  });
   it("switches an already mounted panel from one chat to another", () => {
     const first = resolveWhatsAppChatRequest(chats, { requestId: 1, chatId: "chat-a", prefillMessage: "Primeiro rascunho" });
     const second = resolveWhatsAppChatRequest(chats, { requestId: 2, chatId: "chat-b", prefillMessage: "Segundo rascunho" });

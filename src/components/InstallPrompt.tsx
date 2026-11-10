@@ -100,6 +100,7 @@ export function InstallPrompt() {
   return (
     <div
       ref={bannerRef}
+      data-sett-install-prompt
       className="fixed inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]"
       role="dialog"
       aria-label="Instalar o app"

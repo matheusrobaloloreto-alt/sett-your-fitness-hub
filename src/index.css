@@ -263,12 +263,14 @@
 }
 [data-layout="futurista"] .bg-card,
 [data-layout="futurista"] .bg-paper-warm {
-  background-color: color-mix(in srgb, hsl(var(--card)) 72%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   border: 1px solid color-mix(in srgb, hsl(var(--primary)) 32%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, hsl(var(--primary)) 10%, transparent),
               0 12px 40px -14px color-mix(in srgb, hsl(var(--primary)) 45%, transparent);
+}
+[data-layout="futurista"] :is(.bg-card, .bg-paper-warm):where(:not(.sett-effects *)) {
+  background-color: color-mix(in srgb, hsl(var(--card)) 72%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 [data-layout="futurista"] .bg-primary,
 [data-layout="futurista"] .bg-navy {
