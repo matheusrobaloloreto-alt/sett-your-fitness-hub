@@ -310,6 +310,64 @@ test("a fresh browser resumes the prior-day session with its own persisted sets"
   }
 });
 
+test("a legacy local session resumes, saves and finishes its original 18 sets", async ({ page, baseURL }) => {
+  const fixture = createLinenPortalFixture("published", { priorDayActive: true, priorDayExerciseCount: 6 });
+  await fixture.install(page.context(), new URL(baseURL!).origin);
+  await openPortal(page);
+
+  const activeKey = `sett_active_session_${studentId}`;
+  await page.evaluate(({ activeKey, sessionId, workoutId, companyId, priorSessionDate }) => {
+    localStorage.setItem(activeKey, JSON.stringify({
+      id: sessionId, workoutId, companyId,
+      startedAt: Date.parse(`${priorSessionDate}T15:00:00Z`), elapsedSeconds: 0,
+    }));
+  }, { activeKey, sessionId, workoutId, companyId, priorSessionDate });
+  const recoveryRead = page.waitForRequest(request => {
+    const url = new URL(request.url());
+    return request.method() === "GET" && url.pathname.endsWith("/workout_sessions")
+      && url.searchParams.get("id") === `eq.${sessionId}`
+      && url.searchParams.get("student_id") === `eq.${studentId}`
+      && url.searchParams.get("company_id") === `eq.${companyId}`
+      && url.searchParams.get("workout_id") === `eq.${workoutId}`
+      && url.searchParams.get("select")?.split(",").includes("session_date") === true;
+  });
+  await page.reload();
+  await recoveryRead;
+  await tab(page, "Treino").click();
+
+  const finish = page.getByRole("button", { name: "Finalizar Treino", exact: true });
+  await expect(finish).toBeVisible();
+  await expect(page.getByText("Sessão antiga em revisão")).toHaveCount(0);
+  await expect(page.getByText("18/18", { exact: true })).toBeVisible();
+  const sessionDate = await page.evaluate(key => JSON.parse(localStorage.getItem(key)!).sessionDate, activeKey);
+  expect(sessionDate).toBe(priorSessionDate);
+
+  const before = new Map(fixture.state.logs);
+  const originalKey = `${workoutId}:${priorSessionDate}:0:1`;
+  await page.getByText("Agachamento de teste", { exact: true }).click();
+  const weight = page.getByRole("spinbutton").first();
+  await expect(weight).toHaveValue("24");
+  await weight.fill("26");
+  await page.getByRole("button", { name: "Salvar", exact: true }).click();
+  await expect.poll(() => fixture.state.logs.get(originalKey)?.weight).toBe(26);
+
+  await finish.click();
+  await expect(page.getByRole("dialog", { name: "Como foi o treino?" })).toBeVisible();
+  expect(fixture.state.starts).toEqual([]);
+  expect(fixture.state.completions).toHaveLength(1);
+  expect(fixture.state.session).toMatchObject({
+    id: sessionId, workout_id: workoutId, session_date: priorSessionDate, status: "completed",
+    total_sets_completed: 18, total_sets_prescribed: 18, total_volume: 4340,
+  });
+  expect(fixture.state.logs.size).toBe(before.size);
+  for (const [key, row] of before) {
+    expect(fixture.state.logs.get(key)).toMatchObject(key === originalKey
+      ? { id: row.id, weight: 26, completed: true }
+      : row);
+  }
+  expect(fixture.state.unexpectedRequests).toEqual([]);
+});
+
 for (const history of ["current", "renewal"] as const) {
   test(`calendar opens the exact previous cycle read-only and leaves current A executable (${history})`, async ({ page, baseURL }) => {
     const fixture = createLinenPortalFixture("published", { history });

@@ -49,7 +49,7 @@ vi.mock("@/integrations/supabase/client", () => ({
             };
             return query;
           }
-          if (columns !== "id,status") return confirmationQuery;
+          if (columns !== "id,status,session_date") return confirmationQuery;
           const query = { eq: () => query, maybeSingle: async () => mocks.reconciliationRead() };
           return query;
         },
@@ -93,6 +93,84 @@ describe("useWorkoutSession", () => {
     workout_id: "workout-remote", status: "in_progress",
     started_at: "2026-11-08T23:55:00.000Z", session_date: "2026-11-08",
   };
+
+  it("recovers the original date of a legacy session once the device reconnects", async () => {
+    const saved = {
+      id: remoteRow.id, workoutId: remoteRow.workout_id, companyId: remoteRow.company_id,
+      startedAt: Date.parse(remoteRow.started_at), elapsedSeconds: 0,
+    };
+    localStorage.setItem(activeKey, JSON.stringify(saved));
+    mocks.reconciliationRead.mockReturnValue({ data: null, error: new Error("offline") });
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+
+    await waitFor(() => expect(mocks.reconciliationRead).toHaveBeenCalled());
+    expect(result.current.activeSession).toEqual(saved);
+    mocks.reconciliationRead.mockReturnValue({ data: remoteRow, error: null });
+    window.dispatchEvent(new Event("online"));
+
+    const recovered = { ...saved, sessionDate: remoteRow.session_date };
+    await waitFor(() => expect(result.current.activeSession).toEqual(recovered));
+    expect(JSON.parse(localStorage.getItem(activeKey)!)).toEqual(recovered);
+    expect(result.current.isRemoteSession).toBe(false);
+    expect(mocks.startRpc).not.toHaveBeenCalled();
+    expect(mocks.updateFilters).toEqual([]);
+  });
+
+  it("recovers the confirmed date even when the device cannot update its cache", async () => {
+    const saved = {
+      id: remoteRow.id, workoutId: remoteRow.workout_id, companyId: remoteRow.company_id,
+      startedAt: Date.parse(remoteRow.started_at), elapsedSeconds: 0,
+    };
+    localStorage.setItem(activeKey, JSON.stringify(saved));
+    vi.spyOn(localStorage, "setItem").mockImplementationOnce(() => {
+      throw new DOMException("Storage full", "QuotaExceededError");
+    });
+    mocks.reconciliationRead.mockReturnValue({ data: remoteRow, error: null });
+
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+
+    await waitFor(() => expect(result.current.activeSession?.sessionDate).toBe(remoteRow.session_date));
+    expect(JSON.parse(localStorage.getItem(activeKey)!)).toEqual(saved);
+    expect(mocks.updateFilters).toEqual([]);
+  });
+
+  it.each([
+    { id: "another-session", session_date: remoteRow.session_date },
+    { id: remoteRow.id, session_date: "2026-11-31" },
+  ])("does not restore an unrelated or invalid session date from %j", async (override) => {
+    const stored = JSON.stringify({
+      id: remoteRow.id, workoutId: remoteRow.workout_id, companyId: remoteRow.company_id,
+      startedAt: Date.parse(remoteRow.started_at), elapsedSeconds: 0,
+    });
+    localStorage.setItem(activeKey, stored);
+    mocks.reconciliationRead.mockReturnValue({ data: { ...remoteRow, ...override }, error: null });
+
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+
+    await act(async () => {});
+    expect(mocks.reconciliationRead).toHaveBeenCalled();
+    expect(result.current.activeSession?.sessionDate).toBeUndefined();
+    expect(localStorage.getItem(activeKey)).toBe(stored);
+  });
+
+  it("does not overwrite a different stored session when a legacy lookup arrives late", async () => {
+    const saved = {
+      id: remoteRow.id, workoutId: remoteRow.workout_id, companyId: remoteRow.company_id,
+      startedAt: Date.parse(remoteRow.started_at), elapsedSeconds: 0,
+    };
+    localStorage.setItem(activeKey, JSON.stringify(saved));
+    let resolveRead!: (result: { data: typeof remoteRow; error: null }) => void;
+    mocks.reconciliationRead.mockReturnValue(new Promise(resolve => { resolveRead = resolve; }));
+    const { result } = renderHook(() => useWorkoutSession("student-1", "company-1", discoverOptions));
+    await waitFor(() => expect(mocks.reconciliationRead).toHaveBeenCalled());
+
+    const other = JSON.stringify({ ...saved, id: "another-session" });
+    localStorage.setItem(activeKey, other);
+    await act(async () => { resolveRead({ data: remoteRow, error: null }); });
+
+    expect(localStorage.getItem(activeKey)).toBe(other);
+    expect(result.current.activeSession).toEqual(saved);
+  });
 
   it("discovers a scoped active session on a fresh device without starting it", async () => {
     const pending = JSON.stringify({ requestId: "uncertain-request", workoutId: "workout-remote" });

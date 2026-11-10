@@ -32,7 +32,7 @@ export type PortalScenario = "published" | "no-plan" | "inactive";
 
 export function createLinenPortalFixture(
   scenario: PortalScenario,
-  options: { twoWorkouts?: boolean; nutritionOutage?: boolean; history?: "current" | "renewal"; priorDayActive?: boolean } = {},
+  options: { twoWorkouts?: boolean; nutritionOutage?: boolean; history?: "current" | "renewal"; priorDayActive?: boolean; priorDayExerciseCount?: number } = {},
 ) {
   const state = {
     session: null as Row | null,
@@ -74,6 +74,13 @@ export function createLinenPortalFixture(
       ],
     }],
   };
+  if (options.priorDayExerciseCount) {
+    const exercise = workout.exercises[0];
+    workout.exercises = Array.from({ length: options.priorDayExerciseCount }, (_, index) => ({
+      ...exercise, exercise_name: index === 0 ? exercise.exercise_name : `Exercício de teste ${index + 1}`,
+      sets: "3", weekly_prescription: [],
+    }));
+  }
   const priorEnrollment = { ...enrollment, id: priorEnrollmentId, status: "completed",
     start_date: "2026-09-28", training_start_date: "2026-09-28", end_date: "2026-11-08",
     created_at: "2026-09-28T15:00:00Z" };
@@ -97,15 +104,21 @@ export function createLinenPortalFixture(
     target_water_ml: 2000, meals: [{ meal: "Café da manhã", eat: ["Iogurte com banana"] }] };
   const hasPlan = scenario !== "no-plan";
   const logKey = (row: Row) => `${row.workout_id}:${row.session_date}:${row.exercise_index}:${row.set_number}`;
-  const seedSet = (date: string, weight: number, id = workoutId) => {
-    const row = { id: crypto.randomUUID(), student_id: studentId, workout_id: id,
-      exercise_index: 0, set_number: 1, weight, reps_done: 10, completed: true, session_date: date, revision: 1 };
+  const seedSet = (date: string, weight: number, exerciseIndex = 0, setNumber = 1) => {
+    const row = { id: crypto.randomUUID(), student_id: studentId, workout_id: workoutId,
+      exercise_index: exerciseIndex, set_number: setNumber, weight, reps_done: 10, completed: true, session_date: date, revision: 1 };
     state.logs.set(logKey(row), row);
   };
   if (options.priorDayActive) {
     state.session = { id: sessionId, student_id: studentId, company_id: companyId, workout_id: workoutId,
       started_at: `${priorSessionDate}T15:00:00Z`, completed_at: null, session_date: priorSessionDate, status: "in_progress" };
-    seedSet(priorSessionDate, 24);
+    if (options.priorDayExerciseCount) {
+      workout.exercises.forEach((_, exerciseIndex) => {
+        for (const setNumber of [1, 2, 3]) seedSet(priorSessionDate, 24, exerciseIndex, setNumber);
+      });
+    } else {
+      seedSet(priorSessionDate, 24);
+    }
     seedSet(fixtureTime.slice(0, 10), 99);
   }
 

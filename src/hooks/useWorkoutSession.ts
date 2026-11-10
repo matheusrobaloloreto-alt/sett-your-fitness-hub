@@ -192,11 +192,30 @@ export function useWorkoutSession(
         && (version !== discoveryVersion.current || operationRef.current || activeRef.current?.id !== id));
       if (stale()) return;
       try {
-        const { data, error } = await supabase.from("workout_sessions").select("id,status")
+        const key = STORAGE_KEY(studentId);
+        const stored = !activeSession.sessionDate ? localStorage.getItem(key) : null;
+        const { data, error } = await supabase.from("workout_sessions").select("id,status,session_date")
           .eq("id", id).eq("student_id", studentId).eq("company_id", companyId)
           .eq("workout_id", workoutId).maybeSingle();
-        if (stale() || error || data?.id !== id
-          || !["completed", "abandoned", "reconciled"].includes(data.status ?? "")) return;
+        if (stale() || error || data?.id !== id) return;
+
+        if (data.status === "in_progress" && !activeSession.sessionDate) {
+          const sessionDate = readSessionDate(data.session_date);
+          if (!sessionDate || activeRef.current !== activeSession || operationRef.current
+            || version !== discoveryVersion.current || !stored || localStorage.getItem(key) !== stored
+            || JSON.parse(stored).id !== id) return;
+
+          // Recover the original session before selecting the date-scoped series.
+          const restored = { ...activeSession, companyId, sessionDate };
+          try {
+            localStorage.setItem(key, JSON.stringify(restored));
+          } catch { /* A cache write failure must not block the confirmed recovery. */ }
+          activeRef.current = restored;
+          setActiveSession(restored);
+          return;
+        }
+
+        if (!["completed", "abandoned", "reconciled"].includes(data.status ?? "")) return;
         const pendingKey = `sett_session_start_${companyId}_${studentId}`;
         const storedPending = localStorage.getItem(pendingKey);
         const pending = storedPending ? JSON.parse(storedPending) : null;
@@ -230,10 +249,12 @@ export function useWorkoutSession(
     };
     void reconcileSession();
     window.addEventListener("focus", reconcileSession);
+    if (activeSession && !activeSession.sessionDate) window.addEventListener("online", reconcileVisibleSession);
     if (discoverRemote) document.addEventListener("visibilitychange", reconcileVisibleSession);
     return () => {
       cancelled = true;
       window.removeEventListener("focus", reconcileSession);
+      window.removeEventListener("online", reconcileVisibleSession);
       if (discoverRemote) document.removeEventListener("visibilitychange", reconcileVisibleSession);
     };
   }, [activeSession, companyId, context, studentId, discoverRemote, discoverActiveSession]);
