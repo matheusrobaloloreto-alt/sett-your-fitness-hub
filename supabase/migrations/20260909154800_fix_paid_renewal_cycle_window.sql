@@ -232,4 +232,3 @@ comment on function public.apply_paid_payment_lifecycle(uuid, uuid, uuid, text, 
   'Applies a paid lifecycle exactly once; renewals start after the financial term and ignore stale historical cycle tails.';
 
 commit;
-

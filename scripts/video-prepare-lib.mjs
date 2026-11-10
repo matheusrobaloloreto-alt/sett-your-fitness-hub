@@ -225,4 +225,3 @@ export function manifestToCsv(manifest) {
   }
   return rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
 }
-

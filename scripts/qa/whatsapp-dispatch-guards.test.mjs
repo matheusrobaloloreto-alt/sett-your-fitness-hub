@@ -138,6 +138,7 @@ test("synthetic weekly dispatch and cadence migrations on isolated PostgreSQL", 
   await db.exec(cadenceMigration.replace(/commit;\s*$/i, "rollback;"));
   assert.equal(await scalar("select to_regprocedure('operational_contact_cadence_status(uuid, uuid[])') result"), null);
   await db.exec(cadenceMigration);
+  await db.exec(migration("20261110120000_index_contact_cadence_message_lookup"));
   await db.exec(`
     select set_config('sett.test_actor', '${actor}', false);
     insert into auth.users values ('${actor}'), ('${trainerActor}'), ('${studentActor}');
