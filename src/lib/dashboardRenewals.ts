@@ -38,10 +38,10 @@ function isRenewalRow(value: unknown): value is DashboardRenewalRow {
 }
 
 export function readDashboardRenewalQueue(snapshot: CompanyDashboardSnapshot): DashboardRenewalRow[] | null {
-  const rows = snapshot.expiringContracts;
+  const rows = snapshot.dashboardRenewalContracts;
   // The marker distinguishes a legitimately empty result from an empty legacy
   // notice window. Reject a mixed result as a whole to avoid picking a loser.
-  return snapshot.renewalQueueVersion === 1 && Array.isArray(rows) && rows.every(isRenewalRow) ? rows : null;
+  return snapshot.renewalQueueVersion === 2 && Array.isArray(rows) && rows.every(isRenewalRow) ? rows : null;
 }
 
 export function dashboardRenewalsForPeriod(

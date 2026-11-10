@@ -42,6 +42,7 @@ export interface CompanyDashboardSnapshot {
   stats: { totalStudents: number; interestedStudents: number; pendingStudents: number; awaitingRenewalStudents: number; inactiveStudents: number; trainers: number };
   planChart: Array<{ name: string; count: number }>;
   renewalQueueVersion?: unknown;
+  dashboardRenewalContracts?: unknown;
   expiringContracts?: unknown;
   cycleCountdowns: DashboardCycleCountdown[];
   trainerMap: Record<string, string>;

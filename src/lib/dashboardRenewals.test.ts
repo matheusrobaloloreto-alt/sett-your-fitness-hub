@@ -57,9 +57,10 @@ describe("dashboard renewal snapshot compatibility", () => {
   it.each([
     {},
     { expiringContracts: [] },
+    { renewalQueueVersion: 1, expiringContracts: [contract()] },
     { expiringContracts: [{ id: idLow }] },
-    { renewalQueueVersion: 1, expiringContracts: [contract(), { id: idHigh }] },
-    { renewalQueueVersion: 1, expiringContracts: [contract({ created_at: "2026-11-10" })] },
+    { renewalQueueVersion: 2, dashboardRenewalContracts: [contract(), { id: idHigh }] },
+    { renewalQueueVersion: 2, dashboardRenewalContracts: [contract({ created_at: "2026-11-10" })] },
   ])("flags old or mixed renewal data without rejecting other sections (%j)", queue => {
     const parsed = parseCompanyDashboardSnapshot({ ...snapshot, ...queue }, companyId);
     expect(readDashboardRenewalQueue(parsed)).toBeNull();
@@ -69,7 +70,7 @@ describe("dashboard renewal snapshot compatibility", () => {
   });
 
   it.each([{ rows: [] }, { rows: [contract()] }])("accepts a confirmed complete queue (%j)", ({ rows }) => {
-    const parsed = parseCompanyDashboardSnapshot({ ...snapshot, renewalQueueVersion: 1, expiringContracts: rows }, companyId);
+    const parsed = parseCompanyDashboardSnapshot({ ...snapshot, renewalQueueVersion: 2, dashboardRenewalContracts: rows, expiringContracts: [] }, companyId);
     expect(readDashboardRenewalQueue(parsed)).toEqual(rows);
   });
 });
