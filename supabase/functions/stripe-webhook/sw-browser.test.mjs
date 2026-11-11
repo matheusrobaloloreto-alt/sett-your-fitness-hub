@@ -5,9 +5,11 @@ import { readFileSync } from "node:fs";
 import { chromium } from "playwright";
 const shell =
   '<!doctype html><title>Set Training App</title><div id="root"></div><script type="module" src="/assets/index-synthetic123.js"></script>';
-test("Chromium: production SW preserves healthy shell across 503/offline and activation", async () => {
+test("Chromium: SW retries a truncated 200 module and preserves healthy shell across 503/offline", async () => {
   let failure = false;
-  const sw = readFileSync(new URL("../../../public/sw.js", import.meta.url));
+  let moduleRequests = 0;
+  const sw = readFileSync(new URL("../../../public/sw.js", import.meta.url), "utf8");
+  const cacheName = sw.match(/const CACHE = "([^"]+)"/)[1];
   const server = createServer((req, res) => {
     if (req.url === "/sw.js") {
       res.writeHead(200, {
@@ -15,6 +17,17 @@ test("Chromium: production SW preserves healthy shell across 503/offline and act
         "cache-control": "no-store",
       });
       res.end(sw);
+    } else if (req.url === "/assets/retry-synthetic123.js") {
+      moduleRequests++;
+      if (moduleRequests === 1) {
+        res.writeHead(200, { "content-type": "application/javascript", "content-length": "12000" });
+        res.flushHeaders();
+        res.write("export default ");
+        setTimeout(() => res.destroy(), 30);
+      } else {
+        res.writeHead(200, { "content-type": "application/javascript" });
+        res.end("export default 'recovered after body failure'");
+      }
     } else if (req.url === "/assets/index-synthetic123.js") {
       res.writeHead(200, { "content-type": "application/javascript" });
       res.end("window.syntheticShell=true");
@@ -49,6 +62,16 @@ test("Chromium: production SW preserves healthy shell across 503/offline and act
     });
     await page.reload();
     assert.equal(await page.title(), "Set Training App");
+    assert.equal(await page.evaluate(async () => {
+      const module = await import("/assets/retry-synthetic123.js");
+      return module.default;
+    }), "recovered after body failure");
+    assert.equal(moduleRequests, 2);
+    await page.waitForFunction(async (name) =>
+      Boolean(await (await caches.open(name)).match("/assets/retry-synthetic123.js")), cacheName);
+    assert.equal(await page.evaluate(async () =>
+      (await fetch("/assets/retry-synthetic123.js")).text()), "export default 'recovered after body failure'");
+    assert.equal(moduleRequests, 2);
     failure = true;
     await page.reload();
     assert.equal(await page.title(), "Set Training App");
@@ -56,13 +79,13 @@ test("Chromium: production SW preserves healthy shell across 503/offline and act
     await page.reload();
     assert.equal(await page.title(), "Set Training App");
     assert.equal(await page.evaluate(() => window.syntheticShell), true);
-    const status = await page.evaluate(async () => {
+    const status = await page.evaluate(async (name) => {
       const names = await caches.keys();
-      const cache = await caches.open("sett-cache-v14");
+      const cache = await caches.open(name);
       return { names, status: (await cache.match("/"))?.status };
-    });
+    }, cacheName);
     assert.equal(status.status, 200);
-    assert.ok(status.names.includes("sett-cache-v14"));
+    assert.ok(status.names.includes(cacheName));
   } finally {
     if (browser) await browser.close();
     await new Promise((resolve) => server.close(resolve));

@@ -13,6 +13,7 @@ import {
   type WhatsAppChatPanelRequest,
 } from "@/lib/whatsappChatPanel";
 import { WhatsAppChatPanelContext } from "@/components/WhatsAppChatPanelContext";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const WhatsAppChat = lazy(() => import("@/pages/admin/WhatsAppChat"));
 
@@ -121,9 +122,11 @@ export function WhatsAppChatPanelProvider({ children, mobileDock = false }: { ch
               </SheetHeader>
               {validationBlocked && <div role="status">{features.error || "Validando acesso…"}{features.error && <Button onClick={features.retry}>Tentar novamente</Button>}</div>}
               <fieldset {...(validationBlocked ? { inert: "" } : {})} disabled={validationBlocked} className="contents" aria-busy={validationBlocked}>
-              <Suspense fallback={<div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Carregando conversas…</div>}>
-                <WhatsAppChat embedded navigationState={request} />
-              </Suspense>
+              <ErrorBoundary scope="section" resetKey={request.requestId}>
+                <Suspense fallback={<div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Carregando conversas…</div>}>
+                  <WhatsAppChat embedded navigationState={request} />
+                </Suspense>
+              </ErrorBoundary>
               </fieldset>
             </SheetContent>
           </Sheet>

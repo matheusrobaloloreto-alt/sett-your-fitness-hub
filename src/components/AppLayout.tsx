@@ -16,6 +16,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { appearanceEffectStyles, normalizeProfessionalAppearance } from "@/lib/professionalAppearance";
 import "./professional-linen.css";
 import { WhatsAppChatPanelProvider } from "@/components/WhatsAppChatPanel";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const PanelHeader = lazy(() => import("./PanelHeader"));
 
@@ -78,20 +79,24 @@ function AppLayoutContent() {
         <BnitoAssistantProvider>
           <AppSidebar linen={linen} />
           <main className="flex-1 flex flex-col min-w-0">
-            <Suspense fallback={<div aria-hidden="true" className="h-14 shrink-0" />}>
-              <PanelHeader key={`${effectiveCompanyId}:${user?.id}:${role}`}
-                effectiveCompanyId={effectiveCompanyId} linen={linen} assistantName={assistantName}
-                isWorkoutBuilder={isWorkoutBuilder} />
-            </Suspense>
+            <ErrorBoundary scope="section">
+              <Suspense fallback={<div aria-hidden="true" className="h-14 shrink-0" />}>
+                <PanelHeader key={`${effectiveCompanyId}:${user?.id}:${role}`}
+                  effectiveCompanyId={effectiveCompanyId} linen={linen} assistantName={assistantName}
+                  isWorkoutBuilder={isWorkoutBuilder} />
+              </Suspense>
+            </ErrorBoundary>
             <div className={`min-w-0 flex-1 ${noPadding ? "" : "p-3 pb-24 sm:p-6 sm:pb-24 md:p-8"} ${linen ? "sett-linen-content" : ""}`}>
               {isProfessional && isDashboard && !noPadding && (
                 <PlatformAdSlot audience="professional" placement="dashboard_banner" companyId={effectiveCompanyId} className="mb-6" />
               )}
-              <Suspense fallback={<ContentLoader />}>
-                <RouteTransition spring={linen}>
-                  <Outlet />
-                </RouteTransition>
-              </Suspense>
+              <ErrorBoundary scope="section" resetKey={`${location.pathname}${location.search}`}>
+                <Suspense fallback={<ContentLoader />}>
+                  <RouteTransition spring={linen}>
+                    <Outlet />
+                  </RouteTransition>
+                </Suspense>
+              </ErrorBoundary>
               {isProfessional && !noPadding && (
                 <PlatformAdSlot audience="professional" placement="footer" companyId={effectiveCompanyId} className="mt-8" />
               )}

@@ -5,7 +5,7 @@
 //   - Assets do Vite (JS/CSS com hash no nome) → cache-first: o nome muda a cada build, então o
 //     cache NUNCA serve algo desatualizado; ganhamos velocidade e offline.
 // Bump CACHE a cada mudança estrutural; manter gerações antigas para fallback seguro.
-const CACHE = "sett-cache-v18";
+const CACHE = "sett-cache-v19";
 // A shell replacement is a single Cache.put; failed writes preserve the previous entry.
 // Serialize commits so a slower, older request cannot overwrite a newer healthy response.
 let shellRequest = 0;
@@ -27,12 +27,48 @@ async function healthyShell(response) {
 }
 
 async function lastHealthyShell() {
-  const keys = await caches.keys();
+  let keys = [];
+  try { keys = await caches.keys(); } catch { /* current cache may still be readable */ }
   const candidates = [CACHE, ...keys.filter(k => k !== CACHE && /^sett-cache-v\d+$/.test(k)).reverse()];
   for (const key of candidates) {
-    const cached = await (await caches.open(key)).match("/");
-    if (await healthyShell(cached)) return cached;
+    try {
+      const cached = await (await caches.open(key)).match("/");
+      if (await healthyShell(cached)) return cached;
+    } catch { /* a broken cache must not hide a healthy older shell */ }
   }
+  return null;
+}
+
+function publicAssetResponse(response, pathname) {
+  if (!response || response.status !== 200 || response.redirected ||
+      !["basic", "default"].includes(response.type) ||
+      /(?:private|no-store)/i.test(response.headers.get("cache-control") || "") ||
+      /(?:cookie|authorization|\*)/i.test(response.headers.get("vary") || "") ||
+      response.headers.has("set-cookie")) return false;
+  const mime = (response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
+  const types = {
+    js: /^(?:text|application)\/(?:javascript|ecmascript)$/,
+    css: /^text\/css$/,
+    png: /^image\/png$/,
+    jpg: /^image\/jpeg$/,
+    jpeg: /^image\/jpeg$/,
+    webp: /^image\/webp$/,
+    svg: /^image\/svg\+xml$/,
+    woff: /^(?:font\/woff|application\/(?:font-woff|x-font-woff))$/,
+    woff2: /^font\/woff2$/,
+    webmanifest: /^application\/(?:manifest\+json|json)$/,
+  };
+  return types[pathname.split(".").pop()]?.test(mime) || false;
+}
+
+async function cachedAsset(cacheName, request, pathname) {
+  try {
+    const cached = await (await caches.open(cacheName)).match(request);
+    if (publicAssetResponse(cached, pathname)) {
+      await cached.clone().arrayBuffer();
+      return cached;
+    }
+  } catch { /* cache reads and stored bodies are optional */ }
   return null;
 }
 
@@ -116,29 +152,38 @@ self.addEventListener("fetch", (event) => {
   // Assets hasheados de build → cache-first (seguros porque o nome muda por build).
   event.respondWith(
     (async () => {
-      const cache = await caches.open(CACHE);
-      let cached = await cache.match(req);
+      let cached = await cachedAsset(CACHE, req, url.pathname);
       if (!cached && isHashedBuildAsset) {
         // A valid older HTML shell references its own immutable asset generation.
-        for (const key of (await caches.keys()).filter(k => k !== CACHE && /^sett-cache-v\d+$/.test(k)).reverse()) {
-          cached = await (await caches.open(key)).match(req);
+        let keys = [];
+        try { keys = await caches.keys(); } catch { /* continue to the network */ }
+        for (const key of keys.filter(k => k !== CACHE && /^sett-cache-v\d+$/.test(k)).reverse()) {
+          cached = await cachedAsset(key, req, url.pathname);
           if (cached) break;
         }
       }
       if (cached) return cached;
-      try {
-        const fresh = await fetch(req);
-        if (fresh && fresh.status === 200 && fresh.type === "basic" &&
-            !/(?:private|no-store)/i.test(fresh.headers.get("cache-control") || "") &&
-            !/text\/html/i.test(fresh.headers.get("content-type") || "") &&
-            !/(?:cookie|authorization|\*)/i.test(fresh.headers.get("vary") || "") &&
-            !fresh.headers.has("set-cookie")) {
-          cache.put(req, fresh.clone()).catch(() => {});
+      const attempts = isHashedBuildAsset ? 2 : 1;
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        let fresh;
+        try {
+          fresh = await fetch(req, attempt === 0 ? undefined : { cache: "reload" });
+          // Fetch resolves at headers. Verify the whole 200 body before exposing it
+          // to the browser or cache, so a broken stream can use the bounded retry.
+          if (fresh.status === 200) await fresh.clone().arrayBuffer();
+        } catch { continue; /* only public hashed assets get one transport/body retry */ }
+        if (publicAssetResponse(fresh, url.pathname)) {
+          const snapshot = fresh.clone();
+          try {
+            event.waitUntil((async () => {
+              try { await (await caches.open(CACHE)).put(req, snapshot); }
+              catch { /* a cache write must not fail a valid network response */ }
+            })());
+          } catch { /* cache lifetime tracking must not trigger a network retry */ }
         }
         return fresh;
-      } catch {
-        return cached || Response.error();
       }
+      return Response.error();
     })(),
   );
 });
